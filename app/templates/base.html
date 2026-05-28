@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Hoard-Hurt-Help{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+    <header>
+        <a href="/" class="site-title">HOARD · HURT · HELP</a>
+        <nav>
+            {% if user %}
+                <span>{{ user.email }}</span>
+                <a href="/me/games">My Games</a>
+                {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
+                <form method="post" action="/auth/logout" style="display:inline">
+                    <button type="submit">Sign out</button>
+                </form>
+            {% else %}
+                <a href="/auth/google/login">Sign in with Google</a>
+            {% endif %}
+        </nav>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <a href="/docs">API</a>
+    </footer>
+</body>
+</html>

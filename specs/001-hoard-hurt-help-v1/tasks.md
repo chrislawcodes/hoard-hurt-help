@@ -38,60 +38,60 @@
 
 ### ORM models
 
-- [ ] T012 [P: app/models/__init__.py] Empty models package.
-- [ ] T013 [P: app/models/base.py] `Base = DeclarativeBase` with naming convention from data-model.md.
-- [ ] T014 [P: app/models/user.py] `User` ORM model per data-model.md §users.
-- [ ] T015 [P: app/models/game.py] `Game` ORM model + `GameState` enum per data-model.md §games.
-- [ ] T016 [P: app/models/player.py] `Player` ORM model per data-model.md §players.
-- [ ] T017 [P: app/models/strategy_prompt.py] `StrategyPrompt` ORM model per data-model.md §strategy_prompts.
-- [ ] T018 [P: app/models/turn.py] `Turn` + `TurnSubmission` ORM models per data-model.md §turns and §turn_submissions.
+- [X] T012 [P: app/models/__init__.py] Empty models package.
+- [X] T013 [P: app/models/base.py] `Base = DeclarativeBase` with naming convention from data-model.md.
+- [X] T014 [P: app/models/user.py] `User` ORM model per data-model.md §users.
+- [X] T015 [P: app/models/game.py] `Game` ORM model + `GameState` enum per data-model.md §games.
+- [X] T016 [P: app/models/player.py] `Player` ORM model per data-model.md §players.
+- [X] T017 [P: app/models/strategy_prompt.py] `StrategyPrompt` ORM model per data-model.md §strategy_prompts.
+- [X] T018 [P: app/models/turn.py] `Turn` + `TurnSubmission` ORM models per data-model.md §turns and §turn_submissions.
 
 ### Migration
 
-- [ ] T019 [P: migrations/env.py] Wire Alembic to read `DATABASE_URL` from `app.config.settings` and discover models from `app.models`.
-- [ ] T020 Create initial migration `migrations/versions/0001_initial.py` containing all six tables, constraints, indexes per data-model.md.
-- [ ] T021 Run `alembic upgrade head` against local SQLite and verify all six tables exist.
+- [X] T019 [P: migrations/env.py] Wire Alembic to read `DATABASE_URL` from `app.config.settings` and discover models from `app.models`.
+- [X] T020 Create initial migration `migrations/versions/0001_initial.py` containing all six tables, constraints, indexes per data-model.md.
+- [X] T021 Run `alembic upgrade head` against local SQLite and verify all six tables exist.
 
 ### Pydantic schemas
 
-- [ ] T022 [P: app/schemas/__init__.py] Empty schemas package.
-- [ ] T023 [P: app/schemas/agent.py] Pydantic models for join, poll responses (waiting / your_turn / submitted / game_over), submit body + response, leave response. Match shapes in contracts/api.yaml.
-- [ ] T024 [P: app/schemas/admin.py] Pydantic models for create-game request, export schemas.
-- [ ] T025 [P: app/schemas/auth.py] OAuth callback shapes (Google `userinfo` payload).
-- [ ] T026 [P: app/schemas/spectator.py] Public game-state schema (excludes strategy prompts).
+- [X] T022 [P: app/schemas/__init__.py] Empty schemas package.
+- [X] T023 [P: app/schemas/agent.py] Pydantic models for join, poll responses (waiting / your_turn / submitted / game_over), submit body + response, leave response. Match shapes in contracts/api.yaml.
+- [X] T024 [P: app/schemas/admin.py] Pydantic models for create-game request, export schemas.
+- [X] T025 [P: app/schemas/auth.py] OAuth callback shapes (Google `userinfo` payload).
+- [X] T026 [P: app/schemas/spectator.py] Public game-state schema (excludes strategy prompts).
 
 ### Engine constants + utilities
 
-- [ ] T027 [P: app/engine/__init__.py] Empty engine package.
-- [ ] T028 [P: app/engine/rules.py] Constants: `RULES_TEXT_V1` (verbatim from spec.md §3) and `DEFAULT_STRATEGY_PROMPT` (verbatim from plan.md Architecture Decision 7).
-- [ ] T029 [P: app/engine/tokens.py] `generate_agent_key()` returning `sk_game_<48-hex>`, `hash_agent_key()` using argon2, `verify_agent_key()`. Plus `generate_turn_token()` returning `tk_<24-hex>`.
-- [ ] T030 [P: app/engine/state_machine.py] Pure function `allowed_transitions(from_state) -> set[GameState]` and `guard(from, to, game)` that enforces the rules in plan.md.
+- [X] T027 [P: app/engine/__init__.py] Empty engine package.
+- [X] T028 [P: app/engine/rules.py] Constants: `RULES_TEXT_V1` (verbatim from spec.md §3) and `DEFAULT_STRATEGY_PROMPT` (verbatim from plan.md Architecture Decision 7).
+- [X] T029 [P: app/engine/tokens.py] `generate_agent_key()` returning `sk_game_<48-hex>`, `hash_agent_key()` using argon2, `verify_agent_key()`. Plus `generate_turn_token()` returning `tk_<24-hex>`.
+- [X] T030 [P: app/engine/state_machine.py] Pure function `allowed_transitions(from_state) -> set[GameState]` and `guard(from, to, game)` that enforces the rules in plan.md.
 
 ### Auth scaffolding
 
-- [ ] T031 [P: app/auth/__init__.py] Empty auth package.
-- [ ] T032 [P: app/auth/google.py] Authlib OAuth client configured with Google OIDC endpoints and scopes `openid email profile`.
-- [ ] T033 [P: app/auth/session.py] Helper: `get_user_from_session(request, db) -> User | None` and `require_user` FastAPI dependency that 302-redirects to `/auth/google/login?next=…` if not signed in.
+- [X] T031 [P: app/auth/__init__.py] Empty auth package.
+- [X] T032 [P: app/auth/google.py] Authlib OAuth client configured with Google OIDC endpoints and scopes `openid email profile`.
+- [X] T033 [P: app/auth/session.py] Helper: `get_user_from_session(request, db) -> User | None` and `require_user` FastAPI dependency that 302-redirects to `/auth/google/login?next=…` if not signed in.
 
 ### Shared deps
 
-- [ ] T034 [P: app/deps.py] FastAPI dependencies: `get_db`, `require_user`, `require_admin` (checks email against `ADMIN_EMAILS` env), `require_agent_key` (looks up `Player` by hash of `X-Agent-Key` header, raises 401 on miss).
+- [X] T034 [P: app/deps.py] FastAPI dependencies: `get_db`, `require_user`, `require_admin` (checks email against `ADMIN_EMAILS` env), `require_agent_key` (looks up `Player` by hash of `X-Agent-Key` header, raises 401 on miss).
 
 ### Broadcast
 
-- [ ] T035 [P: app/broadcast.py] In-process pub/sub: `subscribe(game_id) -> AsyncIterator[str]` and `publish(game_id, event_type, payload)`. Use `asyncio.Queue` per subscriber.
+- [X] T035 [P: app/broadcast.py] In-process pub/sub: `subscribe(game_id) -> AsyncIterator[str]` and `publish(game_id, event_type, payload)`. Use `asyncio.Queue` per subscriber.
 
 ### Base templates
 
-- [ ] T036 [P: app/templates/base.html] Jinja base layout with header (site title + Admin link, conditional on session) and footer.
-- [ ] T037 [P: app/templates/login.html] Sign-in-with-Google CTA page.
+- [X] T036 [P: app/templates/base.html] Jinja base layout with header (site title + Admin link, conditional on session) and footer.
+- [X] T037 [P: app/templates/login.html] Sign-in-with-Google CTA page.
 
 ### Auth routes
 
-- [ ] T038 [P: app/routes/__init__.py] Empty routes package.
-- [ ] T039 [P: app/routes/auth.py] Routes: `GET /auth/google/login`, `GET /auth/google/callback` (upserts `User` by `google_sub`, sets session cookie), `POST /auth/logout`.
-- [ ] T040 Mount auth routes + `SessionMiddleware` in `app/main.py`.
-- [ ] T041 [P: tests/test_auth.py] Tests for OAuth flow with mocked Google userinfo response; covers new-user upsert and returning-user lookup.
+- [X] T038 [P: app/routes/__init__.py] Empty routes package.
+- [X] T039 [P: app/routes/auth.py] Routes: `GET /auth/google/login`, `GET /auth/google/callback` (upserts `User` by `google_sub`, sets session cookie), `POST /auth/logout`.
+- [X] T040 Mount auth routes + `SessionMiddleware` in `app/main.py`.
+- [X] T041 [P: tests/test_auth.py] Tests for OAuth flow with mocked Google userinfo response; covers new-user upsert and returning-user lookup.
 
 **Checkpoint**: a user can sign in at `/auth/google/login`, the callback creates/finds their `User`, and visiting any page shows their email in the header.
 
