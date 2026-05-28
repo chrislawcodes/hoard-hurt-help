@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.applications import Starlette
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
@@ -34,11 +35,14 @@ def create_app() -> FastAPI:
     # streamable-HTTP session manager, and a mounted ASGI app's lifespan is
     # NOT run by the parent automatically — we have to drive it ourselves
     # below, or every MCP session dies with "Session terminated".
+    mcp_asgi_app: Starlette | None = None
     try:
-        from mcp_server.server import asgi_app as mcp_asgi_app
+        from mcp_server.server import asgi_app
+
+        mcp_asgi_app = asgi_app
     except Exception:
         # MCP SDK not importable in this env — skip mounting.
-        mcp_asgi_app = None
+        pass
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
