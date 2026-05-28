@@ -6,6 +6,7 @@ Routes and middleware are added by each phase.
 import logging
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,6 +69,10 @@ def create_app() -> FastAPI:
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> FileResponse:
+        return FileResponse("app/static/favicon.svg", media_type="image/svg+xml")
 
     return app
 
