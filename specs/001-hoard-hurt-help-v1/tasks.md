@@ -270,7 +270,7 @@
 
 **Independent test**: covered by the existing tests for `/me/games` plus a manual check.
 
-- [ ] T118 [US10, P: tests/test_cross_device.py] Test: two `TestClient` sessions with the same Google `sub` see the same `/me/games` and `/me/games/{id}` content.
+- [X] T118 [US10, P: tests/test_cross_device.py] Test: two `TestClient` sessions with the same Google `sub` see the same `/me/games` and `/me/games/{id}` content.
 
 **Checkpoint**: US-10 verified.
 
@@ -280,13 +280,13 @@
 
 **Purpose**: production readiness.
 
-- [ ] T119 [P: app/main.py] Structured logging configuration: every accepted submission, every rejected submission with error code, every turn resolution, every state transition.
-- [ ] T120 [P: app/main.py] OpenAPI tagging — apply `agent`, `web`, `admin`, `spectator`, `auth`, `mcp`, `ops` tags consistently so the Custom GPT manifest can scope its `allowed_operations`.
-- [ ] T121 [P: docs/setup-dev.md] Local development setup: Google OAuth client setup steps, `.env` config, alembic + uvicorn commands.
-- [ ] T122 [P: docs/deploy-railway.md] Railway deployment: service config, Postgres add-on, env var setup, custom domain, OAuth redirect URI update.
-- [ ] T123 [P: README.md] Update with run-locally and deploy-to-Railway sections.
-- [ ] T124 [P: tests/test_end_to_end.py] Extend the end-to-end test to drive a full 10-round game using real HTTP (not direct ORM access) — close to the real-world path.
-- [ ] T125 Confirm `pytest` green across the whole suite.
+- [X] T119 [P: app/main.py] Structured logging configuration: every accepted submission, every rejected submission with error code, every turn resolution, every state transition.
+- [X] T120 [P: app/main.py] OpenAPI tagging — apply `agent`, `web`, `admin`, `spectator`, `auth`, `mcp`, `ops` tags consistently so the Custom GPT manifest can scope its `allowed_operations`.
+- [X] T121 [P: docs/setup-dev.md] Local development setup: Google OAuth client setup steps, `.env` config, alembic + uvicorn commands.
+- [X] T122 [P: docs/deploy-railway.md] Railway deployment: service config, Postgres add-on, env var setup, custom domain, OAuth redirect URI update.
+- [X] T123 [P: README.md] Update with run-locally and deploy-to-Railway sections.
+- [X] T124 [P: tests/test_end_to_end.py] Extend the end-to-end test to drive a full 10-round game using real HTTP (not direct ORM access) — close to the real-world path.
+- [X] T125 Confirm `pytest` green across the whole suite.
 - [ ] T126 Manual run through every section in `quickstart.md` against the local server.
 - [ ] T127 Deploy to Railway; manual run through US-6 and US-7 against the public URL.
 
