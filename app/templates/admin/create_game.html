@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Create Game — Admin{% endblock %}
+{% block content %}
+<a href="/admin">← Admin</a>
+<h1>Create Game</h1>
+<form method="post" action="/admin/games/new">
+    <label>Name <input type="text" name="name" required maxlength="255"></label>
+    <label>Scheduled start (ISO 8601 UTC, e.g. 2026-12-25T20:00:00Z)
+        <input type="text" name="scheduled_start" required placeholder="2026-12-25T20:00:00Z">
+    </label>
+    <label>Min players <input type="number" name="min_players" value="3" min="3" max="100"></label>
+    <label>Max players <input type="number" name="max_players" value="100" min="3" max="100"></label>
+    <label>Per-turn deadline (seconds) <input type="number" name="per_turn_deadline_seconds" value="60" min="5" max="600"></label>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <button type="submit">Create</button>
+</form>
+{% endblock %}

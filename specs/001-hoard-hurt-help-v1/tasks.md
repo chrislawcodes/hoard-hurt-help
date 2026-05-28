@@ -209,22 +209,22 @@
 
 **Independent test**: admin creates a game from the dashboard, plays through it with stub agents, downloads CSV/JSON.
 
-- [ ] T090 [US5, P: tests/test_admin.py] Tests for: `/admin` returns 403 for non-admin emails; game creation form validates min ≤ max, start in future, deadline range; created game appears in lobby; cancel works pre-start, fails post-start.
-- [ ] T091 [US8, P: tests/test_admin.py] Tests for CSV export shape (one row per agent per turn, columns from plan-summary), JSON export contains players with strategy prompts.
-- [ ] T092 [US5, P: app/routes/admin_web.py] `GET /admin` — admin dashboard.
-- [ ] T093 [US5, P: app/templates/admin/dashboard.html] Admin dashboard template per UI.md Page 6.
-- [ ] T094 [US5, P: app/routes/admin_web.py] `GET /admin/games/new` — create-game form page.
-- [ ] T095 [US5, P: app/templates/admin/create_game.html] Form template per UI.md Page 5.
-- [ ] T096 [US5, P: app/routes/admin_api.py] `POST /api/admin/games` — create game (admin auth).
-- [ ] T097 [US5, P: app/routes/admin_api.py] `POST /api/admin/games/{game_id}/cancel` — cancel pre-start game.
-- [ ] T098 [US5, P: app/routes/admin_web.py] `GET /admin/games/{game_id}` — full game detail.
-- [ ] T099 [US5, P: app/templates/admin/game_detail.html] Per-game admin view.
-- [ ] T100 [US5, P: app/routes/admin_web.py] `GET /admin/prompts` — research view of all strategy prompts.
-- [ ] T101 [US5, P: app/templates/admin/prompts.html] Prompts table per UI.md Page 7.
-- [ ] T102 [US8, P: app/routes/admin_api.py] `GET /api/admin/games/{game_id}/export.csv` — turn-level CSV.
-- [ ] T103 [US8, P: app/routes/admin_api.py] `GET /api/admin/games/{game_id}/export.json` — full game JSON dump.
-- [ ] T104 [US5+US8] Mount `admin_web` and `admin_api` routers in `app/main.py`.
-- [ ] T105 [US5+US8] Confirm `pytest tests/test_admin.py` green.
+- [X] T090 [US5, P: tests/test_admin.py] Tests for: `/admin` returns 403 for non-admin emails; game creation form validates min ≤ max, start in future, deadline range; created game appears in lobby; cancel works pre-start, fails post-start.
+- [X] T091 [US8, P: tests/test_admin.py] Tests for CSV export shape (one row per agent per turn, columns from plan-summary), JSON export contains players with strategy prompts.
+- [X] T092 [US5, P: app/routes/admin_web.py] `GET /admin` — admin dashboard.
+- [X] T093 [US5, P: app/templates/admin/dashboard.html] Admin dashboard template per UI.md Page 6.
+- [X] T094 [US5, P: app/routes/admin_web.py] `GET /admin/games/new` — create-game form page.
+- [X] T095 [US5, P: app/templates/admin/create_game.html] Form template per UI.md Page 5.
+- [X] T096 [US5, P: app/routes/admin_api.py] `POST /api/admin/games` — create game (admin auth).
+- [X] T097 [US5, P: app/routes/admin_api.py] `POST /api/admin/games/{game_id}/cancel` — cancel pre-start game.
+- [X] T098 [US5, P: app/routes/admin_web.py] `GET /admin/games/{game_id}` — full game detail.
+- [X] T099 [US5, P: app/templates/admin/game_detail.html] Per-game admin view.
+- [X] T100 [US5, P: app/routes/admin_web.py] `GET /admin/prompts` — research view of all strategy prompts.
+- [X] T101 [US5, P: app/templates/admin/prompts.html] Prompts table per UI.md Page 7.
+- [X] T102 [US8, P: app/routes/admin_api.py] `GET /api/admin/games/{game_id}/export.csv` — turn-level CSV.
+- [X] T103 [US8, P: app/routes/admin_api.py] `GET /api/admin/games/{game_id}/export.json` — full game JSON dump.
+- [X] T104 [US5+US8] Mount `admin_web` and `admin_api` routers in `app/main.py`.
+- [X] T105 [US5+US8] Confirm `pytest tests/test_admin.py` green.
 
 **Checkpoint**: US-5 and US-8 complete. Admin can run and analyze games.
 

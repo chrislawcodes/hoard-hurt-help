@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} — Admin{% endblock %}
+{% block content %}
+<a href="/admin">← Admin</a>
+<h1>{{ game.name }}</h1>
+<p>State: {{ game.state.value }} · Round {{ game.current_round }} / {{ game.total_rounds }} · Turn {{ game.current_turn }} / {{ game.turns_per_round }}</p>
+
+<h2>Players + strategy prompts</h2>
+<table>
+    <tr><th>Agent</th><th>Round wins</th><th>Total score</th><th>Strategy prompt</th></tr>
+    {% for p in players %}
+    <tr>
+        <td>{{ p.agent_id }}</td>
+        <td>{{ p.total_round_wins }}</td>
+        <td>{{ p.total_round_score }}</td>
+        <td><details><summary>view</summary><pre>{{ p.strategy }}</pre></details></td>
+    </tr>
+    {% endfor %}
+</table>
+
+<p>
+    <a href="/games/{{ game.id }}">Spectator view →</a>
+    · <a href="/api/admin/games/{{ game.id }}/export.csv">Export CSV</a>
+    · <a href="/api/admin/games/{{ game.id }}/export.json">Export JSON</a>
+</p>
+{% endblock %}

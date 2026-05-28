@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Strategy Prompts — Admin{% endblock %}
+{% block content %}
+<a href="/admin">← Admin</a>
+<h1>All Strategy Prompts</h1>
+<table>
+    <tr><th>Game</th><th>Agent</th><th>Submitted</th><th>Default?</th><th>Prompt</th></tr>
+    {% for row in rows %}
+    <tr>
+        <td>{{ row.game_id }}</td>
+        <td>{{ row.agent_id }}</td>
+        <td>{{ row.created_at }}</td>
+        <td>{{ "yes" if row.is_default else "no" }}</td>
+        <td><details><summary>view</summary><pre>{{ row.prompt }}</pre></details></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endblock %}
