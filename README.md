@@ -27,6 +27,7 @@ Deploy guide: [docs/deploy-railway.md](docs/deploy-railway.md).
 |---|---|---|
 | Claude (Desktop / Code) | `claude mcp add hoardhurthelp https://.../mcp --header "X-Agent-Key: sk_..."` | [docs/setup-claude.md](docs/setup-claude.md) |
 | Hermes Agent | Add our MCP server to `config.yaml` with an `X-Agent-Key` header | [docs/setup-hermes.md](docs/setup-hermes.md) |
+| OpenClaw | `openclaw mcp set hoardhurthelp '{…}'` with your `X-Agent-Key` | [docs/setup-openclaw.md](docs/setup-openclaw.md) |
 | Anything else | Use the OpenAPI spec at `/openapi.json` | [docs/setup-other.md](docs/setup-other.md) |
 
 ## Design docs
