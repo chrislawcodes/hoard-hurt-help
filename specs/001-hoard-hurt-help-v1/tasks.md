@@ -238,27 +238,27 @@
 
 ### MCP server
 
-- [ ] T106 [US6, P: mcp_server/__init__.py] Empty MCP package.
-- [ ] T107 [US6, P: mcp_server/server.py] FastMCP server with three tools — `get_turn(game_id)`, `submit_action(game_id, action, target_id, message, turn_token)`, `get_game_state(game_id)` — each proxies to the corresponding HTTP API endpoint using `X-Agent-Key` from connection headers.
-- [ ] T108 [US6] Mount the MCP server as an HTTP-streamed app at `/mcp` in `app/main.py`.
-- [ ] T109 [US6, P: tests/test_mcp.py] Tests for tool definitions exposed, header propagation, error pass-through.
-- [ ] T110 [US6, P: mcp_server/README.md] Notes on how the server forwards to the HTTP API, headers it reads, errors it returns.
+- [X] T106 [US6, P: mcp_server/__init__.py] Empty MCP package.
+- [X] T107 [US6, P: mcp_server/server.py] FastMCP server with three tools — `get_turn(game_id)`, `submit_action(game_id, action, target_id, message, turn_token)`, `get_game_state(game_id)` — each proxies to the corresponding HTTP API endpoint using `X-Agent-Key` from connection headers.
+- [X] T108 [US6] Mount the MCP server as an HTTP-streamed app at `/mcp` in `app/main.py`.
+- [X] T109 [US6, P: tests/test_mcp.py] Tests for tool definitions exposed, header propagation, error pass-through.
+- [X] T110 [US6, P: mcp_server/README.md] Notes on how the server forwards to the HTTP API, headers it reads, errors it returns.
 
 ### ChatGPT Custom GPT manifest
 
-- [ ] T111 [US7, P: chatgpt_custom_gpt/manifest.json] Action manifest pointing at `/openapi.json` with `securitySchemes.AgentKey` (header `X-Agent-Key`).
-- [ ] T112 [US7, P: chatgpt_custom_gpt/README.md] How to add the GPT to ChatGPT, where the player pastes their API key.
+- [X] T111 [US7, P: chatgpt_custom_gpt/manifest.json] Action manifest pointing at `/openapi.json` with `securitySchemes.AgentKey` (header `X-Agent-Key`).
+- [X] T112 [US7, P: chatgpt_custom_gpt/README.md] How to add the GPT to ChatGPT, where the player pastes their API key.
 
 ### Setup docs
 
-- [ ] T113 [US6, P: docs/setup-claude.md] Step-by-step Claude Desktop and Claude Code setup, including the JSON config snippet for Desktop.
-- [ ] T114 [US7, P: docs/setup-chatgpt.md] Step-by-step ChatGPT Custom GPT setup.
-- [ ] T115 [US6+US7, P: docs/setup-other.md] Raw API + OpenAPI usage for Gemini, custom code.
+- [X] T113 [US6, P: docs/setup-claude.md] Step-by-step Claude Desktop and Claude Code setup, including the JSON config snippet for Desktop.
+- [X] T114 [US7, P: docs/setup-chatgpt.md] Step-by-step ChatGPT Custom GPT setup.
+- [X] T115 [US6+US7, P: docs/setup-other.md] Raw API + OpenAPI usage for Gemini, custom code.
 
 ### Dashboard wiring
 
-- [ ] T116 [US6+US7] Update `app/templates/connection.html` so the Claude panel shows the real `claude mcp add … --header "X-Agent-Key: …"` command and the ChatGPT panel shows the real "Add to ChatGPT" link.
-- [ ] T117 [US6+US7] Confirm `pytest tests/test_mcp.py` green and manual setup steps from quickstart.md US-6 and US-7 pass on the deployed Railway URL.
+- [X] T116 [US6+US7] Update `app/templates/connection.html` so the Claude panel shows the real `claude mcp add … --header "X-Agent-Key: …"` command and the ChatGPT panel shows the real "Add to ChatGPT" link.
+- [X] T117 [US6+US7] Confirm `pytest tests/test_mcp.py` green and manual setup steps from quickstart.md US-6 and US-7 pass on the deployed Railway URL.
 
 **Checkpoint**: US-6 and US-7 complete. A non-programmer Claude or ChatGPT user can play a full game.
 

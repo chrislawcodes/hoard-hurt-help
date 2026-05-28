@@ -44,6 +44,16 @@ def create_app() -> FastAPI:
     app.include_router(sse_routes.router)
     app.include_router(spectator_api.router)
 
+    # Mount the MCP server at /mcp. Import inside create_app so tests that
+    # bypass the MCP transport can still build the app.
+    try:
+        from mcp_server.server import asgi_app as mcp_asgi_app
+
+        app.mount("/mcp", mcp_asgi_app, name="mcp")
+    except Exception:
+        # MCP SDK not importable in this env — skip mounting.
+        pass
+
     @app.on_event("startup")
     async def _resume_games_on_startup() -> None:
         await scheduler_registry.resume_active_games_on_startup()

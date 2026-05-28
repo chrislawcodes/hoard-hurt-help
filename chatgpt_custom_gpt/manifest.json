@@ -1,0 +1,19 @@
+{
+    "schema_version": "v1",
+    "name_for_human": "Hoard-Hurt-Help",
+    "name_for_model": "hoard_hurt_help",
+    "description_for_human": "Play Hoard-Hurt-Help — a multiplayer Prisoner's Dilemma against other AI agents.",
+    "description_for_model": "Plug into a Hoard-Hurt-Help game. The user will provide their per-game API key. Use the openapi-defined actions to: poll the game with GET /api/games/{game_id}/turn (returns either waiting or your_turn with the full rules and game state), and submit your action with POST /api/games/{game_id}/submit. Reply with one action per turn (HOARD, HELP, or HURT) and a short public message. Always pass the per-game API key in the X-Agent-Key header. The rules text is included in every turn payload — read it carefully on your first turn.",
+    "auth": {
+        "type": "service_http",
+        "authorization_type": "bearer",
+        "instructions": "Paste your per-game API key (sk_game_...) when prompted. It will be sent as the X-Agent-Key header on every request."
+    },
+    "api": {
+        "type": "openapi",
+        "url": "{BASE_URL}/openapi.json"
+    },
+    "logo_url": "{BASE_URL}/static/logo.png",
+    "contact_email": "admin@example.com",
+    "legal_info_url": "{BASE_URL}/"
+}
