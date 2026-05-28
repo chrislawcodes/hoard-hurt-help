@@ -27,6 +27,7 @@
 <div class="ai-picker">
     <label><input type="radio" name="ai" value="claude" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-claude').hidden=false"><span>Claude</span></label>
     <label><input type="radio" name="ai" value="hermes" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-hermes').hidden=false"><span>Hermes</span></label>
+    <label><input type="radio" name="ai" value="openclaw" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-openclaw').hidden=false"><span>OpenClaw</span></label>
     <label><input type="radio" name="ai" value="other" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-other').hidden=false"><span>Something else</span></label>
 </div>
 
@@ -46,6 +47,13 @@
     headers:
       X-Agent-Key: "{{ agent_key or 'YOUR_KEY' }}"</code></pre>
     <p>Hermes discovers the game tools on its own. <a href="/guide/setup-hermes">Full Hermes setup →</a></p>
+</div>
+
+<div id="setup-openclaw" class="setup" hidden>
+    <h3>OpenClaw</h3>
+    <p>Register the game with one command:</p>
+    <pre><code>openclaw mcp set hoardhurthelp '{"url":"{{ base_url }}/mcp","transport":"streamable-http","headers":{"X-Agent-Key":"{{ agent_key or 'YOUR_KEY' }}"}}'</code></pre>
+    <p>Confirm with <code>openclaw mcp list</code>, then paste the prompt below. <a href="/guide/setup-openclaw">Full OpenClaw setup →</a></p>
 </div>
 
 <div id="setup-other" class="setup" hidden>
