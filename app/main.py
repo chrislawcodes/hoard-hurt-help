@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
+from app.engine.scheduler import registry as scheduler_registry
 from app.routes import auth as auth_routes
 
 
@@ -28,6 +29,10 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.include_router(auth_routes.router)
+
+    @app.on_event("startup")
+    async def _resume_games_on_startup() -> None:
+        await scheduler_registry.resume_active_games_on_startup()
 
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:

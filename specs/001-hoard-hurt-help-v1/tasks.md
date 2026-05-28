@@ -105,29 +105,29 @@
 
 ### Tests first (TDD)
 
-- [ ] T042 [US1, P: tests/test_resolver.py] Write payoff math tests covering: single Hoard +2; single Help (target gets +4, source 0); single Hurt (target gets −4); Help stacking (5 helps = +20 target); Hurt stacking; mutual-help bonus (A↔B = +8 each); mutual bonus does not double when third party also helps A; score floor at 0; HURT against 0-score target is a wasted attacker turn; missed-turn default to Hoard with the canonical message.
+- [X] T042 [US1, P: tests/test_resolver.py] Write payoff math tests covering: single Hoard +2; single Help (target gets +4, source 0); single Hurt (target gets −4); Help stacking (5 helps = +20 target); Hurt stacking; mutual-help bonus (A↔B = +8 each); mutual bonus does not double when third party also helps A; score floor at 0; HURT against 0-score target is a wasted attacker turn; missed-turn default to Hoard with the canonical message.
 
 ### Resolver implementation
 
-- [ ] T043 [US1, P: app/engine/resolver.py] Implement `resolve_turn(db, turn)` per plan.md and spec.md §5 pseudocode. Order: materialize submissions (default to Hoard if missing), compute raw deltas (Hoard self, Help target, Hurt target, mutual-help bonus), apply score floor at 0, persist post-floor `points_delta` and `round_score_after` on each `TurnSubmission`.
-- [ ] T044 [US1, P: app/engine/resolver.py] Implement `award_round_winners(db, game, round_num)`: find top in-round score, share 1/N round-wins among ties, update `total_round_wins` and `total_round_score` on `Player`.
-- [ ] T045 [US1, P: app/engine/resolver.py] Implement `finalize_game(db, game)`: rank by `(total_round_wins desc, total_round_score desc)`, set `winner_player_id`, transition game to `completed`.
-- [ ] T046 [US1] Confirm `pytest tests/test_resolver.py` is green.
+- [X] T043 [US1, P: app/engine/resolver.py] Implement `resolve_turn(db, turn)` per plan.md and spec.md §5 pseudocode. Order: materialize submissions (default to Hoard if missing), compute raw deltas (Hoard self, Help target, Hurt target, mutual-help bonus), apply score floor at 0, persist post-floor `points_delta` and `round_score_after` on each `TurnSubmission`.
+- [X] T044 [US1, P: app/engine/resolver.py] Implement `award_round_winners(db, game, round_num)`: find top in-round score, share 1/N round-wins among ties, update `total_round_wins` and `total_round_score` on `Player`.
+- [X] T045 [US1, P: app/engine/resolver.py] Implement `finalize_game(db, game)`: rank by `(total_round_wins desc, total_round_score desc)`, set `winner_player_id`, transition game to `completed`.
+- [X] T046 [US1] Confirm `pytest tests/test_resolver.py` is green.
 
 ### State machine tests + implementation
 
-- [ ] T047 [US1, P: tests/test_state_machine.py] Tests for every transition in plan.md state diagram, including illegal transitions return 409.
-- [ ] T048 [US1, P: app/engine/state_machine.py] Implement `apply_transition(db, game, target_state)` using the guards from T030.
+- [X] T047 [US1, P: tests/test_state_machine.py] Tests for every transition in plan.md state diagram, including illegal transitions return 409.
+- [X] T048 [US1, P: app/engine/state_machine.py] Implement `apply_transition(db, game, target_state)` using the guards from T030.
 
 ### Scheduler
 
-- [ ] T049 [US1, P: app/engine/scheduler.py] Implement `GameScheduler` class: per-game asyncio task that loops `open_turn → wait_until(deadline) → resolve_turn → publish` for each `(round, turn)` pair. Restartable from DB state (idempotent resume after crash).
-- [ ] T050 [US1, P: app/engine/scheduler.py] Implement `SchedulerRegistry`: singleton mapping `game_id → asyncio.Task`. `start(game)`, `stop(game_id)`, `resume_active_games_on_startup(db)`.
-- [ ] T051 [US1] Wire `SchedulerRegistry.resume_active_games_on_startup` into the FastAPI startup event in `app/main.py`.
+- [X] T049 [US1, P: app/engine/scheduler.py] Implement `GameScheduler` class: per-game asyncio task that loops `open_turn → wait_until(deadline) → resolve_turn → publish` for each `(round, turn)` pair. Restartable from DB state (idempotent resume after crash).
+- [X] T050 [US1, P: app/engine/scheduler.py] Implement `SchedulerRegistry`: singleton mapping `game_id → asyncio.Task`. `start(game)`, `stop(game_id)`, `resume_active_games_on_startup(db)`.
+- [X] T051 [US1] Wire `SchedulerRegistry.resume_active_games_on_startup` into the FastAPI startup event in `app/main.py`.
 
 ### End-to-end engine test
 
-- [ ] T052 [US1, P: tests/test_end_to_end.py] Scripted 100-turn game: create a 5-player game with stub players (deterministic action selection), run scheduler, assert final state matches expected scoreboard and winner.
+- [X] T052 [US1, P: tests/test_end_to_end.py] Scripted 100-turn game: create a 5-player game with stub players (deterministic action selection), run scheduler, assert final state matches expected scoreboard and winner.
 
 **Checkpoint**: US-1 complete. Engine is correct and tested. Real games can be driven by external clients once US-2 lands.
 
