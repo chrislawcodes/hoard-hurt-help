@@ -917,22 +917,25 @@ Both wrappers should surface the `code` field to the LLM verbatim. The MCP serve
 
 ## 11. Open Questions for the Design Owner
 
-These TBDs from `DESIGN.md` need answers before implementation can fully proceed. Listed in rough priority order.
+Resolved during planning (kept here for traceability):
 
-1. **Default strategy prompt text.** What ships in the pre-filled box on the Join form? Probably 100–300 words covering: "you are AI_<name>", reference to mutual-help pacts, tone guidance, a hedged stance like "cooperate by default, retaliate proportionally." Worth careful drafting — this is what most players will run with.
-2. **Strategy prompt character cap.** Working assumption 2,000 chars. Confirm.
-3. **Per-message char cap.** Need a limit on the public chat message to prevent token bloat. Suggest 500 chars; needs confirmation.
-4. **Min-player-not-reached behavior.** At `start_at`, if `players < min_players`: cancel immediately, grace period (how long?), or start anyway if `players >= 3`?
-5. **Registration cutoff.** Does `registering` close exactly at `start_at`, or earlier (e.g. 5 minutes before to let the admin sanity-check)?
-6. **Drop-out policy.** Pre-start drop is clearly allowed. Post-start drop semantics: are they removed from scoring, or do they keep getting defaulted Hoards? Can strategy edits happen mid-game?
-7. **Phase 1 network exposure (Windows local host).** Port forward, ngrok, tailscale, public DNS via dynamic DNS? Each has different security and reliability implications.
-8. **Key recovery semantics.** If a player loses their `sk_game_…`, can they regenerate it from `/me/games/{game_id}`? If yes, the old key must be invalidated atomically.
-9. **Export schema column list.** What exact columns ship in the per-game CSV? Suggest: `game_id, round, turn, agent_id, action, target_id, message, points_delta, round_score_after, round_wins_after, submitted_at, was_defaulted`. Confirm + add per-game JSON shape.
-10. **MCP server hosting model.** Hosted at `/mcp` only, locally installed only, or both? UI Page 4's `claude mcp add` line assumes hosted. Local fallback matters for MCP clients that don't yet support remote servers.
-11. **ChatGPT Custom GPT publish strategy.** Public listing in the GPT store, or private link shared from the dashboard? Affects discoverability vs. control.
-12. **Wireframes** beyond UI.md sketches — needed? UI.md is probably sufficient for a v1 build, but flag any pages that need higher-fidelity design.
-13. **OpenAPI tagging strategy.** Confirm we tag agent endpoints separately so the Custom GPT's `allowed_operations` filter is clean and the human-facing `/docs` page is readable.
-14. **Rate-limit thresholds.** Server minimum poll interval is documented as 1 second. Are there per-IP or per-key burst limits we should also enforce, especially for the hosted MCP server?
+1. ~~**Default strategy prompt text.**~~ **Resolved.** See `plan.md` Architecture Decision 7. Locked in as the v1 default; refine during implementation as needed.
+4. ~~**Min-player-not-reached behavior.**~~ **Resolved.** Start anyway if `players >= 3` at scheduled start. Admin's `min_players` is treated as a soft target shown in the lobby, not a hard gate.
+5. ~~**Registration cutoff.**~~ **Resolved.** Registration closes exactly at `start_at`.
+6. ~~**Drop-out policy.**~~ **Resolved.** Pre-start drop allowed. After start: no drop-outs. Player is locked in; any missed turn defaults to Hoard per the existing "never kick" rule. Strategy edits not allowed mid-game.
+7. ~~**Phase 1 network exposure.**~~ **Resolved.** Skip Windows-local hosting. Deploy to Railway from day one. Develop on `localhost`; Railway is the public surface players reach.
+10. ~~**MCP server hosting model.**~~ **Resolved.** Hosted remote at `https://<railway-domain>/mcp`. No PyPI package for v1.
+
+Still open — close during implementation:
+
+2. **Strategy prompt character cap.** Working assumption 2,000 chars. Confirm during implementation.
+3. **Per-message char cap.** Suggest 500 chars; confirm during implementation.
+8. **Key recovery semantics.** If a player loses their `sk_game_…`, can they regenerate it from `/me/games/{game_id}`? Working assumption: yes, regenerate invalidates the old key atomically. Confirm.
+9. **Export schema column list.** Working columns: `game_id, round, turn, agent_id, action, target_id, message, points_delta, round_score_after, round_wins_after, submitted_at, was_defaulted`. Confirm + define per-game JSON shape during implementation.
+11. **ChatGPT Custom GPT publish strategy.** Public listing in the GPT store, or private link shared from the dashboard? Defer until after v1 ships.
+12. **Wireframes** beyond UI.md sketches — flag any pages that need higher-fidelity design during implementation.
+13. **OpenAPI tagging strategy.** Tag agent endpoints separately so the Custom GPT's `allowed_operations` filter is clean. Implementation detail.
+14. **Rate-limit thresholds.** Server minimum poll interval is 1 second. Per-IP and per-key burst limits TBD during implementation.
 
 ---
 
