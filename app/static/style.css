@@ -350,3 +350,51 @@ pre code { background: none; padding: 0; }
 /* Theme switcher control */
 .theme-switch { display: flex; align-items: center; gap: 0.4rem; }
 .theme-switch select { width: auto; margin: 0; padding: 0.3rem 0.5rem; font-size: 0.85rem; }
+
+/* ---- Lobby ---- */
+.hero { margin-bottom: 2.5rem; }
+.hero h1 { margin-bottom: 0.5rem; }
+.hero p { color: var(--ink-soft); max-width: 62ch; margin: 0; }
+.hchips { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
+.hchip {
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0.3rem 0.65rem;
+    border-radius: 6px;
+    border: 1px solid currentColor;
+}
+.hchip.hoard { color: var(--hoard); }
+.hchip.help { color: var(--help); }
+.hchip.hurt { color: var(--hurt); }
+
+.section-head { display: flex; align-items: baseline; gap: 0.6rem; margin: 2rem 0 0.75rem; }
+.section-head h2 { margin: 0; }
+.section-head .count {
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    background: var(--surface-2);
+    border-radius: 999px;
+    padding: 0.05rem 0.5rem;
+}
+.empty { color: var(--ink-soft); padding: 0.25rem 0 0.5rem; }
+
+.game-card-info { min-width: 0; }
+.game-card-info h3 { margin: 0 0 0.2rem; }
+.game-card-action { display: flex; align-items: center; gap: 0.85rem; flex-shrink: 0; }
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.22rem 0.55rem;
+    border-radius: 999px;
+}
+.badge-live { background: color-mix(in srgb, var(--hurt) 18%, transparent); color: var(--hurt); }
+.badge-soon { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.badge-done { background: var(--surface-2); color: var(--ink-soft); }
+.badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: hhh-pulse 1.4s ease-in-out infinite; }
+@keyframes hhh-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
