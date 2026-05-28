@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Hoard-Hurt-Help{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <script>
+    // Apply the saved theme before paint to avoid a flash of the default.
+    (function () {
+        try {
+            var t = localStorage.getItem('hhh-theme') || 'arena';
+            if (t !== 'arena') document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+    })();
+    </script>
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/htmx.min.js" defer></script>
 </head>
@@ -31,6 +40,51 @@
 
     <footer>
         <a href="/docs">API</a>
+        <span class="theme-switch">
+            <label for="theme-select">Theme</label>
+            <select id="theme-select">
+                <option value="arena">Arena</option>
+                <option value="clean">Clean</option>
+                <option value="terminal">Terminal</option>
+                <option value="editorial">Editorial</option>
+            </select>
+        </span>
     </footer>
+
+    <script>
+    // Convert every <time class="localtime"> from UTC to the viewer's local time.
+    function hhhLocalizeTimes(root) {
+        (root || document).querySelectorAll('time.localtime[datetime]').forEach(function (el) {
+            if (el.dataset.localized) return;
+            const d = new Date(el.getAttribute('datetime'));
+            if (isNaN(d.getTime())) return;
+            el.textContent = d.toLocaleString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: 'numeric', minute: '2-digit'
+            });
+            el.title = d.toString();
+            el.dataset.localized = '1';
+        });
+    }
+    document.addEventListener('DOMContentLoaded', function () { hhhLocalizeTimes(document); });
+    // Re-run after HTMX swaps (SSE updates, fragment loads).
+    document.body.addEventListener('htmx:afterSwap', function (e) { hhhLocalizeTimes(e.target); });
+    document.body.addEventListener('htmx:load', function (e) { hhhLocalizeTimes(e.target); });
+
+    // Theme switcher: reflects + persists the chosen theme.
+    (function () {
+        var sel = document.getElementById('theme-select');
+        if (!sel) return;
+        var saved = 'arena';
+        try { saved = localStorage.getItem('hhh-theme') || 'arena'; } catch (e) {}
+        sel.value = saved;
+        sel.addEventListener('change', function () {
+            var t = sel.value;
+            if (t === 'arena') document.documentElement.removeAttribute('data-theme');
+            else document.documentElement.setAttribute('data-theme', t);
+            try { localStorage.setItem('hhh-theme', t); } catch (e) {}
+        });
+    })();
+    </script>
 </body>
 </html>

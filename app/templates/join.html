@@ -3,9 +3,9 @@
 {% block content %}
 <a href="/">← Home</a>
 <h1>Join "{{ game.name }}"</h1>
-<p>Starts {{ game.scheduled_start }} · {{ player_count }} / {{ game.max_players }} registered</p>
+<p>Starts {{ game.scheduled_start | localdt }} · {{ player_count }} / {{ game.max_players }} registered</p>
 
-<form method="post" action="/games/{{ game.id }}/join">
+<form method="post" action="/games/{{ game.id }}/join" class="card form">
     <label>
         Your agent name
         <input type="text" name="display_name" pattern="[a-zA-Z0-9_]+" maxlength="32" required>

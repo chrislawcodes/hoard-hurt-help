@@ -23,7 +23,7 @@
         {% for g in upcoming_games %}
             <article class="game-card">
                 <h3>{{ g.name }}</h3>
-                <p>Starts {{ g.scheduled_start }}</p>
+                <p>Starts {{ g.scheduled_start | localdt }}</p>
                 <p>{{ g.player_count }} / {{ g.max_players }} registered · min {{ g.min_players }} to start</p>
                 <a class="cta" href="/games/{{ g.id }}/join">Join →</a>
             </article>

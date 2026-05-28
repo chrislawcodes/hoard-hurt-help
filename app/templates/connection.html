@@ -6,7 +6,7 @@
 
 <dl>
     <dt>Agent name</dt><dd>{{ player.agent_id }}</dd>
-    <dt>Game starts</dt><dd>{{ game.scheduled_start }}</dd>
+    <dt>Game starts</dt><dd>{{ game.scheduled_start | localdt }}</dd>
     <dt>State</dt><dd>{{ game.state.value }}</dd>
 </dl>
 

@@ -1,1 +1,352 @@
-/* Hoard-Hurt-Help — placeholder styles. Real styles land in Phase 5. */
+/* Hoard-Hurt-Help — base stylesheet.
+ *
+ * Themeable via CSS custom properties. The structural rules below never
+ * hardcode a color or font — they only reference var(--x). To change the
+ * whole look, edit a theme block (the :root / [data-theme=...] sets). To add
+ * a new theme, copy a block and tweak the variables. Nothing else changes.
+ */
+
+/* ============================================================
+ * THEME: Clean — neutral light, blue accent
+ * ============================================================ */
+[data-theme="clean"] {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #f0f2f5;
+    --ink: #1a1d21;
+    --ink-soft: #5b6470;
+    --line: #e2e6ea;
+    --header-bg: #1a1d21;
+    --header-ink: #ffffff;
+    --header-ink-soft: #9aa6b6;
+    --accent: #2f6feb;
+    --accent-ink: #ffffff;
+    --accent-hover: #2a62d0;
+    --bad: #c0392b;
+    --bad-bg: #fdecea;
+    --bad-line: #f5c6c0;
+    --hoard: #2f6feb;
+    --help: #1a8f4c;
+    --hurt: #c0392b;
+    --code-bg: #1a1d21;
+    --code-ink: #e6edf3;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body);
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none;
+    --head-spacing: normal;
+    --maxw: 960px;
+}
+
+/* ============================================================
+ * THEME: Terminal — dark, monospace headers, green accent
+ * ============================================================ */
+[data-theme="terminal"] {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface-2: #1c2230;
+    --ink: #e6edf3;
+    --ink-soft: #8b949e;
+    --line: #2a313c;
+    --header-bg: #010409;
+    --header-ink: #e6edf3;
+    --header-ink-soft: #8b949e;
+    --accent: #3fb950;
+    --accent-ink: #02130a;
+    --accent-hover: #46c95a;
+    --bad: #f85149;
+    --bad-bg: #2a1416;
+    --bad-line: #5c2125;
+    --hoard: #58a6ff;
+    --help: #3fb950;
+    --hurt: #f85149;
+    --code-bg: #010409;
+    --code-ink: #c9d1d9;
+    --shadow: none;
+    --font-body: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --font-head: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: uppercase;
+    --head-spacing: 0.06em;
+}
+
+/* ============================================================
+ * THEME: Arena (default) — dark slate, bold, color-coded action.
+ * Lives in :root so it applies with no data-theme attribute.
+ * ============================================================ */
+:root {
+    --bg: #11151c;
+    --surface: #1a2029;
+    --surface-2: #222a35;
+    --ink: #f1f5f9;
+    --ink-soft: #94a3b8;
+    --line: #2d3744;
+    --header-bg: #0b1f3a;
+    --header-ink: #ffffff;
+    --header-ink-soft: #8fb0d9;
+    --accent: #f59e0b;
+    --accent-ink: #1a1206;
+    --accent-hover: #fbb12e;
+    --bad: #ef4444;
+    --bad-bg: #2a1518;
+    --bad-line: #5c2327;
+    --hoard: #3b82f6;
+    --help: #22c55e;
+    --hurt: #ef4444;
+    --code-bg: #0b0f16;
+    --code-ink: #e2e8f0;
+    --shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: "Arial Black", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: uppercase;
+    --head-spacing: 0.02em;
+    --radius: 10px;
+    --maxw: 960px;
+}
+
+/* ============================================================
+ * THEME: Editorial — airy light, serif headings, high contrast
+ * ============================================================ */
+[data-theme="editorial"] {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f4f1ea;
+    --ink: #15110c;
+    --ink-soft: #6b6358;
+    --line: #e4ded2;
+    --header-bg: #15110c;
+    --header-ink: #faf7f0;
+    --header-ink-soft: #b0a692;
+    --accent: #8a1c1c;
+    --accent-ink: #ffffff;
+    --accent-hover: #731515;
+    --bad: #8a1c1c;
+    --bad-bg: #f8ecec;
+    --bad-line: #e3c4c4;
+    --hoard: #1f4e79;
+    --help: #2f6b34;
+    --hurt: #8a1c1c;
+    --code-bg: #15110c;
+    --code-ink: #faf7f0;
+    --shadow: none;
+    --font-body: "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --font-head: "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none;
+    --head-spacing: normal;
+    --radius: 2px;
+}
+
+/* ============================================================
+ * STRUCTURE — references variables only, never literal colors
+ * ============================================================ */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--ink);
+    background: var(--bg);
+}
+
+/* Header */
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
+    background: var(--header-bg);
+    color: var(--header-ink);
+}
+.site-title {
+    font-family: var(--font-head);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--header-ink);
+    text-decoration: none;
+    font-size: 1.05rem;
+}
+header nav { display: flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
+header nav a { color: var(--header-ink-soft); text-decoration: none; }
+header nav a:hover { color: var(--header-ink); }
+header nav span { color: var(--header-ink-soft); }
+header nav form { margin: 0; }
+header nav button {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.85rem;
+    background: transparent;
+    border: 1px solid var(--header-ink-soft);
+    color: var(--header-ink-soft);
+}
+header nav button:hover { color: var(--header-ink); border-color: var(--header-ink); }
+
+/* Shell */
+main { max-width: var(--maxw); margin: 2rem auto; padding: 0 1.25rem; }
+footer {
+    max-width: var(--maxw);
+    margin: 2rem auto 3rem;
+    padding: 1rem 1.25rem 0;
+    border-top: 1px solid var(--line);
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+footer a { color: var(--ink-soft); }
+
+/* Typography */
+h1, h2, h3 {
+    font-family: var(--font-head);
+    text-transform: var(--head-transform);
+    letter-spacing: var(--head-spacing);
+}
+h1 { font-size: 1.6rem; margin: 0 0 1rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 0.75rem; }
+h3 { font-size: 1rem; margin: 1.25rem 0 0.5rem; }
+a { color: var(--accent); }
+small, .hint { color: var(--ink-soft); font-size: 0.85rem; }
+.hint { display: block; margin: 0.25rem 0 0; }
+
+/* Cards */
+.card, .game-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 1rem;
+}
+.game-card { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.game-card h3 { margin: 0 0 0.2rem; }
+.game-card .meta { color: var(--ink-soft); font-size: 0.88rem; }
+
+/* Forms */
+.form label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 1rem; }
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; }
+input[type="text"], input[type="number"], input[type="datetime-local"],
+input[type="email"], textarea, select {
+    display: block;
+    width: 100%;
+    margin-top: 0.3rem;
+    padding: 0.55rem 0.65rem;
+    font: inherit;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+textarea { min-height: 8rem; resize: vertical; font-weight: 400; font-family: var(--font-mono); }
+
+button, .cta {
+    display: inline-block;
+    padding: 0.55rem 1.1rem;
+    font: inherit;
+    font-weight: 600;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+}
+button:hover, .cta:hover { background: var(--accent-hover); }
+button.secondary, .cta.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+
+/* Messages */
+.error {
+    color: var(--bad);
+    background: var(--bad-bg);
+    border: 1px solid var(--bad-line);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin: 0.5rem 0;
+}
+
+/* Tables */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-size: 0.92rem;
+    margin-bottom: 1rem;
+}
+th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--line); }
+th { background: var(--surface-2); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); }
+tr:last-child td { border-bottom: none; }
+
+/* Game viewer */
+.layout { display: grid; grid-template-columns: 260px 1fr; gap: 1.5rem; align-items: start; }
+@media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }
+.turn-block {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+}
+.turn-block h4 { margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
+.turn-block ul { margin: 0; padding-left: 1.1rem; }
+.turn-block li { margin-bottom: 0.4rem; }
+
+/* Action color-coding (works in every theme) */
+.act { font-weight: 700; }
+.act-hoard { color: var(--hoard); }
+.act-help { color: var(--help); }
+.act-hurt { color: var(--hurt); }
+
+/* Player dashboard */
+.key {
+    font-family: var(--font-mono);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    word-break: break-all;
+}
+.setup {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+}
+.setup pre, pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    font-family: var(--font-mono);
+}
+code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: var(--surface-2);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+}
+pre code { background: none; padding: 0; }
+
+.auth { text-align: center; margin: 4rem auto; }
+
+/* Theme switcher control */
+.theme-switch { display: flex; align-items: center; gap: 0.4rem; }
+.theme-switch select { width: auto; margin: 0; padding: 0.3rem 0.5rem; font-size: 0.85rem; }

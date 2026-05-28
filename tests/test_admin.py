@@ -91,6 +91,50 @@ async def test_admin_creates_game_via_api(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_create_game_via_web_form(client, reset_db):
+    """The browser posts a UTC ISO string (from datetime-local JS conversion)."""
+    admin = await _seed_user(reset_db, "admin@test.com")
+    future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
+        "%Y-%m-%dT%H:%M:00.000Z"
+    )
+    r = await client.post(
+        "/admin/games/new",
+        data={
+            "name": "Web Night",
+            "scheduled_start": future,
+            "min_players": "3",
+            "max_players": "10",
+            "per_turn_deadline_seconds": "60",
+        },
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303  # redirect on success
+
+
+@pytest.mark.asyncio
+async def test_web_form_rejects_past_time(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    past = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime(
+        "%Y-%m-%dT%H:%M:00.000Z"
+    )
+    r = await client.post(
+        "/admin/games/new",
+        data={
+            "name": "Past",
+            "scheduled_start": past,
+            "min_players": "3",
+            "max_players": "10",
+            "per_turn_deadline_seconds": "60",
+        },
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+    assert "must be in the future" in r.text
+
+
+@pytest.mark.asyncio
 async def test_admin_cancel_pre_start(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     async with reset_db() as db:

@@ -5,7 +5,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from app.config import settings
@@ -18,7 +17,7 @@ from app.models.strategy_prompt import StrategyPrompt
 from app.models.user import User
 
 router = APIRouter(tags=["web"])
-templates = Jinja2Templates(directory="app/templates")
+from app.templating import templates  # shared instance with custom filters
 
 
 async def _player_count(db, game_id: str) -> int:

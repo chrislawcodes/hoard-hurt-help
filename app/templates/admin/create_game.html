@@ -1,17 +1,68 @@
 {% extends "base.html" %}
 {% block title %}Create Game — Admin{% endblock %}
 {% block content %}
-<a href="/admin">← Admin</a>
+<p><a href="/admin">← Admin</a></p>
 <h1>Create Game</h1>
-<form method="post" action="/admin/games/new">
-    <label>Name <input type="text" name="name" required maxlength="255"></label>
-    <label>Scheduled start (ISO 8601 UTC, e.g. 2026-12-25T20:00:00Z)
-        <input type="text" name="scheduled_start" required placeholder="2026-12-25T20:00:00Z">
+
+<form method="post" action="/admin/games/new" id="create-game-form" class="card form">
+    <label>
+        Game name
+        <input type="text" name="name" required maxlength="255" placeholder="Friday Night Fights">
     </label>
-    <label>Min players <input type="number" name="min_players" value="3" min="3" max="100"></label>
-    <label>Max players <input type="number" name="max_players" value="100" min="3" max="100"></label>
-    <label>Per-turn deadline (seconds) <input type="number" name="per_turn_deadline_seconds" value="60" min="5" max="600"></label>
+
+    <label>
+        Scheduled start
+        <input type="datetime-local" id="start-local" required>
+    </label>
+    <p class="hint" id="tz-note"></p>
+    <input type="hidden" name="scheduled_start" id="start-iso">
+
+    <div class="form-row">
+        <label>
+            Min players
+            <input type="number" name="min_players" value="3" min="3" max="100">
+        </label>
+        <label>
+            Max players
+            <input type="number" name="max_players" value="100" min="3" max="100">
+        </label>
+        <label>
+            Per-turn deadline (seconds)
+            <input type="number" name="per_turn_deadline_seconds" value="60" min="5" max="600">
+        </label>
+    </div>
+
     {% if error %}<p class="error">{{ error }}</p>{% endif %}
-    <button type="submit">Create</button>
+    <button type="submit">Create game</button>
 </form>
+
+<script>
+(function () {
+    const local = document.getElementById('start-local');
+    const iso = document.getElementById('start-iso');
+    const tzNote = document.getElementById('tz-note');
+    const form = document.getElementById('create-game-form');
+
+    const pad = n => String(n).padStart(2, '0');
+    const toLocalInputValue = d =>
+        d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+        + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+    // Tell the admin which timezone they're entering.
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    tzNote.textContent = 'Enter the time in your local timezone (' + tz + '). Stored as UTC.';
+
+    // Default to 10 minutes from now; block past times.
+    const now = new Date();
+    local.min = toLocalInputValue(now);
+    if (!local.value) {
+        local.value = toLocalInputValue(new Date(now.getTime() + 10 * 60 * 1000));
+    }
+
+    // Convert local datetime to a UTC ISO string just before submit.
+    form.addEventListener('submit', function () {
+        if (local.value) iso.value = new Date(local.value).toISOString();
+    });
+})();
+</script>
 {% endblock %}

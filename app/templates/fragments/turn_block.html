@@ -3,7 +3,7 @@
     <ul>
         {% for a in turn.actions %}
         <li>
-            <strong>{{ a.agent_id }}</strong> → <strong>{{ a.action }}</strong>{% if a.target_id %} {{ a.target_id }}{% endif %}
+            <strong>{{ a.agent_id }}</strong> → <span class="act act-{{ a.action | lower }}">{{ a.action }}</span>{% if a.target_id %} {{ a.target_id }}{% endif %}
             {% if a.message %}<br>"{{ a.message }}"{% endif %}
             <small>({{ "%+d"|format(a.points_delta) }})</small>
         </li>

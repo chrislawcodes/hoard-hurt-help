@@ -1,0 +1,52 @@
+"""Shared Jinja2Templates instance with custom filters.
+
+All route modules import `templates` from here so filters are registered
+once in a single place.
+"""
+
+from datetime import datetime, timezone
+
+from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
+
+templates = Jinja2Templates(directory="app/templates")
+
+
+def _to_utc_iso(value: object) -> str | None:
+    """Normalize a datetime or ISO string to a UTC ISO-8601 string with Z.
+
+    We always store timestamps as UTC. SQLite may return them naive, so a
+    naive value is assumed to be UTC (correct given our storage contract).
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return value  # unparseable — show as-is
+    elif isinstance(value, datetime):
+        dt = value
+    else:
+        return str(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def localdt(value: object) -> Markup:
+    """Render a timestamp as a <time> element the browser localizes.
+
+    Outputs the UTC ISO value in the `datetime` attribute and as the text
+    content; client-side JS (in base.html) rewrites the text to the viewer's
+    local time. With JS off, the UTC value still shows.
+    """
+    iso = _to_utc_iso(value)
+    if iso is None:
+        return Markup("—")
+    return Markup(f'<time class="localtime" datetime="{iso}">{iso}</time>')
+
+
+templates.env.filters["localdt"] = localdt

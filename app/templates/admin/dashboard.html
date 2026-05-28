@@ -9,7 +9,7 @@
 
 <h2>Scheduled</h2>
 {% for g in scheduled_games %}
-<p><a href="/admin/games/{{ g.id }}">{{ g.name }}</a> · starts {{ g.scheduled_start }} · {{ g.player_count }}/{{ g.max_players }} registered
+<p><a href="/admin/games/{{ g.id }}">{{ g.name }}</a> · starts {{ g.scheduled_start | localdt }} · {{ g.player_count }}/{{ g.max_players }} registered
 <form method="post" action="/api/admin/games/{{ g.id }}/cancel" style="display:inline"><button type="submit">Cancel</button></form></p>
 {% else %}<p>None.</p>{% endfor %}
 

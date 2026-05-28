@@ -1,11 +1,10 @@
 """Admin HTML pages."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from app.deps import DbSession, require_admin
@@ -14,9 +13,9 @@ from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.user import User
+from app.templating import templates  # shared instance with custom filters
 
 router = APIRouter(tags=["admin"])
-templates = Jinja2Templates(directory="app/templates")
 
 
 async def _player_count(db, game_id: str) -> int:
@@ -87,15 +86,25 @@ async def create_game_submit(
     max_players: Annotated[int, Form()] = 100,
     per_turn_deadline_seconds: Annotated[int, Form()] = 60,
 ):
-    try:
-        when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
-    except ValueError:
+    def _error(msg: str):
         return templates.TemplateResponse(
             request,
             "admin/create_game.html",
-            {"user": user, "is_admin": True, "error": "Bad ISO timestamp."},
+            {"user": user, "is_admin": True, "error": msg},
             status_code=400,
         )
+
+    try:
+        when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
+    except ValueError:
+        return _error("Could not read the start time. Please pick a date and time.")
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    if when <= datetime.now(timezone.utc):
+        return _error("Start time must be in the future.")
+    if min_players > max_players:
+        return _error("Min players cannot be greater than max players.")
+
     existing_ids = (await db.execute(select(Game.id))).scalars().all()
     n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("G_")), default=0) + 1
     g = Game(

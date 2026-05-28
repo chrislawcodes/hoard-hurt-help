@@ -9,7 +9,7 @@
     <tr>
         <td>{{ row.game_id }}</td>
         <td>{{ row.agent_id }}</td>
-        <td>{{ row.created_at }}</td>
+        <td>{{ row.created_at | localdt }}</td>
         <td>{{ "yes" if row.is_default else "no" }}</td>
         <td><details><summary>view</summary><pre>{{ row.prompt }}</pre></details></td>
     </tr>
