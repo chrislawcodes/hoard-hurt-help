@@ -98,3 +98,28 @@ async def test_completed_viewer_has_timeline(client, reset_db):
     r = await client.get("/games/G_001")
     assert r.status_code == 200
     assert "timeline" in r.text  # scrubber script wired
+
+
+@pytest.mark.asyncio
+async def test_list_games_public(client, reset_db):
+    """GET /api/games returns a JSON list of all games."""
+    await _seed(reset_db, GameState.ACTIVE)
+    r = await client.get("/api/games")
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body, list)
+    assert len(body) == 1
+    assert body[0]["id"] == "G_001"
+    assert body[0]["state"] == "active"
+    assert body[0]["player_count"] == 1
+    assert "strategy_prompt" not in r.text  # no leak
+
+
+@pytest.mark.asyncio
+async def test_list_games_public_filter_by_state(client, reset_db):
+    await _seed(reset_db, GameState.COMPLETED)
+    r = await client.get("/api/games?state=active")
+    assert r.status_code == 200
+    assert r.json() == []
+    r2 = await client.get("/api/games?state=completed")
+    assert len(r2.json()) == 1

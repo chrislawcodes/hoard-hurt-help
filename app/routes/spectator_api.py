@@ -12,10 +12,47 @@ from app.models.turn import Turn, TurnSubmission
 from app.schemas.agent import HistoryAction, HistoryTurn, ScoreboardRow
 from app.schemas.spectator import SpectatorAgent, SpectatorState
 
-router = APIRouter(prefix="/api/spectator/games/{game_id}", tags=["spectator"])
+router = APIRouter(tags=["spectator"])
 
 
-@router.get("/state", response_model=SpectatorState)
+@router.get("/api/games")
+async def list_games_public(
+    db: DbSession,
+    state: str | None = None,
+) -> list[dict]:
+    """Public list of games. Filterable by `state` query param.
+
+    Excludes strategy prompts. Returned in scheduled_start desc order.
+    """
+    q = select(Game).order_by(Game.scheduled_start.desc())
+    if state:
+        q = q.where(Game.state == state)
+    games = (await db.execute(q)).scalars().all()
+    out = []
+    for g in games:
+        player_count = len(
+            (await db.execute(select(Player).where(Player.game_id == g.id))).scalars().all()
+        )
+        out.append(
+            {
+                "id": g.id,
+                "name": g.name,
+                "state": g.state.value,
+                "scheduled_start": g.scheduled_start.isoformat(),
+                "started_at": g.started_at.isoformat() if g.started_at else None,
+                "completed_at": g.completed_at.isoformat() if g.completed_at else None,
+                "min_players": g.min_players,
+                "max_players": g.max_players,
+                "per_turn_deadline_seconds": g.per_turn_deadline_seconds,
+                "current_round": g.current_round,
+                "current_turn": g.current_turn,
+                "player_count": player_count,
+            }
+        )
+    return out
+
+
+@router.get("/api/spectator/games/{game_id}/state", response_model=SpectatorState)
 async def public_state(
     game_id: Annotated[str, Path()],
     db: DbSession,
