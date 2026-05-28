@@ -11,7 +11,7 @@ The three documents in this repo are the source of truth for the project. Read t
 | Document | What it is |
 |---|---|
 | [DESIGN.md](DESIGN.md) | The decisions and rationale. Every major choice with a one-line "why." |
-| [SPEC.md](SPEC.md) | The technical reference. HTTP API, database schema, rules text, turn-resolution algorithm, MCP server design, Google OAuth flow, file layout. Self-contained for an implementer. |
+| [specs/001-hoard-hurt-help-v1/spec.md](specs/001-hoard-hurt-help-v1/spec.md) | The technical reference. HTTP API, database schema, rules text, turn-resolution algorithm, MCP server design, Google OAuth flow, file layout. Self-contained for an implementer. |
 | [UI.md](UI.md) | Text wireframes for every page in v1. |
 
 ## Status
