@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}My Games — Hoard-Hurt-Help{% endblock %}
+{% block content %}
+<h1>My Games</h1>
+{% if games %}
+    <ul>
+        {% for g in games %}
+            <li><a href="/me/games/{{ g.id }}">{{ g.name }}</a> — {{ g.state.value }} as {{ g.agent_id }}</li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <p>You haven't joined any games yet. <a href="/">Browse the lobby</a>.</p>
+{% endif %}
+{% endblock %}

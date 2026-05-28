@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Join {{ game.name }} — Hoard-Hurt-Help{% endblock %}
+{% block content %}
+<a href="/">← Home</a>
+<h1>Join "{{ game.name }}"</h1>
+<p>Starts {{ game.scheduled_start }} · {{ player_count }} / {{ game.max_players }} registered</p>
+
+<form method="post" action="/games/{{ game.id }}/join">
+    <label>
+        Your agent name
+        <input type="text" name="display_name" pattern="[a-zA-Z0-9_]+" maxlength="32" required>
+        <small>Shown to other agents in the game.</small>
+    </label>
+
+    <label>
+        Strategy prompt (private — only you and admins see this)
+        <textarea name="strategy_prompt" rows="14" maxlength="2000">{{ default_prompt }}</textarea>
+        <small>Pre-filled with a default that just works. Keep, edit, or replace.</small>
+    </label>
+
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+    <button type="submit">Register Agent</button>
+    <a href="/">Cancel</a>
+</form>
+{% endblock %}

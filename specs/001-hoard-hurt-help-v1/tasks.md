@@ -160,21 +160,21 @@
 
 **Independent test**: `pytest tests/test_lobby.py` green; manual run-through per quickstart.md US-3.
 
-- [ ] T063 [US3, P: tests/test_lobby.py] Tests for: public lobby renders upcoming + active + recent games; join requires sign-in; join form pre-fills `DEFAULT_STRATEGY_PROMPT`; join after start returns 409; join when full returns 409; dashboard shows agent_key only once (re-render does not re-show).
-- [ ] T064 [US3, P: app/routes/web.py] `GET /` — public lobby page.
-- [ ] T065 [US3, P: app/templates/home.html] Lobby template per UI.md Page 1.
-- [ ] T066 [US3, P: app/templates/fragments/lobby_list.html] HTMX partial for the three game sections.
-- [ ] T067 [US3, P: app/routes/web.py] `GET /games/{game_id}/join` — renders join form, redirects to OAuth if not signed in.
-- [ ] T068 [US3, P: app/templates/join.html] Join form per UI.md Page 3.
-- [ ] T069 [US3, P: app/routes/web.py] `POST /games/{game_id}/join` — creates Player + StrategyPrompt via the same path as agent join, sets session cookie association, redirects to `/me/games/{game_id}`.
-- [ ] T070 [US3, P: app/routes/web.py] `GET /me/games` — list of games this Google user has joined.
-- [ ] T071 [US3, P: app/templates/my_games.html] My-games template.
-- [ ] T072 [US3, P: app/routes/web.py] `GET /me/games/{game_id}` — per-game dashboard.
-- [ ] T073 [US3, P: app/templates/connection.html] Dashboard template per UI.md Page 4 (the "pick your AI" version, with MCP/ChatGPT/Other panels — Phase 6 fills in the real commands).
-- [ ] T074 [US3, P: app/routes/web.py] `POST /me/games/{game_id}/strategy` — update strategy prompt; pre-start only.
-- [ ] T075 [US3, P: app/routes/web.py] `POST /me/games/{game_id}/leave` — pre-start leave from browser.
-- [ ] T076 [US3] Mount `web` router in `app/main.py`.
-- [ ] T077 [US3] Confirm `pytest tests/test_lobby.py` green.
+- [X] T063 [US3, P: tests/test_lobby.py] Tests for: public lobby renders upcoming + active + recent games; join requires sign-in; join form pre-fills `DEFAULT_STRATEGY_PROMPT`; join after start returns 409; join when full returns 409; dashboard shows agent_key only once (re-render does not re-show).
+- [X] T064 [US3, P: app/routes/web.py] `GET /` — public lobby page.
+- [X] T065 [US3, P: app/templates/home.html] Lobby template per UI.md Page 1.
+- [X] T066 [US3, P: app/templates/fragments/lobby_list.html] HTMX partial for the three game sections.
+- [X] T067 [US3, P: app/routes/web.py] `GET /games/{game_id}/join` — renders join form, redirects to OAuth if not signed in.
+- [X] T068 [US3, P: app/templates/join.html] Join form per UI.md Page 3.
+- [X] T069 [US3, P: app/routes/web.py] `POST /games/{game_id}/join` — creates Player + StrategyPrompt via the same path as agent join, sets session cookie association, redirects to `/me/games/{game_id}`.
+- [X] T070 [US3, P: app/routes/web.py] `GET /me/games` — list of games this Google user has joined.
+- [X] T071 [US3, P: app/templates/my_games.html] My-games template.
+- [X] T072 [US3, P: app/routes/web.py] `GET /me/games/{game_id}` — per-game dashboard.
+- [X] T073 [US3, P: app/templates/connection.html] Dashboard template per UI.md Page 4 (the "pick your AI" version, with MCP/ChatGPT/Other panels — Phase 6 fills in the real commands).
+- [X] T074 [US3, P: app/routes/web.py] `POST /me/games/{game_id}/strategy` — update strategy prompt; pre-start only.
+- [X] T075 [US3, P: app/routes/web.py] `POST /me/games/{game_id}/leave` — pre-start leave from browser.
+- [X] T076 [US3] Mount `web` router in `app/main.py`.
+- [X] T077 [US3] Confirm `pytest tests/test_lobby.py` green.
 
 **Checkpoint**: US-3 complete. A human can complete the full onboarding flow.
 

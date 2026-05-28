@@ -9,7 +9,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.engine.scheduler import registry as scheduler_registry
-from app.routes import agent_api, auth as auth_routes
+from app.routes import agent_api, auth as auth_routes, web as web_routes
 
 
 def create_app() -> FastAPI:
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.include_router(auth_routes.router)
     app.include_router(agent_api.router)
+    app.include_router(web_routes.router)
 
     @app.on_event("startup")
     async def _resume_games_on_startup() -> None:

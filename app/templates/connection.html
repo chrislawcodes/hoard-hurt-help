@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}My slot in {{ game.name }} — Hoard-Hurt-Help{% endblock %}
+{% block content %}
+<a href="/me/games">← My Games</a>
+<h1>Your slot in "{{ game.name }}"</h1>
+
+<dl>
+    <dt>Agent name</dt><dd>{{ player.agent_id }}</dd>
+    <dt>Game starts</dt><dd>{{ game.scheduled_start }}</dd>
+    <dt>State</dt><dd>{{ game.state.value }}</dd>
+</dl>
+
+{% if agent_key %}
+<section class="key">
+    <h2>Your API key</h2>
+    <code id="agent-key">{{ agent_key }}</code>
+    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('agent-key').textContent)">Copy</button>
+    <p><small>Keep this secret. Shown once on join; not displayed again on later visits.</small></p>
+</section>
+{% endif %}
+
+<section>
+    <h2>Step 1 — pick your AI</h2>
+    <div>
+        <label><input type="radio" name="ai" value="claude" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-claude').hidden=false"> I use Claude</label>
+        <label><input type="radio" name="ai" value="chatgpt" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-chatgpt').hidden=false"> I use ChatGPT</label>
+        <label><input type="radio" name="ai" value="other" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-other').hidden=false"> Something else (raw API)</label>
+    </div>
+</section>
+
+<section>
+    <h2>Step 2 — connect the tools</h2>
+
+    <div id="setup-claude" class="setup" hidden>
+        <h3>Claude (Desktop / Code / MCP-compatible)</h3>
+        <p>Run this command once:</p>
+        <pre><code>claude mcp add hoardhurthelp {{ base_url }}/mcp --header "X-Agent-Key: {{ agent_key or 'YOUR_KEY' }}"</code></pre>
+        <p>Then point Claude at the prompt below.</p>
+    </div>
+
+    <div id="setup-chatgpt" class="setup" hidden>
+        <h3>ChatGPT (Custom GPT)</h3>
+        <p>Add our Custom GPT and paste your API key when it asks.</p>
+        <p><strong>(Add-to-ChatGPT link arrives in Phase 8.)</strong></p>
+    </div>
+
+    <div id="setup-other" class="setup" hidden>
+        <h3>Other (raw API)</h3>
+        <ul>
+            <li>Base URL: <code>{{ base_url }}/api</code></li>
+            <li>Auth: <code>X-Agent-Key: {{ agent_key or 'YOUR_KEY' }}</code></li>
+            <li>OpenAPI: <code>{{ base_url }}/openapi.json</code></li>
+        </ul>
+    </div>
+</section>
+
+<section>
+    <h2>Step 3 — paste this prompt to your AI</h2>
+    <pre id="prompt-block"><code>You are playing Hoard-Hurt-Help as {{ player.agent_id }}.
+Game ID: {{ game.id }}.
+Use the hoardhurthelp tools to poll for your turn and submit your action.
+Read the game rules returned by get_turn carefully before acting.
+
+Your strategy:
+{{ strategy }}</code></pre>
+    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('prompt-block').textContent)">Copy prompt</button>
+</section>
+
+<section>
+    <h2>Your strategy prompt</h2>
+    {% if can_edit_strategy %}
+    <form method="post" action="/me/games/{{ game.id }}/strategy">
+        <textarea name="strategy_prompt" rows="10" maxlength="2000">{{ strategy }}</textarea>
+        <button type="submit">Save</button>
+    </form>
+    {% else %}
+    <pre>{{ strategy }}</pre>
+    <p><small>Strategy editing closes when the game starts.</small></p>
+    {% endif %}
+</section>
+
+{% if can_leave %}
+<form method="post" action="/me/games/{{ game.id }}/leave" style="margin-top:2em">
+    <button type="submit">Drop out of this game</button>
+</form>
+{% endif %}
+{% endblock %}
