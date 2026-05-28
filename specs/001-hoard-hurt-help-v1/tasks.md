@@ -139,16 +139,16 @@
 
 **Independent test**: a `curl` script can complete one turn of a real local game; `pytest tests/test_agent_api.py` green.
 
-- [ ] T053 [US2, P: tests/test_agent_api.py] Tests for join happy path, key issuance, validation errors (duplicate display_name, prompt too long, game not registering).
-- [ ] T054 [US2, P: tests/test_agent_api.py] Tests for `GET /turn` returning each of the 5 status shapes.
-- [ ] T055 [US2, P: tests/test_agent_api.py] Tests for `POST /submit` happy path + every spec §10 error code (`INVALID_TURN_TOKEN`, `INVALID_TARGET`, `ALREADY_SUBMITTED`, `GAME_NOT_ACTIVE`, `RATE_LIMITED`, `DEADLINE_PASSED`).
-- [ ] T056 [US2, P: app/routes/agent_api.py] `POST /api/games/{game_id}/join` — creates Player + StrategyPrompt rows, issues fresh agent key, returns it once.
-- [ ] T057 [US2, P: app/routes/agent_api.py] `GET /api/games/{game_id}/turn` — returns shape matching contracts/api.yaml; enforces 1s minimum poll interval via per-key in-memory rate limiter.
-- [ ] T058 [US2, P: app/routes/agent_api.py] `POST /api/games/{game_id}/submit` — validates body, checks turn_token + deadline + duplicate-submission, persists `TurnSubmission` row; idempotent on `(turn_token, player_id)`.
-- [ ] T059 [US2, P: app/routes/agent_api.py] `GET /api/games/{game_id}/state` — agent-flavored snapshot.
-- [ ] T060 [US2, P: app/routes/agent_api.py] `POST /api/games/{game_id}/leave` — pre-start drop only; returns 409 after `state == active`.
-- [ ] T061 [US2] Mount `agent_api` router in `app/main.py`.
-- [ ] T062 [US2] Confirm `pytest tests/test_agent_api.py` green.
+- [X] T053 [US2, P: tests/test_agent_api.py] Tests for join happy path, key issuance, validation errors (duplicate display_name, prompt too long, game not registering).
+- [X] T054 [US2, P: tests/test_agent_api.py] Tests for `GET /turn` returning each of the 5 status shapes.
+- [X] T055 [US2, P: tests/test_agent_api.py] Tests for `POST /submit` happy path + every spec §10 error code (`INVALID_TURN_TOKEN`, `INVALID_TARGET`, `ALREADY_SUBMITTED`, `GAME_NOT_ACTIVE`, `RATE_LIMITED`, `DEADLINE_PASSED`).
+- [X] T056 [US2, P: app/routes/agent_api.py] `POST /api/games/{game_id}/join` — creates Player + StrategyPrompt rows, issues fresh agent key, returns it once.
+- [X] T057 [US2, P: app/routes/agent_api.py] `GET /api/games/{game_id}/turn` — returns shape matching contracts/api.yaml; enforces 1s minimum poll interval via per-key in-memory rate limiter.
+- [X] T058 [US2, P: app/routes/agent_api.py] `POST /api/games/{game_id}/submit` — validates body, checks turn_token + deadline + duplicate-submission, persists `TurnSubmission` row; idempotent on `(turn_token, player_id)`.
+- [X] T059 [US2, P: app/routes/agent_api.py] `GET /api/games/{game_id}/state` — agent-flavored snapshot.
+- [X] T060 [US2, P: app/routes/agent_api.py] `POST /api/games/{game_id}/leave` — pre-start drop only; returns 409 after `state == active`.
+- [X] T061 [US2] Mount `agent_api` router in `app/main.py`.
+- [X] T062 [US2] Confirm `pytest tests/test_agent_api.py` green.
 
 **Checkpoint**: US-2 complete. A `curl` user can play.
 
