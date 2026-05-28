@@ -32,7 +32,6 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         .scalars()
         .all()
     )
-    by_id: dict[int, Player] = {p.id: p for p in players}
 
     # Materialize submissions, defaulting missing ones to HOARD.
     submissions: list[TurnSubmission] = (

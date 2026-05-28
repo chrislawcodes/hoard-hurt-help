@@ -3,7 +3,6 @@
 Mocks the Google OAuth dance — we don't actually call Google in tests.
 """
 
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select

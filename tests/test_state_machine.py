@@ -3,7 +3,6 @@
 import pytest
 
 from app.engine.state_machine import (
-    ALLOWED,
     TransitionError,
     allowed_transitions,
     assert_transition,

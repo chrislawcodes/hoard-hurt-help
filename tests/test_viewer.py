@@ -1,11 +1,10 @@
 """Game viewer + SSE + spectator API tests."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.broadcast import publish
 from app.main import app
 from app.models import Base, Game, GameState, Player, StrategyPrompt, User
 
@@ -95,9 +94,50 @@ async def test_spectator_state_no_prompts(client, reset_db):
 @pytest.mark.asyncio
 async def test_completed_viewer_has_timeline(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
+    # A completed game needs at least one resolved turn for the scrubber to show.
+    async with reset_db() as db:
+        from app.models import Player, Turn, TurnSubmission
+
+        p = (await db.execute(__import__("sqlalchemy").select(Player))).scalars().first()
+        t = Turn(
+            game_id="G_001",
+            round=1,
+            turn=1,
+            turn_token="tk1",
+            opened_at=datetime.now(timezone.utc),
+            deadline_at=datetime.now(timezone.utc),
+            resolved_at=datetime.now(timezone.utc),
+        )
+        db.add(t)
+        await db.flush()
+        db.add(
+            TurnSubmission(
+                turn_id=t.id,
+                player_id=p.id,
+                action="HOARD",
+                message="hi",
+                points_delta=2,
+                round_score_after=2,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
     r = await client.get("/games/G_001")
     assert r.status_code == 200
     assert "timeline" in r.text  # scrubber script wired
+
+
+@pytest.mark.asyncio
+async def test_guide_serves_doc(client, reset_db):
+    r = await client.get("/guide/setup-claude")
+    assert r.status_code == 200
+    assert "claude mcp add" in r.text
+
+
+@pytest.mark.asyncio
+async def test_guide_rejects_unknown_and_traversal(client, reset_db):
+    assert (await client.get("/guide/nonexistent")).status_code == 404
+    assert (await client.get("/guide/..%2f..%2fetc%2fpasswd")).status_code == 404
 
 
 @pytest.mark.asyncio

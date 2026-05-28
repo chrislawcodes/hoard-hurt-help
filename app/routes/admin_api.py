@@ -11,7 +11,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, require_admin
-from app.engine.scheduler import registry as scheduler_registry
 from app.engine.tokens import generate_game_id
 from app.models.game import Game, GameState
 from app.models.player import Player

@@ -4,14 +4,10 @@ Routes and middleware are added by each phase.
 """
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -27,12 +23,37 @@ from app.routes import (
     web as web_routes,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
 
 def create_app() -> FastAPI:
+    # Resolve the MCP sub-app up front. Its Starlette lifespan starts the
+    # streamable-HTTP session manager, and a mounted ASGI app's lifespan is
+    # NOT run by the parent automatically — we have to drive it ourselves
+    # below, or every MCP session dies with "Session terminated".
+    try:
+        from mcp_server.server import asgi_app as mcp_asgi_app
+    except Exception:
+        # MCP SDK not importable in this env — skip mounting.
+        mcp_asgi_app = None
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        await scheduler_registry.resume_active_games_on_startup()
+        if mcp_asgi_app is not None:
+            async with mcp_asgi_app.router.lifespan_context(app):
+                yield
+        else:
+            yield
+
     app = FastAPI(
         title="Hoard-Hurt-Help",
         version="0.1.0",
         description="Multiplayer Prisoner's Dilemma for LLM agents",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -52,19 +73,8 @@ def create_app() -> FastAPI:
     app.include_router(sse_routes.router)
     app.include_router(spectator_api.router)
 
-    # Mount the MCP server at /mcp. Import inside create_app so tests that
-    # bypass the MCP transport can still build the app.
-    try:
-        from mcp_server.server import asgi_app as mcp_asgi_app
-
+    if mcp_asgi_app is not None:
         app.mount("/mcp", mcp_asgi_app, name="mcp")
-    except Exception:
-        # MCP SDK not importable in this env — skip mounting.
-        pass
-
-    @app.on_event("startup")
-    async def _resume_games_on_startup() -> None:
-        await scheduler_registry.resume_active_games_on_startup()
 
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:

@@ -6,10 +6,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db import SessionLocal, engine as production_engine
-from app.engine.scheduler import registry as scheduler_registry
 from app.main import app
-from app.models import Base, Game, GameState, Player, Turn, TurnSubmission, User
+from app.models import Base, Game, GameState, Player, Turn, User
 from app.engine.tokens import generate_turn_token
 
 

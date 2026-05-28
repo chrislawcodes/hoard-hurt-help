@@ -5,18 +5,23 @@ Hosted at /mcp on the same FastAPI app. Three tools:
 - submit_action(game_id, action, target_id, message, turn_token): submit
 - get_game_state(game_id): public snapshot
 
-The X-Agent-Key header is configured at install time by the player and
-flows through every tool call automatically.
+Auth: the player sets the `X-Agent-Key` header on the MCP connection itself
+(Hermes `config.yaml` `headers:`, `claude mcp add --header`, etc.). The
+authenticated tools read that header off each request's context, so the key
+stays in the client config and never has to appear in the chat prompt.
 """
 
 from typing import Any
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 
 from app.config import settings
 
-mcp_app = FastMCP("hoardhurthelp")
+# streamable_http_path="/" so that when app.main mounts this whole app at
+# "/mcp", the real endpoint is exactly "/mcp" (not "/mcp/mcp", which is what
+# the default inner path of "/mcp" would produce under the mount).
+mcp_app = FastMCP("hoardhurthelp", streamable_http_path="/")
 
 
 def _client() -> httpx.AsyncClient:
@@ -31,19 +36,40 @@ def _headers(agent_key: str) -> dict[str, str]:
     return {"X-Agent-Key": agent_key, "Content-Type": "application/json"}
 
 
+def _agent_key_from_ctx(ctx: Context) -> str:
+    """Pull the per-game key off the MCP connection's HTTP headers.
+
+    For the streamable-HTTP transport the SDK sets `request_context.request`
+    to the Starlette request for each tool-call POST, so the `X-Agent-Key`
+    header the client was configured with rides along on every call.
+    """
+    request = getattr(ctx.request_context, "request", None)
+    key = request.headers.get("x-agent-key") if request is not None else None
+    if not key:
+        raise RuntimeError(
+            "Missing X-Agent-Key. Set it as a header on the MCP connection — e.g. "
+            "Hermes config.yaml `headers: {X-Agent-Key: sk_game_...}` or "
+            'claude mcp add hoardhurthelp <url> --header "X-Agent-Key: sk_game_...".'
+        )
+    return key
+
+
 @mcp_app.tool()
-async def get_turn(game_id: str, agent_key: str) -> dict[str, Any]:
+async def get_turn(game_id: str, ctx: Context) -> dict[str, Any]:
     """Poll for the current turn.
+
+    Your key is read from the connection's X-Agent-Key header — do not ask the
+    user for it and do not pass it as an argument.
 
     Args:
         game_id: The game identifier (e.g. "G_001").
-        agent_key: Your per-game agent key (sk_game_...).
 
     Returns:
         The turn payload. Key fields: `status` (waiting / your_turn / game_completed),
         `static` (rules + game info, identical across all turns), `dynamic` (scoreboard,
         history, deadline, turn_token).
     """
+    agent_key = _agent_key_from_ctx(ctx)
     async with _client() as c:
         r = await c.get(f"/api/games/{game_id}/turn", headers=_headers(agent_key))
         return _unwrap(r)
@@ -52,17 +78,19 @@ async def get_turn(game_id: str, agent_key: str) -> dict[str, Any]:
 @mcp_app.tool()
 async def submit_action(
     game_id: str,
-    agent_key: str,
     action: str,
     target_id: str | None,
     message: str,
     turn_token: str,
+    ctx: Context,
 ) -> dict[str, Any]:
     """Submit your action for the current turn.
 
+    Your key is read from the connection's X-Agent-Key header — do not ask the
+    user for it and do not pass it as an argument.
+
     Args:
         game_id: The game identifier.
-        agent_key: Your per-game agent key.
         action: One of "HOARD", "HELP", "HURT".
         target_id: The other agent's ID. Required for HELP and HURT, null for HOARD.
         message: Your public message to other agents this turn.
@@ -71,6 +99,7 @@ async def submit_action(
     Returns:
         Acceptance confirmation with received_at and turn_will_resolve_at.
     """
+    agent_key = _agent_key_from_ctx(ctx)
     body = {
         "turn_token": turn_token,
         "action": action,

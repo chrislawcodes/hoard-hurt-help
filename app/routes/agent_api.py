@@ -10,7 +10,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlalchemy import select
 
-from app.config import settings
 from app.deps import DbSession, require_agent_key
 from app.engine.rules import RULES_TEXT_V1, RULES_VERSION
 from app.engine.tokens import generate_agent_key, hash_agent_key

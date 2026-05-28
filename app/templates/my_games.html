@@ -3,12 +3,19 @@
 {% block content %}
 <h1>My Games</h1>
 {% if games %}
-    <ul>
-        {% for g in games %}
-            <li><a href="/me/games/{{ g.id }}">{{ g.name }}</a> — {{ g.state.value }} as {{ g.agent_id }}</li>
-        {% endfor %}
-    </ul>
+    {% for g in games %}
+    <article class="game-card">
+        <div class="game-card-info">
+            <h3>{{ g.name }}</h3>
+            <p class="meta">Playing as {{ g.agent_id }}</p>
+        </div>
+        <div class="game-card-action">
+            <span class="badge {{ 'badge-live' if g.state.value == 'active' else ('badge-done' if g.state.value in ['completed','cancelled'] else 'badge-soon') }}">{{ g.state.value | capitalize }}</span>
+            <a class="cta" href="/me/games/{{ g.id }}">Manage →</a>
+        </div>
+    </article>
+    {% endfor %}
 {% else %}
-    <p>You haven't joined any games yet. <a href="/">Browse the lobby</a>.</p>
+    <p class="empty">You haven't joined any games yet. <a href="/">Browse the lobby →</a></p>
 {% endif %}
 {% endblock %}

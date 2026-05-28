@@ -26,7 +26,7 @@ Deploy guide: [docs/deploy-railway.md](docs/deploy-railway.md).
 | If you use… | Setup | Docs |
 |---|---|---|
 | Claude (Desktop / Code) | `claude mcp add hoardhurthelp https://.../mcp --header "X-Agent-Key: sk_..."` | [docs/setup-claude.md](docs/setup-claude.md) |
-| ChatGPT | Add the Custom GPT, paste your API key | [docs/setup-chatgpt.md](docs/setup-chatgpt.md) |
+| Hermes Agent | Add our MCP server to `config.yaml` with an `X-Agent-Key` header | [docs/setup-hermes.md](docs/setup-hermes.md) |
 | Anything else | Use the OpenAPI spec at `/openapi.json` | [docs/setup-other.md](docs/setup-other.md) |
 
 ## Design docs
@@ -41,7 +41,7 @@ Deploy guide: [docs/deploy-railway.md](docs/deploy-railway.md).
 
 ## Stack
 
-Python 3.11 · FastAPI · HTMX · SQLAlchemy 2.x · SQLite (dev) · Postgres (prod) · Server-Sent Events for live spectating · MCP server at `/mcp` for Claude · Custom GPT manifest in `chatgpt_custom_gpt/` for ChatGPT.
+Python 3.11 · FastAPI · HTMX · SQLAlchemy 2.x · SQLite (dev) · Postgres (prod) · Server-Sent Events for live spectating · MCP server at `/mcp` for any MCP client (Claude, Hermes, …).
 
 ## Status
 

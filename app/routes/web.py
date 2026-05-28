@@ -1,6 +1,8 @@
 """HTMX-served web routes: lobby, join, my games, per-game dashboard."""
 
+import re
 from datetime import datetime, timezone
+from pathlib import Path as FsPath
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
@@ -15,9 +17,9 @@ from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.user import User
+from app.templating import templates  # shared instance with custom filters
 
 router = APIRouter(tags=["web"])
-from app.templating import templates  # shared instance with custom filters
 
 
 async def _player_count(db, game_id: str) -> int:
@@ -76,12 +78,10 @@ async def home(request: Request, db: DbSession):
     )
 
 
-@router.get("/games/{game_id}", response_class=HTMLResponse)
-async def game_viewer(
-    game_id: Annotated[str, Path()],
-    request: Request,
-    db: DbSession,
-):
+async def _game_view_context(request: Request, db, game_id: str) -> dict:
+    """Build the shared context for the game viewer page and its live fragment."""
+    from app.models.turn import Turn, TurnSubmission
+
     user = await get_current_user(request, db)
     g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
     if g is None:
@@ -90,16 +90,20 @@ async def game_viewer(
         (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
     )
     players_by_id = {p.id: p for p in players}
-    scoreboard = [
-        {
-            "agent_id": p.agent_id,
-            "round_score": p.current_round_score,
-            "round_wins": p.total_round_wins,
-        }
-        for p in players
-    ]
-    # Build history.
-    from app.models.turn import Turn, TurnSubmission
+
+    scoreboard = sorted(
+        (
+            {
+                "agent_id": p.agent_id,
+                "round_score": p.current_round_score,
+                "round_wins": p.total_round_wins,
+            }
+            for p in players
+        ),
+        key=lambda r: (-r["round_wins"], -r["round_score"]),
+    )
+    for i, row in enumerate(scoreboard, start=1):
+        row["rank"] = i
 
     turns = (
         (
@@ -113,7 +117,7 @@ async def game_viewer(
         .all()
     )
     history = []
-    for t in turns:
+    for seq, t in enumerate(turns, start=1):
         subs = (
             (await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == t.id)))
             .scalars()
@@ -134,7 +138,7 @@ async def game_viewer(
                     "points_delta": s.points_delta,
                 }
             )
-        history.append({"round": t.round, "turn": t.turn, "actions": actions})
+        history.append({"seq": seq, "round": t.round, "turn": t.turn, "actions": actions})
 
     winner_agent_id = None
     if g.winner_player_id:
@@ -143,16 +147,58 @@ async def game_viewer(
         ).scalar_one_or_none()
         winner_agent_id = winner.agent_id if winner else None
 
+    return {
+        "user": user,
+        "is_admin": _is_admin(user),
+        "game": g,
+        "scoreboard": scoreboard,
+        "history": history,
+        "winner_agent_id": winner_agent_id,
+    }
+
+
+@router.get("/games/{game_id}", response_class=HTMLResponse)
+async def game_viewer(
+    game_id: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+):
+    ctx = await _game_view_context(request, db, game_id)
+    return templates.TemplateResponse(request, "game.html", ctx)
+
+
+@router.get("/games/{game_id}/live", response_class=HTMLResponse)
+async def game_live_fragment(
+    game_id: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+):
+    """Server-rendered live region. SSE events trigger the page to re-fetch this."""
+    ctx = await _game_view_context(request, db, game_id)
+    return templates.TemplateResponse(request, "fragments/live_region.html", ctx)
+
+
+_DOCS_DIR = FsPath("docs")
+_GUIDE_NAME = re.compile(r"^[a-z0-9-]+$")
+
+
+@router.get("/guide/{name}", response_class=HTMLResponse)
+async def guide(name: Annotated[str, Path()], request: Request, db: DbSession):
+    """Render a setup doc from docs/<name>.md inside the site chrome."""
+    if not _GUIDE_NAME.match(name):
+        raise HTTPException(404)
+    path = _DOCS_DIR / f"{name}.md"
+    if not path.is_file():
+        raise HTTPException(404)
+    user = await get_current_user(request, db)
     return templates.TemplateResponse(
         request,
-        "game.html",
+        "guide.html",
         {
             "user": user,
             "is_admin": _is_admin(user),
-            "game": g,
-            "scoreboard": scoreboard,
-            "history": history,
-            "winner_agent_id": winner_agent_id,
+            "title": name.replace("-", " ").title(),
+            "body": path.read_text(encoding="utf-8"),
         },
     )
 

@@ -1,0 +1,18 @@
+<div class="game-head">
+    {% include "fragments/game_status.html" %}
+</div>
+
+<div class="layout">
+    <aside class="scorepanel">
+        {% include "fragments/scoreboard.html" %}
+    </aside>
+    <section id="feed" class="feed">
+        {% if history %}
+            {% for turn in history | reverse %}
+                {% include "fragments/turn_block.html" %}
+            {% endfor %}
+        {% else %}
+            <p class="empty">No turns resolved yet. Waiting for the first move…</p>
+        {% endif %}
+    </section>
+</div>

@@ -7,7 +7,7 @@ materializes submissions, calls resolve_turn, then asserts the deltas.
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.resolver import resolve_turn, award_round_winners, finalize_game
 from app.engine.rules import DEFAULT_MISSED_MESSAGE

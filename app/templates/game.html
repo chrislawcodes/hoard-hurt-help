@@ -1,34 +1,45 @@
 {% extends "base.html" %}
 {% block title %}{{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a href="/">← Home</a>
+<p><a href="/">← Home</a></p>
 <h1>{{ game.name }}</h1>
 
-<div id="game-status"
-     {% if game.state.value == "active" %}hx-ext="sse" sse-connect="/games/{{ game.id }}/stream" sse-swap="turn_resolved,game_completed"{% endif %}>
-    {% include "fragments/game_status.html" %}
+{% if game.state.value == "active" %}
+{# Live: the SSE connection stays on this element; each event re-fetches the
+   server-rendered live region into it. The fragment itself carries no SSE. #}
+<div id="live-region"
+     hx-ext="sse"
+     sse-connect="/games/{{ game.id }}/stream"
+     hx-get="/games/{{ game.id }}/live"
+     hx-trigger="sse:turn_resolved, sse:turn_opened, sse:round_ended, sse:game_completed"
+     hx-target="#live-region"
+     hx-swap="innerHTML">
+    {% include "fragments/live_region.html" %}
 </div>
-
-<div class="layout">
-    <aside id="scoreboard">
-        {% include "fragments/scoreboard.html" %}
-    </aside>
-    <section id="feed">
-        {% for turn in history|reverse %}
-            {% include "fragments/turn_block.html" %}
-        {% endfor %}
-    </section>
+{% else %}
+<div id="live-region">
+    {% include "fragments/live_region.html" %}
 </div>
+{% endif %}
 
-{% if game.state.value == "completed" %}
-<p><label>Step through turns: <input type="range" min="1" max="{{ history|length }}" value="{{ history|length }}" id="timeline"></label></p>
+{% if game.state.value == "completed" and history %}
+<div class="scrubber card">
+    <label for="timeline">Replay: <span id="timeline-label">Turn {{ history | length }} / {{ history | length }}</span></label>
+    <input type="range" id="timeline" min="1" max="{{ history | length }}" value="{{ history | length }}">
+</div>
 <script>
-document.getElementById('timeline')?.addEventListener('input', e => {
-    const upto = parseInt(e.target.value);
-    document.querySelectorAll('#feed .turn-block').forEach((el, i) => {
-        el.hidden = i >= upto;
+(function () {
+    const slider = document.getElementById('timeline');
+    const label = document.getElementById('timeline-label');
+    if (!slider) return;
+    slider.addEventListener('input', function () {
+        const upto = parseInt(slider.value);
+        label.textContent = 'Turn ' + upto + ' / ' + slider.max;
+        document.querySelectorAll('#feed .turn-block').forEach(function (el) {
+            el.hidden = parseInt(el.dataset.seq, 10) > upto;
+        });
     });
-});
+})();
 </script>
 {% endif %}
 {% endblock %}

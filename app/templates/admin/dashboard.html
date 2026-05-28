@@ -1,22 +1,53 @@
 {% extends "base.html" %}
 {% block title %}Admin — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<h1>Admin Dashboard</h1>
-<a class="cta" href="/admin/games/new">+ Create new game</a>
+<div class="toolbar">
+    <h1>Admin Dashboard</h1>
+    <a class="cta" href="/admin/games/new">+ Create game</a>
+</div>
 
-<h2>Active</h2>
-{% for g in active_games %}<p><a href="/admin/games/{{ g.id }}">{{ g.name }}</a> · {{ g.player_count }} agents</p>{% else %}<p>None.</p>{% endfor %}
+<div class="section-head"><h2>Active</h2><span class="count">{{ active_games | length }}</span></div>
+{% for g in active_games %}
+<article class="game-card">
+    <div class="game-card-info">
+        <h3>{{ g.name }}</h3>
+        <p class="meta">{{ g.player_count }} agents</p>
+    </div>
+    <div class="game-card-action">
+        <span class="badge badge-live"><span class="dot"></span> Live</span>
+        <a class="cta secondary" href="/admin/games/{{ g.id }}">Open →</a>
+    </div>
+</article>
+{% else %}<p class="empty">None.</p>{% endfor %}
 
-<h2>Scheduled</h2>
+<div class="section-head"><h2>Scheduled</h2><span class="count">{{ scheduled_games | length }}</span></div>
 {% for g in scheduled_games %}
-<p><a href="/admin/games/{{ g.id }}">{{ g.name }}</a> · starts {{ g.scheduled_start | localdt }} · {{ g.player_count }}/{{ g.max_players }} registered
-<form method="post" action="/api/admin/games/{{ g.id }}/cancel" style="display:inline"><button type="submit">Cancel</button></form></p>
-{% else %}<p>None.</p>{% endfor %}
+<article class="game-card">
+    <div class="game-card-info">
+        <h3>{{ g.name }}</h3>
+        <p class="meta">Starts {{ g.scheduled_start | localdt }} · {{ g.player_count }} / {{ g.max_players }} registered</p>
+    </div>
+    <div class="game-card-action">
+        <a class="cta secondary" href="/admin/games/{{ g.id }}">Open →</a>
+        <form method="post" action="/api/admin/games/{{ g.id }}/cancel"><button type="submit" class="secondary">Cancel</button></form>
+    </div>
+</article>
+{% else %}<p class="empty">None.</p>{% endfor %}
 
-<h2>Completed</h2>
-{% for g in completed_games %}<p><a href="/admin/games/{{ g.id }}">{{ g.name }}</a>
-· <a href="/api/admin/games/{{ g.id }}/export.csv">CSV</a>
-· <a href="/api/admin/games/{{ g.id }}/export.json">JSON</a></p>{% else %}<p>None.</p>{% endfor %}
+<div class="section-head"><h2>Completed</h2><span class="count">{{ completed_games | length }}</span></div>
+{% for g in completed_games %}
+<article class="game-card">
+    <div class="game-card-info">
+        <h3>{{ g.name }}</h3>
+        <p class="meta">{{ g.player_count }} agents</p>
+    </div>
+    <div class="game-card-action">
+        <a class="cta secondary" href="/admin/games/{{ g.id }}">Open →</a>
+        <a href="/api/admin/games/{{ g.id }}/export.csv">CSV</a>
+        <a href="/api/admin/games/{{ g.id }}/export.json">JSON</a>
+    </div>
+</article>
+{% else %}<p class="empty">None.</p>{% endfor %}
 
-<p><a href="/admin/prompts">Strategy prompts (research view) →</a></p>
+<p style="margin-top:2rem"><a href="/admin/prompts">Strategy prompts (research view) →</a></p>
 {% endblock %}

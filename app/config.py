@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     )
 
     # Public-facing base URL of this deployment. Drives setup commands shown
-    # to players, OAuth redirect, Custom GPT manifest, etc.
+    # to players, the OAuth redirect, the MCP server URL, etc.
     base_url: str = Field(default="http://localhost:8000")
 
     # Database connection. SQLite for dev, Postgres on Railway.

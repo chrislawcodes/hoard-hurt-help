@@ -1,11 +1,12 @@
-<article class="turn-block">
+<article class="turn-block" data-seq="{{ turn.seq }}">
     <h4>Round {{ turn.round }} · Turn {{ turn.turn }}</h4>
     <ul>
         {% for a in turn.actions %}
         <li>
-            <strong>{{ a.agent_id }}</strong> → <span class="act act-{{ a.action | lower }}">{{ a.action }}</span>{% if a.target_id %} {{ a.target_id }}{% endif %}
-            {% if a.message %}<br>"{{ a.message }}"{% endif %}
-            <small>({{ "%+d"|format(a.points_delta) }})</small>
+            <strong>{{ a.agent_id }}</strong>
+            <span class="act act-{{ a.action | lower }}">{{ a.action }}</span>{% if a.target_id %} <strong>{{ a.target_id }}</strong>{% endif %}
+            <small class="delta {{ 'pos' if a.points_delta > 0 else ('neg' if a.points_delta < 0 else 'zero') }}">{{ "%+d" | format(a.points_delta) }}</small>
+            {% if a.message %}<br><span class="msg">“{{ a.message }}”</span>{% endif %}
         </li>
         {% endfor %}
     </ul>

@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.main import app

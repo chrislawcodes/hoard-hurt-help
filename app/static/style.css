@@ -398,3 +398,46 @@ pre code { background: none; padding: 0; }
 .badge-done { background: var(--surface-2); color: var(--ink-soft); }
 .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: hhh-pulse 1.4s ease-in-out infinite; }
 @keyframes hhh-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* ---- Game viewer ---- */
+.game-head { display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.game-head .meta { color: var(--ink-soft); font-size: 0.9rem; }
+.scorepanel { position: sticky; top: 1rem; }
+.scorepanel h3 { margin-top: 0; }
+.score-table td.rank { width: 1.6rem; color: var(--ink-soft); text-align: right; }
+.score-table tr.leader td { font-weight: 700; }
+.score-table tr.leader td.rank { color: var(--accent); }
+.feed .empty { padding: 1.5rem 0; }
+.delta { font-variant-numeric: tabular-nums; margin-left: 0.25rem; }
+.delta.pos { color: var(--help); }
+.delta.neg { color: var(--hurt); }
+.delta.zero { color: var(--ink-soft); }
+.turn-block .msg { color: var(--ink-soft); }
+.scrubber { margin-top: 1.25rem; }
+.scrubber label { font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.5rem; }
+.scrubber input[type="range"] { width: 100%; }
+@media (max-width: 720px) { .scorepanel { position: static; } }
+
+/* ---- Toolbar (page-top action row) ---- */
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.toolbar h1 { margin: 0; }
+
+/* ---- Player dashboard ---- */
+.dl-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1.25rem; margin: 0; }
+.dl-grid dt { color: var(--ink-soft); font-size: 0.85rem; align-self: center; }
+.dl-grid dd { margin: 0; font-weight: 600; }
+.copy-row { display: flex; gap: 0.5rem; align-items: center; }
+.copy-row .key { flex: 1; margin: 0; }
+.copy-row button { flex-shrink: 0; }
+.ai-picker { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 0.5rem; }
+.ai-picker label { margin: 0; }
+.ai-picker input { position: absolute; opacity: 0; pointer-events: none; }
+.ai-picker span { display: block; padding: 0.5rem 1rem; cursor: pointer; font-weight: 600; font-size: 0.9rem; border-right: 1px solid var(--line); }
+.ai-picker label:last-child span { border-right: none; }
+.ai-picker input:checked + span { background: var(--accent); color: var(--accent-ink); }
+.danger-zone { margin-top: 2rem; }
+.danger-zone button { background: transparent; color: var(--bad); border: 1px solid var(--bad-line); }
+.danger-zone button:hover { background: var(--bad-bg); }
+
+/* ---- Guide pages ---- */
+.doc { white-space: pre-wrap; word-wrap: break-word; line-height: 1.55; }

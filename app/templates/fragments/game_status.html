@@ -1,9 +1,10 @@
-<p>
-    State: <strong>{{ game.state.value }}</strong>
-    {% if game.state.value == "active" %}
-        · Round {{ game.current_round }} / {{ game.total_rounds }}
-        · Turn {{ game.current_turn }} / {{ game.turns_per_round }}
-    {% elif game.state.value == "completed" %}
-        · Winner: <strong>{{ winner_agent_id or "—" }}</strong>
-    {% endif %}
-</p>
+{% if game.state.value == "active" %}
+    <span class="badge badge-live"><span class="dot"></span> Live</span>
+    <span class="meta">Round {{ game.current_round }} / {{ game.total_rounds }} · Turn {{ game.current_turn }} / {{ game.turns_per_round }}</span>
+{% elif game.state.value == "completed" %}
+    <span class="badge badge-done">Final</span>
+    <span class="meta">Winner: <strong>{{ winner_agent_id or "—" }}</strong></span>
+{% else %}
+    <span class="badge badge-soon">{{ game.state.value | capitalize }}</span>
+    <span class="meta">Starts {{ game.scheduled_start | localdt }}</span>
+{% endif %}

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.rules import DEFAULT_STRATEGY_PROMPT
 from app.main import app
-from app.models import Base, Game, GameState, Player, User
+from app.models import Base, Game, GameState, User
 
 
 @pytest.fixture(autouse=True)
