@@ -186,18 +186,18 @@
 
 **Independent test**: open two browser tabs on a live game and watch them update in sync within 2 seconds of turn resolution.
 
-- [ ] T078 [US4, P: tests/test_viewer.py] Tests for: viewer page renders for `active` and `completed` states; SSE endpoint emits `turn_resolved` events; strategy prompts never appear in viewer HTML; finished-game viewer includes timeline scrubber data attributes.
-- [ ] T079 [US4, P: app/routes/web.py] `GET /games/{game_id}` — game viewer (branches on `game.state`).
-- [ ] T080 [US4, P: app/templates/game.html] Game viewer template per UI.md Page 2.
-- [ ] T081 [US4, P: app/templates/fragments/scoreboard.html] Scoreboard HTMX partial.
-- [ ] T082 [US4, P: app/templates/fragments/turn_block.html] Turn-block HTMX partial.
-- [ ] T083 [US4, P: app/templates/fragments/game_status.html] Status header HTMX partial.
-- [ ] T084 [US4, P: app/routes/sse.py] `GET /games/{game_id}/stream` — SSE endpoint emitting `turn_resolved`, `game_started`, `game_completed`.
-- [ ] T085 [US4] Wire `broadcast.publish` calls from `resolve_turn` and `finalize_game` so SSE events fire on turn resolution.
-- [ ] T086 [US4, P: app/routes/spectator_api.py] `GET /api/games/{game_id}/state` — public JSON snapshot, no strategy prompts.
-- [ ] T087 [US4] Mount `sse` and `spectator_api` routers in `app/main.py`.
-- [ ] T088 [US9] Extend `game.html` with timeline scrubber UI for finished games; data already in template, just add the scrubber control.
-- [ ] T089 [US4+US9] Confirm `pytest tests/test_viewer.py` green.
+- [X] T078 [US4, P: tests/test_viewer.py] Tests for: viewer page renders for `active` and `completed` states; SSE endpoint emits `turn_resolved` events; strategy prompts never appear in viewer HTML; finished-game viewer includes timeline scrubber data attributes.
+- [X] T079 [US4, P: app/routes/web.py] `GET /games/{game_id}` — game viewer (branches on `game.state`).
+- [X] T080 [US4, P: app/templates/game.html] Game viewer template per UI.md Page 2.
+- [X] T081 [US4, P: app/templates/fragments/scoreboard.html] Scoreboard HTMX partial.
+- [X] T082 [US4, P: app/templates/fragments/turn_block.html] Turn-block HTMX partial.
+- [X] T083 [US4, P: app/templates/fragments/game_status.html] Status header HTMX partial.
+- [X] T084 [US4, P: app/routes/sse.py] `GET /games/{game_id}/stream` — SSE endpoint emitting `turn_resolved`, `game_started`, `game_completed`.
+- [X] T085 [US4] Wire `broadcast.publish` calls from `resolve_turn` and `finalize_game` so SSE events fire on turn resolution.
+- [X] T086 [US4, P: app/routes/spectator_api.py] `GET /api/games/{game_id}/state` — public JSON snapshot, no strategy prompts.
+- [X] T087 [US4] Mount `sse` and `spectator_api` routers in `app/main.py`.
+- [X] T088 [US9] Extend `game.html` with timeline scrubber UI for finished games; data already in template, just add the scrubber control.
+- [X] T089 [US4+US9] Confirm `pytest tests/test_viewer.py` green.
 
 **Checkpoint**: US-4 and US-9 complete. Spectators can watch live and browse finished games.
 

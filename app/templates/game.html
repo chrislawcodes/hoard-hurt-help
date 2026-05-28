@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} — Hoard-Hurt-Help{% endblock %}
+{% block content %}
+<a href="/">← Home</a>
+<h1>{{ game.name }}</h1>
+
+<div id="game-status"
+     {% if game.state.value == "active" %}hx-ext="sse" sse-connect="/games/{{ game.id }}/stream" sse-swap="turn_resolved,game_completed"{% endif %}>
+    {% include "fragments/game_status.html" %}
+</div>
+
+<div class="layout">
+    <aside id="scoreboard">
+        {% include "fragments/scoreboard.html" %}
+    </aside>
+    <section id="feed">
+        {% for turn in history|reverse %}
+            {% include "fragments/turn_block.html" %}
+        {% endfor %}
+    </section>
+</div>
+
+{% if game.state.value == "completed" %}
+<p><label>Step through turns: <input type="range" min="1" max="{{ history|length }}" value="{{ history|length }}" id="timeline"></label></p>
+<script>
+document.getElementById('timeline')?.addEventListener('input', e => {
+    const upto = parseInt(e.target.value);
+    document.querySelectorAll('#feed .turn-block').forEach((el, i) => {
+        el.hidden = i >= upto;
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

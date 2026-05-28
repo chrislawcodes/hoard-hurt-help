@@ -14,6 +14,8 @@ from app.routes import (
     admin_web,
     agent_api,
     auth as auth_routes,
+    spectator_api,
+    sse as sse_routes,
     web as web_routes,
 )
 
@@ -39,6 +41,8 @@ def create_app() -> FastAPI:
     app.include_router(web_routes.router)
     app.include_router(admin_web.router)
     app.include_router(admin_api.router)
+    app.include_router(sse_routes.router)
+    app.include_router(spectator_api.router)
 
     @app.on_event("startup")
     async def _resume_games_on_startup() -> None:

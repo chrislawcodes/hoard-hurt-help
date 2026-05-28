@@ -77,6 +77,87 @@ async def home(request: Request, db: DbSession):
     )
 
 
+@router.get("/games/{game_id}", response_class=HTMLResponse)
+async def game_viewer(
+    game_id: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+):
+    user = await get_current_user(request, db)
+    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    if g is None:
+        raise HTTPException(404)
+    players = (
+        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
+    )
+    players_by_id = {p.id: p for p in players}
+    scoreboard = [
+        {
+            "agent_id": p.agent_id,
+            "round_score": p.current_round_score,
+            "round_wins": p.total_round_wins,
+        }
+        for p in players
+    ]
+    # Build history.
+    from app.models.turn import Turn, TurnSubmission
+
+    turns = (
+        (
+            await db.execute(
+                select(Turn)
+                .where(Turn.game_id == game_id, Turn.resolved_at.is_not(None))
+                .order_by(Turn.round, Turn.turn)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    history = []
+    for t in turns:
+        subs = (
+            (await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == t.id)))
+            .scalars()
+            .all()
+        )
+        actions = []
+        for s in subs:
+            actor = players_by_id.get(s.player_id)
+            target = players_by_id.get(s.target_player_id) if s.target_player_id else None
+            if not actor:
+                continue
+            actions.append(
+                {
+                    "agent_id": actor.agent_id,
+                    "action": s.action,
+                    "target_id": target.agent_id if target else None,
+                    "message": s.message,
+                    "points_delta": s.points_delta,
+                }
+            )
+        history.append({"round": t.round, "turn": t.turn, "actions": actions})
+
+    winner_agent_id = None
+    if g.winner_player_id:
+        winner = (
+            await db.execute(select(Player).where(Player.id == g.winner_player_id))
+        ).scalar_one_or_none()
+        winner_agent_id = winner.agent_id if winner else None
+
+    return templates.TemplateResponse(
+        request,
+        "game.html",
+        {
+            "user": user,
+            "is_admin": _is_admin(user),
+            "game": g,
+            "scoreboard": scoreboard,
+            "history": history,
+            "winner_agent_id": winner_agent_id,
+        },
+    )
+
+
 @router.get("/games/{game_id}/join", response_class=HTMLResponse)
 async def join_form(
     game_id: Annotated[str, Path()],
