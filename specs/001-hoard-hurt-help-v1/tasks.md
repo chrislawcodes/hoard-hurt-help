@@ -14,17 +14,17 @@
 
 **Purpose**: minimal scaffolding so the rest of the build has a working FastAPI app and dev environment.
 
-- [ ] T001 Initialize `pyproject.toml` with project metadata and the dependency list from plan.md (`fastapi`, `uvicorn`, `sqlalchemy[asyncio]`, `aiosqlite`, `asyncpg`, `alembic`, `pydantic`, `pydantic-settings`, `authlib`, `itsdangerous`, `jinja2`, `python-multipart`, `argon2-cffi`, `httpx`, `mcp`, `pytest`, `pytest-asyncio`).
-- [ ] T002 [P: alembic.ini] Initialize Alembic config via `alembic init migrations`; commit the generated skeleton.
-- [ ] T003 [P: .env.example] Document every env var: `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `SESSION_SECRET`, `ADMIN_EMAILS`, `BASE_URL`.
-- [ ] T004 [P: app/__init__.py] Create empty `app/` package init.
-- [ ] T005 [P: app/config.py] Create `Settings` BaseSettings class loading the env vars from T003.
-- [ ] T006 [P: app/db.py] Create async SQLAlchemy engine + session factory; reads `DATABASE_URL` from settings.
-- [ ] T007 [P: app/main.py] Minimal FastAPI app factory + uvicorn entry — boots, serves `GET /healthz` returning `{"status":"ok"}`, no other routes yet.
-- [ ] T008 [P: app/static/style.css] Empty stylesheet placeholder.
-- [ ] T009 [P: app/static/htmx.min.js] Vendored HTMX (pinned version, downloaded from official CDN).
-- [ ] T010 [P: tests/__init__.py] Empty tests package.
-- [ ] T011 [P: tests/conftest.py] Pytest fixtures: in-memory SQLite engine, `TestClient` app fixture, async event loop config.
+- [X] T001 Initialize `pyproject.toml` with project metadata and the dependency list from plan.md (`fastapi`, `uvicorn`, `sqlalchemy[asyncio]`, `aiosqlite`, `asyncpg`, `alembic`, `pydantic`, `pydantic-settings`, `authlib`, `itsdangerous`, `jinja2`, `python-multipart`, `argon2-cffi`, `httpx`, `mcp`, `pytest`, `pytest-asyncio`).
+- [X] T002 [P: alembic.ini] Initialize Alembic config via `alembic init migrations`; commit the generated skeleton.
+- [X] T003 [P: .env.example] Document every env var: `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `SESSION_SECRET`, `ADMIN_EMAILS`, `BASE_URL`.
+- [X] T004 [P: app/__init__.py] Create empty `app/` package init.
+- [X] T005 [P: app/config.py] Create `Settings` BaseSettings class loading the env vars from T003.
+- [X] T006 [P: app/db.py] Create async SQLAlchemy engine + session factory; reads `DATABASE_URL` from settings.
+- [X] T007 [P: app/main.py] Minimal FastAPI app factory + uvicorn entry — boots, serves `GET /healthz` returning `{"status":"ok"}`, no other routes yet.
+- [X] T008 [P: app/static/style.css] Empty stylesheet placeholder.
+- [X] T009 [P: app/static/htmx.min.js] Vendored HTMX (pinned version, downloaded from official CDN).
+- [X] T010 [P: tests/__init__.py] Empty tests package.
+- [X] T011 [P: tests/conftest.py] Pytest fixtures: in-memory SQLite engine, `TestClient` app fixture, async event loop config.
 
 **Checkpoint**: `uvicorn app.main:app --reload` boots, `curl localhost:8000/healthz` returns 200. `pytest` runs (zero tests yet).
 
