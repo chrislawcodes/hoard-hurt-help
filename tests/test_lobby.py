@@ -103,7 +103,44 @@ async def test_join_creates_player_and_redirects(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == "/me/games/G_001"
+    assert r.headers["location"].startswith("/me/players/")
+
+
+@pytest.mark.asyncio
+async def test_user_can_join_multiple_bots_in_one_game(client, reset_db):
+    """A single user may register several bots (distinct names) in one game."""
+    user = await _seed_user(reset_db)
+    await _seed_game(reset_db)
+    cookies = _signed_in_cookies(client, user.id)
+
+    locations = []
+    for name in ("AI_one", "AI_two"):
+        r = await client.post(
+            "/games/G_001/join",
+            data={"display_name": name, "strategy_prompt": "x"},
+            cookies=cookies,
+            follow_redirects=False,
+        )
+        assert r.status_code == 303
+        locations.append(r.headers["location"])
+
+    # Two distinct player dashboards — not bounced back to a single slot.
+    assert all(loc.startswith("/me/players/") for loc in locations)
+    assert locations[0] != locations[1]
+
+    async with reset_db() as db:
+        players = (
+            (
+                await db.execute(
+                    select(Player).where(
+                        Player.game_id == "G_001", Player.user_id == user.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert {p.agent_id for p in players} == {"AI_one", "AI_two"}
 
 
 @pytest.mark.asyncio
@@ -125,14 +162,18 @@ async def test_my_games_lists_user_games(client, reset_db):
 
 
 async def _seed_player(
-    reset_db: async_sessionmaker, user: User, game: Game, key: str
+    reset_db: async_sessionmaker,
+    user: User,
+    game: Game,
+    key: str,
+    agent_id: str = "AI_qa",
 ) -> int:
     """Create a player owned by `user` in `game`, keyed with `key`. Returns its id."""
     async with reset_db() as db:
         p = Player(
             game_id=game.id,
             user_id=user.id,
-            agent_id="AI_qa",
+            agent_id=agent_id,
             agent_key_hash=hash_agent_key(key),
         )
         db.add(p)
@@ -164,7 +205,7 @@ async def test_dashboard_visit_does_not_rotate_key(client, reset_db):
     # Visit the dashboard twice.
     for _ in range(2):
         r = await client.get(
-            "/me/games/G_001", cookies=_signed_in_cookies(client, user.id)
+            f"/me/players/{player_id}", cookies=_signed_in_cookies(client, user.id)
         )
         assert r.status_code == 200
 
@@ -181,12 +222,12 @@ async def test_rekey_invalidates_old_key(client, reset_db):
     player_id = await _seed_player(reset_db, user, game, key)
 
     r = await client.post(
-        "/me/games/G_001/rekey",
+        f"/me/players/{player_id}/rekey",
         cookies=_signed_in_cookies(client, user.id),
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == "/me/games/G_001"
+    assert r.headers["location"] == f"/me/players/{player_id}"
 
     # The old key no longer works; the hash changed to a freshly issued key.
     assert not verify_agent_key(key, await _key_hash(reset_db, player_id))
@@ -201,7 +242,7 @@ async def test_rekey_blocked_after_game_starts(client, reset_db):
     player_id = await _seed_player(reset_db, user, game, key)
 
     r = await client.post(
-        "/me/games/G_001/rekey",
+        f"/me/players/{player_id}/rekey",
         cookies=_signed_in_cookies(client, user.id),
         follow_redirects=False,
     )

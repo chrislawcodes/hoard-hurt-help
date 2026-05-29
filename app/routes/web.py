@@ -1,5 +1,6 @@
-"""HTMX-served web routes: lobby, join, my games, per-game dashboard."""
+"""HTMX-served web routes: lobby, join, my games, per-player dashboard."""
 
+import logging
 import random
 import re
 from datetime import datetime, timezone
@@ -21,6 +22,8 @@ from app.models.user import User
 from app.templating import templates  # shared instance with custom filters
 
 router = APIRouter(tags=["web"])
+
+logger = logging.getLogger(__name__)
 
 
 async def _player_count(db, game_id: str) -> int:
@@ -256,15 +259,28 @@ async def join_submit(
     if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Game not open for registration.")
 
-    # Already joined?
-    existing = (
-        await db.execute(
-            select(Player).where(Player.game_id == game.id, Player.user_id == user.id)
+    # A user may run several bots in the same game; each is a separate Player with
+    # its own name and key. Log when someone adds another so we can see who does it.
+    existing_count = len(
+        (
+            await db.execute(
+                select(Player).where(
+                    Player.game_id == game.id,
+                    Player.user_id == user.id,
+                    Player.left_at.is_(None),
+                )
+            )
         )
-    ).scalar_one_or_none()
-    if existing is not None:
-        return RedirectResponse(
-            url=f"/me/games/{game.id}", status_code=status.HTTP_303_SEE_OTHER
+        .scalars()
+        .all()
+    )
+    if existing_count >= 1:
+        logger.info(
+            "multi-bot join: user %s (%s) adding bot #%d to game %s",
+            user.id,
+            user.email,
+            existing_count + 1,
+            game.id,
         )
 
     # Re-generate a pending key if session expired; otherwise use the one we pre-generated.
@@ -328,12 +344,13 @@ async def join_submit(
     )
     await db.commit()
 
-    # Pass key and AI type to connection page for the first visit.
-    request.session[f"ai_type_{game.id}"] = ai_type
-    request.session[f"fresh_key_{game.id}"] = key
+    # Pass key and AI type to the dashboard for the first visit. Keyed by player
+    # id (not game id) so a second bot in the same game doesn't clobber the first.
+    request.session[f"ai_type_{player.id}"] = ai_type
+    request.session[f"fresh_key_{player.id}"] = key
 
     return RedirectResponse(
-        url=f"/me/games/{game.id}", status_code=status.HTTP_303_SEE_OTHER
+        url=f"/me/players/{player.id}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -349,7 +366,15 @@ async def my_games(
     games = []
     for p in players:
         g = (await db.execute(select(Game).where(Game.id == p.game_id))).scalar_one()
-        games.append({"id": g.id, "name": g.name, "state": g.state, "agent_id": p.agent_id})
+        games.append(
+            {
+                "id": g.id,
+                "name": g.name,
+                "state": g.state,
+                "agent_id": p.agent_id,
+                "player_id": p.id,
+            }
+        )
     return templates.TemplateResponse(
         request,
         "my_games.html",
@@ -357,9 +382,9 @@ async def my_games(
     )
 
 
-@router.get("/me/games/{game_id}", response_class=HTMLResponse)
-async def my_game_dashboard(
-    game_id: Annotated[str, Path()],
+@router.get("/me/players/{player_id}", response_class=HTMLResponse)
+async def player_dashboard(
+    player_id: Annotated[int, Path()],
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
@@ -367,13 +392,13 @@ async def my_game_dashboard(
 ):
     player = (
         await db.execute(
-            select(Player).where(Player.game_id == game_id, Player.user_id == user.id)
+            select(Player).where(Player.id == player_id, Player.user_id == user.id)
         )
     ).scalar_one_or_none()
     if player is None:
-        raise HTTPException(404, detail="You haven't joined this game.")
+        raise HTTPException(404, detail="Bot slot not found.")
 
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    game = (await db.execute(select(Game).where(Game.id == player.game_id))).scalar_one()
 
     latest_prompt = (
         await db.execute(
@@ -389,9 +414,9 @@ async def my_game_dashboard(
     # argon2 hash, so we cannot show the key again on later visits. Crucially, we
     # do NOT regenerate the key on a plain dashboard visit: doing so silently
     # invalidated the key a bot was already configured with.
-    fresh_key = request.session.pop(f"fresh_key_{game_id}", None)
+    fresh_key = request.session.pop(f"fresh_key_{player.id}", None)
 
-    selected_ai = request.session.pop(f"ai_type_{game_id}", None)
+    selected_ai = request.session.pop(f"ai_type_{player.id}", None)
     pre_game = game.state in (GameState.SCHEDULED, GameState.REGISTERING)
 
     return templates.TemplateResponse(
@@ -416,9 +441,9 @@ async def my_game_dashboard(
     )
 
 
-@router.post("/me/games/{game_id}/rekey")
+@router.post("/me/players/{player_id}/rekey")
 async def reissue_agent_key(
-    game_id: Annotated[str, Path()],
+    player_id: Annotated[int, Path()],
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
@@ -432,13 +457,13 @@ async def reissue_agent_key(
     """
     player = (
         await db.execute(
-            select(Player).where(Player.game_id == game_id, Player.user_id == user.id)
+            select(Player).where(Player.id == player_id, Player.user_id == user.id)
         )
     ).scalar_one_or_none()
     if player is None:
-        raise HTTPException(404, detail="You haven't joined this game.")
+        raise HTTPException(404, detail="Bot slot not found.")
 
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    game = (await db.execute(select(Game).where(Game.id == player.game_id))).scalar_one()
     if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(
             409, detail="Can't re-issue a key after the game has started."
@@ -448,27 +473,27 @@ async def reissue_agent_key(
     player.agent_key_hash = hash_agent_key(key)
     await db.commit()
 
-    request.session[f"fresh_key_{game_id}"] = key
+    request.session[f"fresh_key_{player.id}"] = key
     return RedirectResponse(
-        url=f"/me/games/{game_id}", status_code=status.HTTP_303_SEE_OTHER
+        url=f"/me/players/{player.id}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
-@router.post("/me/games/{game_id}/strategy")
+@router.post("/me/players/{player_id}/strategy")
 async def update_strategy(
-    game_id: Annotated[str, Path()],
+    player_id: Annotated[int, Path()],
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
     strategy_prompt: Annotated[str, Form()],
 ):
     player = (
         await db.execute(
-            select(Player).where(Player.game_id == game_id, Player.user_id == user.id)
+            select(Player).where(Player.id == player_id, Player.user_id == user.id)
         )
     ).scalar_one_or_none()
     if player is None:
         raise HTTPException(404)
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    game = (await db.execute(select(Game).where(Game.id == player.game_id))).scalar_one()
     if game.state in (GameState.ACTIVE, GameState.COMPLETED):
         raise HTTPException(409, detail="Strategy locked after game starts.")
     db.add(
@@ -480,24 +505,24 @@ async def update_strategy(
     )
     await db.commit()
     return RedirectResponse(
-        url=f"/me/games/{game_id}?saved=1", status_code=status.HTTP_303_SEE_OTHER
+        url=f"/me/players/{player.id}?saved=1", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
-@router.post("/me/games/{game_id}/leave")
+@router.post("/me/players/{player_id}/leave")
 async def web_leave(
-    game_id: Annotated[str, Path()],
+    player_id: Annotated[int, Path()],
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
 ):
     player = (
         await db.execute(
-            select(Player).where(Player.game_id == game_id, Player.user_id == user.id)
+            select(Player).where(Player.id == player_id, Player.user_id == user.id)
         )
     ).scalar_one_or_none()
     if player is None:
         raise HTTPException(404)
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    game = (await db.execute(select(Game).where(Game.id == player.game_id))).scalar_one()
     if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Cannot leave after start.")
     player.left_at = datetime.now(timezone.utc)

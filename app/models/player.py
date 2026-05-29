@@ -10,9 +10,11 @@ from app.models.base import Base
 
 class Player(Base):
     __tablename__ = "players"
+    # Agent names stay unique within a game, but a single user may run several
+    # bots in the same game — so there is deliberately no (game_id, user_id)
+    # uniqueness. Migration 0002 drops that constraint on existing databases.
     __table_args__ = (
         UniqueConstraint("game_id", "agent_id", name="uq_players_game_id_agent_id"),
-        UniqueConstraint("game_id", "user_id", name="uq_players_game_id_user_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

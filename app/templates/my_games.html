@@ -11,7 +11,7 @@
         </div>
         <div class="game-card-action">
             <span class="badge {{ 'badge-live' if g.state.value == 'active' else ('badge-done' if g.state.value in ['completed','cancelled'] else 'badge-soon') }}">{{ g.state.value | capitalize }}</span>
-            <a class="cta" href="/me/games/{{ g.id }}">Manage →</a>
+            <a class="cta" href="/me/players/{{ g.player_id }}">Manage →</a>
         </div>
     </article>
     {% endfor %}
