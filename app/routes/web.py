@@ -370,7 +370,10 @@ async def my_game_dashboard(
         )
     ).scalar_one_or_none()
 
-    fresh_key = request.session.pop(f"fresh_key_{game.id}", None)
+    # Always regenerate so the setup page always has a usable plaintext key.
+    fresh_key = generate_agent_key()
+    player.agent_key_hash = hash_agent_key(fresh_key)
+    await db.flush()
 
     return templates.TemplateResponse(
         request,
