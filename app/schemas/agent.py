@@ -70,6 +70,7 @@ class TurnStatic(BaseModel):
     turns_per_round: int
     your_agent_id: str
     all_agent_ids: list[str]
+    your_strategy: str | None = None
 
 
 class TurnDynamic(BaseModel):

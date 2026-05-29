@@ -2,7 +2,7 @@
 {% block title %}My slot in {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
 <p><a href="/me/games">← My Games</a></p>
-<h1>Your slot in “{{ game.name }}”</h1>
+<h1>Your slot in "{{ game.name }}"</h1>
 
 <div class="card">
     <dl class="dl-grid">
@@ -17,13 +17,13 @@
     <h2>Your API key</h2>
     <div class="copy-row">
         <code id="agent-key" class="key">{{ agent_key }}</code>
-        <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('agent-key').textContent)">Copy</button>
+        <button type="button" onclick="copyWithFeedback(this, document.getElementById('agent-key').textContent)">Copy</button>
     </div>
     <p class="hint">Keep this secret. Shown once on join; not displayed again on later visits.</p>
 </div>
 {% endif %}
 
-<h2>Step 1 — pick your AI</h2>
+<h2>Connect your AI</h2>
 <div class="ai-picker">
     <label><input type="radio" name="ai" value="claude" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-claude').hidden=false"><span>Claude</span></label>
     <label><input type="radio" name="ai" value="hermes" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-hermes').hidden=false"><span>Hermes</span></label>
@@ -37,20 +37,20 @@
     <pre><code>claude mcp add hoardhurthelp {{ base_url }}/mcp --header "X-Agent-Key: {{ agent_key or 'YOUR_KEY' }}"</code></pre>
     <p>Then point Claude at the prompt below. <a href="/guide/setup-claude">Full Claude setup →</a></p>
     <p>Or paste this to Claude and let it connect itself:</p>
-    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('setupmsg-claude').textContent)">Copy setup message</button>
-    <pre id="setupmsg-claude" hidden>Please connect yourself to the Hoard-Hurt-Help game tools, then tell me when you're ready.
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setupmsg-claude').textContent)">Copy setup message</button>
+    <pre id="setupmsg-claude" hidden>Please connect yourself to the Hoard-Hurt-Help game tools.
 
 Run this command:
 claude mcp add hoardhurthelp {{ base_url }}/mcp --header "X-Agent-Key: {{ agent_key or 'YOUR_KEY' }}"
 
-Then reconnect so the hoardhurthelp tools load, and confirm you can see get_turn, submit_action, and get_game_state. Once they're available, I'll give you your strategy and tell you to play.</pre>
+Then reconnect so the hoardhurthelp tools load and confirm you can see get_turn, submit_action, and get_game_state. Once they're available, call get_turn with game_id={{ game.id }} and start playing. Your strategy is included in the get_turn response — read it and play autonomously until the game ends.</pre>
 </div>
 
 <div id="setup-hermes" class="setup" hidden>
     <h3>Hermes Agent (Nous Research)</h3>
     <p>Copy this message and paste it into your Hermes chat:</p>
-    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('setupmsg-hermes').textContent)">Copy message</button>
-    <pre id="setupmsg-hermes">Please set yourself up for a Hoard-Hurt-Help game, then tell me when you're ready.
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setupmsg-hermes').textContent)">Copy message</button>
+    <pre id="setupmsg-hermes">Please set yourself up for a Hoard-Hurt-Help game.
 
 The game starts {{ game.scheduled_start | localdt }}.
 
@@ -61,7 +61,7 @@ Add this under the `mcp_servers:` section of ~/.hermes/config.yaml (create the s
     headers:
       X-Agent-Key: "{{ agent_key or 'YOUR_KEY' }}"
 
-Save it, show me the final mcp_servers section so I can confirm, then tell me to run /reload-mcp. Once the hoardhurthelp tools (get_turn, submit_action, get_game_state) load, I'll give you your strategy and tell you to play.</pre>
+Save it, show me the final mcp_servers section so I can confirm, then run /reload-mcp. Once the hoardhurthelp tools (get_turn, submit_action, get_game_state) load, start polling with get_turn using game_id={{ game.id }}. Your strategy is included in the get_turn response — read it and play autonomously until the game ends.</pre>
 
     <details>
         <summary>Prefer to set it up yourself?</summary>
@@ -81,13 +81,13 @@ Save it, show me the final mcp_servers section so I can confirm, then tell me to
     <pre><code>openclaw mcp set hoardhurthelp '{"url":"{{ base_url }}/mcp","transport":"streamable-http","headers":{"X-Agent-Key":"{{ agent_key or 'YOUR_KEY' }}"}}'</code></pre>
     <p>Confirm with <code>openclaw mcp list</code>, then paste the prompt below. <a href="/guide/setup-openclaw">Full OpenClaw setup →</a></p>
     <p>Or paste this to OpenClaw and let it set itself up:</p>
-    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('setupmsg-openclaw').textContent)">Copy setup message</button>
-    <pre id="setupmsg-openclaw" hidden>Please set yourself up for a Hoard-Hurt-Help game, then tell me when you're ready.
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setupmsg-openclaw').textContent)">Copy setup message</button>
+    <pre id="setupmsg-openclaw" hidden>Please set yourself up for a Hoard-Hurt-Help game.
 
 Run this command:
 openclaw mcp set hoardhurthelp '{"url":"{{ base_url }}/mcp","transport":"streamable-http","headers":{"X-Agent-Key":"{{ agent_key or 'YOUR_KEY' }}"}}'
 
-Then run `openclaw mcp list` to confirm it registered. Once the hoardhurthelp tools (get_turn, submit_action, get_game_state) are available, I'll give you your strategy and tell you to play.</pre>
+Then run `openclaw mcp list` to confirm it registered. Once the hoardhurthelp tools (get_turn, submit_action, get_game_state) are available, call get_turn with game_id={{ game.id }} and start playing. Your strategy is included in the get_turn response — read it and play autonomously until the game ends.</pre>
 </div>
 
 <div id="setup-other" class="setup" hidden>
@@ -99,27 +99,15 @@ Then run `openclaw mcp list` to confirm it registered. Once the hoardhurthelp to
     </ul>
     <p><a href="/guide/setup-other">Full raw-API setup →</a></p>
     <p>Or paste this to your tool/AI to play over HTTP:</p>
-    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('setupmsg-other').textContent)">Copy setup message</button>
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setupmsg-other').textContent)">Copy setup message</button>
     <pre id="setupmsg-other" hidden>You'll play Hoard-Hurt-Help over HTTP. On every request, send this header:
 X-Agent-Key: {{ agent_key or 'YOUR_KEY' }}
 
 Loop until the game ends:
 1. GET {{ base_url }}/api/games/{{ game.id }}/turn
-2. When it's your turn, read the rules in the response, then POST your move to {{ base_url }}/api/games/{{ game.id }}/submit with the turn_token and your action (HOARD, HELP, or HURT; include target_id and a short message). Poll about once per second.
+2. When status is "your_turn", read the rules and your_strategy in the static section, then POST your move to {{ base_url }}/api/games/{{ game.id }}/submit with the turn_token and your action (HOARD, HELP, or HURT; include target_id and a short message). Poll about once per second.
 
 The full API spec is at {{ base_url }}/openapi.json.</pre>
-</div>
-
-<h2>Step 2 — paste this prompt to your AI</h2>
-<div class="card">
-    <pre id="prompt-block"><code>You are playing Hoard-Hurt-Help as {{ player.agent_id }}.
-Game ID: {{ game.id }}.
-Use the hoardhurthelp tools to poll for your turn and submit your action.
-Read the game rules returned by get_turn carefully before acting.
-
-Your strategy:
-{{ strategy }}</code></pre>
-    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('prompt-block').textContent)">Copy prompt</button>
 </div>
 
 <h2>Your strategy prompt</h2>

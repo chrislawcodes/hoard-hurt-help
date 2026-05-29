@@ -261,6 +261,14 @@ async def agent_poll(
     all_players = (
         (await db.execute(select(Player).where(Player.game_id == game.id))).scalars().all()
     )
+    latest_strategy = (
+        await db.execute(
+            select(StrategyPrompt)
+            .where(StrategyPrompt.player_id == player.id)
+            .order_by(StrategyPrompt.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     static = TurnStatic(
         game_id=game.id,
         rules_version=RULES_VERSION,
@@ -269,6 +277,7 @@ async def agent_poll(
         turns_per_round=game.turns_per_round,
         your_agent_id=player.agent_id,
         all_agent_ids=sorted(p.agent_id for p in all_players),
+        your_strategy=latest_strategy.prompt_text if latest_strategy else None,
     )
     dynamic = TurnDynamic(
         current_round=turn.round,
