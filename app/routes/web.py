@@ -360,6 +360,7 @@ async def my_game_dashboard(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
+    saved: bool = False,
 ):
     player = (
         await db.execute(
@@ -403,6 +404,7 @@ async def my_game_dashboard(
             "base_url": settings.base_url,
             "selected_ai": selected_ai,
             "presets": STRATEGY_PRESETS,
+            "just_saved": saved,
             "can_edit_strategy": game.state != GameState.ACTIVE
             and game.state != GameState.COMPLETED,
             "can_leave": game.state in (GameState.SCHEDULED, GameState.REGISTERING),
@@ -436,7 +438,7 @@ async def update_strategy(
     )
     await db.commit()
     return RedirectResponse(
-        url=f"/me/games/{game_id}", status_code=status.HTTP_303_SEE_OTHER
+        url=f"/me/games/{game_id}?saved=1", status_code=status.HTTP_303_SEE_OTHER
     )
 
 

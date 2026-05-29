@@ -14,7 +14,11 @@
 
 <h2>Your strategy</h2>
 <div class="card">
-    {% if can_edit_strategy %}
+    {% if just_saved %}
+    <p class="save-confirm">✓ Strategy saved</p>
+    <pre>{{ strategy }}</pre>
+    <a href="/me/games/{{ game.id }}">Edit strategy →</a>
+    {% elif can_edit_strategy %}
     <div class="preset-picker">
         {% for preset in presets %}
         <button type="button" class="preset-btn" onclick="applyPreset({{ loop.index0 }})">{{ preset.name }}</button>
@@ -24,7 +28,7 @@
     <p id="strategy-preset-desc" class="hint"></p>
     <form method="post" action="/me/games/{{ game.id }}/strategy" class="form">
         <textarea id="strategy-textarea" name="strategy_prompt" rows="10" maxlength="2000">{{ strategy }}</textarea>
-        <button type="submit">Save</button>
+        <button type="submit" style="margin-top: 1rem;">Save</button>
     </form>
     {% else %}
     <pre>{{ strategy }}</pre>
