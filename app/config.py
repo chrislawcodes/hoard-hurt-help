@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # Signing key for session cookies. Generate with `secrets.token_hex(32)`.
     session_secret: str = Field(default="dev-only-do-not-use-in-prod-" + "x" * 40)
 
+    # Mark the session cookie Secure (HTTPS-only). Set true in production behind
+    # HTTPS; leave false for local http dev.
+    cookie_secure: bool = Field(default=False)
+
     # Comma-separated list of emails with admin powers.
     admin_emails: str = Field(default="")
 

@@ -22,6 +22,10 @@ def make_engine(url: str | None = None) -> AsyncEngine:
         url or settings.database_url,
         echo=False,
         future=True,
+        # Check out connections with a liveness ping. A long-running app (turn
+        # scheduler + auto-start poller) otherwise reuses connections Postgres
+        # dropped while idle, failing with "connection is closed".
+        pool_pre_ping=True,
     )
 
 
