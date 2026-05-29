@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
+from sqlalchemy import select
 
 from app.config import settings
 from app.main import app
@@ -149,6 +150,65 @@ async def test_admin_cancel_pre_start(client, reset_db):
         "/api/admin/games/G_001/cancel", cookies=_cookies(admin.id)
     )
     assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_delete_game_removes_everything(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    async with reset_db() as db:
+        u = User(google_sub="pu", email="pu@test.com")
+        db.add(u)
+        await db.flush()
+        g = Game(
+            id="G_001",
+            name="Doomed",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        db.add(g)
+        await db.flush()
+        p = Player(game_id="G_001", user_id=u.id, agent_id="AI_0", agent_key_hash="x")
+        db.add(p)
+        await db.flush()
+        db.add(StrategyPrompt(player_id=p.id, prompt_text="plan", is_default=False))
+        await db.commit()
+
+    r = await client.post(
+        "/admin/games/G_001/delete",
+        data={"next": "/admin"},
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    async with reset_db() as db:
+        gone = (await db.execute(select(Game).where(Game.id == "G_001"))).scalar_one_or_none()
+        players = (
+            (await db.execute(select(Player).where(Player.game_id == "G_001"))).scalars().all()
+        )
+    assert gone is None
+    assert players == []
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_delete(client, reset_db):
+    user = await _seed_user(reset_db, "regular@test.com")
+    async with reset_db() as db:
+        g = Game(
+            id="G_001",
+            name="t",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        db.add(g)
+        await db.commit()
+    r = await client.post(
+        "/admin/games/G_001/delete",
+        data={"next": "/admin"},
+        cookies=_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 403
 
 
 @pytest.mark.asyncio

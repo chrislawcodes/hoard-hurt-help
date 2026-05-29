@@ -16,6 +16,10 @@
     <div class="game-card-action">
         <span class="badge badge-live"><span class="dot"></span> Live</span>
         <a class="cta secondary" href="/admin/games/{{ g.id }}">Open →</a>
+        <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+            <input type="hidden" name="next" value="/admin">
+            <button type="submit" class="danger">Delete</button>
+        </form>
     </div>
 </article>
 {% else %}<p class="empty">None.</p>{% endfor %}
@@ -30,6 +34,10 @@
     <div class="game-card-action">
         <a class="cta secondary" href="/admin/games/{{ g.id }}">Open →</a>
         <form method="post" action="/api/admin/games/{{ g.id }}/cancel"><button type="submit" class="secondary">Cancel</button></form>
+        <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+            <input type="hidden" name="next" value="/admin">
+            <button type="submit" class="danger">Delete</button>
+        </form>
     </div>
 </article>
 {% else %}<p class="empty">None.</p>{% endfor %}
@@ -45,6 +53,10 @@
         <a class="cta secondary" href="/admin/games/{{ g.id }}">Open →</a>
         <a href="/api/admin/games/{{ g.id }}/export.csv">CSV</a>
         <a href="/api/admin/games/{{ g.id }}/export.json">JSON</a>
+        <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+            <input type="hidden" name="next" value="/admin">
+            <button type="submit" class="danger">Delete</button>
+        </form>
     </div>
 </article>
 {% else %}<p class="empty">None.</p>{% endfor %}
