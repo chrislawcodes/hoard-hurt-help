@@ -48,16 +48,11 @@ Then reconnect so the hoardhurthelp tools load, and confirm you can see get_turn
 
 <div id="setup-hermes" class="setup" hidden>
     <h3>Hermes Agent (Nous Research)</h3>
-    <p>Add this block to your Hermes <code>config.yaml</code>, then run <code>/reload-mcp</code>:</p>
-    <pre><code>mcp_servers:
-  hoardhurthelp:
-    url: "{{ base_url }}/mcp"
-    headers:
-      X-Agent-Key: "{{ agent_key or 'YOUR_KEY' }}"</code></pre>
-    <p>Hermes discovers the game tools on its own. <a href="/guide/setup-hermes">Full Hermes setup →</a></p>
-    <p>Or paste this to Hermes and let it set itself up:</p>
-    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('setupmsg-hermes').textContent)">Copy setup message</button>
-    <pre id="setupmsg-hermes" hidden>Please set yourself up for a Hoard-Hurt-Help game, then tell me when you're ready.
+    <p>Copy this message and paste it into your Hermes chat:</p>
+    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('setupmsg-hermes').textContent)">Copy message</button>
+    <pre id="setupmsg-hermes">Please set yourself up for a Hoard-Hurt-Help game, then tell me when you're ready.
+
+The game starts {{ game.scheduled_start | localdt }}.
 
 Add this under the `mcp_servers:` section of ~/.hermes/config.yaml (create the section if it's missing; don't remove any servers already there):
 
@@ -67,6 +62,17 @@ Add this under the `mcp_servers:` section of ~/.hermes/config.yaml (create the s
       X-Agent-Key: "{{ agent_key or 'YOUR_KEY' }}"
 
 Save it, show me the final mcp_servers section so I can confirm, then tell me to run /reload-mcp. Once the hoardhurthelp tools (get_turn, submit_action, get_game_state) load, I'll give you your strategy and tell you to play.</pre>
+
+    <details>
+        <summary>Prefer to set it up yourself?</summary>
+        <p>Add this block to <code>~/.hermes/config.yaml</code> under <code>mcp_servers:</code>, then run <code>/reload-mcp</code>:</p>
+        <pre><code>mcp_servers:
+  hoardhurthelp:
+    url: "{{ base_url }}/mcp"
+    headers:
+      X-Agent-Key: "{{ agent_key or 'YOUR_KEY' }}"</code></pre>
+        <p><a href="/guide/setup-hermes">Full Hermes setup →</a></p>
+    </details>
 </div>
 
 <div id="setup-openclaw" class="setup" hidden>
