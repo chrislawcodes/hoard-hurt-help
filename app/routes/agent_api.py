@@ -40,6 +40,30 @@ router = APIRouter(prefix="/api/games/{game_id}", tags=["agent"])
 _last_poll: dict[int, float] = {}
 _MIN_POLL_INTERVAL = 1.0
 
+# Recommended client poll cadence (seconds). Each poll is a full LLM inference,
+# so we slow agents down when nothing is about to happen and speed them up as a
+# turn (or the game start) approaches. Clients honor this via the
+# next_poll_after_seconds field on the waiting response.
+_POLL_FAR_FROM_START = 30  # game start is further out than the near-start window
+_POLL_NEAR_START = 5  # game starts within _NEAR_START_WINDOW_SECONDS
+_POLL_WHEN_ACTIVE = 5  # live game: waiting for your turn or for others to submit
+_NEAR_START_WINDOW_SECONDS = 180  # "within 3 minutes" → poll more often
+
+
+def _next_poll_before_start(game: Game) -> int:
+    """Seconds a waiting agent should sleep before polling again, pre-start.
+
+    Far from the scheduled start we poll slowly to avoid burning an LLM
+    inference every few seconds for nothing. Inside the 3-minute window we
+    tighten up so play begins promptly once the game opens.
+    """
+    seconds_until_start = (
+        _as_aware(game.scheduled_start) - datetime.now(timezone.utc)
+    ).total_seconds()
+    if seconds_until_start > _NEAR_START_WINDOW_SECONDS:
+        return _POLL_FAR_FROM_START
+    return _POLL_NEAR_START
+
 
 def _err(code: str, message: str, http: int, details: dict | None = None) -> HTTPException:
     return HTTPException(
@@ -214,6 +238,7 @@ async def agent_poll(
         return WaitingResponse(
             reason="game_not_started",
             game_state=game.state.value,
+            next_poll_after_seconds=_next_poll_before_start(game),
         )
     if game.state in (GameState.COMPLETED, GameState.CANCELLED):
         return WaitingResponse(
@@ -238,6 +263,7 @@ async def agent_poll(
             game_state=game.state.value,
             current_round=game.current_round,
             current_turn=game.current_turn,
+            next_poll_after_seconds=_POLL_WHEN_ACTIVE,
         )
 
     # Has this player already submitted for this turn?
@@ -255,6 +281,7 @@ async def agent_poll(
             game_state=game.state.value,
             current_round=turn.round,
             current_turn=turn.turn,
+            next_poll_after_seconds=_POLL_WHEN_ACTIVE,
         )
 
     # Build the full your_turn payload.
