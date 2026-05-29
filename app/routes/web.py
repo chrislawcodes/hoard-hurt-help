@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
-from app.engine.rules import DEFAULT_STRATEGY_PROMPT
+from app.engine.rules import DEFAULT_STRATEGY_PROMPT, STRATEGY_PRESETS
 from app.engine.tokens import generate_agent_key, hash_agent_key
 from app.models.game import Game, GameState
 from app.models.player import Player
@@ -228,8 +228,8 @@ async def join_form(
             "user": user,
             "is_admin": _is_admin(user),
             "game": game,
-            "default_prompt": DEFAULT_STRATEGY_PROMPT,
             "player_count": await _player_count(db, game.id),
+            "presets": STRATEGY_PRESETS,
             "error": None,
         },
     )
@@ -243,6 +243,7 @@ async def join_submit(
     user: Annotated[User, Depends(require_user)],
     display_name: Annotated[str, Form()],
     strategy_prompt: Annotated[str, Form()],
+    ai_type: Annotated[str, Form()] = "claude",
 ):
     game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
     if game is None:
@@ -275,8 +276,8 @@ async def join_submit(
                 "user": user,
                 "is_admin": _is_admin(user),
                 "game": game,
-                "default_prompt": strategy_prompt,
                 "player_count": await _player_count(db, game.id),
+                "presets": STRATEGY_PRESETS,
                 "error": "That display name is already taken in this game.",
             },
             status_code=400,
@@ -291,8 +292,8 @@ async def join_submit(
                 "user": user,
                 "is_admin": _is_admin(user),
                 "game": game,
-                "default_prompt": strategy_prompt,
                 "player_count": await _player_count(db, game.id),
+                "presets": STRATEGY_PRESETS,
                 "error": "Game is full.",
             },
             status_code=409,
@@ -316,8 +317,8 @@ async def join_submit(
     )
     await db.commit()
 
-    # Stash the freshly issued key so we can show it once on the dashboard.
-    request.session[f"fresh_key_{game.id}"] = key
+    # Stash key and AI choice so the connection page can pre-select the right setup.
+    request.session[f"ai_type_{game.id}"] = ai_type
 
     return RedirectResponse(
         url=f"/me/games/{game.id}", status_code=status.HTTP_303_SEE_OTHER
@@ -380,6 +381,8 @@ async def my_game_dashboard(
     else:
         fresh_key = None
 
+    selected_ai = request.session.pop(f"ai_type_{game_id}", None)
+
     return templates.TemplateResponse(
         request,
         "connection.html",
@@ -391,6 +394,8 @@ async def my_game_dashboard(
             "agent_key": fresh_key,
             "strategy": latest_prompt.prompt_text if latest_prompt else "",
             "base_url": settings.base_url,
+            "selected_ai": selected_ai,
+            "presets": STRATEGY_PRESETS,
             "can_edit_strategy": game.state != GameState.ACTIVE
             and game.state != GameState.COMPLETED,
             "can_leave": game.state in (GameState.SCHEDULED, GameState.REGISTERING),

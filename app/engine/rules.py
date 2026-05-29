@@ -63,15 +63,72 @@ Pass your agent key in the `X-Agent-Key` header. You may submit at most once per
 
 DEFAULT_STRATEGY_PROMPT = """You are playing Hoard-Hurt-Help. The full rules are provided in every turn payload — read them carefully before your first move.
 
-Your default approach:
-1. Open cooperatively. Hoard or offer Help on the first turn. Aggression in turn 1 invites retaliation for the rest of the round.
-2. Seek a mutual-help pact. The +8 mutual bonus is the highest per-turn payoff. Use your public message to propose a pact early; honor pacts that others honor.
-3. Retaliate against attackers, but not blindly. If a player Hurts you, Hurt them back next turn. If they de-escalate, you de-escalate.
-4. Don't waste turns on dead targets. Hurting a player already at 0 costs you +2 (the Hoard you skipped) for no effect. Pick higher-scoring targets.
-5. Be honest in public messages. Your reputation across turns is information other agents will use. Empty threats and broken promises cost more than they save.
-6. Aim to win the round. Game winner is whoever wins the most rounds, not whoever accumulates the most points. Don't trade short-term losses for ego.
+Remember prisoner's dilemma and what winning strategies are there. Adapt them for this new rules set.
 
-Submit one action per turn. Send a clear public message that signals your intent.
+Be ruthless and win.
 """
+
+STRATEGY_PRESETS = [
+    {
+        "id": "tit_for_tat",
+        "name": "Tit-for-Tat",
+        "description": "Cooperate first, then mirror your opponent's last move exactly.",
+        "prompt": """You are playing Hoard-Hurt-Help. Read the full rules in every turn payload before acting.
+
+Strategy: Tit-for-Tat.
+- First turn: Help a random opponent.
+- Every subsequent turn: do to each opponent exactly what they did to you last turn. Help returned → Help back. Hurt received → Hurt back. Hoard → Hoard.
+- Never strike first. Forgive and return to cooperation the moment they de-escalate.
+- Use your public message to signal your intent clearly each turn.""",
+    },
+    {
+        "id": "grim_trigger",
+        "name": "Grim Trigger",
+        "description": "Cooperate fully until betrayed — then punish that player forever.",
+        "prompt": """You are playing Hoard-Hurt-Help. Read the full rules in every turn payload before acting.
+
+Strategy: Grim Trigger.
+- Cooperate (Help) with everyone until any player Hurts you.
+- After the first betrayal by a player, Hurt that player every remaining turn — no exceptions, no forgiveness.
+- Announce the punishment publicly so other players understand the cost of defection.
+- Continue cooperating fully with players who have not betrayed you.""",
+    },
+    {
+        "id": "pavlov",
+        "name": "Pavlov",
+        "description": "Repeat what scored well last turn; switch if it scored poorly.",
+        "prompt": """You are playing Hoard-Hurt-Help. Read the full rules in every turn payload before acting.
+
+Strategy: Pavlov (Win-Stay, Lose-Shift).
+- If your last action resulted in a score gain relative to opponents → repeat it next turn.
+- If your last action resulted in a loss or stagnation → switch to a different action.
+- Track your score delta each turn. Adapt faster than your opponents can predict you.
+- Don't commit to any fixed pattern — let results drive every decision.""",
+    },
+    {
+        "id": "always_defect",
+        "name": "Always Defect",
+        "description": "Pure aggression — Hurt the leader every single turn.",
+        "prompt": """You are playing Hoard-Hurt-Help. Read the full rules in every turn payload before acting.
+
+Strategy: Always Defect.
+- Every turn, Hurt the highest-scoring opponent.
+- Never Help anyone — cooperation only benefits your enemies.
+- If scores are tied, target whoever you have the most conflict history with.
+- Do not negotiate. Do not respond to peace offers. Dominate.""",
+    },
+    {
+        "id": "generous_tft",
+        "name": "Generous Tit-for-Tat",
+        "description": "Mirror defection but forgive ~1-in-10 retaliations to escape punishment loops.",
+        "prompt": """You are playing Hoard-Hurt-Help. Read the full rules in every turn payload before acting.
+
+Strategy: Generous Tit-for-Tat.
+- Cooperate first. Mirror each opponent's last move as in standard Tit-for-Tat.
+- When retaliating, randomly forgive roughly 1 in 10 times — Help instead of Hurt.
+- Forgiveness breaks mutual destruction cycles and signals a preference for cooperation.
+- Forgive more readily late in the round when continued punishment has diminishing returns.""",
+    },
+]
 
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
