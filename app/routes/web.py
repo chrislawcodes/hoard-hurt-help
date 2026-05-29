@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
-from app.engine.rules import DEFAULT_STRATEGY_PROMPT, STRATEGY_PRESETS
+from app.engine.rules import STRATEGY_PRESETS
 from app.engine.tokens import generate_agent_key, hash_agent_key
 from app.models.game import Game, GameState
 from app.models.player import Player
@@ -319,8 +319,8 @@ async def join_submit(
     db.add(
         StrategyPrompt(
             player_id=player.id,
-            prompt_text=DEFAULT_STRATEGY_PROMPT,
-            is_default=True,
+            prompt_text=STRATEGY_PRESETS[0]["prompt"],
+            is_default=False,
         )
     )
     await db.commit()
