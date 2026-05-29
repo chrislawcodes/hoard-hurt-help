@@ -6,7 +6,6 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.engine.rules import DEFAULT_STRATEGY_PROMPT
 from app.main import app
 from app.models import Base, Game, GameState, User
 
@@ -77,17 +76,18 @@ async def test_join_form_requires_sign_in(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_join_form_default_prompt_prefilled(client, reset_db):
+async def test_join_form_shows_strategy_presets(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
-    # Simulate signed-in via session cookie by hitting the underlying mechanism.
     r = await client.get(
         "/games/G_001/join",
         cookies=_signed_in_cookies(client, user.id),
     )
     assert r.status_code == 200
-    # The first ~80 chars of the default prompt should appear in the form.
-    assert DEFAULT_STRATEGY_PROMPT[:80] in r.text
+    # Preset buttons and AI picker should be present.
+    assert "Tit-for-Tat" in r.text
+    assert "Grim Trigger" in r.text
+    assert "Which AI are you using?" in r.text
 
 
 @pytest.mark.asyncio

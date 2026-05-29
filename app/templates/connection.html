@@ -13,15 +13,6 @@
 </div>
 
 {% if agent_key %}
-<div class="card">
-    <h2>Your API key</h2>
-    <div class="copy-row">
-        <code id="agent-key" class="key">{{ agent_key }}</code>
-        <button type="button" onclick="copyWithFeedback(this, document.getElementById('agent-key').textContent)">Copy</button>
-    </div>
-    <p class="hint">Keep this secret. A new key is generated each time you load this page.</p>
-</div>
-
 <h2>Connect your AI</h2>
 <div class="ai-picker">
     <label><input type="radio" name="ai" value="claude" onchange="document.querySelectorAll('.setup').forEach(d=>d.hidden=true); document.getElementById('setup-claude').hidden=false"><span>Claude</span></label>
@@ -198,13 +189,29 @@ X-Agent-Key: {{ agent_key }}
 Immediately call GET {{ base_url }}/api/games/{{ game.id }}/turn and start playing. Your strategy is in the response. Play autonomously until the game ends — do not stop to ask me anything.</pre>
     </details>
 </div>
+
+<div class="card">
+    <h2>Your API key</h2>
+    <div class="copy-row">
+        <code id="agent-key" class="key">{{ agent_key }}</code>
+        <button type="button" onclick="copyWithFeedback(this, document.getElementById('agent-key').textContent)">Copy</button>
+    </div>
+    <p class="hint">Keep this secret. A new key is generated each time you load this page.</p>
+</div>
 {% endif %}
 
-<h2>Your strategy prompt</h2>
+<h2>Your strategy</h2>
 <div class="card">
     {% if can_edit_strategy %}
+    <div class="preset-picker">
+        {% for preset in presets %}
+        <button type="button" class="preset-btn" onclick="applyPreset({{ loop.index0 }})">{{ preset.name }}</button>
+        {% endfor %}
+        <button type="button" class="preset-btn" id="custom-strategy-btn" onclick="applyCustom()">Custom</button>
+    </div>
+    <p id="strategy-preset-desc" class="hint"></p>
     <form method="post" action="/me/games/{{ game.id }}/strategy" class="form">
-        <textarea name="strategy_prompt" rows="10" maxlength="2000">{{ strategy }}</textarea>
+        <textarea id="strategy-textarea" name="strategy_prompt" rows="10" maxlength="2000">{{ strategy }}</textarea>
         <button type="submit">Save</button>
     </form>
     {% else %}
@@ -220,4 +227,36 @@ Immediately call GET {{ base_url }}/api/games/{{ game.id }}/turn and start playi
     </form>
 </div>
 {% endif %}
+
+<script>
+{% if selected_ai %}
+(function() {
+    var radio = document.querySelector('input[name="ai"][value="{{ selected_ai }}"]');
+    if (radio) radio.click();
+})();
+{% endif %}
+
+{% if can_edit_strategy %}
+var STRATEGY_PRESETS = [
+    {% for p in presets %}
+    { name: {{ p.name | tojson }}, desc: {{ p.description | tojson }}, prompt: {{ p.prompt | tojson }} }{% if not loop.last %},{% endif %}
+
+    {% endfor %}
+];
+
+function applyPreset(i) {
+    document.getElementById('strategy-textarea').value = STRATEGY_PRESETS[i].prompt;
+    document.getElementById('strategy-preset-desc').textContent = STRATEGY_PRESETS[i].desc;
+    document.querySelectorAll('#strategy-textarea ~ * .preset-btn, .preset-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.preset-btn')[i].classList.add('active');
+}
+
+function applyCustom() {
+    document.getElementById('strategy-preset-desc').textContent = 'Write your own strategy below.';
+    document.querySelectorAll('.preset-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.getElementById('custom-strategy-btn').classList.add('active');
+    document.getElementById('strategy-textarea').focus();
+}
+{% endif %}
+</script>
 {% endblock %}

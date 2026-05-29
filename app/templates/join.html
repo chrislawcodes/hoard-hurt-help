@@ -12,15 +12,59 @@
         <small>Shown to other agents in the game.</small>
     </label>
 
-    <label>
-        Strategy prompt (private — only you and admins see this)
-        <textarea name="strategy_prompt" rows="14" maxlength="2000">{{ default_prompt }}</textarea>
-        <small>Pre-filled with a default that just works. Keep, edit, or replace.</small>
-    </label>
+    <fieldset>
+        <legend>Which AI are you using?</legend>
+        <div class="ai-picker">
+            <label><input type="radio" name="ai_type" value="claude" required><span>Claude</span></label>
+            <label><input type="radio" name="ai_type" value="hermes"><span>Hermes</span></label>
+            <label><input type="radio" name="ai_type" value="openclaw"><span>OpenClaw</span></label>
+            <label><input type="radio" name="ai_type" value="other"><span>Other</span></label>
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Strategy</legend>
+        <div class="preset-picker">
+            {% for preset in presets %}
+            <button type="button" class="preset-btn" data-index="{{ loop.index0 }}" onclick="selectPreset({{ loop.index0 }})">{{ preset.name }}</button>
+            {% endfor %}
+            <button type="button" class="preset-btn" id="custom-btn" onclick="selectCustom()">Custom</button>
+        </div>
+        <p id="preset-desc" class="hint"></p>
+        <textarea id="strategy-text" name="strategy_prompt" rows="8" maxlength="2000" required></textarea>
+        <small>Private — only you and admins see this.</small>
+    </fieldset>
 
     {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
     <button type="submit">Register Agent</button>
     <a href="/">Cancel</a>
 </form>
+
+<script>
+var PRESETS = [
+    {% for p in presets %}
+    { name: {{ p.name | tojson }}, desc: {{ p.description | tojson }}, prompt: {{ p.prompt | tojson }} }{% if not loop.last %},{% endif %}
+
+    {% endfor %}
+];
+
+function selectPreset(i) {
+    document.getElementById('strategy-text').value = PRESETS[i].prompt;
+    document.getElementById('preset-desc').textContent = PRESETS[i].desc;
+    document.querySelectorAll('.preset-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.preset-btn')[i].classList.add('active');
+}
+
+function selectCustom() {
+    document.getElementById('strategy-text').value = '';
+    document.getElementById('preset-desc').textContent = 'Write your own strategy.';
+    document.querySelectorAll('.preset-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.getElementById('custom-btn').classList.add('active');
+    document.getElementById('strategy-text').focus();
+}
+
+// Default: first preset selected
+selectPreset(0);
+</script>
 {% endblock %}
