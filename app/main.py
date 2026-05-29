@@ -68,7 +68,7 @@ def create_app() -> FastAPI:
         SessionMiddleware,
         secret_key=settings.session_secret,
         same_site="lax",
-        https_only=False,  # set True behind HTTPS in prod via env
+        https_only=settings.cookie_secure,  # Secure cookie in prod (COOKIE_SECURE=true)
         session_cookie="hhh_session",
     )
 

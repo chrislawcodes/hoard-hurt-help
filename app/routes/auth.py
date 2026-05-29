@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.auth.google import oauth
 from app.auth.session import clear_session, set_session_user
+from app.config import settings
 from app.deps import DbSession
 from app.models.user import User
 from app.schemas.auth import GoogleUserInfo
@@ -16,7 +17,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.get("/google/login")
 async def google_login(request: Request, next: str = "/"):
     request.session["next_after_login"] = next
-    redirect_uri = str(request.url_for("google_callback"))
+    # Prefer the explicitly-configured redirect URI (GOOGLE_REDIRECT_URI) so the
+    # callback is correct behind a TLS-terminating proxy; fall back to url_for.
+    redirect_uri = settings.google_redirect_uri or str(request.url_for("google_callback"))
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
