@@ -221,6 +221,10 @@ async def join_form(
     if game is None:
         raise HTTPException(404)
 
+    # Pre-generate the key so setup instructions on this page show the real key.
+    pending_key = generate_agent_key()
+    request.session[f"pending_key_{game_id}"] = pending_key
+
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -229,7 +233,8 @@ async def join_form(
             "is_admin": _is_admin(user),
             "game": game,
             "player_count": await _player_count(db, game.id),
-            "presets": STRATEGY_PRESETS,
+            "agent_key": pending_key,
+            "base_url": settings.base_url,
             "error": None,
         },
     )
@@ -242,7 +247,6 @@ async def join_submit(
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
     display_name: Annotated[str, Form()],
-    strategy_prompt: Annotated[str, Form()],
     ai_type: Annotated[str, Form()] = "claude",
 ):
     game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
@@ -262,6 +266,9 @@ async def join_submit(
             url=f"/me/games/{game.id}", status_code=status.HTTP_303_SEE_OTHER
         )
 
+    # Re-generate a pending key if session expired; otherwise use the one we pre-generated.
+    key = request.session.pop(f"pending_key_{game_id}", None) or generate_agent_key()
+
     # Validate display name.
     name_taken = (
         await db.execute(
@@ -277,7 +284,8 @@ async def join_submit(
                 "is_admin": _is_admin(user),
                 "game": game,
                 "player_count": await _player_count(db, game.id),
-                "presets": STRATEGY_PRESETS,
+                "agent_key": key,
+                "base_url": settings.base_url,
                 "error": "That display name is already taken in this game.",
             },
             status_code=400,
@@ -293,13 +301,13 @@ async def join_submit(
                 "is_admin": _is_admin(user),
                 "game": game,
                 "player_count": await _player_count(db, game.id),
-                "presets": STRATEGY_PRESETS,
+                "agent_key": key,
+                "base_url": settings.base_url,
                 "error": "Game is full.",
             },
             status_code=409,
         )
 
-    key = generate_agent_key()
     player = Player(
         game_id=game.id,
         user_id=user.id,
@@ -311,14 +319,15 @@ async def join_submit(
     db.add(
         StrategyPrompt(
             player_id=player.id,
-            prompt_text=strategy_prompt,
-            is_default=(strategy_prompt.strip() == DEFAULT_STRATEGY_PROMPT.strip()),
+            prompt_text=DEFAULT_STRATEGY_PROMPT,
+            is_default=True,
         )
     )
     await db.commit()
 
-    # Stash key and AI choice so the connection page can pre-select the right setup.
+    # Pass key and AI type to connection page for the first visit.
     request.session[f"ai_type_{game.id}"] = ai_type
+    request.session[f"fresh_key_{game.id}"] = key
 
     return RedirectResponse(
         url=f"/me/games/{game.id}", status_code=status.HTTP_303_SEE_OTHER
@@ -371,15 +380,13 @@ async def my_game_dashboard(
         )
     ).scalar_one_or_none()
 
-    # Regenerate the key on every pre-game visit so the setup page always has a
-    # usable plaintext key. Skip when ACTIVE/COMPLETED — would invalidate a
-    # running agent mid-game.
-    if game.state in (GameState.SCHEDULED, GameState.REGISTERING):
+    # First visit from join: use the key we already generated. On return visits
+    # (session cleared or direct navigation), regenerate for pre-game only.
+    fresh_key = request.session.pop(f"fresh_key_{game_id}", None)
+    if fresh_key is None and game.state in (GameState.SCHEDULED, GameState.REGISTERING):
         fresh_key = generate_agent_key()
         player.agent_key_hash = hash_agent_key(fresh_key)
         await db.commit()
-    else:
-        fresh_key = None
 
     selected_ai = request.session.pop(f"ai_type_{game_id}", None)
 

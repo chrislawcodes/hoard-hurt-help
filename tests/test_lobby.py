@@ -76,7 +76,7 @@ async def test_join_form_requires_sign_in(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_join_form_shows_strategy_presets(client, reset_db):
+async def test_join_form_shows_ai_setup(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
     r = await client.get(
@@ -84,10 +84,10 @@ async def test_join_form_shows_strategy_presets(client, reset_db):
         cookies=_signed_in_cookies(client, user.id),
     )
     assert r.status_code == 200
-    # Preset buttons and AI picker should be present.
-    assert "Tit-for-Tat" in r.text
-    assert "Grim Trigger" in r.text
+    # AI picker and setup instructions (with embedded key) should be present.
     assert "Which AI are you using?" in r.text
+    assert "claude mcp add hoardhurthelp" in r.text
+    assert "X-Agent-Key" in r.text
 
 
 @pytest.mark.asyncio
