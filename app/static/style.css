@@ -432,6 +432,7 @@ button, .cta {
 button:hover, .cta:hover { background: var(--accent-hover); }
 button.secondary, .cta.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
 
+.save-confirm { color: #16a34a; font-weight: 600; margin-bottom: 0.75rem; }
 .preset-picker { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
 .preset-btn { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; padding: 0.35rem 0.75rem; border-radius: 20px; }
 .preset-btn:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
