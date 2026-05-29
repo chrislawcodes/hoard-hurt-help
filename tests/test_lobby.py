@@ -4,10 +4,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.engine.tokens import hash_agent_key, verify_agent_key
 from app.main import app
-from app.models import Base, Game, GameState, User
+from app.models import Base, Game, GameState, Player, User
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +122,92 @@ async def test_my_games_lists_user_games(client, reset_db):
     )
     assert r.status_code == 200
     assert "Test Game" in r.text
+
+
+async def _seed_player(
+    reset_db: async_sessionmaker, user: User, game: Game, key: str
+) -> int:
+    """Create a player owned by `user` in `game`, keyed with `key`. Returns its id."""
+    async with reset_db() as db:
+        p = Player(
+            game_id=game.id,
+            user_id=user.id,
+            agent_id="AI_qa",
+            agent_key_hash=hash_agent_key(key),
+        )
+        db.add(p)
+        await db.commit()
+        await db.refresh(p)
+        return p.id
+
+
+async def _key_hash(reset_db: async_sessionmaker, player_id: int) -> str:
+    async with reset_db() as db:
+        p = (
+            await db.execute(select(Player).where(Player.id == player_id))
+        ).scalar_one()
+        return p.agent_key_hash
+
+
+@pytest.mark.asyncio
+async def test_dashboard_visit_does_not_rotate_key(client, reset_db):
+    """Loading the dashboard pre-game must NOT change the agent key.
+
+    Regression: a previous version regenerated the key on every pre-game visit,
+    silently invalidating any bot already configured with it.
+    """
+    user = await _seed_user(reset_db)
+    game = await _seed_game(reset_db)
+    key = "sk_game_" + "a" * 48
+    player_id = await _seed_player(reset_db, user, game, key)
+
+    # Visit the dashboard twice.
+    for _ in range(2):
+        r = await client.get(
+            "/me/games/G_001", cookies=_signed_in_cookies(client, user.id)
+        )
+        assert r.status_code == 200
+
+    # The original key still verifies — it was never rotated out from under us.
+    assert verify_agent_key(key, await _key_hash(reset_db, player_id))
+
+
+@pytest.mark.asyncio
+async def test_rekey_invalidates_old_key(client, reset_db):
+    """Re-issue is the one deliberate path that changes the key."""
+    user = await _seed_user(reset_db)
+    game = await _seed_game(reset_db)
+    key = "sk_game_" + "b" * 48
+    player_id = await _seed_player(reset_db, user, game, key)
+
+    r = await client.post(
+        "/me/games/G_001/rekey",
+        cookies=_signed_in_cookies(client, user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == "/me/games/G_001"
+
+    # The old key no longer works; the hash changed to a freshly issued key.
+    assert not verify_agent_key(key, await _key_hash(reset_db, player_id))
+
+
+@pytest.mark.asyncio
+async def test_rekey_blocked_after_game_starts(client, reset_db):
+    """A key can't be rotated mid-game — that would strand a playing bot."""
+    user = await _seed_user(reset_db)
+    game = await _seed_game(reset_db, state=GameState.ACTIVE)
+    key = "sk_game_" + "c" * 48
+    player_id = await _seed_player(reset_db, user, game, key)
+
+    r = await client.post(
+        "/me/games/G_001/rekey",
+        cookies=_signed_in_cookies(client, user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 409
+    # Key is untouched.
+    assert verify_agent_key(key, await _key_hash(reset_db, player_id))
 
 
 def _signed_in_cookies(client: AsyncClient, user_id: int) -> dict:
