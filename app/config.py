@@ -6,7 +6,7 @@ Single source of truth for runtime config. Other modules import
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,26 @@ class Settings(BaseSettings):
 
     # Comma-separated list of emails with admin powers.
     admin_emails: str = Field(default="")
+
+    @field_validator("database_url")
+    @classmethod
+    def _force_async_driver(cls, v: str) -> str:
+        """Normalize a sync Postgres URL to the asyncpg driver.
+
+        Railway's Postgres add-on hands out a sync URL (``postgres://`` or
+        ``postgresql://``), but our engine uses ``create_async_engine`` and
+        needs the asyncpg driver. Rewriting here lets a deploy paste Railway's
+        ``${{Postgres.DATABASE_URL}}`` value verbatim. SQLite and an already
+        async URL pass through untouched. Alembic re-strips the suffix for its
+        own sync run in migrations/env.py.
+        """
+        if v.startswith("postgresql+asyncpg://"):
+            return v
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        return v
 
     @property
     def admin_emails_set(self) -> set[str]:
