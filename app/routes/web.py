@@ -370,10 +370,15 @@ async def my_game_dashboard(
         )
     ).scalar_one_or_none()
 
-    # Always regenerate so the setup page always has a usable plaintext key.
-    fresh_key = generate_agent_key()
-    player.agent_key_hash = hash_agent_key(fresh_key)
-    await db.flush()
+    # Regenerate the key on every pre-game visit so the setup page always has a
+    # usable plaintext key. Skip when ACTIVE/COMPLETED — would invalidate a
+    # running agent mid-game.
+    if game.state in (GameState.SCHEDULED, GameState.REGISTERING):
+        fresh_key = generate_agent_key()
+        player.agent_key_hash = hash_agent_key(fresh_key)
+        await db.commit()
+    else:
+        fresh_key = None
 
     return templates.TemplateResponse(
         request,

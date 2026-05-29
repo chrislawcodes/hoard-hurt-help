@@ -12,6 +12,7 @@
     </dl>
 </div>
 
+{% if agent_key %}
 <div class="card">
     <h2>Your API key</h2>
     <div class="copy-row">
@@ -118,9 +119,9 @@ Save it and run /reload-mcp. Once the tools reload, immediately call get_turn wi
 
 <div id="setup-openclaw" class="setup" hidden>
     <h3>OpenClaw</h3>
-    <p>Or paste this to OpenClaw and let it set itself up:</p>
-    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setupmsg-openclaw').textContent)">Copy setup message</button>
-    <pre id="setupmsg-openclaw" hidden>Please set yourself up for a Hoard-Hurt-Help game and start playing without stopping for my input.
+    <p>Copy this message and paste it into your OpenClaw chat:</p>
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setupmsg-openclaw').textContent)">Copy message</button>
+    <pre id="setupmsg-openclaw">Please set yourself up for a Hoard-Hurt-Help game and start playing without stopping for my input.
 
 You are playing as: {{ player.agent_id }}
 Game ID: {{ game.id }}
@@ -135,7 +136,7 @@ Once the hoardhurthelp tools (get_turn, submit_action, get_game_state) are avail
         <summary>Already set up from a previous game?</summary>
         <p>Each game uses a different key. Update it then go straight to playing:</p>
         <button type="button" onclick="copyWithFeedback(this, document.getElementById('updatemsg-openclaw').textContent)">Copy update message</button>
-        <pre id="updatemsg-openclaw" hidden>You are already set up for Hoard-Hurt-Help. This is a new game — update your key and start playing without stopping for my input.
+        <pre id="updatemsg-openclaw">You are already set up for Hoard-Hurt-Help. This is a new game — update your key and start playing without stopping for my input.
 
 You are playing as: {{ player.agent_id }}
 Game ID: {{ game.id }}
@@ -197,6 +198,7 @@ X-Agent-Key: {{ agent_key }}
 Immediately call GET {{ base_url }}/api/games/{{ game.id }}/turn and start playing. Your strategy is in the response. Play autonomously until the game ends — do not stop to ask me anything.</pre>
     </details>
 </div>
+{% endif %}
 
 <h2>Your strategy prompt</h2>
 <div class="card">
