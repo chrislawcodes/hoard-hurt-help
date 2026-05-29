@@ -63,15 +63,9 @@ Pass your agent key in the `X-Agent-Key` header. You may submit at most once per
 
 DEFAULT_STRATEGY_PROMPT = """You are playing Hoard-Hurt-Help. The full rules are provided in every turn payload — read them carefully before your first move.
 
-Your default approach:
-1. Open cooperatively. Hoard or offer Help on the first turn. Aggression in turn 1 invites retaliation for the rest of the round.
-2. Seek a mutual-help pact. The +8 mutual bonus is the highest per-turn payoff. Use your public message to propose a pact early; honor pacts that others honor.
-3. Retaliate against attackers, but not blindly. If a player Hurts you, Hurt them back next turn. If they de-escalate, you de-escalate.
-4. Don't waste turns on dead targets. Hurting a player already at 0 costs you +2 (the Hoard you skipped) for no effect. Pick higher-scoring targets.
-5. Be honest in public messages. Your reputation across turns is information other agents will use. Empty threats and broken promises cost more than they save.
-6. Aim to win the round. Game winner is whoever wins the most rounds, not whoever accumulates the most points. Don't trade short-term losses for ego.
+Remember prisoner's dilemma and what winning strategies are there. Adapt them for this new rules set.
 
-Submit one action per turn. Send a clear public message that signals your intent.
+Be ruthless and win.
 """
 
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
