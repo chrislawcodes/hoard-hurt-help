@@ -9,7 +9,7 @@
 /* ============================================================
  * THEME: Clean — neutral light, blue accent
  * ============================================================ */
-[data-theme="clean"] {
+:root[data-theme="clean"] {
     --bg: #f6f7f9;
     --surface: #ffffff;
     --surface-2: #f0f2f5;
@@ -43,7 +43,7 @@
 /* ============================================================
  * THEME: Terminal — dark, monospace headers, green accent
  * ============================================================ */
-[data-theme="terminal"] {
+:root[data-theme="terminal"] {
     --bg: #0d1117;
     --surface: #161b22;
     --surface-2: #1c2230;
@@ -110,7 +110,7 @@
 /* ============================================================
  * THEME: Editorial — airy light, serif headings, high contrast
  * ============================================================ */
-[data-theme="editorial"] {
+:root[data-theme="editorial"] {
     --bg: #ffffff;
     --surface: #ffffff;
     --surface-2: #f4f1ea;
@@ -145,7 +145,7 @@
  * ============================================================ */
 
 /* Midnight — deep navy dark, sky-blue accent */
-[data-theme="midnight"] {
+:root[data-theme="midnight"] {
     --bg: #0f172a; --surface: #1e293b; --surface-2: #273449;
     --ink: #e2e8f0; --ink-soft: #94a3b8; --line: #334155;
     --header-bg: #020617; --header-ink: #e2e8f0; --header-ink-soft: #94a3b8;
@@ -160,7 +160,7 @@
 }
 
 /* Solarized — classic cream light, blue accent */
-[data-theme="solarized"] {
+:root[data-theme="solarized"] {
     --bg: #fdf6e3; --surface: #fefbf0; --surface-2: #eee8d5;
     --ink: #586e75; --ink-soft: #93a1a1; --line: #e3dcc4;
     --header-bg: #073642; --header-ink: #eee8d5; --header-ink-soft: #93a1a1;
@@ -175,7 +175,7 @@
 }
 
 /* Dracula — purple dark, pink/cyan accents */
-[data-theme="dracula"] {
+:root[data-theme="dracula"] {
     --bg: #282a36; --surface: #343746; --surface-2: #44475a;
     --ink: #f8f8f2; --ink-soft: #9aa0c4; --line: #44475a;
     --header-bg: #21222c; --header-ink: #f8f8f2; --header-ink-soft: #6272a4;
@@ -190,7 +190,7 @@
 }
 
 /* Nord — cool muted dark, frost accent */
-[data-theme="nord"] {
+:root[data-theme="nord"] {
     --bg: #2e3440; --surface: #3b4252; --surface-2: #434c5e;
     --ink: #eceff4; --ink-soft: #99a1b3; --line: #434c5e;
     --header-bg: #242933; --header-ink: #eceff4; --header-ink-soft: #81899b;
@@ -205,7 +205,7 @@
 }
 
 /* Gruvbox — warm retro dark, yellow accent */
-[data-theme="gruvbox"] {
+:root[data-theme="gruvbox"] {
     --bg: #282828; --surface: #32302f; --surface-2: #3c3836;
     --ink: #ebdbb2; --ink-soft: #a89984; --line: #504945;
     --header-bg: #1d2021; --header-ink: #ebdbb2; --header-ink-soft: #a89984;
@@ -220,7 +220,7 @@
 }
 
 /* Sepia — warm paper light, serif, brown accent */
-[data-theme="sepia"] {
+:root[data-theme="sepia"] {
     --bg: #f4ecd8; --surface: #fbf5e6; --surface-2: #e8dcc0;
     --ink: #433422; --ink-soft: #7a6a52; --line: #e0d4b8;
     --header-bg: #433422; --header-ink: #f4ecd8; --header-ink-soft: #b8a98c;
@@ -236,7 +236,7 @@
 }
 
 /* Mint — fresh light, emerald accent */
-[data-theme="mint"] {
+:root[data-theme="mint"] {
     --bg: #f3faf7; --surface: #ffffff; --surface-2: #e3f3ec;
     --ink: #133a2e; --ink-soft: #5b7d72; --line: #d3e8df;
     --header-bg: #0f3d31; --header-ink: #ffffff; --header-ink-soft: #9cc4b7;
@@ -251,7 +251,7 @@
 }
 
 /* Rose — warm light, pink accent */
-[data-theme="rose"] {
+:root[data-theme="rose"] {
     --bg: #fdf4f5; --surface: #ffffff; --surface-2: #fbe6ea;
     --ink: #3a1f27; --ink-soft: #8a6a72; --line: #f0d8de;
     --header-bg: #5a2533; --header-ink: #ffffff; --header-ink-soft: #cda3ad;
@@ -266,7 +266,7 @@
 }
 
 /* Mono — high-contrast grayscale, minimal */
-[data-theme="mono"] {
+:root[data-theme="mono"] {
     --bg: #ffffff; --surface: #ffffff; --surface-2: #f2f2f2;
     --ink: #111111; --ink-soft: #666666; --line: #dddddd;
     --header-bg: #111111; --header-ink: #ffffff; --header-ink-soft: #aaaaaa;
@@ -281,7 +281,7 @@
 }
 
 /* Cyberpunk — black, neon magenta/cyan */
-[data-theme="cyberpunk"] {
+:root[data-theme="cyberpunk"] {
     --bg: #0a0a12; --surface: #12121f; --surface-2: #1b1b2e;
     --ink: #e6e6ff; --ink-soft: #8a8ab0; --line: #2a2a44;
     --header-bg: #050509; --header-ink: #00e5ff; --header-ink-soft: #7a7ab0;
