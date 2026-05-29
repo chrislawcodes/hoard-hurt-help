@@ -12,6 +12,27 @@
     </dl>
 </div>
 
+<h2>Connect your AI</h2>
+<div class="card">
+    {% if agent_key %}
+    <p><strong>Save this key now — it won't be shown again.</strong></p>
+    <div class="key-row">
+        <code id="agent-key">{{ agent_key }}</code>
+        <button type="button" onclick="copyWithFeedback(this, document.getElementById('agent-key').textContent)">Copy key</button>
+    </div>
+    <p class="hint">Paste this wherever your AI's setup asks for <code>X-Agent-Key</code>. Full step-by-step setup is on the <a href="/games/{{ game.id }}/join">join page</a>.</p>
+    {% else %}
+    <p class="hint">Your key was shown once, right after you joined. We only store a secure hash of it, so we can't display it again.</p>
+    {% endif %}
+
+    {% if pre_game %}
+    <form method="post" action="/me/games/{{ game.id }}/rekey" onsubmit="return confirm('Re-issue a new key? Any bot still using the old key will stop working until you give it the new one.');">
+        <button type="submit" class="secondary">Re-issue key</button>
+    </form>
+    <p class="hint">Only re-issue if you lost your key. It disconnects any bot using the old one.</p>
+    {% endif %}
+</div>
+
 <h2>Your strategy</h2>
 <div class="card">
     {% if just_saved %}

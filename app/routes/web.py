@@ -1,5 +1,6 @@
 """HTMX-served web routes: lobby, join, my games, per-game dashboard."""
 
+import random
 import re
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
@@ -316,10 +317,12 @@ async def join_submit(
     )
     db.add(player)
     await db.flush()
+    # Seed each new player with a randomly chosen preset so a lobby of bots that
+    # never edit their strategy still gets a varied mix, not all the same one.
     db.add(
         StrategyPrompt(
             player_id=player.id,
-            prompt_text=STRATEGY_PRESETS[0]["prompt"],
+            prompt_text=random.choice(STRATEGY_PRESETS)["prompt"],
             is_default=False,
         )
     )
@@ -381,15 +384,15 @@ async def my_game_dashboard(
         )
     ).scalar_one_or_none()
 
-    # First visit from join: use the key we already generated. On return visits
-    # (session cleared or direct navigation), regenerate for pre-game only.
+    # The agent key is shown exactly once, right after it is issued — on join or
+    # on an explicit re-issue (see reissue_agent_key). We only ever store the
+    # argon2 hash, so we cannot show the key again on later visits. Crucially, we
+    # do NOT regenerate the key on a plain dashboard visit: doing so silently
+    # invalidated the key a bot was already configured with.
     fresh_key = request.session.pop(f"fresh_key_{game_id}", None)
-    if fresh_key is None and game.state in (GameState.SCHEDULED, GameState.REGISTERING):
-        fresh_key = generate_agent_key()
-        player.agent_key_hash = hash_agent_key(fresh_key)
-        await db.commit()
 
     selected_ai = request.session.pop(f"ai_type_{game_id}", None)
+    pre_game = game.state in (GameState.SCHEDULED, GameState.REGISTERING)
 
     return templates.TemplateResponse(
         request,
@@ -407,8 +410,47 @@ async def my_game_dashboard(
             "just_saved": saved,
             "can_edit_strategy": game.state != GameState.ACTIVE
             and game.state != GameState.COMPLETED,
-            "can_leave": game.state in (GameState.SCHEDULED, GameState.REGISTERING),
+            "can_leave": pre_game,
+            "pre_game": pre_game,
         },
+    )
+
+
+@router.post("/me/games/{game_id}/rekey")
+async def reissue_agent_key(
+    game_id: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+):
+    """Issue a brand-new agent key, invalidating the old one.
+
+    This is the only way a key changes after join — a deliberate user action,
+    never a side effect of loading a page. Pre-game only: rotating a key mid-game
+    would strand a bot in the middle of its turns. The fresh key is stashed in
+    the session so the dashboard can show it once on the redirect.
+    """
+    player = (
+        await db.execute(
+            select(Player).where(Player.game_id == game_id, Player.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    if player is None:
+        raise HTTPException(404, detail="You haven't joined this game.")
+
+    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
+        raise HTTPException(
+            409, detail="Can't re-issue a key after the game has started."
+        )
+
+    key = generate_agent_key()
+    player.agent_key_hash = hash_agent_key(key)
+    await db.commit()
+
+    request.session[f"fresh_key_{game_id}"] = key
+    return RedirectResponse(
+        url=f"/me/games/{game_id}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 

@@ -1,5 +1,6 @@
 """FastAPI dependencies shared across routes."""
 
+import logging
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -13,6 +14,7 @@ from app.engine.tokens import verify_agent_key
 from app.models.player import Player
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
 
 DbSession = Annotated[AsyncSession, Depends(get_session)]
 
@@ -60,6 +62,7 @@ async def require_agent_key(
 ) -> Player:
     """Validate `X-Agent-Key`. Returns the Player. Raises 401 on miss."""
     if not x_agent_key:
+        logger.warning("agent auth failed: missing X-Agent-Key header")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -76,6 +79,12 @@ async def require_agent_key(
     for p in rows:
         if verify_agent_key(x_agent_key, p.agent_key_hash):
             return p
+    # Log enough to diagnose without ever recording the secret itself.
+    logger.warning(
+        "agent auth failed: no player matches the provided key (key prefix %s, %d players)",
+        x_agent_key[:11],
+        len(rows),
+    )
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={
