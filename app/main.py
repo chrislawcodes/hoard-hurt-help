@@ -47,11 +47,15 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await scheduler_registry.resume_active_games_on_startup()
-        if mcp_asgi_app is not None:
-            async with mcp_asgi_app.router.lifespan_context(app):
+        scheduler_registry.start_poller()  # auto-start games when their time comes
+        try:
+            if mcp_asgi_app is not None:
+                async with mcp_asgi_app.router.lifespan_context(app):
+                    yield
+            else:
                 yield
-        else:
-            yield
+        finally:
+            scheduler_registry.stop_poller()
 
     app = FastAPI(
         title="Hoard-Hurt-Help",

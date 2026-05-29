@@ -591,8 +591,14 @@ pre code { background: none; padding: 0; }
 .ai-picker label:last-child span { border-right: none; }
 .ai-picker input:checked + span { background: var(--accent); color: var(--accent-ink); }
 .danger-zone { margin-top: 2rem; }
-.danger-zone button { background: transparent; color: var(--bad); border: 1px solid var(--bad-line); }
-.danger-zone button:hover { background: var(--bad-bg); }
+.danger-zone button,
+button.danger,
+.cta.danger { background: transparent; color: var(--bad); border: 1px solid var(--bad-line); }
+.danger-zone button:hover,
+button.danger:hover,
+.cta.danger:hover { background: var(--bad-bg); }
+/* Inline forms in card actions shouldn't add vertical margin. */
+.game-card-action form { margin: 0; }
 
 /* ---- Guide pages ---- */
 .doc { white-space: pre-wrap; word-wrap: break-word; line-height: 1.55; }

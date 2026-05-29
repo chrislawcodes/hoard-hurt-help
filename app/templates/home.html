@@ -37,6 +37,12 @@
         <div class="game-card-action">
             <span class="badge badge-soon">Upcoming</span>
             <a class="cta" href="/games/{{ g.id }}/join">Join →</a>
+            {% if is_admin %}
+            <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+                <input type="hidden" name="next" value="/">
+                <button type="submit" class="danger">Delete</button>
+            </form>
+            {% endif %}
         </div>
     </article>
     {% endfor %}
@@ -57,6 +63,12 @@
         <div class="game-card-action">
             <span class="badge badge-done">Final</span>
             <a class="cta secondary" href="/games/{{ g.id }}">Watch →</a>
+            {% if is_admin %}
+            <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+                <input type="hidden" name="next" value="/">
+                <button type="submit" class="danger">Delete</button>
+            </form>
+            {% endif %}
         </div>
     </article>
     {% endfor %}

@@ -5,13 +5,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.deps import DbSession, require_admin
+from app.engine.scheduler import registry, start_game
+from app.engine.state_machine import TransitionError
 from app.engine.tokens import generate_game_id
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
+from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
 from app.templating import templates  # shared instance with custom filters
 
@@ -157,6 +160,70 @@ async def admin_game_detail(
         "admin/game_detail.html",
         {"user": user, "is_admin": True, "game": g, "players": player_views},
     )
+
+
+@router.post("/admin/games/{game_id}/start")
+async def admin_start_game(
+    game_id: Annotated[str, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_admin)],
+):
+    """Force a REGISTERING game to start now (manual override of the auto-start poller)."""
+    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    if g is None:
+        raise HTTPException(404)
+    try:
+        await start_game(db, g)
+    except TransitionError:
+        raise HTTPException(409, detail=f"Cannot start a game in state {g.state.value}.")
+    return RedirectResponse(
+        url=f"/admin/games/{game_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post("/admin/games/{game_id}/delete")
+async def admin_delete_game(
+    game_id: Annotated[str, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_admin)],
+    next: Annotated[str, Form()] = "/admin",
+):
+    """Permanently delete a game and everything under it. Admin only.
+
+    Deletes in FK-safe order: clear the game's winner pointer, then
+    submissions → turns → strategy prompts → players → the game itself.
+    Stops the game's loop first if it happens to be running.
+    """
+    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    if g is None:
+        raise HTTPException(404)
+
+    registry.stop(game_id)  # no-op if not running
+
+    # Break the games → players FK so players can be deleted.
+    g.winner_player_id = None
+    await db.flush()
+
+    turn_ids = (
+        (await db.execute(select(Turn.id).where(Turn.game_id == game_id))).scalars().all()
+    )
+    if turn_ids:
+        await db.execute(delete(TurnSubmission).where(TurnSubmission.turn_id.in_(turn_ids)))
+    await db.execute(delete(Turn).where(Turn.game_id == game_id))
+
+    player_ids = (
+        (await db.execute(select(Player.id).where(Player.game_id == game_id))).scalars().all()
+    )
+    if player_ids:
+        await db.execute(delete(StrategyPrompt).where(StrategyPrompt.player_id.in_(player_ids)))
+    await db.execute(delete(Player).where(Player.game_id == game_id))
+
+    await db.execute(delete(Game).where(Game.id == game_id))
+    await db.commit()
+
+    # Only redirect to safe local paths.
+    target = next if next.startswith("/") else "/admin"
+    return RedirectResponse(url=target, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/admin/prompts", response_class=HTMLResponse)

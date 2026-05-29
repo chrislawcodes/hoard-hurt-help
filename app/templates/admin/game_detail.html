@@ -5,6 +5,13 @@
 <h1>{{ game.name }}</h1>
 <p>State: {{ game.state.value }} · Round {{ game.current_round }} / {{ game.total_rounds }} · Turn {{ game.current_turn }} / {{ game.turns_per_round }}</p>
 
+{% if game.state.value == "registering" %}
+<form method="post" action="/admin/games/{{ game.id }}/start">
+    <button type="submit">▶ Start now</button>
+    <span class="hint">Starts immediately, overriding the scheduled time. Needs the players already joined.</span>
+</form>
+{% endif %}
+
 <h2>Players + strategy prompts</h2>
 <table>
     <tr><th>Agent</th><th>Round wins</th><th>Total score</th><th>Strategy prompt</th></tr>

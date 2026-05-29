@@ -15,9 +15,10 @@ new ones and resume after process restarts.
 """
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.broadcast import publish
@@ -27,7 +28,24 @@ from app.engine.state_machine import assert_transition
 from app.engine.tokens import generate_turn_token
 from app.models.game import Game, GameState
 from app.models.player import Player
-from app.models.turn import Turn
+from app.models.turn import Turn, TurnSubmission
+
+logger = logging.getLogger(__name__)
+
+# How often the loop checks whether every active player has submitted (so it can
+# resolve a turn early instead of waiting out the whole deadline).
+_SUBMIT_POLL_SECONDS = 0.25
+# How often the background poller checks for games that are due to start.
+_START_POLL_SECONDS = 2.0
+# Hard floor of players to actually run a game. `min_players` on a game is a
+# SOFT lobby target (what the admin advertises); this is the rules-mechanical
+# minimum. A due game with fewer than this is cancelled rather than left stuck.
+MIN_PLAYERS_TO_START = 3
+
+
+def _as_aware(dt: datetime) -> datetime:
+    """SQLite drops tz info on read; normalize to UTC-aware for comparisons."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 class SchedulerRegistry:
@@ -35,6 +53,7 @@ class SchedulerRegistry:
 
     def __init__(self) -> None:
         self._tasks: dict[str, asyncio.Task] = {}
+        self._poller: asyncio.Task | None = None
 
     def is_running(self, game_id: str) -> bool:
         t = self._tasks.get(game_id)
@@ -49,6 +68,71 @@ class SchedulerRegistry:
         t = self._tasks.pop(game_id, None)
         if t and not t.done():
             t.cancel()
+
+    async def start_due_games(self, session_factory: async_sessionmaker | None = None) -> int:
+        """Resolve every game whose scheduled_start has passed.
+
+        Start it if it has at least MIN_PLAYERS_TO_START players (the hard
+        floor); otherwise cancel it. `min_players` on the game is a soft lobby
+        target and is NOT used as a gate — a game must never sit past its start
+        time unresolved. Returns how many games were started.
+        """
+        factory = session_factory or SessionLocal
+        started = 0
+        async with factory() as db:
+            now = datetime.now(timezone.utc)
+            games = (
+                (
+                    await db.execute(
+                        select(Game).where(
+                            Game.state.in_([GameState.SCHEDULED, GameState.REGISTERING])
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for g in games:
+                if _as_aware(g.scheduled_start) > now:
+                    continue  # not due yet
+                count = await db.scalar(
+                    select(func.count())
+                    .select_from(Player)
+                    .where(Player.game_id == g.id, Player.left_at.is_(None))
+                ) or 0
+                if count >= MIN_PLAYERS_TO_START:
+                    await start_game(db, g)
+                    started += 1
+                    logger.info("auto-started %s with %d players", g.id, count)
+                else:
+                    g.state = GameState.CANCELLED
+                    g.cancelled_at = now
+                    await db.commit()
+                    logger.info(
+                        "auto-cancelled %s: %d players at start time (< %d)",
+                        g.id,
+                        count,
+                        MIN_PLAYERS_TO_START,
+                    )
+        return started
+
+    def start_poller(self, session_factory: async_sessionmaker | None = None) -> None:
+        """Begin the background loop that auto-starts due games."""
+        if self._poller is not None and not self._poller.done():
+            return
+        self._poller = asyncio.create_task(self._poll_due_loop(session_factory))
+
+    def stop_poller(self) -> None:
+        if self._poller is not None and not self._poller.done():
+            self._poller.cancel()
+
+    async def _poll_due_loop(self, session_factory: async_sessionmaker | None) -> None:
+        while True:
+            try:
+                await self.start_due_games(session_factory)
+            except Exception:  # never let the poller die on a transient error
+                logger.exception("start_due_games poll failed")
+            await asyncio.sleep(_START_POLL_SECONDS)
 
     async def resume_active_games_on_startup(
         self, session_factory: async_sessionmaker | None = None
@@ -104,7 +188,7 @@ async def _run_game(game_id: str) -> None:
                     {"round": round_num, "turn": turn_num, "deadline": turn.deadline_at.isoformat()},
                 )
 
-                await _sleep_until(turn.deadline_at)
+                await _wait_for_turn(db, turn)
 
                 await resolve_turn(db, turn)
                 await publish(
@@ -140,14 +224,45 @@ async def _open_turn(db, game: Game, round_num: int, turn_num: int) -> Turn:
     return turn
 
 
-async def _sleep_until(when: datetime) -> None:
-    delta = (when - datetime.now(timezone.utc)).total_seconds()
-    if delta > 0:
-        await asyncio.sleep(delta)
+async def _all_submitted(db, turn: Turn) -> bool:
+    """True once every active (non-left) player has a real submission this turn.
+
+    Commits first so the read starts a fresh transaction and sees rows the
+    submit endpoint committed on its own connection (rather than a stale snapshot).
+    """
+    await db.commit()
+    active = await db.scalar(
+        select(func.count())
+        .select_from(Player)
+        .where(Player.game_id == turn.game_id, Player.left_at.is_(None))
+    )
+    submitted = await db.scalar(
+        select(func.count())
+        .select_from(TurnSubmission)
+        .where(TurnSubmission.turn_id == turn.id, TurnSubmission.was_defaulted.is_(False))
+    )
+    return bool(active) and (submitted or 0) >= active
+
+
+async def _wait_for_turn(db, turn: Turn) -> None:
+    """Block until the turn deadline, or until all active players have submitted."""
+    deadline = _as_aware(turn.deadline_at)
+    while True:
+        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            return
+        if await _all_submitted(db, turn):
+            return
+        await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
 
 
 async def start_game(db, game: Game) -> None:
     """Transition SCHEDULED/REGISTERING → ACTIVE and kick off the loop."""
+    if game.state == GameState.SCHEDULED:
+        # SCHEDULED can't jump straight to ACTIVE; open registration first so
+        # start_due_games (which sweeps both states) doesn't throw on it.
+        assert_transition(game.state, GameState.REGISTERING)
+        game.state = GameState.REGISTERING
     assert_transition(game.state, GameState.ACTIVE)
     game.state = GameState.ACTIVE
     game.started_at = datetime.now(timezone.utc)
