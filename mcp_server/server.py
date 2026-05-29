@@ -15,13 +15,25 @@ from typing import Any
 
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from app.config import settings
 
 # streamable_http_path="/" so that when app.main mounts this whole app at
 # "/mcp", the real endpoint is exactly "/mcp" (not "/mcp/mcp", which is what
 # the default inner path of "/mcp" would produce under the mount).
-mcp_app = FastMCP("hoardhurthelp", streamable_http_path="/")
+#
+# transport_security: FastMCP's host defaults to 127.0.0.1, which makes it
+# auto-enable localhost-only DNS-rebinding protection. Served on a public
+# domain behind Railway's TLS proxy that rejects every real request with
+# 421 "Invalid Host header". We authenticate each tool call with X-Agent-Key
+# and clients connect by hostname (incl. future custom domains), so disable the
+# Host/Origin check rather than pin an allow-list. (Content-Type is still validated.)
+mcp_app = FastMCP(
+    "hoardhurthelp",
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 
 def _client() -> httpx.AsyncClient:
