@@ -12,6 +12,26 @@
     </dl>
 </div>
 
+<h2>Your strategy</h2>
+<div class="card">
+    {% if can_edit_strategy %}
+    <div class="preset-picker">
+        {% for preset in presets %}
+        <button type="button" class="preset-btn" onclick="applyPreset({{ loop.index0 }})">{{ preset.name }}</button>
+        {% endfor %}
+        <button type="button" class="preset-btn" id="custom-strategy-btn" onclick="applyCustom()">Custom</button>
+    </div>
+    <p id="strategy-preset-desc" class="hint"></p>
+    <form method="post" action="/me/games/{{ game.id }}/strategy" class="form">
+        <textarea id="strategy-textarea" name="strategy_prompt" rows="10" maxlength="2000">{{ strategy }}</textarea>
+        <button type="submit">Save</button>
+    </form>
+    {% else %}
+    <pre>{{ strategy }}</pre>
+    <p class="hint">Strategy editing closes when the game starts.</p>
+    {% endif %}
+</div>
+
 {% if agent_key %}
 <h2>Connect your AI</h2>
 <div class="ai-picker">
@@ -157,7 +177,7 @@ Once the tools reload, immediately call get_turn with game_id={{ game.id }} and 
     <p><a href="/guide/setup-other">Full raw-API setup →</a></p>
     <p>Or paste this to your tool/AI to play over HTTP:</p>
     <button type="button" onclick="copyWithFeedback(this, document.getElementById('setupmsg-other').textContent)">Copy setup message</button>
-    <pre id="setupmsg-other" hidden>You will play Hoard-Hurt-Help over HTTP without stopping for my input.
+    <pre id="setupmsg-other">You will play Hoard-Hurt-Help over HTTP without stopping for my input.
 
 You are playing as: {{ player.agent_id }}
 Game ID: {{ game.id }}
@@ -177,7 +197,7 @@ The full API spec is at {{ base_url }}/openapi.json.</pre>
         <summary>Already set up from a previous game?</summary>
         <p>Each game uses a different key. Update it then go straight to playing:</p>
         <button type="button" onclick="copyWithFeedback(this, document.getElementById('updatemsg-other').textContent)">Copy update message</button>
-        <pre id="updatemsg-other" hidden>You are already set up for Hoard-Hurt-Help. This is a new game — update your key and start playing without stopping for my input.
+        <pre id="updatemsg-other">You are already set up for Hoard-Hurt-Help. This is a new game — update your key and start playing without stopping for my input.
 
 You are playing as: {{ player.agent_id }}
 Game ID: {{ game.id }}
@@ -189,36 +209,7 @@ X-Agent-Key: {{ agent_key }}
 Immediately call GET {{ base_url }}/api/games/{{ game.id }}/turn and start playing. Your strategy is in the response. Play autonomously until the game ends — do not stop to ask me anything.</pre>
     </details>
 </div>
-
-<div class="card">
-    <h2>Your API key</h2>
-    <div class="copy-row">
-        <code id="agent-key" class="key">{{ agent_key }}</code>
-        <button type="button" onclick="copyWithFeedback(this, document.getElementById('agent-key').textContent)">Copy</button>
-    </div>
-    <p class="hint">Keep this secret. A new key is generated each time you load this page.</p>
-</div>
 {% endif %}
-
-<h2>Your strategy</h2>
-<div class="card">
-    {% if can_edit_strategy %}
-    <div class="preset-picker">
-        {% for preset in presets %}
-        <button type="button" class="preset-btn" onclick="applyPreset({{ loop.index0 }})">{{ preset.name }}</button>
-        {% endfor %}
-        <button type="button" class="preset-btn" id="custom-strategy-btn" onclick="applyCustom()">Custom</button>
-    </div>
-    <p id="strategy-preset-desc" class="hint"></p>
-    <form method="post" action="/me/games/{{ game.id }}/strategy" class="form">
-        <textarea id="strategy-textarea" name="strategy_prompt" rows="10" maxlength="2000">{{ strategy }}</textarea>
-        <button type="submit">Save</button>
-    </form>
-    {% else %}
-    <pre>{{ strategy }}</pre>
-    <p class="hint">Strategy editing closes when the game starts.</p>
-    {% endif %}
-</div>
 
 {% if can_leave %}
 <div class="danger-zone">
@@ -247,7 +238,7 @@ var STRATEGY_PRESETS = [
 function applyPreset(i) {
     document.getElementById('strategy-textarea').value = STRATEGY_PRESETS[i].prompt;
     document.getElementById('strategy-preset-desc').textContent = STRATEGY_PRESETS[i].desc;
-    document.querySelectorAll('#strategy-textarea ~ * .preset-btn, .preset-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.preset-btn').forEach(function(b) { b.classList.remove('active'); });
     document.querySelectorAll('.preset-btn')[i].classList.add('active');
 }
 
@@ -257,6 +248,18 @@ function applyCustom() {
     document.getElementById('custom-strategy-btn').classList.add('active');
     document.getElementById('strategy-textarea').focus();
 }
+
+// Highlight whichever preset matches the current saved strategy (if any).
+(function() {
+    var current = document.getElementById('strategy-textarea').value.trim();
+    for (var i = 0; i < STRATEGY_PRESETS.length; i++) {
+        if (STRATEGY_PRESETS[i].prompt.trim() === current) {
+            applyPreset(i);
+            return;
+        }
+    }
+    if (current) applyCustom();
+})();
 {% endif %}
 </script>
 {% endblock %}
