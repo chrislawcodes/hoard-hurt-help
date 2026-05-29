@@ -141,6 +141,161 @@
 }
 
 /* ============================================================
+ * EXTRA THEMES — each block defines the full variable set.
+ * ============================================================ */
+
+/* Midnight — deep navy dark, sky-blue accent */
+[data-theme="midnight"] {
+    --bg: #0f172a; --surface: #1e293b; --surface-2: #273449;
+    --ink: #e2e8f0; --ink-soft: #94a3b8; --line: #334155;
+    --header-bg: #020617; --header-ink: #e2e8f0; --header-ink-soft: #94a3b8;
+    --accent: #38bdf8; --accent-ink: #04263a; --accent-hover: #56c8fa;
+    --bad: #f87171; --bad-bg: #2a1518; --bad-line: #5c2327;
+    --hoard: #60a5fa; --help: #34d399; --hurt: #f87171;
+    --code-bg: #020617; --code-ink: #cbd5e1;
+    --shadow: 0 4px 14px rgba(0,0,0,.35);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none; --head-spacing: normal; --radius: 10px;
+}
+
+/* Solarized — classic cream light, blue accent */
+[data-theme="solarized"] {
+    --bg: #fdf6e3; --surface: #fefbf0; --surface-2: #eee8d5;
+    --ink: #586e75; --ink-soft: #93a1a1; --line: #e3dcc4;
+    --header-bg: #073642; --header-ink: #eee8d5; --header-ink-soft: #93a1a1;
+    --accent: #268bd2; --accent-ink: #fdf6e3; --accent-hover: #1f7ab8;
+    --bad: #dc322f; --bad-bg: #fbeae0; --bad-line: #f0c9bd;
+    --hoard: #268bd2; --help: #859900; --hurt: #dc322f;
+    --code-bg: #073642; --code-ink: #eee8d5;
+    --shadow: 0 1px 3px rgba(101,123,131,.12);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none; --head-spacing: normal; --radius: 6px;
+}
+
+/* Dracula — purple dark, pink/cyan accents */
+[data-theme="dracula"] {
+    --bg: #282a36; --surface: #343746; --surface-2: #44475a;
+    --ink: #f8f8f2; --ink-soft: #9aa0c4; --line: #44475a;
+    --header-bg: #21222c; --header-ink: #f8f8f2; --header-ink-soft: #6272a4;
+    --accent: #bd93f9; --accent-ink: #21222c; --accent-hover: #caa6fb;
+    --bad: #ff5555; --bad-bg: #3a1f23; --bad-line: #5c2a2f;
+    --hoard: #8be9fd; --help: #50fa7b; --hurt: #ff5555;
+    --code-bg: #21222c; --code-ink: #f8f8f2;
+    --shadow: 0 4px 14px rgba(0,0,0,.35);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none; --head-spacing: normal; --radius: 8px;
+}
+
+/* Nord — cool muted dark, frost accent */
+[data-theme="nord"] {
+    --bg: #2e3440; --surface: #3b4252; --surface-2: #434c5e;
+    --ink: #eceff4; --ink-soft: #99a1b3; --line: #434c5e;
+    --header-bg: #242933; --header-ink: #eceff4; --header-ink-soft: #81899b;
+    --accent: #88c0d0; --accent-ink: #1b2027; --accent-hover: #9ed0de;
+    --bad: #bf616a; --bad-bg: #33232a; --bad-line: #5a3640;
+    --hoard: #81a1c1; --help: #a3be8c; --hurt: #bf616a;
+    --code-bg: #242933; --code-ink: #e5e9f0;
+    --shadow: 0 3px 10px rgba(0,0,0,.3);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none; --head-spacing: normal; --radius: 8px;
+}
+
+/* Gruvbox — warm retro dark, yellow accent */
+[data-theme="gruvbox"] {
+    --bg: #282828; --surface: #32302f; --surface-2: #3c3836;
+    --ink: #ebdbb2; --ink-soft: #a89984; --line: #504945;
+    --header-bg: #1d2021; --header-ink: #ebdbb2; --header-ink-soft: #a89984;
+    --accent: #fabd2f; --accent-ink: #282828; --accent-hover: #fcc950;
+    --bad: #fb4934; --bad-bg: #33211d; --bad-line: #5a2f28;
+    --hoard: #83a598; --help: #b8bb26; --hurt: #fb4934;
+    --code-bg: #1d2021; --code-ink: #ebdbb2;
+    --shadow: 0 3px 10px rgba(0,0,0,.3);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none; --head-spacing: normal; --radius: 6px;
+}
+
+/* Sepia — warm paper light, serif, brown accent */
+[data-theme="sepia"] {
+    --bg: #f4ecd8; --surface: #fbf5e6; --surface-2: #e8dcc0;
+    --ink: #433422; --ink-soft: #7a6a52; --line: #e0d4b8;
+    --header-bg: #433422; --header-ink: #f4ecd8; --header-ink-soft: #b8a98c;
+    --accent: #9a6a3a; --accent-ink: #fbf5e6; --accent-hover: #835829;
+    --bad: #a8442a; --bad-bg: #f3e3d6; --bad-line: #e0c3b0;
+    --hoard: #3a6a8a; --help: #5a7a3a; --hurt: #a8442a;
+    --code-bg: #433422; --code-ink: #f4ecd8;
+    --shadow: 0 1px 3px rgba(67,52,34,.12);
+    --font-body: "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --font-head: "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none; --head-spacing: normal; --radius: 3px;
+}
+
+/* Mint — fresh light, emerald accent */
+[data-theme="mint"] {
+    --bg: #f3faf7; --surface: #ffffff; --surface-2: #e3f3ec;
+    --ink: #133a2e; --ink-soft: #5b7d72; --line: #d3e8df;
+    --header-bg: #0f3d31; --header-ink: #ffffff; --header-ink-soft: #9cc4b7;
+    --accent: #10b981; --accent-ink: #ffffff; --accent-hover: #0ea372;
+    --bad: #c0392b; --bad-bg: #fdecea; --bad-line: #f5c6c0;
+    --hoard: #2f9fd0; --help: #10b981; --hurt: #e0533f;
+    --code-bg: #0f3d31; --code-ink: #e3f3ec;
+    --shadow: 0 1px 3px rgba(16,80,60,.08);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none; --head-spacing: normal; --radius: 12px;
+}
+
+/* Rose — warm light, pink accent */
+[data-theme="rose"] {
+    --bg: #fdf4f5; --surface: #ffffff; --surface-2: #fbe6ea;
+    --ink: #3a1f27; --ink-soft: #8a6a72; --line: #f0d8de;
+    --header-bg: #5a2533; --header-ink: #ffffff; --header-ink-soft: #cda3ad;
+    --accent: #e11d6b; --accent-ink: #ffffff; --accent-hover: #c8195f;
+    --bad: #d12b2b; --bad-bg: #fdecea; --bad-line: #f5c6c0;
+    --hoard: #6f6fe0; --help: #2f9f6a; --hurt: #d12b2b;
+    --code-bg: #5a2533; --code-ink: #fbe6ea;
+    --shadow: 0 1px 3px rgba(90,37,51,.08);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: none; --head-spacing: normal; --radius: 12px;
+}
+
+/* Mono — high-contrast grayscale, minimal */
+[data-theme="mono"] {
+    --bg: #ffffff; --surface: #ffffff; --surface-2: #f2f2f2;
+    --ink: #111111; --ink-soft: #666666; --line: #dddddd;
+    --header-bg: #111111; --header-ink: #ffffff; --header-ink-soft: #aaaaaa;
+    --accent: #111111; --accent-ink: #ffffff; --accent-hover: #333333;
+    --bad: #b00000; --bad-bg: #f7e6e6; --bad-line: #e0bcbc;
+    --hoard: #3b6fb0; --help: #2e7d32; --hurt: #b00000;
+    --code-bg: #111111; --code-ink: #f2f2f2;
+    --shadow: none;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: uppercase; --head-spacing: 0.08em; --radius: 0px;
+}
+
+/* Cyberpunk — black, neon magenta/cyan */
+[data-theme="cyberpunk"] {
+    --bg: #0a0a12; --surface: #12121f; --surface-2: #1b1b2e;
+    --ink: #e6e6ff; --ink-soft: #8a8ab0; --line: #2a2a44;
+    --header-bg: #050509; --header-ink: #00e5ff; --header-ink-soft: #7a7ab0;
+    --accent: #ff2bd6; --accent-ink: #0a0a12; --accent-hover: #ff52de;
+    --bad: #ff3b6b; --bad-bg: #2a0e1a; --bad-line: #5c1d38;
+    --hoard: #00e5ff; --help: #39ff14; --hurt: #ff3b6b;
+    --code-bg: #050509; --code-ink: #c7c7ff;
+    --shadow: 0 0 14px rgba(255,43,214,.25);
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --head-transform: uppercase; --head-spacing: 0.06em; --radius: 4px;
+}
+
+/* ============================================================
  * STRUCTURE — references variables only, never literal colors
  * ============================================================ */
 * { box-sizing: border-box; }
@@ -441,3 +596,48 @@ pre code { background: none; padding: 0; }
 
 /* ---- Guide pages ---- */
 .doc { white-space: pre-wrap; word-wrap: break-word; line-height: 1.55; }
+
+/* ============================================================
+ * MOBILE — small-screen overrides
+ * ============================================================ */
+@media (max-width: 600px) {
+    header {
+        flex-wrap: wrap;
+        gap: 0.4rem 0.9rem;
+        padding: 0.6rem 1rem;
+    }
+    header nav { gap: 0.75rem; font-size: 0.85rem; flex-wrap: wrap; }
+    main { margin: 1.25rem auto; padding: 0 1rem; }
+    footer { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+
+    h1 { font-size: 1.35rem; }
+    h2 { font-size: 1.1rem; }
+
+    /* Stack card content + action on narrow screens. */
+    .game-card { flex-direction: column; align-items: stretch; }
+    .game-card-action { justify-content: space-between; }
+    .game-card-action .cta { flex: 1; text-align: center; }
+
+    .toolbar { flex-direction: column; align-items: stretch; }
+    .toolbar .cta { text-align: center; }
+
+    /* Segmented AI picker becomes full-width, even thirds. */
+    .ai-picker { display: flex; width: 100%; }
+    .ai-picker label { flex: 1; }
+    .ai-picker span { text-align: center; padding: 0.55rem 0.4rem; }
+
+    /* Copy rows stack so the button isn't cramped. */
+    .copy-row { flex-direction: column; align-items: stretch; }
+    .copy-row button { width: 100%; }
+
+    /* Definition grids go single-column. */
+    .dl-grid { grid-template-columns: 1fr; gap: 0.1rem; }
+    .dl-grid dt { margin-top: 0.5rem; }
+
+    /* Wide tables scroll horizontally instead of overflowing the page. */
+    table { display: block; overflow-x: auto; }
+
+    /* Forms: comfortable tap targets. */
+    button, .cta { padding: 0.65rem 1.1rem; }
+    input, textarea, select { font-size: 16px; } /* avoids iOS zoom-on-focus */
+}
