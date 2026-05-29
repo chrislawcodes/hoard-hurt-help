@@ -43,13 +43,15 @@ async def _seed_game(
     reset_db: async_sessionmaker,
     state: GameState = GameState.REGISTERING,
     n_players: int = 0,
+    scheduled_start: datetime | None = None,
 ) -> tuple[str, list[Player]]:
     async with reset_db() as db:
         g = Game(
             id="G_001",
             name="t",
             state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+            scheduled_start=scheduled_start
+            or datetime.now(timezone.utc) + timedelta(hours=1),
             per_turn_deadline_seconds=60,
         )
         db.add(g)
@@ -123,6 +125,7 @@ async def test_poll_invalid_key(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_poll_game_not_started(client, reset_db):
+    # Scheduled an hour out → far from start → slow poll cadence.
     _, players = await _seed_game(reset_db, state=GameState.REGISTERING, n_players=1)
     r = await client.get(
         "/api/games/G_001/turn",
@@ -132,6 +135,39 @@ async def test_poll_game_not_started(client, reset_db):
     body = r.json()
     assert body["status"] == "waiting"
     assert body["reason"] == "game_not_started"
+    assert body["next_poll_after_seconds"] == 30
+
+
+@pytest.mark.asyncio
+async def test_poll_not_started_near_start_polls_faster(client, reset_db):
+    # Within 3 minutes of start → tighten the poll cadence.
+    soon = datetime.now(timezone.utc) + timedelta(seconds=90)
+    _, players = await _seed_game(
+        reset_db, state=GameState.REGISTERING, n_players=1, scheduled_start=soon
+    )
+    r = await client.get(
+        "/api/games/G_001/turn",
+        headers={"X-Agent-Key": players[0]._test_key},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reason"] == "game_not_started"
+    assert body["next_poll_after_seconds"] == 5
+
+
+@pytest.mark.asyncio
+async def test_poll_active_no_open_turn_cadence(client, reset_db):
+    # Live game with no open turn → "active" waiting cadence.
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=1)
+    r = await client.get(
+        "/api/games/G_001/turn",
+        headers={"X-Agent-Key": players[0]._test_key},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "waiting"
+    assert body["reason"] == "turn_not_open"
+    assert body["next_poll_after_seconds"] == 5
 
 
 @pytest.mark.asyncio
