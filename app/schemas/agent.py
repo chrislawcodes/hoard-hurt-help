@@ -166,10 +166,43 @@ class TurnSummary(BaseModel):
     messages_for_you: list[DirectedMessage]
 
 
+# --- Shared history shapes (used by the bot payload, spectator view, and pulls) ---
+
+
+class HistoryAction(BaseModel):
+    agent_id: str
+    action: Action
+    target_id: str | None
+    message: str
+    points_delta: int
+
+
+class HistoryTurn(BaseModel):
+    round: int
+    turn: int
+    actions: list[HistoryAction]
+
+
+class CurrentTurn(BaseModel):
+    """Per-poll volatile fields. Kept last so everything before it is a stable,
+    append-only prefix an agent's client can prompt-cache."""
+
+    round: int
+    turn: int
+    deadline: datetime
+    turn_token: str
+
+
 class YourTurnResponse(BaseModel):
+    # Field order is intentional and cache-friendly: `static` (rules — constant)
+    # and `history` (append-only) form a stable prefix; only `scoreboard` and
+    # `current` change each turn, so they come last. Nothing is pre-digested —
+    # the agent reads the raw moves and messages and does its own analysis.
     status: Literal["your_turn"] = "your_turn"
     static: TurnStatic
-    summary: TurnSummary
+    history: list[HistoryTurn]
+    scoreboard: list[ScoreboardRow]
+    current: CurrentTurn
 
 
 class GameCompletedResponse(BaseModel):
@@ -215,23 +248,6 @@ class LeaveResponse(BaseModel):
     status: Literal["left"] = "left"
     game_state: str
     effective_at: datetime
-
-
-# --- Shared history shapes (used by the spectator view and the pull endpoints) ---
-
-
-class HistoryAction(BaseModel):
-    agent_id: str
-    action: Action
-    target_id: str | None
-    message: str
-    points_delta: int
-
-
-class HistoryTurn(BaseModel):
-    round: int
-    turn: int
-    actions: list[HistoryAction]
 
 
 # --- Pull detail shapes (opt-in; fetched only on demand) ---

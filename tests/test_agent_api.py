@@ -203,16 +203,14 @@ async def test_poll_your_turn_then_submit(client, reset_db):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "your_turn"
-    # Feature 002: the payload now carries a bounded `summary`, not full `history`.
-    assert "dynamic" not in body
-    assert "history" not in body
-    summary = body["summary"]
-    assert summary["your_situation"]["turn_token"] == turn_token
-    assert "standings_view" in summary
-    assert "opponents" in summary
-    assert "board_signals" in summary
-    assert "messages_for_you" in summary
-    turn_token = summary["your_situation"]["turn_token"]
+    # Raw payload: static + full append-only history + scoreboard + current.
+    # No pre-digested `summary`.
+    assert "summary" not in body
+    assert body["current"]["turn_token"] == turn_token
+    assert isinstance(body["history"], list)
+    assert isinstance(body["scoreboard"], list)
+    assert "rules" in body["static"]
+    turn_token = body["current"]["turn_token"]
 
     # Submit Hoard.
     r2 = await client.post(
@@ -428,7 +426,7 @@ async def test_pull_rate_limited(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_directed_message_appears_next_turn(client, reset_db):
-    """SC-003: a message aimed at you last turn shows up in this turn's summary."""
+    """A move + message from last turn shows up in the raw history the bot reads."""
     from sqlalchemy import select
 
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
@@ -463,13 +461,13 @@ async def test_directed_message_appears_next_turn(client, reset_db):
 
     r = await client.get("/api/games/G_001/turn", headers={"X-Agent-Key": p0._test_key})
     assert r.status_code == 200, r.text
-    summary = r.json()["summary"]
-    # The message aimed at AI_0 is surfaced for free.
-    directed = [m for m in summary["messages_for_you"] if not m["public"]]
-    assert any(m["from_agent_id"] == "AI_1" and "stop hoarding" in m["message"] for m in directed)
-    assert summary["flags"]["messages_for_you_count"] == 1
-    # And AI_1 shows up as an opponent who hurt AI_0.
-    ai1 = next(o for o in summary["opponents"] if o["agent_id"] == "AI_1")
-    assert ai1["hurt_you"] == 1
-    # The delta reflects the resolved turn 1.
-    assert summary["turn_delta"]["round"] == 1 and summary["turn_delta"]["turn"] == 1
+    body = r.json()
+    # Turn 1 is in the raw history the bot reads itself — AI_1's hurt-with-message
+    # on AI_0 is right there, no pre-digestion.
+    turn1 = next(t for t in body["history"] if t["round"] == 1 and t["turn"] == 1)
+    hit = next(a for a in turn1["actions"] if a["agent_id"] == "AI_1")
+    assert hit["action"] == "HURT"
+    assert hit["target_id"] == "AI_0"
+    assert "stop hoarding" in hit["message"]
+    # Current scores are present for the bot to read.
+    assert any(s["agent_id"] == "AI_0" for s in body["scoreboard"])

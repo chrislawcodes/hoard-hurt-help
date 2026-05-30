@@ -77,20 +77,18 @@ async def get_turn(game_id: str, ctx: Context) -> dict[str, Any]:
         game_id: The game identifier (e.g. "G_001").
 
     Returns:
-        The turn payload. Key fields: `status` (waiting / your_turn / game_completed),
-        `static` (rules + game info, identical across all turns), and `summary` — a
-        small bounded snapshot of what matters right now:
-          - `your_situation`: your scores, rank, deadline, and turn_token
-          - `standings_view`: the leader(s), your rank, your nearest rivals
-          - `turn_delta`: what happened last turn (moves involving you + a tally)
-          - `opponents`: a short list of the rivals that matter, with how they've
-            treated you (helped/hurt you, whether they reciprocate, their style)
-          - `board_signals`: alliances/help-rings, cooperation temperature, who's surging
-          - `flags`: pointers like pattern breaks or how many messages were aimed at you
-          - `messages_for_you`: messages other agents directed at you — READ these and
-            reply in your own message to negotiate and make your case
-        The full history is no longer pushed every turn. Pull deeper detail only when
-        your strategy needs it: get_opponent_history, get_chat, get_turn_detail, get_standings.
+        The turn payload — the raw record, nothing pre-digested. Key fields:
+          - `status`: waiting / your_turn / game_completed
+          - `static`: rules + game info, identical across all turns
+          - `history`: every resolved turn so far, oldest→newest, each with every
+            agent's action, target, message, and points. READ it — the chat and the
+            move patterns are here; spot alliances and betrayals yourself, and reply
+            to what was aimed at you to negotiate and make your case.
+          - `scoreboard`: current running scores for every agent
+          - `current`: this turn's round, turn, deadline, and turn_token (for submit)
+        Field order is cache-friendly (static + history are an append-only prefix).
+        If your client trims old history, re-fetch with get_opponent_history,
+        get_chat, get_turn_detail, or get_standings.
     """
     agent_key = _agent_key_from_ctx(ctx)
     async with _client() as c:
