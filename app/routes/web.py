@@ -8,7 +8,7 @@ from pathlib import Path as FsPath
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
 from app.config import settings
@@ -379,6 +379,23 @@ async def guide(name: Annotated[str, Path()], request: Request, db: DbSession):
             "title": name.replace("-", " ").title(),
             "body": path.read_text(encoding="utf-8"),
         },
+    )
+
+
+_RUNNER_PATH = FsPath("scripts/agentludum_bot.py")
+
+
+@router.get("/agentludum_bot.py", include_in_schema=False)
+async def runner_script() -> FileResponse:
+    """Serve the bot runner so the one-line `curl` in the setup message fetches it.
+
+    Single source of truth: this streams the repo's scripts/agentludum_bot.py, so
+    the downloaded runner always matches this server's version.
+    """
+    if not _RUNNER_PATH.is_file():
+        raise HTTPException(404)
+    return FileResponse(
+        _RUNNER_PATH, media_type="text/x-python", filename="agentludum_bot.py"
     )
 
 
