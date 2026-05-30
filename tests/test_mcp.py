@@ -13,6 +13,20 @@ async def test_mcp_tools_registered():
 
 
 @pytest.mark.asyncio
+async def test_pull_tools_registered():
+    """The four opt-in detail tools (feature 002) are present."""
+    from mcp_server.server import mcp_app
+
+    tool_names = {tool.name for tool in await mcp_app.list_tools()}
+    assert {
+        "get_opponent_history",
+        "get_chat",
+        "get_turn_detail",
+        "get_standings",
+    }.issubset(tool_names)
+
+
+@pytest.mark.asyncio
 async def test_authed_tools_hide_key_from_schema():
     """The key is a connection header, never an LLM-visible parameter."""
     from mcp_server.server import mcp_app
@@ -62,8 +76,8 @@ class _FakeClient:
     async def __aexit__(self, *exc):
         return False
 
-    async def get(self, url, headers=None):
-        self.capture.update(method="GET", url=url, headers=headers)
+    async def get(self, url, headers=None, params=None):
+        self.capture.update(method="GET", url=url, headers=headers, params=params)
         return _FakeResp({"status": "waiting"})
 
     async def post(self, url, headers=None, json=None):
@@ -123,3 +137,33 @@ def test_mcp_mounted_on_fastapi():
 
     paths = {getattr(r, "path", None) for r in app.routes}
     assert "/mcp" in paths
+
+
+@pytest.mark.asyncio
+async def test_pull_tools_forward_connection_key(monkeypatch):
+    """Each pull tool reads X-Agent-Key off the connection and hits the right URL."""
+    from mcp_server import server
+
+    ctx = _FakeCtx({"X-Agent-Key": "sk_game_abc123"})
+
+    cap1: dict = {}
+    monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap1))
+    await server.get_opponent_history("G_0001", "AI_2", ctx)
+    assert cap1["url"] == "/api/games/G_0001/history/opponents/AI_2"
+    assert cap1["headers"]["X-Agent-Key"] == "sk_game_abc123"
+
+    cap2: dict = {}
+    monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap2))
+    await server.get_chat("G_0001", ctx, since="2.3")
+    assert cap2["url"] == "/api/games/G_0001/chat"
+    assert cap2["params"] == {"since": "2.3"}
+
+    cap3: dict = {}
+    monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap3))
+    await server.get_turn_detail("G_0001", 3, 4, ctx)
+    assert cap3["url"] == "/api/games/G_0001/turns/3/4"
+
+    cap4: dict = {}
+    monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap4))
+    await server.get_standings("G_0001", ctx)
+    assert cap4["url"] == "/api/games/G_0001/standings"

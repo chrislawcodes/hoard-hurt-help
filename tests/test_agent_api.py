@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.main import app
-from app.models import Base, Game, GameState, Player, Turn, User
+from app.models import Base, Game, GameState, Player, Turn, TurnSubmission, User
 from app.engine.tokens import generate_turn_token
 
 
@@ -26,6 +26,7 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.db.engine", test_engine)
     # The deps.get_db reads via the imported SessionLocal symbol, which we just patched.
     monkeypatch.setattr("app.routes.agent_api._last_poll", {})
+    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
 
     yield test_factory
 
@@ -278,5 +279,148 @@ async def test_rate_limit(client, reset_db):
     assert r1.status_code == 200
     # Immediate second poll → 429.
     r2 = await client.get("/api/games/G_001/turn", headers={"X-Agent-Key": key})
+    assert r2.status_code == 429
+    assert r2.json()["detail"]["error"]["code"] == "RATE_LIMITED"
+
+
+# --- Pull-on-demand detail endpoints (feature 002, US3) ---
+
+
+async def _seed_resolved_turn(reset_db, game_id, rnd, turn, subs):
+    """subs: list of (player_id, action, target_player_id|None, message, pts, score)."""
+    from sqlalchemy import select
+
+    async with reset_db() as db:
+        (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+        now = datetime.now(timezone.utc)
+        t = Turn(
+            game_id=game_id,
+            round=rnd,
+            turn=turn,
+            turn_token=generate_turn_token(),
+            opened_at=now,
+            deadline_at=now,
+            resolved_at=now,
+        )
+        db.add(t)
+        await db.flush()
+        for pid, action, target, msg, pts, score in subs:
+            db.add(
+                TurnSubmission(
+                    turn_id=t.id,
+                    player_id=pid,
+                    action=action,
+                    target_player_id=target,
+                    message=msg,
+                    points_delta=pts,
+                    round_score_after=score,
+                    was_defaulted=False,
+                    submitted_at=now,
+                )
+            )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_pull_opponent_history(client, reset_db):
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=3)
+    p0, p1, p2 = players
+    await _seed_resolved_turn(
+        reset_db,
+        "G_001",
+        1,
+        1,
+        [
+            (p0.id, "HELP", p1.id, "hi", 0, 0),
+            (p1.id, "HURT", p0.id, "take that", 0, 0),
+            (p2.id, "HOARD", None, "", 2, 2),
+        ],
+    )
+    r = await client.get(
+        "/api/games/G_001/history/opponents/AI_1", headers={"X-Agent-Key": p0._test_key}
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["opponent_id"] == "AI_1"
+    assert len(body["turns"]) == 1
+    actors = {a["agent_id"] for a in body["turns"][0]["actions"]}
+    assert actors == {"AI_0", "AI_1"}  # AI_2's hoard is not part of this pair
+
+
+@pytest.mark.asyncio
+async def test_pull_opponent_history_unknown(client, reset_db):
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    r = await client.get(
+        "/api/games/G_001/history/opponents/NOPE", headers={"X-Agent-Key": players[0]._test_key}
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "INVALID_TARGET"
+
+
+@pytest.mark.asyncio
+async def test_pull_chat_since_cursor(client, reset_db):
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    p0, p1 = players
+    await _seed_resolved_turn(reset_db, "G_001", 1, 1, [(p0.id, "HOARD", None, "turn one", 2, 2)])
+    await _seed_resolved_turn(reset_db, "G_001", 1, 2, [(p1.id, "HOARD", None, "turn two", 2, 2)])
+    r = await client.get(
+        "/api/games/G_001/chat", params={"since": "1.1"}, headers={"X-Agent-Key": p0._test_key}
+    )
+    assert r.status_code == 200, r.text
+    msgs = r.json()["messages"]
+    assert [m["message"] for m in msgs] == ["turn two"]
+    assert r.json()["next_cursor"] == "1.2"
+
+
+@pytest.mark.asyncio
+async def test_pull_turn_detail(client, reset_db):
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    p0, p1 = players
+    await _seed_resolved_turn(
+        reset_db,
+        "G_001",
+        1,
+        1,
+        [(p0.id, "HOARD", None, "a", 2, 2), (p1.id, "HELP", p0.id, "b", 0, 0)],
+    )
+    r = await client.get("/api/games/G_001/turns/1/1", headers={"X-Agent-Key": p0._test_key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["round"] == 1 and body["turn"] == 1
+    assert len(body["actions"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_pull_turn_detail_missing(client, reset_db):
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    r = await client.get("/api/games/G_001/turns/9/9", headers={"X-Agent-Key": players[0]._test_key})
+    assert r.status_code == 404
+    assert r.json()["detail"]["error"]["code"] == "NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_pull_standings(client, reset_db):
+    from sqlalchemy import select
+
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=3)
+    async with reset_db() as db:
+        ps = (await db.execute(select(Player).where(Player.game_id == "G_001"))).scalars().all()
+        for p in ps:
+            p.current_round_score = {"AI_0": 5, "AI_1": 9, "AI_2": 1}[p.agent_id]
+        await db.commit()
+    r = await client.get("/api/games/G_001/standings", headers={"X-Agent-Key": players[0]._test_key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["rows"][0]["agent_id"] == "AI_1"  # highest round score → rank 1
+    assert body["total_players"] == 3
+
+
+@pytest.mark.asyncio
+async def test_pull_rate_limited(client, reset_db):
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    key = players[0]._test_key
+    r1 = await client.get("/api/games/G_001/standings", headers={"X-Agent-Key": key})
+    assert r1.status_code == 200
+    r2 = await client.get("/api/games/G_001/standings", headers={"X-Agent-Key": key})
     assert r2.status_code == 429
     assert r2.json()["detail"]["error"]["code"] == "RATE_LIMITED"

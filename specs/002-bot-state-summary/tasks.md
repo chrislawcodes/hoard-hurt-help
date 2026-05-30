@@ -80,11 +80,11 @@
 
 **Independent Test**: each pull returns correct complete data; bad input → error envelope; >1/s → RATE_LIMITED.
 
-- [ ] T018 [app/routes/agent_api.py] [US3] Add a reusable per-key pull rate-limit dependency (1 Hz, separate bucket from `/turn`) returning the `RATE_LIMITED` envelope. Depends on Phase 2.
-- [ ] T019 [app/routes/agent_api.py] [US3] Add the 4 pull endpoints — `GET /history/opponents/{opponent_id}`, `GET /chat?since=R.T`, `GET /turns/{round}/{turn}`, `GET /standings` — reusing `_build_history`-style logic; `INVALID_TARGET`/`NOT_FOUND` envelopes for bad opponent/turn. Depends on T018.
-- [ ] T020 [P: mcp_server/server.py] [US3] Add 4 MCP pull tools (`get_opponent_history`, `get_chat`, `get_turn_detail`, `get_standings`) calling the new endpoints; update `get_turn` + `submit_action` docstrings to describe the `summary` and the persuasion/messaging expectation. Depends on T019 (contract).
-- [ ] T021 [tests/test_agent_api.py] [US3] Tests: each pull returns correct data; `since` cursor filters; unknown opponent/turn → envelope; over-rate → 429. Depends on T019.
-- [ ] T022 [tests/test_mcp.py] [US3] Tests for the 4 MCP pull tools. Depends on T020.
+- [X] T018 [app/routes/agent_api.py] [US3] Add a reusable per-key pull rate-limit dependency (1 Hz, separate bucket from `/turn`) returning the `RATE_LIMITED` envelope. Depends on Phase 2.
+- [X] T019 [app/routes/agent_api.py] [US3] Add the 4 pull endpoints — `GET /history/opponents/{opponent_id}`, `GET /chat?since=R.T`, `GET /turns/{round}/{turn}`, `GET /standings` — reusing `_build_history`-style logic; `INVALID_TARGET`/`NOT_FOUND` envelopes for bad opponent/turn. Depends on T018.
+- [X] T020 [P: mcp_server/server.py] [US3] Add 4 MCP pull tools (`get_opponent_history`, `get_chat`, `get_turn_detail`, `get_standings`) calling the new endpoints; update `get_turn` + `submit_action` docstrings to describe the `summary` and the persuasion/messaging expectation. Depends on T019 (contract).
+- [X] T021 [tests/test_agent_api.py] [US3] Tests: each pull returns correct data; `since` cursor filters; unknown opponent/turn → envelope; over-rate → 429. Depends on T019.
+- [X] T022 [tests/test_mcp.py] [US3] Tests for the 4 MCP pull tools. Depends on T020.
 
 **Checkpoint**: US3 done — detail reachable on demand; SC-004 satisfied.
 

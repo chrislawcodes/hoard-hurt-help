@@ -4,14 +4,16 @@ Auth: X-Agent-Key header. Errors: spec.md §10 envelope.
 """
 
 import time
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timezone
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import select
 
 from app.deps import DbSession, require_agent_key
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
+from app.engine.opponent_stats import rank_players
 from app.engine.rules import RULES_TEXT_V1, RULES_VERSION
 from app.engine.tokens import generate_agent_key, hash_agent_key
 from app.engine.turn_summary import build_turn_summary
@@ -22,12 +24,20 @@ from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
 from app.schemas.agent import (
     AgentStateResponse,
+    ChatLine,
+    ChatTranscriptResponse,
+    FullStandingsResponse,
+    HistoryAction,
+    HistoryTurn,
     JoinRequest,
     JoinResponse,
     LeaveResponse,
+    OpponentHistoryResponse,
     ScoreboardRow,
+    StandingRow,
     SubmitRequest,
     SubmitResponse,
+    TurnDetailResponse,
     TurnStatic,
     WaitingResponse,
     YourTurnResponse,
@@ -38,6 +48,12 @@ router = APIRouter(prefix="/api/games/{game_id}", tags=["agent"])
 # Per-key poll throttle (1 Hz). Keyed by Player.id.
 _last_poll: dict[int, float] = {}
 _MIN_POLL_INTERVAL = 1.0
+
+# Per-(key, pull-kind) throttle for the opt-in detail endpoints. Separate buckets
+# so a bot can fetch, say, chat and an opponent's history in the same second, but
+# can't spam a single endpoint. Kept apart from the /turn poll bucket.
+_last_pull: dict[tuple[int, str], float] = {}
+_PULL_MIN_INTERVAL = 1.0
 
 # Recommended client poll cadence (seconds). Each poll is a full LLM inference,
 # so we slow agents down when nothing is about to happen and speed them up as a
@@ -539,5 +555,155 @@ async def agent_leave(
     player.left_at = datetime.now(timezone.utc)
     await db.commit()
     return LeaveResponse(game_state=game.state.value, effective_at=player.left_at)
+
+
+# --- Pull-on-demand detail endpoints (opt-in; rate-limited per (key, kind)) ---
+
+
+def _pull_rate_limiter(bucket: str) -> Callable[[Player], Awaitable[Player]]:
+    """Build a dependency that throttles one pull kind to 1 Hz per key."""
+
+    async def dep(player: Annotated[Player, Depends(require_agent_key)]) -> Player:
+        now_t = time.monotonic()
+        last = _last_pull.get((player.id, bucket), 0.0)
+        if now_t - last < _PULL_MIN_INTERVAL:
+            raise _err("RATE_LIMITED", "Pulling too fast.", status.HTTP_429_TOO_MANY_REQUESTS)
+        _last_pull[(player.id, bucket)] = now_t
+        return player
+
+    return dep
+
+
+async def _game_for(player: Player, game_id: str, db) -> Game:
+    if player.game_id != game_id:
+        raise _err("INVALID_KEY", "Key not for this game.", status.HTTP_401_UNAUTHORIZED)
+    return (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+
+
+def _group_into_turns(actions: Sequence[ActionRecord]) -> list[HistoryTurn]:
+    by_rt: dict[tuple[int, int], list[HistoryAction]] = {}
+    for a in sorted(actions, key=lambda x: (x.round, x.turn)):
+        by_rt.setdefault((a.round, a.turn), []).append(
+            HistoryAction(
+                agent_id=a.actor_id,
+                action=a.action,
+                target_id=a.target_id,
+                message=a.message,
+                points_delta=a.points_delta,
+            )
+        )
+    return [HistoryTurn(round=r, turn=t, actions=acts) for (r, t), acts in sorted(by_rt.items())]
+
+
+def _parse_cursor(since: str | None) -> tuple[int, int] | None:
+    if not since:
+        return None
+    parts = since.split(".")
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        raise _err("INVALID_CURSOR", "since must be 'round.turn'.", status.HTTP_400_BAD_REQUEST)
+    return int(parts[0]), int(parts[1])
+
+
+@router.get("/history/opponents/{opponent_id}", response_model=OpponentHistoryResponse)
+async def agent_opponent_history(
+    game_id: Annotated[str, Path()],
+    opponent_id: Annotated[str, Path()],
+    db: DbSession,
+    player: Annotated[Player, Depends(_pull_rate_limiter("opponent_history"))],
+) -> OpponentHistoryResponse:
+    """PULL: every action between you and one opponent, grouped by turn."""
+    game = await _game_for(player, game_id, db)
+    opp = (
+        await db.execute(
+            select(Player).where(Player.game_id == game.id, Player.agent_id == opponent_id)
+        )
+    ).scalar_one_or_none()
+    if opp is None:
+        raise _err(
+            "INVALID_TARGET",
+            "Opponent not in this game.",
+            status.HTTP_400_BAD_REQUEST,
+            details={"reason": "unknown_agent"},
+        )
+    you = player.agent_id
+    actions = [
+        a
+        for a in await _load_action_records(db, game)
+        if a.actor_id == opponent_id or (a.actor_id == you and a.target_id == opponent_id)
+    ]
+    return OpponentHistoryResponse(opponent_id=opponent_id, turns=_group_into_turns(actions))
+
+
+@router.get("/chat", response_model=ChatTranscriptResponse)
+async def agent_chat(
+    game_id: Annotated[str, Path()],
+    db: DbSession,
+    player: Annotated[Player, Depends(_pull_rate_limiter("chat"))],
+    since: Annotated[str | None, Query()] = None,
+) -> ChatTranscriptResponse:
+    """PULL: the public chat transcript, optionally only after a 'round.turn' cursor."""
+    game = await _game_for(player, game_id, db)
+    cursor = _parse_cursor(since)
+    lines: list[ChatLine] = []
+    for a in sorted(await _load_action_records(db, game), key=lambda x: (x.round, x.turn)):
+        if a.was_defaulted or not a.message:
+            continue
+        if cursor is not None and (a.round, a.turn) <= cursor:
+            continue
+        lines.append(
+            ChatLine(
+                round=a.round,
+                turn=a.turn,
+                from_agent_id=a.actor_id,
+                target_id=a.target_id,
+                message=a.message,
+            )
+        )
+    next_cursor = f"{lines[-1].round}.{lines[-1].turn}" if lines else since
+    return ChatTranscriptResponse(since=since, messages=lines, next_cursor=next_cursor)
+
+
+@router.get("/turns/{round}/{turn}", response_model=TurnDetailResponse)
+async def agent_turn_detail(
+    game_id: Annotated[str, Path()],
+    round: Annotated[int, Path()],
+    turn: Annotated[int, Path()],
+    db: DbSession,
+    player: Annotated[Player, Depends(_pull_rate_limiter("turn_detail"))],
+) -> TurnDetailResponse:
+    """PULL: every player's action+message+points for one resolved turn."""
+    game = await _game_for(player, game_id, db)
+    t = (
+        await db.execute(
+            select(Turn).where(
+                Turn.game_id == game.id,
+                Turn.round == round,
+                Turn.turn == turn,
+                Turn.resolved_at.is_not(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if t is None:
+        raise _err("NOT_FOUND", "No such resolved turn.", status.HTTP_404_NOT_FOUND)
+    these = [a for a in await _load_action_records(db, game) if a.round == round and a.turn == turn]
+    grouped = _group_into_turns(these)
+    actions = grouped[0].actions if grouped else []
+    return TurnDetailResponse(round=round, turn=turn, actions=actions)
+
+
+@router.get("/standings", response_model=FullStandingsResponse)
+async def agent_standings(
+    game_id: Annotated[str, Path()],
+    db: DbSession,
+    player: Annotated[Player, Depends(_pull_rate_limiter("standings"))],
+) -> FullStandingsResponse:
+    """PULL: the full standings, every active player ranked."""
+    game = await _game_for(player, game_id, db)
+    ranked = rank_players(await _load_players(db, game))
+    rows = [
+        StandingRow(agent_id=p.agent_id, round_score=p.round_score, rank=i + 1)
+        for i, p in enumerate(ranked)
+    ]
+    return FullStandingsResponse(rows=rows, total_players=len(rows))
 
 
