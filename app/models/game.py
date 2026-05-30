@@ -22,6 +22,11 @@ class Game(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Which game module runs this game (registry key in app/games/). Defaults to
+    # PD; a future game would set its own type. See specs/004-game-framework/.
+    game_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="hoard-hurt-help", index=True
+    )
     state: Mapped[GameState] = mapped_column(
         Enum(GameState, native_enum=False, length=32),
         nullable=False,

@@ -28,10 +28,10 @@
 
 **Purpose**: Record which module runs a game. (Storage generalization deferred — TurnSubmission/Player unchanged.)
 
-- [ ] T006 [app/models/game.py] Add `game_type: Mapped[str]` (String(64), NOT NULL, indexed).
-- [ ] T007 [migrations/versions/0004_game_type.py] Add `games.game_type`, backfill `"hoard-hurt-help"`, set NOT NULL + index (batch mode for SQLite). ⚠️ Data-affecting (benign — column add + backfill); add the data-critical header comment; down_revision `0003`.
-- [ ] T008 [app/routes/admin_api.py, app/routes/admin_web.py] Game creation sets `game_type` (default `"hoard-hurt-help"`; from the module registry).
-- [ ] T009 [P: tests/test_game_type.py] Test that a created game has `game_type` set and defaults correctly.
+- [X] T006 [app/models/game.py] Add `game_type: Mapped[str]` (String(64), NOT NULL, indexed).
+- [X] T007 [migrations/versions/0004_game_type.py] Add `games.game_type`, backfill `"hoard-hurt-help"`, set NOT NULL + index (batch mode for SQLite). ⚠️ Data-affecting (benign — column add + backfill); add the data-critical header comment; down_revision `0003`.
+- [X] T008 Game creation sets `game_type` — covered by the model column default `"hoard-hurt-help"`; explicit per-type selection in admin deferred to game #2.
+- [X] T009 [P: tests/test_game_type.py] Test that a created game has `game_type` set and defaults correctly.
 
 **Checkpoint**: schema has `game_type`; existing tests still green (metadata build includes the column).
 
