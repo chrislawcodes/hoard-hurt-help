@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine.resolver import resolve_turn, award_round_winners, finalize_game
 from app.engine.rules import DEFAULT_MISSED_MESSAGE
 from app.models import Base, Game, GameState, Player, Turn, TurnSubmission, User
+from tests.factories import make_bot
 
 
 # --- Fixtures ---
@@ -43,11 +44,12 @@ async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Game, list[
         u = User(google_sub=f"sub-{i}", email=f"u{i}@test.com", name=f"u{i}")
         db.add(u)
         await db.flush()
+        bot, _ = await make_bot(db, u, name=f"AI_{i}")
         p = Player(
             game_id=game.id,
             user_id=u.id,
+            bot_id=bot.id,
             agent_id=f"AI_{i}",
-            agent_key_hash="hash",
         )
         db.add(p)
         await db.flush()

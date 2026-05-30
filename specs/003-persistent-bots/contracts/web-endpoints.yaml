@@ -1,0 +1,78 @@
+# Web control-panel + entry-flow contract — feature 003-persistent-bots
+# Auth: Google OAuth session cookie (require_user). All under the signed-in user.
+
+bots:
+  - name: list_bots
+    method: GET
+    path: /me/bots
+    returns: html  # "My Bots" panel: each bot's status, games it's in, last action, score, kill switch
+
+  - name: create_bot
+    method: POST
+    path: /me/bots
+    body: { name }
+    effect: issue sk_bot_<hex>; store sha256 + last-4 hint; show plaintext ONCE with connection snippet
+    returns: html  # bot detail with one-time key + paste-once MCP snippet (get_next_turn loop)
+
+  - name: bot_detail
+    method: GET
+    path: /me/bots/{bot_id}
+    returns: html  # NO plaintext key (only key_hint); status; games; reissue button
+
+  - name: reissue_key
+    method: POST
+    path: /me/bots/{bot_id}/reissue
+    effect: new key (old key_lookup overwritten -> old key rejected immediately); show new key once
+    warns: "connected clients must re-paste"
+
+  - name: pause_bot
+    method: POST
+    path: /me/bots/{bot_id}/pause
+    effect: status=paused, paused_reason="owner"; bot served no new turns
+
+  - name: resume_bot
+    method: POST
+    path: /me/bots/{bot_id}/resume
+
+  - name: delete_bot
+    method: POST
+    path: /me/bots/{bot_id}/delete
+    guard: blocked if bot has players in ACTIVE games (must pull out first)
+
+strategy_profiles:
+  - name: list_profiles
+    method: GET
+    path: /me/strategy-profiles
+  - name: create_profile
+    method: POST
+    path: /me/strategy-profiles
+    body: { name, prompt_text, is_default? }
+  - name: update_profile
+    method: POST
+    path: /me/strategy-profiles/{profile_id}
+    body: { name?, prompt_text?, is_default? }
+    note: editing does NOT change players already in games (copy-at-entry)
+  - name: delete_profile
+    method: POST
+    path: /me/strategy-profiles/{profile_id}/delete
+
+enter_game:   # MODIFIES existing /games/{game_id}/join
+  - name: enter_game_form
+    method: GET
+    path: /games/{game_id}/join
+    returns: html  # choose one of my bots + in-game name + strategy profile; NO key shown
+  - name: enter_game
+    method: POST
+    path: /games/{game_id}/join
+    body: { bot_id, agent_id (in-game name), strategy_profile_id? }
+    effect: create Player(bot_id, game_id) seeded with a copy of the chosen/default profile
+    guards:
+      - one player per (bot_id, game_id)  -> DUPLICATE_ENTRY
+      - in-game name unique per game      -> INVALID_DISPLAY_NAME
+      - bot under its max_concurrent_games -> BOT_CAP_REACHED
+      - platform under max_concurrent_active_games & game under max_players -> CAP_REACHED / GAME_FULL
+    returns: redirect to /me/bots/{bot_id}  # no per-game key, no re-paste
+
+  - name: leave_game
+    method: POST
+    path: /me/players/{player_id}/leave   # EXISTING — kept; pulls bot's player from a game

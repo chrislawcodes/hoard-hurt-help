@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.models import Base, Game, GameState, Player, StrategyPrompt, User
+from tests.factories import make_bot
 
 
 @pytest.fixture(autouse=True)
@@ -46,11 +47,12 @@ async def _seed(reset_db, state=GameState.ACTIVE):
         )
         db.add(g)
         await db.flush()
+        bot, _ = await make_bot(db, u, name="AI_0")
         p = Player(
             game_id="G_001",
             user_id=u.id,
+            bot_id=bot.id,
             agent_id="AI_0",
-            agent_key_hash="x",
         )
         db.add(p)
         await db.flush()
@@ -144,8 +146,9 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
         u2 = User(google_sub="u2", email="u2@t.com")
         db.add(u2)
         await db.flush()
+        bot2, _ = await make_bot(db, u2, name="AI_1")
         target = Player(
-            game_id="G_001", user_id=u2.id, agent_id="AI_1", agent_key_hash="y"
+            game_id="G_001", user_id=u2.id, bot_id=bot2.id, agent_id="AI_1"
         )
         db.add(target)
         await db.flush()

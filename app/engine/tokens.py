@@ -1,30 +1,28 @@
-"""Agent key + turn token generation, with argon2 hashing for keys."""
+"""Bot key + turn token generation.
 
+Bot keys are high-entropy random tokens (192 bits), so a single sha256 is the
+correct lookup primitive — argon2's slow KDF only protects *guessable* secrets
+and buys nothing here. We store sha256(key) (unique, indexed) for O(1) auth and
+never store the plaintext.
+"""
+
+import hashlib
 import secrets
 
-from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
 
-_HASHER = PasswordHasher()
-
-
-def generate_agent_key() -> str:
-    """Issue a fresh per-game key. Format: sk_game_<48 hex>."""
-    return "sk_game_" + secrets.token_hex(24)
+def generate_bot_key() -> str:
+    """Issue a stable per-bot credential. Format: sk_bot_<48 hex>."""
+    return "sk_bot_" + secrets.token_hex(24)
 
 
-def hash_agent_key(key: str) -> str:
-    """argon2 hash. Store this in the DB; show the plaintext to the player once."""
-    return _HASHER.hash(key)
+def bot_key_lookup(key: str) -> str:
+    """Indexed lookup handle for a bot key: sha256 hex. Store this; never the key."""
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
-def verify_agent_key(key: str, hashed: str) -> bool:
-    """Constant-time verification."""
-    try:
-        _HASHER.verify(hashed, key)
-        return True
-    except VerifyMismatchError:
-        return False
+def bot_key_hint(key: str) -> str:
+    """Last 4 chars of a key, for non-secret display in the UI."""
+    return key[-4:]
 
 
 def generate_turn_token() -> str:

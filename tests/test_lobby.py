@@ -1,15 +1,20 @@
-"""Lobby + join + dashboard tests."""
+"""Lobby, bot management, and game-entry web tests (bot model)."""
 
+import base64
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.engine.tokens import hash_agent_key, verify_agent_key
+from app.config import settings
+from app.engine.tokens import bot_key_lookup
 from app.main import app
-from app.models import Base, Game, GameState, Player, User
+from app.models import Base, Bot, Game, GameState, Player, User
+from tests.factories import make_bot, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -36,10 +41,17 @@ async def client():
         yield c
 
 
+def _signed_in_cookies(user_id: int) -> dict:
+    """A Starlette session cookie marking this user as signed-in (prod secret)."""
+    signer = TimestampSigner(settings.session_secret)
+    data = {"user_id": user_id, "next_after_login": None}
+    payload = base64.b64encode(json.dumps(data).encode()).decode()
+    return {"hhh_session": signer.sign(payload).decode()}
+
+
 async def _seed_user(reset_db: async_sessionmaker) -> User:
     async with reset_db() as db:
-        u = User(google_sub="qa-sub", email="qa@test.com", name="QA")
-        db.add(u)
+        u = await make_user(db)
         await db.commit()
         await db.refresh(u)
         return u
@@ -60,17 +72,26 @@ async def _seed_game(reset_db: async_sessionmaker, state=GameState.REGISTERING) 
         return g
 
 
+async def _seed_bot(
+    reset_db: async_sessionmaker, user: User, key: str | None = None, name: str = "Atlas"
+) -> tuple[int, str]:
+    async with reset_db() as db:
+        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+        bot, k = await make_bot(db, u, name=name, key=key)
+        await db.commit()
+        return bot.id, k
+
+
 @pytest.mark.asyncio
 async def test_home_renders(client, reset_db):
     await _seed_game(reset_db)
     r = await client.get("/")
     assert r.status_code == 200
     assert "Test Game" in r.text
-    assert "Sign in with Google" in r.text
 
 
 @pytest.mark.asyncio
-async def test_join_form_requires_sign_in(client, reset_db):
+async def test_join_requires_sign_in(client, reset_db):
     await _seed_game(reset_db)
     r = await client.get("/games/G_001/join", follow_redirects=False)
     assert r.status_code == 303
@@ -78,69 +99,125 @@ async def test_join_form_requires_sign_in(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_join_form_shows_ai_setup(client, reset_db):
+async def test_create_bot_shows_key_once(client, reset_db):
     user = await _seed_user(reset_db)
-    await _seed_game(reset_db)
-    r = await client.get(
-        "/games/G_001/join",
-        cookies=_signed_in_cookies(client, user.id),
+    r = await client.post(
+        "/me/bots",
+        data={"name": "Atlas"},
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=True,
     )
     assert r.status_code == 200
-    # AI picker and setup instructions (with embedded key) should be present.
-    assert "Which AI are you using?" in r.text
-    assert "claude mcp add hoardhurthelp" in r.text
-    assert "X-Agent-Key" in r.text
-    # The setup prompt points the bot at the raw record and the pull tools.
-    assert "raw record" in r.text
-    assert "every message" in r.text
-    assert "get_opponent_history" in r.text
+    assert "sk_bot_" in r.text  # one-time code + paste-once snippet shown
+    assert "get_next_turn" in r.text
+
+    async with reset_db() as db:
+        bot = (await db.execute(select(Bot).where(Bot.user_id == user.id))).scalar_one()
+    r2 = await client.get(f"/me/bots/{bot.id}", cookies=_signed_in_cookies(user.id))
+    assert r2.status_code == 200
+    assert "sk_bot_" not in r2.text  # never shown again
+    assert "Reissue" in r2.text
 
 
 @pytest.mark.asyncio
-async def test_join_creates_player_and_redirects(client, reset_db):
+async def test_bot_detail_does_not_rotate_key(client, reset_db):
+    """Regression: visiting the bot page must not change the key."""
     user = await _seed_user(reset_db)
-    await _seed_game(reset_db)
+    key = "sk_bot_" + "a" * 48
+    bot_id, _ = await _seed_bot(reset_db, user, key=key)
+    for _ in range(2):
+        r = await client.get(f"/me/bots/{bot_id}", cookies=_signed_in_cookies(user.id))
+        assert r.status_code == 200
+    async with reset_db() as db:
+        bot = (await db.execute(select(Bot).where(Bot.id == bot_id))).scalar_one()
+    assert bot.key_lookup == bot_key_lookup(key)
+
+
+@pytest.mark.asyncio
+async def test_reissue_invalidates_old_key_anytime(client, reset_db):
+    """Reissue is the deliberate path that changes the key — allowed any time."""
+    user = await _seed_user(reset_db)
+    game = await _seed_game(reset_db, state=GameState.ACTIVE)  # even mid-game
+    key = "sk_bot_" + "b" * 48
+    bot_id, _ = await _seed_bot(reset_db, user, key=key)
+    # Bot is in the active game.
+    async with reset_db() as db:
+        db.add(Player(game_id=game.id, user_id=user.id, bot_id=bot_id, agent_id="AI_x"))
+        await db.commit()
+
     r = await client.post(
-        "/games/G_001/join",
-        data={"display_name": "AI_qa", "strategy_prompt": "be cool"},
-        cookies=_signed_in_cookies(client, user.id),
+        f"/me/bots/{bot_id}/reissue",
+        cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"].startswith("/me/players/")
+    async with reset_db() as db:
+        bot = (await db.execute(select(Bot).where(Bot.id == bot_id))).scalar_one()
+    assert bot.key_lookup != bot_key_lookup(key)  # old key no longer resolves
 
 
 @pytest.mark.asyncio
-async def test_user_can_join_multiple_bots_in_one_game(client, reset_db):
-    """A single user may register several bots (distinct names) in one game."""
+async def test_enter_bot_into_game(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
-    cookies = _signed_in_cookies(client, user.id)
+    bot_id, _ = await _seed_bot(reset_db, user)
+    r = await client.post(
+        "/games/G_001/join",
+        data={"bot_id": bot_id, "display_name": "AI_qa"},
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/me/bots/{bot_id}"
+    async with reset_db() as db:
+        p = (
+            await db.execute(select(Player).where(Player.game_id == "G_001"))
+        ).scalar_one()
+    assert p.bot_id == bot_id
+    assert p.agent_id == "AI_qa"
 
-    locations = []
-    for name in ("AI_one", "AI_two"):
+
+@pytest.mark.asyncio
+async def test_duplicate_bot_entry_blocked(client, reset_db):
+    user = await _seed_user(reset_db)
+    await _seed_game(reset_db)
+    bot_id, _ = await _seed_bot(reset_db, user)
+    cookies = _signed_in_cookies(user.id)
+    await client.post(
+        "/games/G_001/join",
+        data={"bot_id": bot_id, "display_name": "AI_a"},
+        cookies=cookies,
+        follow_redirects=False,
+    )
+    r = await client.post(
+        "/games/G_001/join",
+        data={"bot_id": bot_id, "display_name": "AI_b"},
+        cookies=cookies,
+        follow_redirects=False,
+    )
+    assert r.status_code == 409
+    assert "already in this game" in r.text
+
+
+@pytest.mark.asyncio
+async def test_two_bots_one_game(client, reset_db):
+    """A user fields multiple agents by running multiple bots."""
+    user = await _seed_user(reset_db)
+    await _seed_game(reset_db)
+    b1, _ = await _seed_bot(reset_db, user, name="One")
+    b2, _ = await _seed_bot(reset_db, user, name="Two")
+    cookies = _signed_in_cookies(user.id)
+    for bid, name in [(b1, "AI_one"), (b2, "AI_two")]:
         r = await client.post(
             "/games/G_001/join",
-            data={"display_name": name, "strategy_prompt": "x"},
+            data={"bot_id": bid, "display_name": name},
             cookies=cookies,
             follow_redirects=False,
         )
         assert r.status_code == 303
-        locations.append(r.headers["location"])
-
-    # Two distinct player dashboards — not bounced back to a single slot.
-    assert all(loc.startswith("/me/players/") for loc in locations)
-    assert locations[0] != locations[1]
-
     async with reset_db() as db:
         players = (
-            (
-                await db.execute(
-                    select(Player).where(
-                        Player.game_id == "G_001", Player.user_id == user.id
-                    )
-                )
-            )
+            (await db.execute(select(Player).where(Player.game_id == "G_001")))
             .scalars()
             .all()
         )
@@ -148,128 +225,39 @@ async def test_user_can_join_multiple_bots_in_one_game(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_name_taken_blocked(client, reset_db):
+    user = await _seed_user(reset_db)
+    await _seed_game(reset_db)
+    b1, _ = await _seed_bot(reset_db, user, name="One")
+    b2, _ = await _seed_bot(reset_db, user, name="Two")
+    cookies = _signed_in_cookies(user.id)
+    await client.post(
+        "/games/G_001/join",
+        data={"bot_id": b1, "display_name": "Dup"},
+        cookies=cookies,
+        follow_redirects=False,
+    )
+    r = await client.post(
+        "/games/G_001/join",
+        data={"bot_id": b2, "display_name": "Dup"},
+        cookies=cookies,
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+    assert "already taken" in r.text
+
+
+@pytest.mark.asyncio
 async def test_my_games_lists_user_games(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
-    # Join.
+    bot_id, _ = await _seed_bot(reset_db, user)
     await client.post(
         "/games/G_001/join",
-        data={"display_name": "AI_qa", "strategy_prompt": "x"},
-        cookies=_signed_in_cookies(client, user.id),
+        data={"bot_id": bot_id, "display_name": "AI_qa"},
+        cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
-    r = await client.get(
-        "/me/games", cookies=_signed_in_cookies(client, user.id)
-    )
+    r = await client.get("/me/games", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
     assert "Test Game" in r.text
-
-
-async def _seed_player(
-    reset_db: async_sessionmaker,
-    user: User,
-    game: Game,
-    key: str,
-    agent_id: str = "AI_qa",
-) -> int:
-    """Create a player owned by `user` in `game`, keyed with `key`. Returns its id."""
-    async with reset_db() as db:
-        p = Player(
-            game_id=game.id,
-            user_id=user.id,
-            agent_id=agent_id,
-            agent_key_hash=hash_agent_key(key),
-        )
-        db.add(p)
-        await db.commit()
-        await db.refresh(p)
-        return p.id
-
-
-async def _key_hash(reset_db: async_sessionmaker, player_id: int) -> str:
-    async with reset_db() as db:
-        p = (
-            await db.execute(select(Player).where(Player.id == player_id))
-        ).scalar_one()
-        return p.agent_key_hash
-
-
-@pytest.mark.asyncio
-async def test_dashboard_visit_does_not_rotate_key(client, reset_db):
-    """Loading the dashboard pre-game must NOT change the agent key.
-
-    Regression: a previous version regenerated the key on every pre-game visit,
-    silently invalidating any bot already configured with it.
-    """
-    user = await _seed_user(reset_db)
-    game = await _seed_game(reset_db)
-    key = "sk_game_" + "a" * 48
-    player_id = await _seed_player(reset_db, user, game, key)
-
-    # Visit the dashboard twice.
-    for _ in range(2):
-        r = await client.get(
-            f"/me/players/{player_id}", cookies=_signed_in_cookies(client, user.id)
-        )
-        assert r.status_code == 200
-
-    # The original key still verifies — it was never rotated out from under us.
-    assert verify_agent_key(key, await _key_hash(reset_db, player_id))
-
-
-@pytest.mark.asyncio
-async def test_rekey_invalidates_old_key(client, reset_db):
-    """Re-issue is the one deliberate path that changes the key."""
-    user = await _seed_user(reset_db)
-    game = await _seed_game(reset_db)
-    key = "sk_game_" + "b" * 48
-    player_id = await _seed_player(reset_db, user, game, key)
-
-    r = await client.post(
-        f"/me/players/{player_id}/rekey",
-        cookies=_signed_in_cookies(client, user.id),
-        follow_redirects=False,
-    )
-    assert r.status_code == 303
-    assert r.headers["location"] == f"/me/players/{player_id}"
-
-    # The old key no longer works; the hash changed to a freshly issued key.
-    assert not verify_agent_key(key, await _key_hash(reset_db, player_id))
-
-
-@pytest.mark.asyncio
-async def test_rekey_blocked_after_game_starts(client, reset_db):
-    """A key can't be rotated mid-game — that would strand a playing bot."""
-    user = await _seed_user(reset_db)
-    game = await _seed_game(reset_db, state=GameState.ACTIVE)
-    key = "sk_game_" + "c" * 48
-    player_id = await _seed_player(reset_db, user, game, key)
-
-    r = await client.post(
-        f"/me/players/{player_id}/rekey",
-        cookies=_signed_in_cookies(client, user.id),
-        follow_redirects=False,
-    )
-    assert r.status_code == 409
-    # Key is untouched.
-    assert verify_agent_key(key, await _key_hash(reset_db, player_id))
-
-
-def _signed_in_cookies(client: AsyncClient, user_id: int) -> dict:
-    """Construct a Starlette session cookie marking this user as signed-in.
-
-    Starlette's SessionMiddleware uses itsdangerous over a base64-encoded JSON
-    payload; we use the production secret. The auth flow is exercised end-to-end
-    in test_auth.py — here we shortcut for UX tests.
-    """
-    import base64
-    import json
-    from itsdangerous import TimestampSigner
-
-    from app.config import settings
-
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    signed = signer.sign(payload).decode()
-    return {"hhh_session": signed}

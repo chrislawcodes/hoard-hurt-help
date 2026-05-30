@@ -9,6 +9,7 @@ from app.engine import scheduler
 from app.engine.scheduler import _all_submitted, _wait_for_turn
 from app.engine.tokens import generate_turn_token
 from app.models import Base, Game, GameState, Player, Turn, TurnSubmission, User
+from tests.factories import make_bot
 
 
 @pytest.fixture
@@ -53,7 +54,8 @@ async def _make_game(db, *, state=GameState.ACTIVE, n_players=3, start_offset=-5
         u = User(google_sub=f"s{i}", email=f"u{i}@t.com")
         db.add(u)
         await db.flush()
-        p = Player(game_id=game.id, user_id=u.id, agent_id=f"AI_{i}", agent_key_hash="h")
+        bot, _ = await make_bot(db, u, name=f"AI_{i}")
+        p = Player(game_id=game.id, user_id=u.id, bot_id=bot.id, agent_id=f"AI_{i}")
         db.add(p)
         await db.flush()
         players.append(p)

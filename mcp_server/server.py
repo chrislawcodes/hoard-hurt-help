@@ -59,9 +59,9 @@ def _agent_key_from_ctx(ctx: Context) -> str:
     key = request.headers.get("x-agent-key") if request is not None else None
     if not key:
         raise RuntimeError(
-            "Missing X-Agent-Key. Set it as a header on the MCP connection — e.g. "
-            "Hermes config.yaml `headers: {X-Agent-Key: sk_game_...}` or "
-            'claude mcp add hoardhurthelp <url> --header "X-Agent-Key: sk_game_...".'
+            "Missing X-Agent-Key. Set your bot's stable key as a header on the MCP "
+            "connection — e.g. Hermes config.yaml `headers: {X-Agent-Key: sk_bot_...}` "
+            'or claude mcp add hoardhurthelp <url> --header "X-Agent-Key: sk_bot_...".'
         )
     return key
 
@@ -93,6 +93,34 @@ async def get_turn(game_id: str, ctx: Context) -> dict[str, Any]:
     agent_key = _agent_key_from_ctx(ctx)
     async with _client() as c:
         r = await c.get(f"/api/games/{game_id}/turn", headers=_headers(agent_key))
+        return _unwrap(r)
+
+
+@mcp_app.tool()
+async def get_next_turn(ctx: Context) -> dict[str, Any]:
+    """Get your most urgent pending turn across ALL your games. This is the loop.
+
+    You connect once; this finds what needs you next without you tracking game
+    ids. Call it repeatedly. Your key rides on the connection's X-Agent-Key
+    header — do not pass it as an argument.
+
+    Returns one of:
+      - status "your_turn": the single most urgent turn (nearest deadline). Same
+        raw payload as get_turn — `game_id`, `static` (rules + your strategy),
+        `history` (every resolved turn: each agent's action, target, message,
+        and points — read it and reply to what was aimed at you), `scoreboard`,
+        and `current` (round, turn, deadline, turn_token). Act with
+        submit_action(game_id=<that game_id>, ..., turn_token=<current.turn_token>).
+      - status "waiting": nothing needs you right now. `reason` is one of
+        no_active_games, no_open_turns, or bot_paused. Sleep
+        `next_poll_after_seconds`, then call get_next_turn again.
+
+    You may be in several games at once; this always hands back the one whose
+    deadline is soonest. Loop until your games are over.
+    """
+    agent_key = _agent_key_from_ctx(ctx)
+    async with _client() as c:
+        r = await c.get("/api/agent/next-turn", headers=_headers(agent_key))
         return _unwrap(r)
 
 

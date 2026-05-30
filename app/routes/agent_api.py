@@ -11,16 +11,14 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import select
 
-from app.deps import DbSession, require_agent_key
+from app.deps import DbSession, require_bot_player
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.opponent_stats import rank_players
 from app.engine.rules import RULES_TEXT_V1, RULES_VERSION
-from app.engine.tokens import generate_agent_key, hash_agent_key
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
-from app.models.user import User
 from app.schemas.agent import (
     AgentStateResponse,
     ChatLine,
@@ -29,8 +27,6 @@ from app.schemas.agent import (
     FullStandingsResponse,
     HistoryAction,
     HistoryTurn,
-    JoinRequest,
-    JoinResponse,
     LeaveResponse,
     OpponentHistoryResponse,
     ScoreboardRow,
@@ -45,7 +41,8 @@ from app.schemas.agent import (
 
 router = APIRouter(prefix="/api/games/{game_id}", tags=["agent"])
 
-# Per-key poll throttle (1 Hz). Keyed by Player.id.
+# Per-bot poll throttle (1 Hz). Keyed by Bot.id — a bot owns many players, so
+# keying by player would let it dodge the cap by switching games.
 _last_poll: dict[int, float] = {}
 _MIN_POLL_INTERVAL = 1.0
 
@@ -94,81 +91,9 @@ def _as_aware(dt: datetime) -> datetime:
     return dt
 
 
-@router.post("/join", response_model=JoinResponse, status_code=status.HTTP_201_CREATED)
-async def agent_join(
-    game_id: Annotated[str, Path()],
-    body: JoinRequest,
-    db: DbSession,
-) -> JoinResponse:
-    """Register a new agent for a game. Returns the per-game key once."""
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
-    if game is None:
-        raise _err("GAME_NOT_FOUND", "Game not found.", status.HTTP_404_NOT_FOUND)
-    if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
-        raise _err(
-            "GAME_NOT_OPEN_FOR_REGISTRATION",
-            "Game is not accepting registrations.",
-            status.HTTP_409_CONFLICT,
-        )
-
-    # Name uniqueness within game.
-    existing = (
-        await db.execute(
-            select(Player).where(Player.game_id == game.id, Player.agent_id == body.display_name)
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise _err(
-            "INVALID_DISPLAY_NAME",
-            "Display name already taken in this game.",
-            status.HTTP_400_BAD_REQUEST,
-        )
-
-    # Player count cap.
-    count = len(
-        (await db.execute(select(Player).where(Player.game_id == game.id))).scalars().all()
-    )
-    if count >= game.max_players:
-        raise _err("GAME_FULL", "Game has reached max players.", status.HTTP_409_CONFLICT)
-
-    # The Agent API skips Google auth — we create a synthetic User for non-browser joiners.
-    # For real flow, the web join route uses the signed-in User.
-    user = User(
-        google_sub=f"agent-direct-{body.display_name}-{game.id}",
-        email=f"{body.display_name.lower()}@agent-direct.{game.id}.local",
-        name=body.display_name,
-    )
-    db.add(user)
-    await db.flush()
-
-    key = generate_agent_key()
-    player = Player(
-        game_id=game.id,
-        user_id=user.id,
-        agent_id=body.display_name,
-        agent_key_hash=hash_agent_key(key),
-        model_self_report=body.model_self_report,
-    )
-    db.add(player)
-    await db.flush()
-    db.add(
-        StrategyPrompt(
-            player_id=player.id,
-            prompt_text=body.strategy_prompt,
-            is_default=False,
-        )
-    )
-    await db.commit()
-
-    return JoinResponse(
-        game_id=game.id,
-        agent_id=player.agent_id,
-        agent_key=key,
-        poll_url=f"/api/games/{game.id}/turn",
-        submit_url=f"/api/games/{game.id}/submit",
-        scheduled_start=game.scheduled_start,
-        per_turn_deadline_seconds=game.per_turn_deadline_seconds,
-    )
+# Joining a game is a web action — the owner picks one of their bots (see
+# app/routes/web.py). The agent API is play-only; auth resolves the bot's
+# player for a game via require_bot_player. No per-game credential is issued.
 
 
 async def _build_scoreboard(db, game: Game) -> list[ScoreboardRow]:
@@ -267,19 +192,16 @@ async def _load_action_records(db, game: Game) -> list[ActionRecord]:
 @router.get("/turn")
 async def agent_poll(
     game_id: Annotated[str, Path()],
-    player: Annotated[Player, Depends(require_agent_key)],
+    player: Annotated[Player, Depends(require_bot_player)],
     db: DbSession,
 ) -> WaitingResponse | YourTurnResponse:
     """Poll for the current turn. Rate-limited to 1 Hz per key."""
     # Rate limit.
     now_t = time.monotonic()
-    last = _last_poll.get(player.id, 0.0)
+    last = _last_poll.get(player.bot_id, 0.0)
     if now_t - last < _MIN_POLL_INTERVAL:
         raise _err("RATE_LIMITED", "Polling too fast.", status.HTTP_429_TOO_MANY_REQUESTS)
-    _last_poll[player.id] = now_t
-
-    if player.game_id != game_id:
-        raise _err("INVALID_KEY", "Key not for this game.", status.HTTP_401_UNAUTHORIZED)
+    _last_poll[player.bot_id] = now_t
 
     game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
 
@@ -373,7 +295,7 @@ async def agent_poll(
     )
 
 
-# require_agent_key produces the Player; FastAPI dep injection handles it.
+# require_bot_player resolves the bot key + game_id to the Player; FastAPI dep injection handles it.
 
 
 @router.post("/submit", response_model=SubmitResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -381,12 +303,9 @@ async def agent_submit(
     game_id: Annotated[str, Path()],
     body: SubmitRequest,
     db: DbSession,
-    player: Annotated[Player, Depends(require_agent_key)],
+    player: Annotated[Player, Depends(require_bot_player)],
 ) -> SubmitResponse:
     """Submit this turn's action. Idempotent on (turn_token, player_id)."""
-    if player.game_id != game_id:
-        raise _err("INVALID_KEY", "Key not for this game.", status.HTTP_401_UNAUTHORIZED)
-
     game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
     if game.state != GameState.ACTIVE:
         raise _err(
@@ -501,10 +420,8 @@ async def agent_submit(
 async def agent_state(
     game_id: Annotated[str, Path()],
     db: DbSession,
-    player: Annotated[Player, Depends(require_agent_key)],
+    player: Annotated[Player, Depends(require_bot_player)],
 ) -> AgentStateResponse:
-    if player.game_id != game_id:
-        raise _err("INVALID_KEY", "Key not for this game.", status.HTTP_401_UNAUTHORIZED)
     game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
     open_turn = (
         await db.execute(
@@ -547,10 +464,8 @@ async def agent_state(
 async def agent_leave(
     game_id: Annotated[str, Path()],
     db: DbSession,
-    player: Annotated[Player, Depends(require_agent_key)],
+    player: Annotated[Player, Depends(require_bot_player)],
 ) -> LeaveResponse:
-    if player.game_id != game_id:
-        raise _err("INVALID_KEY", "Key not for this game.", status.HTTP_401_UNAUTHORIZED)
     game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
     if game.state == GameState.ACTIVE:
         raise _err(
@@ -569,20 +484,18 @@ async def agent_leave(
 def _pull_rate_limiter(bucket: str) -> Callable[[Player], Awaitable[Player]]:
     """Build a dependency that throttles one pull kind to 1 Hz per key."""
 
-    async def dep(player: Annotated[Player, Depends(require_agent_key)]) -> Player:
+    async def dep(player: Annotated[Player, Depends(require_bot_player)]) -> Player:
         now_t = time.monotonic()
-        last = _last_pull.get((player.id, bucket), 0.0)
+        last = _last_pull.get((player.bot_id, bucket), 0.0)
         if now_t - last < _PULL_MIN_INTERVAL:
             raise _err("RATE_LIMITED", "Pulling too fast.", status.HTTP_429_TOO_MANY_REQUESTS)
-        _last_pull[(player.id, bucket)] = now_t
+        _last_pull[(player.bot_id, bucket)] = now_t
         return player
 
     return dep
 
 
 async def _game_for(player: Player, game_id: str, db) -> Game:
-    if player.game_id != game_id:
-        raise _err("INVALID_KEY", "Key not for this game.", status.HTTP_401_UNAUTHORIZED)
     return (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
 
 
