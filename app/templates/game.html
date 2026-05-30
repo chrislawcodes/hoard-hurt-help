@@ -8,6 +8,7 @@
 {# Live: the SSE connection stays on this element; each event re-fetches the
    server-rendered live region into it. The fragment itself carries no SSE. #}
 <div id="live-region"
+     data-state="{{ game.state.value }}"
      hx-ext="sse"
      sse-connect="/games/{{ game.id }}/stream"
      hx-get="/games/{{ game.id }}/live"
@@ -17,29 +18,74 @@
     {% include "fragments/live_region.html" %}
 </div>
 {% else %}
-<div id="live-region">
+<div id="live-region" data-state="{{ game.state.value }}">
     {% include "fragments/live_region.html" %}
 </div>
 {% endif %}
 
-{% if game.state.value == "completed" and history %}
-<div class="scrubber card">
-    <label for="timeline">Replay: <span id="timeline-label">Turn {{ history | length }} / {{ history | length }}</span></label>
-    <input type="range" id="timeline" min="1" max="{{ history | length }}" value="{{ history | length }}">
-</div>
 <script>
+// Round navigation. Filters the feed to one round at a time so a long game is
+// readable. Works for both live and completed games. This script runs once; its
+// closure survives the SSE swaps that replace the live region's innerHTML, so
+// the selected round persists across turn updates.
 (function () {
-    const slider = document.getElementById('timeline');
-    const label = document.getElementById('timeline-label');
-    if (!slider) return;
-    slider.addEventListener('input', function () {
-        const upto = parseInt(slider.value);
-        label.textContent = 'Turn ' + upto + ' / ' + slider.max;
-        document.querySelectorAll('#feed .turn-block').forEach(function (el) {
-            el.hidden = parseInt(el.dataset.seq, 10) > upto;
+    const region = document.getElementById('live-region');
+    if (!region) return;
+    const isActive = region.dataset.state === 'active';
+
+    // null  = follow the latest round (auto-advances as a live game progresses)
+    // <num> = pinned to that round
+    // 'all' = show the whole log
+    // Live games start by following the action; a completed game opens at round 1
+    // so you can replay forward.
+    let selected = isActive ? null : 1;
+
+    function maxRound() {
+        let m = 0;
+        region.querySelectorAll('#feed .round-section').forEach(function (s) {
+            const r = parseInt(s.dataset.round, 10);
+            if (r > m) m = r;
         });
+        return m;
+    }
+
+    function apply() {
+        const max = maxRound();
+        if (max === 0) return;  // nothing resolved yet
+        let target;
+        if (selected === 'all') target = 'all';
+        else if (selected === null) target = max;        // follow live
+        else target = Math.min(selected, max);           // pinned
+
+        region.querySelectorAll('#feed .round-section').forEach(function (s) {
+            const r = parseInt(s.dataset.round, 10);
+            s.hidden = (target !== 'all' && r !== target);
+        });
+        region.querySelectorAll('.round-chip').forEach(function (c) {
+            const v = c.dataset.round;
+            const match = (target === 'all') ? (v === 'all') : (v === String(target));
+            c.classList.toggle('is-active', match);
+        });
+    }
+
+    region.addEventListener('click', function (e) {
+        const chip = e.target.closest('.round-chip');
+        if (!chip || chip.disabled) return;
+        const v = chip.dataset.round;
+        if (v === 'all') {
+            selected = 'all';
+        } else {
+            const n = parseInt(v, 10);
+            // In a live game, clicking the current/latest round resumes auto-follow.
+            selected = (isActive && n === maxRound()) ? null : n;
+        }
+        apply();
     });
+
+    // Re-apply after each SSE-driven swap of the live region.
+    region.addEventListener('htmx:afterSwap', apply);
+
+    apply();
 })();
 </script>
-{% endif %}
 {% endblock %}

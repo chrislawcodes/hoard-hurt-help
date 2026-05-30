@@ -6,14 +6,31 @@
     <aside class="scorepanel">
         {% include "fragments/scoreboard.html" %}
     </aside>
-    <section id="feed" class="feed">
-        {% if history %}
-            <p class="feed-legend">Numbers show each move's effect and who it lands on. Running totals are on the scoreboard.</p>
-            {% for turn in history | reverse %}
-                {% include "fragments/turn_block.html" %}
+    <section class="feed-col">
+        {% if rounds %}
+        <nav class="round-nav" aria-label="Jump to round">
+            <span class="round-nav-label">Round</span>
+            <button type="button" class="round-chip" data-round="all">All</button>
+            {% for r in range(1, max_played_round + 1) %}
+            <button type="button" class="round-chip" data-round="{{ r }}">R{{ r }}{% if game.state.value == "active" and r == game.current_round %} <span class="live-dot" aria-hidden="true"></span>{% endif %}</button>
             {% endfor %}
-        {% else %}
-            <p class="empty">No turns resolved yet. Waiting for the first move…</p>
+        </nav>
         {% endif %}
+
+        <div id="feed" class="feed">
+            {% if rounds %}
+                <p class="feed-legend">Numbers show each move's effect and who it lands on. Running totals are on the scoreboard.</p>
+                {% for rnd in rounds %}
+                <section class="round-section" data-round="{{ rnd.round }}">
+                    <h3 class="round-heading">Round {{ rnd.round }}</h3>
+                    {% for turn in rnd.turns %}
+                        {% include "fragments/turn_block.html" %}
+                    {% endfor %}
+                </section>
+                {% endfor %}
+            {% else %}
+                <p class="empty">No turns resolved yet. Waiting for the first move…</p>
+            {% endif %}
+        </div>
     </section>
 </div>

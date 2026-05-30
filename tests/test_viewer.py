@@ -92,9 +92,9 @@ async def test_spectator_state_no_prompts(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_completed_viewer_has_timeline(client, reset_db):
+async def test_completed_viewer_has_round_nav(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
-    # A completed game needs at least one resolved turn for the scrubber to show.
+    # A completed game needs at least one resolved turn for the round nav to show.
     async with reset_db() as db:
         from app.models import Player, Turn, TurnSubmission
 
@@ -124,7 +124,10 @@ async def test_completed_viewer_has_timeline(client, reset_db):
         await db.commit()
     r = await client.get("/games/G_001")
     assert r.status_code == 200
-    assert "timeline" in r.text  # scrubber script wired
+    # Round-jump bar and grouped round section are present.
+    assert "round-nav" in r.text
+    assert 'data-round="1"' in r.text
+    assert "round-section" in r.text
 
 
 @pytest.mark.asyncio

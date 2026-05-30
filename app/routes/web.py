@@ -171,6 +171,20 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
             )
         history.append({"seq": seq, "round": t.round, "turn": t.turn, "actions": actions})
 
+    # Group resolved turns by round for the round-navigation viewer. Rounds are
+    # ordered newest-first, and turns within a round newest-first — this matches
+    # the previous flat "newest first" feed ordering. `history` is already sorted
+    # ascending by (round, turn), so we group in order then reverse.
+    rounds: list[dict] = []
+    for h in history:
+        if not rounds or rounds[-1]["round"] != h["round"]:
+            rounds.append({"round": h["round"], "turns": []})
+        rounds[-1]["turns"].append(h)
+    for r in rounds:
+        r["turns"].reverse()
+    rounds.reverse()
+    max_played_round = rounds[0]["round"] if rounds else 0
+
     winner_agent_id = None
     if g.winner_player_id:
         winner = (
@@ -184,6 +198,8 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
         "game": g,
         "scoreboard": scoreboard,
         "history": history,
+        "rounds": rounds,
+        "max_played_round": max_played_round,
         "winner_agent_id": winner_agent_id,
     }
 
