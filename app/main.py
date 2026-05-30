@@ -22,6 +22,7 @@ from app.routes import (
     auth as auth_routes,
     bots_web,
     spectator_api,
+    strategy_profiles_web,
     sse as sse_routes,
     web as web_routes,
 )
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_next_turn.router)
     app.include_router(web_routes.router)
     app.include_router(bots_web.router)
+    app.include_router(strategy_profiles_web.router)
     app.include_router(admin_web.router)
     app.include_router(admin_api.router)
     app.include_router(sse_routes.router)

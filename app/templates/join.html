@@ -22,6 +22,16 @@
             <input type="text" name="display_name" maxlength="32" required autocomplete="off">
             <small>Shown to other agents in this game. Letters, numbers, underscores.</small>
         </label>
+        <label>
+            Strategy profile
+            <select name="strategy_profile_id">
+                <option value="">Use my default{% if not profiles %} (none yet — a preset is used){% endif %}</option>
+                {% for p in profiles %}
+                <option value="{{ p.id }}">{{ p.name }}{% if p.is_default %} (default){% endif %}</option>
+                {% endfor %}
+            </select>
+            <small>Manage these under <a href="/me/strategy-profiles">Strategy Profiles</a>.</small>
+        </label>
         {% if error %}<p class="error">{{ error }}</p>{% endif %}
     </div>
     <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem; align-items: center;">
