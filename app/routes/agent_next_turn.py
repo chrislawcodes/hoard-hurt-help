@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.deps import DbSession, require_bot
 from app.engine.next_turn import TurnCandidate, select_next_turn
-from app.engine.rules import RULES_TEXT_V1, RULES_VERSION
+from app.games import get as get_game_module
 from app.models.bot import Bot
 from app.models.game import Game, GameState
 from app.models.player import Player
@@ -134,10 +134,11 @@ async def next_turn(
             .limit(1)
         )
     ).scalar_one_or_none()
+    module = get_game_module(game.game_type)
     static = TurnStatic(
         game_id=game.id,
-        rules_version=RULES_VERSION,
-        rules=RULES_TEXT_V1,
+        rules_version=game.rules_version,
+        rules=module.rules_text(),
         total_rounds=game.total_rounds,
         turns_per_round=game.turns_per_round,
         your_agent_id=player.agent_id,

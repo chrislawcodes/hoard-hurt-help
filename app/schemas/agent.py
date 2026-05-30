@@ -13,6 +13,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# PD's (game #1, "hoard-hurt-help") move vocabulary. The platform does NOT
+# interpret these — POST /submit packs the request into a generic `move` dict and
+# routes validation/recording through that game's module (app/games/). A second
+# game ships its own move shape; full free-form move JSON on the wire is deferred
+# to game #2 (see specs/004-game-framework, plan Decision: storage/wire
+# generalization rides with the second game).
 Action = Literal["HOARD", "HELP", "HURT"]
 
 

@@ -412,3 +412,54 @@ A running list of every TBD in this doc, in rough priority order.
 14. ~~**Slow-agent kick policy**~~ — **Decided: never kick. Missed turns default to Hoard indefinitely.** (Section 3)
 15. **Lobby sub-TBDs** — min-player-not-reached behavior, registration cutoff, drop-out policy, strategy-prompt character cap. (Section 7)
 16. **Admin UI specifics** — wireframes, admin auth approach, export schema. (Section 8)
+
+---
+
+## 11. Game Framework — **Decided: platform + game modules** (feature 004)
+
+HHH is now a **platform** that hosts turn-based, multi-agent games, with
+Prisoner's Dilemma as game #1 (`game_type = "hoard-hurt-help"`). See
+`docs/writing-a-game-module.md` for the how-to and `specs/004-game-framework/`
+for the full spec/plan.
+
+### The split
+
+- **Platform** (game-agnostic, shared by every game): users, bots + stable
+  `sk_bot_` keys + indexed auth, the lobby/registration, the scheduler turn loop,
+  the agent API (poll/submit/history/next-turn/chat), the spectator viewer, the
+  "My Bots / My Games" panel, strategy profiles, and the score storage tables.
+- **Game module** (one per game, in `app/games/<game>/`): the legal moves +
+  validation, the rules text, how a move scores, how a turn/round/game resolves,
+  config defaults, and the per-move display for the viewer.
+
+The platform depends **only** on the `GameModule` contract in
+`app/games/base.py`. It resolves a game via the registry
+(`app/games/__init__.py` → `get(game.game_type)`) and calls the module — it never
+imports a specific game. Adding a game means writing a module and registering it;
+no platform file changes. This is enforced by a regression gate: the PD engine
+(`app/engine/*`) and its tests are unchanged, and a stub game
+(`tests/test_stub_game.py`) proves a new game plays/scores touching only its
+module.
+
+### PD as game #1
+
+PD is a thin **adapter** (`app/games/hoard_hurt_help/game.py`) over the
+unchanged engine in `app/engine/` (resolver, rules, scoring). Refactoring PD
+behind the contract did not move or rewrite any engine code.
+
+### Deferred: storage + wire generalization (rides with game #2)
+
+We deliberately did **not** generalize storage or the submit wire format yet:
+
+- Only `Game.game_type` was added (migration `0004`). Moves still live in the
+  PD-shaped `turn_submissions` columns (`action`, `target_player_id`,
+  `points_delta`), and scores in the existing `players` columns.
+- The submit request body still uses PD's `action`/`target_id`/`message` shape
+  (`app/schemas/agent.py`), so a genuinely new move *vocabulary* can't arrive over
+  HTTP yet — only through the contract directly.
+
+The rationale (Option B): interfaces designed against a single game bake in wrong
+assumptions. Rather than guess the generic move/state shape from n=1, we keep the
+PD columns now and do the generalization — free-form move JSON on the wire +
+per-game move/state storage — as part of building the **second** real game, when
+the right shape is actually known.
