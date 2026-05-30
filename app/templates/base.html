@@ -24,6 +24,7 @@
         <nav>
             {% if user %}
                 <span>{{ user.email }}</span>
+                <a href="/me/bots">My Bots</a>
                 <a href="/me/games">My Games</a>
                 {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
                 <form method="post" action="/auth/logout" style="display:inline">
