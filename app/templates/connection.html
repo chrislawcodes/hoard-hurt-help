@@ -1,104 +1,35 @@
 {% extends "base.html" %}
-{% block title %}My slot in {{ game.name }} — Hoard-Hurt-Help{% endblock %}
+{% block title %}{{ player.agent_id }} in {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<p><a href="/me/games">← My Games</a></p>
-<h1>Your slot in "{{ game.name }}"</h1>
+<p><a href="/me/bots/{{ player.bot_id }}">← Back to bot</a></p>
+<h1>{{ player.agent_id }}</h1>
+<p class="meta">In "{{ game.name }}" · <span class="badge">{{ game.state.value | capitalize }}</span> · starts {{ game.scheduled_start | localdt }}</p>
+
+{% if just_saved %}<p class="save-confirm">✓ Strategy saved</p>{% endif %}
 
 <div class="card">
-    <dl class="dl-grid">
-        <dt>Agent name</dt><dd>{{ player.agent_id }}</dd>
-        <dt>Game starts</dt><dd>{{ game.scheduled_start | localdt }}</dd>
-        <dt>State</dt><dd>{{ game.state.value | capitalize }}</dd>
-    </dl>
+    <p>This agent is played by your bot. Its connection code lives on
+    <a href="/me/bots/{{ player.bot_id }}">the bot's page</a> — there's no per-game key.</p>
 </div>
 
-<h2>Connect your AI</h2>
+<h2>Strategy for this game</h2>
 <div class="card">
-    {% if agent_key %}
-    <p><strong>Save this key now — it won't be shown again.</strong></p>
-    <div class="key-row">
-        <code id="agent-key">{{ agent_key }}</code>
-        <button type="button" onclick="copyWithFeedback(this, document.getElementById('agent-key').textContent)">Copy key</button>
-    </div>
-    <p class="hint">Paste this wherever your AI's setup asks for <code>X-Agent-Key</code>. Full step-by-step setup is on the <a href="/games/{{ game.id }}/join">join page</a>.</p>
-    {% else %}
-    <p class="hint">Your key was shown once, right after you joined. We only store a secure hash of it, so we can't display it again.</p>
-    {% endif %}
-
-    {% if pre_game %}
-    <form method="post" action="/me/players/{{ player.id }}/rekey" onsubmit="return confirm('Re-issue a new key? Any bot still using the old key will stop working until you give it the new one.');">
-        <button type="submit" class="secondary">Re-issue key</button>
-    </form>
-    <p class="hint">Only re-issue if you lost your key. It disconnects any bot using the old one.</p>
-    {% endif %}
-</div>
-
-<h2>Your strategy</h2>
-<div class="card">
-    {% if just_saved %}
-    <p class="save-confirm">✓ Strategy saved</p>
-    <pre>{{ strategy }}</pre>
-    <a href="/me/players/{{ player.id }}">Edit strategy →</a>
-    {% elif can_edit_strategy %}
-    <div class="preset-picker">
-        {% for preset in presets %}
-        <button type="button" class="preset-btn" onclick="applyPreset({{ loop.index0 }})">{{ preset.name }}</button>
-        {% endfor %}
-        <button type="button" class="preset-btn" id="custom-strategy-btn" onclick="applyCustom()">Custom</button>
-    </div>
-    <p id="strategy-preset-desc" class="hint"></p>
+    {% if can_edit_strategy %}
     <form method="post" action="/me/players/{{ player.id }}/strategy" class="form">
-        <textarea id="strategy-textarea" name="strategy_prompt" rows="10" maxlength="2000">{{ strategy }}</textarea>
-        <button type="submit" style="margin-top: 1rem;">Save</button>
+        <label>
+            <textarea name="strategy_prompt" rows="6" maxlength="2000" required>{{ strategy }}</textarea>
+        </label>
+        <button type="submit">Save strategy</button>
     </form>
     {% else %}
+    <p class="hint">Strategy is locked once the game starts.</p>
     <pre>{{ strategy }}</pre>
-    <p class="hint">Strategy editing closes when the game starts.</p>
     {% endif %}
 </div>
 
 {% if can_leave %}
-<div class="danger-zone">
-    <form method="post" action="/me/players/{{ player.id }}/leave">
-        <button type="submit">Drop out of this game</button>
-    </form>
-</div>
+<form method="post" action="/me/players/{{ player.id }}/leave" onsubmit="return confirm('Pull this bot out of the game?');" style="margin-top:1rem;">
+    <button type="submit" class="secondary">Leave game</button>
+</form>
 {% endif %}
-
-<script>
-{% if can_edit_strategy %}
-var STRATEGY_PRESETS = [
-    {% for p in presets %}
-    { name: {{ p.name | tojson }}, desc: {{ p.description | tojson }}, prompt: {{ p.prompt | tojson }} }{% if not loop.last %},{% endif %}
-
-    {% endfor %}
-];
-
-function applyPreset(i) {
-    document.getElementById('strategy-textarea').value = STRATEGY_PRESETS[i].prompt;
-    document.getElementById('strategy-preset-desc').textContent = STRATEGY_PRESETS[i].desc;
-    document.querySelectorAll('.preset-btn').forEach(function(b) { b.classList.remove('active'); });
-    document.querySelectorAll('.preset-btn')[i].classList.add('active');
-}
-
-function applyCustom() {
-    document.getElementById('strategy-preset-desc').textContent = 'Write your own strategy below.';
-    document.querySelectorAll('.preset-btn').forEach(function(b) { b.classList.remove('active'); });
-    document.getElementById('custom-strategy-btn').classList.add('active');
-    document.getElementById('strategy-textarea').focus();
-}
-
-// Highlight whichever preset matches the current saved strategy (if any).
-(function() {
-    var current = document.getElementById('strategy-textarea').value.trim();
-    for (var i = 0; i < STRATEGY_PRESETS.length; i++) {
-        if (STRATEGY_PRESETS[i].prompt.trim() === current) {
-            applyPreset(i);
-            return;
-        }
-    }
-    if (current) applyCustom();
-})();
-{% endif %}
-</script>
 {% endblock %}

@@ -19,7 +19,7 @@ from app.engine.rules import (
     HURT_POINTS,
     STRATEGY_PRESETS,
 )
-from app.engine.tokens import generate_agent_key, hash_agent_key
+from app.models.bot import Bot
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
@@ -32,8 +32,15 @@ logger = logging.getLogger(__name__)
 
 
 async def _player_count(db, game_id: str) -> int:
+    """Active players only — a pulled-out (left) bot frees its seat."""
     return len(
-        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
+        (
+            await db.execute(
+                select(Player).where(Player.game_id == game_id, Player.left_at.is_(None))
+            )
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -268,10 +275,13 @@ async def join_form(
     if game is None:
         raise HTTPException(404)
 
-    # Pre-generate the key so setup instructions on this page show the real key.
-    pending_key = generate_agent_key()
-    request.session[f"pending_key_{game_id}"] = pending_key
-
+    # Entry is "pick one of your bots" — no per-game key is issued. The bot's
+    # stable key was shown once when it was created (see /me/bots).
+    bots = (
+        (await db.execute(select(Bot).where(Bot.user_id == user.id).order_by(Bot.name)))
+        .scalars()
+        .all()
+    )
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -280,7 +290,7 @@ async def join_form(
             "is_admin": _is_admin(user),
             "game": game,
             "player_count": await _player_count(db, game.id),
-            "agent_key": pending_key,
+            "bots": bots,
             "base_url": settings.base_url,
             "error": None,
         },
@@ -293,66 +303,60 @@ async def join_submit(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
+    bot_id: Annotated[int, Form()],
     display_name: Annotated[str, Form()],
-    ai_type: Annotated[str, Form()] = "claude",
 ):
+    """Enter one of the user's bots into a game. No credential is issued."""
     game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
     if game is None:
         raise HTTPException(404)
     if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Game not open for registration.")
 
-    # A user may run several bots in the same game; each is a separate Player with
-    # its own name and key. Log when someone adds another so we can see who does it.
-    existing_count = len(
-        (
-            await db.execute(
-                select(Player).where(
-                    Player.game_id == game.id,
-                    Player.user_id == user.id,
-                    Player.left_at.is_(None),
-                )
+    bot = (
+        await db.execute(select(Bot).where(Bot.id == bot_id, Bot.user_id == user.id))
+    ).scalar_one_or_none()
+    if bot is None:
+        raise HTTPException(404, detail="Bot not found.")
+
+    # Validate entry: name shape, one player per (bot, game), unique name, capacity.
+    name_ok = bool(re.fullmatch(r"[a-zA-Z0-9_]{1,32}", display_name))
+    already_in = (
+        await db.execute(
+            select(Player).where(
+                Player.bot_id == bot.id,
+                Player.game_id == game.id,
+                Player.left_at.is_(None),
             )
         )
-        .scalars()
-        .all()
-    )
-    if existing_count >= 1:
-        logger.info(
-            "multi-bot join: user %s (%s) adding bot #%d to game %s",
-            user.id,
-            user.email,
-            existing_count + 1,
-            game.id,
-        )
-
-    # Re-generate a pending key if session expired; otherwise use the one we pre-generated.
-    key = request.session.pop(f"pending_key_{game_id}", None) or generate_agent_key()
-
-    # Validate display name.
+    ).scalar_one_or_none()
     name_taken = (
         await db.execute(
-            select(Player).where(Player.game_id == game.id, Player.agent_id == display_name)
+            select(Player).where(
+                Player.game_id == game.id,
+                Player.agent_id == display_name,
+                Player.left_at.is_(None),
+            )
         )
     ).scalar_one_or_none()
-    if name_taken is not None:
-        return templates.TemplateResponse(
-            request,
-            "join.html",
-            {
-                "user": user,
-                "is_admin": _is_admin(user),
-                "game": game,
-                "player_count": await _player_count(db, game.id),
-                "agent_key": key,
-                "base_url": settings.base_url,
-                "error": "That display name is already taken in this game.",
-            },
-            status_code=400,
-        )
+    count = await _player_count(db, game.id)
 
-    # Count cap.
-    if await _player_count(db, game.id) >= game.max_players:
+    error: str | None = None
+    code = status.HTTP_400_BAD_REQUEST
+    if not name_ok:
+        error = "Name must be 1–32 letters, numbers, or underscores."
+    elif already_in is not None:
+        error, code = "That bot is already in this game.", status.HTTP_409_CONFLICT
+    elif name_taken is not None:
+        error = "That display name is already taken in this game."
+    elif count >= game.max_players:
+        error, code = "Game is full.", status.HTTP_409_CONFLICT
+    if error is not None:
+        bots = (
+            (await db.execute(select(Bot).where(Bot.user_id == user.id).order_by(Bot.name)))
+            .scalars()
+            .all()
+        )
         return templates.TemplateResponse(
             request,
             "join.html",
@@ -360,19 +364,19 @@ async def join_submit(
                 "user": user,
                 "is_admin": _is_admin(user),
                 "game": game,
-                "player_count": await _player_count(db, game.id),
-                "agent_key": key,
+                "player_count": count,
+                "bots": bots,
                 "base_url": settings.base_url,
-                "error": "Game is full.",
+                "error": error,
             },
-            status_code=409,
+            status_code=code,
         )
 
     player = Player(
         game_id=game.id,
-        user_id=user.id,
+        user_id=bot.user_id,
+        bot_id=bot.id,
         agent_id=display_name,
-        agent_key_hash=hash_agent_key(key),
     )
     db.add(player)
     await db.flush()
@@ -387,13 +391,8 @@ async def join_submit(
     )
     await db.commit()
 
-    # Pass key and AI type to the dashboard for the first visit. Keyed by player
-    # id (not game id) so a second bot in the same game doesn't clobber the first.
-    request.session[f"ai_type_{player.id}"] = ai_type
-    request.session[f"fresh_key_{player.id}"] = key
-
     return RedirectResponse(
-        url=f"/me/players/{player.id}", status_code=status.HTTP_303_SEE_OTHER
+        url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -484,42 +483,8 @@ async def player_dashboard(
     )
 
 
-@router.post("/me/players/{player_id}/rekey")
-async def reissue_agent_key(
-    player_id: Annotated[int, Path()],
-    request: Request,
-    db: DbSession,
-    user: Annotated[User, Depends(require_user)],
-):
-    """Issue a brand-new agent key, invalidating the old one.
-
-    This is the only way a key changes after join — a deliberate user action,
-    never a side effect of loading a page. Pre-game only: rotating a key mid-game
-    would strand a bot in the middle of its turns. The fresh key is stashed in
-    the session so the dashboard can show it once on the redirect.
-    """
-    player = (
-        await db.execute(
-            select(Player).where(Player.id == player_id, Player.user_id == user.id)
-        )
-    ).scalar_one_or_none()
-    if player is None:
-        raise HTTPException(404, detail="Bot slot not found.")
-
-    game = (await db.execute(select(Game).where(Game.id == player.game_id))).scalar_one()
-    if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
-        raise HTTPException(
-            409, detail="Can't re-issue a key after the game has started."
-        )
-
-    key = generate_agent_key()
-    player.agent_key_hash = hash_agent_key(key)
-    await db.commit()
-
-    request.session[f"fresh_key_{player.id}"] = key
-    return RedirectResponse(
-        url=f"/me/players/{player.id}", status_code=status.HTTP_303_SEE_OTHER
-    )
+# Key reissue moved to the bot level (POST /me/bots/{bot_id}/reissue) and is
+# allowed at any time — see app/routes/bots_web.py. There is no per-player key.
 
 
 @router.post("/me/players/{player_id}/strategy")

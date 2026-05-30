@@ -211,6 +211,29 @@ class GameCompletedResponse(BaseModel):
     final_standings: list[dict]
 
 
+# --- Next-turn (game-agnostic loop) response shapes ---
+# A bot connects once and calls get_next_turn across ALL its games, so these
+# carry a top-level game_id and a wider set of waiting reasons than the
+# per-game poll above.
+
+
+class NextTurnWaiting(BaseModel):
+    status: Literal["waiting"] = "waiting"
+    reason: Literal["no_open_turns", "no_active_games", "bot_paused"]
+    next_poll_after_seconds: int = 5
+
+
+class NextTurnYourTurn(BaseModel):
+    # Same raw payload as YourTurnResponse, plus the game_id (a bot using the
+    # loop isn't tracking which game it's in).
+    status: Literal["your_turn"] = "your_turn"
+    game_id: str
+    static: TurnStatic
+    history: list[HistoryTurn]
+    scoreboard: list[ScoreboardRow]
+    current: CurrentTurn
+
+
 # --- Submit ---
 
 

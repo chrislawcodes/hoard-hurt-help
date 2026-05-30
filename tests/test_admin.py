@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.main import app
 from app.models import Base, Game, GameState, Player, StrategyPrompt, Turn, TurnSubmission, User
+from tests.factories import make_bot
 
 
 @pytest.fixture(autouse=True)
@@ -167,7 +168,8 @@ async def test_admin_delete_game_removes_everything(client, reset_db):
         )
         db.add(g)
         await db.flush()
-        p = Player(game_id="G_001", user_id=u.id, agent_id="AI_0", agent_key_hash="x")
+        bot, _ = await make_bot(db, u, name="AI_0")
+        p = Player(game_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="AI_0")
         db.add(p)
         await db.flush()
         db.add(StrategyPrompt(player_id=p.id, prompt_text="plan", is_default=False))
@@ -226,11 +228,12 @@ async def test_export_csv_shape(client, reset_db):
         )
         db.add(g)
         await db.flush()
+        bot, _ = await make_bot(db, u, name="AI_0")
         p = Player(
             game_id="G_001",
             user_id=u.id,
+            bot_id=bot.id,
             agent_id="AI_0",
-            agent_key_hash="x",
         )
         db.add(p)
         await db.flush()
@@ -284,7 +287,8 @@ async def test_export_json_includes_strategy_prompts(client, reset_db):
         )
         db.add(g)
         await db.flush()
-        p = Player(game_id="G_001", user_id=u.id, agent_id="AI_0", agent_key_hash="x")
+        bot, _ = await make_bot(db, u, name="AI_0")
+        p = Player(game_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="AI_0")
         db.add(p)
         await db.flush()
         db.add(

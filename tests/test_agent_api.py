@@ -7,8 +7,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.main import app
-from app.models import Base, Game, GameState, Player, Turn, TurnSubmission, User
+from app.models import Base, Game, GameState, Player, Turn, TurnSubmission
 from app.engine.tokens import generate_turn_token
+from tests.factories import seat_player
 
 
 @pytest.fixture(autouse=True)
@@ -59,58 +60,14 @@ async def _seed_game(
         await db.flush()
         players = []
         for i in range(n_players):
-            u = User(google_sub=f"sub-{i}", email=f"u{i}@t.com")
-            db.add(u)
-            await db.flush()
-            from app.engine.tokens import generate_agent_key, hash_agent_key
-
-            key = generate_agent_key()
-            p = Player(
-                game_id=g.id,
-                user_id=u.id,
-                agent_id=f"AI_{i}",
-                agent_key_hash=hash_agent_key(key),
-            )
-            p._test_key = key  # type: ignore[attr-defined]
-            db.add(p)
-            await db.flush()
+            p = await seat_player(db, g.id, f"AI_{i}", i=i)
             players.append(p)
         await db.commit()
         return g.id, players
 
 
-@pytest.mark.asyncio
-async def test_join_happy_path(client, reset_db):
-    await _seed_game(reset_db, state=GameState.REGISTERING)
-    r = await client.post(
-        "/api/games/G_001/join",
-        json={"display_name": "AI_qa", "strategy_prompt": "play fairly"},
-    )
-    assert r.status_code == 201, r.text
-    data = r.json()
-    assert data["agent_key"].startswith("sk_game_")
-    assert data["agent_id"] == "AI_qa"
-
-
-@pytest.mark.asyncio
-async def test_join_game_not_found(client, reset_db):
-    r = await client.post(
-        "/api/games/G_999/join",
-        json={"display_name": "AI_x", "strategy_prompt": "x"},
-    )
-    assert r.status_code == 404
-    assert r.json()["detail"]["error"]["code"] == "GAME_NOT_FOUND"
-
-
-@pytest.mark.asyncio
-async def test_join_duplicate_name(client, reset_db):
-    await _seed_game(reset_db, state=GameState.REGISTERING, n_players=1)  # AI_0 exists
-    r = await client.post(
-        "/api/games/G_001/join",
-        json={"display_name": "AI_0", "strategy_prompt": "x"},
-    )
-    assert r.status_code == 400
-    assert r.json()["detail"]["error"]["code"] == "INVALID_DISPLAY_NAME"
+# Joining a game is now a web action (POST /games/{id}/join with a bot_id) — see
+# tests/test_lobby.py. The agent API is play-only, so the old API /join tests are gone.
 
 
 @pytest.mark.asyncio

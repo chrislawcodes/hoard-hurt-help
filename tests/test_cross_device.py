@@ -13,6 +13,7 @@ from itsdangerous import TimestampSigner
 from app.config import settings
 from app.main import app
 from app.models import Base, Game, GameState, Player, User
+from tests.factories import make_bot
 from datetime import datetime, timedelta, timezone
 
 
@@ -52,12 +53,13 @@ async def test_two_sessions_same_user_see_same_games(reset_db):
         )
         db.add(g)
         await db.flush()
+        bot, _ = await make_bot(db, u, name="AI_alice")
         db.add(
             Player(
                 game_id="G_001",
                 user_id=u.id,
+                bot_id=bot.id,
                 agent_id="AI_alice",
-                agent_key_hash="x",
             )
         )
         await db.commit()

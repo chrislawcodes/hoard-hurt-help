@@ -10,11 +10,13 @@ from app.models.base import Base
 
 class Player(Base):
     __tablename__ = "players"
-    # Agent names stay unique within a game, but a single user may run several
-    # bots in the same game — so there is deliberately no (game_id, user_id)
-    # uniqueness. Migration 0002 drops that constraint on existing databases.
+    # Agent names stay unique within a game. A bot has at most one player per
+    # game (UNIQUE(bot_id, game_id)), so a (bot, game) pair maps to exactly one
+    # player; a user fields multiple agents in a game by running multiple bots.
+    # Auth is by the owning bot's stable key, not a per-player key.
     __table_args__ = (
         UniqueConstraint("game_id", "agent_id", name="uq_players_game_id_agent_id"),
+        UniqueConstraint("bot_id", "game_id", name="uq_players_bot_id_game_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -24,8 +26,10 @@ class Player(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False, index=True
     )
+    bot_id: Mapped[int] = mapped_column(
+        ForeignKey("bots.id"), nullable=False, index=True
+    )
     agent_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    agent_key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     model_self_report: Mapped[str | None] = mapped_column(String(200), nullable=True)
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
