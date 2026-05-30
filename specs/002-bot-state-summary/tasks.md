@@ -120,10 +120,10 @@
 
 ## Phase 8: Polish & Cross-Cutting
 
-- [ ] T029 Run the preflight gate: `ruff check . && mypy app/ mcp_server/ && pytest -q`. Fix all issues at the root cause — no `# type: ignore`/`# noqa`/swallowed exceptions (SC-006).
-- [ ] T030 Local end-to-end check per quickstart: run a scripted game and verify SC-001 (payload bounded, doesn't grow with turns), SC-002 (legal move from summary alone), SC-003 (directed messages appear next turn).
-- [ ] T031 [P: STATUS.md] Update `STATUS.md` if present: mark feature done; note v2 hooks (message-NLP/compliance tier, resolve-time denormalized counters, trimming `static.rules`).
-- [ ] T032 **DATA-CRITICAL (post-deploy, after merge)**: run quickstart §Post-Deploy — point a real/test bot at prod, confirm it polls, receives `summary` (not `history`), submits a move; watch agent-endpoint logs ~10 min for error spikes. "Deployed" ≠ "working."
+- [X] T029 Run the preflight gate: `ruff check . && mypy app/ mcp_server/ && pytest -q`. Fix all issues at the root cause — no `# type: ignore`/`# noqa`/swallowed exceptions (SC-006).
+- [X] T030 Local end-to-end check per quickstart: run a scripted game and verify SC-001 (payload bounded, doesn't grow with turns), SC-002 (legal move from summary alone), SC-003 (directed messages appear next turn).
+- [~] T031 (N/A — no STATUS.md in repo) [P: STATUS.md] Update `STATUS.md` if present: mark feature done; note v2 hooks (message-NLP/compliance tier, resolve-time denormalized counters, trimming `static.rules`).
+- [ ] T032 (DEFERRED to post-merge) **DATA-CRITICAL (post-deploy, after merge)**: run quickstart §Post-Deploy — point a real/test bot at prod, confirm it polls, receives `summary` (not `history`), submits a move; watch agent-endpoint logs ~10 min for error spikes. "Deployed" ≠ "working."
 
 ---
 

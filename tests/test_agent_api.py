@@ -424,3 +424,52 @@ async def test_pull_rate_limited(client, reset_db):
     r2 = await client.get("/api/games/G_001/standings", headers={"X-Agent-Key": key})
     assert r2.status_code == 429
     assert r2.json()["detail"]["error"]["code"] == "RATE_LIMITED"
+
+
+@pytest.mark.asyncio
+async def test_directed_message_appears_next_turn(client, reset_db):
+    """SC-003: a message aimed at you last turn shows up in this turn's summary."""
+    from sqlalchemy import select
+
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    p0, p1 = players
+    # Turn 1 resolves: AI_1 hurts AI_0 with a pointed message.
+    await _seed_resolved_turn(
+        reset_db,
+        "G_001",
+        1,
+        1,
+        [
+            (p0.id, "HOARD", None, "", 2, 2),
+            (p1.id, "HURT", p0.id, "stop hoarding or I keep hitting you", 0, 0),
+        ],
+    )
+    # Open turn 2.
+    async with reset_db() as db:
+        game = (await db.execute(select(Game).where(Game.id == "G_001"))).scalar_one()
+        game.current_round, game.current_turn = 1, 2
+        now = datetime.now(timezone.utc)
+        db.add(
+            Turn(
+                game_id="G_001",
+                round=1,
+                turn=2,
+                turn_token=generate_turn_token(),
+                opened_at=now,
+                deadline_at=now + timedelta(seconds=60),
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/api/games/G_001/turn", headers={"X-Agent-Key": p0._test_key})
+    assert r.status_code == 200, r.text
+    summary = r.json()["summary"]
+    # The message aimed at AI_0 is surfaced for free.
+    directed = [m for m in summary["messages_for_you"] if not m["public"]]
+    assert any(m["from_agent_id"] == "AI_1" and "stop hoarding" in m["message"] for m in directed)
+    assert summary["flags"]["messages_for_you_count"] == 1
+    # And AI_1 shows up as an opponent who hurt AI_0.
+    ai1 = next(o for o in summary["opponents"] if o["agent_id"] == "AI_1")
+    assert ai1["hurt_you"] == 1
+    # The delta reflects the resolved turn 1.
+    assert summary["turn_delta"]["round"] == 1 and summary["turn_delta"]["turn"] == 1
