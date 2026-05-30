@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Analysis · {{ game.name }} — Hoard-Hurt-Help{% endblock %}
+{% block content %}
+{% include "fragments/analysis_styles.html" %}
+
+<p class="crumb"><a href="/games/{{ game.id }}">← Watch {{ game.name }}</a></p>
+<div class="an-head">
+  <h1>Analysis · {{ game.name }}</h1>
+  <span class="an-state">{{ game.state.value | capitalize }} · Round {{ game.current_round }}/{{ game.total_rounds }}</span>
+</div>
+
+{% if live_peek %}
+<a class="peek" href="/games/{{ game.id }}/analysis/rounds/{{ live_peek.round }}">
+  <div class="peek-head">● LIVE · Round {{ live_peek.round }}
+    <span class="mood {{ live_peek.mood_label }}">{{ live_peek.mood_label }}</span></div>
+  <div class="peek-body">
+    <div class="peek-lb">
+      {% for r in live_peek.leaderboard[:3] %}<span>{{ loop.index }}. {{ r.agent_id }} · <b>{{ r.score }}</b></span>{% endfor %}
+    </div>
+    <div class="peek-ev">
+      {% for e in live_peek.events[:3] %}<div>{{ e.icon }} {{ e.text }}</div>{% else %}<div>No moves yet this round.</div>{% endfor %}
+    </div>
+  </div>
+  <div class="peek-foot">Watch round {{ live_peek.round }} →</div>
+</a>
+{% endif %}
+
+<div class="an-grid">
+
+  <section class="card">
+    <h3>★ Round-win standings <small>the real race</small></h3>
+    {% for s in overview.standings if s.round_wins > 0 %}
+    <div class="row {% if loop.first %}lead{% endif %}">
+      <span class="rk">{{ s.rank }}</span>
+      <span class="nm">{{ s.agent_id }}</span>
+      <span class="wins">{{ '●' * (s.round_wins | int) }}</span>
+      <span class="v">{{ "%g"|format(s.round_wins) }} {{ 'win' if s.round_wins == 1 else 'wins' }} · {{ s.total_score }} pts</span>
+    </div>
+    {% else %}
+    <div class="muted">No rounds won yet — early days.</div>
+    {% endfor %}
+    {% if zero_wins %}<div class="rollup">+ {{ zero_wins }} bots on 0 round-wins</div>{% endif %}
+    {% if overview.tiebreaker %}<div class="watch">⚠ {{ overview.tiebreaker }}</div>{% endif %}
+  </section>
+
+  <section class="card">
+    <h3>Round results <small>click a round to drill in</small></h3>
+    <div class="results">
+      {% for n in range(1, overview.total_rounds + 1) %}
+        {% set res = overview.results | selectattr('round', 'equalto', n) | first %}
+        {% if res %}
+          <a class="rd done" href="/games/{{ game.id }}/analysis/rounds/{{ n }}">
+            <span class="n">R{{ n }}</span><span class="w">{{ res.winner }}</span></a>
+        {% elif overview.live_round == n %}
+          <a class="rd live" href="/games/{{ game.id }}/analysis/rounds/{{ n }}">
+            <span class="n">R{{ n }}</span><span class="w">live…</span></a>
+        {% else %}
+          <span class="rd todo"><span class="n">R{{ n }}</span><span class="w">—</span></span>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Grudges &amp; alliances <small>{{ overview.grudges | length }} of {{ overview.grudge_total }} · all game</small></h3>
+    {% for g in overview.grudges %}
+    <div class="gr {{ g.kind }}"><span class="ic">{{ g.icon }}</span><span>{{ g.text }}</span></div>
+    {% else %}
+    <div class="muted">No notable relationships yet.</div>
+    {% endfor %}
+    {% if overview.grudge_total > overview.grudges | length %}
+    <div class="rollup">+ {{ overview.grudge_total - overview.grudges | length }} more relationships</div>{% endif %}
+  </section>
+
+  <section class="card">
+    <h3>Season feed <small>round results</small></h3>
+    {% for e in overview.season_feed %}
+    <div class="ev result"><span class="ic">{{ e.icon }}</span><span>{{ e.text }}</span></div>
+    {% else %}
+    <div class="muted">No rounds finished yet.</div>
+    {% endfor %}
+  </section>
+
+</div>
+{% endblock %}

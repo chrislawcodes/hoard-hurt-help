@@ -5,7 +5,7 @@ import random
 import re
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -13,6 +13,8 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
+from app.engine.game_insights import round_detail, season_overview
+from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.rules import (
     HELP_POINTS,
     HOARD_POINTS,
@@ -230,6 +232,134 @@ async def game_live_fragment(
     """Server-rendered live region. SSE events trigger the page to re-fetch this."""
     ctx = await _game_view_context(request, db, game_id)
     return templates.TemplateResponse(request, "fragments/live_region.html", ctx)
+
+
+async def _insight_records(db, game: Game) -> tuple[list[PlayerRecord], list[ActionRecord]]:
+    """Map DB rows to the DB-free records the insights engine consumes."""
+    from app.models.turn import Turn, TurnSubmission
+
+    players = (
+        (await db.execute(select(Player).where(Player.game_id == game.id))).scalars().all()
+    )
+    player_records = [
+        PlayerRecord(
+            agent_id=p.agent_id,
+            round_score=p.current_round_score,
+            total_score=p.total_round_score,
+            round_wins=p.total_round_wins,
+        )
+        for p in players
+    ]
+    name_by_id = {p.id: p.agent_id for p in players}
+    turns = (
+        (
+            await db.execute(
+                select(Turn)
+                .where(Turn.game_id == game.id, Turn.resolved_at.is_not(None))
+                .order_by(Turn.round, Turn.turn)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not turns:
+        return player_records, []
+    turn_by_id = {t.id: t for t in turns}
+    subs = (
+        (
+            await db.execute(
+                select(TurnSubmission).where(
+                    TurnSubmission.turn_id.in_([t.id for t in turns])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    actions: list[ActionRecord] = []
+    for s in subs:
+        t = turn_by_id[s.turn_id]
+        target = name_by_id.get(s.target_player_id) if s.target_player_id else None
+        actions.append(
+            ActionRecord(
+                round=t.round,
+                turn=t.turn,
+                actor_id=name_by_id[s.player_id],
+                action=cast(Action, s.action),
+                target_id=target,
+                message=s.message,
+                points_delta=s.points_delta,
+                round_score_after=s.round_score_after,
+                was_defaulted=s.was_defaulted,
+            )
+        )
+    return player_records, actions
+
+
+@router.get("/games/{game_id}/analysis", response_class=HTMLResponse)
+async def game_analysis(
+    game_id: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+):
+    """Season home for the spectator analysis — the round-win race, results,
+    grudges, and (when live) a peek into the current round."""
+    user = await get_current_user(request, db)
+    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    if g is None:
+        raise HTTPException(404)
+    players, actions = await _insight_records(db, g)
+    active = g.state == GameState.ACTIVE
+    overview = season_overview(players, actions, g.total_rounds, g.current_round, active)
+    zero_wins = sum(1 for s in overview.standings if s.round_wins == 0)
+    rounds_played = set(overview.rounds_played)
+    live_peek = (
+        round_detail(g.current_round, players, actions)
+        if active and g.current_round in rounds_played
+        else None
+    )
+    return templates.TemplateResponse(
+        request,
+        "analysis_season.html",
+        {
+            "user": user,
+            "is_admin": _is_admin(user),
+            "game": g,
+            "overview": overview,
+            "zero_wins": zero_wins,
+            "live_peek": live_peek,
+        },
+    )
+
+
+@router.get("/games/{game_id}/analysis/rounds/{round_num}", response_class=HTMLResponse)
+async def game_analysis_round(
+    game_id: Annotated[str, Path()],
+    round_num: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+):
+    """Drill-in for one round: leaderboard-from-0, mood, alliances, event feed."""
+    user = await get_current_user(request, db)
+    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    if g is None:
+        raise HTTPException(404)
+    players, actions = await _insight_records(db, g)
+    played = sorted({a.round for a in actions})
+    if round_num not in played:
+        raise HTTPException(404)
+    detail = round_detail(round_num, players, actions)
+    return templates.TemplateResponse(
+        request,
+        "analysis_round.html",
+        {
+            "user": user,
+            "is_admin": _is_admin(user),
+            "game": g,
+            "detail": detail,
+            "played": played,
+        },
+    )
 
 
 _DOCS_DIR = FsPath("docs")

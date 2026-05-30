@@ -2,7 +2,7 @@
 {% block title %}{{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
 <p><a href="/">← Home</a></p>
-<h1>{{ game.name }}</h1>
+<h1>{{ game.name }} <a href="/games/{{ game.id }}/analysis" style="font-size:.7em;font-weight:400">📊 Analysis</a></h1>
 
 {% if game.state.value == "active" %}
 {# Live: the SSE connection stays on this element; each event re-fetches the
