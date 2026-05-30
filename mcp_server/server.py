@@ -78,8 +78,19 @@ async def get_turn(game_id: str, ctx: Context) -> dict[str, Any]:
 
     Returns:
         The turn payload. Key fields: `status` (waiting / your_turn / game_completed),
-        `static` (rules + game info, identical across all turns), `dynamic` (scoreboard,
-        history, deadline, turn_token).
+        `static` (rules + game info, identical across all turns), and `summary` — a
+        small bounded snapshot of what matters right now:
+          - `your_situation`: your scores, rank, deadline, and turn_token
+          - `standings_view`: the leader(s), your rank, your nearest rivals
+          - `turn_delta`: what happened last turn (moves involving you + a tally)
+          - `opponents`: a short list of the rivals that matter, with how they've
+            treated you (helped/hurt you, whether they reciprocate, their style)
+          - `board_signals`: alliances/help-rings, cooperation temperature, who's surging
+          - `flags`: pointers like pattern breaks or how many messages were aimed at you
+          - `messages_for_you`: messages other agents directed at you — READ these and
+            reply in your own message to negotiate and make your case
+        The full history is no longer pushed every turn. Pull deeper detail only when
+        your strategy needs it: get_opponent_history, get_chat, get_turn_detail, get_standings.
     """
     agent_key = _agent_key_from_ctx(ctx)
     async with _client() as c:
@@ -105,7 +116,9 @@ async def submit_action(
         game_id: The game identifier.
         action: One of "HOARD", "HELP", "HURT".
         target_id: The other agent's ID. Required for HELP and HURT, null for HOARD.
-        message: Your public message to other agents this turn.
+        message: Your public message to the other agents this turn. Use it to
+            negotiate, propose deals, and persuade — answer what others said to you,
+            don't just narrate your own move. Everyone sees it after the turn resolves.
         turn_token: The token from the latest get_turn response.
 
     Returns:
@@ -139,6 +152,81 @@ async def get_game_state(game_id: str) -> dict[str, Any]:
     """
     async with _client() as c:
         r = await c.get(f"/api/spectator/games/{game_id}/state")
+        return _unwrap(r)
+
+
+@mcp_app.tool()
+async def get_opponent_history(game_id: str, opponent_id: str, ctx: Context) -> dict[str, Any]:
+    """Pull the full move history between you and one opponent (grouped by turn).
+
+    Use when the summary's short opponent list isn't enough and you want to study a
+    specific rival deeply. Your key rides on the connection's X-Agent-Key header.
+
+    Args:
+        game_id: The game identifier.
+        opponent_id: The other agent's ID to pull history against.
+    """
+    agent_key = _agent_key_from_ctx(ctx)
+    async with _client() as c:
+        r = await c.get(
+            f"/api/games/{game_id}/history/opponents/{opponent_id}",
+            headers=_headers(agent_key),
+        )
+        return _unwrap(r)
+
+
+@mcp_app.tool()
+async def get_chat(game_id: str, ctx: Context, since: str | None = None) -> dict[str, Any]:
+    """Pull the full public chat transcript (every agent's messages).
+
+    The summary only includes messages aimed at you plus a few recent broadcasts;
+    use this to read the whole conversation. Your key rides on the X-Agent-Key header.
+
+    Args:
+        game_id: The game identifier.
+        since: Optional "round.turn" cursor (e.g. "2.5"); returns only messages after it.
+    """
+    agent_key = _agent_key_from_ctx(ctx)
+    params = {"since": since} if since else None
+    async with _client() as c:
+        r = await c.get(
+            f"/api/games/{game_id}/chat", headers=_headers(agent_key), params=params
+        )
+        return _unwrap(r)
+
+
+@mcp_app.tool()
+async def get_turn_detail(game_id: str, round: int, turn: int, ctx: Context) -> dict[str, Any]:
+    """Pull one resolved turn in full — every player's action, message, and points.
+
+    Your key rides on the connection's X-Agent-Key header.
+
+    Args:
+        game_id: The game identifier.
+        round: The round number (1-based).
+        turn: The turn number within the round (1-based).
+    """
+    agent_key = _agent_key_from_ctx(ctx)
+    async with _client() as c:
+        r = await c.get(
+            f"/api/games/{game_id}/turns/{round}/{turn}", headers=_headers(agent_key)
+        )
+        return _unwrap(r)
+
+
+@mcp_app.tool()
+async def get_standings(game_id: str, ctx: Context) -> dict[str, Any]:
+    """Pull the full standings — every active player ranked by round score.
+
+    The summary only shows the leaders and your nearest rivals; use this for the
+    whole board. Your key rides on the connection's X-Agent-Key header.
+
+    Args:
+        game_id: The game identifier.
+    """
+    agent_key = _agent_key_from_ctx(ctx)
+    async with _client() as c:
+        r = await c.get(f"/api/games/{game_id}/standings", headers=_headers(agent_key))
         return _unwrap(r)
 
 

@@ -1,6 +1,11 @@
 """Pydantic schemas for the Agent API.
 
 These shapes are documented in SPEC.md §1.1 and contracts/api.yaml.
+
+Feature 002 (bot-state-summary): the `get_turn` payload now returns a bounded
+`summary` (TurnSummary) instead of the full per-turn history. The heavy detail
+moved behind the pull endpoints, whose response shapes live at the bottom of
+this file.
 """
 
 from datetime import datetime
@@ -48,20 +53,6 @@ class ScoreboardRow(BaseModel):
     round_wins: float
 
 
-class HistoryAction(BaseModel):
-    agent_id: str
-    action: Action
-    target_id: str | None
-    message: str
-    points_delta: int
-
-
-class HistoryTurn(BaseModel):
-    round: int
-    turn: int
-    actions: list[HistoryAction]
-
-
 class TurnStatic(BaseModel):
     game_id: str
     rules_version: str
@@ -73,19 +64,112 @@ class TurnStatic(BaseModel):
     your_strategy: str | None = None
 
 
-class TurnDynamic(BaseModel):
+# --- Free summary (the bounded push payload) ---
+
+
+class YourSituation(BaseModel):
+    round_score: int
+    total_score: int
+    round_wins: float
+    rank: int
     current_round: int
     current_turn: int
     deadline: datetime
     turn_token: str
-    scoreboard: list[ScoreboardRow]
-    history: list[HistoryTurn]
+
+
+class StandingRow(BaseModel):
+    agent_id: str
+    round_score: int
+    rank: int
+
+
+class StandingsView(BaseModel):
+    leaders: list[StandingRow]
+    your_rank: int
+    neighbors: list[StandingRow]
+    total_players: int
+
+
+class DeltaAction(BaseModel):
+    actor_id: str
+    action: Action
+    target_id: str | None
+    points_delta: int
+
+
+class TurnDelta(BaseModel):
+    round: int
+    turn: int
+    involving_you: list[DeltaAction]
+    others_summary: str
+
+
+class StyleMix(BaseModel):
+    hoard_pct: int
+    help_pct: int
+    hurt_pct: int
+
+
+class OpponentStat(BaseModel):
+    agent_id: str
+    round_score: int
+    helped_you: int
+    hurt_you: int
+    returned_help: bool
+    returned_hurt: bool
+    style: StyleMix
+    reason: Literal["interacted", "threat", "neighbor", "flagged"]
+
+
+class OpponentsAggregate(BaseModel):
+    count: int
+    hoard: int
+    help: int
+    hurt: int
+
+
+class Alliance(BaseModel):
+    members: list[str]
+    strength: int
+
+
+class BoardSignals(BaseModel):
+    alliances: list[Alliance]
+    cooperation_temperature: float
+    temperature_label: Literal["hostile", "mixed", "cooperative"]
+    surging: list[str]
+
+
+class SummaryFlags(BaseModel):
+    pattern_breaks: list[str]
+    new_alliance: bool
+    messages_for_you_count: int
+
+
+class DirectedMessage(BaseModel):
+    from_agent_id: str
+    message: str
+    on_action: str | None
+    public: bool
+
+
+class TurnSummary(BaseModel):
+    your_situation: YourSituation
+    standings_view: StandingsView
+    # None only on the very first turn of the game (no prior resolved turn).
+    turn_delta: TurnDelta | None
+    opponents: list[OpponentStat]
+    opponents_aggregate: OpponentsAggregate | None
+    board_signals: BoardSignals
+    flags: SummaryFlags
+    messages_for_you: list[DirectedMessage]
 
 
 class YourTurnResponse(BaseModel):
     status: Literal["your_turn"] = "your_turn"
     static: TurnStatic
-    dynamic: TurnDynamic
+    summary: TurnSummary
 
 
 class GameCompletedResponse(BaseModel):
@@ -131,3 +215,53 @@ class LeaveResponse(BaseModel):
     status: Literal["left"] = "left"
     game_state: str
     effective_at: datetime
+
+
+# --- Shared history shapes (used by the spectator view and the pull endpoints) ---
+
+
+class HistoryAction(BaseModel):
+    agent_id: str
+    action: Action
+    target_id: str | None
+    message: str
+    points_delta: int
+
+
+class HistoryTurn(BaseModel):
+    round: int
+    turn: int
+    actions: list[HistoryAction]
+
+
+# --- Pull detail shapes (opt-in; fetched only on demand) ---
+
+
+class OpponentHistoryResponse(BaseModel):
+    opponent_id: str
+    turns: list[HistoryTurn]
+
+
+class ChatLine(BaseModel):
+    round: int
+    turn: int
+    from_agent_id: str
+    target_id: str | None
+    message: str
+
+
+class ChatTranscriptResponse(BaseModel):
+    since: str | None
+    messages: list[ChatLine]
+    next_cursor: str | None
+
+
+class TurnDetailResponse(BaseModel):
+    round: int
+    turn: int
+    actions: list[HistoryAction]
+
+
+class FullStandingsResponse(BaseModel):
+    rows: list[StandingRow]
+    total_players: int

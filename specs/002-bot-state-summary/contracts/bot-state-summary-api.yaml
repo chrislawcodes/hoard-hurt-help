@@ -1,0 +1,263 @@
+openapi: 3.0.0
+info:
+  title: Hoard-Hurt-Help — Agent API (bot-state-summary feature)
+  version: "0.2.0"
+  description: >
+    Changes to the agent-facing API for feature 002. The get_turn payload now
+    returns a bounded `summary` (history removed). New pull endpoints expose the
+    heavy detail on demand. All endpoints authenticate with the X-Agent-Key
+    header. Errors use the standard envelope: { error: { code, message, details } }.
+
+components:
+  securitySchemes:
+    AgentKey:
+      type: apiKey
+      in: header
+      name: X-Agent-Key
+
+security:
+  - AgentKey: []
+
+paths:
+  /api/games/{game_id}/turn:
+    get:
+      summary: Poll for the current turn (CHANGED — returns summary, not history)
+      description: >
+        Rate-limited to 1 Hz per key. On your_turn, returns { status, static, summary }.
+        The old `dynamic` block (full history + scoreboard) is REMOVED; needed fields
+        moved into summary.your_situation and summary.standings_view.
+      parameters:
+        - { name: game_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: waiting | your_turn
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/WaitingResponse'
+                  - $ref: '#/components/schemas/YourTurnResponse'
+        '429': { description: RATE_LIMITED envelope }
+
+  /api/games/{game_id}/history/opponents/{opponent_id}:
+    get:
+      summary: PULL — full move history between you and one opponent
+      parameters:
+        - { name: game_id, in: path, required: true, schema: { type: string } }
+        - { name: opponent_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: ordered actions between you and the opponent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OpponentHistoryResponse' }
+        '400': { description: INVALID_TARGET envelope (unknown opponent) }
+        '429': { description: RATE_LIMITED envelope }
+
+  /api/games/{game_id}/chat:
+    get:
+      summary: PULL — chat transcript (paginated)
+      parameters:
+        - { name: game_id, in: path, required: true, schema: { type: string } }
+        - name: since
+          in: query
+          required: false
+          description: cursor "R.T" (round.turn); returns messages strictly after it
+          schema: { type: string, example: "2.5" }
+      responses:
+        '200':
+          description: messages after the cursor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatTranscriptResponse' }
+        '429': { description: RATE_LIMITED envelope }
+
+  /api/games/{game_id}/turns/{round}/{turn}:
+    get:
+      summary: PULL — one resolved turn in full (all players)
+      parameters:
+        - { name: game_id, in: path, required: true, schema: { type: string } }
+        - { name: round, in: path, required: true, schema: { type: integer } }
+        - { name: turn, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: every player's action+message+points for that turn
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TurnDetailResponse' }
+        '404': { description: NOT_FOUND envelope (no such resolved turn) }
+        '429': { description: RATE_LIMITED envelope }
+
+  /api/games/{game_id}/standings:
+    get:
+      summary: PULL — full standings (all players)
+      parameters:
+        - { name: game_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: every active player ranked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FullStandingsResponse' }
+        '429': { description: RATE_LIMITED envelope }
+
+components.schemas:
+  YourTurnResponse:
+    type: object
+    properties:
+      status: { type: string, enum: [your_turn] }
+      static: { $ref: '#/components/schemas/TurnStatic' }
+      summary: { $ref: '#/components/schemas/TurnSummary' }
+  TurnStatic:
+    type: object
+    description: unchanged — rules, rules_version, your_agent_id, all_agent_ids, your_strategy
+  TurnSummary:
+    type: object
+    properties:
+      your_situation: { $ref: '#/components/schemas/YourSituation' }
+      standings_view: { $ref: '#/components/schemas/StandingsView' }
+      turn_delta: { $ref: '#/components/schemas/TurnDelta' }
+      opponents:
+        type: array
+        items: { $ref: '#/components/schemas/OpponentStat' }
+      opponents_aggregate:
+        nullable: true
+        $ref: '#/components/schemas/OpponentsAggregate'
+      board_signals: { $ref: '#/components/schemas/BoardSignals' }
+      flags: { $ref: '#/components/schemas/SummaryFlags' }
+      messages_for_you:
+        type: array
+        items: { $ref: '#/components/schemas/DirectedMessage' }
+  YourSituation:
+    type: object
+    properties:
+      round_score: { type: integer }
+      total_score: { type: integer }
+      round_wins: { type: number }
+      rank: { type: integer }
+      current_round: { type: integer }
+      current_turn: { type: integer }
+      deadline: { type: string, format: date-time }
+      turn_token: { type: string }
+  StandingsView:
+    type: object
+    properties:
+      leaders: { type: array, items: { $ref: '#/components/schemas/StandingRow' } }
+      your_rank: { type: integer }
+      neighbors: { type: array, items: { $ref: '#/components/schemas/StandingRow' } }
+      total_players: { type: integer }
+  StandingRow:
+    type: object
+    properties:
+      agent_id: { type: string }
+      round_score: { type: integer }
+      rank: { type: integer }
+  TurnDelta:
+    type: object
+    properties:
+      round: { type: integer }
+      turn: { type: integer }
+      involving_you:
+        type: array
+        items: { $ref: '#/components/schemas/DeltaAction' }
+      others_summary: { type: string, example: "60 hoarded, 22 helped, 18 hurt" }
+  DeltaAction:
+    type: object
+    properties:
+      actor_id: { type: string }
+      action: { type: string, enum: [HOARD, HELP, HURT] }
+      target_id: { type: string, nullable: true }
+      points_delta: { type: integer }
+  OpponentStat:
+    type: object
+    properties:
+      agent_id: { type: string }
+      round_score: { type: integer }
+      helped_you: { type: integer }
+      hurt_you: { type: integer }
+      returned_help: { type: boolean }
+      returned_hurt: { type: boolean }
+      style:
+        type: object
+        properties:
+          hoard_pct: { type: integer }
+          help_pct: { type: integer }
+          hurt_pct: { type: integer }
+      reason: { type: string, enum: [interacted, threat, neighbor, flagged] }
+  OpponentsAggregate:
+    type: object
+    properties:
+      count: { type: integer }
+      hoard: { type: integer }
+      help: { type: integer }
+      hurt: { type: integer }
+  BoardSignals:
+    type: object
+    properties:
+      alliances:
+        type: array
+        items:
+          type: object
+          properties:
+            members: { type: array, items: { type: string } }
+            strength: { type: integer }
+      cooperation_temperature: { type: number, minimum: 0, maximum: 1 }
+      temperature_label: { type: string, enum: [hostile, mixed, cooperative] }
+      surging: { type: array, items: { type: string } }
+  SummaryFlags:
+    type: object
+    properties:
+      pattern_breaks: { type: array, items: { type: string } }
+      new_alliance: { type: boolean }
+      messages_for_you_count: { type: integer }
+  DirectedMessage:
+    type: object
+    properties:
+      from_agent_id: { type: string }
+      message: { type: string }
+      on_action: { type: string, nullable: true }
+      public: { type: boolean }
+  OpponentHistoryResponse:
+    type: object
+    properties:
+      opponent_id: { type: string }
+      actions: { type: array, items: { $ref: '#/components/schemas/HistoryAction' } }
+  HistoryAction:
+    type: object
+    properties:
+      round: { type: integer }
+      turn: { type: integer }
+      agent_id: { type: string }
+      action: { type: string, enum: [HOARD, HELP, HURT] }
+      target_id: { type: string, nullable: true }
+      message: { type: string }
+      points_delta: { type: integer }
+  ChatTranscriptResponse:
+    type: object
+    properties:
+      since: { type: string, nullable: true }
+      messages:
+        type: array
+        items:
+          type: object
+          properties:
+            round: { type: integer }
+            turn: { type: integer }
+            from_agent_id: { type: string }
+            target_id: { type: string, nullable: true }
+            message: { type: string }
+      next_cursor: { type: string, nullable: true }
+  TurnDetailResponse:
+    type: object
+    properties:
+      round: { type: integer }
+      turn: { type: integer }
+      actions: { type: array, items: { $ref: '#/components/schemas/HistoryAction' } }
+  FullStandingsResponse:
+    type: object
+    properties:
+      rows: { type: array, items: { $ref: '#/components/schemas/StandingRow' } }
+      total_players: { type: integer }
+  WaitingResponse:
+    type: object
+    description: unchanged
