@@ -36,8 +36,7 @@ def _join(base: str, game: str, name: str) -> tuple[str, str]:
 
 
 def _play_turn(base: str, game: str, name: str, headers: dict, body: dict) -> None:
-    static, summary = body["static"], body["summary"]
-    situation = summary["your_situation"]
+    static, current = body["static"], body["current"]
     others = [a for a in static["all_agent_ids"] if a != static["your_agent_id"]]
     action = random.choice(["HOARD", "HELP", "HURT"])
     target = None
@@ -50,7 +49,7 @@ def _play_turn(base: str, game: str, name: str, headers: dict, body: dict) -> No
         f"{base}/api/games/{game}/submit",
         headers=headers,
         json={
-            "turn_token": situation["turn_token"],
+            "turn_token": current["turn_token"],
             "action": action,
             "target_id": target,
             "message": f"{name}: {action}",
@@ -58,15 +57,14 @@ def _play_turn(base: str, game: str, name: str, headers: dict, body: dict) -> No
         timeout=10,
     )
     arrow = f" -> {target}" if target else ""
-    # Print evidence the bounded summary arrived: opponent short-list size, any
-    # messages aimed at us, and the cooperation temperature.
-    n_opp = len(summary.get("opponents", []))
-    n_msg = len(summary.get("messages_for_you", []))
-    temp = summary.get("board_signals", {}).get("temperature_label", "?")
+    # Print evidence the raw payload arrived: how many resolved turns of history
+    # and how many chat messages are in the most recent turn.
+    history = body.get("history", [])
+    last_msgs = sum(1 for a in history[-1]["actions"] if a.get("message")) if history else 0
     print(
-        f"[{name}] R{situation['current_round']}T{situation['current_turn']}: "
-        f"{action}{arrow} ({r.status_code}) | summary: {n_opp} opp, "
-        f"{n_msg} msgs-for-me, temp={temp}"
+        f"[{name}] R{current['round']}T{current['turn']}: "
+        f"{action}{arrow} ({r.status_code}) | history: {len(history)} turns, "
+        f"{last_msgs} msgs last turn"
     )
 
 
