@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 import app.games as registry
 from app.db import make_engine
 from app.engine.tokens import generate_turn_token
-from app.games.base import GameConfig, GameError
+from app.games.base import GameConfig, GameError, StrategyPreset
 from app.models import Base, Game, GameState, Player, Turn, TurnSubmission
 from tests.factories import seat_player
 
@@ -49,6 +49,12 @@ class StubGame:
 
     def rules_text(self) -> str:
         return "Stub game: submit MOVE; each move scores you +1 point."
+
+    def strategy_presets(self) -> list[StrategyPreset]:
+        return []
+
+    def default_strategy(self) -> str:
+        return "Stub strategy: submit MOVE every turn."
 
     def validate_move(
         self, move: dict[str, Any], *, your_agent_id: str, all_agent_ids: list[str]
