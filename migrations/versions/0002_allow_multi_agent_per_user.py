@@ -16,10 +16,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.drop_constraint("uq_players_game_id_user_id", "players", type_="unique")
+    # SQLite can't ALTER a constraint in place; batch mode rebuilds the table
+    # via copy-and-move. Harmless no-op pass-through on Postgres.
+    with op.batch_alter_table("players", schema=None) as batch_op:
+        batch_op.drop_constraint("uq_players_game_id_user_id", type_="unique")
 
 
 def downgrade() -> None:
-    op.create_unique_constraint(
-        "uq_players_game_id_user_id", "players", ["game_id", "user_id"]
-    )
+    with op.batch_alter_table("players", schema=None) as batch_op:
+        batch_op.create_unique_constraint(
+            "uq_players_game_id_user_id", ["game_id", "user_id"]
+        )
