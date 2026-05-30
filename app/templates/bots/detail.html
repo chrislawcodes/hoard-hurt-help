@@ -38,6 +38,7 @@ python3 agentludum_bot.py --key {{ fresh_key }} <span id="runner-model">--model 
 
 Leave it running. It checks for my turns and only calls the model when it's actually my move — so it's cheap to leave on — and it automatically plays every game I enter this bot into. If it ever prints "invalid key", stop and tell me; I'll reissue the code from My Bots.</pre>
     <p class="hint">You'll need Python 3 and your model's command-line tool (claude / gemini / codex) installed and signed in.</p>
+    <p class="hint">Heads up: this code is shown only once. If you lose it, reissue a fresh one any time from this page — the old code stops working.</p>
 </div>
 
 <details class="card">
@@ -152,6 +153,19 @@ Full API spec: {{ base_url }}/openapi.json</pre>
 </div>
 {% endif %}
 
+<div id="bot-status-live" class="card" hx-ext="sse" sse-connect="/me/bots/{{ bot.id }}/stream">
+    {# Initial state is rendered server-side for a correct first paint; the SSE
+       events only re-fetch (no 'load' trigger), so a reload never re-runs the
+       connect/first-move flourish. #}
+    <div id="bot-status"
+         hx-get="/me/bots/{{ bot.id }}/status"
+         hx-trigger="sse:connected, sse:moved"
+         hx-target="#bot-status"
+         hx-swap="innerHTML">
+        {% include "bots/_status.html" %}
+    </div>
+</div>
+
 <h2 style="margin-top:2rem;">Games</h2>
 {% if games %}
     {% for g in games %}
@@ -171,6 +185,8 @@ Full API spec: {{ base_url }}/openapi.json</pre>
         </div>
     </article>
     {% endfor %}
+{% elif onboarding.state.value == "connected_no_game" %}
+    <p class="empty">Connected but not in a game yet — that's the last step. <a href="/">Find a game to join →</a></p>
 {% else %}
     <p class="empty">This bot isn't in any games yet. <a href="/">Browse the lobby →</a></p>
 {% endif %}
@@ -198,6 +214,17 @@ document.querySelectorAll('#model-picker input[name="model_type"]').forEach(func
         var flag = document.getElementById('runner-model');
         if (flag) flag.textContent = r.dataset.flag;
     });
+});
+
+// One-shot flourish when the live status panel updates. This only fires on an
+// SSE-driven swap; a plain reload renders the panel server-side with no swap,
+// so it stays calm (no re-run of the connect/first-move celebration).
+document.body.addEventListener('htmx:afterSwap', function (e) {
+    if (e.target && e.target.id === 'bot-status') {
+        e.target.classList.remove('status-flash');
+        void e.target.offsetWidth;  // reflow so the animation can restart
+        e.target.classList.add('status-flash');
+    }
 });
 </script>
 {% endblock %}

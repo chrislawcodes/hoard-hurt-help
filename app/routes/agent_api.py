@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import select
 
 from app.deps import DbSession, require_bot_player
+from app.engine.bot_activity import mark_first_move
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.opponent_stats import rank_players
 from app.games import get as get_game_module
@@ -373,6 +374,11 @@ async def agent_submit(
         ) from exc
     await module.record_submission(db, turn, player, move, existing=existing)
     await db.commit()
+
+    # Announce the bot's first real move so an open bot-detail page lights up.
+    # No-op after the first move. (MCP submit_action proxies here, so this one
+    # hook covers that path too.)
+    await mark_first_move(db, player.bot_id)
 
     return SubmitResponse(
         received_at=datetime.now(timezone.utc),

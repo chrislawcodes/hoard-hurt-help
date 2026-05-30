@@ -11,11 +11,13 @@ from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import select
 
+from app.broadcast import subscribe
 from app.config import settings
 from app.deps import DbSession, require_user
+from app.engine.bot_activity import bot_channel, compute_onboarding_status
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
 from app.models.bot import Bot, BotStatus
 from app.models.game import Game, GameState
@@ -143,6 +145,55 @@ async def bot_detail(
             "fresh_key": fresh_key,
             "games": await _bot_games(db, bot),
             "base_url": settings.base_url,
+            "onboarding": await compute_onboarding_status(db, bot),
+        },
+    )
+
+
+@router.get("/{bot_id}/status", response_class=HTMLResponse)
+async def bot_status_fragment(
+    bot_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+):
+    """The live onboarding status panel, re-fetched by HTMX on SSE events.
+
+    Owner-scoped (`_owned_bot` 404s for anyone else) and carries no secret — only
+    the derived state, so connection status never leaks.
+    """
+    bot = await _owned_bot(db, user, bot_id)
+    return templates.TemplateResponse(
+        request,
+        "bots/_status.html",
+        {"bot": bot, "onboarding": await compute_onboarding_status(db, bot)},
+    )
+
+
+@router.get("/{bot_id}/stream")
+async def bot_stream(
+    bot_id: Annotated[int, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+) -> StreamingResponse:
+    """Per-bot SSE stream of onboarding events (`connected`, `moved`).
+
+    Owner-scoped. Mirrors the spectator stream but keyed to this bot's channel,
+    so only the owner can observe their bot's connection status.
+    """
+    await _owned_bot(db, user, bot_id)
+
+    async def event_gen():
+        async for msg in subscribe(bot_channel(bot_id)):
+            yield msg
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
 
