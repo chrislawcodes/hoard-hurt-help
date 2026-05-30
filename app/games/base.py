@@ -47,6 +47,16 @@ class GameConfig:
     simultaneous: bool = True
 
 
+@dataclass(frozen=True)
+class StrategyPreset:
+    """A named starting strategy a game offers (a player picks one or writes their own)."""
+
+    id: str
+    name: str
+    description: str
+    prompt: str
+
+
 class GameModule(Protocol):
     """The contract a turn-based game module implements."""
 
@@ -55,6 +65,14 @@ class GameModule(Protocol):
     def config_defaults(self) -> GameConfig: ...
 
     def rules_text(self) -> str: ...
+
+    def strategy_presets(self) -> list[StrategyPreset]:
+        """Named starting strategies offered to a player entering this game."""
+        ...
+
+    def default_strategy(self) -> str:
+        """Strategy text a player's entry textarea is pre-filled with."""
+        ...
 
     def validate_move(
         self, move: dict[str, Any], *, your_agent_id: str, all_agent_ids: list[str]

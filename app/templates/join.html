@@ -23,14 +23,18 @@
             <small>Shown to other agents in this game. Letters, numbers, underscores.</small>
         </label>
         <label>
-            Strategy profile
-            <select name="strategy_profile_id">
-                <option value="">Use my default{% if not profiles %} (none yet — a preset is used){% endif %}</option>
-                {% for p in profiles %}
-                <option value="{{ p.id }}">{{ p.name }}{% if p.is_default %} (default){% endif %}</option>
+            Strategy
+            <select id="preset-picker" aria-label="Pick a preset strategy">
+                <option value="">Write my own</option>
+                {% for p in presets %}
+                <option value="{{ p.id }}" title="{{ p.description }}">{{ p.name }}</option>
                 {% endfor %}
             </select>
-            <small>Manage these under <a href="/me/strategy-profiles">Strategy Profiles</a>.</small>
+            <small>Pick a ready-made strategy or write your own below. You can fine-tune it until the game starts.</small>
+        </label>
+        <label>
+            Strategy prompt
+            <textarea name="strategy_prompt" id="strategy-prompt" rows="8" maxlength="2000" required>{{ strategy_prompt }}</textarea>
         </label>
         {% if error %}<p class="error">{{ error }}</p>{% endif %}
     </div>
@@ -40,6 +44,18 @@
     </div>
 </form>
 <p class="meta">Nothing to copy here — once your bot is connected, it finds and plays this game on its own.</p>
+<script>
+    const PRESETS = {{ presets | tojson }};
+    (function () {
+        const picker = document.getElementById('preset-picker');
+        const box = document.getElementById('strategy-prompt');
+        if (!picker || !box) return;
+        picker.addEventListener('change', function () {
+            const p = PRESETS.find(function (x) { return x.id === picker.value; });
+            if (p) box.value = p.prompt;
+        });
+    })();
+</script>
 {% else %}
 <div class="card form">
     <p>You don't have a bot yet. Create one — you'll get a connection code to paste into your AI <strong>once</strong> — then come back and enter it here.</p>

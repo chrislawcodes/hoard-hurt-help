@@ -1,8 +1,8 @@
 """HTMX-served web routes: lobby, join, my games, per-player dashboard."""
 
 import logging
-import random
 import re
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import Annotated, cast
@@ -15,13 +15,11 @@ from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
 from app.engine.game_insights import round_detail, season_overview
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
-from app.engine.rules import STRATEGY_PRESETS
 from app.games import get as get_game_module
 from app.games.base import GameError
 from app.models.bot import Bot
 from app.models.game import Game, GameState
 from app.models.player import Player
-from app.models.strategy_profile import StrategyProfile
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.user import User
 from app.templating import templates  # shared instance with custom filters
@@ -384,36 +382,6 @@ async def guide(name: Annotated[str, Path()], request: Request, db: DbSession):
     )
 
 
-async def _resolve_seed_strategy(
-    db: DbSession, user: User, profile_id: int | None
-) -> str:
-    """Text to seed a new player with: the chosen profile, else the user's
-    default profile, else a random preset. Copy-at-entry — later edits to the
-    profile do not change this player.
-    """
-    profile = None
-    if profile_id is not None:
-        profile = (
-            await db.execute(
-                select(StrategyProfile).where(
-                    StrategyProfile.id == profile_id, StrategyProfile.user_id == user.id
-                )
-            )
-        ).scalar_one_or_none()
-    if profile is None:
-        profile = (
-            await db.execute(
-                select(StrategyProfile).where(
-                    StrategyProfile.user_id == user.id,
-                    StrategyProfile.is_default.is_(True),
-                )
-            )
-        ).scalar_one_or_none()
-    if profile is not None:
-        return profile.prompt_text
-    return random.choice(STRATEGY_PRESETS)["prompt"]
-
-
 @router.get("/games/{game_id}/join", response_class=HTMLResponse)
 async def join_form(
     game_id: Annotated[str, Path()],
@@ -439,17 +407,8 @@ async def join_form(
         .scalars()
         .all()
     )
-    profiles = (
-        (
-            await db.execute(
-                select(StrategyProfile)
-                .where(StrategyProfile.user_id == user.id)
-                .order_by(StrategyProfile.name)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    module = get_game_module(game.game_type)
+    presets = [asdict(p) for p in module.strategy_presets()]
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -459,7 +418,8 @@ async def join_form(
             "game": game,
             "player_count": await _player_count(db, game.id),
             "bots": bots,
-            "profiles": profiles,
+            "presets": presets,
+            "strategy_prompt": module.default_strategy(),
             "base_url": settings.base_url,
             "error": None,
         },
@@ -474,7 +434,7 @@ async def join_submit(
     user: Annotated[User, Depends(require_user)],
     bot_id: Annotated[int, Form()],
     display_name: Annotated[str, Form()],
-    strategy_profile_id: Annotated[str | None, Form()] = None,
+    strategy_prompt: Annotated[str, Form()] = "",
 ):
     """Enter one of the user's bots into a game. No credential is issued."""
     game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
@@ -527,17 +487,7 @@ async def join_submit(
             .scalars()
             .all()
         )
-        profiles = (
-            (
-                await db.execute(
-                    select(StrategyProfile)
-                    .where(StrategyProfile.user_id == user.id)
-                    .order_by(StrategyProfile.name)
-                )
-            )
-            .scalars()
-            .all()
-        )
+        presets = [asdict(p) for p in get_game_module(game.game_type).strategy_presets()]
         return templates.TemplateResponse(
             request,
             "join.html",
@@ -547,7 +497,8 @@ async def join_submit(
                 "game": game,
                 "player_count": count,
                 "bots": bots,
-                "profiles": profiles,
+                "presets": presets,
+                "strategy_prompt": strategy_prompt,
                 "base_url": settings.base_url,
                 "error": error,
             },
@@ -562,17 +513,14 @@ async def join_submit(
     )
     db.add(player)
     await db.flush()
-    # Seed the player's strategy from the chosen/default profile (copy-at-entry),
-    # falling back to a random preset when the user has no profiles.
-    profile_id = (
-        int(strategy_profile_id)
-        if strategy_profile_id and strategy_profile_id.isdigit()
-        else None
-    )
+    # Seed the player's per-game strategy from what they submitted at entry (a
+    # preset they picked or text they wrote); blank falls back to the game's
+    # default. Copy-at-entry: later edits on the player page don't rewrite this.
+    seed = strategy_prompt.strip() or get_game_module(game.game_type).default_strategy()
     db.add(
         StrategyPrompt(
             player_id=player.id,
-            prompt_text=await _resolve_seed_strategy(db, user, profile_id),
+            prompt_text=seed,
             is_default=False,
         )
     )
@@ -628,6 +576,7 @@ async def player_dashboard(
         raise HTTPException(404, detail="Bot slot not found.")
 
     game = (await db.execute(select(Game).where(Game.id == player.game_id))).scalar_one()
+    presets = [asdict(p) for p in get_game_module(game.game_type).strategy_presets()]
 
     latest_prompt = (
         await db.execute(
@@ -660,7 +609,7 @@ async def player_dashboard(
             "strategy": latest_prompt.prompt_text if latest_prompt else "",
             "base_url": settings.base_url,
             "selected_ai": selected_ai,
-            "presets": STRATEGY_PRESETS,
+            "presets": presets,
             "just_saved": saved,
             "can_edit_strategy": game.state != GameState.ACTIVE
             and game.state != GameState.COMPLETED,

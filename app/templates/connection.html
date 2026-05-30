@@ -17,10 +17,33 @@
     {% if can_edit_strategy %}
     <form method="post" action="/me/players/{{ player.id }}/strategy" class="form">
         <label>
-            <textarea name="strategy_prompt" rows="6" maxlength="2000" required>{{ strategy }}</textarea>
+            Preset
+            <select id="preset-picker" aria-label="Pick a preset strategy">
+                <option value="">Write my own</option>
+                {% for p in presets %}
+                <option value="{{ p.id }}" title="{{ p.description }}">{{ p.name }}</option>
+                {% endfor %}
+            </select>
+            <small>Load a ready-made strategy, or edit the text directly.</small>
+        </label>
+        <label>
+            Strategy prompt
+            <textarea name="strategy_prompt" id="strategy-prompt" rows="8" maxlength="2000" required>{{ strategy }}</textarea>
         </label>
         <button type="submit">Save strategy</button>
     </form>
+    <script>
+        const PRESETS = {{ presets | tojson }};
+        (function () {
+            const picker = document.getElementById('preset-picker');
+            const box = document.getElementById('strategy-prompt');
+            if (!picker || !box) return;
+            picker.addEventListener('change', function () {
+                const p = PRESETS.find(function (x) { return x.id === picker.value; });
+                if (p) box.value = p.prompt;
+            });
+        })();
+    </script>
     {% else %}
     <p class="hint">Strategy is locked once the game starts.</p>
     <pre>{{ strategy }}</pre>
