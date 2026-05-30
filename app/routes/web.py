@@ -13,7 +13,12 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
-from app.engine.rules import STRATEGY_PRESETS
+from app.engine.rules import (
+    HELP_POINTS,
+    HOARD_POINTS,
+    HURT_POINTS,
+    STRATEGY_PRESETS,
+)
 from app.engine.tokens import generate_agent_key, hash_agent_key
 from app.models.game import Game, GameState
 from app.models.player import Player
@@ -34,6 +39,24 @@ async def _player_count(db, game_id: str) -> int:
 
 def _is_admin(user: User | None) -> bool:
     return user is not None and user.email.lower() in settings.admin_emails_set
+
+
+def _move_effect(action: str) -> tuple[int, int | None]:
+    """Nominal point effect of one move, split into (actor_delta, target_delta).
+
+    This is what the move is *worth* by the rules — HOARD +2 to self, HELP +4 to
+    the target, HURT -4 to the target. It is shown per-move in the watch feed so
+    viewers see who is affected. It is deliberately NOT the player's net change
+    for the turn (that can fold in others' moves, the mutual-help bonus, and the
+    score floor); the running scoreboard reflects those actual totals.
+    """
+    if action == "HOARD":
+        return HOARD_POINTS, None
+    if action == "HELP":
+        return 0, HELP_POINTS
+    if action == "HURT":
+        return 0, -HURT_POINTS
+    return 0, None
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -133,13 +156,17 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
             target = players_by_id.get(s.target_player_id) if s.target_player_id else None
             if not actor:
                 continue
+            actor_delta, target_delta = _move_effect(s.action)
             actions.append(
                 {
                     "agent_id": actor.agent_id,
                     "action": s.action,
                     "target_id": target.agent_id if target else None,
                     "message": s.message,
-                    "points_delta": s.points_delta,
+                    # Nominal per-move effect, attributed to who it lands on.
+                    "actor_delta": actor_delta,
+                    "target_delta": target_delta,
+                    "was_defaulted": s.was_defaulted,
                 }
             )
         history.append({"seq": seq, "round": t.round, "turn": t.turn, "actions": actions})

@@ -475,7 +475,19 @@ tr:last-child td { border-bottom: none; }
 }
 .turn-block h4 { margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
 .turn-block ul { margin: 0; padding-left: 1.1rem; }
-.turn-block li { margin-bottom: 0.4rem; }
+.turn-block li { margin-bottom: 0.7rem; }
+.turn-block .effect { font-size: 0.85rem; margin-top: 0.1rem; }
+.turn-block .effect .who { color: var(--ink-soft); }
+.turn-block .effect .sep { color: var(--ink-soft); margin: 0 0.2rem; }
+.missed {
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 0.3rem;
+    margin-left: 0.35rem;
+}
+.feed-legend { font-size: 0.8rem; color: var(--ink-soft); margin: 0 0 0.75rem; }
 
 /* Action color-coding (works in every theme) */
 .act { font-weight: 700; }
