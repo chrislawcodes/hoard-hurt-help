@@ -41,11 +41,11 @@
 
 **Purpose**: Platform calls the module via the registry — never PD directly. PD behavior stays identical.
 
-- [ ] T010 [app/engine/scheduler.py] Turn loop resolves the module via `games.get(game.game_type)` and calls `.resolve_turn / .award_round / .finalize` (replacing direct `resolver` imports). Skip a game whose type is unregistered (don't crash the poller — SC-004).
-- [ ] T011 [app/routes/agent_api.py] `POST /submit` calls `module.validate_move` (→ generic `400 INVALID_MOVE` on failure) then `module.record_submission`, replacing the inline HOARD/HELP/HURT validation.
-- [ ] T012 [app/routes/agent_api.py, app/routes/agent_next_turn.py] Build the agent payload's rules via `module.rules_text()` (replace the direct `RULES_TEXT_V1` import).
-- [ ] T013 [app/routes/web.py, app/templates/fragments/*, app/templates/game.html] Viewer per-move display via `module.move_effect` with a generic fallback (no PD labels hard-coded — SC-005).
-- [ ] T014 [app/schemas/agent.py] Generalize the submit schema to a module-validated move; the HOARD/HELP/HURT `Literal` becomes PD-module-owned (platform schema is generic).
+- [X] T010 [app/engine/scheduler.py] Turn loop resolves the module via `games.get(game.game_type)` and calls `.resolve_turn / .award_round / .finalize` (replacing direct `resolver` imports). Skip a game whose type is unregistered (don't crash the poller — SC-004).
+- [X] T011 [app/routes/agent_api.py] `POST /submit` packs the request into a generic `move` dict, calls `module.validate_move` then `module.record_submission`, replacing the inline HOARD/HELP/HURT validation. Note: the module's own error `code/message/details` are surfaced (e.g. `INVALID_TARGET`) rather than flattened to `INVALID_MOVE` — keeps PD's API responses identical (the regression gate; `test_agent_api.py:225,312` still pass).
+- [X] T012 [app/routes/agent_api.py, app/routes/agent_next_turn.py] Build the agent payload's rules via `module.rules_text()` (dropped the `RULES_TEXT_V1`/`RULES_VERSION` imports; `rules_version` now reads `game.rules_version`, decoupling both routes from `app.engine.rules`).
+- [X] T013 [app/routes/web.py] Viewer per-move display via `module.move_effect` with a generic fallback (`_move_effect_for(game_type, action)`; unknown type → no delta, doesn't crash the viewer). Templates unchanged — the context still exposes `actor_delta`/`target_delta`, so no PD labels live in the platform (SC-005).
+- [X] T014 [app/schemas/agent.py] Validation is now module-owned (T011): the endpoint packs the request into a generic `move` dict the platform never interprets. The `Action` Literal is documented as PD's wire vocabulary; full free-form move JSON on the wire is deferred to game #2 (plan Decision: storage/wire generalization rides with the second game) — keeps the MCP `submit_action` tool, the runner, and the submit tests unchanged.
 
 **Checkpoint**: a full PD game plays/scores **identically**; engine + API + lobby suites pass. This is the US1 regression gate.
 

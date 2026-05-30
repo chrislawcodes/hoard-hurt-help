@@ -23,9 +23,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.broadcast import publish
 from app.db import SessionLocal
-from app.engine.resolver import award_round_winners, finalize_game, resolve_turn
 from app.engine.state_machine import assert_transition
 from app.engine.tokens import generate_turn_token
+from app.games import get as get_game_module
+from app.games.base import GameError
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
@@ -161,6 +162,18 @@ async def _run_game(game_id: str) -> None:
         if game.state != GameState.ACTIVE:
             return
 
+        # The platform drives the loop through the game's module — never a
+        # hard-coded resolver. Skip (don't crash the poller) on an unknown type.
+        try:
+            module = get_game_module(game.game_type)
+        except GameError:
+            logger.error(
+                "Game %s has unknown game_type %r — skipping its turn loop.",
+                game.id,
+                game.game_type,
+            )
+            return
+
         # Resume from current_round/current_turn — supports mid-game restart.
         start_round = game.current_round if game.current_round else 1
         start_turn = game.current_turn if game.current_turn else 1
@@ -190,17 +203,17 @@ async def _run_game(game_id: str) -> None:
 
                 await _wait_for_turn(db, turn)
 
-                await resolve_turn(db, turn)
+                await module.resolve_turn(db, turn)
                 await publish(
                     game.id,
                     "turn_resolved",
                     {"round": round_num, "turn": turn_num},
                 )
 
-            await award_round_winners(db, game, round_num)
+            await module.award_round(db, game, round_num)
             await publish(game.id, "round_ended", {"round": round_num})
 
-        await finalize_game(db, game)
+        await module.finalize(db, game)
         await publish(game.id, "game_completed", {"winner_player_id": game.winner_player_id})
 
 

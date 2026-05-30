@@ -15,12 +15,9 @@ from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
 from app.engine.game_insights import round_detail, season_overview
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
-from app.engine.rules import (
-    HELP_POINTS,
-    HOARD_POINTS,
-    HURT_POINTS,
-    STRATEGY_PRESETS,
-)
+from app.engine.rules import STRATEGY_PRESETS
+from app.games import get as get_game_module
+from app.games.base import GameError
 from app.models.bot import Bot
 from app.models.game import Game, GameState
 from app.models.player import Player
@@ -51,22 +48,21 @@ def _is_admin(user: User | None) -> bool:
     return user is not None and user.email.lower() in settings.admin_emails_set
 
 
-def _move_effect(action: str) -> tuple[int, int | None]:
-    """Nominal point effect of one move, split into (actor_delta, target_delta).
+def _move_effect_for(game_type: str, action: str) -> tuple[int, int | None]:
+    """Nominal per-move effect for the watch feed, split into (actor_delta, target_delta).
 
-    This is what the move is *worth* by the rules — HOARD +2 to self, HELP +4 to
-    the target, HURT -4 to the target. It is shown per-move in the watch feed so
-    viewers see who is affected. It is deliberately NOT the player's net change
-    for the turn (that can fold in others' moves, the mutual-help bonus, and the
-    score floor); the running scoreboard reflects those actual totals.
+    Delegates to the game module so the viewer carries no game-specific scoring.
+    This is what the move is *worth* by that game's rules (e.g. PD: HOARD +2 to
+    self, HELP +4 to the target, HURT -4 to the target) — shown per-move so
+    viewers see who each move lands on. It is deliberately NOT the player's net
+    change for the turn (which folds in others' moves, bonuses, and the floor);
+    the running scoreboard reflects those actual totals. An unknown game type
+    falls back to no displayed delta rather than crashing the viewer.
     """
-    if action == "HOARD":
-        return HOARD_POINTS, None
-    if action == "HELP":
-        return 0, HELP_POINTS
-    if action == "HURT":
-        return 0, -HURT_POINTS
-    return 0, None
+    try:
+        return get_game_module(game_type).move_effect(action)
+    except GameError:
+        return 0, None
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -166,7 +162,7 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
             target = players_by_id.get(s.target_player_id) if s.target_player_id else None
             if not actor:
                 continue
-            actor_delta, target_delta = _move_effect(s.action)
+            actor_delta, target_delta = _move_effect_for(g.game_type, s.action)
             actions.append(
                 {
                     "agent_id": actor.agent_id,

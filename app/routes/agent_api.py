@@ -14,7 +14,8 @@ from sqlalchemy import select
 from app.deps import DbSession, require_bot_player
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.opponent_stats import rank_players
-from app.engine.rules import RULES_TEXT_V1, RULES_VERSION
+from app.games import get as get_game_module
+from app.games.base import GameError
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
@@ -267,10 +268,11 @@ async def agent_poll(
             .limit(1)
         )
     ).scalar_one_or_none()
+    module = get_game_module(game.game_type)
     static = TurnStatic(
         game_id=game.id,
-        rules_version=RULES_VERSION,
-        rules=RULES_TEXT_V1,
+        rules_version=game.rules_version,
+        rules=module.rules_text(),
         total_rounds=game.total_rounds,
         turns_per_round=game.turns_per_round,
         your_agent_id=player.agent_id,
@@ -349,63 +351,27 @@ async def agent_submit(
             turn_will_resolve_at=turn.deadline_at,
         )
 
-    # Validate action + target.
-    target_player_id: int | None = None
-    if body.action == "HOARD":
-        if body.target_id is not None:
-            raise _err(
-                "TARGET_NOT_ALLOWED_FOR_HOARD",
-                "HOARD must not have a target.",
-                status.HTTP_400_BAD_REQUEST,
-            )
-    else:  # HELP or HURT
-        if body.target_id is None:
-            raise _err(
-                "MISSING_TARGET",
-                "HELP/HURT requires target_id.",
-                status.HTTP_400_BAD_REQUEST,
-            )
-        if body.target_id == player.agent_id:
-            raise _err(
-                "INVALID_TARGET",
-                "Cannot target self.",
-                status.HTTP_400_BAD_REQUEST,
-                details={"reason": "self_target"},
-            )
-        target = (
-            await db.execute(
-                select(Player).where(
-                    Player.game_id == game.id, Player.agent_id == body.target_id
-                )
-            )
-        ).scalar_one_or_none()
-        if target is None:
-            raise _err(
-                "INVALID_TARGET",
-                "Target not in this game.",
-                status.HTTP_400_BAD_REQUEST,
-                details={"reason": "unknown_agent"},
-            )
-        target_player_id = target.id
-
-    if existing is not None:
-        # Replace the defaulted row.
-        existing.action = body.action
-        existing.target_player_id = target_player_id
-        existing.message = body.message
-        existing.was_defaulted = False
-        existing.submitted_at = datetime.now(timezone.utc)
-    else:
-        db.add(
-            TurnSubmission(
-                turn_id=turn.id,
-                player_id=player.id,
-                action=body.action,
-                target_player_id=target_player_id,
-                message=body.message,
-                submitted_at=datetime.now(timezone.utc),
-            )
+    # Validate + record through the game module — the platform never hard-codes
+    # a game's move vocabulary. The module raises GameError with its own
+    # code/message/details, which map straight onto the standard error envelope.
+    module = get_game_module(game.game_type)
+    all_agent_ids = list(
+        (
+            await db.execute(select(Player.agent_id).where(Player.game_id == game.id))
         )
+        .scalars()
+        .all()
+    )
+    move = {"action": body.action, "target_id": body.target_id, "message": body.message}
+    try:
+        module.validate_move(
+            move, your_agent_id=player.agent_id, all_agent_ids=all_agent_ids
+        )
+    except GameError as exc:
+        raise _err(
+            exc.code, exc.message, status.HTTP_400_BAD_REQUEST, exc.details
+        ) from exc
+    await module.record_submission(db, turn, player, move, existing=existing)
     await db.commit()
 
     return SubmitResponse(
