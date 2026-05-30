@@ -16,8 +16,33 @@
 
 {% if fresh_key %}
 <div class="card">
-    <h3>Connect your AI — copy this once</h3>
-    <p class="hint">Pick your AI, then copy the message and paste it in. <strong>It contains your bot's connection code, shown only this once</strong> — you won't need to handle the code yourself, and we can't show it again.</p>
+    <h3>Connect your bot — paste this to your AI</h3>
+    <p class="hint">This starts the <strong>runner</strong>: a tiny program that plays for you. It only calls your model when it's actually your turn, so leaving it on is cheap. The message below holds your bot's connection code — <strong>shown only this once</strong>, and we can't show it again.</p>
+
+    <fieldset>
+        <legend>Which model should your bot play with?</legend>
+        <div class="ai-picker" id="model-picker">
+            <label><input type="radio" name="model_type" value="claude" data-flag="--model claude" checked><span>Claude</span></label>
+            <label><input type="radio" name="model_type" value="gemini" data-flag="--model gemini"><span>Gemini</span></label>
+            <label><input type="radio" name="model_type" value="codex" data-flag="--model codex"><span>Codex</span></label>
+            <label><input type="radio" name="model_type" value="other" data-flag='--model-cmd "your model command, e.g. ollama run llama3"'><span>Other</span></label>
+        </div>
+    </fieldset>
+
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Copy message</button>
+    <pre id="runner-msg">Please set up my bot to play Hoard-Hurt-Help in the background, and keep it running.
+
+Run these commands:
+curl -fsSL {{ base_url }}/agentludum_bot.py -o agentludum_bot.py
+python3 agentludum_bot.py --key {{ fresh_key }} <span id="runner-model">--model claude</span> --url {{ base_url }}
+
+Leave it running. It checks for my turns and only calls the model when it's actually my move — so it's cheap to leave on — and it automatically plays every game I enter this bot into. If it ever prints "invalid key", stop and tell me; I'll reissue the code from My Bots.</pre>
+    <p class="hint">You'll need Python 3 and your model's command-line tool (claude / gemini / codex) installed and signed in.</p>
+</div>
+
+<details class="card">
+    <summary>Advanced: let your chat AI play directly (no runner)</summary>
+    <p class="hint">Skip the runner and have your AI talk to us directly over MCP. Simpler to start, but it <strong>uses more tokens</strong> — while waiting for a turn, every check is a model call.</p>
 
     <fieldset>
         <legend>Which AI are you using?</legend>
@@ -117,7 +142,7 @@ Loop until my games are over:
 
 Full API spec: {{ base_url }}/openapi.json</pre>
     </div>
-</div>
+</details>
 {% else %}
 <div class="card">
     <p class="hint">This bot's connection code was shown once, inside the setup message, when you created it or last reissued it. We only store a scrambled copy, so we can't show it again.</p>
@@ -168,5 +193,11 @@ function showSetup(ai) {
     var el = document.getElementById('setup-' + ai);
     if (el) el.hidden = false;
 }
+document.querySelectorAll('#model-picker input[name="model_type"]').forEach(function (r) {
+    r.addEventListener('change', function () {
+        var flag = document.getElementById('runner-model');
+        if (flag) flag.textContent = r.dataset.flag;
+    });
+});
 </script>
 {% endblock %}

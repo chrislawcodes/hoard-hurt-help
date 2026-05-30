@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""hhh-bot — the Hoard-Hurt-Help runner.
+"""agentludum_bot — the Hoard-Hurt-Help runner.
 
 A thin loop: ask the server for your next turn across ALL your games; when it's
 your turn, ask a model to choose a move; submit it. The model is called ONLY on
@@ -11,10 +11,10 @@ have installed and authenticated (claude / gemini / codex), or a custom command.
 The only secret it sends is your bot key, and only to the game server.
 
 Usage:
-    python scripts/hhh_bot.py --key sk_bot_...                  # default model: claude
-    python scripts/hhh_bot.py --key sk_bot_... --model gemini
-    python scripts/hhh_bot.py --key sk_bot_... --model-cmd "ollama run llama3"
-    python scripts/hhh_bot.py --key sk_bot_... --url http://localhost:8000
+    python scripts/agentludum_bot.py --key sk_bot_...                  # default model: claude
+    python scripts/agentludum_bot.py --key sk_bot_... --model gemini
+    python scripts/agentludum_bot.py --key sk_bot_... --model-cmd "ollama run llama3"
+    python scripts/agentludum_bot.py --key sk_bot_... --url http://localhost:8000
 """
 
 from __future__ import annotations
@@ -104,12 +104,12 @@ def decide(turn: dict, model: str, model_cmd: str | None) -> dict:
             raise RuntimeError(result.stderr.strip() or f"exit {result.returncode}")
         return _parse_decision(result.stdout)
     except Exception as e:  # any model/parse error → safe default
-        print(f"[hhh-bot] model error: {e}. Defaulting to HOARD.", file=sys.stderr)
+        print(f"[agentludum-bot] model error: {e}. Defaulting to HOARD.", file=sys.stderr)
         return {"action": "HOARD", "target_id": None, "message": ""}
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="hhh-bot — the Hoard-Hurt-Help runner")
+    ap = argparse.ArgumentParser(description="agentludum_bot — the Hoard-Hurt-Help runner")
     ap.add_argument("--key", required=True, help="Your bot key (sk_bot_...)")
     ap.add_argument("--url", default=DEFAULT_URL, help="Game server base URL")
     ap.add_argument(
@@ -122,19 +122,19 @@ def main() -> None:
 
     base = args.url.rstrip("/")
     headers = {"X-Agent-Key": args.key}
-    print(f"[hhh-bot] connected to {base}; playing every game this bot is in.")
+    print(f"[agentludum-bot] connected to {base}; playing every game this bot is in.")
 
     while True:
         try:
             r = httpx.get(f"{base}/api/agent/next-turn", headers=headers, timeout=40)
         except httpx.HTTPError as e:
-            print(f"[hhh-bot] network error: {e}; retrying in 5s", file=sys.stderr)
+            print(f"[agentludum-bot] network error: {e}; retrying in 5s", file=sys.stderr)
             time.sleep(5)
             continue
 
         if r.status_code == 401:
             print(
-                "[hhh-bot] invalid key (401). Reissue it from My Bots and restart.",
+                "[agentludum-bot] invalid key (401). Reissue it from My Bots and restart.",
                 file=sys.stderr,
             )
             return
@@ -145,7 +145,7 @@ def main() -> None:
             time.sleep(1)
             continue
         if r.status_code != 200:
-            print(f"[hhh-bot] {r.status_code}: {r.text[:200]}; retrying", file=sys.stderr)
+            print(f"[agentludum-bot] {r.status_code}: {r.text[:200]}; retrying", file=sys.stderr)
             time.sleep(5)
             continue
 
@@ -174,7 +174,7 @@ def main() -> None:
         )
         arrow = f" -> {target}" if target else ""
         print(
-            f"[hhh-bot] {game_id} R{current['round']}T{current['turn']}: "
+            f"[agentludum-bot] {game_id} R{current['round']}T{current['turn']}: "
             f"{action}{arrow} ({r2.status_code})"
         )
 
