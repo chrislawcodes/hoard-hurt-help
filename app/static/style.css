@@ -600,9 +600,58 @@ pre code { background: none; padding: 0; }
 .delta.neg { color: var(--hurt); }
 .delta.zero { color: var(--ink-soft); }
 .turn-block .msg { color: var(--ink-soft); }
-.scrubber { margin-top: 1.25rem; }
-.scrubber label { font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.5rem; }
-.scrubber input[type="range"] { width: 100%; }
+
+/* Round navigation: a sticky chip bar that filters the feed to one round. */
+.feed-col { min-width: 0; }
+.round-nav {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+}
+.round-nav-label {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+    margin-right: 0.2rem;
+}
+.round-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.7rem;
+}
+.round-chip:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
+.round-chip.is-active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.round-chip.is-active:hover { background: var(--accent-hover); color: var(--accent-ink); }
+.round-chip .live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--hurt);
+    animation: hhh-pulse 1.4s ease-in-out infinite;
+}
+.round-chip.is-active .live-dot { background: currentColor; }
+.round-heading {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+    text-transform: var(--head-transform);
+    letter-spacing: var(--head-spacing);
+}
+.round-section { margin-bottom: 1.5rem; }
+.round-section[hidden] { display: none; }
 @media (max-width: 720px) { .scorepanel { position: static; } }
 
 /* ---- Toolbar (page-top action row) ---- */
