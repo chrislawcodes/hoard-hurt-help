@@ -202,7 +202,16 @@ async def test_poll_your_turn_then_submit(client, reset_db):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "your_turn"
-    assert body["dynamic"]["turn_token"] == turn_token
+    # Feature 002: the payload now carries a bounded `summary`, not full `history`.
+    assert "dynamic" not in body
+    assert "history" not in body
+    summary = body["summary"]
+    assert summary["your_situation"]["turn_token"] == turn_token
+    assert "standings_view" in summary
+    assert "opponents" in summary
+    assert "board_signals" in summary
+    assert "messages_for_you" in summary
+    turn_token = summary["your_situation"]["turn_token"]
 
     # Submit Hoard.
     r2 = await client.post(

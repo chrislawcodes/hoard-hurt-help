@@ -5,14 +5,16 @@ Auth: X-Agent-Key header. Errors: spec.md §10 envelope.
 
 import time
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlalchemy import select
 
 from app.deps import DbSession, require_agent_key
+from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.rules import RULES_TEXT_V1, RULES_VERSION
 from app.engine.tokens import generate_agent_key, hash_agent_key
+from app.engine.turn_summary import build_turn_summary
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
@@ -20,15 +22,12 @@ from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
 from app.schemas.agent import (
     AgentStateResponse,
-    HistoryAction,
-    HistoryTurn,
     JoinRequest,
     JoinResponse,
     LeaveResponse,
     ScoreboardRow,
     SubmitRequest,
     SubmitResponse,
-    TurnDynamic,
     TurnStatic,
     WaitingResponse,
     YourTurnResponse,
@@ -170,8 +169,34 @@ async def _build_scoreboard(db, game: Game) -> list[ScoreboardRow]:
     ]
 
 
-async def _build_history(db, game: Game) -> list[HistoryTurn]:
-    """Every resolved turn in order with each player's action."""
+async def _load_players(db, game: Game) -> list[PlayerRecord]:
+    """Active (non-left) players as DB-free records for the summary engine."""
+    rows = (
+        (
+            await db.execute(
+                select(Player).where(Player.game_id == game.id, Player.left_at.is_(None))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        PlayerRecord(
+            agent_id=p.agent_id,
+            round_score=p.current_round_score,
+            total_score=p.total_round_score,
+            round_wins=p.total_round_wins,
+        )
+        for p in rows
+    ]
+
+
+async def _load_action_records(db, game: Game) -> list[ActionRecord]:
+    """Every resolved submission as a DB-free ActionRecord, ids → agent names.
+
+    All players (including any who left) are mapped so historical actors/targets
+    still resolve to a name.
+    """
     turns = (
         (
             await db.execute(
@@ -183,36 +208,44 @@ async def _build_history(db, game: Game) -> list[HistoryTurn]:
         .scalars()
         .all()
     )
-    players_by_id = {
-        p.id: p
+    if not turns:
+        return []
+    turn_by_id = {t.id: t for t in turns}
+    name_by_id = {
+        p.id: p.agent_id
         for p in (await db.execute(select(Player).where(Player.game_id == game.id)))
         .scalars()
         .all()
     }
-    out: list[HistoryTurn] = []
-    for t in turns:
-        subs = (
-            (await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == t.id)))
-            .scalars()
-            .all()
-        )
-        actions: list[HistoryAction] = []
-        for s in subs:
-            actor = players_by_id.get(s.player_id)
-            target = players_by_id.get(s.target_player_id) if s.target_player_id else None
-            if actor is None:
-                continue
-            actions.append(
-                HistoryAction(
-                    agent_id=actor.agent_id,
-                    action=s.action,
-                    target_id=target.agent_id if target else None,
-                    message=s.message,
-                    points_delta=s.points_delta,
+    subs = (
+        (
+            await db.execute(
+                select(TurnSubmission).where(
+                    TurnSubmission.turn_id.in_([t.id for t in turns])
                 )
             )
-        out.append(HistoryTurn(round=t.round, turn=t.turn, actions=actions))
-    return out
+        )
+        .scalars()
+        .all()
+    )
+    records: list[ActionRecord] = []
+    for s in subs:
+        t = turn_by_id[s.turn_id]
+        target = name_by_id.get(s.target_player_id) if s.target_player_id else None
+        records.append(
+            ActionRecord(
+                round=t.round,
+                turn=t.turn,
+                actor_id=name_by_id[s.player_id],
+                action=cast(Action, s.action),
+                target_id=target,
+                message=s.message,
+                points_delta=s.points_delta,
+                round_score_after=s.round_score_after,
+                was_defaulted=s.was_defaulted,
+            )
+        )
+    return records
 
 
 @router.get("/turn")
@@ -306,15 +339,16 @@ async def agent_poll(
         all_agent_ids=sorted(p.agent_id for p in all_players),
         your_strategy=latest_strategy.prompt_text if latest_strategy else None,
     )
-    dynamic = TurnDynamic(
+    summary = build_turn_summary(
+        you=player.agent_id,
+        players=await _load_players(db, game),
+        actions=await _load_action_records(db, game),
         current_round=turn.round,
         current_turn=turn.turn,
         deadline=turn.deadline_at,
         turn_token=turn.turn_token,
-        scoreboard=await _build_scoreboard(db, game),
-        history=await _build_history(db, game),
     )
-    return YourTurnResponse(static=static, dynamic=dynamic)
+    return YourTurnResponse(static=static, summary=summary)
 
 
 # require_agent_key produces the Player; FastAPI dep injection handles it.
