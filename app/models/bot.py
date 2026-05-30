@@ -51,6 +51,12 @@ class Bot(Base):
     max_concurrent_games: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     # Consecutive missed (defaulted) turns before the bot is flagged / auto-paused.
     stall_threshold: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    # First time this bot's key was used on an authenticated agent call — i.e.
+    # the moment it first "connected". Set once, never reset (a reissue does not
+    # clear it). NULL = never connected. Powers the onboarding handshake (005).
+    first_connected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -728,3 +728,49 @@ button.danger:hover,
     button, .cta { padding: 0.65rem 1.1rem; }
     input, textarea, select { font-size: 16px; } /* avoids iOS zoom-on-focus */
 }
+
+/* --- Bot onboarding status panel (005) --- */
+.bot-status-head {
+    margin: 0;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+/* Meaning never rides on color alone: the ✓ glyph carries it too. */
+.bot-status-head .ok { color: var(--help); font-weight: 700; }
+.bot-status .dot.pulse {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ink-soft);
+    animation: hhh-pulse 1.4s ease-in-out infinite;
+}
+.bot-status .hint { margin-top: 0.35rem; }
+.bot-status .cta { margin-top: 0.75rem; }
+.bot-status-line {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.bot-status-trouble { margin-top: 0.85rem; }
+.bot-status-trouble summary {
+    cursor: pointer;
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+}
+.bot-status-trouble form { margin-top: 0.5rem; }
+
+/* One-shot flourish applied only on a live SSE update (see detail.html). */
+.status-flash { animation: hhh-status-flash 1.1s ease-out; }
+@keyframes hhh-status-flash {
+    0% { background: color-mix(in srgb, var(--help) 22%, transparent); }
+    100% { background: transparent; }
+}
+
+@media (max-width: 640px) {
+    .bot-status .cta { display: block; text-align: center; }
+}
