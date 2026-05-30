@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""A throwaway test bot: joins a Hoard-Hurt-Help game and plays a random strategy.
+"""A throwaway random test bot for Hoard-Hurt-Help.
 
-Fills a slot so you can run live games without standing up real AI clients.
-Polls at ~1 Hz (the server rate-limits faster polling), reads each turn, and
-submits HOARD / HELP / HURT until the game ends.
+Fills a seat with random HOARD / HELP / HURT moves so you can run live games
+without standing up real AI runners. Unlike scripts/hhh_bot.py it makes no model
+calls — it just plays randomly.
+
+Setup (new bot model): create a bot and enter it into a game on the site, then
+run this with that bot's key. It plays every game the bot is in via
+get_next_turn — no joining over the API.
 
 Usage:
-    python scripts/bot.py --game G_0001
-    python scripts/bot.py --game G_0001 --name BOT_2 --url http://localhost:8000
+    python scripts/bot.py --key sk_bot_... --url http://localhost:8000
 """
 
 import argparse
@@ -18,97 +21,65 @@ import time
 import httpx
 
 
-def _join(base: str, game: str, name: str) -> tuple[str, str]:
-    r = httpx.post(
-        f"{base}/api/games/{game}/join",
-        json={
-            "display_name": name,
-            "strategy_prompt": "Random test bot.",
-            "model_self_report": "test-bot",
-        },
-        timeout=10,
-    )
-    if r.status_code != 201:
-        print(f"[{name}] join failed: {r.status_code} {r.text}", file=sys.stderr)
-        sys.exit(1)
-    data = r.json()
-    return data["agent_id"], data["agent_key"]
-
-
-def _play_turn(base: str, game: str, name: str, headers: dict, body: dict) -> None:
-    static, current = body["static"], body["current"]
-    others = [a for a in static["all_agent_ids"] if a != static["your_agent_id"]]
-    action = random.choice(["HOARD", "HELP", "HURT"])
-    target = None
-    if action in ("HELP", "HURT"):
-        if others:
-            target = random.choice(others)
-        else:
-            action = "HOARD"  # nobody to target
-    r = httpx.post(
-        f"{base}/api/games/{game}/submit",
-        headers=headers,
-        json={
-            "turn_token": current["turn_token"],
-            "action": action,
-            "target_id": target,
-            "message": f"{name}: {action}",
-        },
-        timeout=10,
-    )
-    arrow = f" -> {target}" if target else ""
-    # Print evidence the raw payload arrived: how many resolved turns of history
-    # and how many chat messages are in the most recent turn.
-    history = body.get("history", [])
-    last_msgs = sum(1 for a in history[-1]["actions"] if a.get("message")) if history else 0
-    print(
-        f"[{name}] R{current['round']}T{current['turn']}: "
-        f"{action}{arrow} ({r.status_code}) | history: {len(history)} turns, "
-        f"{last_msgs} msgs last turn"
-    )
-
-
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Hoard-Hurt-Help test bot")
-    ap.add_argument("--game", required=True, help="Game id, e.g. G_0001")
-    ap.add_argument("--name", default=None, help="Display name (default: BOT_<random>)")
+    ap = argparse.ArgumentParser(description="Hoard-Hurt-Help random test bot")
+    ap.add_argument("--key", required=True, help="Bot key (sk_bot_...)")
     ap.add_argument("--url", default="http://localhost:8000", help="Server base URL")
-    ap.add_argument("--poll", type=float, default=1.2, help="Seconds between polls (>1 to respect rate limit)")
     args = ap.parse_args()
 
     base = args.url.rstrip("/")
-    name = args.name or f"BOT_{random.randint(1000, 9999)}"
-    name, key = _join(base, args.game, name)
-    headers = {"X-Agent-Key": key}
-    print(f"[{name}] joined {args.game}; waiting for the game to start...")
+    headers = {"X-Agent-Key": args.key}
+    print(f"[bot] connected to {base}; playing every game this bot is in.")
 
     while True:
-        time.sleep(args.poll)
         try:
-            r = httpx.get(f"{base}/api/games/{args.game}/turn", headers=headers, timeout=10)
+            r = httpx.get(f"{base}/api/agent/next-turn", headers=headers, timeout=40)
         except httpx.HTTPError as e:
-            print(f"[{name}] poll error: {e}", file=sys.stderr)
+            print(f"[bot] network error: {e}", file=sys.stderr)
+            time.sleep(5)
             continue
-        if r.status_code == 429:  # polled too fast — back off and retry
+        if r.status_code == 401:
+            print("[bot] invalid key (401). Reissue from My Bots.", file=sys.stderr)
+            return
+        if r.status_code in (403, 429):  # paused, or polled too fast
+            time.sleep(5)
             continue
         if r.status_code != 200:
-            print(f"[{name}] poll {r.status_code}: {r.text}", file=sys.stderr)
+            print(f"[bot] {r.status_code}: {r.text[:200]}", file=sys.stderr)
+            time.sleep(5)
             continue
 
-        body = r.json()
-        status = body.get("status")
-        if status == "your_turn":
-            _play_turn(base, args.game, name, headers, body)
-        elif status == "game_completed":
-            print(f"[{name}] game completed. bye.")
-            return
-        elif status == "waiting" and (
-            body.get("reason") == "game_over"
-            or body.get("game_state") in ("completed", "cancelled")
-        ):
-            print(f"[{name}] game over ({body.get('game_state')}). bye.")
-            return
-        # otherwise: not started / not your turn / already submitted — keep polling
+        turn = r.json()
+        if turn.get("status") != "your_turn":
+            time.sleep(turn.get("next_poll_after_seconds", 5))
+            continue
+
+        game_id = turn["game_id"]
+        static, current = turn["static"], turn["current"]
+        others = [a for a in static["all_agent_ids"] if a != static["your_agent_id"]]
+        action = random.choice(["HOARD", "HELP", "HURT"])
+        target = None
+        if action in ("HELP", "HURT"):
+            if others:
+                target = random.choice(others)
+            else:
+                action = "HOARD"  # nobody to target
+        r2 = httpx.post(
+            f"{base}/api/games/{game_id}/submit",
+            headers=headers,
+            json={
+                "turn_token": current["turn_token"],
+                "action": action,
+                "target_id": target,
+                "message": f"{static['your_agent_id']}: {action}",
+            },
+            timeout=20,
+        )
+        arrow = f" -> {target}" if target else ""
+        print(
+            f"[bot] {game_id} R{current['round']}T{current['turn']}: "
+            f"{action}{arrow} ({r2.status_code})"
+        )
 
 
 if __name__ == "__main__":
