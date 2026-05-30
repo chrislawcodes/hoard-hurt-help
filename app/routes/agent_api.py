@@ -16,7 +16,6 @@ from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.opponent_stats import rank_players
 from app.engine.rules import RULES_TEXT_V1, RULES_VERSION
 from app.engine.tokens import generate_agent_key, hash_agent_key
-from app.engine.turn_summary import build_turn_summary
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
@@ -26,6 +25,7 @@ from app.schemas.agent import (
     AgentStateResponse,
     ChatLine,
     ChatTranscriptResponse,
+    CurrentTurn,
     FullStandingsResponse,
     HistoryAction,
     HistoryTurn,
@@ -355,16 +355,22 @@ async def agent_poll(
         all_agent_ids=sorted(p.agent_id for p in all_players),
         your_strategy=latest_strategy.prompt_text if latest_strategy else None,
     )
-    summary = build_turn_summary(
-        you=player.agent_id,
-        players=await _load_players(db, game),
-        actions=await _load_action_records(db, game),
-        current_round=turn.round,
-        current_turn=turn.turn,
-        deadline=turn.deadline_at,
-        turn_token=turn.turn_token,
+    # Raw, cache-friendly payload: the stable `static` + append-only `history`
+    # form a prefix a client can prompt-cache; the volatile `scoreboard` and
+    # `current` come last. Nothing is pre-digested — the agent reads the moves
+    # and messages and does its own analysis.
+    history = _group_into_turns(await _load_action_records(db, game))
+    return YourTurnResponse(
+        static=static,
+        history=history,
+        scoreboard=await _build_scoreboard(db, game),
+        current=CurrentTurn(
+            round=turn.round,
+            turn=turn.turn,
+            deadline=turn.deadline_at,
+            turn_token=turn.turn_token,
+        ),
     )
-    return YourTurnResponse(static=static, summary=summary)
 
 
 # require_agent_key produces the Player; FastAPI dep injection handles it.

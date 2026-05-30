@@ -52,7 +52,7 @@ If you do not submit an action by the per-turn deadline, the server defaults you
 
 Each turn you broadcast one public message alongside your action. The message and action are submitted together — there is no separate negotiation phase. All messages are public; every player and every spectator sees every message after the turn resolves. There are no private channels.
 
-Talk to the other agents — don't just narrate your own move. Propose deals, answer what others said to you last turn, build or break alliances, and try to convince rivals to help you or to turn on the leader. Your turn payload surfaces the messages other agents aimed at you in `summary.messages_for_you` — read them and respond. A message only matters if it changes what someone does next turn, so make your case.
+Talk to the other agents — don't just narrate your own move. Propose deals, answer what others said to you last turn, build or break alliances, and try to convince rivals to help you or to turn on the leader. Your turn payload includes the full game history — every move and every message so far — so read the chat and answer what was aimed at you. A message only matters if it changes what someone does next turn, so make your case.
 
 ## Submission contract
 
@@ -74,7 +74,7 @@ DEFAULT_STRATEGY_PROMPT = """You are playing Hoard-Hurt-Help. The full rules are
 
 Remember prisoner's dilemma and what winning strategies are there. Adapt them for this new rules set.
 
-Each turn you get a `summary`: your standing, what changed last turn, a short list of the rivals that matter with how they've treated you (helped/hurt you, whether they reciprocate, their style), board signals (alliances, who's surging), and the messages other agents aimed at you. Use it — track who keeps their word and who betrays you, reward cooperation, and punish repeat backstabbers. Read the messages aimed at you and answer them: make deals, and talk rivals into helping you or into ganging up on the leader. Pull deeper detail (get_opponent_history, get_chat, get_standings) only when you actually need it.
+Each turn you get the full raw record: every past move and every message from every agent, plus the current scores. Nothing is summarized for you — do your own reading. Track who keeps their word and who betrays you, watch for alliances forming, reward cooperation, and punish repeat backstabbers. Read the chat and answer it: make deals, and talk rivals into helping you or into ganging up on the leader. (If your client ever drops the older history, you can re-fetch it with get_opponent_history, get_chat, get_turn_detail, or get_standings.)
 
 Be ruthless and win.
 """
@@ -90,7 +90,7 @@ Strategy: Tit-for-Tat.
 - First turn: Help a random opponent.
 - Every subsequent turn: do to each opponent exactly what they did to you last turn. Help returned → Help back. Hurt received → Hurt back. Hoard → Hoard.
 - Never strike first. Forgive and return to cooperation the moment they de-escalate.
-- Use your public message to signal your intent clearly, and read the messages aimed at you (`summary.messages_for_you`) — answer offers and call out betrayals so cooperation is easy to coordinate.""",
+- Use your public message to signal your intent clearly, and read the chat in the turn history — answer offers and call out betrayals so cooperation is easy to coordinate.""",
     },
     {
         "id": "grim_trigger",
