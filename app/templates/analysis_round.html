@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Round {{ detail.round }} · {{ game.name }} — Analysis{% endblock %}
+{% block content %}
+{% include "fragments/analysis_styles.html" %}
+
+<p class="crumb"><a href="/games/{{ game.id }}/analysis">← Season</a> · <a href="/games/{{ game.id }}">Watch</a></p>
+<div class="an-head">
+  <h1>Round {{ detail.round }}{% if detail.complete %} · 🏆 {{ detail.winner }}{% else %} · live{% endif %}</h1>
+  <span class="mood {{ detail.mood_label }}">{{ detail.mood_label }}</span>
+</div>
+
+<div class="intro">{{ detail.intro }}</div>
+
+<div class="roundnav">
+  {% for n in played %}
+    {% if n == detail.round %}<b>R{{ n }}</b>{% else %}<a href="/games/{{ game.id }}/analysis/rounds/{{ n }}">R{{ n }}</a>{% endif %}
+  {% endfor %}
+</div>
+
+<div class="an-grid">
+
+  <section class="card">
+    <h3>Leaderboard <small>this round · from 0</small></h3>
+    {% for r in detail.leaderboard[:8] %}
+    <div class="row {% if loop.first %}lead{% endif %}">
+      <span class="rk">{{ r.rank }}</span><span class="nm">{{ r.agent_id }}</span>
+      <span class="v">{{ r.score }}</span>
+    </div>
+    {% endfor %}
+    {% if detail.leaderboard | length > 8 %}
+    <div class="rollup">+ {{ detail.leaderboard | length - 8 }} more</div>{% endif %}
+  </section>
+
+  <section class="card">
+    <h3>Mood &amp; alliances <small>this round only</small></h3>
+    <div class="meter"><div class="pin" style="left: {{ (detail.mood * 100) | round | int }}%"></div></div>
+    <div class="meterlbl"><span>hostile</span><span>{{ detail.mood_label }}</span><span>cooperative</span></div>
+    <div style="margin-top:12px">
+      {% for al in detail.alliances %}<span class="chip">🤝 {{ al | join(' ⇄ ') }}</span>
+      {% else %}<span class="muted">no alliances this round</span>{% endfor %}
+      {% for a in detail.surging %}<span class="chip">📈 {{ a }}</span>{% endfor %}
+    </div>
+  </section>
+
+  <section class="card" style="grid-column:1/-1">
+    <h3>Round {{ detail.round }} feed <small>newest first · deterministic, no AI</small></h3>
+    {% for e in detail.events %}
+    <div class="ev {{ e.kind }}"><span class="t">T{{ e.turn }}</span><span class="ic">{{ e.icon }}</span><span>{{ e.text }}</span></div>
+    {% else %}
+    <div class="muted">No events yet.</div>
+    {% endfor %}
+  </section>
+
+</div>
+{% endblock %}
