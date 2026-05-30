@@ -55,9 +55,9 @@
 
 **Purpose**: Prove a game can be added touching only its module (SC-002), and prove PD is unchanged.
 
-- [ ] T015 [P: tests/test_stub_game.py] A trivial stub module (`game_type="stub"`, e.g. +1 per move) implementing the contract; test: create a stub game, a bot plays it via `get_next_turn`/`submit`, it resolves+scores — touching only the module + registration (SC-002).
-- [ ] T016 Run the engine regression suite UNMODIFIED — `pytest tests/test_resolver.py tests/test_end_to_end.py tests/test_board_signals.py tests/test_opponent_stats.py tests/test_turn_summary.py`; all pass with **zero edits to those files** (SC-001).
-- [ ] T017 [tests/] Update ONLY the existing api/lobby/admin tests that create games, to set/expect `game_type` — no assertion changes beyond that.
+- [X] T015 [P: tests/test_stub_game.py] A `game_type="stub"` module (novel move `MOVE`, +1 per move) implementing the contract and registering itself on import; tests: it registers without disturbing PD, rejects an illegal move, and a 2-player stub game plays → resolves → scores → finalizes through the generic Turn/TurnSubmission/Player storage — touching only the module + its registration line (SC-002). 3 tests pass.
+- [X] T016 Engine regression suite passes UNMODIFIED — the 5 files (`test_resolver`, `test_end_to_end`, `test_board_signals`, `test_opponent_stats`, `test_turn_summary`) = 42 pass, and `git diff origin/main...HEAD` shows **zero changes** to them or to the PD engine modules (`resolver/rules/game_records/opponent_stats/board_signals/turn_summary/game_insights`) or the PD storage (`turn.py`/`player.py`) (SC-001).
+- [X] T017 No changes needed — the `Game.game_type` column default (`"hoard-hurt-help"`) fills it on every existing `Game(...)` construction, so the full api/lobby/admin suite passes untouched (146 total). No test churn was required.
 
 **Checkpoint**: full `pytest -q` green; SC-001 + SC-002 demonstrated.
 
