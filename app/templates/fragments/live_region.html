@@ -8,6 +8,7 @@
     </aside>
     <section id="feed" class="feed">
         {% if history %}
+            <p class="feed-legend">Numbers show each move's effect and who it lands on. Running totals are on the scoreboard.</p>
             {% for turn in history | reverse %}
                 {% include "fragments/turn_block.html" %}
             {% endfor %}

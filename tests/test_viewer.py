@@ -128,6 +128,59 @@ async def test_completed_viewer_has_timeline(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
+    """A HURT row must show the loss on the TARGET, not just the actor's +0."""
+    await _seed(reset_db, GameState.COMPLETED)
+    async with reset_db() as db:
+        import sqlalchemy
+
+        from app.models import Player, Turn, TurnSubmission, User
+
+        actor = (await db.execute(sqlalchemy.select(Player))).scalars().first()
+        # Second player to be the HURT target.
+        u2 = User(google_sub="u2", email="u2@t.com")
+        db.add(u2)
+        await db.flush()
+        target = Player(
+            game_id="G_001", user_id=u2.id, agent_id="AI_1", agent_key_hash="y"
+        )
+        db.add(target)
+        await db.flush()
+        t = Turn(
+            game_id="G_001",
+            round=1,
+            turn=1,
+            turn_token="tk1",
+            opened_at=datetime.now(timezone.utc),
+            deadline_at=datetime.now(timezone.utc),
+            resolved_at=datetime.now(timezone.utc),
+        )
+        db.add(t)
+        await db.flush()
+        # Actor HURTs the target. Actor's own net is 0; the -4 lands on the target.
+        db.add(
+            TurnSubmission(
+                turn_id=t.id,
+                player_id=actor.id,
+                action="HURT",
+                target_player_id=target.id,
+                message="take that",
+                points_delta=0,
+                round_score_after=0,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/games/G_001")
+    assert r.status_code == 200
+    # The target and its loss are shown; the actor's own +0 is shown too.
+    assert "AI_1" in r.text
+    assert "-4" in r.text
+    assert "+0" in r.text
+
+
+@pytest.mark.asyncio
 async def test_guide_serves_doc(client, reset_db):
     r = await client.get("/guide/setup-claude")
     assert r.status_code == 200

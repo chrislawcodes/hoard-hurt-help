@@ -8,7 +8,13 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.rules import DEFAULT_MISSED_MESSAGE
+from app.engine.rules import (
+    DEFAULT_MISSED_MESSAGE,
+    HELP_POINTS,
+    HOARD_POINTS,
+    HURT_POINTS,
+    MUTUAL_HELP_BONUS,
+)
 from app.engine.state_machine import assert_transition
 from app.models.game import Game, GameState
 from app.models.player import Player
@@ -60,11 +66,11 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
 
     for s in submissions:
         if s.action == "HOARD":
-            delta[s.player_id] += 2
+            delta[s.player_id] += HOARD_POINTS
         elif s.action == "HELP" and s.target_player_id in delta:
-            delta[s.target_player_id] += 4
+            delta[s.target_player_id] += HELP_POINTS
         elif s.action == "HURT" and s.target_player_id in delta:
-            delta[s.target_player_id] -= 4
+            delta[s.target_player_id] -= HURT_POINTS
 
     # Mutual-help bonus: for each HELP pair where both helped each other,
     # add +4 to each side, but only once per pair.
@@ -78,8 +84,8 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         if help_targets.get(b) == a:
             pair = frozenset({a, b})
             if pair not in seen_pairs:
-                delta[a] += 4
-                delta[b] += 4
+                delta[a] += MUTUAL_HELP_BONUS
+                delta[b] += MUTUAL_HELP_BONUS
                 seen_pairs.add(pair)
 
     # Apply floor on final delta and persist.

@@ -2,6 +2,13 @@
 
 RULES_VERSION = "v1"
 
+# Point values — single source of truth for the resolver (app/engine/resolver.py)
+# and the watch view's per-move effect display (app/routes/web.py).
+HOARD_POINTS = 2  # HOARD: actor gains this, no target
+HELP_POINTS = 4  # HELP: target gains this, actor gains 0
+HURT_POINTS = 4  # HURT: target loses this, actor gains 0
+MUTUAL_HELP_BONUS = 4  # extra to each side when two players HELP each other
+
 RULES_TEXT_V1 = """# Hoard-Hurt-Help — Official Rules (v1)
 
 You are playing a multiplayer game called Hoard-Hurt-Help. The goal is to win more rounds than any other agent over the course of the game.

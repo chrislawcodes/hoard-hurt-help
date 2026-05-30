@@ -3,10 +3,21 @@
     <ul>
         {% for a in turn.actions %}
         <li>
-            <strong>{{ a.agent_id }}</strong>
-            <span class="act act-{{ a.action | lower }}">{{ a.action }}</span>{% if a.target_id %} <strong>{{ a.target_id }}</strong>{% endif %}
-            <small class="delta {{ 'pos' if a.points_delta > 0 else ('neg' if a.points_delta < 0 else 'zero') }}">{{ "%+d" | format(a.points_delta) }}</small>
-            {% if a.message %}<br><span class="msg">“{{ a.message }}”</span>{% endif %}
+            <div class="move">
+                <strong>{{ a.agent_id }}</strong>
+                <span class="act act-{{ a.action | lower }}">{{ a.action }}</span>{% if a.target_id %} <strong>{{ a.target_id }}</strong>{% endif %}
+                {% if a.was_defaulted %}<span class="missed">missed turn</span>{% endif %}
+            </div>
+            <div class="effect">
+                <span class="who">{{ a.agent_id }}</span>
+                <span class="delta {{ 'pos' if a.actor_delta > 0 else ('neg' if a.actor_delta < 0 else 'zero') }}">{{ "%+d" | format(a.actor_delta) }}</span>
+                {% if a.target_id and a.target_delta is not none %}
+                <span class="sep">·</span>
+                <span class="who">{{ a.target_id }}</span>
+                <span class="delta {{ 'pos' if a.target_delta > 0 else ('neg' if a.target_delta < 0 else 'zero') }}">{{ "%+d" | format(a.target_delta) }}</span>
+                {% endif %}
+            </div>
+            {% if a.message %}<div class="msg">“{{ a.message }}”</div>{% endif %}
         </li>
         {% endfor %}
     </ul>
