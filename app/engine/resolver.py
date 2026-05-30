@@ -33,14 +33,14 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
       6. Mark turn resolved.
     """
     # Players in this game.
-    players: list[Player] = (
+    players: list[Player] = list(
         (await db.execute(select(Player).where(Player.game_id == turn.game_id)))
         .scalars()
         .all()
     )
 
     # Materialize submissions, defaulting missing ones to HOARD.
-    submissions: list[TurnSubmission] = (
+    submissions: list[TurnSubmission] = list(
         (await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == turn.id)))
         .scalars()
         .all()
@@ -109,7 +109,7 @@ async def award_round_winners(db: AsyncSession, game: Game, round_num: int) -> N
 
     Updates total_round_wins and total_round_score on each player.
     """
-    players: list[Player] = (
+    players: list[Player] = list(
         (await db.execute(select(Player).where(Player.game_id == game.id)))
         .scalars()
         .all()
@@ -129,7 +129,7 @@ async def award_round_winners(db: AsyncSession, game: Game, round_num: int) -> N
 
 async def finalize_game(db: AsyncSession, game: Game) -> None:
     """End-of-game: pick winner, transition state, set completed_at."""
-    players: list[Player] = (
+    players: list[Player] = list(
         (await db.execute(select(Player).where(Player.game_id == game.id)))
         .scalars()
         .all()

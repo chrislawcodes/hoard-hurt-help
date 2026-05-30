@@ -140,7 +140,7 @@ class SchedulerRegistry:
         """On app startup, find any ACTIVE games and (re)start their loops."""
         factory = session_factory or SessionLocal
         async with factory() as db:
-            games: list[Game] = (
+            games: list[Game] = list(
                 (await db.execute(select(Game).where(Game.state == GameState.ACTIVE)))
                 .scalars()
                 .all()
@@ -168,7 +168,7 @@ async def _run_game(game_id: str) -> None:
         for round_num in range(start_round, game.total_rounds + 1):
             if round_num != start_round or start_turn == 1:
                 # Reset round scores at start of each fresh round.
-                players: list[Player] = (
+                players: list[Player] = list(
                     (await db.execute(select(Player).where(Player.game_id == game.id)))
                     .scalars()
                     .all()
