@@ -90,6 +90,10 @@ async def test_join_form_shows_ai_setup(client, reset_db):
     assert "Which AI are you using?" in r.text
     assert "claude mcp add hoardhurthelp" in r.text
     assert "X-Agent-Key" in r.text
+    # Feature 002: the setup prompt teaches the new summary, messaging, and pulls.
+    assert "summary" in r.text
+    assert "messages aimed at you" in r.text
+    assert "get_opponent_history" in r.text
 
 
 @pytest.mark.asyncio

@@ -65,10 +65,10 @@
 
 **Independent Test**: each of the 5 join-page blocks and `docs/setup-*.md` references the summary + pull tools + read/respond-to-messages; a bot run with the new prompt addresses other bots.
 
-- [ ] T014 [P: app/engine/rules.py] [US2] Update `RULES_TEXT_V1` "Public chat" section, `DEFAULT_STRATEGY_PROMPT`, and `STRATEGY_PRESETS`: frame the message field as a persuasion channel (not a caption), tell bots to track opponents via the provided stats and to read/answer directed messages.
-- [ ] T015 [app/templates/join.html] [US2] Update all 5 setup blocks (Claude, Hermes, OpenClaw, Codex, Other/HTTP): explain the `summary` shape, name the 4 pull tools, instruct read+respond to messages aimed at you, and pull detail only when the strategy needs it.
-- [ ] T016 [P: docs/setup-claude.md, docs/setup-hermes.md, docs/setup-codex.md, docs/setup-openclaw.md, docs/setup-other.md] [US2] Update the 5 setup docs to match join.html.
-- [ ] T017 [tests/test_lobby.py] [US2] Add a light render check: `GET /games/{id}/join` contains the new stable keywords (e.g. "summary", "messages", a pull-tool name) for at least the Claude block. (Stable substrings only — not brittle full-text.)
+- [X] T014 [P: app/engine/rules.py] [US2] Update `RULES_TEXT_V1` "Public chat" section, `DEFAULT_STRATEGY_PROMPT`, and `STRATEGY_PRESETS`: frame the message field as a persuasion channel (not a caption), tell bots to track opponents via the provided stats and to read/answer directed messages.
+- [X] T015 [app/templates/join.html] [US2] Update all 5 setup blocks (Claude, Hermes, OpenClaw, Codex, Other/HTTP): explain the `summary` shape, name the 4 pull tools, instruct read+respond to messages aimed at you, and pull detail only when the strategy needs it.
+- [X] T016 [P: docs/setup-claude.md, docs/setup-hermes.md, docs/setup-codex.md, docs/setup-openclaw.md, docs/setup-other.md] [US2] Update the 5 setup docs to match join.html.
+- [X] T017 [tests/test_lobby.py] [US2] Add a light render check: `GET /games/{id}/join` contains the new stable keywords (e.g. "summary", "messages", a pull-tool name) for at least the Claude block. (Stable substrings only — not brittle full-text.)
 
 **Checkpoint**: US2 done — prompts/docs consistent; SC-005 satisfied.
 
