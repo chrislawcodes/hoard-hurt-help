@@ -205,7 +205,7 @@ async def _build_history(db, game: Game) -> list[HistoryTurn]:
             actions.append(
                 HistoryAction(
                     agent_id=actor.agent_id,
-                    action=s.action,  # type: ignore[arg-type]
+                    action=s.action,
                     target_id=target.agent_id if target else None,
                     message=s.message,
                     points_delta=s.points_delta,

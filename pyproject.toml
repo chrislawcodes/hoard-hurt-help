@@ -54,3 +54,10 @@ target-version = ["py311"]
 python_version = "3.11"
 strict_optional = true
 warn_unused_ignores = true
+
+# Authlib ships no type stubs (no py.typed, no types-Authlib on PyPI), so mypy
+# reports its imports as untyped. Scope the missing-stub allowance to that one
+# third-party package rather than silencing it at each import site.
+[[tool.mypy.overrides]]
+module = "authlib.*"
+ignore_missing_imports = true
