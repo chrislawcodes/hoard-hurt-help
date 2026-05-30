@@ -36,7 +36,8 @@ def _join(base: str, game: str, name: str) -> tuple[str, str]:
 
 
 def _play_turn(base: str, game: str, name: str, headers: dict, body: dict) -> None:
-    static, dynamic = body["static"], body["dynamic"]
+    static, summary = body["static"], body["summary"]
+    situation = summary["your_situation"]
     others = [a for a in static["all_agent_ids"] if a != static["your_agent_id"]]
     action = random.choice(["HOARD", "HELP", "HURT"])
     target = None
@@ -49,7 +50,7 @@ def _play_turn(base: str, game: str, name: str, headers: dict, body: dict) -> No
         f"{base}/api/games/{game}/submit",
         headers=headers,
         json={
-            "turn_token": dynamic["turn_token"],
+            "turn_token": situation["turn_token"],
             "action": action,
             "target_id": target,
             "message": f"{name}: {action}",
@@ -57,7 +58,16 @@ def _play_turn(base: str, game: str, name: str, headers: dict, body: dict) -> No
         timeout=10,
     )
     arrow = f" -> {target}" if target else ""
-    print(f"[{name}] R{dynamic['current_round']}T{dynamic['current_turn']}: {action}{arrow} ({r.status_code})")
+    # Print evidence the bounded summary arrived: opponent short-list size, any
+    # messages aimed at us, and the cooperation temperature.
+    n_opp = len(summary.get("opponents", []))
+    n_msg = len(summary.get("messages_for_you", []))
+    temp = summary.get("board_signals", {}).get("temperature_label", "?")
+    print(
+        f"[{name}] R{situation['current_round']}T{situation['current_turn']}: "
+        f"{action}{arrow} ({r.status_code}) | summary: {n_opp} opp, "
+        f"{n_msg} msgs-for-me, temp={temp}"
+    )
 
 
 def main() -> None:
