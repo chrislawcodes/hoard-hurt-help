@@ -65,10 +65,10 @@
 
 ## Phase 5: Polish & docs
 
-- [ ] T018 [P: docs/writing-a-game-module.md] Short guide: implement the `Game` contract, register it, done — point at the PD module + the stub as examples.
-- [ ] T019 [P: DESIGN.md] Record the platform-vs-game-module architecture + the deferred storage generalization (rides with game #2).
-- [ ] T020 Full Preflight Gate from repo root: `ruff check . && mypy app/ mcp_server/ && pytest -q`; fix root causes (no suppressions). Walk quickstart.md US1–US5.
-- [ ] T021 [P: MEMORY.md + memory file, STATUS.md] Record the framework landing + the deferred storage generalization.
+- [X] T018 [P: docs/writing-a-game-module.md] Guide: implement the `GameModule` contract, register on import, done — contract table, `GameError`, how the platform calls you, the shared-storage caveat, and a new-game checklist. Points at the PD module + the stub test as examples.
+- [X] T019 [P: DESIGN.md] Added §11 "Game Framework": the platform-vs-game-module split, the registry seam, PD as a thin adapter over the unchanged engine, and the deferred storage/wire generalization (rides with game #2) with its rationale.
+- [X] T020 Full Preflight Gate from repo root green: `ruff check .` PASS, `mypy app/ mcp_server/` PASS (53 files), `pytest -q` 146 passed. No suppressions. US1 (PD plays identically) covered by the regression suite; US2–US5 (game-agnostic submit/resolve/score/view) covered by the stub conformance test.
+- [X] T021 [MEMORY.md + memory file] Wrote `game-framework-004.md` (platform+modules, PD=game #1, deferred storage/wire gen) and indexed it in MEMORY.md (also re-added the missing `feature-factory-no-manual-gates` index line). STATUS.md does not exist in this repo — skipped.
 
 ---
 
