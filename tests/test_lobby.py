@@ -248,6 +248,36 @@ async def test_name_taken_blocked(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_rename_bot(client, reset_db):
+    user = await _seed_user(reset_db)
+    bot_id, _ = await _seed_bot(reset_db, user, name="OldName")
+    r = await client.post(
+        f"/me/bots/{bot_id}/rename",
+        data={"name": "NewName"},
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    async with reset_db() as db:
+        bot = (await db.execute(select(Bot).where(Bot.id == bot_id))).scalar_one()
+    assert bot.name == "NewName"
+
+
+@pytest.mark.asyncio
+async def test_rename_duplicate_blocked(client, reset_db):
+    user = await _seed_user(reset_db)
+    await _seed_bot(reset_db, user, name="Taken")
+    bot_id, _ = await _seed_bot(reset_db, user, name="Mine")
+    r = await client.post(
+        f"/me/bots/{bot_id}/rename",
+        data={"name": "Taken"},
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_my_games_lists_user_games(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)

@@ -164,6 +164,34 @@ async def reissue_key(
     return RedirectResponse(url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
+@router.post("/{bot_id}/rename")
+async def rename_bot(
+    bot_id: Annotated[int, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+    name: Annotated[str, Form()],
+):
+    """Rename a bot. The connection code is unaffected — only the label changes."""
+    bot = await _owned_bot(db, user, bot_id)
+    name = name.strip()
+    if not _NAME_RE.fullmatch(name):
+        raise HTTPException(
+            400, detail="Bot name must be 1–64 letters, numbers, spaces, _ or -."
+        )
+    clash = (
+        await db.execute(
+            select(Bot).where(
+                Bot.user_id == user.id, Bot.name == name, Bot.id != bot.id
+            )
+        )
+    ).scalar_one_or_none()
+    if clash is not None:
+        raise HTTPException(409, detail="You already have a bot with that name.")
+    bot.name = name
+    await db.commit()
+    return RedirectResponse(url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @router.post("/{bot_id}/pause")
 async def pause_bot(
     bot_id: Annotated[int, Path()],
