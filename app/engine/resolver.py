@@ -108,7 +108,16 @@ async def award_round_winners(db: AsyncSession, game: Game, round_num: int) -> N
     """At end of a round, award fractional round-wins to the top scorers.
 
     Updates total_round_wins and total_round_score on each player.
+
+    Idempotent: a mid-game restart resumes the loop at the last turn of the
+    round it died on, re-opens that already-resolved turn, and would call this
+    again — double-counting wins and scores. Rounds are awarded in order, so
+    `game.rounds_awarded` (the highest round already folded into the totals)
+    lets us skip a repeat. See app/engine/scheduler.py:_run_game.
     """
+    if round_num <= game.rounds_awarded:
+        return
+
     players: list[Player] = list(
         (await db.execute(select(Player).where(Player.game_id == game.id)))
         .scalars()
@@ -124,6 +133,7 @@ async def award_round_winners(db: AsyncSession, game: Game, round_num: int) -> N
     for p in players:
         p.total_round_score += p.current_round_score
 
+    game.rounds_awarded = round_num
     await db.commit()
 
 
