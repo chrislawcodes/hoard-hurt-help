@@ -28,6 +28,14 @@ class BotStatus(str, enum.Enum):
     PAUSED = "paused"
 
 
+class BotProvider(str, enum.Enum):
+    CLAUDE = "claude"
+    GEMINI = "gemini"
+    OPENAI = "openai"
+    HERMES = "hermes"
+    OPENCLAW = "openclaw"
+
+
 class Bot(Base):
     __tablename__ = "bots"
     # A user's bot names are distinct so the owner can tell them apart.
@@ -57,6 +65,13 @@ class Bot(Base):
     first_connected_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Which AI provider this bot uses. NULL = not configured (runner defaults to Claude).
+    provider: Mapped[BotProvider | None] = mapped_column(
+        Enum(BotProvider, native_enum=False, length=16),
+        nullable=True,
+    )
+    # Specific model ID within the provider (e.g. "claude-sonnet-4-6"). NULL = provider default.
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -522,11 +522,16 @@ async def join_submit(
             status_code=code,
         )
 
+    if bot.provider:
+        _model_label = bot.provider.value + (f"/{bot.model}" if bot.model else "")
+    else:
+        _model_label = None
     player = Player(
         game_id=game.id,
         user_id=bot.user_id,
         bot_id=bot.id,
         agent_id=display_name,
+        model_self_report=_model_label,
     )
     db.add(player)
     await db.flush()

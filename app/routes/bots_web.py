@@ -19,7 +19,7 @@ from app.config import settings
 from app.deps import DbSession, require_user
 from app.engine.bot_activity import bot_channel, compute_onboarding_status
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
-from app.models.bot import Bot, BotStatus
+from app.models.bot import Bot, BotProvider, BotStatus
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.user import User
@@ -212,6 +212,32 @@ async def reissue_key(
     bot.key_hint = bot_key_hint(key)
     await db.commit()
     request.session[f"fresh_bot_key_{bot.id}"] = key
+    return RedirectResponse(url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/{bot_id}/set-model")
+async def set_bot_model(
+    bot_id: Annotated[int, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+    provider: Annotated[str, Form()],
+    model: Annotated[str | None, Form()] = None,
+):
+    """Save the bot's provider and model. For CLI providers (claude/gemini/openai)
+    a specific model may optionally be set. For MCP providers (hermes/openclaw)
+    the model is managed by the agent itself, so we clear it."""
+    bot = await _owned_bot(db, user, bot_id)
+    if provider == "":
+        bot.provider = None
+        bot.model = None
+    else:
+        try:
+            bot.provider = BotProvider(provider)
+        except ValueError:
+            raise HTTPException(400, detail=f"Unknown provider {provider!r}.")
+        cli_providers = {BotProvider.CLAUDE, BotProvider.GEMINI, BotProvider.OPENAI}
+        bot.model = (model or None) if bot.provider in cli_providers else None
+    await db.commit()
     return RedirectResponse(url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER)
 
 

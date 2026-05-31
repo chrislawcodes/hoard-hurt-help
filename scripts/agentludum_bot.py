@@ -31,27 +31,34 @@ import httpx
 
 DEFAULT_URL = "https://hoard-hurt-help-production.up.railway.app"
 
-# How to invoke each known model CLI. The prompt is appended as the final arg.
-_MODEL_PRESETS = {
-    "claude": ["claude", "-p"],
-    "gemini": ["gemini", "--prompt"],
-    "codex": ["codex", "exec"],
-}
+# Valid provider names. "codex" is kept as an alias for "openai" (backwards compat).
+_VALID_PROVIDERS = {"claude", "gemini", "openai", "codex"}
 
 # Running token totals across all turns this session.
 _tokens: dict[str, int] = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
 
 
-def _model_argv(model: str, model_cmd: str | None, prompt: str) -> list[str]:
+def _model_argv(provider: str, model_version: str | None, model_cmd: str | None, prompt: str) -> list[str]:
     if model_cmd:
         return shlex.split(model_cmd) + [prompt]
-    preset = _MODEL_PRESETS.get(model)
-    if preset is None:
-        raise SystemExit(
-            f"Unknown --model {model!r}. Use one of {list(_MODEL_PRESETS)}, "
-            "or pass --model-cmd."
-        )
-    return [*preset, prompt]
+    if provider == "claude":
+        argv = ["claude"]
+        if model_version:
+            argv += ["--model", model_version]
+        return argv + ["-p", prompt]
+    if provider == "gemini":
+        argv = ["gemini"]
+        if model_version:
+            argv += ["--model", model_version]
+        return argv + ["--prompt", prompt]
+    if provider in ("openai", "codex"):
+        argv = ["codex", "exec"]
+        if model_version:
+            argv += ["-m", model_version]
+        return argv + [prompt]
+    raise SystemExit(
+        f"Unknown --model {provider!r}. Use claude, gemini, or openai, or pass --model-cmd."
+    )
 
 
 def _build_prompt(turn: dict) -> str:
@@ -94,19 +101,19 @@ def _parse_decision(raw: str) -> dict:
         raise RuntimeError(f"model returned non-JSON:\n{raw[:500]}")
 
 
-def decide(turn: dict, model: str, model_cmd: str | None) -> dict:
+def decide(turn: dict, provider: str, model_version: str | None, model_cmd: str | None) -> dict:
     """Ask the model for a move. Falls back to HOARD on any failure.
 
-    For the claude preset, passes --output-format=json so token usage is
-    available in the response and logged to stdout as a running session total.
+    For Claude, passes --output-format=json so token usage is available in the
+    response and logged to stdout as a running session total.
     """
     prompt = _build_prompt(turn)
-    use_json = model == "claude" and not model_cmd
+    use_json = provider == "claude" and not model_cmd
     if use_json:
-        base_argv = _model_argv(model, model_cmd, prompt)
+        base_argv = _model_argv(provider, model_version, model_cmd, prompt)
         argv = base_argv[:-1] + ["--output-format=json", base_argv[-1]]
     else:
-        argv = _model_argv(model, model_cmd, prompt)
+        argv = _model_argv(provider, model_version, model_cmd, prompt)
 
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=120)
@@ -145,7 +152,12 @@ def main() -> None:
     ap.add_argument("--key", required=True, help="Your bot key (sk_bot_...)")
     ap.add_argument("--url", default=DEFAULT_URL, help="Game server base URL")
     ap.add_argument(
-        "--model", default="claude", help="Model CLI preset: claude | gemini | codex"
+        "--model", default=None,
+        help="Provider: claude | gemini | openai (default: from bot config, or claude)"
+    )
+    ap.add_argument(
+        "--model-version", default=None,
+        help="Specific model ID, e.g. claude-sonnet-4-6 (default: from bot config)"
     )
     ap.add_argument(
         "--model-cmd", default=None, help="Custom model command; the prompt is appended"
@@ -188,7 +200,17 @@ def main() -> None:
 
         game_id = turn["game_id"]
         current = turn["current"]
-        decision = decide(turn, args.model, args.model_cmd)
+        # Provider priority: --model flag > bot config from payload > "claude"
+        provider = args.model
+        model_version = args.model_version
+        if not provider and not args.model_cmd:
+            pref = turn.get("preferred_provider")
+            if pref and pref in _VALID_PROVIDERS:
+                provider = pref
+        if not model_version:
+            model_version = turn.get("preferred_model") or None
+        provider = provider or "claude"
+        decision = decide(turn, provider, model_version, args.model_cmd)
         action = str(decision.get("action", "HOARD")).upper()
         target = decision.get("target_id")
         message = (decision.get("message") or "")[:200]
