@@ -14,27 +14,55 @@
     <button type="submit" class="secondary">Rename</button>
 </form>
 
+<div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-top:0;">Agent</h3>
+    <form method="post" action="/me/bots/{{ bot.id }}/set-model" class="form" style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+        <div>
+            <label for="provider-sel" style="display:block; font-weight:600; margin-bottom:0.25rem;">Provider</label>
+            <select name="provider" id="provider-sel">
+                <option value="">— not set —</option>
+                <option value="claude"{% if bot.provider and bot.provider.value == 'claude' %} selected{% endif %}>Claude (Anthropic)</option>
+                <option value="gemini"{% if bot.provider and bot.provider.value == 'gemini' %} selected{% endif %}>Gemini (Google)</option>
+                <option value="openai"{% if bot.provider and bot.provider.value == 'openai' %} selected{% endif %}>OpenAI</option>
+                <option value="hermes"{% if bot.provider and bot.provider.value == 'hermes' %} selected{% endif %}>Hermes</option>
+                <option value="openclaw"{% if bot.provider and bot.provider.value == 'openclaw' %} selected{% endif %}>OpenClaw</option>
+            </select>
+        </div>
+        <div id="model-wrapper" style="display:none;">
+            <label for="model-sel" style="display:block; font-weight:600; margin-bottom:0.25rem;">Model</label>
+            <select name="model" id="model-sel"></select>
+        </div>
+        <button type="submit" class="secondary">Save</button>
+    </form>
+    <p class="hint" style="margin-top:0.5rem;">
+        {% if bot.provider %}
+            Currently:
+            {% set _pnames = {'claude': 'Claude', 'gemini': 'Gemini', 'openai': 'OpenAI', 'hermes': 'Hermes', 'openclaw': 'OpenClaw'} %}
+            <strong>{{ _pnames[bot.provider.value] }}</strong>
+            {%- if bot.model %} · {{ bot.model }}{% endif %}
+            {%- if bot.provider.value in ['hermes', 'openclaw'] %} — model is managed by your agent.{% endif %}
+        {% else %}
+            Not set — runner defaults to Claude.
+        {% endif %}
+    </p>
+</div>
+
 {% if fresh_key %}
 <div class="card">
     <h3>Connect your bot — paste this to your AI</h3>
     <p class="hint">This starts the <strong>runner</strong>: a tiny program that plays for you. It only calls your model when it's actually your turn, so leaving it on is cheap. The message below holds your bot's connection code — <strong>shown only this once</strong>, and we can't show it again.</p>
 
-    <fieldset>
-        <legend>Which model should your bot play with?</legend>
-        <div class="ai-picker" id="model-picker">
-            <label><input type="radio" name="model_type" value="claude" data-flag="--model claude" checked><span>Claude</span></label>
-            <label><input type="radio" name="model_type" value="gemini" data-flag="--model gemini"><span>Gemini</span></label>
-            <label><input type="radio" name="model_type" value="codex" data-flag="--model codex"><span>Codex</span></label>
-            <label><input type="radio" name="model_type" value="other" data-flag='--model-cmd "your model command, e.g. ollama run llama3"'><span>Other</span></label>
-        </div>
-    </fieldset>
-
     <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Copy message</button>
+    {%- if bot.provider and bot.provider.value in ['claude', 'gemini', 'openai'] %}
+      {%- set _runner_flags = "--model " + bot.provider.value + (" --model-version " + bot.model if bot.model else "") %}
+    {%- else %}
+      {%- set _runner_flags = "--model claude" %}
+    {%- endif %}
     <pre id="runner-msg">Please set up my bot to play Hoard-Hurt-Help in the background, and keep it running.
 
 Run these commands:
 curl -fsSL {{ base_url }}/agentludum_bot.py -o agentludum_bot.py
-python3 agentludum_bot.py --key {{ fresh_key }} <span id="runner-model">--model claude</span> --url {{ base_url }}
+python3 agentludum_bot.py --key {{ fresh_key }} {{ _runner_flags }} --url {{ base_url }}
 
 Leave it running. It checks for my turns and only calls the model when it's actually my move — so it's cheap to leave on — and it automatically plays every game I enter this bot into. If it ever prints "invalid key", stop and tell me; I'll reissue the code from My Bots.</pre>
     <p class="hint">You'll need Python 3 and your model's command-line tool (claude / gemini / codex) installed and signed in.</p>
@@ -133,20 +161,53 @@ Don't stop to ask me anything until my games are over.</pre>
 </div>
 
 <script>
-document.querySelectorAll('#model-picker input[name="model_type"]').forEach(function (r) {
-    r.addEventListener('change', function () {
-        var flag = document.getElementById('runner-model');
-        if (flag) flag.textContent = r.dataset.flag;
-    });
-});
+(function () {
+    var MODELS = {
+        claude: [
+            ['claude-haiku-4-5', 'Haiku 4.5 — fastest, cheapest'],
+            ['claude-sonnet-4-6', 'Sonnet 4.6 — balanced'],
+            ['claude-opus-4-8', 'Opus 4.8 — most capable'],
+        ],
+        gemini: [
+            ['gemini-2.5-flash-lite', 'Flash Lite — cheapest'],
+            ['gemini-2.5-flash', 'Flash — balanced'],
+            ['gemini-2.5-pro', 'Pro — most capable'],
+        ],
+        openai: [
+            ['gpt-5.4-mini', 'Mini — fastest, cheapest'],
+            ['gpt-5.4', 'Standard'],
+            ['gpt-5.5', 'Max — most capable'],
+        ],
+    };
+    var currentModel = '{{ bot.model or "" }}';
 
-// One-shot flourish when the live status panel updates. This only fires on an
-// SSE-driven swap; a plain reload renders the panel server-side with no swap,
-// so it stays calm (no re-run of the connect/first-move celebration).
+    function updateModelPicker(provider) {
+        var wrapper = document.getElementById('model-wrapper');
+        var sel = document.getElementById('model-sel');
+        var opts = MODELS[provider];
+        if (!opts) { wrapper.style.display = 'none'; return; }
+        wrapper.style.display = '';
+        sel.innerHTML = '';
+        opts.forEach(function (pair) {
+            var o = document.createElement('option');
+            o.value = pair[0];
+            o.textContent = pair[1];
+            if (pair[0] === currentModel) o.selected = true;
+            sel.appendChild(o);
+        });
+    }
+
+    var providerSel = document.getElementById('provider-sel');
+    if (providerSel) {
+        providerSel.addEventListener('change', function () { updateModelPicker(this.value); });
+        updateModelPicker(providerSel.value);
+    }
+})();
+
 document.body.addEventListener('htmx:afterSwap', function (e) {
     if (e.target && e.target.id === 'bot-status') {
         e.target.classList.remove('status-flash');
-        void e.target.offsetWidth;  // reflow so the animation can restart
+        void e.target.offsetWidth;
         e.target.classList.add('status-flash');
     }
 });

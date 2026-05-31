@@ -159,4 +159,6 @@ async def next_turn(
             deadline=turn.deadline_at,
             turn_token=turn.turn_token,
         ),
+        preferred_provider=bot.provider.value if bot.provider else None,
+        preferred_model=bot.model,
     )

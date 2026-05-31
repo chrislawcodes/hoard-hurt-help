@@ -238,6 +238,10 @@ class NextTurnYourTurn(BaseModel):
     history: list[HistoryTurn]
     scoreboard: list[ScoreboardRow]
     current: CurrentTurn
+    # The owner's configured provider and model. The runner uses these to pick the
+    # right CLI when no --model flag was passed. NULL = not configured by the owner.
+    preferred_provider: str | None = None
+    preferred_model: str | None = None
 
 
 # --- Submit ---
