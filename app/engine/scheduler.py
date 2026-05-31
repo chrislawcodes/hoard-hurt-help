@@ -15,8 +15,9 @@ new ones and resume after process restarts.
 """
 
 import asyncio
+import functools
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -63,7 +64,20 @@ class SchedulerRegistry:
     def start(self, game_id: str) -> None:
         if self.is_running(game_id):
             return
-        self._tasks[game_id] = asyncio.create_task(_run_game(game_id))
+        task = asyncio.create_task(_run_game(game_id))
+        # The loop is fire-and-forget. Without a done-callback its exception sits
+        # unretrieved on the task and is NEVER logged — that is how a crashed
+        # game silently froze mid-turn. Surface it instead.
+        task.add_done_callback(functools.partial(self._log_task_result, game_id))
+        self._tasks[game_id] = task
+
+    def _log_task_result(self, game_id: str, task: asyncio.Task) -> None:
+        """Log a game loop that ended in an exception (not a clean finish)."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("game %s loop task crashed", game_id, exc_info=exc)
 
     def stop(self, game_id: str) -> None:
         t = self._tasks.pop(game_id, None)
@@ -195,20 +209,30 @@ async def _run_game(game_id: str) -> None:
 
             for turn_num in range(first_turn, game.turns_per_round + 1):
                 turn = await _open_turn(db, game, round_num, turn_num)
-                await publish(
-                    game.id,
-                    "turn_opened",
-                    {"round": round_num, "turn": turn_num, "deadline": turn.deadline_at.isoformat()},
-                )
+                # A reused turn that already resolved (we died after resolving it
+                # but before moving on) must NOT resolve again — that double-counts
+                # scores. Skip it. A reused-but-unresolved turn whose deadline has
+                # passed falls through: _wait_for_turn returns at once and we
+                # resolve the moves that were already submitted.
+                if turn.resolved_at is None:
+                    await publish(
+                        game.id,
+                        "turn_opened",
+                        {
+                            "round": round_num,
+                            "turn": turn_num,
+                            "deadline": turn.deadline_at.isoformat(),
+                        },
+                    )
 
-                await _wait_for_turn(db, turn)
+                    await _wait_for_turn(db, turn)
 
-                await module.resolve_turn(db, turn)
-                await publish(
-                    game.id,
-                    "turn_resolved",
-                    {"round": round_num, "turn": turn_num},
-                )
+                    await module.resolve_turn(db, turn)
+                    await publish(
+                        game.id,
+                        "turn_resolved",
+                        {"round": round_num, "turn": turn_num},
+                    )
 
             await module.award_round(db, game, round_num)
             await publish(game.id, "round_ended", {"round": round_num})
@@ -218,9 +242,30 @@ async def _run_game(game_id: str) -> None:
 
 
 async def _open_turn(db, game: Game, round_num: int, turn_num: int) -> Turn:
-    now = datetime.now(timezone.utc)
-    from datetime import timedelta
+    """Open the turn row for (game, round, turn), reusing it if it already exists.
 
+    On a mid-game restart the loop resumes from game.current_round/current_turn,
+    which points at a turn that was already opened before the crash. A blind
+    INSERT would hit uq_turns_game_id_round_turn and kill the whole game loop, so
+    we get-or-create: an existing row is handed back unchanged and the caller
+    decides (via resolved_at) whether it still needs resolving.
+    """
+    existing = (
+        await db.execute(
+            select(Turn).where(
+                Turn.game_id == game.id,
+                Turn.round == round_num,
+                Turn.turn == turn_num,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        game.current_round = round_num
+        game.current_turn = turn_num
+        await db.commit()
+        return existing
+
+    now = datetime.now(timezone.utc)
     turn = Turn(
         game_id=game.id,
         round=round_num,
