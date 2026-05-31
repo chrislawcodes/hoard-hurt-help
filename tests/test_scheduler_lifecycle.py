@@ -1,9 +1,11 @@
 """Scheduler lifecycle tests: resolve-early and auto-start of due games."""
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import func, select
 
 from app.engine import scheduler
 from app.engine.scheduler import _all_submitted, _wait_for_turn
@@ -156,6 +158,55 @@ async def test_start_due_games_cancels_due_game_under_floor(db, monkeypatch):
     assert n == 0
     await db.refresh(game)
     assert game.state == GameState.CANCELLED
+
+
+# --- idempotent resume (a mid-game restart must not crash the loop) ---
+
+
+async def test_open_turn_reuses_existing_row_on_resume(db):
+    # Resuming at game.current_turn hits a turn row that already exists.
+    # _open_turn must return that same row, not blow up on the
+    # (game_id, round, turn) unique constraint (the bug that froze G_0012).
+    game, _ = await _make_game(db, n_players=3)
+    first = await scheduler._open_turn(db, game, 2, 5)
+    again = await scheduler._open_turn(db, game, 2, 5)
+
+    assert again.id == first.id
+    count = await db.scalar(
+        select(func.count())
+        .select_from(Turn)
+        .where(Turn.game_id == game.id, Turn.round == 2, Turn.turn == 5)
+    )
+    assert count == 1
+
+
+async def test_open_turn_creates_fresh_row_and_sets_pointer(db):
+    game, _ = await _make_game(db, n_players=3)
+    turn = await scheduler._open_turn(db, game, 3, 7)
+
+    assert (turn.round, turn.turn) == (3, 7)
+    assert turn.resolved_at is None
+    await db.refresh(game)
+    assert (game.current_round, game.current_turn) == (3, 7)
+
+
+async def test_crashed_game_loop_is_logged(monkeypatch, caplog):
+    # A crash inside the loop must be surfaced, not swallowed as an unretrieved
+    # task exception — that silent swallowing is what froze G_0012 with no log.
+    reg = scheduler.SchedulerRegistry()
+
+    async def boom(game_id: str) -> None:
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(scheduler, "_run_game", boom)
+    with caplog.at_level(logging.ERROR):
+        reg.start("G_X")
+        task = reg._tasks["G_X"]
+        with pytest.raises(RuntimeError):
+            await task
+        await asyncio.sleep(0)  # let the done-callback fire
+
+    assert any("crashed" in r.getMessage() for r in caplog.records)
 
 
 async def test_start_due_games_starts_due_scheduled_game(db, monkeypatch):
