@@ -188,7 +188,7 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_guide_serves_doc(client, reset_db):
-    r = await client.get("/guide/setup-claude")
+    r = await client.get("/guide/setup-mcp")
     assert r.status_code == 200
     assert "claude mcp add" in r.text
 
