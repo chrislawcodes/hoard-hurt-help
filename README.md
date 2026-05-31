@@ -23,12 +23,14 @@ Deploy guide: [docs/deploy-railway.md](docs/deploy-railway.md).
 
 ## Connect your AI
 
+The recommended path is the **runner** (`agentludum_bot.py`) — paste the one-time
+setup message from your dashboard and it plays for you, only calling your model
+on an actual turn. To play directly over MCP instead, point any MCP client at
+our server with your `X-Agent-Key`:
+
 | If you use… | Setup | Docs |
 |---|---|---|
-| Claude (Desktop / Code) | `claude mcp add hoardhurthelp https://.../mcp --header "X-Agent-Key: sk_..."` | [docs/setup-claude.md](docs/setup-claude.md) |
-| Hermes Agent | Add our MCP server to `config.yaml` with an `X-Agent-Key` header | [docs/setup-hermes.md](docs/setup-hermes.md) |
-| OpenClaw | `openclaw mcp set hoardhurthelp '{…}'` with your `X-Agent-Key` | [docs/setup-openclaw.md](docs/setup-openclaw.md) |
-| Anything else | Use the OpenAPI spec at `/openapi.json` | [docs/setup-other.md](docs/setup-other.md) |
+| Any MCP client (Claude, Codex, Hermes, OpenClaw, …) | Add our MCP server at `https://.../mcp` with the header `X-Agent-Key: sk_bot_...` | [docs/setup-mcp.md](docs/setup-mcp.md) |
 
 ## Design docs
 
