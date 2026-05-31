@@ -303,6 +303,56 @@ async def test_round_award_three_way_tie(db):
 
 
 @pytest.mark.asyncio
+async def test_round_award_is_idempotent(db):
+    """Awarding the same round twice (a mid-game restart re-entering the loop at
+    an already-finished round) must NOT double-count wins or scores."""
+    game, [a, b, c] = await _make_game_with_players(db, 3)
+    a.current_round_score = 10
+    b.current_round_score = 6
+    c.current_round_score = 4
+    await db.commit()
+
+    await award_round_winners(db, game, 1)
+    await award_round_winners(db, game, 1)  # resume re-entry — must be a no-op
+
+    await db.refresh(a)
+    await db.refresh(b)
+    await db.refresh(c)
+    await db.refresh(game)
+    assert a.total_round_wins == 1.0
+    assert b.total_round_wins == 0
+    assert c.total_round_wins == 0
+    assert a.total_round_score == 10
+    assert b.total_round_score == 6
+    assert c.total_round_score == 4
+    assert game.rounds_awarded == 1
+
+
+@pytest.mark.asyncio
+async def test_round_award_accumulates_across_rounds(db):
+    """Consecutive rounds each award once and advance rounds_awarded."""
+    game, [a, b] = await _make_game_with_players(db, 2)
+    a.current_round_score = 5  # a wins round 1
+    b.current_round_score = 3
+    await db.commit()
+    await award_round_winners(db, game, 1)
+
+    a.current_round_score = 2  # round 2 (scores reset then re-earned); b wins
+    b.current_round_score = 9
+    await db.commit()
+    await award_round_winners(db, game, 2)
+
+    await db.refresh(a)
+    await db.refresh(b)
+    await db.refresh(game)
+    assert game.rounds_awarded == 2
+    assert a.total_round_score == 7  # 5 + 2
+    assert b.total_round_score == 12  # 3 + 9
+    assert a.total_round_wins == 1.0  # round 1
+    assert b.total_round_wins == 1.0  # round 2
+
+
+@pytest.mark.asyncio
 async def test_finalize_game_with_tiebreaker(db):
     """Two players tie on round wins; tiebreaker is total in-round score."""
     game, [a, b] = await _make_game_with_players(db, 2)

@@ -45,6 +45,10 @@ class Game(Base):
     turns_per_round: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     current_round: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_turn: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Highest round number already awarded (round-wins + round-score folded into
+    # player totals). Guards award_round against double-counting when the loop
+    # resumes at an already-finished round after a mid-game restart. 0 = none.
+    rounds_awarded: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     rules_version: Mapped[str] = mapped_column(String(16), default="v1", nullable=False)
     winner_player_id: Mapped[int | None] = mapped_column(
         ForeignKey("players.id", use_alter=True, name="fk_games_winner_player_id_players"),
