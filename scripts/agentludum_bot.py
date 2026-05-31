@@ -38,6 +38,9 @@ _MODEL_PRESETS = {
     "codex": ["codex", "exec"],
 }
 
+# Running token totals across all turns this session.
+_tokens: dict[str, int] = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+
 
 def _model_argv(model: str, model_cmd: str | None, prompt: str) -> list[str]:
     if model_cmd:
@@ -94,15 +97,44 @@ def _parse_decision(raw: str) -> dict:
 def decide(turn: dict, model: str, model_cmd: str | None) -> dict:
     """Ask the model for a move. Falls back to HOARD on any failure.
 
-    The prompt is passed as a CLI arg; an extremely long game history could
-    approach the OS arg-length limit, but that is fine for normal games.
+    For the claude preset, passes --output-format=json so token usage is
+    available in the response and logged to stdout as a running session total.
     """
-    argv = _model_argv(model, model_cmd, _build_prompt(turn))
+    prompt = _build_prompt(turn)
+    use_json = model == "claude" and not model_cmd
+    if use_json:
+        base_argv = _model_argv(model, model_cmd, prompt)
+        argv = base_argv[:-1] + ["--output-format=json", base_argv[-1]]
+    else:
+        argv = _model_argv(model, model_cmd, prompt)
+
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or f"exit {result.returncode}")
-        return _parse_decision(result.stdout)
+
+        if use_json:
+            data = json.loads(result.stdout)
+            text = data.get("result", "")
+            u = data.get("usage", {})
+            inp        = u.get("input_tokens", 0)
+            out        = u.get("output_tokens", 0)
+            cache_read = u.get("cache_read_input_tokens", 0)
+            cache_new  = u.get("cache_creation_input_tokens", 0)
+            _tokens["input"]       += inp
+            _tokens["output"]      += out
+            _tokens["cache_read"]  += cache_read
+            _tokens["cache_write"] += cache_new
+            print(
+                f"[agentludum-bot] tokens: in={inp} out={out} "
+                f"cache_read={cache_read} cache_new={cache_new} | "
+                f"session totals: in={_tokens['input']} out={_tokens['output']} "
+                f"cache_read={_tokens['cache_read']} cache_new={_tokens['cache_write']}"
+            )
+            return _parse_decision(text)
+        else:
+            return _parse_decision(result.stdout)
+
     except Exception as e:  # any model/parse error → safe default
         print(f"[agentludum-bot] model error: {e}. Defaulting to HOARD.", file=sys.stderr)
         return {"action": "HOARD", "target_id": None, "message": ""}
