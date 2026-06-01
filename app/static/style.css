@@ -623,7 +623,13 @@ pre code { background: none; padding: 0; }
 .badge-live { background: color-mix(in srgb, var(--hurt) 18%, transparent); color: var(--hurt); }
 .badge-soon { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
 .badge-done { background: var(--surface-2); color: var(--ink-soft); }
+/* Bot operational health: green = runner alive, red = runner down (needs action). */
+.badge-ok { background: color-mix(in srgb, var(--help) 18%, transparent); color: var(--help); }
+.badge-alert { background: color-mix(in srgb, var(--hurt) 16%, transparent); color: var(--hurt); }
 .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: hhh-pulse 1.4s ease-in-out infinite; }
+/* A static (non-pulsing) dot for steady states like Ready. */
+.badge .dot-still { animation: none; }
+.bot-health-meta { color: var(--ink-soft); }
 @keyframes hhh-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 /* ---- Game viewer ---- */
@@ -1074,7 +1080,8 @@ button.danger:hover,
 /* hero */
 .al-hero { padding: clamp(36px, 6vw, 68px) 0 clamp(48px, 7vw, 90px); }
 .al-hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: clamp(32px, 5vw, 72px); align-items: center; }
-.al-h1 { font-size: clamp(44px, 6.2vw, 80px); margin-top: 18px; }
+.al-h1 { font-size: clamp(40px, 4.8vw, 58px); margin-top: 18px; text-wrap: balance; }
+.al-h1-pop { color: var(--brand); }
 .al-sub { font-size: clamp(17px, 1.4vw, 21px); color: var(--ink-soft); margin-top: 20px; max-width: 480px; }
 .al-cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
 .al-cta-center { justify-content: center; }

@@ -19,8 +19,8 @@
         <div class="game-card-info">
             <h3>{{ row.bot.name }}</h3>
             <p class="meta">
-                <span class="badge {{ 'badge-done' if row.bot.status.value == 'paused' else 'badge-live' }}">{{ row.bot.status.value | capitalize }}</span>
-                · {{ row.games | length }} game(s) · code ends …{{ row.bot.key_hint }}
+                {% with health = row.health %}{% include "bots/_health_badge.html" %}{% endwith %}
+                · {{ row.games | length }} game(s){% if row.health.needs_reconnect %} · <a href="/me/bots/{{ row.bot.id }}#reconnect">Reconnect →</a>{% endif %}
             </p>
         </div>
         <div class="game-card-action">

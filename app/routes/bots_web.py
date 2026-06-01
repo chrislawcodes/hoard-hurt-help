@@ -17,7 +17,11 @@ from sqlalchemy import select
 from app.broadcast import subscribe
 from app.config import settings
 from app.deps import DbSession, require_user
-from app.engine.bot_activity import bot_channel, compute_onboarding_status
+from app.engine.bot_activity import (
+    bot_channel,
+    compute_bot_health,
+    compute_onboarding_status,
+)
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
 from app.models.bot import Bot, BotProvider, BotStatus
 from app.models.game import Game, GameState
@@ -102,7 +106,14 @@ async def list_bots(
         .scalars()
         .all()
     )
-    rows = [{"bot": b, "games": await _bot_games(db, b)} for b in bots]
+    rows = [
+        {
+            "bot": b,
+            "games": await _bot_games(db, b),
+            "health": await compute_bot_health(db, b),
+        }
+        for b in bots
+    ]
     return templates.TemplateResponse(
         request,
         "bots/list.html",
@@ -170,6 +181,7 @@ async def bot_detail(
             "has_history": has_history,
             "base_url": settings.base_url,
             "onboarding": await compute_onboarding_status(db, bot),
+            "health": await compute_bot_health(db, bot),
         },
     )
 
@@ -229,11 +241,46 @@ async def reissue_key(
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
 ):
-    """Issue a fresh key, invalidating the old one immediately. Allowed any time."""
+    """Issue a fresh key with a graceful overlap. Allowed any time.
+
+    The OLD key keeps working until the new one is first used (then require_bot
+    retires it), so reconnecting never knocks a still-running bot offline. For a
+    leaked key use ``/revoke`` instead, which cuts the old key off immediately.
+
+    Double-reissue safety: if a previous reissue is still pending (its new key was
+    never used, so prev_key_lookup is already set), keep that still-valid old key
+    and only replace the unused pending key — the key the bot may actually be
+    running on is never orphaned.
+    """
+    bot = await _owned_bot(db, user, bot_id)
+    key = generate_bot_key()
+    if bot.prev_key_lookup is None:
+        bot.prev_key_lookup = bot.key_lookup
+    bot.key_lookup = bot_key_lookup(key)
+    bot.key_hint = bot_key_hint(key)
+    await db.commit()
+    request.session[f"fresh_bot_key_{bot.id}"] = key
+    return RedirectResponse(url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/{bot_id}/revoke")
+async def revoke_and_reissue(
+    bot_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+):
+    """Issue a fresh key and kill every old key IMMEDIATELY (no overlap).
+
+    For the leaked-key case: any AI still using an old code stops working at once
+    and must paste the new setup message. For a routine reconnect, prefer
+    ``/reissue``, which doesn't interrupt a running bot.
+    """
     bot = await _owned_bot(db, user, bot_id)
     key = generate_bot_key()
     bot.key_lookup = bot_key_lookup(key)
     bot.key_hint = bot_key_hint(key)
+    bot.prev_key_lookup = None
     await db.commit()
     request.session[f"fresh_bot_key_{bot.id}"] = key
     return RedirectResponse(url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER)

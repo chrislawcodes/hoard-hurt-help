@@ -4,10 +4,13 @@
 <a href="/me/bots">← My Bots</a>
 <h1>{{ bot.name }}</h1>
 <p class="meta">
-    Status:
-    <span class="badge {{ 'badge-done' if bot.status.value == 'paused' else 'badge-live' }}">{{ bot.status.value | capitalize }}</span>
+    {% include "bots/_health_badge.html" %}
     · connection code ends …{{ bot.key_hint }}
 </p>
+
+{% if health.needs_reconnect %}
+{% include "bots/_reconnect.html" %}
+{% endif %}
 
 <form method="post" action="/me/bots/{{ bot.id }}/rename" class="form" style="display:flex; gap:0.5rem; align-items:center; max-width:420px; margin:0.5rem 0 1.5rem;">
     <input type="text" name="name" value="{{ bot.name }}" maxlength="120" required aria-label="Bot name">
@@ -68,7 +71,7 @@ python3 {{ _runner_file }} --key {{ fresh_key }}{% if bot.model %} --model {{ bo
 Leave it running. It plays every game I enter this bot into. It keeps one session per game, so it remembers the whole match and only thinks on my turns. If it ever prints "invalid key", stop and tell me; I'll reissue the code from My Bots.</pre>
     <p class="hint">You'll need Python 3 and the <strong>{{ _tools.get(_provider) }}</strong> command-line tool installed and signed in.</p>
     <p class="hint">To stop your bot: come back to this chat and tell it to stop or press Ctrl-C where it's running.</p>
-    <p class="hint">Heads up: this code is shown only once. If you lose it, reissue a fresh one any time from this page — the old code stops working.</p>
+    <p class="hint">Heads up: this code is shown only once. If you lose it, reissue a fresh one any time — your current code keeps working until the new one connects, so reissuing won't interrupt a running bot.</p>
 </div>
 {% else %}
 <div class="card">
@@ -111,8 +114,8 @@ Don't stop to ask me anything until my games are over.</pre>
 </details>
 {% else %}
 <div class="card">
-    <p class="hint">This bot's connection code was shown once, inside the setup message, when you created it or last reissued it. We only store a scrambled copy, so we can't show it again.</p>
-    <form method="post" action="/me/bots/{{ bot.id }}/reissue" onsubmit="return confirm('Reissuing makes the current code stop working immediately. Any connected AI must paste the new setup message. Continue?');">
+    <p class="hint">This bot's connection code was shown once, inside the setup message, when you created it or last reissued it. We only store a scrambled copy, so we can't show it again. Reissue a fresh one any time — your current code keeps working until the new one connects, so a running bot isn't interrupted.</p>
+    <form method="post" action="/me/bots/{{ bot.id }}/reissue">
         <button type="submit">Reissue &amp; show a fresh setup message</button>
     </form>
 </div>

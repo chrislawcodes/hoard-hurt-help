@@ -46,6 +46,14 @@ class Bot(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     # sha256(plaintext key), unique + indexed for O(1) auth lookup. Never store plaintext.
     key_lookup: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    # sha256 of the PREVIOUS key during a graceful reissue. Both the current and
+    # this key authenticate, so reissuing never knocks a still-running bot
+    # offline; the old key is cleared the first time the new key is used (see
+    # require_bot). NULL = no outstanding reissue. A "revoke now" reissue skips
+    # the overlap and clears this immediately for the leaked-key case.
+    prev_key_lookup: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     # Last 4 chars of the key, shown in the UI to distinguish bots. Not secret.
     key_hint: Mapped[str] = mapped_column(String(8), nullable=False)
     status: Mapped[BotStatus] = mapped_column(
@@ -69,6 +77,13 @@ class Bot(Base):
     # the moment it first "connected". Set once, never reset (a reissue does not
     # clear it). NULL = never connected. Powers the onboarding handshake (005).
     first_connected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Last time this bot's key authenticated an agent call — the live heartbeat.
+    # Stamped (throttled) on every authenticated call, so it answers "is the
+    # runner alive right now?", which first_connected_at (set once) cannot.
+    # NULL = never connected. Powers the operational-health badge (compute_bot_health).
+    last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     # Which AI provider this bot uses. NULL = not configured (runner defaults to Claude).
