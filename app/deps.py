@@ -4,13 +4,13 @@ import logging
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Path, Request, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.auth.session import get_user_from_session
 from app.db import get_session
-from app.engine.bot_activity import mark_connected
+from app.engine.bot_activity import mark_seen
 from app.engine.tokens import bot_key_lookup
 from app.models.bot import Bot, BotStatus
 from app.models.player import Player
@@ -81,10 +81,14 @@ async def require_bot(
         )
     # Archived (deleted) bots are excluded: their key no longer authenticates,
     # so the bot stops playing and is treated exactly like an unknown key.
+    # A graceful reissue keeps the previous key valid too (prev_key_lookup), so
+    # match either — the old key works until the new one is first used, at which
+    # point mark_seen clears it.
+    key_hash = bot_key_lookup(x_agent_key)
     bot = (
         await db.execute(
             select(Bot).where(
-                Bot.key_lookup == bot_key_lookup(x_agent_key),
+                or_(Bot.key_lookup == key_hash, Bot.prev_key_lookup == key_hash),
                 Bot.archived_at.is_(None),
             )
         )
@@ -113,10 +117,10 @@ async def require_bot(
                 }
             },
         )
-    # First successful auth records the connection + announces it (once). Cheap
-    # no-op on every later call. This is the single choke point all agent paths
-    # cross, so it covers the runner, MCP, and the direct API.
-    await mark_connected(db, bot)
+    # Records first-connect (announced once), refreshes the heartbeat, and retires
+    # a superseded key once the new one is used. This is the single choke point
+    # all agent paths cross, so it covers the runner, MCP, and the direct API.
+    await mark_seen(db, bot, key_hash=key_hash)
     return bot
 
 

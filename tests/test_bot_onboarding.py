@@ -19,8 +19,8 @@ from app.engine.bot_activity import (
     OnboardingState,
     bot_channel,
     compute_onboarding_status,
-    mark_connected,
     mark_first_move,
+    mark_seen,
 )
 from app.engine.tokens import generate_turn_token
 from app.main import app
@@ -213,18 +213,19 @@ async def test_defaulted_submission_does_not_count_as_moved(reset_db):
 # --------------------------------------------------------------------------
 
 
-async def test_mark_connected_sets_and_publishes_once(reset_db, events):
+async def test_mark_seen_sets_and_publishes_once(reset_db, events):
     async with reset_db() as db:
         u = await make_user(db)
         bot, _ = await make_bot(db, u)
         await db.commit()
 
-        await mark_connected(db, bot)
+        await mark_seen(db, bot, key_hash=bot.key_lookup)
         first = bot.first_connected_at
-        await mark_connected(db, bot)  # no-op
+        await mark_seen(db, bot, key_hash=bot.key_lookup)  # no second 'connected'
 
     assert first is not None
     assert bot.first_connected_at == first  # unchanged on second call
+    assert bot.last_seen_at is not None  # heartbeat stamped on connect
     connected = [e for e in events if e[1] == "connected"]
     assert connected == [(bot_channel(bot.id), "connected", {})]
 

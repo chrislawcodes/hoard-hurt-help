@@ -38,9 +38,8 @@
     {% endif %}
     <details class="bot-status-trouble">
         <summary>Taking longer than a minute?</summary>
-        <p class="hint">The connection code may be wrong or out of date. Reissue a fresh one and paste the new setup message.</p>
-        <form method="post" action="/me/bots/{{ bot.id }}/reissue"
-              onsubmit="return confirm('Reissuing makes the current code stop working immediately. Any connected AI must paste the new setup message. Continue?');">
+        <p class="hint">The connection code may be wrong or out of date. Reissue a fresh one and paste the new setup message — your current code keeps working until the new one connects.</p>
+        <form method="post" action="/me/bots/{{ bot.id }}/reissue">
             <button type="submit" class="secondary">Reissue &amp; show a fresh setup message</button>
         </form>
     </details>
