@@ -1093,6 +1093,11 @@ button.danger:hover,
 .al-move { font-size: 14px; line-height: 1.4; }
 .al-arrow { color: var(--ink-soft); }
 .al-msg { color: var(--ink-soft); display: block; font-size: 12.5px; margin-top: 2px; }
+.al-reason {
+    color: var(--ink-soft); display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; overflow: hidden; font-size: 12.5px; font-style: italic;
+    margin-top: 3px; line-height: 1.35;
+}
 .al-chip {
     font-family: var(--al-mono); font-weight: 700; font-size: 11.5px;
     padding: 2px 8px; border-radius: 7px; border: 1.5px solid currentColor;
@@ -1124,6 +1129,7 @@ button.danger:hover,
 
 /* games grid */
 .al-games { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+.al-feature-game { max-width: 440px; margin: 0 auto; }
 .al .gamecard { padding: 14px; display: flex; flex-direction: column; transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
 .al .gamecard:hover { transform: translateY(-5px); box-shadow: var(--al-shadow-soft); border-color: var(--line-bold); }
 .al .gamecard.is-lab { opacity: 0.9; }
