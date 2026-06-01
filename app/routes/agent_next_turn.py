@@ -21,10 +21,11 @@ from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
 from app.routes.agent_api import (
     _build_scoreboard,
+    _build_current_turn,
     _group_into_turns,
     _load_action_records,
 )
-from app.schemas.agent import CurrentTurn, NextTurnWaiting, NextTurnYourTurn, TurnStatic
+from app.schemas.agent import NextTurnWaiting, NextTurnYourTurn, TurnStatic
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -153,12 +154,7 @@ async def next_turn(
         static=static,
         history=history,
         scoreboard=await _build_scoreboard(db, game),
-        current=CurrentTurn(
-            round=turn.round,
-            turn=turn.turn,
-            deadline=turn.deadline_at,
-            turn_token=turn.turn_token,
-        ),
+        current=await _build_current_turn(db, turn),
         preferred_provider=bot.provider.value if bot.provider else None,
         preferred_model=bot.model,
     )

@@ -150,6 +150,7 @@ async def test_poll_your_turn_then_submit(client, reset_db):
             turn_token=generate_turn_token(),
             opened_at=now,
             deadline_at=now + timedelta(seconds=60),
+            phase="act",
         )
         db.add(t)
         await db.commit()
@@ -204,6 +205,7 @@ async def test_submit_invalid_target(client, reset_db):
             turn_token=generate_turn_token(),
             opened_at=now,
             deadline_at=now + timedelta(seconds=60),
+            phase="act",
         )
         db.add(t)
         await db.commit()

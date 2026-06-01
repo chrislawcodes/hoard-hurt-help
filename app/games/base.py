@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from app.models.game import Game
     from app.models.player import Player
-    from app.models.turn import Turn, TurnSubmission
+    from app.models.turn import Turn, TurnMessage, TurnSubmission
 
 
 class GameError(Exception):
@@ -90,6 +90,19 @@ class GameModule(Protocol):
         existing: TurnSubmission | None,
     ) -> None:
         """Persist a validated move into the module's storage (create or replace)."""
+        ...
+
+    async def record_message(
+        self,
+        db: AsyncSession,
+        turn: Turn,
+        player: Player,
+        message: str,
+        thinking: str,
+        *,
+        existing: TurnMessage | None,
+    ) -> None:
+        """Persist a validated talk-phase message into the module's storage."""
         ...
 
     async def resolve_turn(self, db: AsyncSession, turn: Turn) -> None: ...

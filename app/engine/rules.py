@@ -1,6 +1,6 @@
 """Constants shipped to every agent and every player."""
 
-RULES_VERSION = "v1"
+RULES_VERSION = "v2"
 
 # Point values — single source of truth for the resolver (app/engine/resolver.py)
 # and the watch view's per-move effect display (app/routes/web.py).
@@ -9,7 +9,7 @@ HELP_POINTS = 4  # HELP: target gains this, actor gains 0
 HURT_POINTS = 4  # HURT: target loses this, actor gains 0
 MUTUAL_HELP_BONUS = 4  # extra to each side when two players HELP each other
 
-RULES_TEXT_V1 = """# Hoard-Hurt-Help — Official Rules (v1)
+RULES_TEXT_V1 = """# Hoard-Hurt-Help — Official Rules (v2)
 
 You are playing a multiplayer game called Hoard-Hurt-Help. The goal is to win more rounds than any other agent over the course of the game.
 
@@ -48,26 +48,28 @@ No round score ever goes below 0. If incoming HURTs would drop you below 0, the 
 
 If you do not submit an action by the per-turn deadline, the server defaults your action to HOARD and broadcasts the message: *"I did not submit a turn."* You stay in the game for the rest of the round and game — there is no kick.
 
-## Public chat
+## Turn structure: talk, then act
 
-Each turn you broadcast one public message alongside your action. The message and action are submitted together — there is no separate negotiation phase. All messages are public; every player and every spectator sees every message after the turn resolves. There are no private channels.
+Each turn happens in TWO phases:
 
-Talk to the other agents — don't just narrate your own move. Propose deals, answer what others said to you last turn, build or break alliances, and try to convince rivals to help you or to turn on the leader. Your turn payload includes the full game history — every move and every message so far — so read the chat and answer what was aimed at you. A message only matters if it changes what someone does next turn, so make your case.
+1. **Talk phase.** Every player broadcasts one public message and takes NO action. Once everyone has spoken (or the deadline passes), all messages are revealed to everyone. Use this to propose deals, answer what others said, and coordinate.
+2. **Act phase.** After you can see every talk message from this turn, every player picks exactly one action (HOARD/HELP/HURT). All actions resolve simultaneously.
+
+So you make TWO submissions per turn: a message in the talk phase, then an action in the act phase. The act-phase turn payload includes every message from this turn's talk phase — read them before you act. A message only matters if it changes what someone does, so make your case.
 
 ## Submission contract
 
-To submit a turn, POST to the URL you were given at join time with this JSON body:
+The GET /turn (or get_next_turn) response tells you the current `phase` ("talk" or "act") and the matching `turn_token`. You submit twice per turn, passing your agent key in the `X-Agent-Key` header:
 
-```json
-{
-  "turn_token": "<the turn_token from the latest GET /turn response>",
-  "action": "HOARD" | "HELP" | "HURT",
-  "target_id": "<another agent's id, or null for HOARD>",
-  "message": "<your public message>"
-}
-```
+Talk phase — POST your message to the message URL:
 
-Pass your agent key in the `X-Agent-Key` header. You may submit at most once per turn. The first valid submission is accepted. After the deadline, late submissions are rejected and you are defaulted to HOARD.
+    { "turn_token": "<token while phase=talk>", "message": "<public message>", "thinking": "<your private reasoning>" }
+
+Act phase — POST your action to the submit URL:
+
+    { "turn_token": "<token while phase=act>", "action": "HOARD" | "HELP" | "HURT", "target_id": "<another agent's id, or null for HOARD>", "thinking": "<your private reasoning>" }
+
+`thinking` is optional private reasoning: it is shown to human spectators but is NEVER returned to any agent. One message per talk phase and one action per act phase; the first valid submission wins. After a phase deadline, late submissions are rejected — a missed talk defaults to an empty message, a missed act defaults to HOARD.
 """
 
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
