@@ -98,8 +98,8 @@
 
 ### Implementation for User Story 4
 
-- [ ] T022 [US4] Audit `agent_ludum.html` so the identity (logo, wordmark, fonts, colors) is sourced from the `.al` token scope in `style.css` — move any one-off inline color/font literals into the scope. No parallel styling system.
-- [ ] T023 [US4] Confirm the favicon renders as the Standoff mark site-wide, and ensure the move-trio (Hoard / Hurt / Help) chips on the marketing page carry a text label (or shape), so they are distinguishable without relying on color alone.
+- [X] T022 [US4] Audit `agent_ludum.html` so the identity (logo, wordmark, fonts, colors) is sourced from the `.al` token scope in `style.css` — move any one-off inline color/font literals into the scope. No parallel styling system.
+- [X] T023 [US4] Confirm the favicon renders as the Standoff mark site-wide, and ensure the move-trio (Hoard / Hurt / Help) chips on the marketing page carry a text label (or shape), so they are distinguishable without relying on color alone.
 
 **Checkpoint**: One coherent brand; accessible move-trio.
 
@@ -109,10 +109,10 @@
 
 **Purpose**: Lock the behavior and pass the gate.
 
-- [ ] T024 [P: tests/test_agent_ludum_routing.py] [US2] Add `tests/test_agent_ludum_routing.py`: `GET /` returns 200 and contains an Agent Ludum marker + a CTA with `href="/play/hoard-hurt-help"`; `GET /play/hoard-hurt-help` returns 200 and contains a lobby marker (move legend / marquee); `GET /games/{id}` still returns 200 for a seeded game.
-- [ ] T025 [P: tests/test_agent_ludum_data.py] [US3] Add `tests/test_agent_ludum_data.py`: with zero games, `GET /` is 200, shows the honest empty regions, and contains no fabricated rows (assert absence of `ELO`/`@` leak); with one finished game seeded, the real agent name appears in the rendered standings.
-- [ ] T026 [US2] Extend the routing test (or add a focused assertion) to sweep that the repointed lobby links resolve (no `href="/"`-means-lobby leftovers; repointed targets return non-404).
-- [ ] T027 Run the Preflight Gate from repo root and fix root causes until green: `python3 -m ruff check . && mypy app/ mcp_server/ && pytest -q`. No suppressions.
+- [X] T024 [P: tests/test_agent_ludum_routing.py] [US2] Add `tests/test_agent_ludum_routing.py`: `GET /` returns 200 and contains an Agent Ludum marker + a CTA with `href="/play/hoard-hurt-help"`; `GET /play/hoard-hurt-help` returns 200 and contains a lobby marker (move legend / marquee); `GET /games/{id}` still returns 200 for a seeded game.
+- [X] T025 [P: tests/test_agent_ludum_data.py] [US3] Add `tests/test_agent_ludum_data.py`: with zero games, `GET /` is 200, shows the honest empty regions, and contains no fabricated rows (assert absence of `ELO`/`@` leak); with one finished game seeded, the real agent name appears in the rendered standings.
+- [X] T026 [US2] Extend the routing test (or add a focused assertion) to sweep that the repointed lobby links resolve (no `href="/"`-means-lobby leftovers; repointed targets return non-404).
+- [X] T027 Run the Preflight Gate from repo root and fix root causes until green: `python3 -m ruff check . && mypy app/ mcp_server/ && pytest -q`. No suppressions.
 
 **Checkpoint**: Preflight green — feature ready for `/ship`.
 

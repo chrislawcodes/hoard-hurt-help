@@ -83,9 +83,11 @@ async def _seed_bot(
 
 
 @pytest.mark.asyncio
-async def test_home_renders(client, reset_db):
+async def test_lobby_renders_at_play_path(client, reset_db):
+    # The HHH lobby moved off `/` (now the Agent Ludum marketing page) to
+    # `/play/hoard-hurt-help`; the upcoming-games listing lives there now.
     await _seed_game(reset_db)
-    r = await client.get("/")
+    r = await client.get("/play/hoard-hurt-help")
     assert r.status_code == 200
     assert "Test Game" in r.text
 
