@@ -33,13 +33,21 @@ import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
 DEFAULT_URL = "http://localhost:8000"
 DEFAULT_MODEL = "claude-haiku-4-5"  # cheapest; override with --model for a stronger bot
 _TURN_TIMEOUT = 180  # a single model turn can take a while
+
+# The four token buckets Anthropic reports per call. Keeping them separate is
+# the whole point of this logging: on a resumed session most input should land in
+# `cache_read` (reused prefix), with only the new delta as `fresh_in`. If
+# `fresh_in` or `cache_write` stays large every turn, the session prefix is NOT
+# being reused and every turn is re-paying for the full history + harness.
+_TOKEN_KEYS = ("fresh_in", "cache_write", "cache_read", "out")
+_session_tokens: dict[str, int] = {k: 0 for k in _TOKEN_KEYS}
 
 _PROTOCOL = (
     "Each turn I'll give you only what's happened since your last move. "
@@ -61,6 +69,7 @@ class _GameSession:
 
     session_id: str | None = None
     last_marker: tuple[int, int] = (0, 0)  # max (round, turn) already told the model
+    tokens: dict[str, int] = field(default_factory=lambda: {k: 0 for k in _TOKEN_KEYS})
 
 
 def _run_claude(
@@ -69,12 +78,13 @@ def _run_claude(
     *,
     model: str,
     system_prompt: str | None = None,
-) -> tuple[str, str | None]:
+) -> tuple[str, str | None, dict[str, int]]:
     """Run one Claude Code turn (print mode, JSON output), prompt via stdin.
 
     Resumes `session_id` when given; sets `system_prompt` only on the first turn
     (a resumed session already carries it). `--tools ""` keeps this a pure
-    decision call with no agent tooling. Returns (assistant_text, session_id).
+    decision call with no agent tooling. Returns (assistant_text, session_id,
+    usage) where usage is the four-bucket token breakdown for this call.
     Raises RuntimeError on a failed or unparseable call.
     """
     argv = ["claude", "--print", "--output-format", "json", "--model", model, "--tools", ""]
@@ -91,7 +101,47 @@ def _run_claude(
         data = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"claude returned non-JSON: {proc.stdout[:300]}") from exc
-    return str(data.get("result", "")), data.get("session_id")
+    return str(data.get("result", "")), data.get("session_id"), _extract_usage(data)
+
+
+def _extract_usage(data: dict) -> dict[str, int]:
+    """Map Claude Code's JSON `usage` block onto our four billing buckets."""
+    u = data.get("usage", {}) or {}
+    return {
+        "fresh_in": u.get("input_tokens", 0),
+        "cache_write": u.get("cache_creation_input_tokens", 0),
+        "cache_read": u.get("cache_read_input_tokens", 0),
+        "out": u.get("output_tokens", 0),
+    }
+
+
+def _record_usage(
+    game_id: str,
+    cur: dict,
+    first: bool,
+    usage: dict[str, int],
+    sess: _GameSession,
+) -> None:
+    """Add this call's tokens to the game + player totals and log the breakdown."""
+    for k in _TOKEN_KEYS:
+        sess.tokens[k] += usage[k]
+        _session_tokens[k] += usage[k]
+
+    def _fmt(t: dict[str, int]) -> str:
+        return (
+            f"fresh_in={t['fresh_in']} cache_write={t['cache_write']} "
+            f"cache_read={t['cache_read']} out={t['out']}"
+        )
+
+    phase = "setup" if first else "delta"
+    print(
+        f"[agentludum-agent] {game_id} R{cur['round']}T{cur['turn']} [{phase}] "
+        f"this call: {_fmt(usage)}"
+    )
+    print(
+        f"[agentludum-agent] {game_id} game total: {_fmt(sess.tokens)}  |  "
+        f"all games: {_fmt(_session_tokens)}"
+    )
 
 
 def _parse_move(text: str) -> dict:
@@ -147,14 +197,15 @@ def _decide(turn: dict, sess: _GameSession, model: str) -> dict:
     """Get a move from this game's session; fall back to HOARD on any failure."""
     history = turn.get("history", [])
     cur = turn["current"]
+    first = sess.session_id is None
     try:
-        if sess.session_id is None:
-            text, sess.session_id = _run_claude(
+        if first:
+            text, sess.session_id, usage = _run_claude(
                 _setup_user(turn), None, model=model, system_prompt=_system_prompt(turn)
             )
         else:
             new = [h for h in history if (h["round"], h["turn"]) > sess.last_marker]
-            text, _ = _run_claude(
+            text, _, usage = _run_claude(
                 _delta_user(new, turn.get("scoreboard", []), cur),
                 sess.session_id,
                 model=model,
@@ -164,6 +215,7 @@ def _decide(turn: dict, sess: _GameSession, model: str) -> dict:
         print(f"[agentludum-agent] model error: {exc}; defaulting to HOARD", file=sys.stderr)
         sess.session_id = None  # a bad resume → re-establish the session next turn
         return {"action": "HOARD", "target_id": None, "message": ""}
+    _record_usage(turn["game_id"], cur, first, usage, sess)
     if history:
         sess.last_marker = max((h["round"], h["turn"]) for h in history)
     return move
