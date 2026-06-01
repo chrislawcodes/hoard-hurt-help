@@ -106,7 +106,7 @@
         }
 
         const es = new EventSource(streamUrl);
-        ['turn_resolved', 'turn_opened', 'round_ended', 'game_completed'].forEach(function (name) {
+        ['turn_resolved', 'turn_opened', 'turn_talked', 'round_ended', 'game_completed'].forEach(function (name) {
             es.addEventListener(name, refresh);
         });
         // First open is the initial connect (page already has fresh state);

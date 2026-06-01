@@ -1,24 +1,57 @@
 <article class="turn-block" data-seq="{{ turn.seq }}">
     <h4>Round {{ turn.round }} · Turn {{ turn.turn }}</h4>
-    <ul>
-        {% for a in turn.actions %}
-        <li>
-            <div class="move">
-                <strong>{{ a.agent_id }}</strong>
-                <span class="act act-{{ a.action | lower }}">{{ a.action }}</span>{% if a.target_id %} <strong>{{ a.target_id }}</strong>{% endif %}
-                {% if a.was_defaulted %}<span class="missed">missed turn</span>{% endif %}
-            </div>
-            <div class="effect">
-                <span class="who">{{ a.agent_id }}</span>
-                <span class="delta {{ 'pos' if a.actor_delta > 0 else ('neg' if a.actor_delta < 0 else 'zero') }}">{{ "%+d" | format(a.actor_delta) }}</span>
-                {% if a.target_id and a.target_delta is not none %}
-                <span class="sep">·</span>
-                <span class="who">{{ a.target_id }}</span>
-                <span class="delta {{ 'pos' if a.target_delta > 0 else ('neg' if a.target_delta < 0 else 'zero') }}">{{ "%+d" | format(a.target_delta) }}</span>
+    <div class="turn-phase">
+        <div class="turn-phase-label">Talk</div>
+        <ul>
+            {% for m in turn.messages %}
+            <li>
+                <div class="move">
+                    <strong>{{ m.agent_id }}</strong>
+                    {% if m.was_defaulted %}<span class="missed">missed turn</span>{% endif %}
+                </div>
+                <div class="msg">“{{ m.text }}”</div>
+                {% if m.thinking %}
+                <details class="reasoning">
+                    <summary>reasoning</summary>
+                    <div class="reasoning-body">{{ m.thinking }}</div>
+                </details>
                 {% endif %}
-            </div>
-            {% if a.message %}<div class="msg">“{{ a.message }}”</div>{% endif %}
-        </li>
-        {% endfor %}
-    </ul>
+            </li>
+            {% else %}
+            <li class="turn-empty">No talk messages.</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="turn-phase">
+        <div class="turn-phase-label">Act</div>
+        <ul>
+            {% for a in turn.actions %}
+            <li>
+                <div class="move">
+                    <strong>{{ a.agent_id }}</strong>
+                    <span class="act act-{{ a.action | lower }}">{{ a.action }}</span>{% if a.target_id %} <strong>{{ a.target_id }}</strong>{% endif %}
+                    {% if a.was_defaulted %}<span class="missed">missed turn</span>{% endif %}
+                </div>
+                <div class="effect">
+                    <span class="who">{{ a.agent_id }}</span>
+                    <span class="delta {{ 'pos' if a.actor_delta > 0 else ('neg' if a.actor_delta < 0 else 'zero') }}">{{ "%+d" | format(a.actor_delta) }}</span>
+                    {% if a.target_id and a.target_delta is not none %}
+                    <span class="sep">·</span>
+                    <span class="who">{{ a.target_id }}</span>
+                    <span class="delta {{ 'pos' if a.target_delta > 0 else ('neg' if a.target_delta < 0 else 'zero') }}">{{ "%+d" | format(a.target_delta) }}</span>
+                    {% endif %}
+                </div>
+                {% if a.thinking %}
+                <details class="reasoning">
+                    <summary>reasoning</summary>
+                    <div class="reasoning-body">{{ a.thinking }}</div>
+                </details>
+                {% endif %}
+            </li>
+            {% else %}
+            <li class="turn-empty">No actions.</li>
+            {% endfor %}
+        </ul>
+    </div>
 </article>

@@ -8,9 +8,15 @@ from sqlalchemy import select
 from app.deps import DbSession
 from app.models.game import Game
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
-from app.schemas.agent import HistoryAction, HistoryTurn, ScoreboardRow
-from app.schemas.spectator import SpectatorAgent, SpectatorState
+from app.models.turn import Turn, TurnMessage, TurnSubmission
+from app.schemas.agent import ScoreboardRow
+from app.schemas.spectator import (
+    SpectatorAction,
+    SpectatorAgent,
+    SpectatorMessage,
+    SpectatorState,
+    SpectatorTurn,
+)
 
 router = APIRouter(tags=["spectator"])
 
@@ -83,29 +89,81 @@ async def public_state(
         .scalars()
         .all()
     )
-    history: list[HistoryTurn] = []
-    for t in turns:
-        subs = (
-            (await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == t.id)))
+    turn_ids = [t.id for t in turns]
+    messages_by_turn: dict[int, list[TurnMessage]] = {}
+    if turn_ids:
+        message_rows = (
+            (
+                await db.execute(
+                    select(TurnMessage)
+                    .where(TurnMessage.turn_id.in_(turn_ids))
+                    .order_by(TurnMessage.turn_id, TurnMessage.submitted_at, TurnMessage.id)
+                )
+            )
             .scalars()
             .all()
         )
-        actions = []
+        for message in message_rows:
+            messages_by_turn.setdefault(message.turn_id, []).append(message)
+
+    subs_by_turn: dict[int, list[TurnSubmission]] = {}
+    if turn_ids:
+        subs = (
+            (
+                await db.execute(
+                    select(TurnSubmission)
+                    .where(TurnSubmission.turn_id.in_(turn_ids))
+                    .order_by(
+                        TurnSubmission.turn_id,
+                        TurnSubmission.submitted_at,
+                        TurnSubmission.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for sub in subs:
+            subs_by_turn.setdefault(sub.turn_id, []).append(sub)
+
+    history: list[SpectatorTurn] = []
+    for t in turns:
+        subs = subs_by_turn.get(t.id, [])
+        turn_messages = messages_by_turn.get(t.id, [])
+        messages: list[SpectatorMessage]
+        if turn_messages:
+            messages = [
+                SpectatorMessage(
+                    agent_id=players_by_id[msg.player_id].agent_id,
+                    message=msg.text,
+                )
+                for msg in turn_messages
+                if msg.player_id in players_by_id
+            ]
+        else:
+            messages = [
+                SpectatorMessage(
+                    agent_id=players_by_id[s.player_id].agent_id,
+                    message=s.message,
+                )
+                for s in subs
+                if s.player_id in players_by_id
+            ]
+        actions: list[SpectatorAction] = []
         for s in subs:
             actor = players_by_id.get(s.player_id)
             target = players_by_id.get(s.target_player_id) if s.target_player_id else None
             if not actor:
                 continue
             actions.append(
-                HistoryAction(
+                SpectatorAction(
                     agent_id=actor.agent_id,
-                    action=s.action,  # type: ignore[arg-type]
+                    action=s.action,
                     target_id=target.agent_id if target else None,
-                    message=s.message,
                     points_delta=s.points_delta,
                 )
             )
-        history.append(HistoryTurn(round=t.round, turn=t.turn, actions=actions))
+        history.append(SpectatorTurn(round=t.round, turn=t.turn, messages=messages, actions=actions))
     return SpectatorState(
         game_id=g.id,
         name=g.name,
