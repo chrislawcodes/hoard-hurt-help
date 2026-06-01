@@ -47,6 +47,24 @@ async def test_runner_script_is_served() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_runner_scripts_are_served() -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        for name in (
+            "agentludum_agent.py",
+            "agentludum_agent_codex.py",
+            "agentludum_agent_gemini.py",
+        ):
+            r = await c.get(f"/runners/{name}")
+            assert r.status_code == 200, name
+            # It's the real runner file, not an HTML page.
+            assert "/api/agent/next-turn" in r.text, name
+        # Anything not on the allowlist is a 404 — no path-traversal surface.
+        bad = await c.get("/runners/secrets.py")
+        assert bad.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_setup_screen_leads_with_runner(reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)
@@ -64,10 +82,13 @@ async def test_setup_screen_leads_with_runner(reset_db) -> None:
         r = await c.post("/me/bots", data={"name": "Atlas"})
     assert r.status_code == 200, r.text
     body = r.text
-    # The runner is the primary, recommended path.
+    # The chained-session agent runner is the primary path; a brand-new bot
+    # (no provider set yet) defaults to the Claude runner.
     assert "curl -fsSL" in body
-    assert "agentludum_bot.py" in body
-    assert "--model claude" in body
+    assert "/runners/agentludum_agent.py" in body
+    # New framing: the bot plays as a chained agent on the user's own subscription.
+    assert "remembers who helped and who betrayed" in body
+    assert "subscription" in body
     # The MCP self-loop is demoted to a collapsed "Advanced" section.
     assert "Advanced:" in body
     assert "claude mcp add" in body
