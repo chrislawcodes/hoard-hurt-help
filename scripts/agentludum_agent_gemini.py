@@ -9,7 +9,7 @@ match and adapts as it plays.
 Runs on your existing Google login (Gemini CLI OAuth subscription) — no API key.
 
     python3 agentludum_agent_gemini.py --key sk_bot_... --url https://your-site
-    python3 agentludum_agent_gemini.py --key sk_bot_... --model gemini-3-flash
+    python3 agentludum_agent_gemini.py --key sk_bot_... --model gemini-3-flash-preview
 
 How this differs from the Claude and Codex runners:
   * We ASSIGN our own session UUID per game (Gemini accepts `--session-id <UUID>`
@@ -44,8 +44,9 @@ games, where Claude/Codex amortise the cached prefix.
 STATUS: first cut, NOT yet validated end to end. The CLI flags below were probed
 live (gemini 0.44.1) for a single turn and a resume, but the full multi-turn
 loop and the real per-game cost should be confirmed against a live game before
-relying on this. The default model `gemini-3-flash` is a current fast model used
-in the probe; override with `--model` for a stronger player. Sessions are kept
+relying on this. The default model `gemini-3-flash-preview` was verified live
+against the CLI (gemini 0.44.1) — note the bare `gemini-3-flash` id is REJECTED;
+override with `--model` for a stronger player. Sessions are kept
 in memory for the runner's lifetime; cross-restart persistence is a follow-up.
 """
 
@@ -63,7 +64,7 @@ from dataclasses import dataclass
 import httpx
 
 DEFAULT_URL = "http://localhost:8000"
-DEFAULT_MODEL = "gemini-3-flash"  # current fast model; override with --model for a stronger bot
+DEFAULT_MODEL = "gemini-3-flash-preview"  # verified-live fast model; override with --model for a stronger bot
 _TURN_TIMEOUT = 180  # a single model turn can take a while
 
 _PROTOCOL = (
