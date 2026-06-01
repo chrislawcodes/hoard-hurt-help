@@ -399,6 +399,30 @@ async def runner_script() -> FileResponse:
     )
 
 
+# Chained-session agent runners — one per CLI provider. Each drives the bot as a
+# single resumed agent session per game, so it remembers the whole match and
+# only calls the model on the bot's turn. Allowlisted by exact filename below.
+_AGENT_RUNNERS: dict[str, FsPath] = {
+    "agentludum_agent.py": FsPath("scripts/agentludum_agent.py"),
+    "agentludum_agent_codex.py": FsPath("scripts/agentludum_agent_codex.py"),
+    "agentludum_agent_gemini.py": FsPath("scripts/agentludum_agent_gemini.py"),
+}
+
+
+@router.get("/runners/{name}", include_in_schema=False)
+async def agent_runner_script(name: Annotated[str, Path()]) -> FileResponse:
+    """Serve a chained-session agent runner so the setup `curl` fetches it.
+
+    Allowlisted by exact filename — the path never comes from the request, so
+    there's no traversal surface. Single source of truth: this streams the
+    repo's scripts/<name>, so the downloaded runner always matches this server.
+    """
+    path = _AGENT_RUNNERS.get(name)
+    if path is None or not path.is_file():
+        raise HTTPException(404)
+    return FileResponse(path, media_type="text/x-python", filename=name)
+
+
 @router.get("/games/{game_id}/join", response_class=HTMLResponse)
 async def join_form(
     game_id: Annotated[str, Path()],

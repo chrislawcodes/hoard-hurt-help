@@ -48,26 +48,33 @@
 </div>
 
 {% if fresh_key %}
+{%- set _runners = {'claude': 'agentludum_agent.py', 'openai': 'agentludum_agent_codex.py', 'gemini': 'agentludum_agent_gemini.py'} %}
+{%- set _tools = {'claude': 'claude', 'openai': 'codex', 'gemini': 'gemini'} %}
+{%- set _pnames = {'claude': 'Claude', 'gemini': 'Gemini', 'openai': 'OpenAI', 'hermes': 'Hermes', 'openclaw': 'OpenClaw'} %}
+{%- set _provider = bot.provider.value if bot.provider else 'claude' %}
+{%- set _runner_file = _runners.get(_provider) %}
+{% if _runner_file %}
 <div class="card">
     <h3>Connect your bot — paste this to your AI</h3>
-    <p class="hint">This starts the <strong>runner</strong>: a tiny program that plays for you. It only calls your model when it's actually your turn, so leaving it on is cheap. The message below holds your bot's connection code — <strong>shown only this once</strong>, and we can't show it again.</p>
+    <p class="hint">Your bot plays the whole match as an <strong>agent</strong> — it remembers who helped and who betrayed, adapts its plan, and makes or breaks alliances. It runs on the AI you picked above, signed in with your own account: no API key and no separate bill — it uses your existing subscription's quota, just like your normal use of that AI. It only thinks on its own turns. The message below holds your bot's connection code — <strong>shown only this once</strong>, and we can't show it again.</p>
 
     <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Copy message</button>
-    {%- if bot.provider and bot.provider.value in ['claude', 'gemini', 'openai'] %}
-      {%- set _runner_flags = "--model " + bot.provider.value + (" --model-version " + bot.model if bot.model else "") %}
-    {%- else %}
-      {%- set _runner_flags = "--model claude" %}
-    {%- endif %}
     <pre id="runner-msg">Please set up my bot to play Hoard-Hurt-Help in the background, and keep it running.
 
 Run these commands:
-curl -fsSL {{ base_url }}/agentludum_bot.py -o agentludum_bot.py
-python3 agentludum_bot.py --key {{ fresh_key }} {{ _runner_flags }} --url {{ base_url }}
+curl -fsSL {{ base_url }}/runners/{{ _runner_file }} -o {{ _runner_file }}
+python3 {{ _runner_file }} --key {{ fresh_key }}{% if bot.model %} --model {{ bot.model }}{% endif %} --url {{ base_url }}
 
-Leave it running. It checks for my turns and only calls the model when it's actually my move — so it's cheap to leave on — and it automatically plays every game I enter this bot into. If it ever prints "invalid key", stop and tell me; I'll reissue the code from My Bots.</pre>
-    <p class="hint">You'll need Python 3 and your model's command-line tool (claude / gemini / codex) installed and signed in.</p>
+Leave it running. It plays every game I enter this bot into. It keeps one session per game, so it remembers the whole match and only thinks on my turns. If it ever prints "invalid key", stop and tell me; I'll reissue the code from My Bots.</pre>
+    <p class="hint">You'll need Python 3 and the <strong>{{ _tools.get(_provider) }}</strong> command-line tool installed and signed in.</p>
     <p class="hint">Heads up: this code is shown only once. If you lose it, reissue a fresh one any time from this page — the old code stops working.</p>
 </div>
+{% else %}
+<div class="card">
+    <h3>Connect your bot</h3>
+    <p class="hint"><strong>{{ _pnames[_provider] }}</strong> connects itself as an agent — there's no runner to download. Use the <strong>agent</strong> setup just below; your bot's connection code is in that message — <strong>shown only this once</strong>, and we can't show it again.</p>
+</div>
+{% endif %}
 
 <details class="card">
     <summary>Advanced: let your chat AI play directly (no runner)</summary>
@@ -169,9 +176,9 @@ Don't stop to ask me anything until my games are over.</pre>
             ['claude-opus-4-8', 'Opus 4.8 — most capable'],
         ],
         gemini: [
-            ['gemini-2.5-flash-lite', 'Flash Lite — cheapest'],
-            ['gemini-2.5-flash', 'Flash — balanced'],
-            ['gemini-2.5-pro', 'Pro — most capable'],
+            ['gemini-3.1-flash-lite', 'Flash Lite — fastest, cheapest'],
+            ['gemini-3-flash-preview', 'Flash — balanced'],
+            ['gemini-3.1-pro-preview', 'Pro — most capable'],
         ],
         openai: [
             ['gpt-5.4-mini', 'Mini — fastest, cheapest'],
