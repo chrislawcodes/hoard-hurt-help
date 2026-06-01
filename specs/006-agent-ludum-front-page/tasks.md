@@ -43,13 +43,13 @@
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Create `app/templates/agent_ludum.html` with the page shell and an `.al` wrapper, plus the sticky **Nav**: Standoff logo + "Agent Ludum" wordmark (Bricolage 800) + a primary CTA "Enter the arena →" linking to `/play/hoard-hurt-help`. Keep session-aware links (Sign in / My Bots / Sign out) available.
-- [ ] T007 [US1] Add the **Hero** to `app/templates/agent_ludum.html`: "NEW · Hoard·Hurt·Help is live" pill, value headline ("Bring your agent. / Win the game."), plain sub-line, primary CTA "Enter your agent →" → `/play/hoard-hurt-help` + a secondary "▶ Watch a match", and the mono meta row. Leave a slot for the live match card (filled in US3).
-- [ ] T008 [US1] Add the **How it works** 3-step section to `app/templates/agent_ludum.html`: 01 Connect your agent · 02 Pick a game · 03 Climb the standings (reword the handoff's "leaderboard" line to "standings", no ELO claim).
-- [ ] T009 [US1] Add the **Games grid** to `app/templates/agent_ludum.html`: Hoard·Hurt·Help as the one LIVE card with "Play now →" → `/play/hoard-hurt-help`; Tell / Holdfast / Accord as clearly-disabled "In the lab" teasers (no working CTA, visibly not-yet-playable, labeled as upcoming/fictional).
-- [ ] T010 [US1] Add the closing **CTA band** + **Footer** to `app/templates/agent_ludum.html` (footer link columns may point to existing routes or `#`; do not invent broken promises in copy).
-- [ ] T011 [P: app/static/style.css] [US1] Add the marketing-page component styles under the `.al` scope in `app/static/style.css`: nav, hero grid, step cards, game cards (+ disabled teaser state), pills, buttons (2px outline + hard offset shadow on Lilac, dropped on Plum), and the leaderboard grid. Reuse existing spacing/scale vars where possible.
-- [ ] T012 [US1] Verify responsive collapse in `agent_ludum.html` + `style.css` at the design breakpoints (900px, 560px): nav center links hide, hero/how-it-works/games grid/leaderboard stack; no horizontal scroll at phone width.
+- [X] T006 [US1] Create `app/templates/agent_ludum.html` with the page shell and an `.al` wrapper, plus the sticky **Nav**: Standoff logo + "Agent Ludum" wordmark (Bricolage 800) + a primary CTA "Enter the arena →" linking to `/play/hoard-hurt-help`. Keep session-aware links (Sign in / My Bots / Sign out) available.
+- [X] T007 [US1] Add the **Hero** to `app/templates/agent_ludum.html`: "NEW · Hoard·Hurt·Help is live" pill, value headline ("Bring your agent. / Win the game."), plain sub-line, primary CTA "Enter your agent →" → `/play/hoard-hurt-help` + a secondary "▶ Watch a match", and the mono meta row. Leave a slot for the live match card (filled in US3).
+- [X] T008 [US1] Add the **How it works** 3-step section to `app/templates/agent_ludum.html`: 01 Connect your agent · 02 Pick a game · 03 Climb the standings (reword the handoff's "leaderboard" line to "standings", no ELO claim).
+- [X] T009 [US1] Add the **Games grid** to `app/templates/agent_ludum.html`: Hoard·Hurt·Help as the one LIVE card with "Play now →" → `/play/hoard-hurt-help`; Tell / Holdfast / Accord as clearly-disabled "In the lab" teasers (no working CTA, visibly not-yet-playable, labeled as upcoming/fictional).
+- [X] T010 [US1] Add the closing **CTA band** + **Footer** to `app/templates/agent_ludum.html` (footer link columns may point to existing routes or `#`; do not invent broken promises in copy).
+- [X] T011 [P: app/static/style.css] [US1] Add the marketing-page component styles under the `.al` scope in `app/static/style.css`: nav, hero grid, step cards, game cards (+ disabled teaser state), pills, buttons (2px outline + hard offset shadow on Lilac, dropped on Plum), and the leaderboard grid. Reuse existing spacing/scale vars where possible.
+- [X] T012 [US1] Verify responsive collapse in `agent_ludum.html` + `style.css` at the design breakpoints (900px, 560px): nav center links hide, hero/how-it-works/games grid/leaderboard stack; no horizontal scroll at phone width.
 
 **Checkpoint**: `/` renders the full marketing page (data regions may be placeholder until US3).
 
@@ -81,10 +81,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T018 [US3] Wire the hero match card slot in `agent_ludum.html` to the real `featured` replay — reuse the `fragments/featured_replay.html` markup pattern and the existing static-first auto-play script from `home.html` (line ~108). Render it inside the `.al-plum` surface. Do NOT port the prototype's `match-sim.jsx`.
-- [ ] T019 [US3] Wire the leaderboard band in `agent_ludum.html` to the real `standings` (agent name, round score, wins) on the `.al-plum` surface. Remove ALL fabricated rows, ELO numbers, and `@owner` handles from the handoff design.
-- [ ] T020 [US3] Reword every data-region and CTA sub-copy in `agent_ludum.html` to match reality (games are scheduled / admin-created). Delete "your agent starts at ELO 1500" and "matchmaking finds you a rival in ~3s"; replace with truthful copy (e.g. how scheduled games work / how to get a bot in).
-- [ ] T021 [US3] Implement honest empty states in `agent_ludum.html` for the match card and the leaderboard when no qualifying game exists: a calm placeholder, no fabricated rows, and the rest of the page still renders.
+- [X] T018 [US3] Wire the hero match card slot in `agent_ludum.html` to the real `featured` replay — reuse the `fragments/featured_replay.html` markup pattern and the existing static-first auto-play script from `home.html` (line ~108). Render it inside the `.al-plum` surface. Do NOT port the prototype's `match-sim.jsx`.
+- [X] T019 [US3] Wire the leaderboard band in `agent_ludum.html` to the real `standings` (agent name, round score, wins) on the `.al-plum` surface. Remove ALL fabricated rows, ELO numbers, and `@owner` handles from the handoff design.
+- [X] T020 [US3] Reword every data-region and CTA sub-copy in `agent_ludum.html` to match reality (games are scheduled / admin-created). Delete "your agent starts at ELO 1500" and "matchmaking finds you a rival in ~3s"; replace with truthful copy (e.g. how scheduled games work / how to get a bot in).
+- [X] T021 [US3] Implement honest empty states in `agent_ludum.html` for the match card and the leaderboard when no qualifying game exists: a calm placeholder, no fabricated rows, and the rest of the page still renders.
 
 **Checkpoint**: Every data row maps to a real game; empty state is honest.
 
