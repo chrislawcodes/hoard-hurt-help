@@ -18,7 +18,7 @@ from app.engine.rules import (
 from app.engine.state_machine import assert_transition
 from app.models.game import Game, GameState
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
+from app.models.turn import Turn, TurnMessage, TurnSubmission
 
 
 async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
@@ -101,6 +101,44 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         s.round_score_after = new_score
 
     turn.resolved_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+async def finalize_talk_phase(db: AsyncSession, turn: Turn) -> None:
+    """Materialize missing talk messages and mark the talk phase resolved."""
+    active_players: list[Player] = list(
+        (
+            await db.execute(
+                select(Player).where(
+                    Player.game_id == turn.game_id, Player.left_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    messages: list[TurnMessage] = list(
+        (
+            await db.execute(select(TurnMessage).where(TurnMessage.turn_id == turn.id))
+        )
+        .scalars()
+        .all()
+    )
+    submitted_player_ids = {m.player_id for m in messages}
+    for p in active_players:
+        if p.id not in submitted_player_ids:
+            db.add(
+                TurnMessage(
+                    turn_id=turn.id,
+                    player_id=p.id,
+                    text="",
+                    thinking="",
+                    was_defaulted=True,
+                    submitted_at=None,
+                )
+            )
+    await db.flush()
+    turn.talk_resolved_at = datetime.now(timezone.utc)
     await db.commit()
 
 

@@ -24,13 +24,14 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.broadcast import publish
 from app.db import SessionLocal
+from app.engine import resolver
 from app.engine.state_machine import assert_transition
 from app.engine.tokens import generate_turn_token
 from app.games import get as get_game_module
 from app.games.base import GameError
 from app.models.game import Game, GameState
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
+from app.models.turn import Turn, TurnMessage, TurnSubmission
 
 logger = logging.getLogger(__name__)
 
@@ -209,30 +210,44 @@ async def _run_game(game_id: str) -> None:
 
             for turn_num in range(first_turn, game.turns_per_round + 1):
                 turn = await _open_turn(db, game, round_num, turn_num)
-                # A reused turn that already resolved (we died after resolving it
-                # but before moving on) must NOT resolve again — that double-counts
-                # scores. Skip it. A reused-but-unresolved turn whose deadline has
-                # passed falls through: _wait_for_turn returns at once and we
-                # resolve the moves that were already submitted.
-                if turn.resolved_at is None:
+                if turn.resolved_at is not None:
+                    continue
+                # --- TALK phase (skip if already talk-resolved on resume) ---
+                if turn.talk_resolved_at is None:
                     await publish(
                         game.id,
                         "turn_opened",
                         {
                             "round": round_num,
                             "turn": turn_num,
+                            "phase": "talk",
                             "deadline": turn.deadline_at.isoformat(),
                         },
                     )
-
-                    await _wait_for_turn(db, turn)
-
-                    await module.resolve_turn(db, turn)
-                    await publish(
-                        game.id,
-                        "turn_resolved",
-                        {"round": round_num, "turn": turn_num},
-                    )
+                    await _wait_for_messages(db, turn)
+                    await resolver.finalize_talk_phase(db, turn)
+                    await _begin_act_phase(db, game, turn)
+                    await publish(game.id, "turn_talked", {"round": round_num, "turn": turn_num})
+                elif turn.phase != "act":
+                    await _begin_act_phase(db, game, turn)
+                # --- ACT phase ---
+                await publish(
+                    game.id,
+                    "turn_opened",
+                    {
+                        "round": round_num,
+                        "turn": turn_num,
+                        "phase": "act",
+                        "deadline": turn.deadline_at.isoformat(),
+                    },
+                )
+                await _wait_for_turn(db, turn)
+                await module.resolve_turn(db, turn)
+                await publish(
+                    game.id,
+                    "turn_resolved",
+                    {"round": round_num, "turn": turn_num},
+                )
 
             await module.award_round(db, game, round_num)
             await publish(game.id, "round_ended", {"round": round_num})
@@ -273,6 +288,7 @@ async def _open_turn(db, game: Game, round_num: int, turn_num: int) -> Turn:
         turn_token=generate_turn_token(),
         opened_at=now,
         deadline_at=now + timedelta(seconds=game.per_turn_deadline_seconds),
+        phase="talk",
     )
     db.add(turn)
     game.current_round = round_num
@@ -300,6 +316,44 @@ async def _all_submitted(db, turn: Turn) -> bool:
         .where(TurnSubmission.turn_id == turn.id, TurnSubmission.was_defaulted.is_(False))
     )
     return bool(active) and (submitted or 0) >= active
+
+
+async def _all_messaged(db, turn: Turn) -> bool:
+    """True once every active (non-left) player has a real talk message this turn."""
+    await db.commit()
+    active = await db.scalar(
+        select(func.count())
+        .select_from(Player)
+        .where(Player.game_id == turn.game_id, Player.left_at.is_(None))
+    )
+    messaged = await db.scalar(
+        select(func.count())
+        .select_from(TurnMessage)
+        .where(TurnMessage.turn_id == turn.id, TurnMessage.was_defaulted.is_(False))
+    )
+    return bool(active) and (messaged or 0) >= active
+
+
+async def _wait_for_messages(db, turn: Turn) -> None:
+    """Block until the talk deadline, or until all active players have messaged."""
+    deadline = _as_aware(turn.deadline_at)
+    while True:
+        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            return
+        if await _all_messaged(db, turn):
+            return
+        await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
+
+
+async def _begin_act_phase(db, game: Game, turn: Turn) -> None:
+    """Transition a turn from talk to act and reset the turn token/deadline."""
+    turn.phase = "act"
+    turn.turn_token = generate_turn_token()
+    turn.deadline_at = datetime.now(timezone.utc) + timedelta(
+        seconds=game.per_turn_deadline_seconds
+    )
+    await db.commit()
 
 
 async def _wait_for_turn(db, turn: Turn) -> None:

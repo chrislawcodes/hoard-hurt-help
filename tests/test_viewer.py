@@ -4,9 +4,20 @@ from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from app.main import app
-from app.models import Base, Game, GameState, Player, StrategyPrompt, User
+from app.models import (
+    Base,
+    Game,
+    GameState,
+    Player,
+    StrategyPrompt,
+    Turn,
+    TurnMessage,
+    TurnSubmission,
+    User,
+)
 from tests.factories import make_bot
 
 
@@ -66,6 +77,59 @@ async def _seed(reset_db, state=GameState.ACTIVE):
         await db.commit()
 
 
+async def _seed_two_phase_turn(
+    reset_db,
+    *,
+    include_turn_messages: bool = True,
+    talk_thinking: str = "private talk reasoning",
+    act_thinking: str = "private act reasoning",
+    talk_text: str = "public talk",
+    legacy_message: str = "legacy public chat",
+):
+    async with reset_db() as db:
+        player = (
+            await db.execute(select(Player).where(Player.game_id == "G_001"))
+        ).scalars().first()
+        assert player is not None
+        turn = Turn(
+            game_id="G_001",
+            round=1,
+            turn=1,
+            turn_token="tk1",
+            opened_at=datetime.now(timezone.utc),
+            deadline_at=datetime.now(timezone.utc),
+            phase="act",
+            resolved_at=datetime.now(timezone.utc),
+        )
+        db.add(turn)
+        await db.flush()
+        if include_turn_messages:
+            db.add(
+                TurnMessage(
+                    turn_id=turn.id,
+                    player_id=player.id,
+                    text=talk_text,
+                    thinking=talk_thinking,
+                    was_defaulted=False,
+                    submitted_at=datetime.now(timezone.utc),
+                )
+            )
+        db.add(
+            TurnSubmission(
+                turn_id=turn.id,
+                player_id=player.id,
+                action="HOARD",
+                message=legacy_message,
+                thinking=act_thinking,
+                points_delta=2,
+                round_score_after=2,
+                was_defaulted=False,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_viewer_renders_active(client, reset_db):
     await _seed(reset_db, GameState.ACTIVE)
@@ -83,6 +147,29 @@ async def test_viewer_does_not_leak_strategy(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
+    await _seed(reset_db, GameState.COMPLETED)
+    await _seed_two_phase_turn(reset_db)
+    r = await client.get("/games/G_001")
+    assert r.status_code == 200
+    assert "Talk" in r.text
+    assert "Act" in r.text
+    assert "public talk" in r.text
+    assert "private talk reasoning" in r.text
+    assert "private act reasoning" in r.text
+    assert "<summary>reasoning</summary>" in r.text
+
+
+@pytest.mark.asyncio
+async def test_legacy_viewer_falls_back_to_submission_message(client, reset_db):
+    await _seed(reset_db, GameState.COMPLETED)
+    await _seed_two_phase_turn(reset_db, include_turn_messages=False)
+    r = await client.get("/games/G_001")
+    assert r.status_code == 200
+    assert "legacy public chat" in r.text
+
+
+@pytest.mark.asyncio
 async def test_spectator_state_no_prompts(client, reset_db):
     await _seed(reset_db, GameState.ACTIVE)
     r = await client.get("/api/spectator/games/G_001/state")
@@ -91,6 +178,38 @@ async def test_spectator_state_no_prompts(client, reset_db):
     # Schema has no strategy field; verify by absence.
     assert "strategy_prompt" not in r.text
     assert body["name"] == "Test"
+
+
+@pytest.mark.asyncio
+async def test_spectator_state_two_phase_shape_without_thinking(client, reset_db):
+    await _seed(reset_db, GameState.COMPLETED)
+    await _seed_two_phase_turn(reset_db)
+    r = await client.get("/api/spectator/games/G_001/state")
+    assert r.status_code == 200
+    body = r.json()
+    assert "thinking" not in r.text
+    assert "private talk reasoning" not in r.text
+    assert "private act reasoning" not in r.text
+    assert body["history"] == [
+        {
+            "round": 1,
+            "turn": 1,
+            "messages": [
+                {
+                    "agent_id": "AI_0",
+                    "message": "public talk",
+                }
+            ],
+            "actions": [
+                {
+                    "agent_id": "AI_0",
+                    "action": "HOARD",
+                    "target_id": None,
+                    "points_delta": 2,
+                }
+            ],
+        }
+    ]
 
 
 @pytest.mark.asyncio

@@ -99,6 +99,7 @@ async def test_active_game_viewer_wires_live_sse(client, reset_db):
     # The working wiring the EventSource reads off the live region.
     assert 'data-stream-url="/games/G_live/stream"' in r.text
     assert 'data-live-url="/games/G_live/live"' in r.text
+    assert "turn_talked" in r.text
     # The dead htmx sse-extension wiring must be gone.
     assert 'hx-ext="sse"' not in r.text
     assert "sse-connect=" not in r.text

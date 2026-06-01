@@ -482,9 +482,24 @@ tr:last-child td { border-bottom: none; }
 .turn-block h4 { margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
 .turn-block ul { margin: 0; padding-left: 1.1rem; }
 .turn-block li { margin-bottom: 0.7rem; }
+.turn-phase + .turn-phase { margin-top: 0.9rem; }
+.turn-phase-label {
+    display: inline-block;
+    margin: 0 0 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
 .turn-block .effect { font-size: 0.85rem; margin-top: 0.1rem; }
 .turn-block .effect .who { color: var(--ink-soft); }
 .turn-block .effect .sep { color: var(--ink-soft); margin: 0 0.2rem; }
+.turn-block .turn-empty {
+    color: var(--ink-soft);
+    list-style: none;
+    margin-left: -1.1rem;
+}
 .missed {
     font-size: 0.72rem;
     color: var(--ink-soft);
@@ -494,6 +509,25 @@ tr:last-child td { border-bottom: none; }
     margin-left: 0.35rem;
 }
 .feed-legend { font-size: 0.8rem; color: var(--ink-soft); margin: 0 0 0.75rem; }
+.reasoning {
+    margin-top: 0.35rem;
+    font-size: 0.82rem;
+}
+.reasoning summary {
+    cursor: pointer;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.reasoning-body {
+    margin-top: 0.35rem;
+    padding: 0.45rem 0.55rem;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    white-space: pre-wrap;
+}
 
 /* Action color-coding (works in every theme) */
 .act { font-weight: 700; }

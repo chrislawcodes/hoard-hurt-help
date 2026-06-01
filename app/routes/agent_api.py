@@ -6,7 +6,7 @@ Auth: X-Agent-Key header. Errors: spec.md §10 envelope.
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timezone
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import select
@@ -20,7 +20,7 @@ from app.games.base import GameError
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
-from app.models.turn import Turn, TurnSubmission
+from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.schemas.agent import (
     AgentStateResponse,
     ChatLine,
@@ -30,11 +30,14 @@ from app.schemas.agent import (
     HistoryAction,
     HistoryTurn,
     LeaveResponse,
+    MessageRequest,
+    MessageResponse,
     OpponentHistoryResponse,
     ScoreboardRow,
     StandingRow,
     SubmitRequest,
     SubmitResponse,
+    TalkMessage,
     TurnDetailResponse,
     TurnStatic,
     WaitingResponse,
@@ -171,6 +174,16 @@ async def _load_action_records(db, game: Game) -> list[ActionRecord]:
         .scalars()
         .all()
     )
+    messages = (
+        (
+            await db.execute(
+                select(TurnMessage).where(TurnMessage.turn_id.in_([t.id for t in turns]))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    message_by_key = {(m.turn_id, m.player_id): m.text for m in messages}
     records: list[ActionRecord] = []
     for s in subs:
         t = turn_by_id[s.turn_id]
@@ -182,13 +195,41 @@ async def _load_action_records(db, game: Game) -> list[ActionRecord]:
                 actor_id=name_by_id[s.player_id],
                 action=cast(Action, s.action),
                 target_id=target,
-                message=s.message,
+                message=message_by_key.get((s.turn_id, s.player_id), s.message),
                 points_delta=s.points_delta,
                 round_score_after=s.round_score_after,
                 was_defaulted=s.was_defaulted,
             )
         )
     return records
+
+
+async def _load_talk_messages(db, turn: Turn) -> list[TalkMessage]:
+    if turn.phase != "act":
+        return []
+    rows = (
+        (
+            await db.execute(
+                select(TurnMessage, Player.agent_id)
+                .join(Player, Player.id == TurnMessage.player_id)
+                .where(TurnMessage.turn_id == turn.id)
+                .order_by(Player.agent_id)
+            )
+        )
+        .all()
+    )
+    return [TalkMessage(agent_id=agent_id, message=msg.text) for msg, agent_id in rows]
+
+
+async def _build_current_turn(db, turn: Turn) -> CurrentTurn:
+    return CurrentTurn(
+        round=turn.round,
+        turn=turn.turn,
+        deadline=turn.deadline_at,
+        turn_token=turn.turn_token,
+        phase=cast(Literal["talk", "act"], turn.phase),
+        talk_messages=await _load_talk_messages(db, turn),
+    )
 
 
 @router.get("/turn")
@@ -289,12 +330,76 @@ async def agent_poll(
         static=static,
         history=history,
         scoreboard=await _build_scoreboard(db, game),
-        current=CurrentTurn(
-            round=turn.round,
-            turn=turn.turn,
-            deadline=turn.deadline_at,
-            turn_token=turn.turn_token,
-        ),
+        current=await _build_current_turn(db, turn),
+    )
+
+
+@router.post("/message", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def agent_message(
+    game_id: Annotated[str, Path()],
+    body: MessageRequest,
+    db: DbSession,
+    player: Annotated[Player, Depends(require_bot_player)],
+) -> MessageResponse:
+    """Submit this turn's talk-phase message. Idempotent on (turn_token, player_id)."""
+    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    if game.state != GameState.ACTIVE:
+        raise _err(
+            "GAME_NOT_ACTIVE",
+            "Game is not active.",
+            status.HTTP_409_CONFLICT,
+        )
+
+    turn = (
+        await db.execute(
+            select(Turn).where(Turn.game_id == game.id, Turn.turn_token == body.turn_token)
+        )
+    ).scalar_one_or_none()
+    if turn is None:
+        raise _err(
+            "STALE_TURN_TOKEN",
+            "turn_token doesn't match the open turn.",
+            status.HTTP_409_CONFLICT,
+        )
+    if turn.resolved_at is not None:
+        raise _err(
+            "STALE_TURN_TOKEN",
+            "Turn already resolved.",
+            status.HTTP_409_CONFLICT,
+        )
+    if turn.phase != "talk":
+        raise _err("WRONG_PHASE", "Turn is not in talk phase.", status.HTTP_409_CONFLICT)
+    if datetime.now(timezone.utc) >= _as_aware(turn.deadline_at):
+        raise _err("DEADLINE_PASSED", "Submission past deadline.", status.HTTP_410_GONE)
+
+    existing = (
+        await db.execute(
+            select(TurnMessage).where(
+                TurnMessage.turn_id == turn.id,
+                TurnMessage.player_id == player.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None and not existing.was_defaulted:
+        return MessageResponse(
+            received_at=existing.submitted_at or datetime.now(timezone.utc),
+            phase_resolves_at=turn.deadline_at,
+        )
+
+    module = get_game_module(game.game_type)
+    await module.record_message(
+        db,
+        turn,
+        player,
+        body.message,
+        body.thinking,
+        existing=existing,
+    )
+    await db.commit()
+
+    return MessageResponse(
+        received_at=datetime.now(timezone.utc),
+        phase_resolves_at=turn.deadline_at,
     )
 
 
@@ -334,6 +439,8 @@ async def agent_submit(
             "Turn already resolved.",
             status.HTTP_409_CONFLICT,
         )
+    if turn.phase != "act":
+        raise _err("WRONG_PHASE", "Turn is not in act phase.", status.HTTP_409_CONFLICT)
     if datetime.now(timezone.utc) >= _as_aware(turn.deadline_at):
         raise _err("DEADLINE_PASSED", "Submission past deadline.", status.HTTP_410_GONE)
 
@@ -363,7 +470,12 @@ async def agent_submit(
         .scalars()
         .all()
     )
-    move = {"action": body.action, "target_id": body.target_id, "message": body.message}
+    move = {
+        "action": body.action,
+        "target_id": body.target_id,
+        "message": body.message,
+        "thinking": body.thinking,
+    }
     try:
         module.validate_move(
             move, your_agent_id=player.agent_id, all_agent_ids=all_agent_ids
@@ -596,5 +708,3 @@ async def agent_standings(
         for i, p in enumerate(ranked)
     ]
     return FullStandingsResponse(rows=rows, total_players=len(rows))
-
-

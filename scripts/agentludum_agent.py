@@ -50,10 +50,12 @@ _TOKEN_KEYS = ("fresh_in", "cache_write", "cache_read", "out")
 _session_tokens: dict[str, int] = {k: 0 for k in _TOKEN_KEYS}
 
 _PROTOCOL = (
-    "Each turn I'll give you only what's happened since your last move. "
-    "Reply with ONLY a JSON object, no other text:\n"
+    "Each turn has two phases. On a TALK PHASE prompt reply with ONLY "
+    '{"message": "<public message, max 500 chars>", '
+    '"thinking": "<private reasoning; humans see it, agents never>"}.\n'
+    "On an ACT PHASE prompt reply with ONLY "
     '{"action": "HOARD|HELP|HURT", "target_id": "<another agent id, or null>", '
-    '"message": "<short public message, max 200 chars>"}\n'
+    '"thinking": "<private reasoning, max 2000 chars>"}.\n'
     "HELP and HURT require target_id to be another agent; HOARD must have target_id null."
 )
 _ENGAGE = (
@@ -156,6 +158,44 @@ def _parse_move(text: str) -> dict:
         raise RuntimeError(f"model returned no JSON move:\n{text[:300]}")
 
 
+def _phase(cur: dict) -> str:
+    return str(cur.get("phase", "act")).lower()
+
+
+def _format_talk_messages(cur: dict) -> str:
+    return json.dumps(cur.get("talk_messages", []), separators=(",", ":"))
+
+
+def _phase_suffix(cur: dict) -> str:
+    phase = _phase(cur)
+    if phase == "talk":
+        return "TALK PHASE — JSON only"
+    return f"ACT PHASE — here are this turn's messages: {_format_talk_messages(cur)} — JSON only"
+
+
+def _clip(text: object, limit: int) -> str:
+    return str(text or "")[:limit]
+
+
+def _default_move(phase: str) -> dict:
+    if phase == "talk":
+        return {"message": "", "thinking": ""}
+    return {"action": "HOARD", "target_id": None, "thinking": ""}
+
+
+def _normalize_move(move: dict, phase: str) -> dict:
+    if phase == "talk":
+        return {
+            "message": _clip(move.get("message", ""), 500),
+            "thinking": _clip(move.get("thinking", ""), 2000),
+        }
+    return {
+        "action": str(move.get("action", "HOARD")).upper(),
+        "target_id": move.get("target_id") or None,
+        "thinking": _clip(move.get("thinking", ""), 2000),
+    }
+
+
 def _system_prompt(turn: dict) -> str:
     """The stable per-game framing — set once, then cached by the session."""
     static = turn["static"]
@@ -179,7 +219,7 @@ def _setup_user(turn: dict) -> str:
         f"{json.dumps(turn.get('scoreboard', []), separators=(',', ':'))}\n"
         "HISTORY (oldest to newest):\n"
         f"{json.dumps(turn.get('history', []), separators=(',', ':'))}\n\n"
-        f"It is now round {cur['round']}, turn {cur['turn']}. Your move — JSON only."
+        f"It is now round {cur['round']}, turn {cur['turn']}. {_phase_suffix(cur)}"
     )
 
 
@@ -189,7 +229,7 @@ def _delta_user(new_history: list, scoreboard: list, cur: dict) -> str:
         "Since your last move:\n"
         f"NEW EVENTS:\n{json.dumps(new_history, separators=(',', ':'))}\n"
         f"SCOREBOARD:\n{json.dumps(scoreboard, separators=(',', ':'))}\n\n"
-        f"It is now round {cur['round']}, turn {cur['turn']}. Your move — JSON only."
+        f"It is now round {cur['round']}, turn {cur['turn']}. {_phase_suffix(cur)}"
     )
 
 
@@ -197,6 +237,7 @@ def _decide(turn: dict, sess: _GameSession, model: str) -> dict:
     """Get a move from this game's session; fall back to HOARD on any failure."""
     history = turn.get("history", [])
     cur = turn["current"]
+    phase = _phase(cur)
     first = sess.session_id is None
     try:
         if first:
@@ -212,13 +253,16 @@ def _decide(turn: dict, sess: _GameSession, model: str) -> dict:
             )
         move = _parse_move(text)
     except (RuntimeError, subprocess.SubprocessError) as exc:
-        print(f"[agentludum-agent] model error: {exc}; defaulting to HOARD", file=sys.stderr)
+        print(
+            f"[agentludum-agent] model error: {exc}; defaulting to {phase.upper()}",
+            file=sys.stderr,
+        )
         sess.session_id = None  # a bad resume → re-establish the session next turn
-        return {"action": "HOARD", "target_id": None, "message": ""}
+        return _default_move(phase)
     _record_usage(turn["game_id"], cur, first, usage, sess)
     if history:
         sess.last_marker = max((h["round"], h["turn"]) for h in history)
-    return move
+    return _normalize_move(move, phase)
 
 
 def main() -> None:
@@ -267,28 +311,46 @@ def main() -> None:
 
         game_id = turn["game_id"]
         cur = turn["current"]
+        phase = _phase(cur)
         sess = sessions.setdefault(game_id, _GameSession())
         decision = _decide(turn, sess, args.model)
-        action = str(decision.get("action", "HOARD")).upper()
-        target = decision.get("target_id")
-        message = (decision.get("message") or "")[:200]
-
-        r2 = httpx.post(
-            f"{base}/api/games/{game_id}/submit",
-            headers=headers,
-            json={
-                "turn_token": cur["turn_token"],
-                "action": action,
-                "target_id": target,
-                "message": message,
-            },
-            timeout=20,
-        )
-        arrow = f" -> {target}" if target else ""
-        print(
-            f"[agentludum-agent] {game_id} R{cur['round']}T{cur['turn']}: "
-            f"{action}{arrow} ({r2.status_code})"
-        )
+        if phase == "talk":
+            message = _clip(decision.get("message", ""), 500)
+            thinking = _clip(decision.get("thinking", ""), 2000)
+            r2 = httpx.post(
+                f"{base}/api/games/{game_id}/message",
+                headers=headers,
+                json={
+                    "turn_token": cur["turn_token"],
+                    "message": message,
+                    "thinking": thinking,
+                },
+                timeout=20,
+            )
+            print(
+                f"[agentludum-agent] {game_id} R{cur['round']}T{cur['turn']} TALK: "
+                f"({r2.status_code})"
+            )
+        else:
+            action = str(decision.get("action", "HOARD")).upper()
+            target = decision.get("target_id") or None
+            thinking = _clip(decision.get("thinking", ""), 2000)
+            r2 = httpx.post(
+                f"{base}/api/games/{game_id}/submit",
+                headers=headers,
+                json={
+                    "turn_token": cur["turn_token"],
+                    "action": action,
+                    "target_id": target,
+                    "thinking": thinking,
+                },
+                timeout=20,
+            )
+            arrow = f" -> {target}" if target else ""
+            print(
+                f"[agentludum-agent] {game_id} R{cur['round']}T{cur['turn']} ACT: "
+                f"{action}{arrow} ({r2.status_code})"
+            )
 
 
 if __name__ == "__main__":

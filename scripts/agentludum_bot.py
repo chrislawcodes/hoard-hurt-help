@@ -61,7 +61,38 @@ def _model_argv(provider: str, model_version: str | None, model_cmd: str | None,
     )
 
 
-def _build_prompt(turn: dict) -> str:
+def _phase(cur: dict) -> str:
+    return str(cur.get("phase", "act")).lower()
+
+
+def _format_talk_messages(cur: dict) -> str:
+    return json.dumps(cur.get("talk_messages", []), separators=(",", ":"))
+
+
+def _clip(text: object, limit: int) -> str:
+    return str(text or "")[:limit]
+
+
+def _default_move(phase: str) -> dict:
+    if phase == "talk":
+        return {"message": "", "thinking": ""}
+    return {"action": "HOARD", "target_id": None, "thinking": ""}
+
+
+def _normalize_move(move: dict, phase: str) -> dict:
+    if phase == "talk":
+        return {
+            "message": _clip(move.get("message", ""), 500),
+            "thinking": _clip(move.get("thinking", ""), 2000),
+        }
+    return {
+        "action": str(move.get("action", "HOARD")).upper(),
+        "target_id": move.get("target_id") or None,
+        "thinking": _clip(move.get("thinking", ""), 2000),
+    }
+
+
+def _build_prompt(turn: dict, phase: str) -> str:
     static = turn["static"]
     current = turn["current"]
     you = static["your_agent_id"]
@@ -69,6 +100,21 @@ def _build_prompt(turn: dict) -> str:
     strategy = static.get("your_strategy") or (
         "Play to win: cooperate when it pays, defend when threatened, and adapt."
     )
+    if phase == "talk":
+        phase_block = (
+            "Reply with ONLY a JSON object, no other text:\n"
+            '{"message": "<public message, max 500 chars>", '
+            '"thinking": "<private reasoning; humans see it, agents never>"}\n'
+            "TALK PHASE — JSON only"
+        )
+    else:
+        phase_block = (
+            f"ACT PHASE — here are this turn's messages: {_format_talk_messages(current)}\n"
+            "Reply with ONLY a JSON object, no other text:\n"
+            '{"action": "HOARD|HELP|HURT", "target_id": "<another agent id, or null>", '
+            '"thinking": "<private reasoning, max 2000 chars>"}\n'
+            f"ACT PHASE — here are this turn's messages: {_format_talk_messages(current)} — JSON only"
+        )
     return (
         f'You are playing Hoard-Hurt-Help as agent "{you}".\n\n'
         f"YOUR STRATEGY (follow this, and only this):\n{strategy}\n\n"
@@ -81,11 +127,7 @@ def _build_prompt(turn: dict) -> str:
         f"Agents you may target: {others}\n\n"
         f"SCOREBOARD:\n{json.dumps(turn.get('scoreboard', []), indent=2)}\n\n"
         f"HISTORY (oldest to newest):\n{json.dumps(turn.get('history', []), indent=2)}\n\n"
-        "Reply with ONLY a JSON object, no other text:\n"
-        '{"action": "HOARD|HELP|HURT", "target_id": "<another agent id, or null>", '
-        '"message": "<short public message, max 200 chars>"}\n'
-        "HELP and HURT require target_id to be another agent; "
-        "HOARD must have target_id null."
+        f"{phase_block}"
     )
 
 
@@ -107,7 +149,8 @@ def decide(turn: dict, provider: str, model_version: str | None, model_cmd: str 
     For Claude, passes --output-format=json so token usage is available in the
     response and logged to stdout as a running session total.
     """
-    prompt = _build_prompt(turn)
+    phase = _phase(turn["current"])
+    prompt = _build_prompt(turn, phase)
     use_json = provider == "claude" and not model_cmd
     if use_json:
         base_argv = _model_argv(provider, model_version, model_cmd, prompt)
@@ -138,13 +181,16 @@ def decide(turn: dict, provider: str, model_version: str | None, model_cmd: str 
                 f"session totals: in={_tokens['input']} out={_tokens['output']} "
                 f"cache_read={_tokens['cache_read']} cache_new={_tokens['cache_write']}"
             )
-            return _parse_decision(text)
+            return _normalize_move(_parse_decision(text), phase)
         else:
-            return _parse_decision(result.stdout)
+            return _normalize_move(_parse_decision(result.stdout), phase)
 
     except Exception as e:  # any model/parse error → safe default
-        print(f"[agentludum-bot] model error: {e}. Defaulting to HOARD.", file=sys.stderr)
-        return {"action": "HOARD", "target_id": None, "message": ""}
+        print(
+            f"[agentludum-bot] model error: {e}. Defaulting to {phase.upper()}.",
+            file=sys.stderr,
+        )
+        return _default_move(phase)
 
 
 def main() -> None:
@@ -200,6 +246,7 @@ def main() -> None:
 
         game_id = turn["game_id"]
         current = turn["current"]
+        phase = _phase(current)
         # Provider priority: --model flag > bot config from payload > "claude"
         provider = args.model
         model_version = args.model_version
@@ -211,26 +258,43 @@ def main() -> None:
             model_version = turn.get("preferred_model") or None
         provider = provider or "claude"
         decision = decide(turn, provider, model_version, args.model_cmd)
-        action = str(decision.get("action", "HOARD")).upper()
-        target = decision.get("target_id")
-        message = (decision.get("message") or "")[:200]
-
-        r2 = httpx.post(
-            f"{base}/api/games/{game_id}/submit",
-            headers=headers,
-            json={
-                "turn_token": current["turn_token"],
-                "action": action,
-                "target_id": target,
-                "message": message,
-            },
-            timeout=20,
-        )
-        arrow = f" -> {target}" if target else ""
-        print(
-            f"[agentludum-bot] {game_id} R{current['round']}T{current['turn']}: "
-            f"{action}{arrow} ({r2.status_code})"
-        )
+        if phase == "talk":
+            message = _clip(decision.get("message", ""), 500)
+            thinking = _clip(decision.get("thinking", ""), 2000)
+            r2 = httpx.post(
+                f"{base}/api/games/{game_id}/message",
+                headers=headers,
+                json={
+                    "turn_token": current["turn_token"],
+                    "message": message,
+                    "thinking": thinking,
+                },
+                timeout=20,
+            )
+            print(
+                f"[agentludum-bot] {game_id} R{current['round']}T{current['turn']} TALK: "
+                f"({r2.status_code})"
+            )
+        else:
+            action = str(decision.get("action", "HOARD")).upper()
+            target = decision.get("target_id") or None
+            thinking = _clip(decision.get("thinking", ""), 2000)
+            r2 = httpx.post(
+                f"{base}/api/games/{game_id}/submit",
+                headers=headers,
+                json={
+                    "turn_token": current["turn_token"],
+                    "action": action,
+                    "target_id": target,
+                    "thinking": thinking,
+                },
+                timeout=20,
+            )
+            arrow = f" -> {target}" if target else ""
+            print(
+                f"[agentludum-bot] {game_id} R{current['round']}T{current['turn']} ACT: "
+                f"{action}{arrow} ({r2.status_code})"
+            )
 
 
 if __name__ == "__main__":

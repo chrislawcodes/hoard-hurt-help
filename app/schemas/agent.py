@@ -189,6 +189,11 @@ class HistoryTurn(BaseModel):
     actions: list[HistoryAction]
 
 
+class TalkMessage(BaseModel):
+    agent_id: str
+    message: str
+
+
 class CurrentTurn(BaseModel):
     """Per-poll volatile fields. Kept last so everything before it is a stable,
     append-only prefix an agent's client can prompt-cache."""
@@ -197,6 +202,8 @@ class CurrentTurn(BaseModel):
     turn: int
     deadline: datetime
     turn_token: str
+    phase: Literal["talk", "act"] = "act"
+    talk_messages: list[TalkMessage] = Field(default_factory=list)
 
 
 class YourTurnResponse(BaseModel):
@@ -252,6 +259,19 @@ class SubmitRequest(BaseModel):
     action: Action
     target_id: str | None = None
     message: str = Field(default="", max_length=500)
+    thinking: str = Field(default="", max_length=2000)
+
+
+class MessageRequest(BaseModel):
+    turn_token: str
+    message: str = Field(default="", max_length=500)
+    thinking: str = Field(default="", max_length=2000)
+
+
+class MessageResponse(BaseModel):
+    status: Literal["accepted"] = "accepted"
+    received_at: datetime
+    phase_resolves_at: datetime
 
 
 class SubmitResponse(BaseModel):

@@ -17,7 +17,7 @@ from app.engine.rules import HELP_POINTS, HOARD_POINTS, HURT_POINTS, RULES_TEXT_
 from app.games.base import GameConfig, GameError, StrategyPreset
 from app.games.hoard_hurt_help.strategy import PD_DEFAULT_STRATEGY, PD_STRATEGY_PRESETS
 from app.models.player import Player
-from app.models.turn import TurnSubmission
+from app.models.turn import TurnMessage, TurnSubmission
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,10 +103,12 @@ class HoardHurtHelp:
             ).scalar_one_or_none()
             target_player_id = target.id if target is not None else None
         message = str(move.get("message", ""))
+        thinking = str(move.get("thinking", ""))
         if existing is not None:
             existing.action = action
             existing.target_player_id = target_player_id
             existing.message = message
+            existing.thinking = thinking
             existing.was_defaulted = False
             existing.submitted_at = _now()
         else:
@@ -117,6 +119,34 @@ class HoardHurtHelp:
                     action=action,
                     target_player_id=target_player_id,
                     message=message,
+                    thinking=thinking,
+                    submitted_at=_now(),
+                )
+            )
+
+    async def record_message(
+        self,
+        db: AsyncSession,
+        turn: Turn,
+        player: Player,
+        message: str,
+        thinking: str,
+        *,
+        existing: TurnMessage | None,
+    ) -> None:
+        if existing is not None:
+            existing.text = message
+            existing.thinking = thinking
+            existing.was_defaulted = False
+            existing.submitted_at = _now()
+        else:
+            db.add(
+                TurnMessage(
+                    turn_id=turn.id,
+                    player_id=player.id,
+                    text=message,
+                    thinking=thinking,
+                    was_defaulted=False,
                     submitted_at=_now(),
                 )
             )

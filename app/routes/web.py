@@ -299,7 +299,7 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
 
 async def _game_view_context(request: Request, db, game_id: str) -> dict:
     """Build the shared context for the game viewer page and its live fragment."""
-    from app.models.turn import Turn, TurnSubmission
+    from app.models.turn import Turn, TurnMessage, TurnSubmission
 
     user = await get_current_user(request, db)
     g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
@@ -336,12 +336,68 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
         .all()
     )
     history = []
-    for seq, t in enumerate(turns, start=1):
-        subs = (
-            (await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == t.id)))
+    turn_ids = [t.id for t in turns]
+    messages_by_turn: dict[int, list[TurnMessage]] = {}
+    if turn_ids:
+        messages = (
+            (
+                await db.execute(
+                    select(TurnMessage)
+                    .where(TurnMessage.turn_id.in_(turn_ids))
+                    .order_by(TurnMessage.turn_id, TurnMessage.submitted_at, TurnMessage.id)
+                )
+            )
             .scalars()
             .all()
         )
+        for message in messages:
+            messages_by_turn.setdefault(message.turn_id, []).append(message)
+
+    subs_by_turn: dict[int, list[TurnSubmission]] = {}
+    if turn_ids:
+        subs = (
+            (
+                await db.execute(
+                    select(TurnSubmission)
+                    .where(TurnSubmission.turn_id.in_(turn_ids))
+                    .order_by(
+                        TurnSubmission.turn_id,
+                        TurnSubmission.submitted_at,
+                        TurnSubmission.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for sub in subs:
+            subs_by_turn.setdefault(sub.turn_id, []).append(sub)
+
+    for seq, t in enumerate(turns, start=1):
+        subs = subs_by_turn.get(t.id, [])
+        turn_messages = messages_by_turn.get(t.id, [])
+        if turn_messages:
+            messages = [
+                {
+                    "agent_id": players_by_id[msg.player_id].agent_id,
+                    "text": msg.text,
+                    "thinking": msg.thinking,
+                    "was_defaulted": msg.was_defaulted,
+                }
+                for msg in turn_messages
+                if msg.player_id in players_by_id
+            ]
+        else:
+            messages = [
+                {
+                    "agent_id": players_by_id[s.player_id].agent_id,
+                    "text": s.message,
+                    "thinking": "",
+                    "was_defaulted": s.was_defaulted,
+                }
+                for s in subs
+                if s.player_id in players_by_id
+            ]
         actions = []
         for s in subs:
             actor = players_by_id.get(s.player_id)
@@ -354,14 +410,22 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
                     "agent_id": actor.agent_id,
                     "action": s.action,
                     "target_id": target.agent_id if target else None,
-                    "message": s.message,
                     # Nominal per-move effect, attributed to who it lands on.
                     "actor_delta": actor_delta,
                     "target_delta": target_delta,
+                    "thinking": s.thinking,
                     "was_defaulted": s.was_defaulted,
                 }
             )
-        history.append({"seq": seq, "round": t.round, "turn": t.turn, "actions": actions})
+        history.append(
+            {
+                "seq": seq,
+                "round": t.round,
+                "turn": t.turn,
+                "messages": messages,
+                "actions": actions,
+            }
+        )
 
     # Group resolved turns by round for the round-navigation viewer. Rounds are
     # ordered newest-first, and turns within a round newest-first — this matches
@@ -419,7 +483,7 @@ async def game_live_fragment(
 
 async def _insight_records(db, game: Game) -> tuple[list[PlayerRecord], list[ActionRecord]]:
     """Map DB rows to the DB-free records the insights engine consumes."""
-    from app.models.turn import Turn, TurnSubmission
+    from app.models.turn import Turn, TurnMessage, TurnSubmission
 
     players = (
         (await db.execute(select(Player).where(Player.game_id == game.id))).scalars().all()
@@ -448,17 +512,30 @@ async def _insight_records(db, game: Game) -> tuple[list[PlayerRecord], list[Act
     if not turns:
         return player_records, []
     turn_by_id = {t.id: t for t in turns}
-    subs = (
-        (
-            await db.execute(
-                select(TurnSubmission).where(
-                    TurnSubmission.turn_id.in_([t.id for t in turns])
+    turn_ids = [t.id for t in turns]
+    message_text_by_turn_player: dict[tuple[int, int], str] = {}
+    if turn_ids:
+        for msg in (
+            (
+                await db.execute(
+                    select(TurnMessage).where(TurnMessage.turn_id.in_(turn_ids))
                 )
             )
+            .scalars()
+            .all()
+        ):
+            message_text_by_turn_player[(msg.turn_id, msg.player_id)] = msg.text
+    subs = []
+    if turn_ids:
+        subs = (
+            (
+                await db.execute(
+                    select(TurnSubmission).where(TurnSubmission.turn_id.in_(turn_ids))
+                )
+            )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
     actions: list[ActionRecord] = []
     for s in subs:
         t = turn_by_id[s.turn_id]
@@ -470,7 +547,7 @@ async def _insight_records(db, game: Game) -> tuple[list[PlayerRecord], list[Act
                 actor_id=name_by_id[s.player_id],
                 action=cast(Action, s.action),
                 target_id=target,
-                message=s.message,
+                message=message_text_by_turn_player.get((s.turn_id, s.player_id), s.message),
                 points_delta=s.points_delta,
                 round_score_after=s.round_score_after,
                 was_defaulted=s.was_defaulted,
