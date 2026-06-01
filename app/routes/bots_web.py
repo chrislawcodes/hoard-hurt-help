@@ -44,6 +44,18 @@ async def _owned_bot(db: DbSession, user: User, bot_id: int) -> Bot:
     return bot
 
 
+def _archived_name(base: str, archived_at: datetime, extra: str = "") -> str:
+    """The renamed-on-archive name, e.g. ``Atlas (archived 2026-05-31 14:22)``.
+
+    Stamping the archived copy frees the original name for reuse without
+    touching the unique ``(user_id, name)`` constraint. The base is truncated so
+    the result fits the 120-char ``name`` column. ``extra`` carries the bot id
+    as a tiebreaker if the same name is archived twice within the same minute.
+    """
+    suffix = f" (archived {archived_at:%Y-%m-%d %H:%M}{extra})"
+    return f"{base[: 120 - len(suffix)]}{suffix}"
+
+
 async def _bot_games(db: DbSession, bot: Bot) -> list[dict[str, Any]]:
     """Each game the bot is currently in, with state and current score."""
     players = (
@@ -80,7 +92,13 @@ async def list_bots(
     user: Annotated[User, Depends(require_user)],
 ):
     bots = (
-        (await db.execute(select(Bot).where(Bot.user_id == user.id).order_by(Bot.name)))
+        (
+            await db.execute(
+                select(Bot)
+                .where(Bot.user_id == user.id, Bot.archived_at.is_(None))
+                .order_by(Bot.name)
+            )
+        )
         .scalars()
         .all()
     )
@@ -135,6 +153,11 @@ async def bot_detail(
     # Shown once, right after issue/reissue. We store only the lookup hash, so we
     # cannot show the key again — and we never regenerate it on a plain visit.
     fresh_key = request.session.pop(f"fresh_bot_key_{bot.id}", None)
+    # Whether the bot has ever been in a game. Drives the Delete confirm copy:
+    # history → archived (kept), no history → permanently deleted.
+    has_history = (
+        await db.execute(select(Player.id).where(Player.bot_id == bot.id).limit(1))
+    ).first() is not None
     return templates.TemplateResponse(
         request,
         "bots/detail.html",
@@ -144,6 +167,7 @@ async def bot_detail(
             "bot": bot,
             "fresh_key": fresh_key,
             "games": await _bot_games(db, bot),
+            "has_history": has_history,
             "base_url": settings.base_url,
             "onboarding": await compute_onboarding_status(db, bot),
         },
@@ -304,16 +328,39 @@ async def delete_bot(
     user: Annotated[User, Depends(require_user)],
 ):
     bot = await _owned_bot(db, user, bot_id)
-    # Players reference the bot (FK, not null). Only a bot with no game history
-    # can be deleted; otherwise its player rows would be orphaned.
+    # Players reference the bot (FK, not null). A bot that has any game history
+    # can't be hard-deleted without orphaning those rows, so soft-delete it:
+    # mark it archived and pause it. Archived bots are hidden from the owner's
+    # lists, rejected from new games, and their key stops authenticating — so a
+    # bot that's mid-game simply goes silent and the game's default-turn
+    # protocol covers its missing moves. A bot that never played has no rows to
+    # preserve, so it's hard-deleted.
     has_players = (
         await db.execute(select(Player.id).where(Player.bot_id == bot.id).limit(1))
     ).first()
     if has_players is not None:
-        raise HTTPException(
-            409,
-            detail="This bot has game history and can't be deleted. Pause it instead.",
-        )
-    await db.delete(bot)
+        now = datetime.now(timezone.utc)
+        bot.archived_at = now
+        bot.status = BotStatus.PAUSED
+        bot.paused_at = now
+        bot.paused_reason = "deleted"
+        # Free the original name for reuse by stamping the archived copy. The
+        # bot id is appended only in the rare case two same-named bots are
+        # archived within the same minute, which would otherwise collide.
+        stamped = _archived_name(bot.name, now)
+        clash = (
+            await db.execute(
+                select(Bot.id)
+                .where(
+                    Bot.user_id == bot.user_id,
+                    Bot.name == stamped,
+                    Bot.id != bot.id,
+                )
+                .limit(1)
+            )
+        ).first()
+        bot.name = _archived_name(bot.name, now, f" #{bot.id}") if clash else stamped
+    else:
+        await db.delete(bot)
     await db.commit()
     return RedirectResponse(url="/me/bots", status_code=status.HTTP_303_SEE_OTHER)

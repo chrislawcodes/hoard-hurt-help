@@ -442,9 +442,16 @@ async def join_form(
         raise HTTPException(404)
 
     # Entry is "pick one of your bots" — no per-game key is issued. The bot's
-    # stable key was shown once when it was created (see /me/bots).
+    # stable key was shown once when it was created (see /me/bots). Archived
+    # (deleted) bots are excluded — they can't enter games.
     bots = (
-        (await db.execute(select(Bot).where(Bot.user_id == user.id).order_by(Bot.name)))
+        (
+            await db.execute(
+                select(Bot)
+                .where(Bot.user_id == user.id, Bot.archived_at.is_(None))
+                .order_by(Bot.name)
+            )
+        )
         .scalars()
         .all()
     )
@@ -485,7 +492,13 @@ async def join_submit(
         raise HTTPException(409, detail="Game not open for registration.")
 
     bot = (
-        await db.execute(select(Bot).where(Bot.id == bot_id, Bot.user_id == user.id))
+        await db.execute(
+            select(Bot).where(
+                Bot.id == bot_id,
+                Bot.user_id == user.id,
+                Bot.archived_at.is_(None),
+            )
+        )
     ).scalar_one_or_none()
     if bot is None:
         raise HTTPException(404, detail="Bot not found.")
@@ -524,7 +537,13 @@ async def join_submit(
         error, code = "Game is full.", status.HTTP_409_CONFLICT
     if error is not None:
         bots = (
-            (await db.execute(select(Bot).where(Bot.user_id == user.id).order_by(Bot.name)))
+            (
+                await db.execute(
+                    select(Bot)
+                    .where(Bot.user_id == user.id, Bot.archived_at.is_(None))
+                    .order_by(Bot.name)
+                )
+            )
             .scalars()
             .all()
         )
