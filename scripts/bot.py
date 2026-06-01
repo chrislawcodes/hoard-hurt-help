@@ -21,6 +21,10 @@ import time
 import httpx
 
 
+def _phase(cur: dict) -> str:
+    return str(cur.get("phase", "act")).lower()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Hoard-Hurt-Help random test bot")
     ap.add_argument("--key", required=True, help="Bot key (sk_bot_...)")
@@ -56,30 +60,55 @@ def main() -> None:
 
         game_id = turn["game_id"]
         static, current = turn["static"], turn["current"]
+        phase = _phase(current)
         others = [a for a in static["all_agent_ids"] if a != static["your_agent_id"]]
-        action = random.choice(["HOARD", "HELP", "HURT"])
-        target = None
-        if action in ("HELP", "HURT"):
-            if others:
-                target = random.choice(others)
-            else:
-                action = "HOARD"  # nobody to target
-        r2 = httpx.post(
-            f"{base}/api/games/{game_id}/submit",
-            headers=headers,
-            json={
-                "turn_token": current["turn_token"],
-                "action": action,
-                "target_id": target,
-                "message": f"{static['your_agent_id']}: {action}",
-            },
-            timeout=20,
-        )
-        arrow = f" -> {target}" if target else ""
-        print(
-            f"[bot] {game_id} R{current['round']}T{current['turn']}: "
-            f"{action}{arrow} ({r2.status_code})"
-        )
+        if phase == "talk":
+            canned = random.choice(
+                [
+                    "keeping an eye on the table",
+                    "let's see what sticks",
+                    "noted",
+                    "I am watching",
+                ]
+            )
+            r2 = httpx.post(
+                f"{base}/api/games/{game_id}/message",
+                headers=headers,
+                json={
+                    "turn_token": current["turn_token"],
+                    "message": f"{static['your_agent_id']}: {canned}",
+                    "thinking": "",
+                },
+                timeout=20,
+            )
+            print(
+                f"[bot] {game_id} R{current['round']}T{current['turn']} TALK: "
+                f"({r2.status_code})"
+            )
+        else:
+            action = random.choice(["HOARD", "HELP", "HURT"])
+            target = None
+            if action in ("HELP", "HURT"):
+                if others:
+                    target = random.choice(others)
+                else:
+                    action = "HOARD"  # nobody to target
+            r2 = httpx.post(
+                f"{base}/api/games/{game_id}/submit",
+                headers=headers,
+                json={
+                    "turn_token": current["turn_token"],
+                    "action": action,
+                    "target_id": target,
+                    "thinking": "",
+                },
+                timeout=20,
+            )
+            arrow = f" -> {target}" if target else ""
+            print(
+                f"[bot] {game_id} R{current['round']}T{current['turn']} ACT: "
+                f"{action}{arrow} ({r2.status_code})"
+            )
 
 
 if __name__ == "__main__":
