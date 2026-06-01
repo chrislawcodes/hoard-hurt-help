@@ -8,7 +8,7 @@
     · connection code ends …{{ bot.key_hint }}
 </p>
 
-{% if health.needs_reconnect %}
+{% if health.needs_reconnect and not fresh_key %}
 {% include "bots/_reconnect.html" %}
 {% endif %}
 
@@ -112,12 +112,23 @@ Reload or restart so the tools load, then loop:
 
 Don't stop to ask me anything until my games are over.</pre>
 </details>
-{% else %}
+{% elif not health.needs_reconnect %}
+{# Disconnected/stalled bots get the single-action reconnect block above, so this
+   generic card only shows for connected bots — where Revoke (leaked-key cutoff)
+   is the relevant escape hatch. #}
 <div class="card">
     <p class="hint">This bot's connection code was shown once, inside the setup message, when you created it or last reissued it. We only store a scrambled copy, so we can't show it again. Reissue a fresh one any time — your current code keeps working until the new one connects, so a running bot isn't interrupted.</p>
     <form method="post" action="/me/bots/{{ bot.id }}/reissue">
         <button type="submit">Reissue &amp; show a fresh setup message</button>
     </form>
+    <details class="bot-status-trouble" style="margin-top:0.75rem;">
+        <summary>Think your code leaked?</summary>
+        <p class="hint">Revoke it now: this issues a fresh code and stops the old one working <strong>immediately</strong>, so anything still using it is cut off.</p>
+        <form method="post" action="/me/bots/{{ bot.id }}/revoke"
+              onsubmit="return confirm('Revoke the current code now? Any AI still using it stops working immediately and must paste the new setup message. Continue?');">
+            <button type="submit" class="secondary">Revoke &amp; reissue now</button>
+        </form>
+    </details>
 </div>
 {% endif %}
 

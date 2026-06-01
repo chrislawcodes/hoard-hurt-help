@@ -1,31 +1,21 @@
-{# Reconnect prompt for a Stalled/Disconnected bot. `health` is a BotHealthStatus,
-   `bot` the Bot. Reissue here is graceful — the current code keeps working until
-   the new one connects — so offering it never knocks a still-running bot offline.
-   The anchor id lets the My Bots list link straight here. #}
+{# Reconnect prompt for a Stalled/Disconnected bot. One action only: reissue,
+   which lands on this page showing a fresh setup message to paste to the AI.
+   Reissue is graceful (the current code keeps working until the new one
+   connects), so it never knocks a still-running bot offline. The anchor id lets
+   the My Bots list link straight here. #}
 <div id="reconnect" class="card bot-reconnect">
     <h3 style="margin-top:0;">⚠ Agent not connected</h3>
     <p class="hint">
         {% if health.state.value == "stalled" and health.game_name %}
-            This bot is in <strong>{{ health.game_name }}</strong> right now but isn't responding — its turns are defaulting. Get its runner going again.
+            This bot is in <strong>{{ health.game_name }}</strong> right now but isn't responding — its turns are defaulting.
         {% elif health.never_connected %}
             This bot has never connected, so it can't play yet.
         {% else %}
             This bot's runner isn't running{% if health.last_connected_human %} — last connected {{ health.last_connected_human }}{% endif %}.
         {% endif %}
+        Reissue a fresh setup message and paste it to your AI to bring it back.
     </p>
-    <p>Tell your AI:</p>
-    <button type="button" onclick="copyWithFeedback(this, document.getElementById('reconnect-msg').textContent)">Copy message</button>
-    <pre id="reconnect-msg">Reconnect to Hoard-Hurt-Help and keep playing my games without stopping for my input.</pre>
-    <p class="hint">Lost the connection code, or on a new machine? Reissue a fresh one — your bot's current code keeps working until the new one connects, so this won't interrupt a bot that's still running.</p>
     <form method="post" action="/me/bots/{{ bot.id }}/reissue">
-        <button type="submit" class="secondary">Reissue &amp; show a fresh setup message</button>
+        <button type="submit">Reissue &amp; show setup message</button>
     </form>
-    <details class="bot-status-trouble" style="margin-top:0.75rem;">
-        <summary>Think your code leaked?</summary>
-        <p class="hint">Revoke it now: this issues a fresh code and stops the old one working <strong>immediately</strong>, so anything still using it is cut off.</p>
-        <form method="post" action="/me/bots/{{ bot.id }}/revoke"
-              onsubmit="return confirm('Revoke the current code now? Any AI still using it stops working immediately and must paste the new setup message. Continue?');">
-            <button type="submit" class="secondary">Revoke &amp; reissue now</button>
-        </form>
-    </details>
 </div>
