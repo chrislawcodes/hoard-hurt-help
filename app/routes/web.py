@@ -129,6 +129,7 @@ async def _final_round_moments(db, game_id: str, limit: int = 14) -> list[dict]:
                     "action": s.action,
                     "target_id": target,
                     "message": s.message,
+                    "thinking": s.thinking,
                 }
             )
     return moments[-limit:]
