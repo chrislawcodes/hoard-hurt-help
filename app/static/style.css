@@ -4,7 +4,13 @@
  * hardcode a color or font — they only reference var(--x). To change the
  * whole look, edit a theme block (the :root / [data-theme=...] sets). To add
  * a new theme, copy a block and tweak the variables. Nothing else changes.
+ *
+ * The Agent Ludum marketing front page (/) opts into its own identity via the
+ * `.al` scope at the very bottom of this file (its own tokens + components).
+ * The fonts below are only fetched on pages that actually use those families
+ * (i.e. the marketing page), so game pages pay nothing for them.
  */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
 
 /* ============================================================
  * THEME: Clean — neutral light, blue accent
@@ -886,4 +892,282 @@ button.danger:hover,
     .marquee-cta { display: block; text-align: center; }
     .recent-row { flex-wrap: wrap; }
     .featured-head { flex-wrap: wrap; }
+}
+
+/* ============================================================
+ * AGENT LUDUM — marketing front page (/) identity scope.
+ *
+ * The whole page sits inside `.al` (Lilac, the bright reading surface).
+ * The live "arena" islands (hero match card, leaderboard band) add
+ * `.al-plum` to flip the same tokens to the dark Plum surface. Orange is the
+ * single accent; the move-trio (hoard/hurt/help) is fixed and always carries a
+ * text label so it reads without color. These tokens are self-contained and do
+ * not touch the game-page themes above.
+ * ============================================================ */
+.al {
+    /* fonts */
+    --al-display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --al-body: 'Space Grotesk', system-ui, sans-serif;
+    --al-mono: 'Space Mono', ui-monospace, monospace;
+    /* geometry */
+    --al-radius: 14px;
+    --al-radius-lg: 22px;
+    --al-maxw: 1200px;
+    /* Lilac — bright pages (default) */
+    --bg: #eae5f5;
+    --bg-2: #e2dcf1;
+    --surface: #f9f6ff;
+    --ink: #241c33;
+    --ink-soft: #655a7a;
+    --line: #d8cfe9;
+    --line-bold: #241c33;
+    --brand: #e2640e;
+    --brand-2: #5b4fd6;
+    --accent: #b8861a;
+    --on-brand: #fff6ec;
+    --hoard: #b07e0d;
+    --hurt: #c1452f;
+    --help: #1f8a5b;
+    --al-shadow: 3px 3px 0 var(--line-bold);
+    --al-shadow-soft: 0 20px 44px -26px rgba(36, 28, 51, 0.5);
+
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--al-body);
+    font-size: 17px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Plum — the live arena (dark). Same tokens, flipped. */
+.al-plum {
+    --bg: #3f2f52;
+    --bg-2: #372849;
+    --surface: #4a3960;
+    --ink: #f3edf9;
+    --ink-soft: #b6a6c6;
+    --line: #574470;
+    --line-bold: #574470;
+    --brand: #f0843a;
+    --brand-2: #b58cf0;
+    --accent: #ecc25a;
+    --on-brand: #2a2038;
+    --hoard: #ecc25a;
+    --hurt: #ee7256;
+    --help: #5bd193;
+    --al-shadow: none;
+    --al-shadow-soft: 0 22px 50px -22px rgba(0, 0, 0, 0.6);
+
+    background: var(--bg);
+    color: var(--ink);
+}
+
+/* ---- AL base + components (all scoped under .al so game pages are untouched) ---- */
+.al, .al * { box-sizing: border-box; }
+.al { margin: 0; min-height: 100vh; max-width: none; padding: 0; }
+.al h1, .al h2, .al h3 {
+    font-family: var(--al-display);
+    font-weight: 800;
+    line-height: 1.04;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+}
+.al a { color: inherit; text-decoration: none; }
+.al p { margin: 0; }
+.al .mono { font-family: var(--al-mono); }
+.al .wrap { max-width: var(--al-maxw); margin: 0 auto; padding: 0 28px; }
+.al .eyebrow {
+    font-family: var(--al-mono); font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em; color: var(--brand);
+}
+.al .card { background: var(--surface); border: 2px solid var(--line); border-radius: var(--al-radius-lg); }
+.al .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--al-mono); font-size: 12.5px; font-weight: 700;
+    padding: 6px 13px; border-radius: 999px; border: 1.5px solid var(--line);
+    color: var(--ink-soft); background: var(--surface);
+}
+.al .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--brand); display: inline-block; }
+.al .dot-help { background: var(--help); }
+
+/* buttons: 2px outline + hard offset shadow on Lilac; flat on Plum */
+.al .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font-family: var(--al-body); font-weight: 700; font-size: 14.5px;
+    padding: 10px 18px; border-radius: 999px; cursor: pointer;
+    border: 2px solid var(--line-bold); background: var(--surface); color: var(--ink);
+    box-shadow: var(--al-shadow); transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.al .btn:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--line-bold); }
+.al .btn:active { transform: none; box-shadow: var(--al-shadow); }
+.al .btn-primary { background: var(--brand); color: var(--on-brand); }
+.al .btn-ghost { background: transparent; }
+.al-plum .btn { box-shadow: none; }
+.al-plum .btn:hover { transform: translateY(-2px); box-shadow: none; }
+.al .btn.is-disabled, .al .btn[aria-disabled="true"] {
+    opacity: 0.5; cursor: not-allowed; box-shadow: none;
+}
+.al .btn.is-disabled:hover { transform: none; box-shadow: none; }
+.al-btn-lg { font-size: 16px; padding: 14px 26px; }
+.al-btn-invert { background: var(--on-brand); color: var(--brand); }
+.al-btn-on-brand { color: var(--on-brand); border-color: var(--on-brand); background: transparent; }
+
+/* nav */
+.al-nav {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in oklab, var(--bg) 86%, transparent);
+    backdrop-filter: blur(10px); border-bottom: 1.5px solid var(--line);
+}
+.al-nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 18px; height: 70px; }
+.al-brand { display: flex; align-items: center; gap: 11px; }
+.al-logo { display: block; }
+.al-wordmark { font-family: var(--al-display); font-weight: 800; font-size: 21px; letter-spacing: -0.02em; }
+.al-navlinks { display: flex; gap: 28px; }
+.al-navlinks a { font-size: 13.5px; font-weight: 700; color: var(--ink-soft); }
+.al-navlinks a:hover { color: var(--ink); }
+.al-nav-right { display: flex; align-items: center; gap: 14px; font-size: 13.5px; font-weight: 700; }
+.al-inline-form { display: inline; margin: 0; }
+.al-linkbtn { background: none; border: none; font: inherit; color: inherit; cursor: pointer; padding: 0; }
+
+/* sections */
+.al-section { padding: clamp(64px, 9vw, 120px) 0; }
+.al-section-alt { background: var(--bg-2); }
+.al-section-head { max-width: 620px; margin-bottom: clamp(32px, 4vw, 52px); }
+.al-section-head-row { max-width: none; display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
+.al-h2 { font-size: clamp(30px, 4vw, 50px); margin-top: 14px; }
+
+/* hero */
+.al-hero { padding: clamp(36px, 6vw, 68px) 0 clamp(48px, 7vw, 90px); }
+.al-hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: clamp(32px, 5vw, 72px); align-items: center; }
+.al-h1 { font-size: clamp(44px, 6.2vw, 80px); margin-top: 18px; }
+.al-sub { font-size: clamp(17px, 1.4vw, 21px); color: var(--ink-soft); margin-top: 20px; max-width: 480px; }
+.al-cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+.al-cta-center { justify-content: center; }
+.al-meta { display: flex; gap: 18px; margin-top: 26px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-soft); }
+.al-diamond { color: var(--brand); }
+
+/* hero match card (Plum) */
+.al-matchcard {
+    border-radius: var(--al-radius-lg); padding: 22px;
+    box-shadow: var(--al-shadow-soft); animation: al-floaty 7s ease-in-out infinite;
+}
+.al-mc-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; }
+.al-mc-tag { color: var(--accent); font-size: 12px; }
+.al-mc-name { color: var(--ink-soft); font-size: 12px; }
+.al-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 11px; }
+.al-move { font-size: 14px; line-height: 1.4; }
+.al-arrow { color: var(--ink-soft); }
+.al-msg { color: var(--ink-soft); display: block; font-size: 12.5px; margin-top: 2px; }
+.al-chip {
+    font-family: var(--al-mono); font-weight: 700; font-size: 11.5px;
+    padding: 2px 8px; border-radius: 7px; border: 1.5px solid currentColor;
+    margin: 0 2px; white-space: nowrap;
+}
+.al-chip-hoard { color: var(--hoard); }
+.al-chip-hurt { color: var(--hurt); }
+.al-chip-help { color: var(--help); }
+.al-mc-foot {
+    display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 16px;
+    padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-soft);
+}
+.al-mc-stand.leader { color: var(--ink); }
+.al-mc-rank { color: var(--accent); margin-right: 5px; }
+.al-mc-empty { text-align: center; padding: 18px 8px; }
+.al-mc-empty p { color: var(--ink-soft); margin: 12px 0 18px; font-size: 14px; }
+/* auto-play reveal — hidden only while playing; static otherwise */
+.al-feed.is-playing .al-move { opacity: 0; transform: translateY(6px); transition: opacity 0.4s ease, transform 0.4s ease; }
+.al-feed.is-playing .al-move.is-shown { opacity: 1; transform: none; }
+
+/* how-it-works */
+.al-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+.al-step { padding: 26px; }
+.al-step h3 { font-size: 23px; }
+.al-step p { color: var(--ink-soft); margin-top: 12px; font-size: 15.5px; }
+.al-step-top { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.al-step-n { font-family: var(--al-mono); font-weight: 700; font-size: 14px; color: var(--c); border: 2px solid var(--c); border-radius: 9px; padding: 4px 10px; }
+.al-step-rule { flex: 1; height: 2px; background: var(--line); }
+
+/* games grid */
+.al-games { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+.al .gamecard { padding: 14px; display: flex; flex-direction: column; transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
+.al .gamecard:hover { transform: translateY(-5px); box-shadow: var(--al-shadow-soft); border-color: var(--line-bold); }
+.al .gamecard.is-lab { opacity: 0.9; }
+.al .gamecard.is-lab:hover { transform: none; box-shadow: none; border-color: var(--line); }
+.al-art { position: relative; height: 150px; border-radius: var(--al-radius); border: 2px solid var(--line); overflow: hidden; }
+.al-art-hoard { background: repeating-linear-gradient(45deg, #efe4c2, #efe4c2 8px, #e6d6a4 8px, #e6d6a4 16px); }
+.al-art-tell { background: repeating-linear-gradient(45deg, #f1d9d3, #f1d9d3 8px, #e9c6bd 8px, #e9c6bd 16px); }
+.al-art-holdfast { background: repeating-linear-gradient(45deg, #cfe7d8, #cfe7d8 8px, #b9dcc6 8px, #b9dcc6 16px); }
+.al-art-accord { background: repeating-linear-gradient(45deg, #ddd6f3, #ddd6f3 8px, #cabfe9 8px, #cabfe9 16px); }
+.al .badge-live {
+    position: absolute; right: 12px; top: 12px; display: inline-flex; align-items: center; gap: 5px;
+    background: var(--hurt); color: #fff; font-size: 10.5px; font-weight: 700;
+    padding: 4px 9px; border-radius: 999px; letter-spacing: 0.06em;
+}
+.al .badge-live .dot { background: #fff; }
+.al .badge-lab {
+    position: absolute; right: 12px; top: 12px;
+    background: var(--surface); color: var(--ink-soft); border: 1.5px solid var(--line);
+    font-size: 10.5px; font-weight: 700; padding: 4px 9px; border-radius: 999px;
+}
+.al-game-body { padding: 14px 6px 6px; display: flex; flex-direction: column; flex: 1; }
+.al-game-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.07em; }
+.al-game-body h3 { font-size: 20px; margin-top: 8px; }
+.al-game-body p { color: var(--ink-soft); margin-top: 8px; font-size: 14px; flex: 1; }
+.al-game-cta { margin-top: 16px; width: 100%; }
+.al-games-note { margin-top: 22px; text-align: center; font-size: 12.5px; color: var(--ink-soft); }
+
+/* standings band (Plum) */
+.al-band { padding: clamp(64px, 9vw, 120px) 0; }
+.al-lb { padding: 0; overflow: hidden; }
+.al-lb-row { display: grid; grid-template-columns: 48px 1fr 120px 110px; align-items: center; gap: 10px; padding: 13px 18px; border-top: 1px solid var(--line); }
+.al-lb-head { border-top: none; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+.al-num { text-align: right; }
+.al-lb-row.leader { background: color-mix(in oklab, var(--brand) 12%, var(--surface)); }
+.al-lb-rank { display: grid; place-content: center; width: 26px; height: 26px; border-radius: 7px; background: var(--line); color: var(--ink); font-weight: 700; font-size: 13px; }
+.al-lb-rank.top { background: var(--accent); color: var(--on-brand); }
+.al-lb-name { font-weight: 700; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.al-lb-cap { text-align: center; margin-top: 18px; font-size: 13px; color: var(--ink-soft); }
+.al-lb-empty { text-align: center; padding: 36px 20px; }
+.al-lb-empty p { color: var(--ink-soft); margin-bottom: 18px; }
+
+/* CTA band */
+.al-cta-band { background: var(--brand); border: 2px solid var(--line-bold); border-radius: var(--al-radius-lg); padding: clamp(36px, 5vw, 64px); text-align: center; box-shadow: var(--al-shadow-soft); }
+.al-cta-band h2 { color: var(--on-brand); }
+.al-cta-band p { color: var(--on-brand); opacity: 0.88; font-size: 18px; margin-top: 14px; max-width: 520px; margin-inline: auto; }
+
+/* footer */
+.al-footer { border-top: 1.5px solid var(--line); padding: 54px 0 38px; }
+.al-footer-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 32px; }
+.al-foot-blurb { font-size: 13px; color: var(--ink-soft); margin-top: 14px; max-width: 240px; }
+.al-foot-col { display: flex; flex-direction: column; gap: 10px; }
+.al-foot-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink); margin-bottom: 4px; }
+.al-foot-col a { font-size: 13.5px; color: var(--ink-soft); }
+.al-foot-col a:hover { color: var(--ink); }
+.al-footer-bottom { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: 12.5px; color: var(--ink-soft); }
+
+@keyframes al-floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .al-matchcard { animation: none; }
+    .al-feed.is-playing .al-move { opacity: 1; transform: none; }
+}
+
+@media (max-width: 900px) {
+    .al-hero-grid { grid-template-columns: 1fr; }
+    .al-navlinks { display: none; }
+    .al-steps { grid-template-columns: repeat(2, 1fr); }
+    .al-games { grid-template-columns: repeat(2, 1fr); }
+    .al-footer-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 560px) {
+    .al-steps { grid-template-columns: 1fr; }
+    .al-games { grid-template-columns: 1fr; }
+    .al-footer-grid { grid-template-columns: 1fr; }
+    .al-meta { gap: 12px; }
+    .al-cta-row .btn { width: 100%; }
+    .al-nav-right a:not(.btn), .al-nav-right .al-inline-form { display: none; }
+    .al-lb-row { grid-template-columns: 40px 1fr 90px; }
+    .al-lb-row > .al-num:last-child, .al-lb-head > span:last-child { display: none; }
 }

@@ -1,5 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-    <rect width="32" height="32" rx="6" fill="#1a1a1a"/>
-    <text x="16" y="22" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
-          font-size="18" font-weight="700" text-anchor="middle" fill="#fff">3H</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+    <!-- Agent Ludum "Standoff" mark: two pips (agents) head-to-head, divided. -->
+    <rect x="2" y="2" width="36" height="36" rx="10" fill="#e2640e" stroke="#241c33" stroke-width="2"/>
+    <circle cx="13.6" cy="20" r="4" fill="#fff6ec"/>
+    <circle cx="26.4" cy="20" r="4" fill="#fff6ec"/>
+    <rect x="19.4" y="11.2" width="1.2" height="17.6" rx="0.6" fill="#fff6ec" opacity="0.55"/>
 </svg>

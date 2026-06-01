@@ -174,6 +174,72 @@ def _move_effect_for(game_type: str, action: str) -> tuple[int, int | None]:
 
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: DbSession):
+    """Agent Ludum platform front page (marketing).
+
+    Static explainer + funnel, plus two real-data regions: the hero match card
+    (a real finished game's final-round replay) and the leaderboard band (real
+    standings from the most-progressed live game, else the most-recent finished
+    showcase game). Both fall back to honest empty states. The Hoard·Hurt·Help
+    lobby itself lives one level down at `/play/hoard-hurt-help`.
+    """
+    user = await get_current_user(request, db)
+    all_games = (
+        (await db.execute(select(Game).order_by(Game.scheduled_start.desc()))).scalars().all()
+    )
+    live: list[dict] = []
+    completed: list[dict] = []
+    for g in all_games:
+        view = {
+            "id": g.id,
+            "name": g.name,
+            "state": g.state,
+            "current_round": g.current_round,
+            "current_turn": g.current_turn,
+            "winner_agent_id": None,
+            "player_count": await _player_count(db, g.id),
+        }
+        if g.state == GameState.ACTIVE:
+            live.append(view)
+        elif g.state == GameState.COMPLETED:
+            if g.winner_player_id:
+                winner = (
+                    await db.execute(select(Player).where(Player.id == g.winner_player_id))
+                ).scalar_one_or_none()
+                view["winner_agent_id"] = winner.agent_id if winner else None
+            completed.append(view)
+
+    # Hero match card: a real finished game's final round (None → explainer-only hero).
+    featured = await _featured_replay(db, completed)
+
+    # Leaderboard band: real standings. Prefer the most-progressed live game;
+    # otherwise the most-recent finished showcase game. Empty list → empty state.
+    live.sort(key=lambda v: (v["current_round"], v["current_turn"]), reverse=True)
+    standings: list[dict] = []
+    standings_game: str | None = None
+    standings_source = next((v for v in live), None) or next(
+        (v for v in completed if _is_showcase(v)), None
+    )
+    if standings_source is not None:
+        standings = await _top_standings(db, standings_source["id"], 6)
+        standings_game = standings_source["name"]
+
+    return templates.TemplateResponse(
+        request,
+        "agent_ludum.html",
+        {
+            "user": user,
+            "is_admin": _is_admin(user),
+            "featured": featured,
+            "standings": standings,
+            "standings_game": standings_game,
+            "has_live": bool(live),
+        },
+    )
+
+
+@router.get("/play/hoard-hurt-help", response_class=HTMLResponse)
+async def hoard_hurt_help_lobby(request: Request, db: DbSession):
+    """Hoard·Hurt·Help lobby (game #1). The platform front page lives at `/`."""
     user = await get_current_user(request, db)
     all_games = (
         (await db.execute(select(Game).order_by(Game.scheduled_start.desc()))).scalars().all()
