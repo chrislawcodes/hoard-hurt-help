@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.google import oauth
 from app.auth.session import clear_session, set_session_user
@@ -12,6 +13,35 @@ from app.models.user import User
 from app.schemas.auth import GoogleUserInfo
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
+    """Create the user on first sign-in, or fill in names we didn't have yet.
+
+    given_name/family_name come straight from Google, so we capture them from the
+    start rather than backfilling later. Rows created before we stored names get
+    filled on the user's next login; a name that's already set is never
+    overwritten.
+    """
+    user = (
+        await db.execute(select(User).where(User.google_sub == userinfo.sub))
+    ).scalar_one_or_none()
+    if user is None:
+        user = User(
+            google_sub=userinfo.sub,
+            email=userinfo.email,
+            name=userinfo.name,
+            given_name=userinfo.given_name,
+            family_name=userinfo.family_name,
+        )
+        db.add(user)
+        await db.flush()
+        return user
+    if user.given_name is None and userinfo.given_name is not None:
+        user.given_name = userinfo.given_name
+    if user.family_name is None and userinfo.family_name is not None:
+        user.family_name = userinfo.family_name
+    return user
 
 
 @router.get("/google/login")
@@ -42,17 +72,7 @@ async def google_callback(request: Request, db: DbSession):
     userinfo_raw = token.get("userinfo") or await oauth.google.userinfo(token=token)
     userinfo = GoogleUserInfo(**dict(userinfo_raw))
 
-    user = (
-        await db.execute(select(User).where(User.google_sub == userinfo.sub))
-    ).scalar_one_or_none()
-    if user is None:
-        user = User(
-            google_sub=userinfo.sub,
-            email=userinfo.email,
-            name=userinfo.name,
-        )
-        db.add(user)
-        await db.flush()
+    user = await sync_google_user(db, userinfo)
     await db.commit()
 
     set_session_user(request, user.id)

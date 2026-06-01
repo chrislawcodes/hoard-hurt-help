@@ -12,4 +12,6 @@ class GoogleUserInfo(BaseModel):
     sub: str
     email: str
     name: str | None = None
+    given_name: str | None = None
+    family_name: str | None = None
     email_verified: bool = True
