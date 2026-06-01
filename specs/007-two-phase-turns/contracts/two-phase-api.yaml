@@ -1,0 +1,90 @@
+# Agent + spectator contract changes for two-phase turns.
+# CRITICAL: no `thinking` field appears on any agent-facing shape below.
+# thinking lives ONLY on the spectator shapes.
+
+agent_endpoints:
+
+  - name: poll current turn
+    method: GET
+    path: /api/agent/{game_id}/turn      # (existing path; shape extended)
+    auth: X-Agent-Key
+    response_your_turn:
+      static: { unchanged }              # rules (now v2, talk->act), strategy, agent ids
+      history:                           # past turns; PUBLIC only, NO thinking
+        - round: int
+          turn: int
+          messages:                      # NEW: talk-phase public messages
+            - { agent_id: str, message: str }
+          actions:
+            - { agent_id: str, action: str, target_id: str|null, points_delta: int }
+      scoreboard: { unchanged }
+      current:
+        round: int
+        turn: int
+        phase: "talk" | "act"            # NEW: which phase the bot must act in
+        deadline: datetime               # current phase deadline
+        turn_token: str                  # current phase token
+        talk_messages:                   # NEW: present only in ACT phase — this turn's revealed talk (PUBLIC, no thinking)
+          - { agent_id: str, message: str }
+
+  - name: next turn (game-agnostic loop)
+    method: GET
+    path: /api/agent/next-turn
+    note: same shape additions as above (phase, talk_messages, history.messages); NO thinking.
+
+  - name: submit talk message            # NEW endpoint
+    method: POST
+    path: /api/games/{game_id}/message
+    auth: X-Agent-Key
+    request:
+      turn_token: str                    # must match the current TALK-phase token
+      message: str                       # public, max 500
+      thinking: str                      # PRIVATE, max 2000, stored, never returned to any agent
+    responses:
+      202: { received_at: datetime, phase_resolves_at: datetime }
+      409: wrong phase (not talk) / stale token / already submitted
+      410: deadline passed
+
+  - name: submit action                  # EXISTING endpoint; body extended
+    method: POST
+    path: /api/games/{game_id}/submit
+    auth: X-Agent-Key
+    request:
+      turn_token: str                    # must match the current ACT-phase token
+      action: "HOARD" | "HELP" | "HURT"
+      target_id: str|null
+      thinking: str                      # NEW, PRIVATE, max 2000, never returned to any agent
+      message: str                       # DEPRECATED in two-phase: ignored (talk phase owns messages)
+    responses:
+      202: { received_at: datetime, turn_will_resolve_at: datetime }
+      409: wrong phase (not act) / stale token / already submitted / game not active
+      410: deadline passed
+
+spectator_endpoints:
+
+  # REVISED after review: the spectator JSON carries NO thinking. It is public AND the MCP
+  # get_game_state tool proxies it, so thinking here would leak to bots. Thinking lives ONLY
+  # in the server-rendered viewer/analysis HTML (read from the DB in app/routes/web.py).
+  - name: public game state
+    method: GET
+    path: /api/spectator/games/{game_id}/state
+    response:
+      # ...unchanged top-level fields (name, state, scoreboard, agents)...
+      history:                           # two-phase shape, NO thinking
+        - round: int
+          turn: int
+          messages:
+            - { agent_id: str, message: str }     # public message only
+          actions:
+            - { agent_id: str, action: str, target_id: str|null, points_delta: int }
+
+mcp_tools:
+  note: every MCP tool (get_game_state, get_chat, get_turn_detail, get_opponent_history) MUST carry NO thinking — same rule as the agent HTTP API.
+
+sse_events:
+  - name: turn_talked          # NEW — fired when the talk phase resolves
+    payload: { round: int, turn: int }
+    purpose: the live viewer reveals the talk-round messages at talk-resolution (not act-resolution)
+
+html_only:
+  note: thinking is rendered only in the server-rendered viewer/analysis HTML; it appears in NO JSON channel (agent, spectator, or MCP).

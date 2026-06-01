@@ -33,6 +33,12 @@ class Turn(Base):
     deadline_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )
+    phase: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="talk", server_default="talk"
+    )
+    talk_resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -56,7 +62,27 @@ class TurnSubmission(Base):
         ForeignKey("players.id"), nullable=True
     )
     message: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    thinking: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
     points_delta: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     round_score_after: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    was_defaulted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TurnMessage(Base):
+    __tablename__ = "turn_messages"
+    __table_args__ = (
+        UniqueConstraint("turn_id", "player_id", name="uq_turn_messages_turn_id_player_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    turn_id: Mapped[int] = mapped_column(
+        ForeignKey("turns.id"), nullable=False, index=True
+    )
+    player_id: Mapped[int] = mapped_column(
+        ForeignKey("players.id"), nullable=False, index=True
+    )
+    text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    thinking: Mapped[str] = mapped_column(Text, default="", nullable=False)
     was_defaulted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
