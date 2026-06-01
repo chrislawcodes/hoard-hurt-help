@@ -163,9 +163,14 @@ Don't stop to ask me anything until my games are over.</pre>
     {% else %}
     <form method="post" action="/me/bots/{{ bot.id }}/pause"><button type="submit">Pause (stop playing)</button></form>
     {% endif %}
-    {% if not games %}
-    <form method="post" action="/me/bots/{{ bot.id }}/delete" onsubmit="return confirm('Delete this bot?');"><button type="submit">Delete</button></form>
+    {% if games %}
+    {%- set _confirm = 'This bot is in ' ~ (games | length) ~ ' game(s). Deleting it disconnects the bot — the game auto-plays its missing turns, and the bot is hidden from your list (its past results are kept). Continue?' %}
+    {% elif has_history %}
+    {%- set _confirm = 'Delete this bot? It has game history, so it is hidden and its key stops working, but its past results are kept and its name frees up for reuse. Continue?' %}
+    {% else %}
+    {%- set _confirm = 'Permanently delete this bot? It never played a game, so there is nothing to keep.' %}
     {% endif %}
+    <form method="post" action="/me/bots/{{ bot.id }}/delete" onsubmit="return confirm('{{ _confirm }}');"><button type="submit">Delete</button></form>
 </div>
 
 <script>

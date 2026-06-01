@@ -79,8 +79,15 @@ async def require_bot(
                 }
             },
         )
+    # Archived (deleted) bots are excluded: their key no longer authenticates,
+    # so the bot stops playing and is treated exactly like an unknown key.
     bot = (
-        await db.execute(select(Bot).where(Bot.key_lookup == bot_key_lookup(x_agent_key)))
+        await db.execute(
+            select(Bot).where(
+                Bot.key_lookup == bot_key_lookup(x_agent_key),
+                Bot.archived_at.is_(None),
+            )
+        )
     ).scalar_one_or_none()
     if bot is None:
         # Log enough to diagnose without ever recording the secret itself.

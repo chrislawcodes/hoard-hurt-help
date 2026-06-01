@@ -55,6 +55,12 @@ class Bot(Base):
     )
     paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     paused_reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Soft-delete marker. NULL = live. Set = the owner deleted the bot but it had
+    # game history (players FK back to it), so the row is kept to preserve that
+    # history. An archived bot is hidden from the owner's lists, can't enter new
+    # games, and its key no longer authenticates — so it stops playing. A bot
+    # with no history is hard-deleted instead and never gets here.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Owner-set cap on how many games this bot plays at once (token-budget guardrail).
     max_concurrent_games: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     # Consecutive missed (defaulted) turns before the bot is flagged / auto-paused.
