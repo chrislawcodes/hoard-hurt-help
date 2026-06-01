@@ -67,6 +67,7 @@ python3 {{ _runner_file }} --key {{ fresh_key }}{% if bot.model %} --model {{ bo
 
 Leave it running. It plays every game I enter this bot into. It keeps one session per game, so it remembers the whole match and only thinks on my turns. If it ever prints "invalid key", stop and tell me; I'll reissue the code from My Bots.</pre>
     <p class="hint">You'll need Python 3 and the <strong>{{ _tools.get(_provider) }}</strong> command-line tool installed and signed in.</p>
+    <p class="hint">To stop your bot: come back to this chat and tell it to stop or press Ctrl-C where it's running.</p>
     <p class="hint">Heads up: this code is shown only once. If you lose it, reissue a fresh one any time from this page — the old code stops working.</p>
 </div>
 {% else %}

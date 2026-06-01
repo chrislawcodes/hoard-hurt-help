@@ -89,6 +89,8 @@ async def test_setup_screen_leads_with_runner(reset_db) -> None:
     # New framing: the bot plays as a chained agent on the user's own subscription.
     assert "remembers who helped and who betrayed" in body
     assert "subscription" in body
+    # Tells the operator how to stop the bot.
+    assert "Ctrl-C" in body
     # The MCP self-loop is demoted to a collapsed "Advanced" section.
     assert "Advanced:" in body
     assert "claude mcp add" in body
