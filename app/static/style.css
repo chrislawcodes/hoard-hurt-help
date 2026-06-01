@@ -774,3 +774,116 @@ button.danger:hover,
 @media (max-width: 640px) {
     .bot-status .cta { display: block; text-align: center; }
 }
+
+/* ============================================================
+ * LOBBY v2 — adaptive hero (live marquee / quiet replay), tiers
+ * Variables only; no literal colors.
+ * ============================================================ */
+
+/* Quiet-state hero: lead with the pitch, not the site name. */
+.hero-quiet { margin-bottom: 1.4rem; }
+.hero-quiet h1 { font-size: 1.95rem; max-width: 20ch; margin: 0 0 0.6rem; }
+.hero-quiet p { color: var(--ink-soft); max-width: 56ch; margin: 0; }
+
+/* The three moves, shown as chips. Effect text means color is never the only
+   cue, so the legend reads for color-blind viewers too. */
+.move-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0; margin: 0 0 2rem; }
+.move-legend .hchip { display: inline-flex; align-items: baseline; gap: 0.4rem; }
+.hchip-move { font-weight: 800; }
+.hchip-eff { color: var(--ink-soft); font-weight: 400; font-size: 0.82rem; }
+
+/* Live marquee — the single most-watchable thing, given real weight. */
+.marquee {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--hurt);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.5rem 1.5rem 1.6rem;
+    margin-bottom: 1rem;
+}
+.marquee-top { display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap; }
+.marquee-meta { color: var(--ink-soft); font-size: 0.9rem; }
+.marquee-title { margin: 0.55rem 0 1.1rem; font-size: 1.85rem; }
+/* Brighter, larger LIVE pill than the row badge — this is the hero. */
+.marquee .badge-live {
+    font-size: 0.78rem;
+    background: color-mix(in srgb, var(--hurt) 26%, transparent);
+    color: var(--hurt);
+    border: 1px solid color-mix(in srgb, var(--hurt) 45%, transparent);
+}
+
+.marquee-standings { list-style: none; margin: 0 0 1.3rem; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; max-width: 32rem; }
+.marquee-standings li {
+    display: grid;
+    grid-template-columns: 1.5rem 1fr auto auto;
+    align-items: baseline;
+    gap: 0.85rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 6px;
+}
+.marquee-standings li.leader { background: var(--surface-2); }
+.ms-rank { color: var(--ink-soft); text-align: right; font-variant-numeric: tabular-nums; }
+.ms-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.marquee-standings li.leader .ms-name { color: var(--accent); }
+/* Round-wins is what wins the game, so it's the prominent number; the
+   current-round score is muted, secondary context. */
+.ms-score { color: var(--ink-soft); font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; }
+.ms-wins { font-weight: 700; min-width: 3.4rem; text-align: right; font-variant-numeric: tabular-nums; }
+.marquee-cta { padding: 0.7rem 1.45rem; font-size: 1.02rem; }
+
+/* Tier cues: live cards carry the same accent edge as the marquee. */
+.game-card.tier-live { border-left: 3px solid var(--hurt); }
+
+/* Recent: muted, dense rows — finished games shouldn't outweigh live ones. */
+.recent-list {
+    list-style: none; margin: 0 0 1rem; padding: 0;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--surface); overflow: hidden;
+}
+.recent-row {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--line);
+}
+.recent-row:last-child { border-bottom: none; }
+.recent-link {
+    display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
+    flex: 1; min-width: 0; text-decoration: none; color: var(--ink);
+}
+.recent-name { font-weight: 600; }
+.recent-result { color: var(--ink-soft); font-size: 0.85rem; }
+.watch-link { margin-left: auto; color: var(--accent); font-size: 0.88rem; font-weight: 600; }
+.recent-link:hover .recent-name { color: var(--accent); }
+.recent-del { margin: 0; flex-shrink: 0; }
+.danger.small { padding: 0.22rem 0.55rem; font-size: 0.78rem; }
+
+/* Featured replay (quiet state): an auto-playing mini-feed. */
+.featured {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 1.25rem 1.4rem 1.4rem; margin-bottom: 1rem;
+}
+.featured-head { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1rem; }
+.featured-titles { min-width: 0; }
+.featured-title { margin: 0; font-size: 1.15rem; }
+.featured-sub { margin: 0.15rem 0 0; color: var(--ink-soft); font-size: 0.85rem; }
+.badge-replay { background: var(--surface-2); color: var(--accent); white-space: nowrap; }
+
+.mini-feed { list-style: none; margin: 0 0 1.1rem; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.mini-move { padding: 0.45rem 0.65rem; border-radius: 6px; background: var(--surface-2); }
+.mini-move .act { margin: 0 0.15rem; }
+.mini-msg { color: var(--ink-soft); }
+/* Auto-play: hidden until revealed. Without JS (or with reduced motion) the
+   .is-playing class is never added, so every move stays visible. */
+.mini-feed.is-playing .mini-move { opacity: 0; transform: translateY(5px); transition: opacity 0.4s ease, transform 0.4s ease; }
+.mini-feed.is-playing .mini-move.is-shown { opacity: 1; transform: none; }
+
+@media (max-width: 600px) {
+    .hero-quiet h1 { font-size: 1.5rem; }
+    .marquee { padding: 1.1rem 1.1rem 1.25rem; }
+    .marquee-title { font-size: 1.45rem; }
+    .marquee-standings li { grid-template-columns: 1.4rem 1fr auto auto; gap: 0.55rem; }
+    .marquee-cta { display: block; text-align: center; }
+    .recent-row { flex-wrap: wrap; }
+    .featured-head { flex-wrap: wrap; }
+}

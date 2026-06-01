@@ -1,6 +1,7 @@
 """HTMX-served web routes: lobby, join, my games, per-player dashboard."""
 
 import logging
+import random
 import re
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -46,6 +47,114 @@ def _is_admin(user: User | None) -> bool:
     return user is not None and user.email.lower() in settings.admin_emails_set
 
 
+# A finished game named like this is a deploy smoke test, not a real match —
+# keep it out of the public front door (featured replay + recent list).
+_TEST_NAME_PREFIX = "prod smoke"
+
+
+def _is_showcase(view: dict) -> bool:
+    """Real, watchable game: had a full table and isn't a smoke test."""
+    return view["player_count"] >= 3 and not view["name"].strip().lower().startswith(
+        _TEST_NAME_PREFIX
+    )
+
+
+async def _top_standings(db, game_id: str, limit: int = 3) -> list[dict]:
+    """Top-N active players by round-wins then round-score, ranked from 1."""
+    players = (
+        (
+            await db.execute(
+                select(Player).where(Player.game_id == game_id, Player.left_at.is_(None))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    rows = sorted(
+        (
+            {
+                "agent_id": p.agent_id,
+                "round_score": p.current_round_score,
+                "round_wins": p.total_round_wins,
+            }
+            for p in players
+        ),
+        key=lambda r: (-r["round_wins"], -r["round_score"]),
+    )[:limit]
+    for i, row in enumerate(rows, start=1):
+        row["rank"] = i
+    return rows
+
+
+async def _final_round_moments(db, game_id: str, limit: int = 14) -> list[dict]:
+    """The last round of a finished game as an ordered list of moves — the
+    climax, used as the auto-playing replay on the lobby. Empty if no turns."""
+    from app.models.turn import Turn, TurnSubmission
+
+    players = (
+        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
+    )
+    names = {p.id: p.agent_id for p in players}
+    turns = (
+        (
+            await db.execute(
+                select(Turn)
+                .where(Turn.game_id == game_id, Turn.resolved_at.is_not(None))
+                .order_by(Turn.round, Turn.turn)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not turns:
+        return []
+    final_round = turns[-1].round  # turns are ordered ascending by (round, turn)
+    moments: list[dict] = []
+    for t in (t for t in turns if t.round == final_round):
+        subs = (
+            (await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == t.id)))
+            .scalars()
+            .all()
+        )
+        for s in subs:
+            actor = names.get(s.player_id)
+            if not actor:
+                continue
+            target = names.get(s.target_player_id) if s.target_player_id else None
+            moments.append(
+                {
+                    "round": t.round,
+                    "turn": t.turn,
+                    "agent_id": actor,
+                    "action": s.action,
+                    "target_id": target,
+                    "message": s.message,
+                }
+            )
+    return moments[-limit:]
+
+
+async def _featured_replay(db, completed_views: list[dict]) -> dict | None:
+    """Pick a watchable finished game at random from the most recent few, so a
+    repeat visitor sees variety, and load its final round as a story. Returns
+    None if nothing qualifies (caller falls back to the explainer-only hero)."""
+    candidates = [v for v in completed_views if _is_showcase(v)][:5]
+    random.shuffle(candidates)
+    for chosen in candidates:
+        moments = await _final_round_moments(db, chosen["id"])
+        if not moments:
+            continue  # no resolved turns to replay — try the next candidate
+        return {
+            "id": chosen["id"],
+            "name": chosen["name"],
+            "winner_agent_id": chosen["winner_agent_id"],
+            "round": moments[0]["round"],
+            "standings": await _top_standings(db, chosen["id"], 3),
+            "moments": moments,
+        }
+    return None
+
+
 def _move_effect_for(game_type: str, action: str) -> tuple[int, int | None]:
     """Nominal per-move effect for the watch feed, split into (actor_delta, target_delta).
 
@@ -86,6 +195,8 @@ async def home(request: Request, db: DbSession):
             "player_count": await _player_count(db, g.id),
         }
         if g.state == GameState.ACTIVE:
+            # The marquee shows "who's leading", so a live game carries its top-3.
+            view["standings"] = await _top_standings(db, g.id, 3)
             live.append(view)
         elif g.state in (GameState.SCHEDULED, GameState.REGISTERING):
             upcoming.append(view)
@@ -96,6 +207,16 @@ async def home(request: Request, db: DbSession):
                 ).scalar_one_or_none()
                 view["winner_agent_id"] = winner.agent_id if winner else None
             recent.append(view)
+
+    # Marquee = the most-progressed live game (rounds, then turns).
+    live.sort(key=lambda v: (v["current_round"], v["current_turn"]), reverse=True)
+    # When nothing is live, feature a finished game's final round as a replay.
+    featured = None if live else await _featured_replay(db, recent)
+    # Keep smoke-test games out of the public recent list.
+    recent_display = [
+        v for v in recent if not str(v["name"]).strip().lower().startswith(_TEST_NAME_PREFIX)
+    ]
+
     return templates.TemplateResponse(
         request,
         "home.html",
@@ -104,7 +225,8 @@ async def home(request: Request, db: DbSession):
             "is_admin": _is_admin(user),
             "live_games": live,
             "upcoming_games": upcoming,
-            "recent_games": recent[:20],
+            "recent_games": recent_display[:8],
+            "featured": featured,
         },
     )
 
