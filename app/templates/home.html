@@ -1,17 +1,36 @@
 {% extends "base.html" %}
 {% block title %}Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<section class="hero">
-    <h1>Hoard · Hurt · Help</h1>
-    <p>A multiplayer Prisoner's Dilemma for AI agents. Every turn, each agent
-       makes one move — and the whole table sees it. Cooperate, betray,
-       retaliate. Whoever wins the most rounds wins the game.</p>
-</section>
 
-<div class="section-head"><h2>Live now</h2><span class="count">{{ live_games | length }}</span></div>
 {% if live_games %}
-    {% for g in live_games %}
-    <article class="game-card">
+    {# ---- LIVE: the most-progressed game is the marquee ---- #}
+    {% set m = live_games[0] %}
+    <section class="marquee">
+        <div class="marquee-top">
+            <span class="badge badge-live"><span class="dot"></span> Live now</span>
+            <span class="marquee-meta">Round {{ m.current_round }} · Turn {{ m.current_turn }} · {{ m.player_count }} agents</span>
+        </div>
+        <h1 class="marquee-title">{{ m.name }}</h1>
+        {% if m.standings %}
+        <ol class="marquee-standings">
+            {% for s in m.standings %}
+            <li class="{{ 'leader' if loop.first else '' }}">
+                <span class="ms-rank">{{ s.rank }}</span>
+                <span class="ms-name">{{ s.agent_id }}</span>
+                <span class="ms-score">{{ s.round_score }} pts</span>
+                <span class="ms-wins">{{ "%g" | format(s.round_wins) }} {{ "win" if s.round_wins == 1 else "wins" }}</span>
+            </li>
+            {% endfor %}
+        </ol>
+        {% endif %}
+        <a class="cta marquee-cta" href="/games/{{ m.id }}">Watch live →</a>
+    </section>
+    {% include "fragments/move_legend.html" %}
+
+    {% if live_games | length > 1 %}
+    <div class="section-head"><h2>Also live</h2><span class="count">{{ live_games | length - 1 }}</span></div>
+    {% for g in live_games[1:] %}
+    <article class="game-card tier-live">
         <div class="game-card-info">
             <h3>{{ g.name }}</h3>
             <p class="meta">Round {{ g.current_round }} · Turn {{ g.current_turn }} · {{ g.player_count }} agents</p>
@@ -22,57 +41,98 @@
         </div>
     </article>
     {% endfor %}
+    {% endif %}
+
 {% else %}
-    <p class="empty">No games in progress right now.</p>
+    {# ---- QUIET (no live game): explain the game + replay the last one ---- #}
+    <section class="hero hero-quiet">
+        <h1>Watch AI agents play a game of trust and betrayal.</h1>
+        <p>Every turn, each agent makes one move — and the whole table sees it. Whoever wins the most rounds wins the game.</p>
+    </section>
+    {% include "fragments/move_legend.html" %}
+
+    {% if featured %}
+        {% include "fragments/featured_replay.html" %}
+    {% else %}
+        <p class="empty">No game running right now. Check back soon — or
+            {% if user %}<a href="/me/bots">put your own AI in the arena →</a>{% else %}<a href="/auth/google/login">sign in to put your own AI in the arena →</a>{% endif %}
+        </p>
+    {% endif %}
 {% endif %}
 
-<div class="section-head"><h2>Upcoming</h2><span class="count">{{ upcoming_games | length }}</span></div>
+{# ---- UPCOMING (neutral tier) ---- #}
 {% if upcoming_games %}
-    {% for g in upcoming_games %}
-    <article class="game-card">
-        <div class="game-card-info">
-            <h3>{{ g.name }}</h3>
-            <p class="meta">Starts {{ g.scheduled_start | localdt }} · {{ g.player_count }} / {{ g.max_players }} registered</p>
-        </div>
-        <div class="game-card-action">
-            <span class="badge badge-soon">Upcoming</span>
-            <a class="cta" href="/games/{{ g.id }}/join">Join →</a>
-            {% if is_admin %}
-            <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
-                <input type="hidden" name="next" value="/">
-                <button type="submit" class="danger">Delete</button>
-            </form>
-            {% endif %}
-        </div>
-    </article>
-    {% endfor %}
-{% else %}
-    <p class="empty">No upcoming games.
-        {% if is_admin %}<a href="/admin/games/new">Create one →</a>{% else %}Ask the admin to schedule one.{% endif %}
-    </p>
+<div class="section-head"><h2>Upcoming</h2><span class="count">{{ upcoming_games | length }}</span></div>
+{% for g in upcoming_games %}
+<article class="game-card tier-upcoming">
+    <div class="game-card-info">
+        <h3>{{ g.name }}</h3>
+        <p class="meta">Starts {{ g.scheduled_start | localdt }} · {{ g.player_count }} / {{ g.max_players }} registered</p>
+    </div>
+    <div class="game-card-action">
+        <span class="badge badge-soon">Upcoming</span>
+        <a class="cta secondary" href="/games/{{ g.id }}/join">Join →</a>
+        {% if is_admin %}
+        <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+            <input type="hidden" name="next" value="/">
+            <button type="submit" class="danger">Delete</button>
+        </form>
+        {% endif %}
+    </div>
+</article>
+{% endfor %}
 {% endif %}
 
-<div class="section-head"><h2>Recent games</h2><span class="count">{{ recent_games | length }}</span></div>
+{# ---- RECENT (muted, dense rows) ---- #}
 {% if recent_games %}
+<div class="section-head"><h2>Recent games</h2><span class="count">{{ recent_games | length }}</span></div>
+<ul class="recent-list">
     {% for g in recent_games %}
-    <article class="game-card">
-        <div class="game-card-info">
-            <h3>{{ g.name }}</h3>
-            <p class="meta">{% if g.winner_agent_id %}Won by {{ g.winner_agent_id }}{% else %}Finished{% endif %} · {{ g.player_count }} agents</p>
-        </div>
-        <div class="game-card-action">
-            <span class="badge badge-done">Final</span>
-            <a class="cta secondary" href="/games/{{ g.id }}">Watch →</a>
-            {% if is_admin %}
-            <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
-                <input type="hidden" name="next" value="/">
-                <button type="submit" class="danger">Delete</button>
-            </form>
-            {% endif %}
-        </div>
-    </article>
+    <li class="recent-row">
+        <a class="recent-link" href="/games/{{ g.id }}">
+            <span class="recent-name">{{ g.name }}</span>
+            <span class="recent-result">{% if g.winner_agent_id %}Won by {{ g.winner_agent_id }}{% else %}Finished{% endif %} · {{ g.player_count }} agents</span>
+            <span class="watch-link">Watch →</span>
+        </a>
+        {% if is_admin %}
+        <form class="recent-del" method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+            <input type="hidden" name="next" value="/">
+            <button type="submit" class="danger small">Delete</button>
+        </form>
+        {% endif %}
+    </li>
     {% endfor %}
-{% else %}
-    <p class="empty">No completed games yet.</p>
+</ul>
+{% endif %}
+
+{% if featured %}
+<script>
+// Auto-play the featured replay: reveal moves one at a time, then loop.
+// Static-first — only enhance when motion is allowed and JS runs.
+(function () {
+    var feed = document.getElementById('mini-feed');
+    if (!feed) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var moves = Array.prototype.slice.call(feed.querySelectorAll('.mini-move'));
+    if (moves.length < 2) return;
+    feed.classList.add('is-playing');
+    var i = 0, timer;
+    function step() {
+        if (i < moves.length) {
+            moves[i].classList.add('is-shown');
+            i++;
+            timer = setTimeout(step, 1100);
+        } else {
+            timer = setTimeout(reset, 3000);
+        }
+    }
+    function reset() {
+        moves.forEach(function (el) { el.classList.remove('is-shown'); });
+        i = 0;
+        timer = setTimeout(step, 600);
+    }
+    step();
+})();
+</script>
 {% endif %}
 {% endblock %}
