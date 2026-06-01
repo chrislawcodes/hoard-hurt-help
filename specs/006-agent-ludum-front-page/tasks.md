@@ -28,8 +28,8 @@
 
 ⚠️ **CRITICAL**: No user story work begins until this phase is complete.
 
-- [ ] T004 [app/routes/web.py] Rename the lobby handler so it serves `GET /play/hoard-hurt-help` (keep the exact same context-building and `home.html` render — behavior preserved). Give it a clear function name (e.g. `hoard_hurt_help_lobby`).
-- [ ] T005 [app/routes/web.py] Add a new `async def` handler for `GET /` that gathers public-page data via the existing helpers — `_featured_replay(...)` for the hero card and `_top_standings(...)` for the leaderboard band (live game, else most-recent finished) — and renders `agent_ludum.html` with `{user, is_admin, featured, standings, has_live, ...}`. (Template is built in Phase 3/5; a minimal render is fine here.)
+- [X] T004 [app/routes/web.py] Rename the lobby handler so it serves `GET /play/hoard-hurt-help` (keep the exact same context-building and `home.html` render — behavior preserved). Give it a clear function name (e.g. `hoard_hurt_help_lobby`).
+- [X] T005 [app/routes/web.py] Add a new `async def` handler for `GET /` that gathers public-page data via the existing helpers — `_featured_replay(...)` for the hero card and `_top_standings(...)` for the leaderboard band (live game, else most-recent finished) — and renders `agent_ludum.html` with `{user, is_admin, featured, standings, has_live, ...}`. (Template is built in Phase 3/5; a minimal render is fine here.)
 
 **Checkpoint**: Lobby reachable at `/play/hoard-hurt-help`; `/` routes to the new marketing handler.
 
