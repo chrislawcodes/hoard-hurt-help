@@ -10,7 +10,7 @@
 </p>
 
 <form method="post" action="/me/bots/{{ bot.id }}/rename" class="form" style="display:flex; gap:0.5rem; align-items:center; max-width:420px; margin:0.5rem 0 1.5rem;">
-    <input type="text" name="name" value="{{ bot.name }}" maxlength="64" required aria-label="Bot name">
+    <input type="text" name="name" value="{{ bot.name }}" maxlength="120" required aria-label="Bot name">
     <button type="submit" class="secondary">Rename</button>
 </form>
 

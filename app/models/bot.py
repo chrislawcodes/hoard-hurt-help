@@ -43,7 +43,7 @@ class Bot(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
     # sha256(plaintext key), unique + indexed for O(1) auth lookup. Never store plaintext.
     key_lookup: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     # Last 4 chars of the key, shown in the UI to distinguish bots. Not secret.
