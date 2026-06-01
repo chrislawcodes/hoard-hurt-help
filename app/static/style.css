@@ -4,7 +4,13 @@
  * hardcode a color or font — they only reference var(--x). To change the
  * whole look, edit a theme block (the :root / [data-theme=...] sets). To add
  * a new theme, copy a block and tweak the variables. Nothing else changes.
+ *
+ * The Agent Ludum marketing front page (/) opts into its own identity via the
+ * `.al` scope at the very bottom of this file (its own tokens + components).
+ * The fonts below are only fetched on pages that actually use those families
+ * (i.e. the marketing page), so game pages pay nothing for them.
  */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
 
 /* ============================================================
  * THEME: Clean — neutral light, blue accent
@@ -886,4 +892,72 @@ button.danger:hover,
     .marquee-cta { display: block; text-align: center; }
     .recent-row { flex-wrap: wrap; }
     .featured-head { flex-wrap: wrap; }
+}
+
+/* ============================================================
+ * AGENT LUDUM — marketing front page (/) identity scope.
+ *
+ * The whole page sits inside `.al` (Lilac, the bright reading surface).
+ * The live "arena" islands (hero match card, leaderboard band) add
+ * `.al-plum` to flip the same tokens to the dark Plum surface. Orange is the
+ * single accent; the move-trio (hoard/hurt/help) is fixed and always carries a
+ * text label so it reads without color. These tokens are self-contained and do
+ * not touch the game-page themes above.
+ * ============================================================ */
+.al {
+    /* fonts */
+    --al-display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --al-body: 'Space Grotesk', system-ui, sans-serif;
+    --al-mono: 'Space Mono', ui-monospace, monospace;
+    /* geometry */
+    --al-radius: 14px;
+    --al-radius-lg: 22px;
+    --al-maxw: 1200px;
+    /* Lilac — bright pages (default) */
+    --bg: #eae5f5;
+    --bg-2: #e2dcf1;
+    --surface: #f9f6ff;
+    --ink: #241c33;
+    --ink-soft: #655a7a;
+    --line: #d8cfe9;
+    --line-bold: #241c33;
+    --brand: #e2640e;
+    --brand-2: #5b4fd6;
+    --accent: #b8861a;
+    --on-brand: #fff6ec;
+    --hoard: #b07e0d;
+    --hurt: #c1452f;
+    --help: #1f8a5b;
+    --al-shadow: 3px 3px 0 var(--line-bold);
+    --al-shadow-soft: 0 20px 44px -26px rgba(36, 28, 51, 0.5);
+
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--al-body);
+    font-size: 17px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Plum — the live arena (dark). Same tokens, flipped. */
+.al-plum {
+    --bg: #3f2f52;
+    --bg-2: #372849;
+    --surface: #4a3960;
+    --ink: #f3edf9;
+    --ink-soft: #b6a6c6;
+    --line: #574470;
+    --line-bold: #574470;
+    --brand: #f0843a;
+    --brand-2: #b58cf0;
+    --accent: #ecc25a;
+    --on-brand: #2a2038;
+    --hoard: #ecc25a;
+    --hurt: #ee7256;
+    --help: #5bd193;
+    --al-shadow: none;
+    --al-shadow-soft: 0 22px 50px -22px rgba(0, 0, 0, 0.6);
+
+    background: var(--bg);
+    color: var(--ink);
 }
