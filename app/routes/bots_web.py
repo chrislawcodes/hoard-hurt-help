@@ -28,7 +28,7 @@ from app.templating import templates
 router = APIRouter(prefix="/me/bots", tags=["bots"])
 logger = logging.getLogger(__name__)
 
-_NAME_RE = re.compile(r"^[a-zA-Z0-9 _-]{1,64}$")
+_NAME_RE = re.compile(r"^[a-zA-Z0-9 _-]{1,120}$")
 
 
 def _is_admin(user: User) -> bool:
@@ -102,7 +102,7 @@ async def create_bot(
     name = name.strip()
     if not _NAME_RE.fullmatch(name):
         raise HTTPException(
-            400, detail="Bot name must be 1–64 letters, numbers, spaces, _ or -."
+            400, detail="Bot name must be 1–120 letters, numbers, spaces, _ or -."
         )
     existing = (
         await db.execute(select(Bot).where(Bot.user_id == user.id, Bot.name == name))
@@ -253,7 +253,7 @@ async def rename_bot(
     name = name.strip()
     if not _NAME_RE.fullmatch(name):
         raise HTTPException(
-            400, detail="Bot name must be 1–64 letters, numbers, spaces, _ or -."
+            400, detail="Bot name must be 1–120 letters, numbers, spaces, _ or -."
         )
     clash = (
         await db.execute(
