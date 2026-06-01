@@ -88,6 +88,35 @@ async def test_game_viewer_unchanged(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_active_game_viewer_wires_live_sse(client, reset_db):
+    """An active game exposes the SSE stream + live-fragment URLs the page's
+    plain-JS EventSource needs, and must NOT carry the old htmx sse-extension
+    attributes — in htmx 1.9.x those silently never fired, so live updates were
+    dead and the page only changed on a manual reload."""
+    await _seed_game(reset_db, game_id="G_live", state=GameState.ACTIVE)
+    r = await client.get("/games/G_live")
+    assert r.status_code == 200
+    # The working wiring the EventSource reads off the live region.
+    assert 'data-stream-url="/games/G_live/stream"' in r.text
+    assert 'data-live-url="/games/G_live/live"' in r.text
+    # The dead htmx sse-extension wiring must be gone.
+    assert 'hx-ext="sse"' not in r.text
+    assert "sse-connect=" not in r.text
+    assert 'hx-trigger="sse:' not in r.text
+
+
+@pytest.mark.asyncio
+async def test_finished_game_viewer_has_no_live_stream(client, reset_db):
+    """A non-active game opens no stream: the live-update attributes are absent
+    so the page never tries to connect to a stream that will deliver nothing."""
+    await _seed_game(reset_db, game_id="G_done", state=GameState.COMPLETED)
+    r = await client.get("/games/G_done")
+    assert r.status_code == 200
+    assert "data-stream-url=" not in r.text
+    assert "data-live-url=" not in r.text
+
+
+@pytest.mark.asyncio
 async def test_repointed_lobby_links_resolve(client, reset_db):
     """Every internal "go to the lobby" link now targets /play/hoard-hurt-help;
     that target must resolve (no 404) so none of the repointed links break."""
