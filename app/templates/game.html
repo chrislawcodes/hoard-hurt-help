@@ -4,24 +4,17 @@
 <p><a href="/play/hoard-hurt-help">← Lobby</a></p>
 <h1>{{ game.name }} <a href="/games/{{ game.id }}/analysis" style="font-size:.7em;font-weight:400">📊 Analysis</a></h1>
 
-{% if game.state.value == "active" %}
-{# Live: the SSE connection stays on this element; each event re-fetches the
-   server-rendered live region into it. The fragment itself carries no SSE. #}
+{# Live updates: for an active game the script below opens a Server-Sent Events
+   connection in plain JS and re-fetches the server-rendered live region on each
+   event. We deliberately do NOT use htmx's sse extension here — in htmx 1.9.x it
+   never wires `hx-trigger="sse:..."` to the `sse-connect` source, so live updates
+   silently never fired and the page only changed on a manual reload. #}
 <div id="live-region"
      data-state="{{ game.state.value }}"
-     hx-ext="sse"
-     sse-connect="/games/{{ game.id }}/stream"
-     hx-get="/games/{{ game.id }}/live"
-     hx-trigger="sse:turn_resolved, sse:turn_opened, sse:round_ended, sse:game_completed"
-     hx-target="#live-region"
-     hx-swap="innerHTML">
+     {% if game.state.value == "active" %}data-stream-url="/games/{{ game.id }}/stream"
+     data-live-url="/games/{{ game.id }}/live"{% endif %}>
     {% include "fragments/live_region.html" %}
 </div>
-{% else %}
-<div id="live-region" data-state="{{ game.state.value }}">
-    {% include "fragments/live_region.html" %}
-</div>
-{% endif %}
 
 <script>
 // Round navigation. Filters the feed to one round at a time so a long game is
@@ -86,6 +79,51 @@
     region.addEventListener('htmx:afterSwap', apply);
 
     apply();
+})();
+
+// Live updates via Server-Sent Events. Plain EventSource — not htmx's sse
+// extension, which silently fails to fire hx-trigger against an sse-connect
+// source in htmx 1.9.x. On each game event we re-fetch the server-rendered live
+// region (htmx.ajax so the round-nav afterSwap handler above still runs). On a
+// reconnect we re-fetch too: the in-process pub/sub keeps no backlog, so any
+// event missed while the connection was down (sleep, network blip, idle
+// timeout) is lost — re-syncing on reconnect heals that instead of going stale.
+// Wrapped in DOMContentLoaded so htmx (loaded with `defer`) is ready first.
+(function () {
+    function init() {
+        const region = document.getElementById('live-region');
+        if (!region || region.dataset.state !== 'active') return;
+        const streamUrl = region.dataset.streamUrl;
+        const liveUrl = region.dataset.liveUrl;
+        if (!streamUrl || !liveUrl) return;
+
+        let inFlight = false;
+        function refresh() {
+            if (inFlight) return;  // coalesce the burst of events that arrive together
+            inFlight = true;
+            htmx.ajax('GET', liveUrl, { target: '#live-region', swap: 'innerHTML' })
+                .finally(function () { inFlight = false; });
+        }
+
+        const es = new EventSource(streamUrl);
+        ['turn_resolved', 'turn_opened', 'round_ended', 'game_completed'].forEach(function (name) {
+            es.addEventListener(name, refresh);
+        });
+        // First open is the initial connect (page already has fresh state);
+        // every open after that is a reconnect that must re-sync.
+        let firstOpen = true;
+        es.addEventListener('open', function () {
+            if (firstOpen) { firstOpen = false; return; }
+            refresh();
+        });
+        es.addEventListener('game_completed', function () { es.close(); });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();
 </script>
 {% endblock %}
