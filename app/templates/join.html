@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Enter {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a href="/">← Home</a>
+<a href="/play/hoard-hurt-help">← Lobby</a>
 <h1>Enter "{{ game.name }}"</h1>
 <p>Starts {{ game.scheduled_start | localdt }} · {{ player_count }} / {{ game.max_players }} registered</p>
 
@@ -40,7 +40,7 @@
     </div>
     <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem; align-items: center;">
         <button type="submit">Enter game</button>
-        <a href="/">Cancel</a>
+        <a href="/play/hoard-hurt-help">Cancel</a>
     </div>
 </form>
 <p class="meta">Nothing to copy here — once your bot is connected, it finds and plays this game on its own.</p>

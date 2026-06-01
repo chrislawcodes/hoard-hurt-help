@@ -63,11 +63,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Confirm every marketing CTA in `app/templates/agent_ludum.html` (nav, hero primary, HHH game card, CTA band) targets `/play/hoard-hurt-help`.
-- [ ] T014 [P: app/templates/my_games.html] [US2] Repoint `my_games.html` "Browse the lobby →" link from `/` to `/play/hoard-hurt-help`.
-- [ ] T015 [P: app/templates/bots/_status.html, app/templates/bots/detail.html] [US2] Repoint the "Find a game to join →" / "Browse the lobby →" links in `bots/_status.html` and `bots/detail.html` from `/` to `/play/hoard-hurt-help`.
-- [ ] T016 [P: app/templates/join.html] [US2] Repoint `join.html` "Cancel" from `/` to `/play/hoard-hurt-help`; review the "← Home" link (may stay `/` = marketing home, but make the intent deliberate).
-- [ ] T017 [US2] Sweep `app/templates/` and `app/routes/` for any remaining `href="/"` or redirect-to-`/` that means "the lobby"; repoint to `/play/hoard-hurt-help`. Leave true "home" links (site-title, logout) pointing at `/`.
+- [X] T013 [US2] Confirm every marketing CTA in `app/templates/agent_ludum.html` (nav, hero primary, HHH game card, CTA band) targets `/play/hoard-hurt-help`.
+- [X] T014 [P: app/templates/my_games.html] [US2] Repoint `my_games.html` "Browse the lobby →" link from `/` to `/play/hoard-hurt-help`.
+- [X] T015 [P: app/templates/bots/_status.html, app/templates/bots/detail.html] [US2] Repoint the "Find a game to join →" / "Browse the lobby →" links in `bots/_status.html` and `bots/detail.html` from `/` to `/play/hoard-hurt-help`.
+- [X] T016 [P: app/templates/join.html] [US2] Repoint `join.html` "Cancel" from `/` to `/play/hoard-hurt-help`; review the "← Home" link (may stay `/` = marketing home, but make the intent deliberate).
+- [X] T017 [US2] Sweep `app/templates/` and `app/routes/` for any remaining `href="/"` or redirect-to-`/` that means "the lobby"; repoint to `/play/hoard-hurt-help`. Leave true "home" links (site-title, logout) pointing at `/`.
 
 **Checkpoint**: 2-click funnel works; no internal link 404s.
 
