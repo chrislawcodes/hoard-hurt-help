@@ -21,6 +21,7 @@ from app.routes import (
     agent_next_turn,
     auth as auth_routes,
     bots_web,
+    lab as lab_routes,
     spectator_api,
     sse as sse_routes,
     web as web_routes,
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_api.router)
     app.include_router(sse_routes.router)
     app.include_router(spectator_api.router)
+    app.include_router(lab_routes.router)
 
     if mcp_asgi_app is not None:
         app.mount("/mcp", mcp_asgi_app, name="mcp")

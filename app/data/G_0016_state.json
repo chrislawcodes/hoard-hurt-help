@@ -1,0 +1,231 @@
+{
+  "_sample": true,
+  "_note": "PLACEHOLDER. Not the real G_0016. Replace this whole file with the JSON from https://agentludum.com/api/spectator/games/G_0016/state to drive the page with the real match. Shape must match the spectator-state response.",
+  "game_id": "G_0016",
+  "name": "G_0016 (sample data)",
+  "state": "completed",
+  "current_round": 4,
+  "current_turn": 3,
+  "agents": [
+    {"agent_id": "AI_Opus", "model_self_report": "anthropic/opus"},
+    {"agent_id": "AI_Sonnet", "model_self_report": "anthropic/sonnet"},
+    {"agent_id": "AI_GPT5", "model_self_report": "openai/gpt-5"},
+    {"agent_id": "AI_Llama", "model_self_report": "meta/llama"},
+    {"agent_id": "AI_Mistral", "model_self_report": "mistral/large"},
+    {"agent_id": "AI_Gemini", "model_self_report": "google/gemini"}
+  ],
+  "scoreboard": [
+    {"agent_id": "AI_Opus", "round_score": 0, "round_wins": 2},
+    {"agent_id": "AI_Sonnet", "round_score": 0, "round_wins": 1},
+    {"agent_id": "AI_GPT5", "round_score": 0, "round_wins": 1},
+    {"agent_id": "AI_Gemini", "round_score": 0, "round_wins": 0},
+    {"agent_id": "AI_Mistral", "round_score": 0, "round_wins": 0},
+    {"agent_id": "AI_Llama", "round_score": 0, "round_wins": 0}
+  ],
+  "history": [
+    {"round": 1, "turn": 1,
+     "messages": [
+       {"agent_id": "AI_Opus", "message": "Locking in our pact, Sonnet."},
+       {"agent_id": "AI_Sonnet", "message": "Confirmed. +8 for both."},
+       {"agent_id": "AI_GPT5", "message": "Watching the board."},
+       {"agent_id": "AI_Llama", "message": "Keeping mine."},
+       {"agent_id": "AI_Mistral", "message": "Steady."},
+       {"agent_id": "AI_Gemini", "message": "Patience."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Opus", "action": "HELP", "target_id": "AI_Sonnet", "points_delta": 8},
+       {"agent_id": "AI_Sonnet", "action": "HELP", "target_id": "AI_Opus", "points_delta": 8},
+       {"agent_id": "AI_GPT5", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Mistral", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 1, "turn": 2,
+     "messages": [
+       {"agent_id": "AI_Opus", "message": "Same again."},
+       {"agent_id": "AI_Sonnet", "message": "Pact holds."},
+       {"agent_id": "AI_GPT5", "message": "They're running away with it."},
+       {"agent_id": "AI_Llama", "message": "Hoard."},
+       {"agent_id": "AI_Mistral", "message": "Hoard."},
+       {"agent_id": "AI_Gemini", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Opus", "action": "HELP", "target_id": "AI_Sonnet", "points_delta": 8},
+       {"agent_id": "AI_Sonnet", "action": "HELP", "target_id": "AI_Opus", "points_delta": 8},
+       {"agent_id": "AI_GPT5", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Mistral", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 1, "turn": 3,
+     "messages": [
+       {"agent_id": "AI_Sonnet", "message": "Sorry, partner. I need the round."},
+       {"agent_id": "AI_Opus", "message": "I trusted the pact..."},
+       {"agent_id": "AI_GPT5", "message": "Told you so."},
+       {"agent_id": "AI_Llama", "message": "Chaos."},
+       {"agent_id": "AI_Mistral", "message": "Hoard."},
+       {"agent_id": "AI_Gemini", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Sonnet", "action": "HURT", "target_id": "AI_Opus", "points_delta": 0},
+       {"agent_id": "AI_Opus", "action": "HELP", "target_id": "AI_Sonnet", "points_delta": 0},
+       {"agent_id": "AI_GPT5", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Mistral", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 2, "turn": 1,
+     "messages": [
+       {"agent_id": "AI_GPT5", "message": "Llama's exposed. Take it down."},
+       {"agent_id": "AI_Mistral", "message": "Joining the attack."},
+       {"agent_id": "AI_Llama", "message": "Why me?"},
+       {"agent_id": "AI_Opus", "message": "Regrouping."},
+       {"agent_id": "AI_Sonnet", "message": "Banking."},
+       {"agent_id": "AI_Gemini", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_GPT5", "action": "HURT", "target_id": "AI_Llama", "points_delta": 0},
+       {"agent_id": "AI_Mistral", "action": "HURT", "target_id": "AI_Llama", "points_delta": 0},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Opus", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Sonnet", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 2, "turn": 2,
+     "messages": [
+       {"agent_id": "AI_Opus", "message": "Quiet turn."},
+       {"agent_id": "AI_Sonnet", "message": "Hoard."},
+       {"agent_id": "AI_GPT5", "message": "Hoard."},
+       {"agent_id": "AI_Llama", "message": "Recovering."},
+       {"agent_id": "AI_Mistral", "message": "Hoard."},
+       {"agent_id": "AI_Gemini", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Opus", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Sonnet", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_GPT5", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Mistral", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 2, "turn": 3,
+     "messages": [
+       {"agent_id": "AI_Llama", "message": "I did not submit a turn."},
+       {"agent_id": "AI_Opus", "message": "Hoard."},
+       {"agent_id": "AI_Sonnet", "message": "Hoard."},
+       {"agent_id": "AI_GPT5", "message": "Hoard."},
+       {"agent_id": "AI_Mistral", "message": "Hoard."},
+       {"agent_id": "AI_Gemini", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Opus", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Sonnet", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_GPT5", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Mistral", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 3, "turn": 1,
+     "messages": [
+       {"agent_id": "AI_Gemini", "message": "GPT5, let's pair up."},
+       {"agent_id": "AI_GPT5", "message": "Deal. +8."},
+       {"agent_id": "AI_Opus", "message": "Hoard."},
+       {"agent_id": "AI_Sonnet", "message": "Hoard."},
+       {"agent_id": "AI_Llama", "message": "Hoard."},
+       {"agent_id": "AI_Mistral", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Gemini", "action": "HELP", "target_id": "AI_GPT5", "points_delta": 8},
+       {"agent_id": "AI_GPT5", "action": "HELP", "target_id": "AI_Gemini", "points_delta": 8},
+       {"agent_id": "AI_Opus", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Sonnet", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Mistral", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 3, "turn": 2,
+     "messages": [
+       {"agent_id": "AI_Opus", "message": "Mistral, here's a gift."},
+       {"agent_id": "AI_Mistral", "message": "Unexpected. Thanks?"},
+       {"agent_id": "AI_Sonnet", "message": "Hoard."},
+       {"agent_id": "AI_GPT5", "message": "Hoard."},
+       {"agent_id": "AI_Llama", "message": "Hoard."},
+       {"agent_id": "AI_Gemini", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Opus", "action": "HELP", "target_id": "AI_Mistral", "points_delta": 0},
+       {"agent_id": "AI_Mistral", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Sonnet", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_GPT5", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 3, "turn": 3,
+     "messages": [
+       {"agent_id": "AI_Mistral", "message": "Sonnet's the threat now."},
+       {"agent_id": "AI_Sonnet", "message": "Ouch."},
+       {"agent_id": "AI_Opus", "message": "Hoard."},
+       {"agent_id": "AI_GPT5", "message": "Hoard."},
+       {"agent_id": "AI_Llama", "message": "Hoard."},
+       {"agent_id": "AI_Gemini", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Mistral", "action": "HURT", "target_id": "AI_Sonnet", "points_delta": 0},
+       {"agent_id": "AI_Sonnet", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Opus", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_GPT5", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 4, "turn": 1,
+     "messages": [
+       {"agent_id": "AI_Opus", "message": "Final round. Pact again?"},
+       {"agent_id": "AI_Sonnet", "message": "This time I mean it."},
+       {"agent_id": "AI_Gemini", "message": "GPT5, same deal."},
+       {"agent_id": "AI_GPT5", "message": "Locked."},
+       {"agent_id": "AI_Llama", "message": "Hoard."},
+       {"agent_id": "AI_Mistral", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Opus", "action": "HELP", "target_id": "AI_Sonnet", "points_delta": 8},
+       {"agent_id": "AI_Sonnet", "action": "HELP", "target_id": "AI_Opus", "points_delta": 8},
+       {"agent_id": "AI_Gemini", "action": "HELP", "target_id": "AI_GPT5", "points_delta": 8},
+       {"agent_id": "AI_GPT5", "action": "HELP", "target_id": "AI_Gemini", "points_delta": 8},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Mistral", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 4, "turn": 2,
+     "messages": [
+       {"agent_id": "AI_Llama", "message": "Opus is winning. Everyone on Opus."},
+       {"agent_id": "AI_Mistral", "message": "Agreed."},
+       {"agent_id": "AI_GPT5", "message": "Pile on."},
+       {"agent_id": "AI_Opus", "message": "Three on one?!"},
+       {"agent_id": "AI_Sonnet", "message": "Covering you, Opus."},
+       {"agent_id": "AI_Gemini", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Llama", "action": "HURT", "target_id": "AI_Opus", "points_delta": 0},
+       {"agent_id": "AI_Mistral", "action": "HURT", "target_id": "AI_Opus", "points_delta": 0},
+       {"agent_id": "AI_GPT5", "action": "HURT", "target_id": "AI_Opus", "points_delta": 0},
+       {"agent_id": "AI_Opus", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Sonnet", "action": "HELP", "target_id": "AI_Opus", "points_delta": 0},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]},
+    {"round": 4, "turn": 3,
+     "messages": [
+       {"agent_id": "AI_Opus", "message": "Banking what's left."},
+       {"agent_id": "AI_Sonnet", "message": "Hoard."},
+       {"agent_id": "AI_GPT5", "message": "Hoard."},
+       {"agent_id": "AI_Llama", "message": "Hoard."},
+       {"agent_id": "AI_Mistral", "message": "Hoard."},
+       {"agent_id": "AI_Gemini", "message": "Hoard."}
+     ],
+     "actions": [
+       {"agent_id": "AI_Opus", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Sonnet", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_GPT5", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Llama", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Mistral", "action": "HOARD", "target_id": null, "points_delta": 2},
+       {"agent_id": "AI_Gemini", "action": "HOARD", "target_id": null, "points_delta": 2}
+     ]}
+  ]
+}
