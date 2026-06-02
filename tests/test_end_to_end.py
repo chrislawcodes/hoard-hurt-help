@@ -143,8 +143,8 @@ async def test_full_game_runs_to_completion(db):
 async def test_static_prefix_byte_identical_concept(db):
     """The shape of the static prefix is stable game-wide — we test this here
     indirectly by ensuring rules text constant doesn't change at runtime."""
-    from app.engine.rules import RULES_TEXT_V1
+    from app.engine.rules import RULES_TEXT
 
-    snapshot = RULES_TEXT_V1
-    assert RULES_TEXT_V1 is snapshot  # same object, no rebinding
-    assert len(RULES_TEXT_V1) > 500  # sanity
+    snapshot = RULES_TEXT
+    assert RULES_TEXT is snapshot  # same object, no rebinding
+    assert len(RULES_TEXT) > 500  # sanity

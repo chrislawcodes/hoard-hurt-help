@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 
 from app.engine import resolver
-from app.engine.rules import HELP_POINTS, HOARD_POINTS, HURT_POINTS, RULES_TEXT_V1
+from app.engine.rules import HELP_POINTS, HOARD_POINTS, HURT_POINTS, RULES_TEXT
 from app.games.base import GameConfig, GameError, StrategyPreset
 from app.games.hoard_hurt_help.strategy import PD_DEFAULT_STRATEGY, PD_STRATEGY_PRESETS
 from app.models.player import Player
@@ -47,7 +47,7 @@ class HoardHurtHelp:
         )
 
     def rules_text(self) -> str:
-        return RULES_TEXT_V1
+        return RULES_TEXT
 
     def strategy_presets(self) -> list[StrategyPreset]:
         return PD_STRATEGY_PRESETS

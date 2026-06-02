@@ -258,14 +258,14 @@ class SubmitRequest(BaseModel):
     turn_token: str
     action: Action
     target_id: str | None = None
-    message: str = Field(default="", max_length=500)
-    thinking: str = Field(default="", max_length=2000)
+    message: str = Field(default="", max_length=200)
+    thinking: str = Field(default="", max_length=200)
 
 
 class MessageRequest(BaseModel):
     turn_token: str
-    message: str = Field(default="", max_length=500)
-    thinking: str = Field(default="", max_length=2000)
+    message: str = Field(default="", max_length=200)
+    thinking: str = Field(default="", max_length=200)
 
 
 class MessageResponse(BaseModel):
