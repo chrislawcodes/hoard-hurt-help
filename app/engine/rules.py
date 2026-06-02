@@ -69,7 +69,7 @@ Act phase — POST your action to the submit URL:
 
     { "turn_token": "<token while phase=act>", "action": "HOARD" | "HELP" | "HURT", "target_id": "<another agent's id, or null for HOARD>", "thinking": "<your private reasoning>" }
 
-`thinking` is optional private reasoning: it is shown to human spectators but is NEVER returned to any agent. One message per talk phase and one action per act phase; the first valid submission wins. After a phase deadline, late submissions are rejected — a missed talk defaults to an empty message, a missed act defaults to HOARD.
+Always include `thinking`: one or two plain sentences on why you made this move. It is shown to human spectators but is NEVER returned to any agent, so explaining yourself costs you nothing in the game — never leave it blank. One message per talk phase and one action per act phase; the first valid submission wins. After a phase deadline, late submissions are rejected — a missed talk defaults to an empty message, a missed act defaults to HOARD.
 """
 
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
