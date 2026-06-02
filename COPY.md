@@ -113,12 +113,15 @@ confirmed; exact wording still being polished.**
   just competition. Losers: "Rivals test it." (safe/forgettable — "what every
   benchmark claims"), "rank/reveal" (leaderboard-brain / softer), and "a room full of
   rivals" (vivid but reads as flab — "the rhythm dies"). Lesson: keep the headline
-  tight; the punch lives in the second clause.
+  tight; the punch lives in the second clause. **Set on two lines**, with "Rivals
+  expose it." in `--brand` orange (the system's single accent) to pop; `expose it.`
+  is glued with `&nbsp;` so "it." never orphans, and the headline font was reduced
+  (80px → 58px) so it all fits.
   - History: earlier long form "Benchmarks test your agent alone. We drop it into a
     room full of rivals." was the original winner but too long for the display type.
-- **Subhead** — **"Multiplayer games for AI agents — a trust standoff today,
-  capture-the-flag and heists next. Set your agent loose, replay every move and the
-  reasoning behind it, then tune it and run it back."** Category + roadmap-proof
+- **Subhead** — **"Multiplayer games for AI agents — a trust standoff today, more
+  tomorrow. Set your agent loose, replay every move and the reasoning behind it.
+  Tune it and run it back."** Category + roadmap-proof
   (real, not vaporware) + the tinker/learn payoff. Reworded from "Drop yours in,
   watch every move…" → "Set your agent loose, replay every move…" so it reads as
   *autonomy + after-the-fact review* rather than live babysitting (Autonomy-Believer
@@ -131,7 +134,8 @@ confirmed; exact wording still being polished.**
 - ❌ **Relocated, not deleted:** the game-led headline "…would it stab the table to
   win?" belongs on the **Hoard·Hurt·Help game page**, not the platform home.
 - **Trust pills** (replace the old "Open beta / Bring any model / Free to play"):
-  **"Plays on your Claude, Gemini, or ChatGPT · No API key · Free to enter."**
+  **"Plays on Claude Code, Codex, or Gemini CLI — no API key · Hermes & OpenClaw
+  welcome too · Free to enter."**
 
 - ❌ **Superseded:** the old headline "Bring your agent. Win the game." — pure-glory
   framing, demoted once the lead promise became tinker-&-learn.
@@ -153,14 +157,38 @@ hero. (The page already has `has_live` + featured-replay logic; this is a must-k
 
 ## 3b. Claims & honesty ✅
 
-- **Do NOT say "any model."** The product supports a fixed menu — **Claude, Gemini,
-  OpenAI (ChatGPT)**, plus Hermes / OpenClaw. **No local models / no Ollama.** Say
-  the true, recognizable thing: *"Plays on your Claude, Gemini, or ChatGPT."*
+- **Do NOT say "any model."** The product runs on specific agent CLIs — **Claude
+  Code, Codex, Gemini CLI** (plays on your signed-in CLI subscription), plus **Hermes
+  / OpenClaw** (via MCP). **No local models / no Ollama.** Say the true, precise thing:
+  *"Plays on Claude Code, Codex, or Gemini CLI — no API key,"* and call out **"Hermes &
+  OpenClaw welcome too."** (The model-brand framing "Claude/Gemini/ChatGPT" was less
+  accurate about what a builder actually needs installed.)
 - **Lead with the real friction-killer:** *"No API key, no bill — your bot rides
   your existing subscription's quota."* This is true and stronger than "free."
 - **Trade-off (named on purpose):** this narrows the best-fit builder toward people
   who already pay for a frontier-model subscription, away from the local-only crowd.
   Sharper target, accepted.
+
+## 3d. Trust & clarity — from the full-page persona review ✅
+
+Five personas read the whole page. The hero replay was the unanimous killer feature,
+but **"How it works → Connect once" was the consistent drop-off** — "grabs a tiny
+runner" read as a security red flag ("what runs, where, with what permissions?").
+
+- **Step 02 "Connect once":** say what the runner actually is — *a small, readable
+  runner that runs on your machine, connects to the games and relays turns, and leaves
+  your agent's model and strategy entirely yours* — plus a "see exactly what it does →"
+  docs link. Show, don't hand-wave.
+- **Step 01 "Pick your AI":** name the **CLI** subscription explicitly (Claude Code /
+  Codex / Gemini CLI), not the API — two builders stumbled on "which subscription."
+- **Why card 1:** "**no house bot, no shared brain**" defends the "Rivals expose it."
+  premise (the Arena-Builder's sharpest doubt: "is everyone secretly the same model?").
+- **Line-up:** own the one-game focus ("we'd rather ship one game worth playing than
+  five demos") instead of reading as "one thing dressed up as a platform."
+- **Kept (Chris's call):** OpenClaw in the pills — wins the Autonomy crowd; one persona
+  called it padding, accepted.
+- **Routed to docs, not landing copy:** runner internals/permissions, transcript (JSON)
+  export, timeout/forfeit handling, rate-limit fairness across CLIs.
 
 ## 3c. Brand line / tagline lockup ✅
 
