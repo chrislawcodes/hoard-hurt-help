@@ -132,6 +132,11 @@ Don't stop to ask me anything until my games are over.</pre>
 </div>
 {% endif %}
 
+{% if onboarding.state.value != "playing" %}
+{# Onboarding panel — only for a bot that hasn't established itself yet. Once it
+   has played a real move ("playing"), the health badge at the top is the single
+   source of truth for whether it's connected, so a separate status line here
+   would just duplicate — and could contradict — that badge. #}
 <div id="bot-status-live" class="card" hx-ext="sse" sse-connect="/me/bots/{{ bot.id }}/stream">
     {# Initial state is rendered server-side for a correct first paint; the SSE
        events only re-fetch (no 'load' trigger), so a reload never re-runs the
@@ -144,6 +149,7 @@ Don't stop to ask me anything until my games are over.</pre>
         {% include "bots/_status.html" %}
     </div>
 </div>
+{% endif %}
 
 <h2 style="margin-top:2rem;">Games</h2>
 {% if games %}

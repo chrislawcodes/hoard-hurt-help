@@ -195,6 +195,23 @@ async def test_state_playing_when_moved(reset_db):
     assert status.game_id == "G_1"
 
 
+async def test_playing_points_only_at_a_live_game_not_a_finished_one(reset_db):
+    # Regression: a bot that played a real move in a game that has since finished
+    # is still "playing" (established), but must NOT carry a game link — pointing
+    # "Watch live" at a completed game is a dead link.
+    async with reset_db() as db:
+        u = await make_user(db)
+        bot, _ = await make_bot(db, u)
+        g = await _game(db, "G_1", GameState.COMPLETED)
+        p = await _player(db, g.id, bot, u)
+        await _submission(db, g.id, p, round_=1, turn_=1)
+        await db.commit()
+        status = await compute_onboarding_status(db, bot)
+    assert status.state is OnboardingState.PLAYING
+    assert status.game_id is None
+    assert status.game_name is None
+
+
 async def test_defaulted_submission_does_not_count_as_moved(reset_db):
     async with reset_db() as db:
         u = await make_user(db)
@@ -315,6 +332,31 @@ async def test_detail_empty_games_copy_when_connected(client, reset_db):
     r = await client.get(f"/me/bots/{bid}", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
     assert "Connected but not in a game yet" in r.text
+
+
+async def test_detail_established_bot_shows_only_badge_not_a_playing_line(client, reset_db):
+    # The bug this fixes: a bot that played a real move, whose game has since
+    # ended and whose runner is now offline, showed BOTH "Playing in <game>" (from
+    # play history) AND a "Disconnected" badge (from a cold heartbeat) at once.
+    # The onboarding panel must not render for an established bot — the health
+    # badge is the single source of truth.
+    async with reset_db() as db:
+        u = await make_user(db)
+        bot, _ = await make_bot(db, u)
+        bot.first_connected_at = NOW  # connected once, long ago (NOW is in the past)
+        g = await _game(db, "G_1", GameState.COMPLETED)
+        p = await _player(db, g.id, bot, u)
+        await _submission(db, g.id, p, round_=1, turn_=1)
+        await db.commit()
+        uid, bid = u.id, bot.id
+
+    r = await client.get(f"/me/bots/{bid}", cookies=_signed_in_cookies(uid))
+    assert r.status_code == 200
+    # Badge tells the truth — the runner is offline.
+    assert "Disconnected" in r.text
+    # No contradicting onboarding panel / "playing" line.
+    assert 'id="bot-status-live"' not in r.text
+    assert "it's playing now" not in r.text
 
 
 async def test_status_fragment_owner_only(client, reset_db):
