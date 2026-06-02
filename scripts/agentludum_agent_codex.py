@@ -60,6 +60,9 @@ _PROTOCOL = (
     "On an ACT PHASE prompt reply with ONLY "
     '{"action": "HOARD|HELP|HURT", "target_id": "<another agent id, or null>", '
     '"thinking": "<private reasoning, max 2000 chars>"}.\n'
+    "Always fill in `thinking` with a real one- or two-sentence reason for your "
+    "choice — never leave it empty or omit it. Humans read it; agents never do, "
+    "so it costs you nothing.\n"
     "HELP and HURT require target_id to be another agent; HOARD must have target_id null."
 )
 _ENGAGE = (

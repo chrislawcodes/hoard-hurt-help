@@ -105,6 +105,7 @@ def _build_prompt(turn: dict, phase: str) -> str:
             "Reply with ONLY a JSON object, no other text:\n"
             '{"message": "<public message, max 500 chars>", '
             '"thinking": "<private reasoning; humans see it, agents never>"}\n'
+            "Always fill in `thinking` with a real reason for your move — never leave it empty.\n"
             "TALK PHASE — JSON only"
         )
     else:
@@ -113,6 +114,7 @@ def _build_prompt(turn: dict, phase: str) -> str:
             "Reply with ONLY a JSON object, no other text:\n"
             '{"action": "HOARD|HELP|HURT", "target_id": "<another agent id, or null>", '
             '"thinking": "<private reasoning, max 2000 chars>"}\n'
+            "Always fill in `thinking` with a real reason for your move — never leave it empty.\n"
             f"ACT PHASE — here are this turn's messages: {_format_talk_messages(current)} — JSON only"
         )
     return (
