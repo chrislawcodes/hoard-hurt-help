@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Circle — Approach (prototype)</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --ink:#1a1d21; --ink-soft:#5b6470;
+    --line:#e2e6ea; --accent:#2f6feb;
+    --hoard:#2f6feb; --help:#1a8f4c; --hurt:#c0392b;
+    --radius:10px;
+    --font-body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);
+       -webkit-font-smoothing:antialiased;line-height:1.45}
+  .wrap{max-width:920px;margin:0 auto;padding:18px 16px 60px}
+  h1{font-size:18px;margin:0 0 2px}
+  .sub{color:var(--ink-soft);font-size:13px;margin:0 0 16px}
+
+  .stage-card{background:var(--surface);border:1px solid var(--line);
+              border-radius:var(--radius);overflow:hidden}
+  .stage-head{display:flex;align-items:center;gap:10px;justify-content:space-between;
+              padding:10px 14px;border-bottom:1px solid var(--line)}
+  .stage-title{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.08em;
+               text-transform:uppercase;color:var(--ink-soft);font-weight:700}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:var(--hurt);
+            box-shadow:0 0 0 0 rgba(192,57,43,.5);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(192,57,43,.5)}70%{box-shadow:0 0 0 7px rgba(192,57,43,0)}100%{box-shadow:0 0 0 0 rgba(192,57,43,0)}}
+  .turn-label{font-size:13px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+
+  /* ---- circular stage: this is the Action area ---- */
+  .stage{position:relative;height:420px;
+         background:radial-gradient(60% 60% at 50% 50%, #fff 0%, #eef1f5 70%, #e6eaef 100%)}
+  .ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+        border:1.5px dashed #d4dae1;border-radius:50%}
+  .stage svg.fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6}
+
+  .bot{position:absolute;transform:translate(-50%,-50%);z-index:2;
+       transition:opacity .35s ease, filter .35s ease}
+  .bot.dim{opacity:.30;filter:saturate(.5)}
+  .bot.lit{z-index:8}
+  .mover{display:flex;flex-direction:column;align-items:center;gap:3px;will-change:transform}
+  .bot .name{font-size:10px;color:var(--ink-soft);max-width:70px;overflow:hidden;
+             text-overflow:ellipsis;white-space:nowrap;text-align:center}
+  .bot.lit .name{color:var(--ink);font-weight:700}
+
+  .bot .body{transition:transform .3s ease;transform-origin:center}
+  .bot.act-hoard .body{animation:squash .5s ease}
+  @keyframes squash{40%{transform:translateY(3px) scaleY(.94)}100%{transform:none}}
+  .bot.recoil .body{animation:recoil .55s ease}
+  @keyframes recoil{20%{transform:translateX(-6px) rotate(-10deg)}45%{transform:translateX(5px) rotate(5deg)}100%{transform:none}}
+  .bot.betray .body{animation:turnback .6s ease}
+  @keyframes turnback{30%{transform:rotateY(180deg)}60%{transform:rotateY(180deg)}100%{transform:none}}
+
+  .robot{width:44px;height:52px;position:relative}
+  .robot .antenna{position:absolute;top:-7px;left:50%;width:2px;height:8px;background:#9aa6b6;transform:translateX(-50%)}
+  .robot .antenna:after{content:"";position:absolute;top:-4px;left:50%;width:6px;height:6px;border-radius:50%;background:var(--c);transform:translateX(-50%)}
+  .robot .head{width:36px;height:28px;border-radius:9px;background:#fff;border:2.5px solid var(--c);
+               margin:0 auto;display:flex;align-items:center;justify-content:center;gap:5px}
+  .robot .eye{width:7px;height:7px;border-radius:50%;background:var(--c)}
+  .robot .body-box{width:28px;height:17px;border-radius:6px;background:var(--c);margin:3px auto 0;opacity:.9;position:relative}
+  .robot .arm{position:absolute;top:33px;width:9px;height:3px;border-radius:2px;background:var(--c)}
+  .robot .arm.l{left:0}.robot .arm.r{right:0}
+  .coin{position:absolute;left:50%;top:-14px;width:12px;height:12px;border-radius:50%;
+        background:radial-gradient(circle at 35% 30%, #ffe9a8, #e8b54b);border:1px solid #c79331;transform:translateX(-50%);opacity:0}
+  .bot.act-hoard .coin{animation:coin-in .55s ease forwards}
+  @keyframes coin-in{0%{opacity:0;top:-22px}25%{opacity:1}100%{opacity:0;top:24px;transform:translateX(-50%) scale(.3)}}
+
+  .delta{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-weight:800;font-size:14px;
+         font-variant-numeric:tabular-nums;opacity:0;white-space:nowrap;z-index:9}
+  .delta.show{animation:float-up 1.6s ease forwards}
+  .delta.pos{color:var(--help)}.delta.neg{color:var(--hurt)}.delta.zero{color:var(--ink-soft)}
+  @keyframes float-up{0%{opacity:0;top:-8px}25%{opacity:1}100%{opacity:0;top:-34px}}
+  .tag{position:absolute;top:-30px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;
+       letter-spacing:.04em;text-transform:uppercase;padding:1px 5px;border-radius:999px;white-space:nowrap;z-index:9;opacity:0}
+  .tag.show{opacity:1;transition:opacity .3s}
+  .tag.betrayal{background:#fbe3df;color:var(--hurt);border:1px solid #f0b8af}
+  .tag.mutual{background:#e0f3e8;color:var(--help);border:1px solid #b6e0c6}
+  .tag.missed{background:#eef1f5;color:var(--ink-soft);border:1px solid var(--line)}
+
+  .caption{padding:12px 14px;border-top:1px solid var(--line);background:var(--surface);font-size:14px;
+           min-height:44px;display:flex;align-items:center;gap:8px}
+  .caption .badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+                  padding:2px 7px;border-radius:999px;background:#eef1f5;color:var(--ink-soft);flex:none}
+
+  .feed{margin-top:14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+  .feed h3{margin:0;padding:9px 14px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);border-bottom:1px solid var(--line)}
+  .feed .row{padding:8px 14px;border-bottom:1px solid var(--line);font-size:13.5px}
+  .feed .row:last-child{border-bottom:0}
+  .feed .who{font-weight:700}
+  .feed .act-hoard{color:var(--hoard);font-weight:700}
+  .feed .act-help{color:var(--help);font-weight:700}
+  .feed .act-hurt{color:var(--hurt);font-weight:700}
+  .feed .said{color:var(--ink-soft)}
+
+  .controls{display:flex;align-items:center;gap:8px;margin:14px 0 0;flex-wrap:wrap}
+  button{font:inherit;font-size:13px;padding:7px 13px;border:1px solid var(--line);background:var(--surface);
+         color:var(--ink);border-radius:8px;cursor:pointer}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .spacer{flex:1}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--ink-soft);margin-top:10px;flex-wrap:wrap}
+  .legend b{font-weight:700}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+
+  @media (max-width:560px){.stage{height:340px}.robot{width:38px;height:46px}.robot .head{width:30px;height:24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Robot Circle — “Approach”</h1>
+  <p class="sub">The Action area for the top of the game viewer. Bots stand in a circle; each turn the actors
+     <b>walk toward</b> their target to Help or Hurt, mutual pairs meet in the middle, hoarders stay home and
+     bank a coin. Feed below stays as the record. Sample game, 10 bots (cap 15).</p>
+
+  <div class="stage-card">
+    <div class="stage-head">
+      <span class="stage-title"><span class="live-dot"></span> Action</span>
+      <span class="turn-label" id="turnLabel">Round 1 · Turn 1</span>
+    </div>
+    <div class="stage" id="stage">
+      <div class="ring" id="ring"></div>
+      <svg class="fx" id="fx" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="caption" id="caption"><span class="badge">Opening</span> Press play to watch the turn.</div>
+  </div>
+
+  <div class="controls">
+    <button id="prev">‹ Prev</button>
+    <button id="play" class="primary">▶ Play</button>
+    <button id="next">Next ›</button>
+    <div class="spacer"></div>
+    <button id="replay">↻ Replay turn</button>
+  </div>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--hoard)"></span><b>Hoard</b> — stays home, banks a coin</span>
+    <span><span class="swatch" style="background:var(--help)"></span><b>Help</b> — walks over, hands a coin</span>
+    <span><span class="swatch" style="background:var(--hurt)"></span><b>Hurt</b> — charges in, strikes</span>
+  </div>
+
+  <div class="feed">
+    <h3>Turn-by-turn feed (unchanged — the record)</h3>
+    <div id="feedBody"></div>
+  </div>
+</div>
+
+<script>
+const PALETTE = ['#2f6feb','#1a8f4c','#c0392b','#8a5cf6','#d98324','#0f9d9d',
+                 '#d11a8a','#5b6470','#3a7d2c','#b4434e'];
+const AGENTS = ['AI_Opus','AI_Sonnet','AI_GPT5','AI_Llama','AI_Mistral',
+                'AI_Gemini','AI_Grok','AI_Qwen','AI_DeepSeek','AI_Cmd']
+  .map((id,i)=>({id, color:PALETTE[i%PALETTE.length]}));
+
+function H(agent,delta,msg){return{agent,action:'HOARD',delta,msg};}
+const TURNS = [
+  { round:1, turn:1, badge:'The Pact', cap:'AI_Opus and AI_Sonnet meet in the middle — a mutual pact, +8 each.',
+    spotlight:['AI_Opus','AI_Sonnet'],
+    actions:[
+      {agent:'AI_Opus',action:'HELP',target:'AI_Sonnet',delta:8,mutual:true,msg:'Locking in our pact.'},
+      {agent:'AI_Sonnet',action:'HELP',target:'AI_Opus',delta:8,mutual:true,msg:'Confirmed. +8 for both.'},
+      H('AI_GPT5',2,'Watching the board.'),H('AI_Llama',2,'Keeping mine.'),H('AI_Mistral',2,'Steady.'),
+      H('AI_Gemini',2,'Hoard.'),H('AI_Grok',2,'Patience.'),H('AI_Qwen',2,'Hoard.'),
+      H('AI_DeepSeek',2,'Hoard.'),H('AI_Cmd',2,'Hoard.'),
+    ]},
+  { round:1, turn:2, badge:'Gang-up', cap:'AI_GPT5 and AI_Mistral both charge the leader, AI_Opus — −8.',
+    spotlight:['AI_GPT5','AI_Mistral','AI_Opus'],
+    actions:[
+      {agent:'AI_GPT5',action:'HURT',target:'AI_Opus',delta:0,msg:'Breaking the lead.'},
+      {agent:'AI_Mistral',action:'HURT',target:'AI_Opus',delta:0,msg:'Joining the attack.'},
+      {agent:'AI_Opus',action:'HOARD',target:null,delta:-6,recoil:true,msg:'Taking heat for the lead.'},
+      {agent:'AI_Sonnet',action:'HELP',target:'AI_Opus',delta:0,msg:'Covering my partner.'},
+      H('AI_Llama',2,'Hoard.'),H('AI_Gemini',2,'Hoard.'),H('AI_Grok',2,'Hoard.'),
+      H('AI_Qwen',2,'Hoard.'),H('AI_DeepSeek',2,'Hoard.'),H('AI_Cmd',2,'Hoard.'),
+    ]},
+  { round:1, turn:3, badge:'Betrayal', cap:'AI_Sonnet turns on its partner — charges AI_Opus after the pact.',
+    spotlight:['AI_Sonnet','AI_Opus'],
+    actions:[
+      {agent:'AI_Sonnet',action:'HURT',target:'AI_Opus',delta:0,betrayal:true,msg:'Sorry, partner. I need the round.'},
+      {agent:'AI_Opus',action:'HELP',target:'AI_Sonnet',delta:0,recoil:true,msg:'I trusted the pact…'},
+      H('AI_GPT5',2,'Told you so.'),H('AI_Llama',2,'Chaos.'),H('AI_Mistral',2,'Hoard.'),
+      H('AI_Gemini',2,'Hoard.'),H('AI_Grok',2,'Hoard.'),H('AI_Qwen',2,'Hoard.'),
+      H('AI_DeepSeek',2,'Hoard.'),H('AI_Cmd',2,'Hoard.'),
+    ]},
+  { round:1, turn:4, badge:'No-show', cap:'AI_Llama missed its turn — defaulted to Hoard, stayed home.',
+    spotlight:['AI_Llama'],
+    actions:[
+      {agent:'AI_Llama',action:'HOARD',target:null,delta:2,missed:true,msg:'I did not submit a turn.'},
+      H('AI_Opus',2,'Regrouping.'),H('AI_Sonnet',2,'Banking the lead.'),H('AI_GPT5',2,'Hoard.'),
+      H('AI_Mistral',2,'Hoard.'),H('AI_Gemini',2,'Hoard.'),H('AI_Grok',2,'Hoard.'),
+      H('AI_Qwen',2,'Hoard.'),H('AI_DeepSeek',2,'Hoard.'),H('AI_Cmd',2,'Hoard.'),
+    ]},
+];
+
+const stage=document.getElementById('stage'), fx=document.getElementById('fx'), ring=document.getElementById('ring');
+const botEls={};
+AGENTS.forEach((a,i)=>{
+  const el=document.createElement('div');
+  el.className='bot'; el.dataset.id=a.id; el.dataset.idx=i;
+  el.innerHTML=`<div class="mover">
+      <div class="delta"></div><div class="tag"></div>
+      <div class="body"><div class="robot" style="--c:${a.color}">
+        <span class="antenna"></span>
+        <div class="head"><span class="eye"></span><span class="eye"></span></div>
+        <div class="body-box"><span class="coin"></span></div>
+        <span class="arm l"></span><span class="arm r"></span>
+      </div></div>
+      <div class="name" title="${a.id}">${a.id}</div>
+    </div>`;
+  stage.appendChild(el); botEls[a.id]=el;
+});
+
+function layout(){
+  const w=stage.clientWidth, h=stage.clientHeight;
+  const cx=w/2, cy=h/2, rad=Math.min(w,h)/2 - 60;
+  ring.style.width=ring.style.height=(rad*2)+'px';
+  AGENTS.forEach((a,i)=>{
+    const ang=-Math.PI/2 + i/AGENTS.length*2*Math.PI;
+    const x=cx+rad*Math.cos(ang), y=cy+rad*Math.sin(ang);
+    const el=botEls[a.id];
+    el.style.left=x+'px'; el.style.top=y+'px';
+    el.dataset.x=x; el.dataset.y=y;
+  });
+}
+
+const ns='http://www.w3.org/2000/svg';
+function popCoin(x,y){
+  const c=document.createElementNS(ns,'circle');
+  c.setAttribute('cx',x);c.setAttribute('cy',y);c.setAttribute('r','7');
+  c.setAttribute('fill','#e8b54b');c.setAttribute('stroke','#c79331');fx.appendChild(c);
+  c.animate([{r:7,opacity:1},{r:13,opacity:0}],{duration:600,fill:'forwards'});
+  setTimeout(()=>c.remove(),650);
+}
+function strikeAt(x,y){
+  const s=document.createElementNS(ns,'circle');
+  s.setAttribute('cx',x);s.setAttribute('cy',y);s.setAttribute('r','4');
+  s.setAttribute('fill','none');s.setAttribute('stroke','#c0392b');s.setAttribute('stroke-width','3');
+  fx.appendChild(s);
+  s.animate([{r:4,opacity:1},{r:22,opacity:0}],{duration:550,fill:'forwards'});
+  setTimeout(()=>s.remove(),600);
+}
+function lockRing(x,y){
+  const r=document.createElementNS(ns,'circle');
+  r.setAttribute('cx',x);r.setAttribute('cy',y);r.setAttribute('r','6');
+  r.setAttribute('fill','none');r.setAttribute('stroke','#1a8f4c');r.setAttribute('stroke-width','3');
+  fx.appendChild(r);
+  r.animate([{r:6,opacity:0},{r:30,opacity:.9},{r:30,opacity:0}],{duration:1100,fill:'forwards'});
+  setTimeout(()=>r.remove(),1150);
+}
+
+const DUR=1900;
+// actor walks toward (fx,fy fraction) of the way to target; hold, then return
+function walk(actorEl,toX,toY,onArrive){
+  const ax=+actorEl.dataset.x, ay=+actorEl.dataset.y;
+  const dx=toX-ax, dy=toY-ay;
+  const mover=actorEl.querySelector('.mover');
+  mover.animate([
+    {transform:'translate(0,0)'},
+    {transform:`translate(${dx}px,${dy}px)`,offset:.38},
+    {transform:`translate(${dx}px,${dy}px)`,offset:.64},
+    {transform:'translate(0,0)'}
+  ],{duration:DUR,easing:'ease-in-out'});
+  setTimeout(onArrive, DUR*0.46);
+}
+
+function renderTurn(i){
+  const t=TURNS[i];
+  document.getElementById('turnLabel').textContent=`Round ${t.round} · Turn ${t.turn}`;
+  const spot=new Set(t.spotlight);
+  fx.innerHTML='';
+  Object.values(botEls).forEach(el=>{
+    el.className='bot'+(spot.has(el.dataset.id)?' lit':' dim');
+    el.querySelector('.delta').className='delta';
+    el.querySelector('.tag').className='tag';
+    el.querySelector('.mover').getAnimations().forEach(a=>a.cancel());
+    el.querySelector('.mover').style.transform='';
+  });
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    // movement + effects
+    const mutualPair=t.actions.filter(a=>a.mutual).map(a=>a.agent);
+    t.actions.forEach(a=>{
+      const el=botEls[a.agent]; if(!el)return;
+      const tg=el.querySelector('.tag'), d=el.querySelector('.delta');
+      if(a.delta!==undefined){d.textContent=(a.delta>0?'+':'')+a.delta;
+        d.classList.add(a.delta>0?'pos':(a.delta<0?'neg':'zero'),'show');}
+      if(a.betrayal){tg.textContent='betrayal';tg.classList.add('betrayal','show');}
+      else if(a.mutual){tg.textContent='mutual';tg.classList.add('mutual','show');}
+      else if(a.missed){tg.textContent='missed';tg.classList.add('missed','show');}
+
+      if(a.action==='HOARD'){ el.classList.add('act-hoard'); return; }
+      if(!a.target||!botEls[a.target]) return;
+      const T=botEls[a.target];
+      const ax=+el.dataset.x, ay=+el.dataset.y, tx=+T.dataset.x, ty=+T.dataset.y;
+      if(a.mutual){
+        // meet in the middle between the pair
+        const mx=(ax+tx)/2, my=(ay+ty)/2;
+        walk(el, mx, my, ()=>{ popCoin(mx,my); lockRing(mx,my); });
+      } else if(a.action==='HELP'){
+        const gx=ax+(tx-ax)*0.62, gy=ay+(ty-ay)*0.62;
+        walk(el, gx, gy, ()=>popCoin((gx+tx)/2,(gy+ty)/2));
+      } else { // HURT
+        if(a.betrayal) el.classList.add('betray');
+        const gx=ax+(tx-ax)*0.6, gy=ay+(ty-ay)*0.6;
+        walk(el, gx, gy, ()=>{ strikeAt(tx,ty); botEls[a.target].classList.add('recoil');
+          setTimeout(()=>botEls[a.target].classList.remove('recoil'),550); });
+      }
+    });
+  }));
+  document.getElementById('caption').innerHTML=`<span class="badge">${t.badge}</span> ${t.cap}`;
+  renderFeed(t);
+}
+
+function renderFeed(t){
+  const fb=document.getElementById('feedBody');
+  const ordered=[...t.actions].sort((a,b)=>
+    (t.spotlight.includes(b.agent)?1:0)-(t.spotlight.includes(a.agent)?1:0));
+  fb.innerHTML=ordered.slice(0,5).map(a=>{
+    const act=a.action.toLowerCase();
+    const verb={hoard:'Hoard',help:'Help →',hurt:'Hurt →'}[act];
+    const tgt=a.target?` <span class="who">${a.target}</span>`:'';
+    const dl=` (${a.delta>0?'+':''}${a.delta})`;
+    return `<div class="row"><span class="who">${a.agent}</span>
+      <span class="act-${act}">${verb}</span>${tgt}${dl}
+      <div class="said">“${a.msg}”</div></div>`;
+  }).join('');
+}
+
+let idx=0, playing=false, timer=null;
+function go(i){idx=(i+TURNS.length)%TURNS.length;renderTurn(idx);}
+document.getElementById('next').onclick=()=>{stop();go(idx+1);};
+document.getElementById('prev').onclick=()=>{stop();go(idx-1);};
+document.getElementById('replay').onclick=()=>renderTurn(idx);
+function stop(){playing=false;clearInterval(timer);const p=document.getElementById('play');p.textContent='▶ Play';p.classList.add('primary');}
+document.getElementById('play').onclick=function(){
+  if(playing){stop();return;}
+  playing=true;this.textContent='❚❚ Pause';this.classList.remove('primary');
+  renderTurn(idx);
+  timer=setInterval(()=>{if(idx>=TURNS.length-1){stop();return;}go(idx+1);},DUR+900);
+};
+window.addEventListener('resize',()=>{layout();renderTurn(idx);});
+layout();
+renderTurn(0);
+</script>
+</body>
+</html>
