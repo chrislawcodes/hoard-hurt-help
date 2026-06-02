@@ -213,6 +213,17 @@ async def home(request: Request, db: DbSession):
     # Hero match card: a real finished game's final round (None → explainer-only hero).
     featured = await _featured_replay(db, completed)
 
+    # Robot-circle animation: most-recent completed showcase game — consistent
+    # across page loads so the viewer always sees the same game.
+    rc_data = ""
+    rc_game_id: str | None = next((v["id"] for v in completed if _is_showcase(v)), None)
+    if rc_game_id:
+        try:
+            _rc_ctx = await _game_view_context(request, db, rc_game_id)
+            rc_data = _build_rc_data(_rc_ctx["scoreboard"], _rc_ctx["history"])
+        except Exception:
+            logger.exception("Failed to build rc_data for home page")
+
     # Leaderboard band: real standings. Prefer the most-progressed live game;
     # otherwise the most-recent finished showcase game. Empty list → empty state.
     live.sort(key=lambda v: (v["current_round"], v["current_turn"]), reverse=True)
@@ -232,6 +243,8 @@ async def home(request: Request, db: DbSession):
             "user": user,
             "is_admin": _is_admin(user),
             "featured": featured,
+            "rc_data": rc_data,
+            "rc_game_id": rc_game_id,
             "standings": standings,
             "standings_game": standings_game,
             "has_live": bool(live),
