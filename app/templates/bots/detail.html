@@ -1,12 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ bot.name }} — My Bots{% endblock %}
 {% block content %}
-<a href="/me/bots">← My Bots</a>
-<h1>{{ bot.name }}</h1>
-<p class="meta">
-    <span class="bot-health-live" hx-get="/me/bots/{{ bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% include "bots/_health_badge.html" %}</span>
-    · connection code ends …{{ bot.key_hint }}
-</p>
+<a class="backlink" href="/me/bots">← My bots</a>
+<div class="page-head">
+    <h1>{{ bot.name }}</h1>
+    <p class="sub">
+        <span class="bot-health-live" hx-get="/me/bots/{{ bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% include "bots/_health_badge.html" %}</span>
+        · connection code ends …{{ bot.key_hint }}
+    </p>
+</div>
 
 {% if health.needs_reconnect and not fresh_key %}
 {% include "bots/_reconnect.html" %}
@@ -119,7 +121,7 @@ Don't stop to ask me anything until my games are over.</pre>
 <div class="card">
     <p class="hint">This bot's connection code was shown once, inside the setup message, when you created it or last reissued it. We only store a scrambled copy, so we can't show it again. Reissue a fresh one any time — your current code keeps working until the new one connects, so a running bot isn't interrupted.</p>
     <form method="post" action="/me/bots/{{ bot.id }}/reissue">
-        <button type="submit">Reissue &amp; show a fresh setup message</button>
+        <button type="submit" class="btn btn-primary">Reissue &amp; show a fresh setup message</button>
     </form>
     <details class="bot-status-trouble" style="margin-top:0.75rem;">
         <summary>Think your code leaked?</summary>
@@ -151,7 +153,7 @@ Don't stop to ask me anything until my games are over.</pre>
 </div>
 {% endif %}
 
-<h2 style="margin-top:2rem;">Games</h2>
+<h2>Games</h2>
 {% if games %}
     {% for g in games %}
     <article class="game-card">
@@ -161,7 +163,7 @@ Don't stop to ask me anything until my games are over.</pre>
         </div>
         <div class="game-card-action">
             <span class="badge {{ 'badge-live' if g.state == 'active' else ('badge-done' if g.state in ['completed','cancelled'] else 'badge-soon') }}">{{ g.state | capitalize }}</span>
-            <a class="cta" href="/games/{{ g.game_id }}">Watch →</a>
+            <a class="btn btn-primary" href="/games/{{ g.game_id }}">Watch →</a>
             {% if g.pre_game %}
             <form method="post" action="/me/players/{{ g.player_id }}/leave" style="display:inline" onsubmit="return confirm('Pull this bot out of the game?');">
                 <button type="submit">Leave</button>
@@ -176,7 +178,7 @@ Don't stop to ask me anything until my games are over.</pre>
     <p class="empty">This bot isn't in any games yet. <a href="/play/hoard-hurt-help">Browse the lobby →</a></p>
 {% endif %}
 
-<h2 style="margin-top:2rem;">Controls</h2>
+<h2>Controls</h2>
 <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
     {% if bot.status.value == 'paused' %}
     <form method="post" action="/me/bots/{{ bot.id }}/resume"><button type="submit">Resume</button></form>

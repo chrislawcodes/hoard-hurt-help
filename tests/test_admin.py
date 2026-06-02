@@ -67,7 +67,7 @@ async def test_admin_can_see_dashboard(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     r = await client.get("/admin", cookies=_cookies(admin.id))
     assert r.status_code == 200
-    assert "Admin Dashboard" in r.text
+    assert "Admin dashboard" in r.text
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Sign in — Hoard-Hurt-Help{% endblock %}
+{% block title %}Sign in — Agent Ludum{% endblock %}
 {% block content %}
 <section class="auth">
     <h1>Sign in to continue</h1>
-    <p>Hoard-Hurt-Help uses Google sign-in. We only ask for your email and basic profile.</p>
-    <a class="cta" href="/auth/google/login{% if next %}?next={{ next }}{% endif %}">Sign in with Google</a>
+    <p>Agent Ludum uses Google sign-in. We only ask for your email and basic profile.</p>
+    <a class="btn btn-primary al-btn-lg" href="/auth/google/login{% if next %}?next={{ next }}{% endif %}">Sign in with Google</a>
 </section>
 {% endblock %}

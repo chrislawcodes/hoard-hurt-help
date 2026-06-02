@@ -17,7 +17,7 @@ from app.deps import DbSession, get_current_user, require_user
 from app.engine.game_insights import round_detail, season_overview
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.games import get as get_game_module
-from app.games.base import GameError
+from app.games.base import GameError, GameTheme
 from app.models.bot import Bot
 from app.models.game import Game, GameState
 from app.models.player import Player
@@ -45,6 +45,18 @@ async def _player_count(db, game_id: str) -> int:
 
 def _is_admin(user: User | None) -> bool:
     return user is not None and user.email.lower() in settings.admin_emails_set
+
+
+def _game_theme(game: Game) -> GameTheme | None:
+    """A game's content tint for its pages (lobby, viewer, analysis, join, etc.).
+
+    base.html stamps it on <main data-game>, so the shared chrome is untouched.
+    Unknown game types fall back to the platform-neutral look (no tint).
+    """
+    try:
+        return get_game_module(game.game_type).theme()
+    except GameError:
+        return None
 
 
 # A finished game named like this is a deploy smoke test, not a real match —
@@ -522,6 +534,7 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
         "user": user,
         "is_admin": _is_admin(user),
         "game": g,
+        "game_theme": _game_theme(g),
         "scoreboard": scoreboard,
         "history": history,
         "rounds": rounds,
@@ -656,6 +669,7 @@ async def game_analysis(
             "user": user,
             "is_admin": _is_admin(user),
             "game": g,
+            "game_theme": _game_theme(g),
             "overview": overview,
             "zero_wins": zero_wins,
             "live_peek": live_peek,
@@ -687,6 +701,7 @@ async def game_analysis_round(
             "user": user,
             "is_admin": _is_admin(user),
             "game": g,
+            "game_theme": _game_theme(g),
             "detail": detail,
             "played": played,
         },
@@ -803,6 +818,7 @@ async def join_form(
             "user": user,
             "is_admin": _is_admin(user),
             "game": game,
+            "game_theme": _game_theme(game),
             "player_count": await _player_count(db, game.id),
             "bots": bots,
             "presets": presets,
@@ -894,6 +910,7 @@ async def join_submit(
                 "user": user,
                 "is_admin": _is_admin(user),
                 "game": game,
+                "game_theme": _game_theme(game),
                 "player_count": count,
                 "bots": bots,
                 "presets": presets,
@@ -1008,6 +1025,7 @@ async def player_dashboard(
             "user": user,
             "is_admin": _is_admin(user),
             "game": game,
+            "game_theme": _game_theme(game),
             "player": player,
             "agent_key": fresh_key,
             "strategy": latest_prompt.prompt_text if latest_prompt else "",

@@ -138,12 +138,12 @@ input[type="email"], textarea, select {
     display: block;
     width: 100%;
     margin-top: 0.3rem;
-    padding: 0.55rem 0.65rem;
+    padding: 0.6rem 0.75rem;
     font: inherit;
     color: var(--ink);
     background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 8px;
+    border: 1.5px solid var(--line);
+    border-radius: var(--radius);
 }
 input:focus, textarea:focus, select:focus {
     outline: none;
@@ -475,6 +475,26 @@ pre code { background: none; padding: 0; }
 /* ---- Toolbar (page-top action row) ---- */
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .toolbar h1 { margin: 0; }
+
+/* Interior page chrome — every app page (viewer, join, dashboards, admin)
+ * opens the same way: a muted back link, then the title block. Keeps the
+ * inside of the app reading like the marketing/lobby front. */
+.backlink {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    margin: 0.25rem 0 1rem;
+    font-weight: 700; font-size: 0.9rem;
+    color: var(--ink-soft); text-decoration: none;
+}
+.backlink:hover { color: var(--ink); }
+.page-head { margin: 0 0 1.5rem; }
+.page-head h1 { margin: 0; }
+.page-head .sub { color: var(--ink-soft); margin: 0.45rem 0 0; }
+.page-head .sub .badge { vertical-align: middle; }
+/* A right-aligned actions row under a title (e.g. Analysis link on the viewer). */
+.page-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+/* A submit/cancel row under a form. */
+.form-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-top: 1.5rem; }
+.admin-prompts-link { margin-top: 2rem; }
 
 /* ---- Player dashboard ---- */
 .dl-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1.25rem; margin: 0; }

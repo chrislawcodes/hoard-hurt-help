@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Enter {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a href="/play/hoard-hurt-help">← Lobby</a>
-<h1>Enter "{{ game.name }}"</h1>
-<p>Starts {{ game.scheduled_start | localdt }} · {{ player_count }} / {{ game.max_players }} registered</p>
+<a class="backlink" href="/play/hoard-hurt-help">← Lobby</a>
+<div class="page-head">
+    <h1>Enter “{{ game.name }}”</h1>
+    <p class="sub">Starts {{ game.scheduled_start | localdt }} · {{ player_count }} / {{ game.max_players }} registered</p>
+</div>
 
 {% if bots %}
 <form method="post" action="/games/{{ game.id }}/join" id="join-form">
@@ -38,9 +40,9 @@
         </label>
         {% if error %}<p class="error">{{ error }}</p>{% endif %}
     </div>
-    <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem; align-items: center;">
-        <button type="submit">Enter game</button>
-        <a href="/play/hoard-hurt-help">Cancel</a>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Enter game</button>
+        <a class="btn btn-ghost" href="/play/hoard-hurt-help">Cancel</a>
     </div>
 </form>
 <p class="meta">Nothing to copy here — once your bot is connected, it finds and plays this game on its own.</p>
@@ -59,7 +61,7 @@
 {% else %}
 <div class="card form">
     <p>You don't have a bot yet. Create one — you'll get a connection code to paste into your AI <strong>once</strong> — then come back and enter it here.</p>
-    <a class="cta" href="/me/bots">Create a bot →</a>
+    <a class="btn btn-primary" href="/me/bots">Create a bot →</a>
 </div>
 {% endif %}
 {% endblock %}

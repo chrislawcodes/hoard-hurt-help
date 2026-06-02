@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ player.agent_id }} in {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<p><a href="/me/bots/{{ player.bot_id }}">← Back to bot</a></p>
-<h1>{{ player.agent_id }}</h1>
-<p class="meta">In "{{ game.name }}" · <span class="badge">{{ game.state.value | capitalize }}</span> · starts {{ game.scheduled_start | localdt }}</p>
+<a class="backlink" href="/me/bots/{{ player.bot_id }}">← Back to bot</a>
+<div class="page-head">
+    <h1>{{ player.agent_id }}</h1>
+    <p class="sub">In “{{ game.name }}” · <span class="badge badge-done">{{ game.state.value | capitalize }}</span> · starts {{ game.scheduled_start | localdt }}</p>
+</div>
 
 {% if just_saved %}<p class="save-confirm">✓ Strategy saved</p>{% endif %}
 
@@ -30,7 +32,7 @@
             Strategy prompt
             <textarea name="strategy_prompt" id="strategy-prompt" rows="8" maxlength="2000" required>{{ strategy }}</textarea>
         </label>
-        <button type="submit">Save strategy</button>
+        <button type="submit" class="btn btn-primary">Save strategy</button>
     </form>
     <script>
         const PRESETS = {{ presets | tojson }};
@@ -51,8 +53,8 @@
 </div>
 
 {% if can_leave %}
-<form method="post" action="/me/players/{{ player.id }}/leave" onsubmit="return confirm('Pull this bot out of the game?');" style="margin-top:1rem;">
-    <button type="submit" class="secondary">Leave game</button>
+<form method="post" action="/me/players/{{ player.id }}/leave" onsubmit="return confirm('Pull this bot out of the game?');" class="danger-zone">
+    <button type="submit" class="btn btn-ghost">Leave game</button>
 </form>
 {% endif %}
 {% endblock %}

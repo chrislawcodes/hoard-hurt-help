@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}My Games — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<h1>My Games</h1>
+<div class="page-head"><h1>My games</h1></div>
 {% if games %}
     {% for g in games %}
     <article class="game-card">
@@ -11,7 +11,7 @@
         </div>
         <div class="game-card-action">
             <span class="badge {{ 'badge-live' if g.state.value == 'active' else ('badge-done' if g.state.value in ['completed','cancelled'] else 'badge-soon') }}">{{ g.state.value | capitalize }}</span>
-            <a class="cta" href="/me/players/{{ g.player_id }}">Manage →</a>
+            <a class="btn btn-primary" href="/me/players/{{ g.player_id }}">Manage →</a>
         </div>
     </article>
     {% endfor %}
