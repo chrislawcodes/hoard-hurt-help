@@ -248,6 +248,9 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
             "recent_games": recent_display[:8],
             "rc_game_id": rc_game_id,
             "rc_data": rc_data,
+            # Tint the lobby's content with this game's scheme; the shared chrome
+            # (defined outside <main>) is untouched. See GameModule.theme().
+            "game_theme": get_game_module("hoard-hurt-help").theme(),
         },
     )
 

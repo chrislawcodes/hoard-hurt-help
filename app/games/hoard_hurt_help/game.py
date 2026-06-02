@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from app.engine import resolver
 from app.engine.rules import HELP_POINTS, HOARD_POINTS, HURT_POINTS, RULES_TEXT
-from app.games.base import GameConfig, GameError, StrategyPreset
+from app.games.base import GameConfig, GameError, GameTheme, StrategyPreset
 from app.games.hoard_hurt_help.strategy import PD_DEFAULT_STRATEGY, PD_STRATEGY_PRESETS
 from app.models.player import Player
 from app.models.turn import TurnMessage, TurnSubmission
@@ -169,3 +169,23 @@ class HoardHurtHelp:
         if a == "HURT":
             return 0, -HURT_POINTS
         return 0, None
+
+    def theme(self) -> GameTheme:
+        # The flagship game wears the platform's warm orange, plus the move trio
+        # (hoard amber / help green / hurt red) as its semantic colors and a
+        # faintly warm surface so its pages read as "this game" inside the shared
+        # Agent Ludum shell. Only content tokens here — never chrome.
+        return GameTheme(
+            key=self.game_type,
+            vars={
+                "--brand": "#e2640e",
+                "--brand-2": "#5b4fd6",
+                "--accent": "#b8861a",
+                "--on-brand": "#fff6ec",
+                "--surface": "#fbf7f1",
+                "--surface-2": "#f3ece1",
+                "--hoard": "#b07e0d",
+                "--help": "#1f8a5b",
+                "--hurt": "#c1452f",
+            },
+        )

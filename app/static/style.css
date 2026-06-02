@@ -1,304 +1,74 @@
-/* Hoard-Hurt-Help — base stylesheet.
+/* Agent Ludum — site stylesheet.
  *
- * Themeable via CSS custom properties. The structural rules below never
- * hardcode a color or font — they only reference var(--x). To change the
- * whole look, edit a theme block (the :root / [data-theme=...] sets). To add
- * a new theme, copy a block and tweak the variables. Nothing else changes.
+ * One design language for the whole site. The platform tokens in :root below
+ * (colors, type, geometry, shadows) are the shared identity every page wears —
+ * the chrome (nav, footer, brand, buttons) never varies between games. The
+ * structural rules reference var(--x) only, never a literal color or font.
  *
- * The Agent Ludum marketing front page (/) opts into its own identity via the
- * `.al` scope at the very bottom of this file (its own tokens + components).
- * The fonts below are only fetched on pages that actually use those families
- * (i.e. the marketing page), so game pages pay nothing for them.
+ * A single game tints only its own content by setting content tokens on its
+ * <main data-game> region (see GameTheme in app/games/base.py); the chrome sits
+ * outside <main> and stays constant. The `.al` scope near the bottom holds the
+ * marketing front page's reset plus the shared AL components and the dark
+ * `.al-plum` arena surface.
  */
 @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
 
 /* ============================================================
- * THEME: Clean — neutral light, blue accent
- * ============================================================ */
-:root[data-theme="clean"] {
-    --bg: #f6f7f9;
-    --surface: #ffffff;
-    --surface-2: #f0f2f5;
-    --ink: #1a1d21;
-    --ink-soft: #5b6470;
-    --line: #e2e6ea;
-    --header-bg: #1a1d21;
-    --header-ink: #ffffff;
-    --header-ink-soft: #9aa6b6;
-    --accent: #2f6feb;
-    --accent-ink: #ffffff;
-    --accent-hover: #2a62d0;
-    --bad: #c0392b;
-    --bad-bg: #fdecea;
-    --bad-line: #f5c6c0;
-    --hoard: #2f6feb;
-    --help: #1a8f4c;
-    --hurt: #c0392b;
-    --code-bg: #1a1d21;
-    --code-ink: #e6edf3;
-    --radius: 10px;
-    --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body);
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none;
-    --head-spacing: normal;
-    --maxw: 960px;
-}
-
-/* ============================================================
- * THEME: Terminal — dark, monospace headers, green accent
- * ============================================================ */
-:root[data-theme="terminal"] {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --surface-2: #1c2230;
-    --ink: #e6edf3;
-    --ink-soft: #8b949e;
-    --line: #2a313c;
-    --header-bg: #010409;
-    --header-ink: #e6edf3;
-    --header-ink-soft: #8b949e;
-    --accent: #3fb950;
-    --accent-ink: #02130a;
-    --accent-hover: #46c95a;
-    --bad: #f85149;
-    --bad-bg: #2a1416;
-    --bad-line: #5c2125;
-    --hoard: #58a6ff;
-    --help: #3fb950;
-    --hurt: #f85149;
-    --code-bg: #010409;
-    --code-ink: #c9d1d9;
-    --shadow: none;
-    --font-body: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --font-head: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: uppercase;
-    --head-spacing: 0.06em;
-}
-
-/* ============================================================
- * THEME: Arena (default) — calm light replay surface.
- * Lives in :root so it applies with no data-theme attribute.
+ * AGENT LUDUM — platform design tokens (the shared design language).
+ *
+ * One identity for the whole site. The chrome (nav, footer, brand, button
+ * shape, type scale) reads these fixed values and never changes between games.
+ * A game tints only its own content area by setting content tokens (--surface,
+ * --brand, --hoard/--help/--hurt, ...) on its <main data-game> — see GameTheme
+ * in app/games/base.py. Chrome lives outside <main>, so it never takes the tint.
  * ============================================================ */
 :root {
-    --bg: #f7f8fa;
-    --surface: #ffffff;
-    --surface-2: #eef1f4;
-    --ink: #171a1f;
-    --ink-soft: #5e6875;
-    --line: #dfe4ea;
-    --header-bg: #111827;
-    --header-ink: #ffffff;
-    --header-ink-soft: #c5cfdb;
-    --accent: #1f5fbf;
-    --accent-ink: #ffffff;
-    --accent-hover: #174ea6;
-    --bad: #b42318;
-    --bad-bg: #fff1f0;
-    --bad-line: #efc4bf;
-    --hoard: #2563eb;
-    --help: #16834a;
-    --hurt: #b42318;
-    --code-bg: #111827;
-    --code-ink: #f3f5f7;
-    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 10px 28px rgba(16,24,40,.08);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body);
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* fonts */
+    --al-display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --al-body: 'Space Grotesk', system-ui, sans-serif;
+    --al-mono: 'Space Mono', ui-monospace, monospace;
+    --font-body: var(--al-body);
+    --font-head: var(--al-display);
+    --font-mono: var(--al-mono);
     --head-transform: none;
-    --head-spacing: normal;
-    --radius: 8px;
+    --head-spacing: -0.01em;
+    /* geometry */
+    --al-radius: 14px;
+    --al-radius-lg: 22px;
+    --al-maxw: 1200px;
+    --radius: 12px;
     --maxw: 1040px;
-}
-
-/* ============================================================
- * THEME: Editorial — airy light, serif headings, high contrast
- * ============================================================ */
-:root[data-theme="editorial"] {
-    --bg: #ffffff;
-    --surface: #ffffff;
-    --surface-2: #f4f1ea;
-    --ink: #15110c;
-    --ink-soft: #6b6358;
-    --line: #e4ded2;
-    --header-bg: #15110c;
-    --header-ink: #faf7f0;
-    --header-ink-soft: #b0a692;
-    --accent: #8a1c1c;
-    --accent-ink: #ffffff;
-    --accent-hover: #731515;
-    --bad: #8a1c1c;
-    --bad-bg: #f8ecec;
-    --bad-line: #e3c4c4;
-    --hoard: #1f4e79;
-    --help: #2f6b34;
-    --hurt: #8a1c1c;
-    --code-bg: #15110c;
-    --code-ink: #faf7f0;
-    --shadow: none;
-    --font-body: "Iowan Old Style", Georgia, "Times New Roman", serif;
-    --font-head: "Iowan Old Style", Georgia, "Times New Roman", serif;
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none;
-    --head-spacing: normal;
-    --radius: 2px;
-}
-
-/* ============================================================
- * EXTRA THEMES — each block defines the full variable set.
- * ============================================================ */
-
-/* Midnight — deep navy dark, sky-blue accent */
-:root[data-theme="midnight"] {
-    --bg: #0f172a; --surface: #1e293b; --surface-2: #273449;
-    --ink: #e2e8f0; --ink-soft: #94a3b8; --line: #334155;
-    --header-bg: #020617; --header-ink: #e2e8f0; --header-ink-soft: #94a3b8;
-    --accent: #38bdf8; --accent-ink: #04263a; --accent-hover: #56c8fa;
-    --bad: #f87171; --bad-bg: #2a1518; --bad-line: #5c2327;
-    --hoard: #60a5fa; --help: #34d399; --hurt: #f87171;
-    --code-bg: #020617; --code-ink: #cbd5e1;
-    --shadow: 0 4px 14px rgba(0,0,0,.35);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none; --head-spacing: normal; --radius: 10px;
-}
-
-/* Solarized — classic cream light, blue accent */
-:root[data-theme="solarized"] {
-    --bg: #fdf6e3; --surface: #fefbf0; --surface-2: #eee8d5;
-    --ink: #586e75; --ink-soft: #93a1a1; --line: #e3dcc4;
-    --header-bg: #073642; --header-ink: #eee8d5; --header-ink-soft: #93a1a1;
-    --accent: #268bd2; --accent-ink: #fdf6e3; --accent-hover: #1f7ab8;
-    --bad: #dc322f; --bad-bg: #fbeae0; --bad-line: #f0c9bd;
-    --hoard: #268bd2; --help: #859900; --hurt: #dc322f;
-    --code-bg: #073642; --code-ink: #eee8d5;
-    --shadow: 0 1px 3px rgba(101,123,131,.12);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none; --head-spacing: normal; --radius: 6px;
-}
-
-/* Dracula — purple dark, pink/cyan accents */
-:root[data-theme="dracula"] {
-    --bg: #282a36; --surface: #343746; --surface-2: #44475a;
-    --ink: #f8f8f2; --ink-soft: #9aa0c4; --line: #44475a;
-    --header-bg: #21222c; --header-ink: #f8f8f2; --header-ink-soft: #6272a4;
-    --accent: #bd93f9; --accent-ink: #21222c; --accent-hover: #caa6fb;
-    --bad: #ff5555; --bad-bg: #3a1f23; --bad-line: #5c2a2f;
-    --hoard: #8be9fd; --help: #50fa7b; --hurt: #ff5555;
-    --code-bg: #21222c; --code-ink: #f8f8f2;
-    --shadow: 0 4px 14px rgba(0,0,0,.35);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none; --head-spacing: normal; --radius: 8px;
-}
-
-/* Nord — cool muted dark, frost accent */
-:root[data-theme="nord"] {
-    --bg: #2e3440; --surface: #3b4252; --surface-2: #434c5e;
-    --ink: #eceff4; --ink-soft: #99a1b3; --line: #434c5e;
-    --header-bg: #242933; --header-ink: #eceff4; --header-ink-soft: #81899b;
-    --accent: #88c0d0; --accent-ink: #1b2027; --accent-hover: #9ed0de;
-    --bad: #bf616a; --bad-bg: #33232a; --bad-line: #5a3640;
-    --hoard: #81a1c1; --help: #a3be8c; --hurt: #bf616a;
-    --code-bg: #242933; --code-ink: #e5e9f0;
-    --shadow: 0 3px 10px rgba(0,0,0,.3);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none; --head-spacing: normal; --radius: 8px;
-}
-
-/* Gruvbox — warm retro dark, yellow accent */
-:root[data-theme="gruvbox"] {
-    --bg: #282828; --surface: #32302f; --surface-2: #3c3836;
-    --ink: #ebdbb2; --ink-soft: #a89984; --line: #504945;
-    --header-bg: #1d2021; --header-ink: #ebdbb2; --header-ink-soft: #a89984;
-    --accent: #fabd2f; --accent-ink: #282828; --accent-hover: #fcc950;
-    --bad: #fb4934; --bad-bg: #33211d; --bad-line: #5a2f28;
-    --hoard: #83a598; --help: #b8bb26; --hurt: #fb4934;
-    --code-bg: #1d2021; --code-ink: #ebdbb2;
-    --shadow: 0 3px 10px rgba(0,0,0,.3);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none; --head-spacing: normal; --radius: 6px;
-}
-
-/* Sepia — warm paper light, serif, brown accent */
-:root[data-theme="sepia"] {
-    --bg: #f4ecd8; --surface: #fbf5e6; --surface-2: #e8dcc0;
-    --ink: #433422; --ink-soft: #7a6a52; --line: #e0d4b8;
-    --header-bg: #433422; --header-ink: #f4ecd8; --header-ink-soft: #b8a98c;
-    --accent: #9a6a3a; --accent-ink: #fbf5e6; --accent-hover: #835829;
-    --bad: #a8442a; --bad-bg: #f3e3d6; --bad-line: #e0c3b0;
-    --hoard: #3a6a8a; --help: #5a7a3a; --hurt: #a8442a;
-    --code-bg: #433422; --code-ink: #f4ecd8;
-    --shadow: 0 1px 3px rgba(67,52,34,.12);
-    --font-body: "Iowan Old Style", Georgia, "Times New Roman", serif;
-    --font-head: "Iowan Old Style", Georgia, "Times New Roman", serif;
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none; --head-spacing: normal; --radius: 3px;
-}
-
-/* Mint — fresh light, emerald accent */
-:root[data-theme="mint"] {
-    --bg: #f3faf7; --surface: #ffffff; --surface-2: #e3f3ec;
-    --ink: #133a2e; --ink-soft: #5b7d72; --line: #d3e8df;
-    --header-bg: #0f3d31; --header-ink: #ffffff; --header-ink-soft: #9cc4b7;
-    --accent: #10b981; --accent-ink: #ffffff; --accent-hover: #0ea372;
-    --bad: #c0392b; --bad-bg: #fdecea; --bad-line: #f5c6c0;
-    --hoard: #2f9fd0; --help: #10b981; --hurt: #e0533f;
-    --code-bg: #0f3d31; --code-ink: #e3f3ec;
-    --shadow: 0 1px 3px rgba(16,80,60,.08);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none; --head-spacing: normal; --radius: 12px;
-}
-
-/* Rose — warm light, pink accent */
-:root[data-theme="rose"] {
-    --bg: #fdf4f5; --surface: #ffffff; --surface-2: #fbe6ea;
-    --ink: #3a1f27; --ink-soft: #8a6a72; --line: #f0d8de;
-    --header-bg: #5a2533; --header-ink: #ffffff; --header-ink-soft: #cda3ad;
-    --accent: #e11d6b; --accent-ink: #ffffff; --accent-hover: #c8195f;
-    --bad: #d12b2b; --bad-bg: #fdecea; --bad-line: #f5c6c0;
-    --hoard: #6f6fe0; --help: #2f9f6a; --hurt: #d12b2b;
-    --code-bg: #5a2533; --code-ink: #fbe6ea;
-    --shadow: 0 1px 3px rgba(90,37,51,.08);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: none; --head-spacing: normal; --radius: 12px;
-}
-
-/* Mono — high-contrast grayscale, minimal */
-:root[data-theme="mono"] {
-    --bg: #ffffff; --surface: #ffffff; --surface-2: #f2f2f2;
-    --ink: #111111; --ink-soft: #666666; --line: #dddddd;
-    --header-bg: #111111; --header-ink: #ffffff; --header-ink-soft: #aaaaaa;
-    --accent: #111111; --accent-ink: #ffffff; --accent-hover: #333333;
-    --bad: #b00000; --bad-bg: #f7e6e6; --bad-line: #e0bcbc;
-    --hoard: #3b6fb0; --help: #2e7d32; --hurt: #b00000;
-    --code-bg: #111111; --code-ink: #f2f2f2;
-    --shadow: none;
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: uppercase; --head-spacing: 0.08em; --radius: 0px;
-}
-
-/* Cyberpunk — black, neon magenta/cyan */
-:root[data-theme="cyberpunk"] {
-    --bg: #0a0a12; --surface: #12121f; --surface-2: #1b1b2e;
-    --ink: #e6e6ff; --ink-soft: #8a8ab0; --line: #2a2a44;
-    --header-bg: #050509; --header-ink: #00e5ff; --header-ink-soft: #7a7ab0;
-    --accent: #ff2bd6; --accent-ink: #0a0a12; --accent-hover: #ff52de;
-    --bad: #ff3b6b; --bad-bg: #2a0e1a; --bad-line: #5c1d38;
-    --hoard: #00e5ff; --help: #39ff14; --hurt: #ff3b6b;
-    --code-bg: #050509; --code-ink: #c7c7ff;
-    --shadow: 0 0 14px rgba(255,43,214,.25);
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: var(--font-body); --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: uppercase; --head-spacing: 0.06em; --radius: 4px;
+    /* surfaces + ink (Lilac — the platform reading surface) */
+    --bg: #eae5f5;
+    --bg-2: #e2dcf1;
+    --surface: #f4eefb;
+    --surface-2: #e8e1f4;
+    --ink: #241c33;
+    --ink-soft: #655a7a;
+    --line: #d8cfe9;
+    --line-bold: #241c33;
+    /* brand + accent (orange is the single primary-action color) */
+    --brand: #e2640e;
+    --brand-2: #5b4fd6;
+    --on-brand: #fff6ec;
+    --accent: #e2640e;
+    --accent-ink: #fff6ec;
+    --accent-hover: #c4540b;
+    /* semantic move trio (always paired with a text label, never color-only) */
+    --hoard: #b07e0d;
+    --help: #1f8a5b;
+    --hurt: #c1452f;
+    /* error / danger */
+    --bad: #c1452f;
+    --bad-bg: #fbe9e4;
+    --bad-line: #f0c8bd;
+    /* code */
+    --code-bg: #241c33;
+    --code-ink: #f3edf9;
+    /* shadows */
+    --al-shadow: 3px 3px 0 var(--line-bold);
+    --al-shadow-soft: 0 20px 44px -26px rgba(36, 28, 51, 0.5);
+    --shadow: var(--al-shadow-soft);
 }
 
 /* ============================================================
@@ -316,53 +86,13 @@ body {
     background: var(--bg);
 }
 
-/* Header */
-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.75rem 1.25rem;
-    background: var(--header-bg);
-    color: var(--header-ink);
-}
-.site-title {
-    font-family: var(--font-head);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: var(--header-ink);
-    text-decoration: none;
-    font-size: 1.05rem;
-}
-header nav { display: flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
-header nav a { color: var(--header-ink-soft); text-decoration: none; }
-header nav a:hover { color: var(--header-ink); }
-header nav span { color: var(--header-ink-soft); }
-header nav form { margin: 0; }
-header nav button {
-    padding: 0.3rem 0.7rem;
-    font-size: 0.85rem;
-    background: transparent;
-    border: 1px solid var(--header-ink-soft);
-    color: var(--header-ink-soft);
-}
-header nav button:hover { color: var(--header-ink); border-color: var(--header-ink); }
-
-/* Shell */
-main { max-width: var(--maxw); margin: 2rem auto; padding: 0 1.25rem; }
-footer {
-    max-width: var(--maxw);
-    margin: 2rem auto 3rem;
-    padding: 1rem 1.25rem 0;
-    border-top: 1px solid var(--line);
-    color: var(--ink-soft);
-    font-size: 0.85rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-}
-footer a { color: var(--ink-soft); }
+/* Shell — the chrome (.al-nav / .al-footer) is the shared Agent Ludum frame
+ * defined in the AL component section below. `.shell` is the centered content
+ * column every interior + lobby page uses; `.bleed` lets the marketing page run
+ * full-width sections. Per-game tint is applied on <main data-game>, inside the
+ * chrome, so the nav and footer never take a game's color. */
+main.shell { max-width: var(--maxw); margin: 2rem auto; padding: 0 1.25rem; }
+main.bleed { max-width: none; margin: 0; padding: 0; }
 
 /* Typography */
 h1, h2, h3 {
@@ -391,9 +121,8 @@ small, .hint { color: var(--ink-soft); font-size: 0.85rem; }
 /* Cards */
 .card, .game-card {
     background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
+    border: 2px solid var(--line);
+    border-radius: var(--al-radius);
     padding: 1.1rem 1.25rem;
     margin-bottom: 1rem;
 }
@@ -423,20 +152,24 @@ input:focus, textarea:focus, select:focus {
 }
 textarea { min-height: 8rem; resize: vertical; font-weight: 400; font-family: var(--font-mono); }
 
+/* Default controls share the platform's pill shape so a button reads the same
+ * on every page. The marketing page + lobby + nav use the bolder `.btn` (2px
+ * outline + offset shadow) for primary moments; this is the lighter everyday
+ * control for forms and dense pages. */
 button, .cta {
     display: inline-block;
-    padding: 0.55rem 1.1rem;
+    padding: 0.55rem 1.2rem;
     font: inherit;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--accent-ink);
     background: var(--accent);
     border: none;
-    border-radius: 8px;
+    border-radius: 999px;
     cursor: pointer;
     text-decoration: none;
 }
 button:hover, .cta:hover { background: var(--accent-hover); }
-button.secondary, .cta.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+button.secondary, .cta.secondary { background: transparent; color: var(--accent); border: 1.5px solid var(--line-bold); }
 
 .save-confirm { color: #16a34a; font-weight: 600; margin-bottom: 0.75rem; }
 .preset-picker { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
@@ -597,9 +330,6 @@ pre code { background: none; padding: 0; }
 
 .auth { text-align: center; margin: 4rem auto; }
 
-/* Theme switcher control */
-.theme-switch { display: flex; align-items: center; gap: 0.4rem; }
-.theme-switch select { width: auto; margin: 0; padding: 0.3rem 0.5rem; font-size: 0.85rem; }
 
 /* ---- Lobby ---- */
 .hero { margin-bottom: 2.5rem; }
@@ -776,14 +506,7 @@ button.danger:hover,
  * MOBILE — small-screen overrides
  * ============================================================ */
 @media (max-width: 600px) {
-    header {
-        flex-wrap: wrap;
-        gap: 0.4rem 0.9rem;
-        padding: 0.6rem 1rem;
-    }
-    header nav { gap: 0.75rem; font-size: 0.85rem; flex-wrap: wrap; }
-    main { margin: 1.25rem auto; padding: 0 1rem; }
-    footer { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+    main.shell { margin: 1.25rem auto; padding: 0 1rem; }
 
     h1 { font-size: 1.35rem; }
     h2 { font-size: 1.1rem; }
@@ -791,7 +514,8 @@ button.danger:hover,
     /* Stack card content + action on narrow screens. */
     .game-card { flex-direction: column; align-items: stretch; }
     .game-card-action { justify-content: space-between; }
-    .game-card-action .cta { flex: 1; text-align: center; }
+    .game-card-action .cta,
+    .game-card-action .btn { flex: 1; justify-content: center; text-align: center; }
 
     .toolbar { flex-direction: column; align-items: stretch; }
     .toolbar .cta { text-align: center; }
@@ -883,10 +607,10 @@ button.danger:hover,
 /* Live marquee — the single most-watchable thing, given real weight. */
 .marquee {
     background: var(--surface);
-    border: 1px solid var(--line);
-    border-left: 3px solid var(--hurt);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
+    border: 2px solid var(--line);
+    border-left: 4px solid var(--hurt);
+    border-radius: var(--al-radius-lg);
+    box-shadow: var(--al-shadow-soft);
     padding: 1.5rem 1.5rem 1.6rem;
     margin-bottom: 1rem;
 }
@@ -926,7 +650,7 @@ button.danger:hover,
 /* Recent: muted, dense rows — finished games shouldn't outweigh live ones. */
 .recent-list {
     list-style: none; margin: 0 0 1rem; padding: 0;
-    border: 1px solid var(--line); border-radius: var(--radius);
+    border: 2px solid var(--line); border-radius: var(--al-radius);
     background: var(--surface); overflow: hidden;
 }
 .recent-row {
@@ -955,42 +679,15 @@ button.danger:hover,
 }
 
 /* ============================================================
- * AGENT LUDUM — marketing front page (/) identity scope.
+ * AGENT LUDUM — components for the marketing page + lobby.
  *
- * The whole page sits inside `.al` (Lilac, the bright reading surface).
- * The live "arena" islands (hero match card, leaderboard band) add
- * `.al-plum` to flip the same tokens to the dark Plum surface. Orange is the
- * single accent; the move-trio (hoard/hurt/help) is fixed and always carries a
- * text label so it reads without color. These tokens are self-contained and do
- * not touch the game-page themes above.
+ * Tokens now live in :root (the platform design language, above). `.al` is the
+ * marketing front page's local reset/scope; the shared utilities (.btn, .wrap,
+ * .pill, .eyebrow, .mono, .al-nav, .al-footer) are global so every page draws
+ * the same controls. The live "arena" islands (hero card, leaderboard band, the
+ * lobby's live marquee) add `.al-plum` to flip the surface tokens to dark.
  * ============================================================ */
 .al {
-    /* fonts */
-    --al-display: 'Bricolage Grotesque', system-ui, sans-serif;
-    --al-body: 'Space Grotesk', system-ui, sans-serif;
-    --al-mono: 'Space Mono', ui-monospace, monospace;
-    /* geometry */
-    --al-radius: 14px;
-    --al-radius-lg: 22px;
-    --al-maxw: 1200px;
-    /* Lilac — bright pages (default) */
-    --bg: #eae5f5;
-    --bg-2: #e2dcf1;
-    --surface: #f9f6ff;
-    --ink: #241c33;
-    --ink-soft: #655a7a;
-    --line: #d8cfe9;
-    --line-bold: #241c33;
-    --brand: #e2640e;
-    --brand-2: #5b4fd6;
-    --accent: #b8861a;
-    --on-brand: #fff6ec;
-    --hoard: #b07e0d;
-    --hurt: #c1452f;
-    --help: #1f8a5b;
-    --al-shadow: 3px 3px 0 var(--line-bold);
-    --al-shadow-soft: 0 20px 44px -26px rgba(36, 28, 51, 0.5);
-
     background: var(--bg);
     color: var(--ink);
     font-family: var(--al-body);
@@ -1035,14 +732,14 @@ button.danger:hover,
 }
 .al a { color: inherit; text-decoration: none; }
 .al p { margin: 0; }
-.al .mono { font-family: var(--al-mono); }
-.al .wrap { max-width: var(--al-maxw); margin: 0 auto; padding: 0 28px; }
-.al .eyebrow {
+.mono { font-family: var(--al-mono); }
+.wrap { max-width: var(--al-maxw); margin: 0 auto; padding: 0 28px; }
+.eyebrow {
     font-family: var(--al-mono); font-size: 12px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.12em; color: var(--brand);
 }
 .al .card { background: var(--surface); border: 2px solid var(--line); border-radius: var(--al-radius-lg); }
-.al .pill {
+.pill {
     display: inline-flex; align-items: center; gap: 8px;
     font-family: var(--al-mono); font-size: 12.5px; font-weight: 700;
     padding: 6px 13px; border-radius: 999px; border: 1.5px solid var(--line);
@@ -1052,23 +749,23 @@ button.danger:hover,
 .al .dot-help { background: var(--help); }
 
 /* buttons: 2px outline + hard offset shadow on Lilac; flat on Plum */
-.al .btn {
+.btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
     font-family: var(--al-body); font-weight: 700; font-size: 14.5px;
     padding: 10px 18px; border-radius: 999px; cursor: pointer;
     border: 2px solid var(--line-bold); background: var(--surface); color: var(--ink);
     box-shadow: var(--al-shadow); transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
-.al .btn:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--line-bold); }
-.al .btn:active { transform: none; box-shadow: var(--al-shadow); }
-.al .btn-primary { background: var(--brand); color: var(--on-brand); }
-.al .btn-ghost { background: transparent; }
+.btn:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--line-bold); }
+.btn:active { transform: none; box-shadow: var(--al-shadow); }
+.btn-primary { background: var(--brand); color: var(--on-brand); }
+.btn-ghost { background: transparent; }
 .al-plum .btn { box-shadow: none; }
 .al-plum .btn:hover { transform: translateY(-2px); box-shadow: none; }
-.al .btn.is-disabled, .al .btn[aria-disabled="true"] {
+.btn.is-disabled, .btn[aria-disabled="true"] {
     opacity: 0.5; cursor: not-allowed; box-shadow: none;
 }
-.al .btn.is-disabled:hover { transform: none; box-shadow: none; }
+.btn.is-disabled:hover { transform: none; box-shadow: none; }
 .al-btn-lg { font-size: 16px; padding: 14px 26px; }
 .al-btn-invert { background: var(--on-brand); color: var(--brand); }
 .al-btn-on-brand { color: var(--on-brand); border-color: var(--on-brand); background: transparent; }

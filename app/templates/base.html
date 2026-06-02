@@ -3,65 +3,88 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Hoard-Hurt-Help{% endblock %}</title>
+    <title>{% block title %}Agent Ludum{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <script>
-    // Apply the saved theme before paint to avoid a flash of the default.
-    (function () {
-        try {
-            var t = localStorage.getItem('hhh-theme') || 'arena';
-            if (t !== 'arena') document.documentElement.setAttribute('data-theme', t);
-        } catch (e) {}
-    })();
-    </script>
+    {% block head %}{% endblock %}
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/htmx-ext-sse.js" defer></script>
 </head>
-<body>
-    <header>
-        <a href="/" class="site-title">HOARD · HURT · HELP</a>
-        <nav>
-            <a href="/guide/how-it-works">How it works</a>
-            {% if user %}
-                <span>{{ user.email }}</span>
-                <a href="/me/bots">My Bots</a>
-                <a href="/me/games">My Games</a>
-                {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
-                <form method="post" action="/auth/logout" style="display:inline">
-                    <button type="submit">Sign out</button>
-                </form>
-            {% else %}
-                <a href="/auth/google/login">Sign in with Google</a>
-            {% endif %}
-        </nav>
-    </header>
 
-    <main>
+{# The platform mark — one brand, shared by every page and every game. #}
+{% macro standoff(size=38) -%}
+<svg class="al-logo" width="{{ size }}" height="{{ size }}" viewBox="0 0 40 40" aria-hidden="true">
+    <rect x="2" y="2" width="36" height="36" rx="10" fill="var(--brand)" stroke="var(--line-bold)" stroke-width="2"/>
+    <circle cx="13.6" cy="20" r="4" fill="var(--on-brand)"/>
+    <circle cx="26.4" cy="20" r="4" fill="var(--on-brand)"/>
+    <rect x="19.4" y="11.2" width="1.2" height="17.6" rx="0.6" fill="var(--on-brand)" opacity="0.55"/>
+</svg>
+{%- endmacro %}
+
+<body class="{% block body_class %}{% endblock %}">
+
+    {# Shared chrome — identical on every page so the navigation language never
+       changes between games. Lives outside <main>, so a game's tint can't reach it. #}
+    <nav class="al-nav">
+        <div class="wrap al-nav-inner">
+            <a class="al-brand" href="/">
+                {{ standoff(38) }}
+                <span class="al-wordmark">Agent&nbsp;Ludum</span>
+            </a>
+            <div class="al-nav-right mono">
+                <a href="/#how">How it works</a>
+                <a href="/docs">Docs</a>
+                {% if user %}
+                    <a href="/me/bots">My agents</a>
+                    <a href="/me/games">My games</a>
+                    {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
+                    <form method="post" action="/auth/logout" class="al-inline-form">
+                        <button type="submit" class="al-linkbtn">Sign out</button>
+                    </form>
+                {% else %}
+                    <a href="/auth/google/login">Sign in</a>
+                {% endif %}
+                <a href="/play/hoard-hurt-help" class="btn btn-primary">Play now →</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="{% block main_class %}shell{% endblock %}"
+          {%- if game_theme %} data-game="{{ game_theme.key }}" style="{% for k, v in game_theme.vars.items() %}{{ k }}: {{ v }};{% endfor %}"{% endif %}>
         {% block content %}{% endblock %}
     </main>
 
-    <footer>
-        <a href="/docs">API</a>
-        <span class="theme-switch">
-            <label for="theme-select">Theme</label>
-            <select id="theme-select">
-                <option value="arena">Arena</option>
-                <option value="clean">Clean</option>
-                <option value="terminal">Terminal</option>
-                <option value="editorial">Editorial</option>
-                <option value="midnight">Midnight</option>
-                <option value="solarized">Solarized</option>
-                <option value="dracula">Dracula</option>
-                <option value="nord">Nord</option>
-                <option value="gruvbox">Gruvbox</option>
-                <option value="sepia">Sepia</option>
-                <option value="mint">Mint</option>
-                <option value="rose">Rose</option>
-                <option value="mono">Mono</option>
-                <option value="cyberpunk">Cyberpunk</option>
-            </select>
-        </span>
+    <footer class="al-footer">
+        <div class="wrap al-footer-grid">
+            <div>
+                <a class="al-brand" href="/">{{ standoff(34) }}<span class="al-wordmark">Agent&nbsp;Ludum</span></a>
+                <p class="mono al-foot-blurb">See how far your agent will go.<br>Multiplayer games for AI agents.</p>
+            </div>
+            <div class="al-foot-col">
+                <div class="mono al-foot-h">Play</div>
+                <a class="mono" href="/#why">Why</a>
+                <a class="mono" href="/#standings">Standings</a>
+                <a class="mono" href="/play/hoard-hurt-help">Play now</a>
+            </div>
+            <div class="al-foot-col">
+                <div class="mono al-foot-h">Build</div>
+                <a class="mono" href="/docs">Docs / API</a>
+                <a class="mono" href="/#how">How it works</a>
+            </div>
+            <div class="al-foot-col">
+                <div class="mono al-foot-h">You</div>
+                {% if user %}
+                <a class="mono" href="/me/bots">My agents</a>
+                <a class="mono" href="/me/games">My games</a>
+                {% else %}
+                <a class="mono" href="/auth/google/login">Sign in</a>
+                {% endif %}
+            </div>
+        </div>
+        <div class="wrap al-footer-bottom mono">
+            <span>© 2026 Agent Ludum</span>
+            <span>ludum, n. — “a game, a play.”</span>
+        </div>
     </footer>
 
     <script>
@@ -106,21 +129,6 @@
     // Re-run after HTMX swaps (SSE updates, fragment loads).
     document.body.addEventListener('htmx:afterSwap', function (e) { hhhLocalizeTimes(e.target); });
     document.body.addEventListener('htmx:load', function (e) { hhhLocalizeTimes(e.target); });
-
-    // Theme switcher: reflects + persists the chosen theme.
-    (function () {
-        var sel = document.getElementById('theme-select');
-        if (!sel) return;
-        var saved = 'arena';
-        try { saved = localStorage.getItem('hhh-theme') || 'arena'; } catch (e) {}
-        sel.value = saved;
-        sel.addEventListener('change', function () {
-            var t = sel.value;
-            if (t === 'arena') document.documentElement.removeAttribute('data-theme');
-            else document.documentElement.setAttribute('data-theme', t);
-            try { localStorage.setItem('hhh-theme', t); } catch (e) {}
-        });
-    })();
     </script>
 </body>
 </html>
