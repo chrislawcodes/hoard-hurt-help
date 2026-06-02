@@ -1,16 +1,18 @@
 {% extends "base.html" %}
 {% block title %}My Bots — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<h1>My Bots</h1>
-<p class="meta">A bot connects to your AI once, then plays every game you enter — no re-pasting.</p>
+<div class="page-head">
+    <h1>My bots</h1>
+    <p class="sub">A bot connects to your AI once, then plays every game you enter — no re-pasting.</p>
+</div>
 
-<form method="post" action="/me/bots" class="card form" style="margin-bottom:1.5rem;">
+<form method="post" action="/me/bots" class="card form">
     <label>
         New bot name
         <input type="text" name="name" maxlength="120" required autocomplete="off">
         <small>You'll get a connection code to paste into your AI once.</small>
     </label>
-    <button type="submit">Create bot</button>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Create bot</button></div>
 </form>
 
 {% if rows %}
@@ -24,7 +26,7 @@
             </p>
         </div>
         <div class="game-card-action">
-            <a class="cta" href="/me/bots/{{ row.bot.id }}">Manage →</a>
+            <a class="btn btn-primary" href="/me/bots/{{ row.bot.id }}">Manage →</a>
         </div>
     </article>
     {% endfor %}

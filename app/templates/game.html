@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<p><a href="/play/hoard-hurt-help">← Lobby</a></p>
-<h1>{{ game.name }} <a href="/games/{{ game.id }}/analysis" style="font-size:.7em;font-weight:400">📊 Analysis</a></h1>
+<a class="backlink" href="/play/hoard-hurt-help">← Lobby</a>
+<div class="page-head page-head-row">
+    <h1>{{ game.name }}</h1>
+    <a class="btn btn-ghost" href="/games/{{ game.id }}/analysis">📊 Analysis</a>
+</div>
 
 {% if rc_data %}{% include "fragments/robot_circle.html" %}{% endif %}
 

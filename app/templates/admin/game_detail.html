@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ game.name }} — Admin{% endblock %}
 {% block content %}
-<a href="/admin">← Admin</a>
-<h1>{{ game.name }}</h1>
-<p>State: {{ game.state.value }} · Round {{ game.current_round }} / {{ game.total_rounds }} · Turn {{ game.current_turn }} / {{ game.turns_per_round }}</p>
+<a class="backlink" href="/admin">← Admin</a>
+<div class="page-head">
+    <h1>{{ game.name }}</h1>
+    <p class="sub">State: {{ game.state.value }} · Round {{ game.current_round }} / {{ game.total_rounds }} · Turn {{ game.current_turn }} / {{ game.turns_per_round }}</p>
+</div>
 
 {% if game.state.value == "registering" %}
 <form method="post" action="/admin/games/{{ game.id }}/start">
