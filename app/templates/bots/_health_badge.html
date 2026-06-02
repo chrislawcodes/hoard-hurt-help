@@ -3,4 +3,4 @@
    Green = runner alive (Live/Ready), red = runner down (Stalled/Disconnected),
    grey = owner paused. The label carries the meaning, so it's readable without
    colour. #}
-<span class="badge {{ health.badge_class }}">{% if health.pulse %}<span class="dot"></span>{% elif health.state.value == "ready" %}<span class="dot dot-still"></span>{% endif %}{{ health.label }}</span><span class="bot-health-meta">{% if health.never_connected %} · never connected{% else %} · last connected {{ health.last_connected_human }}{% endif %}</span>
+<span class="badge {{ health.badge_class }}">{% if health.pulse %}<span class="dot"></span>{% elif health.state.value == "ready" %}<span class="dot dot-still"></span>{% endif %}{{ health.label }}</span><span class="bot-health-meta">{% if health.never_connected %} · never connected{% else %} · last connected <time class="localtime-secs" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_at.strftime('%H:%M:%S UTC') }}</time>{% endif %}</span>

@@ -11,7 +11,7 @@
         {% elif health.never_connected %}
             This bot has never connected, so it can't play yet.
         {% else %}
-            This bot's runner isn't running{% if health.last_connected_human %} — last connected {{ health.last_connected_human }}{% endif %}.
+            This bot's runner isn't running{% if health.last_connected_at %} — last connected <time class="localtime-secs" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_at.strftime('%H:%M:%S UTC') }}</time>{% endif %}.
         {% endif %}
         Reissue a fresh setup message and paste it to your AI to bring it back.
     </p>

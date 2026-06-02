@@ -90,6 +90,17 @@
             el.title = d.toString();
             el.dataset.localized = '1';
         });
+        (root || document).querySelectorAll('time.localtime-secs[datetime]').forEach(function (el) {
+            if (el.dataset.localized) return;
+            const d = new Date(el.getAttribute('datetime'));
+            if (isNaN(d.getTime())) return;
+            el.textContent = d.toLocaleString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: 'numeric', minute: '2-digit', second: '2-digit'
+            });
+            el.title = d.toString();
+            el.dataset.localized = '1';
+        });
     }
     document.addEventListener('DOMContentLoaded', function () { hhhLocalizeTimes(document); });
     // Re-run after HTMX swaps (SSE updates, fragment loads).
