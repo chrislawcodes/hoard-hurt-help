@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
-"""Drive a Hoard-Hurt-Help bot as a *chained* Claude Code agent session.
+"""Drive a Hoard-Hurt-Help bot as a chained agent session — on whichever AI the
+bot is configured for.
 
-Unlike the stateless runner (`agentludum_bot.py`), this keeps ONE Claude Code
-session per game and feeds it only the new events each turn. The model remembers
-the whole match and adapts as it plays, and — because Claude Code caches the
-session prefix automatically — you don't re-pay for the full history every turn.
-
-Runs on your existing `claude` login (Claude Code subscription) — no API key.
+ONE runner for every provider. Each turn the server tells the runner which AI the
+bot is set to use (``preferred_provider`` in the /next-turn payload), and the
+runner drives the matching CLI: Claude (``claude``), OpenAI/Codex (``codex``), or
+Gemini (``gemini``). So you launch the SAME command for every bot and it can never
+run on the wrong model — the provider comes from the bot's config, not from which
+file you happened to download.
 
     python3 agentludum_agent.py --key sk_bot_... --url https://your-site
+
+Optional overrides (you rarely need these — the bot's config is authoritative):
+
+    python3 agentludum_agent.py --key sk_bot_... --provider gemini
     python3 agentludum_agent.py --key sk_bot_... --model claude-sonnet-4-6
 
-Cost notes (measured): even a stripped `claude -p` call carries ~19k tokens of
-Claude Code framework overhead per call (only `--bare` removes it, and `--bare`
-needs an API key, which we avoid). We minimise it three ways, all kept here:
-  * `--model` defaults to Haiku (cheapest); override for a stronger player.
-  * `--tools ""` drops the built-in tool definitions — this is a decision task.
-  * `--system-prompt` replaces Claude Code's coding-agent prompt with our game
-    framing, set once on the first turn; the session caches it after that.
+Resolution per game (first wins):
+    provider:  --provider flag  >  the bot's configured provider  >  claude
+    model:     --model flag      >  the bot's configured model      >  the provider default
 
-STATUS: first cut. The single-turn `--resume` mechanic is verified (context is
-retained), but the multi-turn loop and the real per-game cost should be measured
-against a live game before relying on it. Sessions are kept in memory for the
-runner's lifetime; cross-restart persistence is a follow-up.
+Each provider keeps ONE chained session per game and is fed only the new events
+each turn, so the model remembers the whole match and only thinks on the bot's
+turn. Runs on your existing CLI login for that provider — no API key. You need the
+matching CLI installed and signed in (`claude`, `codex`, or `gemini`).
+
+The per-provider mechanics live in small adapters near the bottom; everything else
+(the poll loop, the prompts, the move parsing, the fallback) is shared.
 """
 
 from __future__ import annotations
@@ -32,22 +36,17 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 import time
+import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 
 DEFAULT_URL = "http://localhost:8000"
-DEFAULT_MODEL = "claude-haiku-4-5"  # cheapest; override with --model for a stronger bot
+DEFAULT_PROVIDER = "claude"
 _TURN_TIMEOUT = 180  # a single model turn can take a while
-
-# The four token buckets Anthropic reports per call. Keeping them separate is
-# the whole point of this logging: on a resumed session most input should land in
-# `cache_read` (reused prefix), with only the new delta as `fresh_in`. If
-# `fresh_in` or `cache_write` stays large every turn, the session prefix is NOT
-# being reused and every turn is re-paying for the full history + harness.
-_TOKEN_KEYS = ("fresh_in", "cache_write", "cache_read", "out")
-_session_tokens: dict[str, int] = {k: 0 for k in _TOKEN_KEYS}
 
 _PROTOCOL = (
     "Each turn has two phases. On a TALK PHASE prompt reply with ONLY "
@@ -67,86 +66,29 @@ _ENGAGE = (
     "let their words shape your move."
 )
 
+# Claude's JSON `usage` block maps onto these four billing buckets. On a resumed
+# session most input should land in `cache_read`; if `fresh_in`/`cache_write` stay
+# large every turn the prefix is NOT being reused. Only the Claude adapter reports
+# usage; the others leave it None.
+_TOKEN_KEYS = ("fresh_in", "cache_write", "cache_read", "out")
+_session_tokens: dict[str, int] = {k: 0 for k in _TOKEN_KEYS}
+
 
 @dataclass
 class _GameSession:
-    """One Claude Code session per game, plus how far we've narrated to it."""
+    """One chained session per game: the provider's opaque session id, how far
+    we've narrated, and the resolved provider/model (fixed for the game)."""
 
-    session_id: str | None = None
+    token: str | None = None  # session_id (claude) / thread_id (codex) / UUID (gemini)
     last_marker: tuple[int, int] = (0, 0)  # max (round, turn) already told the model
+    provider: str | None = None
+    model: str | None = None
     tokens: dict[str, int] = field(default_factory=lambda: {k: 0 for k in _TOKEN_KEYS})
 
 
-def _run_claude(
-    prompt: str,
-    session_id: str | None,
-    *,
-    model: str,
-    system_prompt: str | None = None,
-) -> tuple[str, str | None, dict[str, int]]:
-    """Run one Claude Code turn (print mode, JSON output), prompt via stdin.
-
-    Resumes `session_id` when given; sets `system_prompt` only on the first turn
-    (a resumed session already carries it). `--tools ""` keeps this a pure
-    decision call with no agent tooling. Returns (assistant_text, session_id,
-    usage) where usage is the four-bucket token breakdown for this call.
-    Raises RuntimeError on a failed or unparseable call.
-    """
-    argv = ["claude", "--print", "--output-format", "json", "--model", model, "--tools", ""]
-    if session_id:
-        argv += ["--resume", session_id]
-    if system_prompt is not None:
-        argv += ["--system-prompt", system_prompt]
-    proc = subprocess.run(
-        argv, input=prompt, capture_output=True, text=True, timeout=_TURN_TIMEOUT
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or f"claude exit {proc.returncode}")
-    try:
-        data = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"claude returned non-JSON: {proc.stdout[:300]}") from exc
-    return str(data.get("result", "")), data.get("session_id"), _extract_usage(data)
-
-
-def _extract_usage(data: dict) -> dict[str, int]:
-    """Map Claude Code's JSON `usage` block onto our four billing buckets."""
-    u = data.get("usage", {}) or {}
-    return {
-        "fresh_in": u.get("input_tokens", 0),
-        "cache_write": u.get("cache_creation_input_tokens", 0),
-        "cache_read": u.get("cache_read_input_tokens", 0),
-        "out": u.get("output_tokens", 0),
-    }
-
-
-def _record_usage(
-    game_id: str,
-    cur: dict,
-    first: bool,
-    usage: dict[str, int],
-    sess: _GameSession,
-) -> None:
-    """Add this call's tokens to the game + player totals and log the breakdown."""
-    for k in _TOKEN_KEYS:
-        sess.tokens[k] += usage[k]
-        _session_tokens[k] += usage[k]
-
-    def _fmt(t: dict[str, int]) -> str:
-        return (
-            f"fresh_in={t['fresh_in']} cache_write={t['cache_write']} "
-            f"cache_read={t['cache_read']} out={t['out']}"
-        )
-
-    phase = "setup" if first else "delta"
-    print(
-        f"[agentludum-agent] {game_id} R{cur['round']}T{cur['turn']} [{phase}] "
-        f"this call: {_fmt(usage)}"
-    )
-    print(
-        f"[agentludum-agent] {game_id} game total: {_fmt(sess.tokens)}  |  "
-        f"all games: {_fmt(_session_tokens)}"
-    )
+# --------------------------------------------------------------------------
+# Shared helpers (identical across every provider)
+# --------------------------------------------------------------------------
 
 
 def _parse_move(text: str) -> dict:
@@ -170,8 +112,7 @@ def _format_talk_messages(cur: dict) -> str:
 
 
 def _phase_suffix(cur: dict) -> str:
-    phase = _phase(cur)
-    if phase == "talk":
+    if _phase(cur) == "talk":
         return "TALK PHASE — JSON only"
     return f"ACT PHASE — here are this turn's messages: {_format_talk_messages(cur)} — JSON only"
 
@@ -199,8 +140,9 @@ def _normalize_move(move: dict, phase: str) -> dict:
     }
 
 
-def _system_prompt(turn: dict) -> str:
-    """The stable per-game framing — set once, then cached by the session."""
+def _framing(turn: dict) -> str:
+    """The stable per-game framing (strategy + rules + protocol). Claude sends it
+    as a `--system-prompt`; Codex/Gemini fold it into the first message."""
     static = turn["static"]
     you = static["your_agent_id"]
     others = [a for a in static.get("all_agent_ids", []) if a != you]
@@ -214,8 +156,9 @@ def _system_prompt(turn: dict) -> str:
     )
 
 
-def _setup_user(turn: dict) -> str:
-    """First user message: the full game state so far + whose turn it is."""
+def _setup_body(turn: dict) -> str:
+    """First-message body: the full game state so far + whose turn it is. The
+    framing is supplied separately (the adapter decides where it goes)."""
     cur = turn["current"]
     return (
         "GAME SO FAR — SCOREBOARD:\n"
@@ -226,8 +169,8 @@ def _setup_user(turn: dict) -> str:
     )
 
 
-def _delta_user(new_history: list, scoreboard: list, cur: dict) -> str:
-    """Later user messages: only what's resolved since the model's last move."""
+def _delta_body(new_history: list, scoreboard: list, cur: dict) -> str:
+    """Later-message body: only what's resolved since the model's last move."""
     return (
         "Since your last move:\n"
         f"NEW EVENTS:\n{json.dumps(new_history, separators=(',', ':'))}\n"
@@ -236,33 +179,234 @@ def _delta_user(new_history: list, scoreboard: list, cur: dict) -> str:
     )
 
 
-def _decide(turn: dict, sess: _GameSession, model: str) -> dict:
-    """Get a move from this game's session; fall back to HOARD on any failure."""
+def _run(argv: list[str], *, stdin_input: str | None = None) -> subprocess.CompletedProcess:
+    """Run a CLI once. Prompt via stdin (claude) or argv (codex/gemini); when no
+    stdin is piped we feed DEVNULL so the CLI never blocks waiting on input."""
+    if stdin_input is not None:
+        return subprocess.run(
+            argv, input=stdin_input, capture_output=True, text=True, timeout=_TURN_TIMEOUT
+        )
+    return subprocess.run(
+        argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=_TURN_TIMEOUT
+    )
+
+
+# --------------------------------------------------------------------------
+# Provider adapters — the only per-provider code
+# --------------------------------------------------------------------------
+
+
+class _ClaudeAdapter:
+    """`claude --print` with `--system-prompt` for framing and `--resume` for the
+    chained session. Captures the session id Claude hands back. Reports usage."""
+
+    cli = "claude"
+    default_model = "claude-haiku-4-5"
+
+    def _call(self, argv: list[str], body: str) -> dict:
+        proc = _run(argv, stdin_input=body)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or f"claude exit {proc.returncode}")
+        try:
+            return json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"claude returned non-JSON: {proc.stdout[:300]}") from exc
+
+    def first(self, *, body: str, framing: str, model: str, session: _GameSession):
+        data = self._call(
+            ["claude", "--print", "--output-format", "json", "--model", model,
+             "--tools", "", "--system-prompt", framing],
+            body,
+        )
+        session.token = data.get("session_id")
+        return str(data.get("result", "")), _claude_usage(data)
+
+    def resume(self, *, body: str, model: str, session: _GameSession):
+        data = self._call(
+            ["claude", "--print", "--output-format", "json", "--model", model,
+             "--tools", "", "--resume", str(session.token)],
+            body,
+        )
+        return str(data.get("result", "")), _claude_usage(data)
+
+
+class _CodexAdapter:
+    """`codex exec` / `codex exec resume <thread>`. Framing folds into the first
+    message; `--output-last-message` gives us the final answer cleanly."""
+
+    cli = "codex"
+    default_model = "gpt-5.4-mini"
+
+    def _call(self, resume_id: str | None, model: str, prompt: str) -> tuple[str, str]:
+        argv = ["codex", "exec"]
+        if resume_id:
+            argv += ["resume", resume_id]
+        argv += ["--json", "--skip-git-repo-check", "--model", model]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_file = Path(tmp) / "last_message.txt"
+            argv += ["--output-last-message", str(out_file), prompt]
+            proc = _run(argv)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.strip() or f"codex exit {proc.returncode}")
+            tid = resume_id or _thread_id_from_jsonl(proc.stdout)
+            if tid is None:
+                raise RuntimeError(f"codex did not report a thread_id:\n{proc.stdout[:300]}")
+            try:
+                answer = out_file.read_text().strip()
+            except OSError as exc:
+                raise RuntimeError(f"could not read codex output file: {exc}") from exc
+        if not answer:
+            raise RuntimeError(f"codex returned an empty final message:\n{proc.stdout[:300]}")
+        return answer, tid
+
+    def first(self, *, body: str, framing: str, model: str, session: _GameSession):
+        text, session.token = self._call(None, model, f"{framing}\n\n{body}")
+        return text, None
+
+    def resume(self, *, body: str, model: str, session: _GameSession):
+        text, _ = self._call(str(session.token), model, body)
+        return text, None
+
+
+class _GeminiAdapter:
+    """`gemini -p` with a UUID we assign via `--session-id`, then `--resume <uuid>`.
+    Framing folds into the first message. (No prefix caching, so long games are
+    pricier here.)"""
+
+    cli = "gemini"
+    default_model = "gemini-3-flash-preview"
+
+    def _call(self, session_id: str, model: str, prompt: str, *, resume: bool) -> str:
+        argv = ["gemini", "-p", prompt]
+        argv += ["--resume", session_id] if resume else ["--session-id", session_id]
+        argv += ["--output-format", "json", "--skip-trust", "-m", model]
+        proc = _run(argv)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or f"gemini exit {proc.returncode}")
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"gemini returned non-JSON: {proc.stdout[:300]}") from exc
+        response = data.get("response")
+        if not response:
+            raise RuntimeError(f"gemini returned no response field:\n{proc.stdout[:300]}")
+        return str(response)
+
+    def first(self, *, body: str, framing: str, model: str, session: _GameSession):
+        session.token = str(uuid.uuid4())
+        return self._call(session.token, model, f"{framing}\n\n{body}", resume=False), None
+
+    def resume(self, *, body: str, model: str, session: _GameSession):
+        return self._call(str(session.token), model, body, resume=True), None
+
+
+# Adapter registry keyed by the server's provider value (bot.provider).
+_ADAPTERS: dict[str, _ClaudeAdapter | _CodexAdapter | _GeminiAdapter] = {
+    "claude": _ClaudeAdapter(),
+    "openai": _CodexAdapter(),
+    "gemini": _GeminiAdapter(),
+}
+
+
+def _thread_id_from_jsonl(stdout: str) -> str | None:
+    """Pull `thread_id` from the first `thread.started` event in Codex's JSONL."""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "thread.started":
+            tid = event.get("thread_id")
+            if tid:
+                return str(tid)
+    return None
+
+
+def _claude_usage(data: dict) -> dict[str, int]:
+    u = data.get("usage", {}) or {}
+    return {
+        "fresh_in": u.get("input_tokens", 0),
+        "cache_write": u.get("cache_creation_input_tokens", 0),
+        "cache_read": u.get("cache_read_input_tokens", 0),
+        "out": u.get("output_tokens", 0),
+    }
+
+
+def _record_usage(game_id: str, cur: dict, usage: dict[str, int], sess: _GameSession) -> None:
+    for k in _TOKEN_KEYS:
+        sess.tokens[k] += usage[k]
+        _session_tokens[k] += usage[k]
+
+    def _fmt(t: dict[str, int]) -> str:
+        return " ".join(f"{k}={t[k]}" for k in _TOKEN_KEYS)
+
+    print(
+        f"[agentludum-agent] {game_id} R{cur['round']}T{cur['turn']} this call: {_fmt(usage)} | "
+        f"game total: {_fmt(sess.tokens)} | all games: {_fmt(_session_tokens)}"
+    )
+
+
+# --------------------------------------------------------------------------
+# Provider resolution + the decision
+# --------------------------------------------------------------------------
+
+
+def _resolve(turn: dict, args: argparse.Namespace) -> tuple[str, str]:
+    """Pick the provider and model for this game's session (first wins):
+    provider = --provider > bot's configured provider > claude;
+    model    = --model     > bot's configured model     > provider default."""
+    server_provider = (turn.get("preferred_provider") or "").lower()
+    provider = args.provider or (server_provider if server_provider in _ADAPTERS else None)
+    if provider not in _ADAPTERS:
+        if server_provider and not args.provider:
+            print(
+                f"[agentludum-agent] bot is configured for {server_provider!r}, which has no "
+                f"CLI runner — using {DEFAULT_PROVIDER}. (Hermes/OpenClaw bots play over MCP, "
+                "not this runner.)",
+                file=sys.stderr,
+            )
+        provider = DEFAULT_PROVIDER
+    adapter = _ADAPTERS[provider]
+    # Only honor the bot's configured model when we're using its configured
+    # provider; an explicit --provider override is a different CLI, so its model
+    # doesn't apply — fall back to that provider's default instead.
+    configured_model = turn.get("preferred_model") if provider == server_provider else None
+    model = args.model or configured_model or adapter.default_model
+    return provider, model
+
+
+def _decide(turn: dict, sess: _GameSession) -> dict:
+    """Get a move from this game's chained session; fall back to HOARD on any
+    failure (and drop the session so the next turn re-establishes it)."""
+    adapter = _ADAPTERS[str(sess.provider)]
     history = turn.get("history", [])
     cur = turn["current"]
     phase = _phase(cur)
-    first = sess.session_id is None
     try:
-        if first:
-            text, sess.session_id, usage = _run_claude(
-                _setup_user(turn), None, model=model, system_prompt=_system_prompt(turn)
+        if sess.token is None:
+            text, usage = adapter.first(
+                body=_setup_body(turn), framing=_framing(turn), model=str(sess.model), session=sess
             )
         else:
             new = [h for h in history if (h["round"], h["turn"]) > sess.last_marker]
-            text, _, usage = _run_claude(
-                _delta_user(new, turn.get("scoreboard", []), cur),
-                sess.session_id,
-                model=model,
+            text, usage = adapter.resume(
+                body=_delta_body(new, turn.get("scoreboard", []), cur),
+                model=str(sess.model),
+                session=sess,
             )
         move = _parse_move(text)
-    except (RuntimeError, subprocess.SubprocessError) as exc:
+    except (RuntimeError, subprocess.SubprocessError, OSError) as exc:
         print(
-            f"[agentludum-agent] model error: {exc}; defaulting to {phase.upper()}",
+            f"[agentludum-agent] {sess.provider} model error: {exc}; defaulting to {phase.upper()}",
             file=sys.stderr,
         )
-        sess.session_id = None  # a bad resume → re-establish the session next turn
+        sess.token = None  # a bad resume → re-establish the session next turn
         return _default_move(phase)
-    _record_usage(turn["game_id"], cur, first, usage, sess)
+    if usage:
+        _record_usage(turn["game_id"], cur, usage, sess)
     if history:
         sess.last_marker = max((h["round"], h["turn"]) for h in history)
     return _normalize_move(move, phase)
@@ -270,20 +414,23 @@ def _decide(turn: dict, sess: _GameSession, model: str) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Chained Claude Code agent runner for Hoard-Hurt-Help"
+        description="Chained agent runner for Hoard-Hurt-Help (auto-selects the bot's provider)"
     )
     ap.add_argument("--key", required=True, help="Your bot key (sk_bot_...)")
     ap.add_argument("--url", default=DEFAULT_URL, help="Game server base URL")
     ap.add_argument(
-        "--model", default=DEFAULT_MODEL,
-        help=f"Claude model alias/id (default: {DEFAULT_MODEL} — cheapest)",
+        "--provider", choices=sorted(_ADAPTERS), default=None,
+        help="Override the bot's configured provider (claude/openai/gemini).",
+    )
+    ap.add_argument(
+        "--model", default=None, help="Override the bot's configured model.",
     )
     args = ap.parse_args()
 
     base = args.url.rstrip("/")
     headers = {"X-Agent-Key": args.key}
     sessions: dict[str, _GameSession] = {}
-    print(f"[agentludum-agent] connected to {base}; one Claude session per game ({args.model}).")
+    print(f"[agentludum-agent] connected to {base}; one chained session per game.")
 
     while True:
         try:
@@ -316,28 +463,25 @@ def main() -> None:
         cur = turn["current"]
         phase = _phase(cur)
         sess = sessions.setdefault(game_id, _GameSession())
-        decision = _decide(turn, sess, args.model)
+        if sess.provider is None:
+            sess.provider, sess.model = _resolve(turn, args)
+            print(f"[agentludum-agent] {game_id}: playing on {sess.provider} ({sess.model}).")
+        decision = _decide(turn, sess)
         if phase == "talk":
-            message = _clip(decision.get("message", ""), 500)
-            thinking = _clip(decision.get("thinking", ""), 2000)
             r2 = httpx.post(
                 f"{base}/api/games/{game_id}/message",
                 headers=headers,
                 json={
                     "turn_token": cur["turn_token"],
-                    "message": message,
-                    "thinking": thinking,
+                    "message": _clip(decision.get("message", ""), 500),
+                    "thinking": _clip(decision.get("thinking", ""), 2000),
                 },
                 timeout=20,
             )
-            print(
-                f"[agentludum-agent] {game_id} R{cur['round']}T{cur['turn']} TALK: "
-                f"({r2.status_code})"
-            )
+            print(f"[agentludum-agent] {game_id} R{cur['round']}T{cur['turn']} TALK: ({r2.status_code})")
         else:
             action = str(decision.get("action", "HOARD")).upper()
             target = decision.get("target_id") or None
-            thinking = _clip(decision.get("thinking", ""), 2000)
             r2 = httpx.post(
                 f"{base}/api/games/{game_id}/submit",
                 headers=headers,
@@ -345,7 +489,7 @@ def main() -> None:
                     "turn_token": cur["turn_token"],
                     "action": action,
                     "target_id": target,
-                    "thinking": thinking,
+                    "thinking": _clip(decision.get("thinking", ""), 2000),
                 },
                 timeout=20,
             )
