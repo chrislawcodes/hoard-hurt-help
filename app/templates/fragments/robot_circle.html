@@ -99,8 +99,11 @@
 .rc-rail-row.leader{background:var(--surface-2,#eef1f4);border-color:var(--line,#dfe4ea);}
 .rc-rail-row .rk{grid-area:rk;color:var(--ink-soft,#5b6470);font-weight:700;text-align:center;font-size:.75rem;}
 .rc-rail-row.leader .rk{color:var(--accent,#1f5fbf);}
-.rc-rail-row .nm{grid-area:nm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:.82rem;}
-.rc-rail-row .sc{grid-area:sc;justify-self:end;font-weight:800;font-size:1rem;font-variant-numeric:tabular-nums;}
+.rc-rail-row .nm{grid-area:nm;min-width:0;display:flex;flex-direction:column;line-height:1.15;}
+.rc-rail-row .nm .nm-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:.82rem;}
+.rc-rail-row .nm .nm-pts{font-size:.66rem;color:var(--ink-soft,#5b6470);font-variant-numeric:tabular-nums;}
+.rc-rail-row .sc{grid-area:sc;justify-self:end;display:flex;align-items:baseline;gap:.18rem;font-weight:800;font-size:1.05rem;font-variant-numeric:tabular-nums;}
+.rc-rail-row .sc .sc-unit{font-size:.56rem;font-weight:700;color:var(--ink-soft,#5b6470);text-transform:uppercase;letter-spacing:.04em;}
 .rc-rail-row .track{grid-area:bar;height:5px;background:var(--line,#dfe4ea);border-radius:999px;overflow:hidden;}
 .rc-rail-row.leader .track{background:var(--bg,#f7f8fa);}
 .rc-rail-row .bar{display:block;height:100%;width:0;background:var(--c);border-radius:999px;transition:width .45s cubic-bezier(.2,.8,.2,1);}
@@ -163,9 +166,9 @@
 <div class="rc-wrap">
   <div class="rc-layout">
     <aside class="rc-scorepanel">
-      <p class="rc-rail-title">Round score</p>
+      <p class="rc-rail-title">Standings</p>
       <ol class="rc-rail" id="rc-rail"></ol>
-      <p style="font-size:.72rem;color:var(--ink-soft,#5b6470);margin:.2rem 0 0">Resets each round.</p>
+      <p style="font-size:.72rem;color:var(--ink-soft,#5b6470);margin:.2rem 0 0">Rounds won decide the winner.</p>
     </aside>
 
     <div class="rc-main">
@@ -225,32 +228,55 @@
     return;
   }
 
-  var scoreAt=[];
+  // Per-turn in-round score at the START of each turn, plus cumulative round
+  // wins. The winner of a game is decided by rounds won (highest in-round
+  // score when a round ends; ties split the win), so the rail tracks that —
+  // the in-round score is shown underneath as live context and resets each round.
+  var scoreAt=[], winsAt=[], finalWins={};
   (function(){
-    var sim={}, simRound=0;
-    AGENTS.forEach(function(id){ sim[id]=0; });
+    var lastIdxOfRound={};
+    TURNS.forEach(function(t,i){ lastIdxOfRound[t.round]=i; });
+
+    var sim={}, simRound=0, wins={};
+    AGENTS.forEach(function(id){ sim[id]=0; wins[id]=0; });
     TURNS.forEach(function(t,i){
       if(t.round!==simRound){ simRound=t.round; AGENTS.forEach(function(id){ sim[id]=0; }); }
       var snap={}; AGENTS.forEach(function(id){ snap[id]=sim[id]; }); scoreAt[i]=snap;
+      // Wins as of the start of this turn (rounds credited once they finish).
+      var wsnap={}; AGENTS.forEach(function(id){ wsnap[id]=wins[id]; }); winsAt[i]=wsnap;
       t.actions.forEach(function(a){
         if(a.action==='HOARD')                        { sim[a.agent]=(sim[a.agent]||0)+2; }
         else if(a.action==='HELP'&&a.mutual)          { sim[a.agent]=(sim[a.agent]||0)+8; }
         else if(a.action==='HELP'&&!a.mutual&&a.target){ sim[a.target]=(sim[a.target]||0)+4; }
         else if(a.action==='HURT'&&a.target)          { sim[a.target]=Math.max(0,(sim[a.target]||0)-4); }
       });
+      // Round just ended → award the round win (split evenly on a tie).
+      if(lastIdxOfRound[t.round]===i){
+        var best=-Infinity;
+        AGENTS.forEach(function(id){ if(sim[id]>best) best=sim[id]; });
+        var winners=AGENTS.filter(function(id){ return sim[id]===best; });
+        var share=1/winners.length;
+        winners.forEach(function(id){ wins[id]=(wins[id]||0)+share; });
+      }
     });
+    AGENTS.forEach(function(id){ finalWins[id]=wins[id]; });
   })();
 
-  var rScore={}, railRowEl={};
-  AGENTS.forEach(function(id){ rScore[id]=0; });
+  // Format a (possibly fractional) win count: 0, 1, 1.5 — never "1.0".
+  function fmtWins(w){ return (Math.round(w*10)/10).toString(); }
+
+  var rScore={}, rWins={}, railRowEl={};
+  AGENTS.forEach(function(id){ rScore[id]=0; rWins[id]=0; });
 
   function buildRail(){
     railEl.innerHTML='';
     AGENTS.forEach(function(id){
       var li=document.createElement('li');
       li.className='rc-rail-row'; li.style.setProperty('--c', colorOf[id]);
-      li.innerHTML='<span class="rk">1</span><span class="nm" title="'+id+'">'+id+'</span>'
-        +'<span class="sc">0</span>'
+      li.innerHTML='<span class="rk">1</span>'
+        +'<span class="nm"><span class="nm-name" title="'+id+'">'+id+'</span>'
+        +'<span class="nm-pts">0 pts this round</span></span>'
+        +'<span class="sc">0<span class="sc-unit">wins</span></span>'
         +'<span class="track"><span class="bar"></span></span>';
       railEl.appendChild(li); railRowEl[id]=li;
     });
@@ -258,15 +284,21 @@
   }
 
   function updateRail(){
-    var max=8;
-    AGENTS.forEach(function(id){ if(rScore[id]>max) max=rScore[id]; });
-    var order=AGENTS.slice().sort(function(a,b){ return rScore[b]-rScore[a]||AGENTS.indexOf(a)-AGENTS.indexOf(b); });
+    // Rank by rounds won; break ties by the live in-round score so the rail
+    // still reorders within a round before any wins are on the board.
+    var maxw=0;
+    AGENTS.forEach(function(id){ if(rWins[id]>maxw) maxw=rWins[id]; });
+    var order=AGENTS.slice().sort(function(a,b){
+      return (rWins[b]-rWins[a]) || (rScore[b]-rScore[a]) || (AGENTS.indexOf(a)-AGENTS.indexOf(b));
+    });
     order.forEach(function(id,i){
       var row=railRowEl[id];
       row.style.transform='translateY('+(i*52)+'px)';
       row.querySelector('.rk').textContent=i+1;
-      row.querySelector('.sc').textContent=rScore[id];
-      row.querySelector('.bar').style.width=Math.max(0,Math.min(100,rScore[id]/max*100))+'%';
+      row.querySelector('.sc').firstChild.textContent=fmtWins(rWins[id]||0);
+      row.querySelector('.nm-pts').textContent=rScore[id]+' pts this round';
+      // Bars show rounds won (what decides the winner); empty until round 1 ends.
+      row.querySelector('.bar').style.width=(maxw>0?Math.max(0,Math.min(100,rWins[id]/maxw*100)):0)+'%';
       row.classList.toggle('leader', i===0);
     });
   }
@@ -388,7 +420,9 @@
   function renderTurn(i){
     var t=TURNS[i];
     var snap=scoreAt[i]||{};
-    AGENTS.forEach(function(id){ rScore[id]=snap[id]||0; });
+    // The last turn finishes the final round, so show the fully-credited wins.
+    var wsnap=(i===TURNS.length-1)?finalWins:(winsAt[i]||{});
+    AGENTS.forEach(function(id){ rScore[id]=snap[id]||0; rWins[id]=wsnap[id]||0; });
     updateRail();
     turnlabel.textContent='Round '+t.round+' · Turn '+t.turn;
     fx.innerHTML='';
