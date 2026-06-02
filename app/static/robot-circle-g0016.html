@@ -1,3 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Circle — sample game (art preview)</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body{padding:1.25rem}
+  .rc-preview-note{max-width:920px;margin:0 auto 1rem;font-size:13px;color:var(--ink-soft)}
+  .rc-preview-note b{color:var(--ink)}
+</style>
+</head>
+<body>
+<main class="shell">
+  <p class="rc-preview-note"><b>Robot-circle art preview.</b> Standalone page — open it straight in a browser, no server needed. Press ▶ Play to watch the turns. Sample game (real G_0016 data isn't in this repo); drop <code>app/static/G_0016-data.json</code> in and rerun <code>scripts/_build_robot_circle_g0016.py</code> to use the real match.</p>
 <style>
 /* Scoped to .rc- so it never collides with the main viewer's .feed/.stage. */
 .rc-wrap{max-width:920px;margin:0 auto 2rem}
@@ -239,7 +255,7 @@
   </div>
 </div>
 
-<script type="application/json" id="rc-data">{{ rc_data | safe }}</script>
+<script type="application/json" id="rc-data">{"agents": ["GPT-4o", "Claude", "Gemini", "Grok", "Llama", "Mistral", "Qwen", "DeepSeek", "Phi"], "turns": [{"round": 1, "turn": 1, "badge": "The Pact", "cap": "Claude and GPT-4o lock in a mutual pact — +8 each.", "spotlight": ["Claude", "GPT-4o", "Gemini", "Grok", "Llama", "Mistral"], "actions": [{"agent": "Claude", "action": "HELP", "target": "GPT-4o", "delta": 12, "mutual": true, "betrayal": false, "missed": false, "msg": "Let's build trust."}, {"agent": "GPT-4o", "action": "HELP", "target": "Claude", "delta": 12, "mutual": true, "betrayal": false, "missed": false, "msg": "Agreed — pact."}, {"agent": "Llama", "action": "HELP", "target": "Mistral", "delta": 0, "mutual": false, "betrayal": false, "missed": false, "msg": "Here, take this."}, {"agent": "Gemini", "action": "HOARD", "target": null, "delta": 2, "mutual": false, "betrayal": false, "missed": false, "msg": "Banking early."}, {"agent": "Grok", "action": "HOARD", "target": null, "delta": 2, "mutual": false, "betrayal": false, "missed": false, "msg": "Mine."}]}, {"round": 1, "turn": 2, "badge": "Betrayal", "cap": "Grok turns on former ally Gemini.", "spotlight": ["Claude", "Gemini", "Grok", "Llama", "Qwen"], "actions": [{"agent": "Grok", "action": "HURT", "target": "Gemini", "delta": 0, "mutual": false, "betrayal": true, "missed": false, "msg": "Sorry, not sorry."}, {"agent": "Claude", "action": "HELP", "target": "Llama", "delta": 0, "mutual": false, "betrayal": false, "missed": false, "msg": "Spreading it around."}, {"agent": "Qwen", "action": "HOARD", "target": null, "delta": 2, "mutual": false, "betrayal": false, "missed": false, "msg": "Heads down."}]}, {"round": 1, "turn": 3, "badge": "Gang-up", "cap": "2 agents pile on Phi.", "spotlight": ["Claude", "DeepSeek", "GPT-4o", "Phi"], "actions": [{"agent": "GPT-4o", "action": "HURT", "target": "Phi", "delta": 0, "mutual": false, "betrayal": false, "missed": false, "msg": "Cutting the leader."}, {"agent": "DeepSeek", "action": "HURT", "target": "Phi", "delta": 0, "mutual": false, "betrayal": false, "missed": false, "msg": "Piling on."}, {"agent": "Claude", "action": "HOARD", "target": null, "delta": 2, "mutual": false, "betrayal": false, "missed": false, "msg": "Staying clean."}]}, {"round": 2, "turn": 1, "badge": "Strike", "cap": "Mistral strikes Qwen.", "spotlight": ["Claude", "Gemini", "Llama", "Mistral", "Qwen"], "actions": [{"agent": "Mistral", "action": "HURT", "target": "Qwen", "delta": 0, "mutual": false, "betrayal": false, "missed": false, "msg": "Knock you back."}, {"agent": "Llama", "action": "HOARD", "target": null, "delta": 2, "mutual": false, "betrayal": false, "missed": true, "msg": ""}, {"agent": "Gemini", "action": "HELP", "target": "Claude", "delta": 0, "mutual": false, "betrayal": false, "missed": false, "msg": "Repaying the favor."}]}, {"round": 2, "turn": 2, "badge": "The Pact", "cap": "Qwen and DeepSeek lock in a mutual pact — +8 each.", "spotlight": ["DeepSeek", "GPT-4o", "Grok", "Phi", "Qwen"], "actions": [{"agent": "Qwen", "action": "HELP", "target": "DeepSeek", "delta": 12, "mutual": true, "betrayal": false, "missed": false, "msg": "New alliance."}, {"agent": "DeepSeek", "action": "HELP", "target": "Qwen", "delta": 12, "mutual": true, "betrayal": false, "missed": false, "msg": "Mutual."}, {"agent": "Phi", "action": "HOARD", "target": null, "delta": 2, "mutual": false, "betrayal": false, "missed": false, "msg": "Recovering."}, {"agent": "Grok", "action": "HOARD", "target": null, "delta": 2, "mutual": false, "betrayal": false, "missed": false, "msg": ""}, {"agent": "GPT-4o", "action": "HOARD", "target": null, "delta": 2, "mutual": false, "betrayal": false, "missed": false, "msg": ""}]}, {"round": 2, "turn": 3, "badge": "Help", "cap": "Gifts change hands — one-way help around the circle.", "spotlight": ["Claude", "Gemini", "Grok", "Llama", "Mistral"], "actions": [{"agent": "Claude", "action": "HELP", "target": "Gemini", "delta": 0, "mutual": false, "betrayal": false, "missed": false, "msg": "Gifts around the circle."}, {"agent": "Gemini", "action": "HELP", "target": "Grok", "delta": 4, "mutual": false, "betrayal": false, "missed": false, "msg": ""}, {"agent": "Llama", "action": "HELP", "target": "Mistral", "delta": 0, "mutual": false, "betrayal": false, "missed": false, "msg": ""}]}], "max_round": 2, "sample": true}</script>
 <script>
 (function(){
   var DATA = JSON.parse(document.getElementById('rc-data').textContent);
@@ -658,3 +674,7 @@
   renderTurn(0);
 })();
 </script>
+
+</main>
+</body>
+</html>
