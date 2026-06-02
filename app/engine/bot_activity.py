@@ -141,8 +141,10 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
 
     Precedence (top wins): has-moved -> in-active-game -> connected-in-pregame ->
     connected-no-game -> entered-but-waiting-to-connect -> waiting. Play history
-    takes precedence so established bots (including any created before this
-    feature, with a NULL ``first_connected_at``) render the quiet "playing" state.
+    takes precedence so any established bot (including ones created before this
+    feature, with a NULL ``first_connected_at``) resolves to "playing" — a state
+    the detail page no longer renders as a persistent line (the health badge owns
+    that), keeping it only as the one-time first-move flourish.
     """
     games = (
         (
@@ -160,12 +162,16 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
     connected = bot.first_connected_at is not None
 
     if await _has_moved(db, bot.id):
-        watch = active or (games[0] if games else None)
+        # Established bot. The detail page hides the onboarding panel entirely for
+        # this state and lets the health badge be the single source of truth, so
+        # this only surfaces as the one-time first-move "flourish". Point it only
+        # at a genuinely live game — never a finished one, which would render a
+        # dead "Watch live" link.
         return OnboardingStatus(
             OnboardingState.PLAYING,
             bot_name=bot.name,
-            game_id=watch.id if watch else None,
-            game_name=watch.name if watch else None,
+            game_id=active.id if active else None,
+            game_name=active.name if active else None,
         )
 
     if connected:

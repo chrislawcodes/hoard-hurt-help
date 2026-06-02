@@ -4,14 +4,16 @@
 {% set s = onboarding.state.value %}
 <div class="bot-status bot-status--{{ s }}">
 {% if s == "playing" %}
-    {# Established bot — quiet one-liner, no big block (US6). #}
-    <p class="bot-status-line">
-        <span class="badge badge-live"><span class="dot"></span> Playing</span>
-        {% if onboarding.game_name %}
-            in <strong>{{ onboarding.game_name }}</strong>.
-            <a class="cta secondary" href="/games/{{ onboarding.game_id }}">Watch live →</a>
-        {% endif %}
-    </p>
+    {# One-time first-move flourish. The detail page hides this whole panel for an
+       established ("playing") bot on first paint, so this only renders when the
+       bot's first real move lands live (the fragment is fetched on the 'moved'
+       SSE event). From then on the health badge owns the bot's status, so there's
+       no persistent line to duplicate or contradict it. game_name is set only
+       when there's a genuinely live game, so the link is never dead. #}
+    <p class="bot-status-head"><span class="ok">✓</span> Your bot made its first move — it's playing now.</p>
+    {% if onboarding.game_name %}
+        <a class="cta secondary" href="/games/{{ onboarding.game_id }}">Watch it play →</a>
+    {% endif %}
 
 {% elif s == "in_game_no_move" %}
     <p class="bot-status-head"><span class="ok">✓</span> In <strong>{{ onboarding.game_name }}</strong>.</p>
