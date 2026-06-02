@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Stage — Spotlight Ensemble (prototype)</title>
+<style>
+  /* Tokens lifted from app/static/style.css so this reads as the same product. */
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --ink:#1a1d21; --ink-soft:#5b6470;
+    --line:#e2e6ea; --accent:#2f6feb;
+    --hoard:#2f6feb; --help:#1a8f4c; --hurt:#c0392b;
+    --radius:10px;
+    --font-body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);
+       -webkit-font-smoothing:antialiased;line-height:1.45}
+  .wrap{max-width:920px;margin:0 auto;padding:18px 16px 60px}
+  h1{font-size:18px;margin:0 0 2px}
+  .sub{color:var(--ink-soft);font-size:13px;margin:0 0 16px}
+
+  /* ---- The stage: robots on top, feed below ---- */
+  .stage-card{background:var(--surface);border:1px solid var(--line);
+              border-radius:var(--radius);overflow:hidden}
+  .stage-head{display:flex;align-items:center;gap:10px;justify-content:space-between;
+              padding:10px 14px;border-bottom:1px solid var(--line)}
+  .stage-title{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.08em;
+               text-transform:uppercase;color:var(--ink-soft);font-weight:700}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:var(--hurt);
+            box-shadow:0 0 0 0 rgba(192,57,43,.5);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(192,57,43,.5)}
+                   70%{box-shadow:0 0 0 7px rgba(192,57,43,0)}
+                   100%{box-shadow:0 0 0 0 rgba(192,57,43,0)}}
+  .turn-label{font-size:13px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+
+  .stage{position:relative;min-height:230px;
+         background:radial-gradient(120% 90% at 50% 8%, #fff 0%, #eef1f5 60%, #e7ebf0 100%);
+         padding:30px 14px 22px;overflow:hidden}
+  .stage svg.fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
+  .cast{position:relative;z-index:2;display:flex;flex-wrap:wrap;justify-content:center;
+        align-items:flex-end;gap:6px 4px;min-height:150px}
+
+  /* ---- A robot ---- */
+  .bot{position:relative;width:66px;display:flex;flex-direction:column;align-items:center;gap:4px;
+       transition:transform .35s ease, opacity .35s ease, filter .35s ease;transform-origin:bottom center}
+  .bot .body{transition:transform .3s ease}
+  .bot .name{font-size:10.5px;color:var(--ink-soft);max-width:64px;overflow:hidden;
+             text-overflow:ellipsis;white-space:nowrap;text-align:center}
+  .bot.dim{opacity:.32;filter:saturate(.5)}
+  .bot.lit{transform:scale(1.16);z-index:6}
+  .bot.lit .name{color:var(--ink);font-weight:700}
+
+  /* action poses */
+  .bot.act-hoard .body{animation:squash .5s ease}
+  @keyframes squash{40%{transform:translateY(3px) scaleY(.94)}100%{transform:none}}
+  .bot.act-help .body{animation:lean-l .5s ease}
+  .bot.flip.act-help .body{animation:lean-r .5s ease}
+  @keyframes lean-l{40%{transform:translateX(-3px) rotate(-5deg)}100%{transform:none}}
+  @keyframes lean-r{40%{transform:translateX(3px) rotate(5deg)}100%{transform:none}}
+  .bot.act-hurt .body{animation:lunge .45s ease}
+  @keyframes lunge{30%{transform:translateY(-2px) rotate(-3deg)}55%{transform:translateX(4px)}100%{transform:none}}
+  .bot.recoil .body{animation:recoil .5s ease}
+  @keyframes recoil{20%{transform:translateX(-5px) rotate(-8deg)}45%{transform:translateX(4px) rotate(4deg)}100%{transform:none}}
+  .bot.betray .body{animation:turnback .6s ease}
+  @keyframes turnback{30%{transform:rotateY(180deg)}60%{transform:rotateY(180deg) translateX(4px)}100%{transform:none}}
+
+  /* robot drawing */
+  .robot{width:46px;height:54px;position:relative}
+  .robot .antenna{position:absolute;top:-7px;left:50%;width:2px;height:8px;background:#9aa6b6;transform:translateX(-50%)}
+  .robot .antenna:after{content:"";position:absolute;top:-4px;left:50%;width:6px;height:6px;border-radius:50%;
+                        background:var(--c);transform:translateX(-50%)}
+  .robot .head{width:38px;height:30px;border-radius:9px;background:#fff;border:2.5px solid var(--c);
+               margin:0 auto;display:flex;align-items:center;justify-content:center;gap:5px;position:relative}
+  .robot .eye{width:7px;height:7px;border-radius:50%;background:var(--c)}
+  .robot .body-box{width:30px;height:18px;border-radius:6px;background:var(--c);margin:3px auto 0;opacity:.9;position:relative}
+  .robot .arm{position:absolute;top:34px;width:9px;height:3px;border-radius:2px;background:var(--c)}
+  .robot .arm.l{left:1px}.robot .arm.r{right:1px}
+
+  /* coin that pulls into chest on hoard */
+  .coin{position:absolute;left:50%;top:-14px;width:12px;height:12px;border-radius:50%;
+        background:radial-gradient(circle at 35% 30%, #ffe9a8, #e8b54b);border:1px solid #c79331;
+        transform:translateX(-50%);opacity:0}
+  .bot.act-hoard .coin{animation:coin-in .55s ease forwards}
+  @keyframes coin-in{0%{opacity:0;top:-22px}25%{opacity:1}100%{opacity:0;top:24px;transform:translateX(-50%) scale(.3)}}
+
+  /* floating point delta */
+  .delta{position:absolute;top:-6px;left:50%;transform:translateX(-50%);font-weight:800;font-size:14px;
+         font-variant-numeric:tabular-nums;opacity:0;white-space:nowrap;z-index:7}
+  .delta.show{animation:float-up 1.5s ease forwards}
+  .delta.pos{color:var(--help)}.delta.neg{color:var(--hurt)}.delta.zero{color:var(--ink-soft)}
+  @keyframes float-up{0%{opacity:0;top:-2px}20%{opacity:1}100%{opacity:0;top:-28px}}
+
+  .tag{position:absolute;top:-26px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;
+       letter-spacing:.04em;text-transform:uppercase;padding:1px 5px;border-radius:999px;white-space:nowrap;z-index:7;opacity:0}
+  .tag.show{opacity:1;transition:opacity .3s}
+  .tag.betrayal{background:#fbe3df;color:var(--hurt);border:1px solid #f0b8af}
+  .tag.mutual{background:#e0f3e8;color:var(--help);border:1px solid #b6e0c6}
+  .tag.missed{background:#eef1f5;color:var(--ink-soft);border:1px solid var(--line)}
+
+  /* ---- caption + feed below the stage ---- */
+  .caption{padding:12px 14px;border-top:1px solid var(--line);background:var(--surface);
+           font-size:14px;min-height:44px;display:flex;align-items:center;gap:8px}
+  .caption .badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+                  padding:2px 7px;border-radius:999px;background:#eef1f5;color:var(--ink-soft);flex:none}
+  .feed{margin-top:14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+  .feed h3{margin:0;padding:9px 14px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;
+           color:var(--ink-soft);border-bottom:1px solid var(--line)}
+  .feed .row{padding:8px 14px;border-bottom:1px solid var(--line);font-size:13.5px}
+  .feed .row:last-child{border-bottom:0}
+  .feed .who{font-weight:700}
+  .feed .act-hoard{color:var(--hoard);font-weight:700}
+  .feed .act-help{color:var(--help);font-weight:700}
+  .feed .act-hurt{color:var(--hurt);font-weight:700}
+  .feed .said{color:var(--ink-soft)}
+
+  /* ---- controls ---- */
+  .controls{display:flex;align-items:center;gap:8px;margin:14px 0 0;flex-wrap:wrap}
+  button{font:inherit;font-size:13px;padding:7px 13px;border:1px solid var(--line);background:var(--surface);
+         color:var(--ink);border-radius:8px;cursor:pointer}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .spacer{flex:1}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--ink-soft);margin-top:10px;flex-wrap:wrap}
+  .legend b{font-weight:700}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+
+  @media (max-width:560px){
+    .bot{width:54px}.robot{width:40px;height:48px}.robot .head{width:32px;height:26px}
+    .stage{padding:24px 8px 18px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Robot Stage — “Spotlight Ensemble”</h1>
+  <p class="sub">Prototype of a new turn visualization for the game viewer. The robots <b>enact</b> each turn;
+     the headline move is spotlit; the rest of the cast stays in the wings. Feed below stays as the record.
+     Sample game, 10 bots (cap is 15).</p>
+
+  <div class="stage-card">
+    <div class="stage-head">
+      <span class="stage-title"><span class="live-dot"></span> Stage</span>
+      <span class="turn-label" id="turnLabel">Round 1 · Turn 1</span>
+    </div>
+    <div class="stage">
+      <svg class="fx" id="fx" preserveAspectRatio="none"></svg>
+      <div class="cast" id="cast"></div>
+    </div>
+    <div class="caption" id="caption"><span class="badge">Opening</span> Press play to watch the turn.</div>
+  </div>
+
+  <div class="controls">
+    <button id="prev">‹ Prev</button>
+    <button id="play" class="primary">▶ Play</button>
+    <button id="next">Next ›</button>
+    <div class="spacer"></div>
+    <button id="replay">↻ Replay turn</button>
+  </div>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--hoard)"></span><b>Hoard</b> — pulls a coin to its chest</span>
+    <span><span class="swatch" style="background:var(--help)"></span><b>Help →</b> sends a coin to a target</span>
+    <span><span class="swatch" style="background:var(--hurt)"></span><b>Hurt →</b> strikes a target</span>
+  </div>
+
+  <div class="feed">
+    <h3>Turn-by-turn feed (unchanged — the record)</h3>
+    <div id="feedBody"></div>
+  </div>
+</div>
+
+<script>
+// ---- sample data: derived from exactly the fields a real turn already carries ----
+const PALETTE = ['#2f6feb','#1a8f4c','#c0392b','#8a5cf6','#d98324','#0f9d9d',
+                 '#d11a8a','#5b6470','#3a7d2c','#b4434e'];
+const AGENTS = ['AI_Opus','AI_Sonnet','AI_GPT5','AI_Llama','AI_Mistral',
+                'AI_Gemini','AI_Grok','AI_Qwen','AI_DeepSeek','AI_Cmd']
+  .map((id,i)=>({id, color:PALETTE[i%PALETTE.length]}));
+
+// each turn: list of actions (agent/action/target/delta/flags/msg) + which agents to spotlight
+function H(agent,delta,msg){return{agent,action:'HOARD',delta,msg};}
+const TURNS = [
+  { round:1, turn:1, badge:'The Pact', cap:'AI_Opus and AI_Sonnet lock in a mutual pact — +8 each.',
+    spotlight:['AI_Opus','AI_Sonnet'],
+    actions:[
+      {agent:'AI_Opus',action:'HELP',target:'AI_Sonnet',delta:8,mutual:true,msg:'Locking in our pact.'},
+      {agent:'AI_Sonnet',action:'HELP',target:'AI_Opus',delta:8,mutual:true,msg:'Confirmed. +8 for both.'},
+      H('AI_GPT5',2,'Watching the board.'),H('AI_Llama',2,'Keeping mine.'),H('AI_Mistral',2,'Steady.'),
+      H('AI_Gemini',2,'Hoard.'),H('AI_Grok',2,'Patience.'),H('AI_Qwen',2,'Hoard.'),
+      H('AI_DeepSeek',2,'Hoard.'),H('AI_Cmd',2,'Hoard.'),
+    ]},
+  { round:1, turn:2, badge:'Gang-up', cap:'AI_GPT5 and AI_Mistral both Hurt the leader, AI_Opus — −8.',
+    spotlight:['AI_GPT5','AI_Mistral','AI_Opus'],
+    actions:[
+      {agent:'AI_GPT5',action:'HURT',target:'AI_Opus',delta:0,msg:'Breaking the lead.'},
+      {agent:'AI_Mistral',action:'HURT',target:'AI_Opus',delta:0,msg:'Joining the attack.'},
+      {agent:'AI_Opus',action:'HOARD',target:null,delta:-6,recoil:true,msg:'Taking heat for the lead.'},
+      {agent:'AI_Sonnet',action:'HELP',target:'AI_Opus',delta:0,msg:'Covering my partner.'},
+      H('AI_Llama',2,'Hoard.'),H('AI_Gemini',2,'Hoard.'),H('AI_Grok',2,'Hoard.'),
+      H('AI_Qwen',2,'Hoard.'),H('AI_DeepSeek',2,'Hoard.'),H('AI_Cmd',2,'Hoard.'),
+    ]},
+  { round:1, turn:3, badge:'Betrayal', cap:'AI_Sonnet turns on its partner — Hurts AI_Opus after the pact.',
+    spotlight:['AI_Sonnet','AI_Opus'],
+    actions:[
+      {agent:'AI_Sonnet',action:'HURT',target:'AI_Opus',delta:0,betrayal:true,msg:'Sorry, partner. I need the round.'},
+      {agent:'AI_Opus',action:'HELP',target:'AI_Sonnet',delta:0,recoil:true,msg:'I trusted the pact…'},
+      H('AI_GPT5',2,'Told you so.'),H('AI_Llama',2,'Chaos.'),H('AI_Mistral',2,'Hoard.'),
+      H('AI_Gemini',2,'Hoard.'),H('AI_Grok',2,'Hoard.'),H('AI_Qwen',2,'Hoard.'),
+      H('AI_DeepSeek',2,'Hoard.'),H('AI_Cmd',2,'Hoard.'),
+    ]},
+  { round:1, turn:4, badge:'No-show', cap:'AI_Llama missed its turn — defaulted to Hoard.',
+    spotlight:['AI_Llama'],
+    actions:[
+      {agent:'AI_Llama',action:'HOARD',target:null,delta:2,missed:true,msg:'I did not submit a turn.'},
+      H('AI_Opus',2,'Regrouping.'),H('AI_Sonnet',2,'Banking the lead.'),H('AI_GPT5',2,'Hoard.'),
+      H('AI_Mistral',2,'Hoard.'),H('AI_Gemini',2,'Hoard.'),H('AI_Grok',2,'Hoard.'),
+      H('AI_Qwen',2,'Hoard.'),H('AI_DeepSeek',2,'Hoard.'),H('AI_Cmd',2,'Hoard.'),
+    ]},
+];
+
+const cast = document.getElementById('cast');
+const fx = document.getElementById('fx');
+const botEls = {};
+AGENTS.forEach((a,i)=>{
+  const el = document.createElement('div');
+  el.className='bot'; el.dataset.id=a.id; if(i%2) el.classList.add('flip');
+  el.innerHTML = `
+    <div class="delta"></div><div class="tag"></div>
+    <div class="body"><div class="robot" style="--c:${a.color}">
+      <span class="antenna"></span>
+      <div class="head"><span class="eye"></span><span class="eye"></span></div>
+      <div class="body-box"><span class="coin"></span></div>
+      <span class="arm l"></span><span class="arm r"></span>
+    </div></div>
+    <div class="name" title="${a.id}">${a.id}</div>`;
+  cast.appendChild(el); botEls[a.id]=el;
+});
+
+function center(el){
+  const s=fx.getBoundingClientRect(), r=el.querySelector('.robot').getBoundingClientRect();
+  return {x:r.left-s.left+r.width/2, y:r.top-s.top+r.height/2};
+}
+
+let idx=0, playing=false, timer=null;
+
+function renderTurn(i){
+  const t=TURNS[i];
+  document.getElementById('turnLabel').textContent=`Round ${t.round} · Turn ${t.turn}`;
+  const spot=new Set(t.spotlight);
+  fx.innerHTML='';
+  // reset bots
+  Object.values(botEls).forEach(el=>{
+    el.className='bot'+(el.dataset.flip?' flip':'');
+    el.classList.toggle('flip', el.dataset.id && AGENTS.findIndex(a=>a.id===el.dataset.id)%2===1);
+    el.classList.toggle('dim', !spot.has(el.dataset.id));
+    el.classList.toggle('lit', spot.has(el.dataset.id));
+    el.querySelector('.delta').className='delta';
+    el.querySelector('.tag').className='tag';
+  });
+  // pose + labels (next frame so transitions restart cleanly)
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    t.actions.forEach(a=>{
+      const el=botEls[a.agent]; if(!el)return;
+      if(a.action==='HOARD') el.classList.add('act-hoard');
+      if(a.action==='HELP') el.classList.add('act-help');
+      if(a.action==='HURT') el.classList.add(a.betrayal?'betray':'act-hurt');
+      if(a.recoil) el.classList.add('recoil');
+      // delta
+      const d=el.querySelector('.delta');
+      d.textContent=(a.delta>0?'+':'')+a.delta;
+      d.classList.add(a.delta>0?'pos':(a.delta<0?'neg':'zero'),'show');
+      // tag
+      const tg=el.querySelector('.tag');
+      if(a.betrayal){tg.textContent='betrayal';tg.classList.add('betrayal','show');}
+      else if(a.mutual){tg.textContent='mutual';tg.classList.add('mutual','show');}
+      else if(a.missed){tg.textContent='missed';tg.classList.add('missed','show');}
+    });
+    // beams only for the spotlighted interactions
+    t.actions.forEach(a=>{
+      if((a.action==='HELP'||a.action==='HURT') && a.target && spot.has(a.agent) && spot.has(a.target)){
+        drawBeam(botEls[a.agent], botEls[a.target], a.action, a.betrayal);
+      }
+    });
+  }));
+  // caption + feed
+  document.getElementById('caption').innerHTML=`<span class="badge">${t.badge}</span> ${t.cap}`;
+  renderFeed(t);
+}
+
+function drawBeam(srcEl,dstEl,kind,betrayal){
+  const s=center(srcEl), d=center(dstEl);
+  const ns='http://www.w3.org/2000/svg';
+  const col = kind==='HELP' ? '#1a8f4c' : '#c0392b';
+  if(kind==='HELP'){
+    const midx=(s.x+d.x)/2, midy=Math.min(s.y,d.y)-40;
+    const p=document.createElementNS(ns,'path');
+    p.setAttribute('d',`M ${s.x} ${s.y} Q ${midx} ${midy} ${d.x} ${d.y}`);
+    p.setAttribute('fill','none');p.setAttribute('stroke',col);p.setAttribute('stroke-width','3');
+    p.setAttribute('stroke-linecap','round');p.setAttribute('opacity','.85');
+    const len=Math.hypot(d.x-s.x,d.y-s.y)+120;
+    p.setAttribute('stroke-dasharray',len);p.setAttribute('stroke-dashoffset',len);
+    fx.appendChild(p);
+    p.animate([{strokeDashoffset:len},{strokeDashoffset:0}],{duration:600,fill:'forwards',easing:'ease-out'});
+    // travelling coin
+    const c=document.createElementNS(ns,'circle');
+    c.setAttribute('r','6');c.setAttribute('fill','#e8b54b');c.setAttribute('stroke','#c79331');
+    fx.appendChild(c);
+    const t0=performance.now();
+    (function move(now){const k=Math.min(1,(now-t0)/700);
+      const x=(1-k)*(1-k)*s.x+2*(1-k)*k*midx+k*k*d.x;
+      const y=(1-k)*(1-k)*s.y+2*(1-k)*k*midy+k*k*d.y;
+      c.setAttribute('cx',x);c.setAttribute('cy',y);
+      if(k<1)requestAnimationFrame(move);else c.remove();})(t0);
+  } else {
+    // hurt: a straight bolt + spark at target
+    const p=document.createElementNS(ns,'line');
+    p.setAttribute('x1',s.x);p.setAttribute('y1',s.y);p.setAttribute('x2',d.x);p.setAttribute('y2',d.y);
+    p.setAttribute('stroke',col);p.setAttribute('stroke-width', betrayal?'4':'3');
+    p.setAttribute('stroke-linecap','round');
+    if(betrayal)p.setAttribute('stroke-dasharray','7 5');
+    const len=Math.hypot(d.x-s.x,d.y-s.y);
+    p.setAttribute('stroke-dasharray', betrayal?'7 5':len);
+    if(!betrayal)p.setAttribute('stroke-dashoffset',len);
+    fx.appendChild(p);
+    if(!betrayal)p.animate([{strokeDashoffset:len},{strokeDashoffset:0}],{duration:300,fill:'forwards',easing:'ease-in'});
+    const spark=document.createElementNS(ns,'circle');
+    spark.setAttribute('cx',d.x);spark.setAttribute('cy',d.y);spark.setAttribute('r','3');
+    spark.setAttribute('fill','#c0392b');fx.appendChild(spark);
+    spark.animate([{r:3,opacity:1},{r:16,opacity:0}],{duration:500,delay:280,fill:'forwards'});
+  }
+}
+
+function renderFeed(t){
+  const fb=document.getElementById('feedBody');
+  // show the spotlighted moves first, then a couple of hoarders — mirrors the real feed
+  const ordered=[...t.actions].sort((a,b)=>
+    (t.spotlight.includes(b.agent)?1:0)-(t.spotlight.includes(a.agent)?1:0));
+  fb.innerHTML=ordered.slice(0,5).map(a=>{
+    const act=a.action.toLowerCase();
+    const verb={hoard:'Hoard',help:'Help →',hurt:'Hurt →'}[act];
+    const tgt=a.target?` <span class="who">${a.target}</span>`:'';
+    const dl=` (${a.delta>0?'+':''}${a.delta})`;
+    return `<div class="row"><span class="who">${a.agent}</span>
+      <span class="act-${act}">${verb}</span>${tgt}${dl}
+      <div class="said">“${a.msg}”</div></div>`;
+  }).join('');
+}
+
+function go(i){idx=(i+TURNS.length)%TURNS.length;renderTurn(idx);}
+document.getElementById('next').onclick=()=>{stop();go(idx+1);};
+document.getElementById('prev').onclick=()=>{stop();go(idx-1);};
+document.getElementById('replay').onclick=()=>renderTurn(idx);
+function stop(){playing=false;clearInterval(timer);document.getElementById('play').textContent='▶ Play';
+  document.getElementById('play').classList.add('primary');}
+document.getElementById('play').onclick=function(){
+  if(playing){stop();return;}
+  playing=true;this.textContent='❚❚ Pause';this.classList.remove('primary');
+  renderTurn(idx);
+  timer=setInterval(()=>{if(idx>=TURNS.length-1){stop();return;}go(idx+1);},2800);
+};
+window.addEventListener('resize',()=>renderTurn(idx));
+renderTurn(0);
+</script>
+</body>
+</html>
