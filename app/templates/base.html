@@ -9,7 +9,7 @@
     // Apply the saved theme before paint to avoid a flash of the default.
     (function () {
         try {
-            var t = localStorage.getItem('hhh-theme') || 'cyberpunk';
+            var t = localStorage.getItem('hhh-theme') || 'arena';
             if (t !== 'arena') document.documentElement.setAttribute('data-theme', t);
         } catch (e) {}
     })();
@@ -100,8 +100,8 @@
     (function () {
         var sel = document.getElementById('theme-select');
         if (!sel) return;
-        var saved = 'cyberpunk';
-        try { saved = localStorage.getItem('hhh-theme') || 'cyberpunk'; } catch (e) {}
+        var saved = 'arena';
+        try { saved = localStorage.getItem('hhh-theme') || 'arena'; } catch (e) {}
         sel.value = saved;
         sel.addEventListener('change', function () {
             var t = sel.value;

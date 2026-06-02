@@ -79,38 +79,38 @@
 }
 
 /* ============================================================
- * THEME: Arena (default) — dark slate, bold, color-coded action.
+ * THEME: Arena (default) — calm light replay surface.
  * Lives in :root so it applies with no data-theme attribute.
  * ============================================================ */
 :root {
-    --bg: #11151c;
-    --surface: #1a2029;
-    --surface-2: #222a35;
-    --ink: #f1f5f9;
-    --ink-soft: #94a3b8;
-    --line: #2d3744;
-    --header-bg: #0b1f3a;
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --surface-2: #eef1f4;
+    --ink: #171a1f;
+    --ink-soft: #5e6875;
+    --line: #dfe4ea;
+    --header-bg: #111827;
     --header-ink: #ffffff;
-    --header-ink-soft: #8fb0d9;
-    --accent: #f59e0b;
-    --accent-ink: #1a1206;
-    --accent-hover: #fbb12e;
-    --bad: #ef4444;
-    --bad-bg: #2a1518;
-    --bad-line: #5c2327;
-    --hoard: #3b82f6;
-    --help: #22c55e;
-    --hurt: #ef4444;
-    --code-bg: #0b0f16;
-    --code-ink: #e2e8f0;
-    --shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    --header-ink-soft: #c5cfdb;
+    --accent: #1f5fbf;
+    --accent-ink: #ffffff;
+    --accent-hover: #174ea6;
+    --bad: #b42318;
+    --bad-bg: #fff1f0;
+    --bad-line: #efc4bf;
+    --hoard: #2563eb;
+    --help: #16834a;
+    --hurt: #b42318;
+    --code-bg: #111827;
+    --code-ink: #f3f5f7;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 10px 28px rgba(16,24,40,.08);
     --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-head: "Arial Black", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-head: var(--font-body);
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --head-transform: uppercase;
-    --head-spacing: 0.02em;
-    --radius: 10px;
-    --maxw: 960px;
+    --head-transform: none;
+    --head-spacing: normal;
+    --radius: 8px;
+    --maxw: 1040px;
 }
 
 /* ============================================================
@@ -470,70 +470,93 @@ th { background: var(--surface-2); font-size: 0.78rem; text-transform: uppercase
 tr:last-child td { border-bottom: none; }
 
 /* Game viewer */
-.layout { display: grid; grid-template-columns: 260px 1fr; gap: 1.5rem; align-items: start; }
+.layout { display: grid; grid-template-columns: 290px 1fr; gap: 1.5rem; align-items: start; }
 @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }
 .turn-block {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.75rem;
+    box-shadow: var(--shadow);
+    padding: 0.85rem 0.95rem;
+    margin-bottom: 0.85rem;
 }
-.turn-block h4 { margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
-.turn-block ul { margin: 0; padding-left: 1.1rem; }
-.turn-block li { margin-bottom: 0.7rem; }
-.turn-phase + .turn-phase { margin-top: 0.9rem; }
-.turn-phase-label {
-    display: inline-block;
-    margin: 0 0 0.35rem;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--ink-soft);
+.turn-head { margin: 0 0 0.6rem; font-size: 0.8rem; color: var(--ink-soft); font-weight: 700; }
+.turn-block .moves { list-style: none; margin: 0; padding: 0; }
+.turn-block .move-row {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 0.65rem 0.75rem;
+    margin-bottom: 0.55rem;
 }
-.turn-block .effect { font-size: 0.85rem; margin-top: 0.1rem; }
+.turn-block .move-row:last-child { margin-bottom: 0; }
+.move-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; }
+.who-name { font-weight: 700; }
+.said { margin-top: 0.45rem; color: var(--ink); }
+.said.no-message { color: var(--ink-soft); font-style: italic; }
+.turn-block .effect { font-size: 0.85rem; margin-top: 0.3rem; }
 .turn-block .effect .who { color: var(--ink-soft); }
 .turn-block .effect .sep { color: var(--ink-soft); margin: 0 0.2rem; }
-.turn-block .turn-empty {
-    color: var(--ink-soft);
-    list-style: none;
-    margin-left: -1.1rem;
+.turn-block .turn-empty { color: var(--ink-soft); list-style: none; }
+.action-card.help { border-color: color-mix(in srgb, var(--help) 28%, var(--line)); background: color-mix(in srgb, var(--help) 7%, var(--surface)); }
+.action-card.hoard { border-color: color-mix(in srgb, var(--hoard) 24%, var(--line)); }
+.action-card.hurt, .action-card.is-betrayal { border-color: var(--bad-line); background: var(--bad-bg); }
+.action-line .delta { font-weight: 850; margin-left: 0; }
+.mutual-note { color: var(--ink-soft); font-weight: 750; font-size: 0.82rem; }
+
+/* The private "thinking", paired directly with each move. Shown by default,
+   clamped to two lines, expandable. */
+.thought {
+    margin-top: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    border-left: 2px solid var(--line);
+    background: var(--surface-2);
+    border-radius: 0 6px 6px 0;
+    font-size: 0.85rem;
 }
+.thought-label {
+    display: inline-block;
+    font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.07em;
+    font-weight: 700; color: var(--ink-soft); margin-bottom: 0.15rem;
+}
+.thought-text {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-style: italic; color: var(--ink-soft);
+}
+.thought.expanded .thought-text { -webkit-line-clamp: unset; overflow: visible; }
+.thought-more {
+    margin-top: 0.3rem; padding: 0; background: none; border: 0;
+    color: var(--accent); font-size: 0.75rem; font-weight: 600; cursor: pointer;
+}
+
 .missed {
     font-size: 0.72rem;
     color: var(--ink-soft);
     border: 1px solid var(--line);
     border-radius: 4px;
     padding: 0 0.3rem;
-    margin-left: 0.35rem;
+    margin-left: 0.1rem;
 }
-.feed-legend { font-size: 0.8rem; color: var(--ink-soft); margin: 0 0 0.75rem; }
-.reasoning {
-    margin-top: 0.35rem;
-    font-size: 0.82rem;
-}
-.reasoning summary {
-    cursor: pointer;
-    color: var(--ink-soft);
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-.reasoning-body {
-    margin-top: 0.35rem;
-    padding: 0.45rem 0.55rem;
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    white-space: pre-wrap;
-}
+.feed-legend { font-size: 0.85rem; color: var(--ink-soft); margin: 0 0 0.75rem; }
 
 /* Action color-coding (works in every theme) */
-.act { font-weight: 700; }
-.act-hoard { color: var(--hoard); }
-.act-help { color: var(--help); }
-.act-hurt { color: var(--hurt); }
+.act {
+    font-size: 0.78rem;
+    font-weight: 850;
+    padding: 0.12rem 0.48rem;
+    border-radius: 6px;
+}
+.act-hoard { color: var(--hoard); background: color-mix(in srgb, var(--hoard) 12%, transparent); }
+.act-help { color: var(--help); background: color-mix(in srgb, var(--help) 13%, transparent); }
+.act-hurt { color: var(--hurt); background: var(--bad-bg); }
+
+/* Drama markers: pact (mutual help), betrayal (hurt a recent partner) */
+.tag { font-size: 0.7rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 5px; white-space: nowrap; }
+.tag-pact { color: var(--help); background: color-mix(in oklab, var(--help) 16%, transparent); }
+.tag-betrayal { color: var(--hurt); background: var(--bad-bg); }
+.move-row.is-hurt .thought, .move-row.is-betrayal .thought { border-left-color: var(--hurt); }
+.move-row.is-betrayal { box-shadow: inset 3px 0 0 0 var(--hurt); }
 
 /* Player dashboard */
 .key {
@@ -636,10 +659,29 @@ pre code { background: none; padding: 0; }
 .game-head { display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .game-head .meta { color: var(--ink-soft); font-size: 0.9rem; }
 .scorepanel { position: sticky; top: 1rem; }
-.scorepanel h3 { margin-top: 0; }
-.score-table td.rank { width: 1.6rem; color: var(--ink-soft); text-align: right; }
-.score-table tr.leader td { font-weight: 700; }
-.score-table tr.leader td.rank { color: var(--accent); }
+.rail-title { margin: 0 0 0.6rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); }
+.rail { list-style: none; margin: 0 0 0.6rem; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.rail-row {
+    display: grid;
+    grid-template-columns: 1.2rem minmax(0, 1fr) auto;
+    grid-template-areas: "rank name wins" "rank bar bar";
+    column-gap: 0.55rem; row-gap: 0.35rem;
+    align-items: center;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid transparent;
+    border-radius: 9px;
+}
+.rail-row.leader { background: var(--surface-2); border-color: var(--line); }
+.rail-row .rk { grid-area: rank; color: var(--ink-soft); font-variant-numeric: tabular-nums; font-weight: 700; text-align: center; }
+.rail-row.leader .rk { color: var(--accent); }
+.rail-row .nm { grid-area: name; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.rail-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-row .pts { font-size: 0.72rem; color: var(--ink-soft); }
+.rail-row .sc { grid-area: wins; justify-self: end; display: flex; align-items: baseline; gap: 0.25rem; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 1.15rem; }
+.rail-row .sc-unit { font-size: 0.62rem; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }
+.rail-row .track { grid-area: bar; height: 7px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.rail-row.leader .track { background: var(--bg); }
+.rail-row .bar { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 .feed .empty { padding: 1.5rem 0; }
 .delta { font-variant-numeric: tabular-nums; margin-left: 0.25rem; }
 .delta.pos { color: var(--help); }

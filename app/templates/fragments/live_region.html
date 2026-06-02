@@ -19,11 +19,11 @@
 
         <div id="feed" class="feed">
         {% if rounds %}
-                <p class="feed-legend">Each turn shows the talk round first, then the act round. Numbers show each move's effect and who it lands on. Running totals are on the scoreboard.</p>
-                {% for rnd in rounds %}
+                <p class="feed-legend">Newest turns appear first. Each card shows what a bot said, what it did, and the points that move landed.</p>
+                {% for rnd in rounds | reverse %}
                 <section class="round-section" data-round="{{ rnd.round }}">
                     <h3 class="round-heading">Round {{ rnd.round }}</h3>
-                    {% for turn in rnd.turns %}
+                    {% for turn in rnd.turns | reverse %}
                         {% include "fragments/turn_block.html" %}
                     {% endfor %}
                 </section>

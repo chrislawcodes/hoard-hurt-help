@@ -374,6 +374,9 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
         for sub in subs:
             subs_by_turn.setdefault(sub.turn_id, []).append(sub)
 
+    # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
+    # the same turn; a "betrayal" is a HURT aimed at last turn's pact partner.
+    prev_mutual: set[frozenset[str]] = set()
     for seq, t in enumerate(turns, start=1):
         subs = subs_by_turn.get(t.id, [])
         turn_messages = messages_by_turn.get(t.id, [])
@@ -416,8 +419,53 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
                     "target_delta": target_delta,
                     "thinking": s.thinking,
                     "was_defaulted": s.was_defaulted,
+                    "mutual": False,
+                    "betrayal": False,
                 }
             )
+
+        # Tag this turn's pacts (mutual HELP) and betrayals (HURT on last turn's
+        # pact partner), so the feed can mark them without re-deriving in JS.
+        helps = {
+            a["agent_id"]: a["target_id"]
+            for a in actions
+            if a["action"] == "HELP" and a["target_id"]
+        }
+        this_mutual: set[frozenset[str]] = set()
+        for a in actions:
+            tgt = a["target_id"]
+            if not tgt:
+                continue
+            pair = frozenset((a["agent_id"], tgt))
+            if a["action"] == "HELP" and helps.get(tgt) == a["agent_id"]:
+                a["mutual"] = True
+                this_mutual.add(pair)
+            elif a["action"] == "HURT" and pair in prev_mutual:
+                a["betrayal"] = True
+        prev_mutual = this_mutual
+
+        messages_by_agent = {m["agent_id"]: m for m in messages}
+        for a in actions:
+            paired_message = messages_by_agent.get(a["agent_id"])
+            if paired_message is not None:
+                a["message"] = paired_message["text"]
+                a["message_thinking"] = paired_message["thinking"]
+                a["message_was_defaulted"] = paired_message["was_defaulted"]
+            else:
+                a["message"] = ""
+                a["message_thinking"] = ""
+                a["message_was_defaulted"] = True
+
+            if a["action"] == "HOARD":
+                a["display_action"] = "Hoard"
+                a["display_delta"] = a["actor_delta"]
+            elif a["action"] == "HELP":
+                a["display_action"] = "Help"
+                a["display_delta"] = 8 if a["mutual"] else a["target_delta"]
+            else:
+                a["display_action"] = "HURT"
+                a["display_delta"] = a["target_delta"]
+
         history.append(
             {
                 "seq": seq,
@@ -428,19 +476,14 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
             }
         )
 
-    # Group resolved turns by round for the round-navigation viewer. Rounds are
-    # ordered newest-first, and turns within a round newest-first — this matches
-    # the previous flat "newest first" feed ordering. `history` is already sorted
-    # ascending by (round, turn), so we group in order then reverse.
+    # Keep the server data in chronological order. The template reverses it for
+    # the newest-first feed while round navigation can still reason about order.
     rounds: list[dict] = []
     for h in history:
         if not rounds or rounds[-1]["round"] != h["round"]:
             rounds.append({"round": h["round"], "turns": []})
         rounds[-1]["turns"].append(h)
-    for r in rounds:
-        r["turns"].reverse()
-    rounds.reverse()
-    max_played_round = rounds[0]["round"] if rounds else 0
+    max_played_round = rounds[-1]["round"] if rounds else 0
 
     winner_agent_id = None
     if g.winner_player_id:
