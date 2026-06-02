@@ -295,6 +295,7 @@ async def compute_bot_health(
     )
     last_connected = bot.last_seen_at or bot.first_connected_at
     never = last_connected is None
+    last_connected_aware = _as_aware(last_connected) if last_connected is not None else None
     human = None if last_connected is None else _humanize_since(last_connected, now)
 
     def build(
@@ -308,7 +309,7 @@ async def compute_bot_health(
             pulse=pulse,
             needs_reconnect=needs_reconnect,
             never_connected=never,
-            last_connected_at=last_connected,
+            last_connected_at=last_connected_aware,
             last_connected_human=human,
             game_id=game.id if game else None,
             game_name=game.name if game else None,
