@@ -1,5 +1,6 @@
 """HTMX-served web routes: lobby, join, my games, per-player dashboard."""
 
+import json
 import logging
 import random
 import re
@@ -298,6 +299,75 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
     )
 
 
+def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
+    """Serialize game history as the robot-circle viewer JSON format."""
+    agents = [r["agent_id"] for r in scoreboard]
+
+    turns = []
+    for h in history:
+        rc_actions = []
+        for a in h["actions"]:
+            rc_actions.append({
+                "agent": a["agent_id"],
+                "action": a["action"],
+                "target": a["target_id"],
+                "delta": a["display_delta"],
+                "mutual": a["mutual"],
+                "betrayal": a["betrayal"],
+                "missed": a["was_defaulted"],
+                "msg": (a.get("message") or "").strip(),
+            })
+
+        spot: set[str] = set()
+        for a in rc_actions:
+            spot.add(a["agent"])
+            if a["target"]:
+                spot.add(a["target"])
+
+        betrayals = [a for a in rc_actions if a["betrayal"]]
+        mutuals   = [a for a in rc_actions if a["mutual"]]
+        hurts     = [a for a in rc_actions if a["action"] == "HURT" and a["target"]]
+        helps     = [a for a in rc_actions if a["action"] == "HELP" and not a["mutual"] and a["target"]]
+        missed    = [a for a in rc_actions if a["missed"]]
+
+        if betrayals:
+            b = betrayals[0]
+            badge, cap = "Betrayal", f"{b['agent']} turns on former ally {b['target']}."
+        elif mutuals:
+            pair = sorted({a["agent"] for a in mutuals} | {a["target"] for a in mutuals})
+            if len(pair) == 2:
+                badge, cap = "The Pact", f"{pair[0]} and {pair[1]} lock in a mutual pact — +8 each."
+            else:
+                badge, cap = "The Pact", "Mutual pacts lock in — +8 each."
+        elif hurts:
+            h0 = hurts[0]
+            badge, cap = "Strike", f"{h0['agent']} strikes {h0['target']}."
+        elif helps:
+            badge = "Help"
+            cap = (f"{helps[0]['agent']} helps {helps[0]['target']}." if len(helps) == 1
+                   else "Gifts change hands — one-way help around the circle.")
+        elif missed and len(missed) == len(rc_actions):
+            badge, cap = "No-show", f"{missed[0]['agent']} missed its turn — defaulted to Hoard."
+        else:
+            badge, cap = "Hoard", "A quiet turn — everyone banks a coin."
+
+        turns.append({
+            "round": h["round"],
+            "turn": h["turn"],
+            "badge": badge,
+            "cap": cap,
+            "spotlight": sorted(spot),
+            "actions": rc_actions,
+        })
+
+    return json.dumps({
+        "agents": agents,
+        "turns": turns,
+        "max_round": max((t["round"] for t in turns), default=0),
+        "sample": False,
+    }, ensure_ascii=False)
+
+
 async def _game_view_context(request: Request, db, game_id: str) -> dict:
     """Build the shared context for the game viewer page and its live fragment."""
     from app.models.turn import Turn, TurnMessage, TurnSubmission
@@ -511,6 +581,7 @@ async def game_viewer(
     db: DbSession,
 ):
     ctx = await _game_view_context(request, db, game_id)
+    ctx["rc_data"] = _build_rc_data(ctx["scoreboard"], ctx["history"])
     return templates.TemplateResponse(request, "game.html", ctx)
 
 

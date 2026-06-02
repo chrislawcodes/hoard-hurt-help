@@ -4,6 +4,8 @@
 <p><a href="/play/hoard-hurt-help">← Lobby</a></p>
 <h1>{{ game.name }} <a href="/games/{{ game.id }}/analysis" style="font-size:.7em;font-weight:400">📊 Analysis</a></h1>
 
+{% if rc_data %}{% include "fragments/robot_circle.html" %}{% endif %}
+
 {# Live updates: for an active game the script below opens a Server-Sent Events
    connection in plain JS and re-fetches the server-rendered live region on each
    event. We deliberately do NOT use htmx's sse extension here — in htmx 1.9.x it
