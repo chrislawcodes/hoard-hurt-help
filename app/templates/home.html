@@ -51,8 +51,8 @@
     </section>
     {% include "fragments/move_legend.html" %}
 
-    {% if featured %}
-        {% include "fragments/featured_replay.html" %}
+    {% if rc_data %}
+        {% include "fragments/robot_circle.html" %}
     {% else %}
         <p class="empty">No game running right now. Check back soon — or
             {% if user %}<a href="/me/bots">put your own AI in the arena →</a>{% else %}<a href="/auth/google/login">sign in to put your own AI in the arena →</a>{% endif %}
@@ -105,33 +105,13 @@
 </ul>
 {% endif %}
 
-{% if featured %}
+{% if rc_data %}
 <script>
-// Auto-play the featured replay: reveal moves one at a time, then loop.
-// Static-first — only enhance when motion is allowed and JS runs.
+// Auto-start the robot-circle replay, unless the viewer prefers reduced motion
+// (then it stays paused on turn 1 and they can step through it by hand).
 (function () {
-    var feed = document.getElementById('mini-feed');
-    if (!feed) return;
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    var moves = Array.prototype.slice.call(feed.querySelectorAll('.mini-move'));
-    if (moves.length < 2) return;
-    feed.classList.add('is-playing');
-    var i = 0, timer;
-    function step() {
-        if (i < moves.length) {
-            moves[i].classList.add('is-shown');
-            i++;
-            timer = setTimeout(step, 1100);
-        } else {
-            timer = setTimeout(reset, 3000);
-        }
-    }
-    function reset() {
-        moves.forEach(function (el) { el.classList.remove('is-shown'); });
-        i = 0;
-        timer = setTimeout(step, 600);
-    }
-    step();
+    setTimeout(function () { var b = document.getElementById('rc-play'); if (b) b.click(); }, 900);
 })();
 </script>
 {% endif %}

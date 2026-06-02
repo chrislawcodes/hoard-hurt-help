@@ -2,7 +2,6 @@
 
 import json
 import logging
-import random
 import re
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -87,74 +86,24 @@ async def _top_standings(db, game_id: str, limit: int = 3) -> list[dict]:
     return rows
 
 
-async def _final_round_moments(db, game_id: str, limit: int = 14) -> list[dict]:
-    """The last round of a finished game as an ordered list of moves — the
-    climax, used as the auto-playing replay on the lobby. Empty if no turns."""
-    from app.models.turn import Turn, TurnSubmission
+async def _showcase_replay_data(
+    request: Request, db, completed_views: list[dict]
+) -> tuple[str | None, str]:
+    """Robot-circle replay of the most-recent completed showcase game.
 
-    players = (
-        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
-    )
-    names = {p.id: p.agent_id for p in players}
-    turns = (
-        (
-            await db.execute(
-                select(Turn)
-                .where(Turn.game_id == game_id, Turn.resolved_at.is_not(None))
-                .order_by(Turn.round, Turn.turn)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not turns:
-        return []
-    final_round = turns[-1].round  # turns are ordered ascending by (round, turn)
-    moments: list[dict] = []
-    for t in (t for t in turns if t.round == final_round):
-        subs = (
-            (await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == t.id)))
-            .scalars()
-            .all()
-        )
-        for s in subs:
-            actor = names.get(s.player_id)
-            if not actor:
-                continue
-            target = names.get(s.target_player_id) if s.target_player_id else None
-            moments.append(
-                {
-                    "round": t.round,
-                    "turn": t.turn,
-                    "agent_id": actor,
-                    "action": s.action,
-                    "target_id": target,
-                    "message": s.message,
-                    "thinking": s.thinking,
-                }
-            )
-    return moments[-limit:]
-
-
-async def _featured_replay(db, completed_views: list[dict]) -> dict | None:
-    """Pick a watchable finished game at random from the most recent few, so a
-    repeat visitor sees variety, and load its final round as a story. Returns
-    None if nothing qualifies (caller falls back to the explainer-only hero)."""
-    candidates = [v for v in completed_views if _is_showcase(v)][:5]
-    random.shuffle(candidates)
-    for chosen in candidates:
-        moments = await _final_round_moments(db, chosen["id"])
-        if not moments:
-            continue  # no resolved turns to replay — try the next candidate
-        return {
-            "id": chosen["id"],
-            "name": chosen["name"],
-            "winner_agent_id": chosen["winner_agent_id"],
-            "round": moments[0]["round"],
-            "standings": await _top_standings(db, chosen["id"], 3),
-            "moments": moments,
-        }
-    return None
+    Returns ``(game_id, rc_data_json)``. ``game_id`` is None and the JSON is ""
+    when no finished showcase game exists. Shared by the platform front page and
+    the Hoard·Hurt·Help lobby so both replay the same latest game the same way.
+    """
+    game_id = next((v["id"] for v in completed_views if _is_showcase(v)), None)
+    if not game_id:
+        return None, ""
+    try:
+        ctx = await _game_view_context(request, db, game_id)
+        return game_id, _build_rc_data(ctx["scoreboard"], ctx["history"])
+    except Exception:
+        logger.exception("Failed to build robot-circle replay data for %s", game_id)
+        return game_id, ""
 
 
 def _move_effect_for(game_type: str, action: str) -> tuple[int, int | None]:
@@ -210,19 +159,9 @@ async def home(request: Request, db: DbSession):
                 view["winner_agent_id"] = winner.agent_id if winner else None
             completed.append(view)
 
-    # Hero match card: a real finished game's final round (None → explainer-only hero).
-    featured = await _featured_replay(db, completed)
-
     # Robot-circle animation: most-recent completed showcase game — consistent
     # across page loads so the viewer always sees the same game.
-    rc_data = ""
-    rc_game_id: str | None = next((v["id"] for v in completed if _is_showcase(v)), None)
-    if rc_game_id:
-        try:
-            _rc_ctx = await _game_view_context(request, db, rc_game_id)
-            rc_data = _build_rc_data(_rc_ctx["scoreboard"], _rc_ctx["history"])
-        except Exception:
-            logger.exception("Failed to build rc_data for home page")
+    rc_game_id, rc_data = await _showcase_replay_data(request, db, completed)
 
     # Leaderboard band: real standings. Prefer the most-progressed live game;
     # otherwise the most-recent finished showcase game. Empty list → empty state.
@@ -242,7 +181,6 @@ async def home(request: Request, db: DbSession):
         {
             "user": user,
             "is_admin": _is_admin(user),
-            "featured": featured,
             "rc_data": rc_data,
             "rc_game_id": rc_game_id,
             "standings": standings,
@@ -291,8 +229,9 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
 
     # Marquee = the most-progressed live game (rounds, then turns).
     live.sort(key=lambda v: (v["current_round"], v["current_turn"]), reverse=True)
-    # When nothing is live, feature a finished game's final round as a replay.
-    featured = None if live else await _featured_replay(db, recent)
+    # When nothing is live, replay the latest finished game with the same
+    # robot-circle animation the platform front page uses.
+    rc_game_id, rc_data = (None, "") if live else await _showcase_replay_data(request, db, recent)
     # Keep smoke-test games out of the public recent list.
     recent_display = [
         v for v in recent if not str(v["name"]).strip().lower().startswith(_TEST_NAME_PREFIX)
@@ -307,7 +246,8 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
             "live_games": live,
             "upcoming_games": upcoming,
             "recent_games": recent_display[:8],
-            "featured": featured,
+            "rc_game_id": rc_game_id,
+            "rc_data": rc_data,
         },
     )
 

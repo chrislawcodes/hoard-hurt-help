@@ -92,6 +92,65 @@ async def test_lobby_renders_at_play_path(client, reset_db):
     assert "Test Game" in r.text
 
 
+async def _seed_completed_showcase(reset_db: async_sessionmaker) -> None:
+    """A finished 3-player game with one resolved turn — a watchable showcase."""
+    from app.models import Turn, TurnSubmission
+    from tests.factories import seat_player
+
+    async with reset_db() as db:
+        g = Game(
+            id="G_DONE",
+            name="Finished Game",
+            state=GameState.COMPLETED,
+            scheduled_start=datetime.now(timezone.utc) - timedelta(hours=1),
+            current_round=1,
+            current_turn=1,
+            per_turn_deadline_seconds=60,
+        )
+        db.add(g)
+        await db.flush()
+        players = [await seat_player(db, "G_DONE", f"AI_{i}", i=i) for i in range(3)]
+        g.winner_player_id = players[0].id
+        turn = Turn(
+            game_id="G_DONE",
+            round=1,
+            turn=1,
+            turn_token="tk1",
+            opened_at=datetime.now(timezone.utc),
+            deadline_at=datetime.now(timezone.utc),
+            phase="act",
+            resolved_at=datetime.now(timezone.utc),
+        )
+        db.add(turn)
+        await db.flush()
+        for p in players:
+            db.add(
+                TurnSubmission(
+                    turn_id=turn.id,
+                    player_id=p.id,
+                    action="HOARD",
+                    message="banking a coin",
+                    points_delta=2,
+                    round_score_after=2,
+                    was_defaulted=False,
+                    submitted_at=datetime.now(timezone.utc),
+                )
+            )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_lobby_shows_robot_replay_of_latest_game(client, reset_db):
+    # With no live game, the lobby replays the latest finished showcase game
+    # using the same robot-circle animation the front page uses.
+    await _seed_completed_showcase(reset_db)
+    r = await client.get("/play/hoard-hurt-help")
+    assert r.status_code == 200
+    assert 'id="rc-data"' in r.text  # the robot-circle data island
+    assert "Animated Replay" in r.text
+    assert "AI_0" in r.text  # agents from the finished game are in the replay data
+
+
 @pytest.mark.asyncio
 async def test_join_requires_sign_in(client, reset_db):
     await _seed_game(reset_db)

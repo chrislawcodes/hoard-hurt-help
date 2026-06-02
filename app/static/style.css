@@ -945,27 +945,6 @@ button.danger:hover,
 .recent-del { margin: 0; flex-shrink: 0; }
 .danger.small { padding: 0.22rem 0.55rem; font-size: 0.78rem; }
 
-/* Featured replay (quiet state): an auto-playing mini-feed. */
-.featured {
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--radius); box-shadow: var(--shadow);
-    padding: 1.25rem 1.4rem 1.4rem; margin-bottom: 1rem;
-}
-.featured-head { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1rem; }
-.featured-titles { min-width: 0; }
-.featured-title { margin: 0; font-size: 1.15rem; }
-.featured-sub { margin: 0.15rem 0 0; color: var(--ink-soft); font-size: 0.85rem; }
-.badge-replay { background: var(--surface-2); color: var(--accent); white-space: nowrap; }
-
-.mini-feed { list-style: none; margin: 0 0 1.1rem; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
-.mini-move { padding: 0.45rem 0.65rem; border-radius: 6px; background: var(--surface-2); }
-.mini-move .act { margin: 0 0.15rem; }
-.mini-msg { color: var(--ink-soft); }
-/* Auto-play: hidden until revealed. Without JS (or with reduced motion) the
-   .is-playing class is never added, so every move stays visible. */
-.mini-feed.is-playing .mini-move { opacity: 0; transform: translateY(5px); transition: opacity 0.4s ease, transform 0.4s ease; }
-.mini-feed.is-playing .mini-move.is-shown { opacity: 1; transform: none; }
-
 @media (max-width: 600px) {
     .hero-quiet h1 { font-size: 1.5rem; }
     .marquee { padding: 1.1rem 1.1rem 1.25rem; }
@@ -973,7 +952,6 @@ button.danger:hover,
     .marquee-standings li { grid-template-columns: 1.4rem 1fr auto auto; gap: 0.55rem; }
     .marquee-cta { display: block; text-align: center; }
     .recent-row { flex-wrap: wrap; }
-    .featured-head { flex-wrap: wrap; }
 }
 
 /* ============================================================
