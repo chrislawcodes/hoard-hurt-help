@@ -19,7 +19,7 @@
         <div class="game-card-info">
             <h3>{{ row.bot.name }}</h3>
             <p class="meta">
-                {% with health = row.health %}{% include "bots/_health_badge.html" %}{% endwith %}
+                <span class="bot-health-live" hx-get="/me/bots/{{ row.bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% with health = row.health %}{% include "bots/_health_badge.html" %}{% endwith %}</span>
                 · {{ row.games | length }} game(s){% if row.health.needs_reconnect %} · <a href="/me/bots/{{ row.bot.id }}#reconnect">Reconnect →</a>{% endif %}
             </p>
         </div>

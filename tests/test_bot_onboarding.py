@@ -329,6 +329,30 @@ async def test_status_fragment_owner_only(client, reset_db):
     assert r.status_code == 404
 
 
+async def test_health_badge_fragment_renders_and_owner_only(client, reset_db):
+    async with reset_db() as db:
+        owner = await make_user(db, 0)
+        other = await make_user(db, 1)
+        bot, _ = await make_bot(db, owner)  # never connected → red Disconnected
+        await db.commit()
+        bid, owner_id, other_id = bot.id, owner.id, other.id
+
+    # Owner sees the live badge fragment (the HTMX poll target).
+    r = await client.get(
+        f"/me/bots/{bid}/health-badge", cookies=_signed_in_cookies(owner_id)
+    )
+    assert r.status_code == 200
+    assert "badge-alert" in r.text
+    assert "Disconnected" in r.text
+    assert "never connected" in r.text
+
+    # Not the owner → 404, so no one else can poll your bot's status.
+    r = await client.get(
+        f"/me/bots/{bid}/health-badge", cookies=_signed_in_cookies(other_id)
+    )
+    assert r.status_code == 404
+
+
 async def test_stream_rejects_non_owner(client, reset_db):
     # The security guarantee (FR-010): a non-owner cannot open the bot's stream.
     # `_owned_bot` 404s in the dependency, before any streaming begins. The

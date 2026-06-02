@@ -4,7 +4,7 @@
 <a href="/me/bots">← My Bots</a>
 <h1>{{ bot.name }}</h1>
 <p class="meta">
-    {% include "bots/_health_badge.html" %}
+    <span class="bot-health-live" hx-get="/me/bots/{{ bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% include "bots/_health_badge.html" %}</span>
     · connection code ends …{{ bot.key_hint }}
 </p>
 
