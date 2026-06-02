@@ -16,9 +16,9 @@ from app.games.base import StrategyPreset
 
 # Shared "what winning means" lens, woven into the default and every preset.
 RANK_FRAMING = """How winning works — weigh every move against this:
-- You win a ROUND only by finishing alone in 1st place on round score. A tie splits the round-win, so ending level with a rival is a failure, not a friendship.
+- Ending level with a rival is a failure, not a friendship. Only sole first place wins the round.
 - Your own point total doesn't matter — your RANK does. A point a rival gains hurts you as much as a point you lose. Ask of every move: does this put me alone in first?
-- Round score resets to 0 each round, so points you can't turn into the #1 spot THIS round are wasted. As the round nears its end, stop lifting anyone tied with or ahead of you; if you can't lead, recruit other trailing players to deny whoever is winning."""
+- Points you can't turn into the #1 spot THIS round are wasted. As the round nears its end, stop lifting anyone tied with or ahead of you; if you can't lead, recruit other trailing players to deny whoever is winning."""
 
 # Opening every preset shares: read the rules, then the rank lens.
 _PRESET_PREAMBLE = (
