@@ -1082,6 +1082,7 @@ button.danger:hover,
 .al-hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: clamp(32px, 5vw, 72px); align-items: center; }
 .al-h1 { font-size: clamp(40px, 4.8vw, 58px); margin-top: 18px; text-wrap: balance; }
 .al-h1-pop { color: var(--brand); }
+.al-step p a { color: var(--brand); font-weight: 700; white-space: nowrap; }
 .al-sub { font-size: clamp(17px, 1.4vw, 21px); color: var(--ink-soft); margin-top: 20px; max-width: 480px; }
 .al-cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
 .al-cta-center { justify-content: center; }
