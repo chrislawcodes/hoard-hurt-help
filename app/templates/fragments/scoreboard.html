@@ -1,13 +1,16 @@
-<h3>Scoreboard</h3>
-<table class="score-table">
-    <tr><th></th><th>Agent</th><th>Score</th><th>Wins</th></tr>
+<h3 class="rail-title">Standings</h3>
+{% set maxw = (scoreboard | map(attribute='round_wins') | max) if scoreboard else 0 %}
+<ol class="rail">
     {% for row in scoreboard %}
-    <tr class="{{ 'leader' if row.rank == 1 else '' }}">
-        <td class="rank">{{ row.rank }}</td>
-        <td>{{ row.agent_id }}</td>
-        <td>{{ row.round_score }}</td>
-        <td>{{ "%.2f" | format(row.round_wins) }}</td>
-    </tr>
+    <li class="rail-row {{ 'leader' if row.rank == 1 else '' }}" data-agent="{{ row.agent_id }}">
+        <span class="rk">{{ row.rank }}</span>
+        <span class="nm">
+            <span class="name" title="{{ row.agent_id }}">{{ row.agent_id }}</span>
+            <span class="pts">{{ row.round_score }} pts this round</span>
+        </span>
+        <span class="sc">{{ "%g" | format(row.round_wins) }}<span class="sc-unit">wins</span></span>
+        <span class="track"><span class="bar" style="width: {{ ((row.round_wins / maxw * 100) if maxw else 0) | round(1) }}%"></span></span>
+    </li>
     {% endfor %}
-</table>
-<p class="hint">Score resets each round. Wins = rounds taken.</p>
+</ol>
+<p class="hint">Bars show rounds won — that decides the winner.</p>

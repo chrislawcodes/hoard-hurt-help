@@ -29,9 +29,8 @@
     // null  = follow the latest round (auto-advances as a live game progresses)
     // <num> = pinned to that round
     // 'all' = show the whole log
-    // Live games start by following the action; a completed game opens at round 1
-    // so you can replay forward.
-    let selected = isActive ? null : 1;
+    // Start by following the latest round for both live and finished games.
+    let selected = null;
 
     function maxRound() {
         let m = 0;
@@ -62,6 +61,16 @@
     }
 
     region.addEventListener('click', function (e) {
+        // Expand/collapse a clamped "thinking" note. Delegated so it survives swaps.
+        const more = e.target.closest('.thought-more');
+        if (more) {
+            const thought = more.closest('.thought');
+            if (thought) {
+                const open = thought.classList.toggle('expanded');
+                more.textContent = open ? 'less' : 'more';
+            }
+            return;
+        }
         const chip = e.target.closest('.round-chip');
         if (!chip || chip.disabled) return;
         const v = chip.dataset.round;

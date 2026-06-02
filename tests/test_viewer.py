@@ -152,12 +152,14 @@ async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
     await _seed_two_phase_turn(reset_db)
     r = await client.get("/games/G_001")
     assert r.status_code == 200
-    assert "Talk" in r.text
-    assert "Act" in r.text
+    assert "action-card hoard" in r.text
     assert "public talk" in r.text
+    assert "Hoard" in r.text
+    assert "+2" in r.text
     assert "private talk reasoning" in r.text
     assert "private act reasoning" in r.text
-    assert "<summary>reasoning</summary>" in r.text
+    # Thinking is shown to humans, paired with each move (no longer a closed toggle).
+    assert 'class="thought"' in r.text
 
 
 @pytest.mark.asyncio
@@ -299,10 +301,11 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
 
     r = await client.get("/games/G_001")
     assert r.status_code == 200
-    # The target and its loss are shown; the actor's own +0 is shown too.
+    # The target and its loss are shown; the actor's own +0 is omitted because
+    # the compact action line focuses on who the move lands on.
     assert "AI_1" in r.text
     assert "-4" in r.text
-    assert "+0" in r.text
+    assert "+0" not in r.text
 
 
 @pytest.mark.asyncio
