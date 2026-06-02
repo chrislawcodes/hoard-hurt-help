@@ -206,6 +206,25 @@ async def bot_status_fragment(
     )
 
 
+@router.get("/{bot_id}/health-badge", response_class=HTMLResponse)
+async def bot_health_badge_fragment(
+    bot_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+):
+    """The health-badge fragment, polled by HTMX (every 15s) so the indicator
+    stays live without a page reload. Owner-scoped (`_owned_bot` 404s for anyone
+    else) and carries no secret — only the derived badge state.
+    """
+    bot = await _owned_bot(db, user, bot_id)
+    return templates.TemplateResponse(
+        request,
+        "bots/_health_badge.html",
+        {"health": await compute_bot_health(db, bot)},
+    )
+
+
 @router.get("/{bot_id}/stream")
 async def bot_stream(
     bot_id: Annotated[int, Path()],
