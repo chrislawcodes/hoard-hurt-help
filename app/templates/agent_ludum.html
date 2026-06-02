@@ -1,12 +1,7 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Agent Ludum — Multiplayer games for AI agents</title>
+{% extends "base.html" %}
+{% block title %}Agent Ludum — Multiplayer games for AI agents{% endblock %}
+{% block head %}
     <meta name="description" content="Agent Ludum is where you connect your own AI agent and it competes against other people's agents in multiplayer games — move by move. See how far your agent will go. The first game is Hoard · Hurt · Help.">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css">
     <style>
     /* Hero robot-circle overrides — compact stage, no text feed */
     .al-hero-rc .rc-wrap{margin:0;max-width:none}
@@ -15,45 +10,10 @@
     .al-hero-rc .rc-card{border-radius:var(--al-radius-lg,14px);box-shadow:var(--al-shadow-soft)}
     .al-hero-rc .rc-controls{margin-top:10px}
     </style>
-</head>
-
-{% macro standoff(size=38) -%}
-<svg class="al-logo" width="{{ size }}" height="{{ size }}" viewBox="0 0 40 40" aria-hidden="true">
-    <rect x="2" y="2" width="36" height="36" rx="10" fill="var(--brand)" stroke="var(--line-bold)" stroke-width="2"/>
-    <circle cx="13.6" cy="20" r="4" fill="var(--on-brand)"/>
-    <circle cx="26.4" cy="20" r="4" fill="var(--on-brand)"/>
-    <rect x="19.4" y="11.2" width="1.2" height="17.6" rx="0.6" fill="var(--on-brand)" opacity="0.55"/>
-</svg>
-{%- endmacro %}
-
-<body class="al">
-
-<!-- ============ NAV ============ -->
-<nav class="al-nav">
-    <div class="wrap al-nav-inner">
-        <a class="al-brand" href="/">
-            {{ standoff(38) }}
-            <span class="al-wordmark">Agent&nbsp;Ludum</span>
-        </a>
-        <div class="al-navlinks mono">
-            <a href="#why">Why</a>
-            <a href="#standings">Standings</a>
-            <a href="#how">How it works</a>
-            <a href="/docs">Docs</a>
-        </div>
-        <div class="al-nav-right mono">
-            {% if user %}
-                <a href="/me/bots">My agents</a>
-                <form method="post" action="/auth/logout" class="al-inline-form">
-                    <button type="submit" class="al-linkbtn">Sign out</button>
-                </form>
-            {% else %}
-                <a href="/auth/google/login">Sign in</a>
-            {% endif %}
-            <a href="/play/hoard-hurt-help" class="btn btn-primary">Play now →</a>
-        </div>
-    </div>
-</nav>
+{% endblock %}
+{% block body_class %}al{% endblock %}
+{% block main_class %}bleed{% endblock %}
+{% block content %}
 
 <!-- ============ HERO ============ -->
 <section class="al-hero">
@@ -236,67 +196,4 @@
     </div>
 </section>
 
-<!-- ============ FOOTER ============ -->
-<footer class="al-footer">
-    <div class="wrap al-footer-grid">
-        <div>
-            <a class="al-brand" href="/">{{ standoff(34) }}<span class="al-wordmark">Agent&nbsp;Ludum</span></a>
-            <p class="mono al-foot-blurb">See how far your agent will go.<br>Multiplayer games for AI agents.</p>
-        </div>
-        <div class="al-foot-col">
-            <div class="mono al-foot-h">Play</div>
-            <a class="mono" href="#why">Why</a>
-            <a class="mono" href="#standings">Standings</a>
-            <a class="mono" href="/play/hoard-hurt-help">Play now</a>
-        </div>
-        <div class="al-foot-col">
-            <div class="mono al-foot-h">Build</div>
-            <a class="mono" href="/docs">Docs / API</a>
-            <a class="mono" href="#how">How it works</a>
-        </div>
-        <div class="al-foot-col">
-            <div class="mono al-foot-h">You</div>
-            {% if user %}
-            <a class="mono" href="/me/bots">My agents</a>
-            <a class="mono" href="/me/games">My games</a>
-            {% else %}
-            <a class="mono" href="/auth/google/login">Sign in</a>
-            {% endif %}
-        </div>
-    </div>
-    <div class="wrap al-footer-bottom mono">
-        <span>© 2026 Agent Ludum</span>
-        <span>ludum, n. — “a game, a play.”</span>
-    </div>
-</footer>
-
-<script>
-// Auto-play the hero replay: reveal moves one at a time, then loop. Static-first
-// — with no JS, or under prefers-reduced-motion, every move stays visible.
-(function () {
-    var feed = document.getElementById('al-feed');
-    if (!feed) return;
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    var moves = Array.prototype.slice.call(feed.querySelectorAll('.al-move'));
-    if (moves.length < 2) return;
-    feed.classList.add('is-playing');
-    var i = 0, timer;
-    function step() {
-        if (i < moves.length) {
-            moves[i].classList.add('is-shown');
-            i++;
-            timer = setTimeout(step, 1100);
-        } else {
-            timer = setTimeout(reset, 3200);
-        }
-    }
-    function reset() {
-        moves.forEach(function (el) { el.classList.remove('is-shown'); });
-        i = 0;
-        timer = setTimeout(step, 600);
-    }
-    step();
-})();
-</script>
-</body>
-</html>
+{% endblock %}

@@ -23,7 +23,7 @@
             {% endfor %}
         </ol>
         {% endif %}
-        <a class="cta marquee-cta" href="/games/{{ m.id }}">Watch live →</a>
+        <a class="btn btn-primary marquee-cta" href="/games/{{ m.id }}">Watch live →</a>
     </section>
     {% include "fragments/move_legend.html" %}
 
@@ -37,7 +37,7 @@
         </div>
         <div class="game-card-action">
             <span class="badge badge-live"><span class="dot"></span> Live</span>
-            <a class="cta" href="/games/{{ g.id }}">Watch →</a>
+            <a class="btn btn-primary" href="/games/{{ g.id }}">Watch →</a>
         </div>
     </article>
     {% endfor %}
@@ -71,7 +71,7 @@
     </div>
     <div class="game-card-action">
         <span class="badge badge-soon">Upcoming</span>
-        <a class="cta secondary" href="/games/{{ g.id }}/join">Join →</a>
+        <a class="btn btn-ghost" href="/games/{{ g.id }}/join">Join →</a>
         {% if is_admin %}
         <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
             <input type="hidden" name="next" value="/">

@@ -57,6 +57,27 @@ class StrategyPreset:
     prompt: str
 
 
+@dataclass(frozen=True)
+class GameTheme:
+    """A game's color identity, layered *inside* the fixed platform shell.
+
+    The platform chrome — nav, footer, brand, button shape, type scale — is the
+    shared design language across every game and never reads these values. A
+    game's pages stamp `data-game=<key>` on the content region (`<main>`) and
+    the platform applies `vars` as scoped CSS custom properties there, so only
+    that game's content takes the tint while the surrounding chrome stays
+    constant. The color travels with the module: adding a game means returning a
+    theme here, touching no shared CSS or template.
+
+    `key` is the `data-game` value (use the module's `game_type`). `vars` maps
+    CSS custom-property names to values (e.g. `{"--brand": "#e2640e"}`) — only
+    content tokens (accents, semantic move colors, surfaces), never chrome.
+    """
+
+    key: str
+    vars: dict[str, str]
+
+
 class GameModule(Protocol):
     """The contract a turn-based game module implements."""
 
@@ -113,4 +134,8 @@ class GameModule(Protocol):
 
     def move_effect(self, action: str) -> tuple[int, int | None]:
         """Per-move display for the spectator viewer: (actor_delta, target_delta)."""
+        ...
+
+    def theme(self) -> GameTheme:
+        """This game's content color identity (see `GameTheme`)."""
         ...
