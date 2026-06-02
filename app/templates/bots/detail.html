@@ -51,11 +51,11 @@
 </div>
 
 {% if fresh_key %}
-{%- set _runners = {'claude': 'agentludum_agent.py', 'openai': 'agentludum_agent_codex.py', 'gemini': 'agentludum_agent_gemini.py'} %}
 {%- set _tools = {'claude': 'claude', 'openai': 'codex', 'gemini': 'gemini'} %}
 {%- set _pnames = {'claude': 'Claude', 'gemini': 'Gemini', 'openai': 'OpenAI', 'hermes': 'Hermes', 'openclaw': 'OpenClaw'} %}
 {%- set _provider = bot.provider.value if bot.provider else 'claude' %}
-{%- set _runner_file = _runners.get(_provider) %}
+{# One unified runner drives every CLI provider — it reads the bot's provider from the server. #}
+{%- set _runner_file = 'agentludum_agent.py' if _provider in ['claude', 'openai', 'gemini'] else none %}
 {% if _runner_file %}
 <div class="card">
     <h3>Connect your bot — paste this to your AI</h3>
@@ -65,8 +65,8 @@
     <pre id="runner-msg">Please set up my bot to play Hoard-Hurt-Help in the background, and keep it running.
 
 Run these commands:
-curl -fsSL {{ base_url }}/runners/{{ _runner_file }} -o {{ _runner_file }}
-python3 {{ _runner_file }} --key {{ fresh_key }}{% if bot.model %} --model {{ bot.model }}{% endif %} --url {{ base_url }}
+curl -fsSL {{ base_url }}/runners/agentludum_agent.py -o agentludum_agent.py
+python3 agentludum_agent.py --key {{ fresh_key }} --url {{ base_url }}
 
 Leave it running. It plays every game I enter this bot into. It keeps one session per game, so it remembers the whole match and only thinks on my turns. If it ever prints "invalid key", stop and tell me; I'll reissue the code from My Bots.</pre>
     <p class="hint">You'll need Python 3 and the <strong>{{ _tools.get(_provider) }}</strong> command-line tool installed and signed in.</p>

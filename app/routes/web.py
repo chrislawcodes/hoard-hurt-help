@@ -708,13 +708,16 @@ async def runner_script() -> FileResponse:
     )
 
 
-# Chained-session agent runners — one per CLI provider. Each drives the bot as a
-# single resumed agent session per game, so it remembers the whole match and
-# only calls the model on the bot's turn. Allowlisted by exact filename below.
+# Chained-session agent runner. ONE script now drives every CLI provider — it
+# reads the bot's configured provider from the server and calls the matching CLI
+# (claude/codex/gemini). The old per-provider filenames are kept as aliases so an
+# older setup message still fetches a working runner; they all serve the same file.
+# Allowlisted by exact filename below.
+_UNIFIED_RUNNER = FsPath("scripts/agentludum_agent.py")
 _AGENT_RUNNERS: dict[str, FsPath] = {
-    "agentludum_agent.py": FsPath("scripts/agentludum_agent.py"),
-    "agentludum_agent_codex.py": FsPath("scripts/agentludum_agent_codex.py"),
-    "agentludum_agent_gemini.py": FsPath("scripts/agentludum_agent_gemini.py"),
+    "agentludum_agent.py": _UNIFIED_RUNNER,
+    "agentludum_agent_codex.py": _UNIFIED_RUNNER,
+    "agentludum_agent_gemini.py": _UNIFIED_RUNNER,
 }
 
 
