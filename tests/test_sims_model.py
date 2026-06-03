@@ -3,9 +3,11 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select, text
 
 from app.db import make_engine
 from app.models import Base, BotKind, Game, GameState
+from app.models.bot import Bot
 from tests.factories import make_bot, make_user
 
 
@@ -80,3 +82,32 @@ async def test_make_bot_can_persist_sim_traits(reset_db):
         assert bot.sim_seed == 42
         assert bot.sim_version == "v1"
         assert bot.sim_fixture_pack == "fixture-a"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored_kind", ["external", "EXTERNAL"])
+async def test_bot_kind_loads_legacy_storage_values(reset_db, stored_kind):
+    async with reset_db() as db:
+        user = await make_user(db)
+        bot, _ = await make_bot(db, user, name="Atlas")
+        await db.execute(
+            text("UPDATE bots SET kind = :kind WHERE id = :bot_id"),
+            {"kind": stored_kind, "bot_id": bot.id},
+        )
+        await db.commit()
+
+    async with reset_db() as db:
+        loaded = (await db.execute(select(Bot).where(Bot.id == bot.id))).scalar_one()
+        assert loaded.kind is BotKind.EXTERNAL
+
+
+@pytest.mark.asyncio
+async def test_make_bot_persists_lowercase_enum_value(reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        bot, _ = await make_bot(db, user, name="Atlas")
+        stored_kind = (
+            await db.execute(text("SELECT kind FROM bots WHERE id = :bot_id"), {"bot_id": bot.id})
+        ).scalar_one()
+
+    assert stored_kind == "external"
