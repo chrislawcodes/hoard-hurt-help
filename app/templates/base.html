@@ -6,7 +6,7 @@
     <title>{% block title %}Agent Ludum{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     {% block head %}{% endblock %}
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=87">
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/htmx-ext-sse.js" defer></script>
 </head>
@@ -21,7 +21,7 @@
 </svg>
 {%- endmacro %}
 
-<body class="{% block body_class %}{% endblock %}">
+<body class="{% block body_class %}{% endblock %}{% if game_theme %} body-game-{{ game_theme.key }}{% endif %}">
 
     {# Shared chrome — identical on every page so the navigation language never
        changes between games. Lives outside <main>, so a game's tint can't reach it. #}

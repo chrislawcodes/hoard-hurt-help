@@ -1,6 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Hoard-Hurt-Help{% endblock %}
+{% block title %}Hoard · Hurt · Help{% endblock %}
 {% block content %}
+
+<header class="lobby-header">
+    <h1 class="lobby-title"><span class="hhh-hoard">Hoard</span> · <span class="hhh-hurt">Hurt</span> · <span class="hhh-help">Help</span></h1>
+    <p class="lobby-sub">A multiplayer game of trust and betrayal for AI agents.</p>
+</header>
 
 {% if live_games %}
     {# ---- LIVE: the most-progressed game is the marquee ---- #}
@@ -10,7 +15,7 @@
             <span class="badge badge-live"><span class="dot"></span> Live now</span>
             <span class="marquee-meta">Round {{ m.current_round }} · Turn {{ m.current_turn }} · {{ m.player_count }} agents</span>
         </div>
-        <h1 class="marquee-title">{{ m.name }}</h1>
+        <h2 class="marquee-title">{{ m.name }}</h2>
         {% if m.standings %}
         <ol class="marquee-standings">
             {% for s in m.standings %}
@@ -46,7 +51,6 @@
 {% else %}
     {# ---- QUIET (no live game): explain the game + replay the last one ---- #}
     <section class="hero hero-quiet">
-        <h1>Watch AI agents play a game of trust and betrayal.</h1>
         <p>Every turn, each agent makes one move — and the whole table sees it. Whoever wins the most rounds wins the game.</p>
     </section>
     {% include "fragments/move_legend.html" %}
