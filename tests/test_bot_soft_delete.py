@@ -17,8 +17,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
+from app.engine.sim_presets import sim_presets
 from app.main import app
-from app.models import Base, Bot, BotStatus, Game, GameState, Player, User
+from app.models import Base, Bot, BotKind, BotStatus, Game, GameState, Player, User
 from tests.factories import make_bot, make_user
 
 
@@ -237,3 +238,68 @@ async def test_archived_name_fits_120_char_column(client, reset_db):
     assert len(archived.name) <= 120
     assert archived.name.endswith(")")
     assert "(archived " in archived.name
+
+
+@pytest.mark.asyncio
+async def test_deleted_preset_sim_can_be_reprovisioned(client, reset_db):
+    user = await _seed_user(reset_db)
+    cookies = _signed_in_cookies(user.id)
+
+    await client.get("/me/bots", cookies=cookies)
+    presets = sim_presets()
+    async with reset_db() as db:
+        sim_bot = (
+            await db.execute(
+                select(Bot).where(
+                    Bot.user_id == user.id,
+                    Bot.kind == BotKind.SIM,
+                    Bot.archived_at.is_(None),
+                )
+            )
+        ).scalars().first()
+        assert sim_bot is not None
+        db.add(
+            Game(
+                id="G_SIM",
+                name="Sim Game",
+                state=GameState.REGISTERING,
+                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+            )
+        )
+        db.add(
+            Player(
+                game_id="G_SIM",
+                user_id=user.id,
+                bot_id=sim_bot.id,
+                agent_id="AI_SIM",
+            )
+        )
+        await db.commit()
+        profile_id = sim_bot.sim_profile_id
+
+    r = await client.post(
+        f"/me/bots/{sim_bot.id}/delete",
+        cookies=cookies,
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    async with reset_db() as db:
+        archived = (await db.execute(select(Bot).where(Bot.id == sim_bot.id))).scalar_one()
+    assert archived.sim_profile_id is None
+
+    r2 = await client.get("/me/bots", cookies=cookies)
+    assert r2.status_code == 200
+
+    async with reset_db() as db:
+        sim_bots = (
+            await db.execute(
+                select(Bot).where(
+                    Bot.user_id == user.id,
+                    Bot.kind == BotKind.SIM,
+                    Bot.archived_at.is_(None),
+                )
+            )
+        ).scalars().all()
+    assert len(sim_bots) == len(presets)
+    assert any(bot.sim_profile_id == profile_id for bot in sim_bots if bot.id != sim_bot.id)

@@ -13,6 +13,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.broadcast import subscribe
 from app.config import settings
@@ -22,6 +23,7 @@ from app.engine.bot_activity import (
     compute_bot_health,
     compute_onboarding_status,
 )
+from app.engine.sim_presets import build_sim_bot_name, sim_presets
 from app.engine.sims import pack_profile_choices, resolve_profile_choice
 from app.engine.sims.strategies import normalize_strategy_name
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
@@ -91,12 +93,64 @@ async def _bot_games(db: DbSession, bot: Bot) -> list[dict[str, Any]]:
     return out
 
 
+async def _ensure_preset_sims(db: DbSession, user: User) -> None:
+    presets = sim_presets()
+    existing = (
+        (
+            await db.execute(
+                select(Bot).where(
+                    Bot.user_id == user.id,
+                    Bot.archived_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_profile = {
+        bot.sim_profile_id: bot
+        for bot in existing
+        if bot.kind == BotKind.SIM and bot.sim_profile_id
+    }
+    used_names = {bot.name for bot in existing}
+    created = False
+    for preset in presets:
+        if preset.id in by_profile:
+            continue
+        name = build_sim_bot_name(preset.name, used_names=used_names)
+        used_names.add(name)
+        key = generate_bot_key()
+        bot = Bot(
+            user_id=user.id,
+            name=name,
+            key_lookup=bot_key_lookup(key),
+            key_hint=bot_key_hint(key),
+            kind=BotKind.SIM,
+            sim_profile_id=preset.id,
+            sim_profile_name=preset.name,
+            sim_strategy=preset.strategy,
+            sim_truthfulness=preset.truthfulness,
+            sim_trust_model=preset.trust_model,
+            sim_version="v1",
+        )
+        db.add(bot)
+        await db.flush()
+        bot.sim_seed = bot.id + preset.seed_offset
+        created = True
+    if created:
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+
+
 @router.get("", response_class=HTMLResponse)
 async def list_bots(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
 ):
+    await _ensure_preset_sims(db, user)
     bots = (
         (
             await db.execute(
@@ -111,11 +165,20 @@ async def list_bots(
     rows = [
         {
             "bot": b,
-            "kind": b.kind.value,
             "games": await _bot_games(db, b),
             "health": await compute_bot_health(db, b),
         }
         for b in bots
+        if b.kind != BotKind.SIM
+    ]
+    sim_rows = [
+        {
+            "bot": b,
+            "games": await _bot_games(db, b),
+            "health": await compute_bot_health(db, b),
+        }
+        for b in bots
+        if b.kind == BotKind.SIM
     ]
     return templates.TemplateResponse(
         request,
@@ -124,6 +187,7 @@ async def list_bots(
             "user": user,
             "is_admin": _is_admin(user),
             "rows": rows,
+            "sim_rows": sim_rows,
             "sim_profile_choices": pack_profile_choices(include_hidden=_is_admin(user)),
         },
     )
@@ -456,6 +520,9 @@ async def delete_bot(
         bot.status = BotStatus.PAUSED
         bot.paused_at = now
         bot.paused_reason = "deleted"
+        if bot.kind == BotKind.SIM:
+            bot.sim_profile_id = None
+            bot.sim_profile_name = None
         # Free the original name for reuse by stamping the archived copy. The
         # bot id is appended only in the rare case two same-named bots are
         # archived within the same minute, which would otherwise collide.
