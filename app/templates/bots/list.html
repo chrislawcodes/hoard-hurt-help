@@ -79,19 +79,14 @@
 </form>
 
 {% if rows %}
+    <h2 style="margin-top:1.75rem;">Your bots</h2>
     {% for row in rows %}
     <article class="game-card">
         <div class="game-card-info">
             <h3>{{ row.bot.name }}</h3>
             <p class="meta">
-                {% if row.kind == 'sim' %}
-                    <span class="badge badge-ok">Sim</span>
-                    · {{ row.bot.sim_strategy | replace('_', ' ') | title }}
-                    · trust {{ row.bot.sim_trust_model | title }}
-                {% else %}
-                    <span class="bot-health-live" hx-get="/me/bots/{{ row.bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% with health = row.health %}{% include "bots/_health_badge.html" %}{% endwith %}</span>
-                    · {{ row.games | length }} game(s){% if row.health.needs_reconnect %} · <a href="/me/bots/{{ row.bot.id }}#reconnect">Reconnect →</a>{% endif %}
-                {% endif %}
+                <span class="bot-health-live" hx-get="/me/bots/{{ row.bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% with health = row.health %}{% include "bots/_health_badge.html" %}{% endwith %}</span>
+                · {{ row.games | length }} game(s){% if row.health.needs_reconnect %} · <a href="/me/bots/{{ row.bot.id }}#reconnect">Reconnect →</a>{% endif %}
             </p>
         </div>
         <div class="game-card-action">
@@ -99,7 +94,27 @@
         </div>
     </article>
     {% endfor %}
-{% else %}
+{% endif %}
+
+<h2 style="margin-top:2rem;">Preset Sims</h2>
+<p class="sub">These are created automatically for you and can join games just like your other bots.</p>
+{% if sim_rows %}
+    {% for row in sim_rows %}
+    <article class="game-card">
+        <div class="game-card-info">
+            <h3>{{ row.bot.name }}</h3>
+            <p class="meta">
+                Preset Sim · {{ row.bot.sim_profile_name or (row.bot.sim_strategy | replace('_', ' ') | title) }}
+                · Ready · {{ row.games | length }} game(s)
+            </p>
+        </div>
+        <div class="game-card-action">
+            <a class="btn btn-primary" href="/me/bots/{{ row.bot.id }}">Manage →</a>
+        </div>
+    </article>
+    {% endfor %}
+{% endif %}
+{% if not rows and not sim_rows %}
     <p class="empty">No bots yet. Create one above.</p>
 {% endif %}
 <script>

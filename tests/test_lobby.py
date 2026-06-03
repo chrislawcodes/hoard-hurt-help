@@ -11,9 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
+from app.engine.sim_presets import sim_presets
 from app.engine.tokens import bot_key_lookup
 from app.main import app
-from app.models import Base, Bot, Game, GameState, Player, User
+from app.models import Base, Bot, BotKind, Game, GameState, Player, User
 from app.engine.sims import pack_profile_choices
 from tests.factories import make_bot, make_user
 
@@ -179,6 +180,37 @@ async def test_create_bot_shows_key_once(client, reset_db):
     assert r2.status_code == 200
     assert "sk_bot_" not in r2.text  # never shown again
     assert "Reissue" in r2.text
+
+
+@pytest.mark.asyncio
+async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
+    user = await _seed_user(reset_db)
+    cookies = _signed_in_cookies(user.id)
+
+    r = await client.get("/me/bots", cookies=cookies)
+    assert r.status_code == 200
+    assert "Preset Sims" in r.text
+
+    presets = sim_presets()
+    async with reset_db() as db:
+        bots = (
+            await db.execute(
+                select(Bot).where(
+                    Bot.user_id == user.id,
+                    Bot.kind == BotKind.SIM,
+                    Bot.archived_at.is_(None),
+                )
+            )
+        ).scalars().all()
+    assert len(bots) == len(presets)
+    assert {bot.sim_profile_id for bot in bots} == {preset.id for preset in presets}
+    assert {bot.sim_profile_name for bot in bots} == {preset.name for preset in presets}
+    assert all(" - " in bot.name for bot in bots)
+
+    await _seed_game(reset_db)
+    join = await client.get("/games/G_001/join", cookies=cookies)
+    assert join.status_code == 200
+    assert any(preset.name in join.text for preset in presets)
 
 
 @pytest.mark.asyncio

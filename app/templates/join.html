@@ -14,7 +14,7 @@
             Play as bot
             <select name="bot_id" required>
                 {% for b in bots %}
-                <option value="{{ b.id }}">{{ b.name }}{% if b.status.value == 'paused' %} (paused){% endif %}</option>
+                <option value="{{ b.id }}">{{ b.name }}{% if b.kind.value == 'sim' and b.sim_profile_name %} · {{ b.sim_profile_name }}{% endif %}{% if b.status.value == 'paused' %} (paused){% endif %}</option>
                 {% endfor %}
             </select>
             <small>Manage bots and connection codes under <a href="/me/bots">My Bots</a>.</small>

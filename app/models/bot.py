@@ -37,7 +37,12 @@ class BotProvider(str, enum.Enum):
 class Bot(Base):
     __tablename__ = "bots"
     # A user's bot names are distinct so the owner can tell them apart.
-    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_bots_user_id_name"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_bots_user_id_name"),
+        UniqueConstraint(
+            "user_id", "sim_profile_id", name="uq_bots_user_id_sim_profile_id"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
@@ -98,6 +103,9 @@ class Bot(Base):
     )
     # Specific model ID within the provider (e.g. "claude-sonnet-4-6"). NULL = provider default.
     model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Platform preset Sim identity, if this bot was auto-provisioned from a preset catalog.
+    sim_profile_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    sim_profile_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     # Sim traits are only meaningful when kind == sim. They stay nullable so
     # external bots keep the same shape without special casing.
     sim_strategy: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -7,6 +7,7 @@
     <p class="sub">
         {% if bot.kind.value == 'sim' %}
             <span class="badge badge-ok">Sim</span>
+            {% if bot.sim_profile_name %} · Preset Sim{% endif %}
             · {{ bot.sim_strategy | replace('_', ' ') | title }}
             · truth {{ bot.sim_truthfulness }}%
             · trust {{ bot.sim_trust_model | title }}
@@ -33,6 +34,9 @@
     <h3 style="margin-top:0;">Sim profile</h3>
     <p class="hint" style="margin-top:0;">This bot runs inside the game loop. It does not need a runner, API key, or MCP setup.</p>
     <ul style="margin:0; padding-left:1.2rem;">
+        {% if bot.sim_profile_name %}
+        <li>Preset profile: <strong>{{ bot.sim_profile_name }}</strong></li>
+        {% endif %}
         <li>Strategy: <strong>{{ bot.sim_strategy | replace('_', ' ') | title }}</strong></li>
         <li>Truthfulness: <strong>{{ bot.sim_truthfulness }}%</strong></li>
         <li>Trust model: <strong>{{ bot.sim_trust_model | title }}</strong></li>
