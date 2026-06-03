@@ -193,9 +193,15 @@
 }
 .rc-bot.carry-expand .rc-body{animation:rc-carry-expand .15s ease-out}
 @keyframes rc-carry-expand{from{transform:scaleX(.05)}to{transform:none}}
+/* compact mode (hero): smaller stage, no feed/legend, full-bleed card */
+.rc-wrap.rc-compact{margin:0;max-width:none}
+.rc-compact .rc-stage{height:300px}
+.rc-compact .rc-feed,.rc-compact .rc-legend{display:none}
+.rc-compact .rc-card{border-radius:var(--al-radius-lg,14px);box-shadow:var(--al-shadow-soft,0 6px 20px rgba(20,20,40,.08))}
+.rc-compact .rc-controls{margin-top:10px}
 </style>
 
-<div class="rc-wrap">
+<div class="rc-wrap{% if rc_compact|default(false) %} rc-compact{% endif %}">
   <div class="rc-layout">
     <aside class="rc-scorepanel">
       <p class="rc-rail-title">Standings</p>
@@ -655,5 +661,10 @@
   window.addEventListener('resize',function(){layout();renderTurn(idx);});
   layout();
   renderTurn(0);
+  // Autoplay is a control option (rc_autoplay), centralised here so every
+  // surface behaves the same and honours reduced-motion.
+  if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)){
+    setTimeout(function(){ var b=document.getElementById('rc-play'); if(b) b.click(); }, 900);
+  }
 })();
 </script>
