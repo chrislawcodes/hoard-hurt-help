@@ -28,6 +28,11 @@ class BotStatus(str, enum.Enum):
     PAUSED = "paused"
 
 
+class BotKind(str, enum.Enum):
+    EXTERNAL = "external"
+    SIM = "sim"
+
+
 class BotProvider(str, enum.Enum):
     CLAUDE = "claude"
     GEMINI = "gemini"
@@ -56,6 +61,13 @@ class Bot(Base):
     )
     # Last 4 chars of the key, shown in the UI to distinguish bots. Not secret.
     key_hint: Mapped[str] = mapped_column(String(8), nullable=False)
+    # Whether this bot is an external LLM runner or a deterministic platform Sim.
+    kind: Mapped[BotKind] = mapped_column(
+        Enum(BotKind, native_enum=False, length=16),
+        nullable=False,
+        default=BotKind.EXTERNAL,
+        server_default=BotKind.EXTERNAL.value,
+    )
     status: Mapped[BotStatus] = mapped_column(
         Enum(BotStatus, native_enum=False, length=16),
         nullable=False,
@@ -93,6 +105,14 @@ class Bot(Base):
     )
     # Specific model ID within the provider (e.g. "claude-sonnet-4-6"). NULL = provider default.
     model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Sim traits are only meaningful when kind == sim. They stay nullable so
+    # external bots keep the same shape without special casing.
+    sim_strategy: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sim_truthfulness: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sim_trust_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sim_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sim_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    sim_fixture_pack: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

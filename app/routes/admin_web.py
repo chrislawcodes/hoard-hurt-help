@@ -86,7 +86,7 @@ async def create_game_submit(
     name: Annotated[str, Form()],
     scheduled_start: Annotated[str, Form()],
     min_players: Annotated[int, Form()] = 3,
-    max_players: Annotated[int, Form()] = 100,
+    max_players: Annotated[int, Form()] = 20,
     per_turn_deadline_seconds: Annotated[int, Form()] = 60,
 ):
     def _error(msg: str):
@@ -105,6 +105,8 @@ async def create_game_submit(
         when = when.replace(tzinfo=timezone.utc)
     if when <= datetime.now(timezone.utc):
         return _error("Start time must be in the future.")
+    if not (3 <= min_players <= 20) or not (3 <= max_players <= 20):
+        return _error("Player counts must be 3 to 20.")
     if min_players > max_players:
         return _error("Min players cannot be greater than max players.")
 

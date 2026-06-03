@@ -12,6 +12,69 @@
         <input type="text" name="name" maxlength="120" required autocomplete="off">
         <small>You'll get a connection code to paste into your AI once.</small>
     </label>
+    <label>
+        Bot type
+        <select name="kind" id="bot-kind-picker">
+            <option value="external" selected>External LLM bot</option>
+            <option value="sim">Sim</option>
+        </select>
+        <small>External bots connect to your AI. Sims play deterministically inside the game.</small>
+    </label>
+    <div id="sim-fields" style="display:none; gap:0.85rem; margin-top:0.25rem;">
+        <label>
+            Sim profile
+            <select name="sim_profile_id" id="sim-profile-picker">
+                <option value="">Choose a preset profile</option>
+                {% set ns = namespace(pack='') %}
+                {% for choice in sim_profile_choices %}
+                    {% if ns.pack != choice.pack_name %}
+                        {% if not loop.first %}</optgroup>{% endif %}
+                        <optgroup label="{{ choice.pack_name }}{% if choice.hidden %} (hidden){% endif %}">
+                        {% set ns.pack = choice.pack_name %}
+                    {% endif %}
+                    <option value="{{ choice.id }}" title="{{ choice.description }}">{{ choice.label }}</option>
+                {% endfor %}
+                {% if sim_profile_choices %}</optgroup>{% endif %}
+            </select>
+            <small>Pick a curated profile. The pack keeps the Sim variety readable.</small>
+        </label>
+        <details style="margin-top:0.1rem;">
+            <summary>Advanced: custom Sim traits</summary>
+            <div style="display:grid; gap:0.75rem; margin-top:0.75rem;">
+                <label>
+                    Strategy
+                    <select name="sim_strategy">
+                        <option value="coalition_seeker">Coalition Seeker</option>
+                        <option value="loyal_partner">Loyal Partner</option>
+                        <option value="grudger">Grudger</option>
+                        <option value="leader_pressure">Leader Pressure</option>
+                        <option value="opportunist">Opportunist</option>
+                        <option value="endgame_sniper">Endgame Sniper</option>
+                        <option value="diplomat">Diplomat</option>
+                        <option value="crowd_follower">Crowd Follower</option>
+                    </select>
+                </label>
+                <label>
+                    Truthfulness
+                    <input type="number" name="sim_truthfulness" min="0" max="100" value="80">
+                </label>
+                <label>
+                    Trust model
+                    <select name="sim_trust_model">
+                        <option value="even" selected>Even</option>
+                        <option value="open">Open</option>
+                        <option value="careful">Careful</option>
+                        <option value="bitter">Bitter</option>
+                        <option value="twitchy">Twitchy</option>
+                    </select>
+                </label>
+                <label>
+                    Seed
+                    <input type="number" name="sim_seed" min="0" placeholder="Defaults to bot id">
+                </label>
+            </div>
+        </details>
+    </div>
     <div class="form-actions"><button type="submit" class="btn btn-primary">Create bot</button></div>
 </form>
 
@@ -21,8 +84,14 @@
         <div class="game-card-info">
             <h3>{{ row.bot.name }}</h3>
             <p class="meta">
-                <span class="bot-health-live" hx-get="/me/bots/{{ row.bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% with health = row.health %}{% include "bots/_health_badge.html" %}{% endwith %}</span>
-                · {{ row.games | length }} game(s){% if row.health.needs_reconnect %} · <a href="/me/bots/{{ row.bot.id }}#reconnect">Reconnect →</a>{% endif %}
+                {% if row.kind == 'sim' %}
+                    <span class="badge badge-ok">Sim</span>
+                    · {{ row.bot.sim_strategy | replace('_', ' ') | title }}
+                    · trust {{ row.bot.sim_trust_model | title }}
+                {% else %}
+                    <span class="bot-health-live" hx-get="/me/bots/{{ row.bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% with health = row.health %}{% include "bots/_health_badge.html" %}{% endwith %}</span>
+                    · {{ row.games | length }} game(s){% if row.health.needs_reconnect %} · <a href="/me/bots/{{ row.bot.id }}#reconnect">Reconnect →</a>{% endif %}
+                {% endif %}
             </p>
         </div>
         <div class="game-card-action">
@@ -33,4 +102,22 @@
 {% else %}
     <p class="empty">No bots yet. Create one above.</p>
 {% endif %}
+<script>
+(function () {
+    var picker = document.getElementById('bot-kind-picker');
+    var simFields = document.getElementById('sim-fields');
+    var simProfilePicker = document.getElementById('sim-profile-picker');
+    if (!picker || !simFields || !simProfilePicker) return;
+    function update() {
+        var showSim = picker.value === 'sim';
+        simFields.style.display = showSim ? 'grid' : 'none';
+        simProfilePicker.required = showSim;
+        if (!showSim) {
+            simProfilePicker.value = '';
+        }
+    }
+    picker.addEventListener('change', update);
+    update();
+})();
+</script>
 {% endblock %}

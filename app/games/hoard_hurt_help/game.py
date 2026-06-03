@@ -43,7 +43,7 @@ class HoardHurtHelp:
             turns_per_round=10,
             per_turn_deadline_seconds=60,
             min_players=3,
-            max_players=100,
+            max_players=20,
         )
 
     def rules_text(self) -> str:

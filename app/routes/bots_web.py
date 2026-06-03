@@ -22,8 +22,10 @@ from app.engine.bot_activity import (
     compute_bot_health,
     compute_onboarding_status,
 )
+from app.engine.sims import pack_profile_choices, resolve_profile_choice
+from app.engine.sims.strategies import normalize_strategy_name
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
-from app.models.bot import Bot, BotProvider, BotStatus
+from app.models.bot import Bot, BotKind, BotProvider, BotStatus
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.user import User
@@ -109,6 +111,7 @@ async def list_bots(
     rows = [
         {
             "bot": b,
+            "kind": b.kind.value,
             "games": await _bot_games(db, b),
             "health": await compute_bot_health(db, b),
         }
@@ -117,7 +120,12 @@ async def list_bots(
     return templates.TemplateResponse(
         request,
         "bots/list.html",
-        {"user": user, "is_admin": _is_admin(user), "rows": rows},
+        {
+            "user": user,
+            "is_admin": _is_admin(user),
+            "rows": rows,
+            "sim_profile_choices": pack_profile_choices(include_hidden=_is_admin(user)),
+        },
     )
 
 
@@ -127,6 +135,12 @@ async def create_bot(
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form()],
+    kind: Annotated[str, Form()] = "external",
+    sim_profile_id: Annotated[str | None, Form()] = None,
+    sim_strategy: Annotated[str | None, Form()] = None,
+    sim_truthfulness: Annotated[int | None, Form()] = None,
+    sim_trust_model: Annotated[str | None, Form()] = None,
+    sim_seed: Annotated[int | None, Form()] = None,
 ):
     name = name.strip()
     if not _NAME_RE.fullmatch(name):
@@ -139,15 +153,47 @@ async def create_bot(
     if existing is not None:
         raise HTTPException(409, detail="You already have a bot with that name.")
 
+    try:
+        bot_kind = BotKind(kind.strip().lower() or BotKind.EXTERNAL.value)
+    except ValueError:
+        raise HTTPException(400, detail="Unknown bot kind.")
+
     key = generate_bot_key()
     bot = Bot(
         user_id=user.id,
         name=name,
         key_lookup=bot_key_lookup(key),
         key_hint=bot_key_hint(key),
+        kind=bot_kind,
     )
     db.add(bot)
     await db.commit()
+    if bot.kind == BotKind.SIM:
+        allowed_choices = {
+            choice.id: choice
+            for choice in pack_profile_choices(include_hidden=_is_admin(user))
+        }
+        if sim_profile_id and sim_profile_id not in allowed_choices:
+            raise HTTPException(400, detail="Unknown Sim profile.")
+        if sim_profile_id:
+            seed_base = sim_seed if sim_seed is not None else bot.id
+            try:
+                profile = resolve_profile_choice(sim_profile_id, seed_base=seed_base)
+            except (KeyError, IndexError, ValueError) as exc:
+                raise HTTPException(400, detail="Unknown Sim profile.") from exc
+            bot.sim_strategy = normalize_strategy_name(profile.strategy)
+            bot.sim_truthfulness = profile.truthfulness
+            bot.sim_trust_model = profile.trust_model
+            bot.sim_seed = profile.seed
+            bot.sim_version = profile.version
+            bot.sim_fixture_pack = profile.fixture_pack
+        else:
+            bot.sim_strategy = normalize_strategy_name(sim_strategy or "coalition_seeker")
+            bot.sim_truthfulness = sim_truthfulness if sim_truthfulness is not None else 80
+            bot.sim_trust_model = (sim_trust_model or "even").strip().lower()
+            bot.sim_seed = sim_seed if sim_seed is not None else bot.id
+            bot.sim_version = "v1"
+        await db.commit()
     # Show the plaintext key exactly once, on the detail page after the redirect.
     request.session[f"fresh_bot_key_{bot.id}"] = key
     return RedirectResponse(url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER)
