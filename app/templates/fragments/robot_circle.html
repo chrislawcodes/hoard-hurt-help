@@ -127,7 +127,9 @@
 @keyframes rc-speakpulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.06)}}
 
 /* ---- Rolling talk log ---- */
-.rc-tele{display:none;flex-direction:column;border-top:1px solid var(--line,#e2e6ea);background:var(--surface-2,#f6f8fa);overflow:hidden}
+/* Always reserves a fixed-height strip (even when empty) so the card never changes
+   height when bots start/stop speaking; the rolling rows clip inside it. */
+.rc-tele{display:flex;flex-direction:column;height:104px;border-top:1px solid var(--line,#e2e6ea);background:var(--surface-2,#f6f8fa);overflow:hidden}
 .rc-tele-rows{display:flex;flex-direction:column}
 .rc-trow{display:flex;align-items:baseline;gap:9px;padding:7px 14px;transition:opacity .35s ease,transform .35s ease;animation:rc-tslide .28s ease-out}
 @keyframes rc-tslide{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
@@ -160,6 +162,8 @@
 
 .rc-feed{margin-top:14px;border:1px solid var(--line,#e2e6ea);border-radius:10px}
 .rc-feed h3{margin:0;padding:9px 14px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft,#5b6470);border-bottom:1px solid var(--line,#e2e6ea)}
+/* fixed-height scrolling body so a turn with many actions doesn't grow the viewer */
+#rc-feedbody{height:228px;overflow-y:auto}
 .rc-row{padding:8px 14px;border-bottom:1px solid var(--line,#e2e6ea);font-size:13.5px}
 .rc-row:last-child{border-bottom:0}
 .rc-who{font-weight:700}
@@ -564,12 +568,12 @@
     row.innerHTML='<span class="tdot"></span><span class="tname">'+id+'</span><span class="ttext">'+text+'</span>';
     teleRowsEl.insertBefore(row,teleRowsEl.firstChild);
     teleRows.unshift(row);
-    teleEl.style.display='flex';
   }
   function teleReset(){
     teleRows.forEach(function(r){if(r.parentNode)r.parentNode.removeChild(r);});
     teleRows=[]; teleRowsEl.innerHTML=''; teleDivEl.classList.remove('show');
-    teleEl.style.display='none';
+    // note: the strip stays in the layout (fixed height) — we only clear its rows,
+    // so the card height never changes between talking and non-talking phases
   }
   function telePinMarquee(agentId){
     teleRows.forEach(function(r){
