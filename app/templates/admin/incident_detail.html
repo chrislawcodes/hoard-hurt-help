@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Incident {{ incident.request_id }} — Admin{% endblock %}
+{% block content %}
+<a class="backlink" href="/admin/incidents">← Incidents</a>
+<div class="page-head">
+    <h1>{{ incident.request_id }}</h1>
+    <p class="sub">{{ incident.method }} {{ incident.path }} · {{ incident.created_at | localdt }}</p>
+</div>
+
+<table>
+    <tr><th>User</th><td>{{ incident.user_id if incident.user_id is not none else "—" }}</td></tr>
+    <tr><th>Game</th><td>{{ incident.game_id if incident.game_id else "—" }}</td></tr>
+    <tr><th>Bot</th><td>{{ incident.bot_id if incident.bot_id is not none else "—" }}</td></tr>
+    <tr><th>Player</th><td>{{ incident.player_id if incident.player_id is not none else "—" }}</td></tr>
+    <tr><th>Stage</th><td>{{ incident.stage if incident.stage else "—" }}</td></tr>
+    <tr><th>Error</th><td>{{ incident.error_type }}: {{ incident.error_message }}</td></tr>
+    <tr><th>Query</th><td>{{ incident.query_string if incident.query_string else "—" }}</td></tr>
+</table>
+
+{% if incident.context_json %}
+<h2>Trace context</h2>
+<pre>{{ incident.context_json }}</pre>
+{% endif %}
+
+<h2>Stack trace</h2>
+<pre>{{ incident.stacktrace }}</pre>
+{% endblock %}

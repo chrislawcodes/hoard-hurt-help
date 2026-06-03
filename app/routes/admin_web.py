@@ -13,6 +13,7 @@ from app.engine.state_machine import TransitionError
 from app.engine.tokens import generate_game_id
 from app.models.game import Game, GameState
 from app.models.player import Player
+from app.models.request_incident import RequestIncident
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
@@ -63,6 +64,48 @@ async def admin_dashboard(
             "scheduled_games": scheduled,
             "completed_games": completed,
         },
+    )
+
+
+@router.get("/admin/incidents", response_class=HTMLResponse)
+async def admin_incidents(
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_admin)],
+    request_id: str | None = None,
+):
+    stmt = select(RequestIncident).order_by(RequestIncident.created_at.desc()).limit(200)
+    if request_id:
+        stmt = stmt.where(RequestIncident.request_id == request_id.strip())
+    incidents = (await db.execute(stmt)).scalars().all()
+    return templates.TemplateResponse(
+        request,
+        "admin/incidents.html",
+        {
+            "user": user,
+            "is_admin": True,
+            "incidents": incidents,
+            "request_id": request_id or "",
+        },
+    )
+
+
+@router.get("/admin/incidents/{incident_id}", response_class=HTMLResponse)
+async def admin_incident_detail(
+    incident_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_admin)],
+):
+    incident = (
+        await db.execute(select(RequestIncident).where(RequestIncident.id == incident_id))
+    ).scalar_one_or_none()
+    if incident is None:
+        raise HTTPException(404)
+    return templates.TemplateResponse(
+        request,
+        "admin/incident_detail.html",
+        {"user": user, "is_admin": True, "incident": incident},
     )
 
 
