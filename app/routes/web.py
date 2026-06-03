@@ -7,6 +7,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import Annotated, cast
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -57,6 +58,30 @@ def _game_theme(game: Game) -> GameTheme | None:
         return get_game_module(game.game_type).theme()
     except GameError:
         return None
+
+
+def _log_join_failure(
+    stage: str,
+    *,
+    game_id: str,
+    user: User | None,
+    bot_id: int | None = None,
+    display_name: str | None = None,
+    game_type: str | None = None,
+    incident_id: str,
+) -> None:
+    """Log a join failure with enough context to reproduce it later."""
+    logger.exception(
+        "join flow failed stage=%s incident=%s game_id=%s game_type=%s user_id=%s "
+        "bot_id=%s display_name=%r",
+        stage,
+        incident_id,
+        game_id,
+        game_type,
+        user.id if user is not None else None,
+        bot_id,
+        display_name,
+    )
 
 
 # A finished game named like this is a deploy smoke test, not a real match —
@@ -798,42 +823,58 @@ async def join_form(
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
-    if game is None:
-        raise HTTPException(404)
+    incident_id = uuid4().hex[:8]
+    game: Game | None = None
+    try:
+        game = (
+            await db.execute(select(Game).where(Game.id == game_id))
+        ).scalar_one_or_none()
+        if game is None:
+            raise HTTPException(404)
 
-    # Entry is "pick one of your bots" — no per-game key is issued. The bot's
-    # stable key was shown once when it was created (see /me/bots). Archived
-    # (deleted) bots are excluded — they can't enter games.
-    bots = (
-        (
-            await db.execute(
-                select(Bot)
-                .where(Bot.user_id == user.id, Bot.archived_at.is_(None))
-                .order_by(Bot.name)
+        # Entry is "pick one of your bots" — no per-game key is issued. The bot's
+        # stable key was shown once when it was created (see /me/bots). Archived
+        # (deleted) bots are excluded — they can't enter games.
+        bots = (
+            (
+                await db.execute(
+                    select(Bot)
+                    .where(Bot.user_id == user.id, Bot.archived_at.is_(None))
+                    .order_by(Bot.name)
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
-    module = get_game_module(game.game_type)
-    presets = [asdict(p) for p in module.strategy_presets()]
-    return templates.TemplateResponse(
-        request,
-        "join.html",
-        {
-            "user": user,
-            "is_admin": _is_admin(user),
-            "game": game,
-            "game_theme": _game_theme(game),
-            "player_count": await _player_count(db, game.id),
-            "bots": bots,
-            "presets": presets,
-            "strategy_prompt": module.default_strategy(),
-            "base_url": settings.base_url,
-            "error": None,
-        },
-    )
+        module = get_game_module(game.game_type)
+        presets = [asdict(p) for p in module.strategy_presets()]
+        return templates.TemplateResponse(
+            request,
+            "join.html",
+            {
+                "user": user,
+                "is_admin": _is_admin(user),
+                "game": game,
+                "game_theme": _game_theme(game),
+                "player_count": await _player_count(db, game.id),
+                "bots": bots,
+                "presets": presets,
+                "strategy_prompt": module.default_strategy(),
+                "base_url": settings.base_url,
+                "error": None,
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        _log_join_failure(
+            "join_form",
+            game_id=game_id,
+            user=user,
+            game_type=game.game_type if game is not None else None,
+            incident_id=incident_id,
+        )
+        raise
 
 
 @router.post("/games/{game_id}/join")
@@ -847,116 +888,134 @@ async def join_submit(
     strategy_prompt: Annotated[str, Form()] = "",
 ):
     """Enter one of the user's bots into a game. No credential is issued."""
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
-    if game is None:
-        raise HTTPException(404)
-    if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
-        raise HTTPException(409, detail="Game not open for registration.")
+    incident_id = uuid4().hex[:8]
+    game: Game | None = None
+    try:
+        game = (
+            await db.execute(select(Game).where(Game.id == game_id))
+        ).scalar_one_or_none()
+        if game is None:
+            raise HTTPException(404)
+        if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
+            raise HTTPException(409, detail="Game not open for registration.")
 
-    bot = (
-        await db.execute(
-            select(Bot).where(
-                Bot.id == bot_id,
-                Bot.user_id == user.id,
-                Bot.archived_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if bot is None:
-        raise HTTPException(404, detail="Bot not found.")
-
-    # Validate entry: name shape, one player per (bot, game), unique name, capacity.
-    name_ok = bool(re.fullmatch(r"[a-zA-Z0-9_]{1,32}", display_name))
-    already_in = (
-        await db.execute(
-            select(Player).where(
-                Player.bot_id == bot.id,
-                Player.game_id == game.id,
-                Player.left_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    name_taken = (
-        await db.execute(
-            select(Player).where(
-                Player.game_id == game.id,
-                Player.agent_id == display_name,
-                Player.left_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    count = await _player_count(db, game.id)
-
-    error: str | None = None
-    code = status.HTTP_400_BAD_REQUEST
-    if not name_ok:
-        error = "Name must be 1–32 letters, numbers, or underscores."
-    elif already_in is not None:
-        error, code = "That bot is already in this game.", status.HTTP_409_CONFLICT
-    elif name_taken is not None:
-        error = "That display name is already taken in this game."
-    elif count >= game.max_players:
-        error, code = "Game is full.", status.HTTP_409_CONFLICT
-    if error is not None:
-        bots = (
-            (
-                await db.execute(
-                    select(Bot)
-                    .where(Bot.user_id == user.id, Bot.archived_at.is_(None))
-                    .order_by(Bot.name)
+        bot = (
+            await db.execute(
+                select(Bot).where(
+                    Bot.id == bot_id,
+                    Bot.user_id == user.id,
+                    Bot.archived_at.is_(None),
                 )
             )
-            .scalars()
-            .all()
-        )
-        presets = [asdict(p) for p in get_game_module(game.game_type).strategy_presets()]
-        return templates.TemplateResponse(
-            request,
-            "join.html",
-            {
-                "user": user,
-                "is_admin": _is_admin(user),
-                "game": game,
-                "game_theme": _game_theme(game),
-                "player_count": count,
-                "bots": bots,
-                "presets": presets,
-                "strategy_prompt": strategy_prompt,
-                "base_url": settings.base_url,
-                "error": error,
-            },
-            status_code=code,
-        )
+        ).scalar_one_or_none()
+        if bot is None:
+            raise HTTPException(404, detail="Bot not found.")
 
-    if bot.provider:
-        _model_label = bot.provider.value + (f"/{bot.model}" if bot.model else "")
-    else:
-        _model_label = None
-    player = Player(
-        game_id=game.id,
-        user_id=bot.user_id,
-        bot_id=bot.id,
-        agent_id=display_name,
-        model_self_report=_model_label,
-    )
-    db.add(player)
-    await db.flush()
-    # Seed the player's per-game strategy from what they submitted at entry (a
-    # preset they picked or text they wrote); blank falls back to the game's
-    # default. Copy-at-entry: later edits on the player page don't rewrite this.
-    seed = strategy_prompt.strip() or get_game_module(game.game_type).default_strategy()
-    db.add(
-        StrategyPrompt(
-            player_id=player.id,
-            prompt_text=seed,
-            is_default=False,
-        )
-    )
-    await db.commit()
+        # Validate entry: name shape, one player per (bot, game), unique name, capacity.
+        name_ok = bool(re.fullmatch(r"[a-zA-Z0-9_]{1,32}", display_name))
+        already_in = (
+            await db.execute(
+                select(Player).where(
+                    Player.bot_id == bot.id,
+                    Player.game_id == game.id,
+                    Player.left_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        name_taken = (
+            await db.execute(
+                select(Player).where(
+                    Player.game_id == game.id,
+                    Player.agent_id == display_name,
+                    Player.left_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        count = await _player_count(db, game.id)
 
-    return RedirectResponse(
-        url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER
-    )
+        error: str | None = None
+        code = status.HTTP_400_BAD_REQUEST
+        if not name_ok:
+            error = "Name must be 1–32 letters, numbers, or underscores."
+        elif already_in is not None:
+            error, code = "That bot is already in this game.", status.HTTP_409_CONFLICT
+        elif name_taken is not None:
+            error = "That display name is already taken in this game."
+        elif count >= game.max_players:
+            error, code = "Game is full.", status.HTTP_409_CONFLICT
+        if error is not None:
+            bots = (
+                (
+                    await db.execute(
+                        select(Bot)
+                        .where(Bot.user_id == user.id, Bot.archived_at.is_(None))
+                        .order_by(Bot.name)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            presets = [asdict(p) for p in get_game_module(game.game_type).strategy_presets()]
+            return templates.TemplateResponse(
+                request,
+                "join.html",
+                {
+                    "user": user,
+                    "is_admin": _is_admin(user),
+                    "game": game,
+                    "game_theme": _game_theme(game),
+                    "player_count": count,
+                    "bots": bots,
+                    "presets": presets,
+                    "strategy_prompt": strategy_prompt,
+                    "base_url": settings.base_url,
+                    "error": error,
+                },
+                status_code=code,
+            )
+
+        if bot.provider:
+            _model_label = bot.provider.value + (f"/{bot.model}" if bot.model else "")
+        else:
+            _model_label = None
+        player = Player(
+            game_id=game.id,
+            user_id=bot.user_id,
+            bot_id=bot.id,
+            agent_id=display_name,
+            model_self_report=_model_label,
+        )
+        db.add(player)
+        await db.flush()
+        # Seed the player's per-game strategy from what they submitted at entry (a
+        # preset they picked or text they wrote); blank falls back to the game's
+        # default. Copy-at-entry: later edits on the player page don't rewrite this.
+        seed = strategy_prompt.strip() or get_game_module(game.game_type).default_strategy()
+        db.add(
+            StrategyPrompt(
+                player_id=player.id,
+                prompt_text=seed,
+                is_default=False,
+            )
+        )
+        await db.commit()
+
+        return RedirectResponse(
+            url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        _log_join_failure(
+            "join_submit",
+            game_id=game_id,
+            user=user,
+            bot_id=bot_id,
+            display_name=display_name,
+            game_type=game.game_type if game is not None else None,
+            incident_id=incident_id,
+        )
+        raise
 
 
 @router.get("/me/games", response_class=HTMLResponse)
