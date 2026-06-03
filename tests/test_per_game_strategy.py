@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.config import settings
 from app.games import get as get_game_module
 from app.main import app
-from app.models import Base, Game, GameState, Player, StrategyPrompt
+from app.models import Base, Match, GameState, Player, StrategyPrompt
 from tests.factories import make_bot, make_user
 
 
@@ -55,9 +55,9 @@ async def _seed_game_user_bot(
         await db.flush()
         bot, _ = await make_bot(db, user, name="Atlas")
         db.add(
-            Game(
+            Match(
                 id="G_001",
-                name="Test Game",
+                name="Test Match",
                 state=GameState.REGISTERING,
                 scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
                 per_turn_deadline_seconds=60,
@@ -72,7 +72,7 @@ async def _latest_strategy(reset_db: async_sessionmaker, agent_id: str) -> str:
         player = (
             await db.execute(
                 select(Player).where(
-                    Player.game_id == "G_001", Player.agent_id == agent_id
+                    Player.match_id == "G_001", Player.agent_id == agent_id
                 )
             )
         ).scalar_one()

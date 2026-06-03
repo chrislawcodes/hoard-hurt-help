@@ -30,7 +30,7 @@ from app.engine.state_machine import assert_transition
 from app.engine.tokens import generate_turn_token
 from app.games import get as get_game_module
 from app.games.base import GameError
-from app.models.game import Game, GameState
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 
@@ -52,13 +52,13 @@ def _as_aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
-async def _active_player_count(db, game_id: str) -> int:
+async def _active_player_count(db, match_id: str) -> int:
     """Seats currently held in a game — a player who left frees their seat."""
     return (
         await db.scalar(
             select(func.count())
             .select_from(Player)
-            .where(Player.game_id == game_id, Player.left_at.is_(None))
+            .where(Player.match_id == match_id, Player.left_at.is_(None))
         )
     ) or 0
 
@@ -70,30 +70,30 @@ class SchedulerRegistry:
         self._tasks: dict[str, asyncio.Task] = {}
         self._poller: asyncio.Task | None = None
 
-    def is_running(self, game_id: str) -> bool:
-        t = self._tasks.get(game_id)
+    def is_running(self, match_id: str) -> bool:
+        t = self._tasks.get(match_id)
         return t is not None and not t.done()
 
-    def start(self, game_id: str) -> None:
-        if self.is_running(game_id):
+    def start(self, match_id: str) -> None:
+        if self.is_running(match_id):
             return
-        task = asyncio.create_task(_run_game(game_id))
+        task = asyncio.create_task(_run_game(match_id))
         # The loop is fire-and-forget. Without a done-callback its exception sits
         # unretrieved on the task and is NEVER logged — that is how a crashed
         # game silently froze mid-turn. Surface it instead.
-        task.add_done_callback(functools.partial(self._log_task_result, game_id))
-        self._tasks[game_id] = task
+        task.add_done_callback(functools.partial(self._log_task_result, match_id))
+        self._tasks[match_id] = task
 
-    def _log_task_result(self, game_id: str, task: asyncio.Task) -> None:
+    def _log_task_result(self, match_id: str, task: asyncio.Task) -> None:
         """Log a game loop that ended in an exception (not a clean finish)."""
         if task.cancelled():
             return
         exc = task.exception()
         if exc is not None:
-            logger.error("game %s loop task crashed", game_id, exc_info=exc)
+            logger.error("game %s loop task crashed", match_id, exc_info=exc)
 
-    def stop(self, game_id: str) -> None:
-        t = self._tasks.pop(game_id, None)
+    def stop(self, match_id: str) -> None:
+        t = self._tasks.pop(match_id, None)
         if t and not t.done():
             t.cancel()
 
@@ -112,8 +112,8 @@ class SchedulerRegistry:
             games = (
                 (
                     await db.execute(
-                        select(Game).where(
-                            Game.state.in_([GameState.SCHEDULED, GameState.REGISTERING])
+                        select(Match).where(
+                            Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING])
                         )
                     )
                 )
@@ -164,8 +164,8 @@ class SchedulerRegistry:
         """On app startup, find any ACTIVE games and (re)start their loops."""
         factory = session_factory or SessionLocal
         async with factory() as db:
-            games: list[Game] = list(
-                (await db.execute(select(Game).where(Game.state == GameState.ACTIVE)))
+            games: list[Match] = list(
+                (await db.execute(select(Match).where(Match.state == GameState.ACTIVE)))
                 .scalars()
                 .all()
             )
@@ -177,10 +177,10 @@ class SchedulerRegistry:
 registry = SchedulerRegistry()
 
 
-async def _run_game(game_id: str) -> None:
+async def _run_game(match_id: str) -> None:
     """The actual loop for one game."""
     async with SessionLocal() as db:
-        game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+        game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
 
         if game.state != GameState.ACTIVE:
             return
@@ -188,12 +188,12 @@ async def _run_game(game_id: str) -> None:
         # The platform drives the loop through the game's module — never a
         # hard-coded resolver. Skip (don't crash the poller) on an unknown type.
         try:
-            module = get_game_module(game.game_type)
+            module = get_game_module(game.game)
         except GameError:
             logger.error(
-                "Game %s has unknown game_type %r — skipping its turn loop.",
+                "Match %s has unknown game_type %r — skipping its turn loop.",
                 game.id,
-                game.game_type,
+                game.game,
             )
             return
 
@@ -205,7 +205,7 @@ async def _run_game(game_id: str) -> None:
             if round_num != start_round or start_turn == 1:
                 # Reset round scores at start of each fresh round.
                 players: list[Player] = list(
-                    (await db.execute(select(Player).where(Player.game_id == game.id)))
+                    (await db.execute(select(Player).where(Player.match_id == game.id)))
                     .scalars()
                     .all()
                 )
@@ -266,7 +266,7 @@ async def _run_game(game_id: str) -> None:
         await publish(game.id, "game_completed", {"winner_player_id": game.winner_player_id})
 
 
-async def _open_turn(db, game: Game, round_num: int, turn_num: int) -> Turn:
+async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
     """Open the turn row for (game, round, turn), reusing it if it already exists.
 
     On a mid-game restart the loop resumes from game.current_round/current_turn,
@@ -278,7 +278,7 @@ async def _open_turn(db, game: Game, round_num: int, turn_num: int) -> Turn:
     existing = (
         await db.execute(
             select(Turn).where(
-                Turn.game_id == game.id,
+                Turn.match_id == game.id,
                 Turn.round == round_num,
                 Turn.turn == turn_num,
             )
@@ -292,7 +292,7 @@ async def _open_turn(db, game: Game, round_num: int, turn_num: int) -> Turn:
 
     now = datetime.now(timezone.utc)
     turn = Turn(
-        game_id=game.id,
+        match_id=game.id,
         round=round_num,
         turn=turn_num,
         turn_token=generate_turn_token(),
@@ -318,7 +318,7 @@ async def _all_submitted(db, turn: Turn) -> bool:
     active = await db.scalar(
         select(func.count())
         .select_from(Player)
-        .where(Player.game_id == turn.game_id, Player.left_at.is_(None))
+        .where(Player.match_id == turn.match_id, Player.left_at.is_(None))
     )
     submitted = await db.scalar(
         select(func.count())
@@ -334,7 +334,7 @@ async def _all_messaged(db, turn: Turn) -> bool:
     active = await db.scalar(
         select(func.count())
         .select_from(Player)
-        .where(Player.game_id == turn.game_id, Player.left_at.is_(None))
+        .where(Player.match_id == turn.match_id, Player.left_at.is_(None))
     )
     messaged = await db.scalar(
         select(func.count())
@@ -356,7 +356,7 @@ async def _wait_for_messages(db, turn: Turn) -> None:
         await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
 
 
-async def _begin_act_phase(db, game: Game, turn: Turn) -> None:
+async def _begin_act_phase(db, game: Match, turn: Turn) -> None:
     """Transition a turn from talk to act and reset the turn token/deadline."""
     turn.phase = "act"
     turn.turn_token = generate_turn_token()
@@ -395,8 +395,8 @@ async def cancel_overdue_unfilled_games(db) -> int:
     games = (
         (
             await db.execute(
-                select(Game).where(
-                    Game.state.in_([GameState.SCHEDULED, GameState.REGISTERING])
+                select(Match).where(
+                    Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING])
                 )
             )
         )
@@ -424,7 +424,7 @@ async def cancel_overdue_unfilled_games(db) -> int:
     return cancelled
 
 
-async def start_game(db, game: Game) -> None:
+async def start_game(db, game: Match) -> None:
     """Transition SCHEDULED/REGISTERING → ACTIVE and kick off the loop."""
     if game.state == GameState.SCHEDULED:
         # SCHEDULED can't jump straight to ACTIVE; open registration first so

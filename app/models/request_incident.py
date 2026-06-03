@@ -21,7 +21,7 @@ class RequestIncident(Base):
     path: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     query_string: Mapped[str | None] = mapped_column(Text(), nullable=True)
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    game_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    match_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     bot_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     player_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     stage: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

@@ -20,6 +20,11 @@ class SimProfile:
 
 @dataclass(frozen=True)
 class SimContext:
+    # Deliberately kept as `game_id` (not renamed to match_id in feature 009).
+    # This field is never read by name; it only contributes to the deterministic
+    # Sim seed via `str(context)` in runtime._seed_int. Renaming it changes every
+    # Sim's pseudo-random move sequence (and unmasks a latent order-dependence in
+    # the seed). Behavior-preserving for a pure rename — see specs/009.
     game_id: str
     round: int
     turn: int

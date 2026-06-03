@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.main import app
-from app.models import Base, Game, GameState, Player, StrategyPrompt, Turn, TurnSubmission, User
+from app.models import Base, Match, GameState, Player, StrategyPrompt, Turn, TurnSubmission, User
 from tests.factories import make_bot
 
 
@@ -87,7 +87,7 @@ async def test_admin_creates_game_via_api(client, reset_db):
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["id"].startswith("G_")
+    assert body["id"].startswith("M_")
     assert body["state"] == "registering"
 
 
@@ -179,7 +179,7 @@ async def test_web_form_rejects_past_time(client, reset_db):
 async def test_admin_cancel_pre_start(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     async with reset_db() as db:
-        g = Game(
+        g = Match(
             id="G_001",
             name="t",
             state=GameState.REGISTERING,
@@ -200,7 +200,7 @@ async def test_admin_delete_game_removes_everything(client, reset_db):
         u = User(google_sub="pu", email="pu@test.com")
         db.add(u)
         await db.flush()
-        g = Game(
+        g = Match(
             id="G_001",
             name="Doomed",
             state=GameState.REGISTERING,
@@ -209,7 +209,7 @@ async def test_admin_delete_game_removes_everything(client, reset_db):
         db.add(g)
         await db.flush()
         bot, _ = await make_bot(db, u, name="AI_0")
-        p = Player(game_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="AI_0")
+        p = Player(match_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="AI_0")
         db.add(p)
         await db.flush()
         db.add(StrategyPrompt(player_id=p.id, prompt_text="plan", is_default=False))
@@ -224,9 +224,9 @@ async def test_admin_delete_game_removes_everything(client, reset_db):
     assert r.status_code == 303
 
     async with reset_db() as db:
-        gone = (await db.execute(select(Game).where(Game.id == "G_001"))).scalar_one_or_none()
+        gone = (await db.execute(select(Match).where(Match.id == "G_001"))).scalar_one_or_none()
         players = (
-            (await db.execute(select(Player).where(Player.game_id == "G_001"))).scalars().all()
+            (await db.execute(select(Player).where(Player.match_id == "G_001"))).scalars().all()
         )
     assert gone is None
     assert players == []
@@ -236,7 +236,7 @@ async def test_admin_delete_game_removes_everything(client, reset_db):
 async def test_non_admin_cannot_delete(client, reset_db):
     user = await _seed_user(reset_db, "regular@test.com")
     async with reset_db() as db:
-        g = Game(
+        g = Match(
             id="G_001",
             name="t",
             state=GameState.REGISTERING,
@@ -260,7 +260,7 @@ async def test_export_csv_shape(client, reset_db):
         u = User(google_sub="u1", email="p1@t.com")
         db.add(u)
         await db.flush()
-        g = Game(
+        g = Match(
             id="G_001",
             name="t",
             state=GameState.COMPLETED,
@@ -270,7 +270,7 @@ async def test_export_csv_shape(client, reset_db):
         await db.flush()
         bot, _ = await make_bot(db, u, name="AI_0")
         p = Player(
-            game_id="G_001",
+            match_id="G_001",
             user_id=u.id,
             bot_id=bot.id,
             agent_id="AI_0",
@@ -278,7 +278,7 @@ async def test_export_csv_shape(client, reset_db):
         db.add(p)
         await db.flush()
         t = Turn(
-            game_id="G_001",
+            match_id="G_001",
             round=1,
             turn=1,
             turn_token="tk1",
@@ -307,7 +307,7 @@ async def test_export_csv_shape(client, reset_db):
     assert r.status_code == 200
     text = r.text
     header = text.split("\n")[0]
-    assert "game_id,round,turn,agent_id,action" in header
+    assert "match_id,round,turn,agent_id,action" in header
     assert "AI_0" in text
     assert "HOARD" in text
 
@@ -319,7 +319,7 @@ async def test_export_json_includes_strategy_prompts(client, reset_db):
         u = User(google_sub="u1", email="p1@t.com")
         db.add(u)
         await db.flush()
-        g = Game(
+        g = Match(
             id="G_001",
             name="t",
             state=GameState.COMPLETED,
@@ -328,7 +328,7 @@ async def test_export_json_includes_strategy_prompts(client, reset_db):
         db.add(g)
         await db.flush()
         bot, _ = await make_bot(db, u, name="AI_0")
-        p = Player(game_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="AI_0")
+        p = Player(match_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="AI_0")
         db.add(p)
         await db.flush()
         db.add(

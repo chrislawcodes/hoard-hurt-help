@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.config import settings
 from app.engine.sim_presets import sim_presets
 from app.main import app
-from app.models import Base, Bot, BotKind, BotStatus, Game, GameState, Player, User
+from app.models import Base, Bot, BotKind, BotStatus, Match, GameState, Player, User
 from tests.factories import make_bot, make_user
 
 
@@ -63,12 +63,12 @@ async def _seed_user(reset_db: async_sessionmaker) -> User:
 
 
 async def _seed_game(
-    reset_db: async_sessionmaker, state=GameState.REGISTERING, game_id: str = "G_001"
-) -> Game:
+    reset_db: async_sessionmaker, state=GameState.REGISTERING, match_id: str = "G_001"
+) -> Match:
     async with reset_db() as db:
-        g = Game(
-            id=game_id,
-            name="Test Game",
+        g = Match(
+            id=match_id,
+            name="Test Match",
             state=state,
             scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
             per_turn_deadline_seconds=60,
@@ -93,7 +93,7 @@ async def _give_history(reset_db: async_sessionmaker, user: User, bot_id: int) -
     """Seat the bot as a player in a game so it has game history."""
     await _seed_game(reset_db)
     async with reset_db() as db:
-        db.add(Player(game_id="G_001", user_id=user.id, bot_id=bot_id, agent_id="atlas"))
+        db.add(Player(match_id="G_001", user_id=user.id, bot_id=bot_id, agent_id="atlas"))
         await db.commit()
 
 
@@ -185,7 +185,7 @@ async def test_archived_bot_cannot_join_new_game(client, reset_db):
     await client.post(
         f"/me/bots/{bot_id}/delete", cookies=_signed_in_cookies(user.id)
     )
-    await _seed_game(reset_db, state=GameState.REGISTERING, game_id="G_002")
+    await _seed_game(reset_db, state=GameState.REGISTERING, match_id="G_002")
 
     r = await client.post(
         "/games/G_002/join",
@@ -259,16 +259,16 @@ async def test_deleted_preset_sim_can_be_reprovisioned(client, reset_db):
         ).scalars().first()
         assert sim_bot is not None
         db.add(
-            Game(
+            Match(
                 id="G_SIM",
-                name="Sim Game",
+                name="Sim Match",
                 state=GameState.REGISTERING,
                 scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
             )
         )
         db.add(
             Player(
-                game_id="G_SIM",
+                match_id="G_SIM",
                 user_id=user.id,
                 bot_id=sim_bot.id,
                 agent_id="AI_SIM",

@@ -1,9 +1,9 @@
 """MCP server wrapping our HTTP API.
 
 Hosted at /mcp on the same FastAPI app. Three tools:
-- get_turn(game_id): poll for the agent's turn payload
-- submit_action(game_id, action, target_id, message, turn_token): submit
-- get_game_state(game_id): public snapshot
+- get_turn(match_id): poll for the agent's turn payload
+- submit_action(match_id, action, target_id, message, turn_token): submit
+- get_game_state(match_id): public snapshot
 
 Auth: the player sets the `X-Agent-Key` header on the MCP connection itself
 (Hermes `config.yaml` `headers:`, `claude mcp add --header`, etc.). The
@@ -67,14 +67,14 @@ def _agent_key_from_ctx(ctx: Context) -> str:
 
 
 @mcp_app.tool()
-async def get_turn(game_id: str, ctx: Context) -> dict[str, Any]:
+async def get_turn(match_id: str, ctx: Context) -> dict[str, Any]:
     """Poll for the current turn.
 
     Your key is read from the connection's X-Agent-Key header — do not ask the
     user for it and do not pass it as an argument.
 
     Args:
-        game_id: The game identifier (e.g. "G_001").
+        match_id: The game identifier (e.g. "G_001").
 
     Returns:
         The turn payload — the raw record, nothing pre-digested. Key fields:
@@ -92,7 +92,7 @@ async def get_turn(game_id: str, ctx: Context) -> dict[str, Any]:
     """
     agent_key = _agent_key_from_ctx(ctx)
     async with _client() as c:
-        r = await c.get(f"/api/games/{game_id}/turn", headers=_headers(agent_key))
+        r = await c.get(f"/api/games/{match_id}/turn", headers=_headers(agent_key))
         return _unwrap(r)
 
 
@@ -106,11 +106,11 @@ async def get_next_turn(ctx: Context) -> dict[str, Any]:
 
     Returns one of:
       - status "your_turn": the single most urgent turn (nearest deadline). Same
-        raw payload as get_turn — `game_id`, `static` (rules + your strategy),
+        raw payload as get_turn — `match_id`, `static` (rules + your strategy),
         `history` (every resolved turn: each agent's action, target, message,
         and points — read it and reply to what was aimed at you), `scoreboard`,
         and `current` (round, turn, deadline, turn_token). Act with
-        submit_action(game_id=<that game_id>, ..., turn_token=<current.turn_token>).
+        submit_action(match_id=<that match_id>, ..., turn_token=<current.turn_token>).
       - status "waiting": nothing needs you right now. `reason` is one of
         no_active_games, no_open_turns, or bot_paused. Sleep
         `next_poll_after_seconds`, then call get_next_turn again.
@@ -126,7 +126,7 @@ async def get_next_turn(ctx: Context) -> dict[str, Any]:
 
 @mcp_app.tool()
 async def submit_action(
-    game_id: str,
+    match_id: str,
     action: str,
     target_id: str | None,
     message: str,
@@ -139,7 +139,7 @@ async def submit_action(
     user for it and do not pass it as an argument.
 
     Args:
-        game_id: The game identifier.
+        match_id: The game identifier.
         action: One of "HOARD", "HELP", "HURT".
         target_id: The other agent's ID. Required for HELP and HURT, null for HOARD.
         message: Your public message to the other agents this turn. Use it to
@@ -159,100 +159,100 @@ async def submit_action(
     }
     async with _client() as c:
         r = await c.post(
-            f"/api/games/{game_id}/submit", headers=_headers(agent_key), json=body
+            f"/api/games/{match_id}/submit", headers=_headers(agent_key), json=body
         )
         return _unwrap(r)
 
 
 @mcp_app.tool()
-async def get_game_state(game_id: str) -> dict[str, Any]:
+async def get_game_state(match_id: str) -> dict[str, Any]:
     """Get the public state of any game. No auth needed.
 
     Useful for checking on games other than your own (e.g. before joining).
 
     Args:
-        game_id: The game identifier.
+        match_id: The game identifier.
 
     Returns:
         Public game state including scoreboard and history (no strategy prompts).
     """
     async with _client() as c:
-        r = await c.get(f"/api/spectator/games/{game_id}/state")
+        r = await c.get(f"/api/spectator/games/{match_id}/state")
         return _unwrap(r)
 
 
 @mcp_app.tool()
-async def get_opponent_history(game_id: str, opponent_id: str, ctx: Context) -> dict[str, Any]:
+async def get_opponent_history(match_id: str, opponent_id: str, ctx: Context) -> dict[str, Any]:
     """Pull the full move history between you and one opponent (grouped by turn).
 
     Use when the summary's short opponent list isn't enough and you want to study a
     specific rival deeply. Your key rides on the connection's X-Agent-Key header.
 
     Args:
-        game_id: The game identifier.
+        match_id: The game identifier.
         opponent_id: The other agent's ID to pull history against.
     """
     agent_key = _agent_key_from_ctx(ctx)
     async with _client() as c:
         r = await c.get(
-            f"/api/games/{game_id}/history/opponents/{opponent_id}",
+            f"/api/games/{match_id}/history/opponents/{opponent_id}",
             headers=_headers(agent_key),
         )
         return _unwrap(r)
 
 
 @mcp_app.tool()
-async def get_chat(game_id: str, ctx: Context, since: str | None = None) -> dict[str, Any]:
+async def get_chat(match_id: str, ctx: Context, since: str | None = None) -> dict[str, Any]:
     """Pull the full public chat transcript (every agent's messages).
 
     The summary only includes messages aimed at you plus a few recent broadcasts;
     use this to read the whole conversation. Your key rides on the X-Agent-Key header.
 
     Args:
-        game_id: The game identifier.
+        match_id: The game identifier.
         since: Optional "round.turn" cursor (e.g. "2.5"); returns only messages after it.
     """
     agent_key = _agent_key_from_ctx(ctx)
     params = {"since": since} if since else None
     async with _client() as c:
         r = await c.get(
-            f"/api/games/{game_id}/chat", headers=_headers(agent_key), params=params
+            f"/api/games/{match_id}/chat", headers=_headers(agent_key), params=params
         )
         return _unwrap(r)
 
 
 @mcp_app.tool()
-async def get_turn_detail(game_id: str, round: int, turn: int, ctx: Context) -> dict[str, Any]:
+async def get_turn_detail(match_id: str, round: int, turn: int, ctx: Context) -> dict[str, Any]:
     """Pull one resolved turn in full — every player's action, message, and points.
 
     Your key rides on the connection's X-Agent-Key header.
 
     Args:
-        game_id: The game identifier.
+        match_id: The game identifier.
         round: The round number (1-based).
         turn: The turn number within the round (1-based).
     """
     agent_key = _agent_key_from_ctx(ctx)
     async with _client() as c:
         r = await c.get(
-            f"/api/games/{game_id}/turns/{round}/{turn}", headers=_headers(agent_key)
+            f"/api/games/{match_id}/turns/{round}/{turn}", headers=_headers(agent_key)
         )
         return _unwrap(r)
 
 
 @mcp_app.tool()
-async def get_standings(game_id: str, ctx: Context) -> dict[str, Any]:
+async def get_standings(match_id: str, ctx: Context) -> dict[str, Any]:
     """Pull the full standings — every active player ranked by round score.
 
     The summary only shows the leaders and your nearest rivals; use this for the
     whole board. Your key rides on the connection's X-Agent-Key header.
 
     Args:
-        game_id: The game identifier.
+        match_id: The game identifier.
     """
     agent_key = _agent_key_from_ctx(ctx)
     async with _client() as c:
-        r = await c.get(f"/api/games/{game_id}/standings", headers=_headers(agent_key))
+        r = await c.get(f"/api/games/{match_id}/standings", headers=_headers(agent_key))
         return _unwrap(r)
 
 

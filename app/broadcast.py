@@ -21,10 +21,10 @@ class _Subscriber:
 _subscribers: dict[str, list[_Subscriber]] = {}
 
 
-async def publish(game_id: str, event_type: str, payload: dict) -> None:
+async def publish(match_id: str, event_type: str, payload: dict) -> None:
     """Push an SSE-formatted event to every subscriber for this game."""
     msg = f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
-    for sub in _subscribers.get(game_id, []):
+    for sub in _subscribers.get(match_id, []):
         # Drop if subscriber is too slow rather than block resolution.
         if sub.queue.full():
             try:
@@ -34,14 +34,14 @@ async def publish(game_id: str, event_type: str, payload: dict) -> None:
         await sub.queue.put(msg)
 
 
-async def subscribe(game_id: str) -> AsyncIterator[str]:
+async def subscribe(match_id: str) -> AsyncIterator[str]:
     """Yield SSE-formatted strings as events arrive."""
     sub = _Subscriber()
-    _subscribers.setdefault(game_id, []).append(sub)
+    _subscribers.setdefault(match_id, []).append(sub)
     try:
         while True:
             yield await sub.queue.get()
     finally:
-        _subscribers.get(game_id, []).remove(sub)
-        if not _subscribers.get(game_id):
-            _subscribers.pop(game_id, None)
+        _subscribers.get(match_id, []).remove(sub)
+        if not _subscribers.get(match_id):
+            _subscribers.pop(match_id, None)

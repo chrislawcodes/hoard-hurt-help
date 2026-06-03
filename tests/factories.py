@@ -59,7 +59,7 @@ async def make_bot(
 
 async def seat_player(
     db,
-    game_id: str,
+    match_id: str,
     agent_id: str,
     i: int = 0,
     user: User | None = None,
@@ -72,7 +72,7 @@ async def seat_player(
     if user is None:
         user = await make_user(db, i)
     bot, key = await make_bot(db, user, name=f"bot-{agent_id}", key=key)
-    p = Player(game_id=game_id, user_id=user.id, bot_id=bot.id, agent_id=agent_id)
+    p = Player(match_id=match_id, user_id=user.id, bot_id=bot.id, agent_id=agent_id)
     p._test_key = key  # type: ignore[attr-defined]
     db.add(p)
     await db.flush()

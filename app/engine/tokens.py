@@ -30,6 +30,11 @@ def generate_turn_token() -> str:
     return "tk_" + secrets.token_hex(12)
 
 
-def generate_game_id(n: int) -> str:
-    """Game IDs are G_001, G_002, ... assigned by the server."""
-    return f"G_{n:04d}"
+def generate_match_id(n: int) -> str:
+    """Match IDs are M_0001, M_0002, ... assigned by the server.
+
+    Renamed from generate_game_id (feature 009): a single play is a "match";
+    "game" now means the title/module in app/games/. Migration 0018 rewrote the
+    historical G_ prefix to M_.
+    """
+    return f"M_{n:04d}"

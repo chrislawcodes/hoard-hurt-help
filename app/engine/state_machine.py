@@ -1,9 +1,9 @@
-"""Game state transitions.
+"""Match state transitions.
 
 Pure functions over GameState; the route layer wraps these with DB writes.
 """
 
-from app.models.game import GameState
+from app.models.match import GameState
 
 # Allowed transitions. Anything not in this map is forbidden.
 ALLOWED: dict[GameState, set[GameState]] = {

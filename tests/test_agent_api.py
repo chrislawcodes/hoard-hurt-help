@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.main import app
-from app.models import Base, Game, GameState, Player, Turn, TurnSubmission
+from app.models import Base, Match, GameState, Player, Turn, TurnSubmission
 from app.engine.tokens import generate_turn_token
 from tests.factories import seat_player
 
@@ -48,7 +48,7 @@ async def _seed_game(
     scheduled_start: datetime | None = None,
 ) -> tuple[str, list[Player]]:
     async with reset_db() as db:
-        g = Game(
+        g = Match(
             id="G_001",
             name="t",
             state=state,
@@ -139,12 +139,12 @@ async def test_poll_your_turn_then_submit(client, reset_db):
     async with reset_db() as db:
         from sqlalchemy import select
 
-        game = (await db.execute(select(Game).where(Game.id == "G_001"))).scalar_one()
+        game = (await db.execute(select(Match).where(Match.id == "G_001"))).scalar_one()
         game.current_round = 1
         game.current_turn = 1
         now = datetime.now(timezone.utc)
         t = Turn(
-            game_id=game.id,
+            match_id=game.id,
             round=1,
             turn=1,
             turn_token=generate_turn_token(),
@@ -196,10 +196,10 @@ async def test_submit_invalid_target(client, reset_db):
     async with reset_db() as db:
         from sqlalchemy import select
 
-        game = (await db.execute(select(Game).where(Game.id == "G_001"))).scalar_one()
+        game = (await db.execute(select(Match).where(Match.id == "G_001"))).scalar_one()
         now = datetime.now(timezone.utc)
         t = Turn(
-            game_id=game.id,
+            match_id=game.id,
             round=1,
             turn=1,
             turn_token=generate_turn_token(),
@@ -243,15 +243,15 @@ async def test_rate_limit(client, reset_db):
 # --- Pull-on-demand detail endpoints (feature 002, US3) ---
 
 
-async def _seed_resolved_turn(reset_db, game_id, rnd, turn, subs):
+async def _seed_resolved_turn(reset_db, match_id, rnd, turn, subs):
     """subs: list of (player_id, action, target_player_id|None, message, pts, score)."""
     from sqlalchemy import select
 
     async with reset_db() as db:
-        (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+        (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
         now = datetime.now(timezone.utc)
         t = Turn(
-            game_id=game_id,
+            match_id=match_id,
             round=rnd,
             turn=turn,
             turn_token=generate_turn_token(),
@@ -361,7 +361,7 @@ async def test_pull_standings(client, reset_db):
 
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=3)
     async with reset_db() as db:
-        ps = (await db.execute(select(Player).where(Player.game_id == "G_001"))).scalars().all()
+        ps = (await db.execute(select(Player).where(Player.match_id == "G_001"))).scalars().all()
         for p in ps:
             p.current_round_score = {"AI_0": 5, "AI_1": 9, "AI_2": 1}[p.agent_id]
         await db.commit()
@@ -403,12 +403,12 @@ async def test_directed_message_appears_next_turn(client, reset_db):
     )
     # Open turn 2.
     async with reset_db() as db:
-        game = (await db.execute(select(Game).where(Game.id == "G_001"))).scalar_one()
+        game = (await db.execute(select(Match).where(Match.id == "G_001"))).scalar_one()
         game.current_round, game.current_turn = 1, 2
         now = datetime.now(timezone.utc)
         db.add(
             Turn(
-                game_id="G_001",
+                match_id="G_001",
                 round=1,
                 turn=2,
                 turn_token=generate_turn_token(),

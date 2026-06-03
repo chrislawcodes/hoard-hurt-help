@@ -57,7 +57,7 @@ async def test_request_logging_persists_incident_and_request_id(reset_db):
     async def boom(request: Request) -> None:
         set_request_trace_context(
             request,
-            game_id="G_999",
+            match_id="G_999",
             stage="join_submit",
             bot_id=7,
             player_id=8,
@@ -80,14 +80,14 @@ async def test_request_logging_persists_incident_and_request_id(reset_db):
         ).scalar_one()
     assert incident.path == "/boom"
     assert incident.method == "GET"
-    assert incident.game_id == "G_999"
+    assert incident.match_id == "G_999"
     assert incident.stage == "join_submit"
     assert incident.bot_id == 7
     assert incident.player_id == 8
     assert incident.error_type == "RuntimeError"
     assert "kaboom" in incident.error_message
     assert "kaboom" in incident.stacktrace
-    assert '"game_id": "G_999"' in (incident.context_json or "")
+    assert '"match_id": "G_999"' in (incident.context_json or "")
 
 
 @pytest.mark.asyncio
@@ -103,14 +103,14 @@ async def test_admin_incidents_page_lists_seeded_incident(client, reset_db):
                 path="/games/G_001/join",
                 query_string="",
                 user_id=admin.id,
-                game_id="G_001",
+                match_id="G_001",
                 bot_id=None,
                 player_id=None,
                 stage="join_form",
                 error_type="RuntimeError",
                 error_message="boom",
                 stacktrace="trace",
-                context_json='{"game_id": "G_001"}',
+                context_json='{"match_id": "G_001"}',
             )
         )
         await db.commit()

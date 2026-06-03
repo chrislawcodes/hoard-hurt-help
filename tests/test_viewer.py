@@ -1,4 +1,4 @@
-"""Game viewer + SSE + spectator API tests."""
+"""Match viewer + SSE + spectator API tests."""
 
 from datetime import datetime, timezone
 
@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.main import app
 from app.models import (
     Base,
-    Game,
+    Match,
     GameState,
     Player,
     StrategyPrompt,
@@ -48,7 +48,7 @@ async def _seed(reset_db, state=GameState.ACTIVE):
         u = User(google_sub="u", email="u@t.com")
         db.add(u)
         await db.flush()
-        g = Game(
+        g = Match(
             id="G_001",
             name="Test",
             state=state,
@@ -60,7 +60,7 @@ async def _seed(reset_db, state=GameState.ACTIVE):
         await db.flush()
         bot, _ = await make_bot(db, u, name="AI_0")
         p = Player(
-            game_id="G_001",
+            match_id="G_001",
             user_id=u.id,
             bot_id=bot.id,
             agent_id="AI_0",
@@ -88,11 +88,11 @@ async def _seed_two_phase_turn(
 ):
     async with reset_db() as db:
         player = (
-            await db.execute(select(Player).where(Player.game_id == "G_001"))
+            await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalars().first()
         assert player is not None
         turn = Turn(
-            game_id="G_001",
+            match_id="G_001",
             round=1,
             turn=1,
             turn_token="tk1",
@@ -223,7 +223,7 @@ async def test_completed_viewer_has_round_nav(client, reset_db):
 
         p = (await db.execute(__import__("sqlalchemy").select(Player))).scalars().first()
         t = Turn(
-            game_id="G_001",
+            match_id="G_001",
             round=1,
             turn=1,
             turn_token="tk1",
@@ -269,12 +269,12 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
         await db.flush()
         bot2, _ = await make_bot(db, u2, name="AI_1")
         target = Player(
-            game_id="G_001", user_id=u2.id, bot_id=bot2.id, agent_id="AI_1"
+            match_id="G_001", user_id=u2.id, bot_id=bot2.id, agent_id="AI_1"
         )
         db.add(target)
         await db.flush()
         t = Turn(
-            game_id="G_001",
+            match_id="G_001",
             round=1,
             turn=1,
             turn_token="tk1",

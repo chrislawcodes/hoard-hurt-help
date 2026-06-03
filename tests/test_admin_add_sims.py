@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.engine.sims.seating import SIMS_USER_SUB
 from app.main import app
-from app.models import Base, Bot, BotKind, Game, GameState, Player, StrategyPrompt, User
+from app.models import Base, Bot, BotKind, Match, GameState, Player, StrategyPrompt, User
 from tests.factories import make_bot
 
 
@@ -62,11 +62,11 @@ async def _seed_game(
     *,
     state: GameState = GameState.REGISTERING,
     max_players: int = 20,
-    game_id: str = "G_001",
-) -> Game:
+    match_id: str = "G_001",
+) -> Match:
     async with reset_db() as db:
-        g = Game(
-            id=game_id,
+        g = Match(
+            id=match_id,
             name="Friday Test",
             state=state,
             scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
@@ -130,7 +130,7 @@ async def test_seats_sims_as_players(client, reset_db):
 
     async with reset_db() as db:
         players = (
-            (await db.execute(select(Player).where(Player.game_id == "G_001")))
+            (await db.execute(select(Player).where(Player.match_id == "G_001")))
             .scalars()
             .all()
         )
@@ -177,7 +177,7 @@ async def test_rejects_over_cap(client, reset_db):
         db.add(u)
         await db.flush()
         bot, _ = await make_bot(db, u, name="AI_human")
-        db.add(Player(game_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="Human1"))
+        db.add(Player(match_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="Human1"))
         await db.commit()
 
     r = await client.post(
@@ -190,7 +190,7 @@ async def test_rejects_over_cap(client, reset_db):
     assert "cap" in r.text
     async with reset_db() as db:
         count = len(
-            (await db.execute(select(Player).where(Player.game_id == "G_001"))).scalars().all()
+            (await db.execute(select(Player).where(Player.match_id == "G_001"))).scalars().all()
         )
     assert count == 1  # nothing seated
 
@@ -204,7 +204,7 @@ async def test_rejects_duplicate_name(client, reset_db):
         db.add(u)
         await db.flush()
         bot, _ = await make_bot(db, u, name="AI_human")
-        db.add(Player(game_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="Zeus"))
+        db.add(Player(match_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="Zeus"))
         await db.commit()
 
     r = await client.post(
@@ -262,7 +262,7 @@ async def test_cannot_add_after_start(client, reset_db):
     assert r.status_code == 409
     async with reset_db() as db:
         count = len(
-            (await db.execute(select(Player).where(Player.game_id == "G_001"))).scalars().all()
+            (await db.execute(select(Player).where(Player.match_id == "G_001"))).scalars().all()
         )
     assert count == 0
 

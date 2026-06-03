@@ -32,7 +32,7 @@ class JoinRequest(BaseModel):
 
 
 class JoinResponse(BaseModel):
-    game_id: str
+    match_id: str
     agent_id: str
     agent_key: str
     poll_url: str
@@ -60,7 +60,7 @@ class ScoreboardRow(BaseModel):
 
 
 class TurnStatic(BaseModel):
-    game_id: str
+    match_id: str
     rules_version: str
     rules: str
     total_rounds: int
@@ -226,7 +226,7 @@ class GameCompletedResponse(BaseModel):
 
 # --- Next-turn (game-agnostic loop) response shapes ---
 # A bot connects once and calls get_next_turn across ALL its games, so these
-# carry a top-level game_id and a wider set of waiting reasons than the
+# carry a top-level match_id and a wider set of waiting reasons than the
 # per-game poll above.
 
 
@@ -237,10 +237,10 @@ class NextTurnWaiting(BaseModel):
 
 
 class NextTurnYourTurn(BaseModel):
-    # Same raw payload as YourTurnResponse, plus the game_id (a bot using the
+    # Same raw payload as YourTurnResponse, plus the match_id (a bot using the
     # loop isn't tracking which game it's in).
     status: Literal["your_turn"] = "your_turn"
-    game_id: str
+    match_id: str
     static: TurnStatic
     history: list[HistoryTurn]
     scoreboard: list[ScoreboardRow]
@@ -284,7 +284,7 @@ class SubmitResponse(BaseModel):
 
 
 class AgentStateResponse(BaseModel):
-    game_id: str
+    match_id: str
     game_state: str
     current_round: int
     current_turn: int

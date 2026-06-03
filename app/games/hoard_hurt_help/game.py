@@ -22,7 +22,7 @@ from app.models.turn import TurnMessage, TurnSubmission
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.models.game import Game
+    from app.models.match import Match
     from app.models.turn import Turn
 
 _VALID_ACTIONS = {"HOARD", "HELP", "HURT"}
@@ -97,7 +97,7 @@ class HoardHurtHelp:
             target = (
                 await db.execute(
                     select(Player).where(
-                        Player.game_id == turn.game_id, Player.agent_id == target_id
+                        Player.match_id == turn.match_id, Player.agent_id == target_id
                     )
                 )
             ).scalar_one_or_none()
@@ -154,10 +154,10 @@ class HoardHurtHelp:
     async def resolve_turn(self, db: AsyncSession, turn: Turn) -> None:
         await resolver.resolve_turn(db, turn)
 
-    async def award_round(self, db: AsyncSession, game: Game, round_num: int) -> None:
+    async def award_round(self, db: AsyncSession, game: Match, round_num: int) -> None:
         await resolver.award_round_winners(db, game, round_num)
 
-    async def finalize(self, db: AsyncSession, game: Game) -> None:
+    async def finalize(self, db: AsyncSession, game: Match) -> None:
         await resolver.finalize_game(db, game)
 
     def move_effect(self, action: str) -> tuple[int, int | None]:

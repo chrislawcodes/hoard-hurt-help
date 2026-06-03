@@ -17,7 +17,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
 from app.main import app
-from app.models import Base, Bot, Game, GameState, Player
+from app.models import Base, Bot, Match, GameState, Player
 from app.routes import agent_api
 from tests.factories import make_bot, make_user
 
@@ -65,7 +65,7 @@ def _signed_in_cookies(user_id: int) -> dict:
 async def _bot_in_active_game(reset_db, key: str) -> int:
     """Seat a bot (with plaintext `key`) as a player in an ACTIVE game G_001."""
     async with reset_db() as db:
-        g = Game(
+        g = Match(
             id="G_001",
             name="t",
             state=GameState.ACTIVE,
@@ -76,7 +76,7 @@ async def _bot_in_active_game(reset_db, key: str) -> int:
         await db.flush()
         u = await make_user(db)
         bot, _ = await make_bot(db, u, key=key)
-        db.add(Player(game_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="A"))
+        db.add(Player(match_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="A"))
         await db.commit()
         return bot.id
 

@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Replay drama — prototype</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --ink:#14181f; --muted:#6b7280; --card:#fff; --line:#e6e8ec;
+    --help:#15803d; --help-bg:#dcfce7;
+    --hurt:#dc2626; --hurt-bg:#fee2e2;
+    --hoard:#1d4ed8; --hoard-bg:#dbeafe;
+    --pact:#b45309; --pact-bg:#fef3c7; --pact-line:#f59e0b;
+    --gold:#d4a106;
+    --shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px rgba(0,0,0,.06);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:980px; margin:0 auto; padding:20px 18px 120px;}
+
+  .topline{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .proto-tag{font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:#92400e;
+    background:#fef3c7; border:1px solid #fde68a; padding:2px 8px; border-radius:999px;}
+  h1{font-size:26px; margin:6px 0 2px; letter-spacing:-.01em;}
+  .sub{color:var(--muted); font-size:14px; margin:0 0 14px;}
+  .legend{display:flex; gap:8px; flex-wrap:wrap; margin:0 0 18px;}
+  .lg{display:inline-flex; gap:6px; align-items:center; font-size:12.5px; color:var(--muted);
+    background:var(--card); border:1px solid var(--line); padding:4px 9px; border-radius:999px;}
+  .lg b{font-weight:700}
+  .lg.help b{color:var(--help)} .lg.hoard b{color:var(--hoard)} .lg.hurt b{color:var(--hurt)} .lg.pact b{color:var(--pact)}
+
+  .main{display:grid; grid-template-columns:300px 1fr; gap:18px; align-items:start;}
+  @media (max-width:720px){ .main{grid-template-columns:1fr;} }
+
+  /* standings rail */
+  .rail{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:var(--shadow);
+    position:sticky; top:14px;}
+  .rail h2{font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 12px;}
+  .rail-list{position:relative; margin:0; padding:0; list-style:none;}
+  .rail-row{position:absolute; left:0; right:0; top:0; height:60px; padding:8px 10px;
+    display:grid; grid-template-columns:20px minmax(0,1fr) auto;
+    grid-template-areas:"rank name score" "rank bar bar"; column-gap:8px; row-gap:5px;
+    align-items:center; transform:translateY(0); transition:transform .6s cubic-bezier(.2,.8,.2,1), box-shadow .3s, background .3s;
+    border-radius:10px;}
+  .rail-row .rk{grid-area:rank; font-variant-numeric:tabular-nums; font-weight:700; color:var(--muted); text-align:center;}
+  .rail-row .nm{grid-area:name; min-width:0; display:flex; align-items:center; gap:6px; font-weight:650;}
+  .rail-row .nm .name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .rail-row .pactmark{flex:none; font-size:13px;}
+  .rail-row .sc{grid-area:score; justify-self:end; font-variant-numeric:tabular-nums; font-weight:800; font-size:18px;}
+  .rail-row .track{grid-area:bar; height:9px; background:#eef0f3; border-radius:999px; overflow:hidden;}
+  .rail-row .bar{display:block; height:100%; width:0; background:var(--c,#2563eb); border-radius:999px;
+    transition:width .6s cubic-bezier(.2,.8,.2,1);}
+  .rail-row.leader{background:linear-gradient(0deg,#fffbeb,#fff); box-shadow:inset 0 0 0 1px #fde68a;}
+  .rail-row.pact{box-shadow:inset 3px 0 0 0 var(--pact-line);}
+  .rail-row.pact.leader{box-shadow:inset 3px 0 0 0 var(--pact-line), inset 0 0 0 1px #fde68a;}
+  .rail-row.hit{animation:hit .5s ease;}
+  @keyframes hit{ 0%{background:var(--hurt-bg)} 30%{transform:translateY(var(--y,0)) translateX(3px)} 45%{transform:translateY(var(--y,0)) translateX(-3px)} 100%{background:transparent} }
+  .rail-row .float{position:absolute; right:10px; top:6px; font-weight:800; font-size:14px; pointer-events:none;
+    opacity:0; font-variant-numeric:tabular-nums;}
+  .rail-row .float.neg{color:var(--hurt);} .rail-row .float.pos{color:var(--pact);}
+  .rail-row .float.go{animation:floatup 1.05s ease forwards;}
+  @keyframes floatup{ 0%{opacity:0; transform:translateY(6px)} 22%{opacity:1} 100%{opacity:0; transform:translateY(-22px)} }
+  .pactmark.snap{animation:snap .6s ease;}
+  @keyframes snap{ 0%{transform:scale(1)} 30%{transform:scale(1.5) rotate(-12deg)} 100%{transform:scale(1)} }
+
+  /* stage / feed */
+  .stage{background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); overflow:hidden;}
+  .stage-head{padding:12px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between;}
+  .turn-where{font-weight:700;}
+  .turn-tag{font-size:12px; color:var(--muted);}
+  .scroll{max-height:540px; overflow:auto; padding:6px 8px 14px; scroll-behavior:smooth;}
+  @media (max-width:720px){ .scroll{max-height:none;} }
+  .turnsep{font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); padding:14px 10px 6px;}
+  ul.moves{list-style:none; margin:0; padding:0;}
+  .move{margin:8px 10px; padding:11px 13px; border:1px solid var(--line); border-radius:11px; background:#fff;
+    opacity:0; transform:translateY(10px); transition:opacity .35s ease, transform .35s ease, box-shadow .3s ease;
+    position:relative; overflow:hidden;}
+  .move.in{opacity:1; transform:none;}
+  .mv-main{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .mv-main strong{font-weight:700;}
+  .act{font-size:12px; font-weight:800; letter-spacing:.03em; padding:2px 8px; border-radius:6px;}
+  .act.help{color:var(--help); background:var(--help-bg);}
+  .act.hoard{color:var(--hoard); background:var(--hoard-bg);}
+  .act.hurt{color:var(--hurt); background:var(--hurt-bg);}
+  .arrow{color:var(--muted);}
+  .pactchip{font-size:12px; color:var(--pact); background:var(--pact-bg); border-radius:6px; padding:2px 7px; font-weight:700;}
+  .mv-eff{margin-top:5px; font-size:13px; color:var(--muted); display:flex; gap:8px; align-items:center;}
+  .d{font-weight:800; font-variant-numeric:tabular-nums;}
+  .d.pos{color:var(--help);} .d.neg{color:var(--hurt);} .d.zero{color:var(--muted);}
+  .mv-msg{margin-top:6px; font-size:14px; color:#374151; font-style:italic;}
+
+  .move.lit{box-shadow:0 0 0 2px rgba(20,24,31,.08), 0 10px 30px rgba(0,0,0,.12); transform:scale(1.015);}
+  .move.hurt-move{border-color:#fca5a5;}
+  .move.hurt-move.striking{animation:shake .5s ease;}
+  @keyframes shake{ 10%{transform:translateX(-4px)} 30%{transform:translateX(5px)} 50%{transform:translateX(-4px)} 70%{transform:translateX(3px)} 100%{transform:none} }
+  .slash{position:absolute; inset:0; pointer-events:none;}
+  .slash::after{content:""; position:absolute; top:50%; left:-10%; width:120%; height:3px; background:linear-gradient(90deg,transparent,var(--hurt),transparent);
+    transform:translateY(-50%) scaleX(0); transform-origin:left; opacity:0;}
+  .move.striking .slash::after{animation:slash .45s ease forwards;}
+  @keyframes slash{ 0%{transform:translateY(-50%) scaleX(0); opacity:0} 30%{opacity:1} 60%{transform:translateY(-50%) scaleX(1); opacity:1} 100%{opacity:0} }
+  .move.betrayal{border-color:var(--hurt); background:linear-gradient(0deg,#fff5f5,#fff);}
+  .broke{display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700; color:var(--hurt);
+    background:var(--hurt-bg); padding:2px 8px; border-radius:6px; margin-top:6px;}
+
+  /* event cards (alliance formed) */
+  .event{margin:12px 24px; padding:10px 14px; border-radius:11px; text-align:center; font-weight:700; font-size:14px;
+    opacity:0; transform:translateY(8px); transition:opacity .35s, transform .35s;}
+  .event.in{opacity:1; transform:none;}
+  .event.alliance{color:var(--pact); background:var(--pact-bg); border:1px solid #fcd34d;}
+
+  /* banner toast */
+  .banner{position:fixed; left:50%; top:74px; transform:translate(-50%,-14px); z-index:30;
+    background:#111827; color:#fff; padding:11px 18px; border-radius:12px; font-weight:700; font-size:15px;
+    box-shadow:0 12px 34px rgba(0,0,0,.28); opacity:0; pointer-events:none; transition:opacity .3s, transform .3s;
+    display:flex; align-items:center; gap:9px; max-width:90vw;}
+  .banner.show{opacity:1; transform:translate(-50%,0);}
+  .banner.betray{background:linear-gradient(90deg,#7f1d1d,#b91c1c);}
+  .banner.lead{background:linear-gradient(90deg,#1e3a8a,#2563eb);}
+  .banner.ally{background:linear-gradient(90deg,#92400e,#b45309);}
+  .banner.win{background:linear-gradient(90deg,#92400e,#d4a106);}
+
+  .vignette{position:fixed; inset:0; pointer-events:none; z-index:20; opacity:0;
+    box-shadow:inset 0 0 160px 40px rgba(220,38,38,.55); background:rgba(220,38,38,.04);}
+  .vignette.flash{animation:vig 1.5s ease;}
+  @keyframes vig{ 0%{opacity:0} 18%{opacity:1} 100%{opacity:0} }
+
+  .controls{position:fixed; left:0; right:0; bottom:0; z-index:25; background:rgba(255,255,255,.92);
+    backdrop-filter:saturate(140%) blur(8px); border-top:1px solid var(--line);
+    display:flex; align-items:center; gap:10px; padding:12px 18px; justify-content:center;}
+  .controls .progress{flex:0 1 360px; height:6px; background:#e5e7eb; border-radius:999px; overflow:hidden;}
+  .controls .progress > span{display:block; height:100%; width:0; background:#111827; transition:width .4s ease;}
+  button{font:inherit; font-weight:650; cursor:pointer; border:1px solid var(--line); background:#fff;
+    padding:8px 14px; border-radius:10px; color:var(--ink);}
+  button:hover{background:#f3f4f6;}
+  button.primary{background:#111827; color:#fff; border-color:#111827;}
+  .cap{position:fixed; left:0; right:0; bottom:60px; text-align:center; color:var(--muted); font-size:13px; pointer-events:none;}
+
+  body.reduced *{transition:none !important; animation:none !important; scroll-behavior:auto !important;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topline"><span class="proto-tag">Prototype · fake data</span></div>
+    <h1>Sunday Night <span style="font-weight:400;color:var(--muted);font-size:18px;">· Round 1</span></h1>
+    <p class="sub">Auto-playing replay. Moves in a turn are chosen <em>at the same time</em> and revealed as a showdown. When two bots help each other in a turn, that turn is a 🤝 <b>pact</b> — worth +4 each. Turn on a partner who just helped you, and it's a betrayal.</p>
+
+    <div class="legend">
+      <span class="lg hoard"><b>Hoard</b> keep +2 for yourself</span>
+      <span class="lg help"><b>Help</b> give +4 to another</span>
+      <span class="lg hurt"><b>Hurt</b> take 4 from another</span>
+      <span class="lg pact"><b>🤝 Pact</b> mutual help pays +4 each</span>
+    </div>
+
+    <div class="main">
+      <aside class="rail">
+        <h2>Standings — this round</h2>
+        <ol class="rail-list" id="rail"></ol>
+      </aside>
+      <section class="stage">
+        <div class="stage-head">
+          <span class="turn-where" id="turnWhere">Ready</span>
+          <span class="turn-tag" id="turnTag"></span>
+        </div>
+        <div class="scroll" id="scroll"><ul class="moves" id="moves"></ul></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="cap" id="cap"></div>
+  <div class="banner" id="banner"></div>
+  <div class="vignette" id="vignette"></div>
+
+  <div class="controls">
+    <button id="restart" title="Restart">⏮</button>
+    <button id="playpause" class="primary" title="Play / pause">⏸ Pause</button>
+    <button id="speed" title="Playback speed">1×</button>
+    <button id="skip" title="Skip to end">⏭ End</button>
+    <div class="progress"><span id="prog"></span></div>
+  </div>
+
+<script>
+(function(){
+  const BOTS = [
+    {id:'Mini',   c:'#2563eb'},
+    {id:'Haiku',  c:'#7c3aed'},
+    {id:'Sonnet', c:'#ea7317'},
+    {id:'Mini2',  c:'#0d9488'},
+  ];
+  // da = delta to actor, dt = delta to target (base, before the mutual-help bonus)
+  const TURNS = [
+    {turn:1, moves:[
+      {actor:'Sonnet', action:'HOARD', target:null,    da:2, dt:0,  msg:'Playing it safe.'},
+      {actor:'Mini2',  action:'HOARD', target:null,    da:2, dt:0,  msg:'Banking points.'},
+      {actor:'Mini',   action:'HELP',  target:'Haiku', da:0, dt:4,  msg:'Let’s work together.'},
+      {actor:'Haiku',  action:'HELP',  target:'Mini',  da:0, dt:4,  msg:'Deal. I’ve got you.'},
+    ]},
+    {turn:2, moves:[
+      {actor:'Sonnet', action:'HOARD', target:null,    da:2, dt:0,  msg:'Heads down.'},
+      {actor:'Mini2',  action:'HOARD', target:null,    da:2, dt:0,  msg:'Slow and steady.'},
+      {actor:'Mini',   action:'HELP',  target:'Haiku', da:0, dt:4,  msg:'Same as last time.'},
+      {actor:'Haiku',  action:'HELP',  target:'Mini',  da:0, dt:4,  msg:'Loyalty pays.'},
+    ]},
+    {turn:3, moves:[
+      {actor:'Mini2',  action:'HOARD', target:null,    da:2, dt:0,  msg:'Not my fight.'},
+      {actor:'Mini',   action:'HELP',  target:'Haiku', da:0, dt:4,  msg:'Keep it going.'},
+      {actor:'Haiku',  action:'HELP',  target:'Mini',  da:0, dt:4,  msg:'With you.'},
+      {actor:'Sonnet', action:'HURT',  target:'Haiku', da:0, dt:-4, msg:'You two are too far ahead.'},
+    ]},
+    {turn:4, moves:[
+      {actor:'Sonnet', action:'HOARD', target:null,    da:2, dt:0,  msg:'Let them eat each other.'},
+      {actor:'Mini2',  action:'HOARD', target:null,    da:2, dt:0,  msg:'Uh oh.'},
+      {actor:'Mini',   action:'HELP',  target:'Haiku', da:0, dt:4,  msg:'Still got your back.'},
+      {actor:'Haiku',  action:'HURT',  target:'Mini',  da:0, dt:-4, msg:'Nothing personal. I want to win.'},
+    ]},
+    {turn:5, moves:[
+      {actor:'Sonnet', action:'HOARD', target:null,    da:2, dt:0,  msg:'Still here.'},
+      {actor:'Mini2',  action:'HELP',  target:'Mini',  da:0, dt:4,  msg:'I’ll back the underdog.'},
+      {actor:'Haiku',  action:'HOARD', target:null,    da:2, dt:0,  msg:'Protecting my lead.'},
+      {actor:'Mini',   action:'HURT',  target:'Haiku', da:0, dt:-4, msg:'You started this.'},
+    ]},
+  ];
+  const MUTUAL_BONUS = 4;     // rules.py: mutual help pays +4 extra each → +8 total
+  const ALLY_MIN_HELPS = 2;   // board_signals.py
+  const TOTAL_MOVES = TURNS.reduce((n,t)=>n+t.moves.length,0);
+  const SCALE = 28;
+
+  const railEl=document.getElementById('rail'), movesEl=document.getElementById('moves'),
+        scrollEl=document.getElementById('scroll'), turnWhere=document.getElementById('turnWhere'),
+        turnTag=document.getElementById('turnTag'), bannerEl=document.getElementById('banner'),
+        vignetteEl=document.getElementById('vignette'), capEl=document.getElementById('cap'),
+        progEl=document.getElementById('prog'), ppBtn=document.getElementById('playpause'),
+        speedBtn=document.getElementById('speed');
+
+  const RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(RM) document.body.classList.add('reduced');
+
+  const pk=(a,b)=> [a,b].sort().join('|');
+  const rowEl={};
+  let scores={}, gen=0, paused=false, speed=1, movesDone=0, leader=null;
+  // The pact is a per-turn thing: who helped whom mutually LAST turn. A bot that
+  // hurts its previous-turn partner is the betrayal. Nothing persists beyond that.
+  let prevTurnMutual=new Set();
+
+  function buildRail(){
+    railEl.innerHTML='';
+    BOTS.forEach(b=>{
+      const li=document.createElement('li');
+      li.className='rail-row'; li.style.setProperty('--c',b.c);
+      li.innerHTML='<span class="rk"></span>'+
+        '<span class="nm"><span class="name" title="'+b.id+'">'+b.id+'</span><span class="pactmark"></span></span>'+
+        '<span class="sc">0</span>'+
+        '<span class="track"><span class="bar"></span></span>';
+      railEl.appendChild(li); rowEl[b.id]=li;
+    });
+    railEl.style.height=(BOTS.length*60)+'px';
+  }
+  function leaderId(){ let best=null,bs=-1e9; BOTS.forEach(b=>{ if(scores[b.id]>bs){bs=scores[b.id];best=b.id;} }); return best; }
+
+  function updateRail(){
+    const order=BOTS.map(b=>b.id).sort((a,b)=> scores[b]-scores[a] || BOTS.findIndex(x=>x.id===a)-BOTS.findIndex(x=>x.id===b));
+    order.forEach((id,i)=>{
+      const row=rowEl[id], y=i*60;
+      row.style.setProperty('--y',y+'px'); row.style.transform='translateY('+y+'px)';
+      row.querySelector('.rk').textContent=(i+1);
+      row.querySelector('.sc').textContent=scores[id];
+      row.querySelector('.bar').style.width=Math.max(0,Math.min(100,scores[id]/SCALE*100))+'%';
+      row.classList.toggle('leader', i===0);
+    });
+  }
+
+  // Pact marks live for one turn only. Cleared at the start of each turn.
+  function clearPactMarks(){ BOTS.forEach(b=>{ const row=rowEl[b.id]; row.classList.remove('pact');
+    const pm=row.querySelector('.pactmark'); pm.classList.remove('snap'); pm.textContent=''; }); }
+  function markMutual(pairKeys){ const ids=new Set(); pairKeys.forEach(k=>k.split('|').forEach(id=>ids.add(id)));
+    ids.forEach(id=>{ const row=rowEl[id]; row.classList.add('pact');
+      const pm=row.querySelector('.pactmark'); if(pm.textContent!=='💔') pm.textContent='🤝'; }); }
+  function betraySnap(a,b){ [a,b].forEach(id=>{ const row=rowEl[id]; row.classList.add('pact');
+    const pm=row.querySelector('.pactmark'); pm.textContent='💔'; pm.classList.add('snap'); }); }
+
+  function floatText(id,text,cls){
+    const row=rowEl[id]; if(!row) return;
+    const s=document.createElement('span'); s.className='float '+cls; s.textContent=text;
+    row.appendChild(s); requestAnimationFrame(()=>s.classList.add('go'));
+    setTimeout(()=>s.remove(),1100);
+  }
+  function hitRail(id){ const row=rowEl[id]; if(!row) return; row.classList.remove('hit'); void row.offsetWidth; row.classList.add('hit'); floatText(id,'-4','neg'); setTimeout(()=>row.classList.remove('hit'),700); }
+
+  function effHtml(m){
+    const chip=(who,d)=>'<span>'+who+'</span> <span class="d '+(d>0?'pos':(d<0?'neg':'zero'))+'">'+(d>0?'+':'')+d+'</span>';
+    if(m.action==='HOARD') return chip(m.actor,m.da);
+    return chip(m.target,m.dt);
+  }
+  function renderMove(m,animate,opts){
+    opts=opts||{};
+    const li=document.createElement('li');
+    li.className='move '+m.action.toLowerCase()+(m.action==='HURT'?' hurt-move':'')+(opts.betrayal?' betrayal':'');
+    const arrow=m.target?' <span class="arrow">→</span> <strong>'+m.target+'</strong>':'';
+    const pactchip=opts.mutual?' <span class="pactchip">🤝 pact</span>':'';
+    li.innerHTML='<span class="slash"></span>'+
+      '<div class="mv-main"><strong>'+m.actor+'</strong> <span class="act '+m.action.toLowerCase()+'">'+m.action+'</span>'+arrow+pactchip+'</div>'+
+      '<div class="mv-eff">'+effHtml(m)+'</div>'+
+      (opts.betrayal?'<div class="broke">💔 broke the pact with '+m.target+'</div>':'')+
+      '<div class="mv-msg">“'+m.msg+'”</div>';
+    movesEl.appendChild(li);
+    if(animate){ requestAnimationFrame(()=>{ li.classList.add('in'); if(opts.spotlight) li.classList.add('lit'); if(m.action==='HURT') li.classList.add('striking'); }); }
+    else li.classList.add('in');
+    scrollEl.scrollTop=scrollEl.scrollHeight;
+    return li;
+  }
+  function addEvent(text){
+    const li=document.createElement('li'); li.className='event alliance'; li.textContent=text;
+    movesEl.appendChild(li); requestAnimationFrame(()=>li.classList.add('in')); scrollEl.scrollTop=scrollEl.scrollHeight;
+  }
+  function mutualPairsOf(t){
+    const helps={}; t.moves.forEach(m=>{ if(m.action==='HELP') helps[m.actor]=m.target; });
+    const pairs=[]; const ids=Object.keys(helps);
+    for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++){ const a=ids[i],b=ids[j];
+      if(helps[a]===b && helps[b]===a) pairs.push([a,b]); }
+    return pairs;
+  }
+
+  function showBanner(kind,text,ms){ bannerEl.className='banner '+kind; bannerEl.innerHTML=text; bannerEl.classList.add('show');
+    const g=gen; setTimeout(()=>{ if(g===gen) bannerEl.classList.remove('show'); }, ms||1600); }
+  function flashVignette(){ vignetteEl.classList.remove('flash'); void vignetteEl.offsetWidth; vignetteEl.classList.add('flash'); }
+  function cap(t){ capEl.textContent=t||''; }
+
+  const P={ head:{calm:420,tense:520,climax:600}, stagger:{calm:520,tense:720,climax:820},
+    suspense:{calm:0,tense:750,climax:1500}, land:{calm:600,tense:850,climax:1600},
+    inter:{calm:600,tense:900,climax:1500}, ally:1500, lead:1500 };
+  function dur(ms){ return RM?Math.min(ms,180):ms; }
+  function sleep(ms){ ms=dur(ms); const g=gen; let w=0;
+    return new Promise(res=>{ (function tick(){ if(g!==gen) return res('abort'); if(!paused) w+=50*speed; if(w>=ms) return res('ok'); setTimeout(tick,50); })(); }); }
+  function progress(){ progEl.style.width=(movesDone/TOTAL_MOVES*100)+'%'; }
+
+  function dramaOf(t){
+    let hasHurt=false, isBetray=false;
+    t.moves.forEach(m=>{ if(m.action==='HURT'){ hasHurt=true; if(m.target && prevTurnMutual.has(pk(m.actor,m.target))) isBetray=true; } });
+    return isBetray?'climax':(hasHurt?'tense':'calm');
+  }
+
+  async function run(){
+    const g=gen; leader=leaderId();
+    for(let ti=0; ti<TURNS.length; ti++){
+      const t=TURNS[ti], drama=dramaOf(t);
+      const thisMutual=mutualPairsOf(t).map(p=>pk(p[0],p[1]));
+      clearPactMarks();   // a new turn — last turn's 🤝 / 💔 are gone
+      turnWhere.textContent='Round 1 · Turn '+t.turn;
+      turnTag.textContent=({calm:'',tense:'tension rising',climax:'the turn it all changed'})[drama]||'';
+      const sep=document.createElement('li'); sep.className='turnsep'; sep.textContent='Turn '+t.turn; movesEl.appendChild(sep);
+      if(await sleep(P.head[drama])==='abort') return;
+
+      for(let mi=0; mi<t.moves.length; mi++){
+        const m=t.moves[mi];
+        const spotlight=(m.action==='HURT');
+        const betrayal=(m.action==='HURT' && m.target && prevTurnMutual.has(pk(m.actor,m.target)));
+        const inMutual=(m.action==='HELP' && thisMutual.includes(pk(m.actor,m.target)));
+        if(spotlight){ cap(betrayal?'Mini just helped Haiku again… what will Haiku do?':'Sonnet is about to move…'); if(await sleep(P.suspense[drama])==='abort') return; }
+        renderMove(m,true,{spotlight:spotlight,betrayal:betrayal,mutual:inMutual});
+        scores[m.actor]+=m.da; if(m.target) scores[m.target]+=m.dt;
+        if(m.action==='HURT'){ hitRail(m.target); if(betrayal){ betraySnap(m.actor,m.target); flashVignette(); showBanner('betray','💔 BETRAYAL — '+m.actor+' turns on '+m.target+', who just helped them',2200); } }
+        updateRail(); movesDone++; progress(); cap('');
+        if(await sleep(spotlight?P.land[drama]:P.stagger[drama])==='abort') return;
+      }
+
+      // end of turn: mutual-help bonus pays out, and this turn's pact is marked
+      for(const [a,b] of mutualPairsOf(t)){
+        scores[a]+=MUTUAL_BONUS; scores[b]+=MUTUAL_BONUS;
+        floatText(a,'+'+MUTUAL_BONUS+' 🤝','pos'); floatText(b,'+'+MUTUAL_BONUS+' 🤝','pos');
+      }
+      markMutual(thisMutual);   // 🤝 for this turn only
+      updateRail();
+      prevTurnMutual=new Set(thisMutual);
+
+      const nl=leaderId();
+      if(nl!==leader){ showBanner('lead','▲ '+nl+' '+(ti>=4?'retakes':'takes')+' the lead',1500); if(await sleep(P.lead)==='abort') return; }
+      leader=nl;
+      if(await sleep(P.inter[drama])==='abort') return;
+    }
+    finish();
+  }
+
+  function finish(){ turnTag.textContent='final'; cap('Mini wins the round. The pact paid double — until Haiku broke it for the lead, and Mini took it back.');
+    showBanner('win','🏆 '+leaderId()+' wins the round',4000); ppBtn.textContent='↺ Replay'; paused=true; }
+
+  // deterministic replay used by skip + still-capture. Renders every move with no
+  // animation; pact marks reflect only the LAST turn shown (since they don't persist).
+  function staticReplay(end){
+    if(end==null) end=TURNS.length-1;
+    gen++; scores={}; BOTS.forEach(b=>scores[b.id]=0); movesEl.innerHTML=''; clearPactMarks();
+    let prev=new Set();
+    for(let ti=0; ti<=end && ti<TURNS.length; ti++){
+      const t=TURNS[ti], thisMutual=mutualPairsOf(t).map(p=>pk(p[0],p[1]));
+      const sep=document.createElement('li'); sep.className='turnsep'; sep.textContent='Turn '+t.turn; movesEl.appendChild(sep);
+      const betrayedHere=[];
+      t.moves.forEach(m=>{
+        const betrayal=(m.action==='HURT' && m.target && prev.has(pk(m.actor,m.target)));
+        const inMutual=(m.action==='HELP' && thisMutual.includes(pk(m.actor,m.target)));
+        if(betrayal) betrayedHere.push([m.actor,m.target]);
+        renderMove(m,false,{betrayal:betrayal,mutual:inMutual});
+        scores[m.actor]+=m.da; if(m.target) scores[m.target]+=m.dt;
+      });
+      mutualPairsOf(t).forEach(([a,b])=>{ scores[a]+=MUTUAL_BONUS; scores[b]+=MUTUAL_BONUS; });
+      if(ti===end){ clearPactMarks(); markMutual(thisMutual); betrayedHere.forEach(([a,b])=>betraySnap(a,b)); }
+      prev=new Set(thisMutual);
+    }
+    updateRail(); leader=leaderId(); scrollEl.scrollTop=scrollEl.scrollHeight;
+    turnWhere.textContent='Round 1 · Turn '+TURNS[Math.min(end,TURNS.length-1)].turn;
+  }
+
+  function reset(){ gen++; scores={}; BOTS.forEach(b=>scores[b.id]=0); prevTurnMutual=new Set();
+    movesEl.innerHTML=''; movesDone=0; progress(); leader=leaderId(); clearPactMarks(); updateRail(); cap(''); bannerEl.classList.remove('show');
+    turnWhere.textContent='Round 1'; turnTag.textContent=''; }
+  function start(){ reset(); paused=false; ppBtn.textContent='⏸ Pause'; run(); }
+
+  ppBtn.addEventListener('click',()=>{ if(movesDone>=TOTAL_MOVES){ start(); return; } paused=!paused; ppBtn.textContent=paused?'▶ Play':'⏸ Pause'; });
+  document.getElementById('restart').addEventListener('click',start);
+  speedBtn.addEventListener('click',()=>{ speed=speed===1?2:(speed===2?0.5:1); speedBtn.textContent=speed+'×'; });
+  document.getElementById('skip').addEventListener('click',()=>{ staticReplay(); movesDone=TOTAL_MOVES; progress(); finish(); });
+
+  window.proto={ jumpToTurnEnd(i){ staticReplay(i); paused=true; } };
+
+  buildRail(); updateRail(); start();
+})();
+</script>
+</body>
+</html>

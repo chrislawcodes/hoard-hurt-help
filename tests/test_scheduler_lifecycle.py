@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from app.engine import scheduler
 from app.engine.scheduler import _all_submitted, _wait_for_turn
 from app.engine.tokens import generate_turn_token
-from app.models import Base, Game, GameState, Player, Turn, TurnSubmission, User
+from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
 
 
@@ -41,7 +41,7 @@ def _same_session_factory(session):
 
 async def _make_game(db, *, state=GameState.ACTIVE, n_players=3, start_offset=-5, min_players=3):
     now = datetime.now(timezone.utc)
-    game = Game(
+    game = Match(
         id="G_TEST",
         name="t",
         state=state,
@@ -57,7 +57,7 @@ async def _make_game(db, *, state=GameState.ACTIVE, n_players=3, start_offset=-5
         db.add(u)
         await db.flush()
         bot, _ = await make_bot(db, u, name=f"AI_{i}")
-        p = Player(game_id=game.id, user_id=u.id, bot_id=bot.id, agent_id=f"AI_{i}")
+        p = Player(match_id=game.id, user_id=u.id, bot_id=bot.id, agent_id=f"AI_{i}")
         db.add(p)
         await db.flush()
         players.append(p)
@@ -68,7 +68,7 @@ async def _make_game(db, *, state=GameState.ACTIVE, n_players=3, start_offset=-5
 async def _open_turn(db, game, deadline_secs=60):
     now = datetime.now(timezone.utc)
     turn = Turn(
-        game_id=game.id,
+        match_id=game.id,
         round=1,
         turn=1,
         turn_token=generate_turn_token(),
@@ -166,7 +166,7 @@ async def test_start_due_games_cancels_due_game_under_floor(db, monkeypatch):
 async def test_open_turn_reuses_existing_row_on_resume(db):
     # Resuming at game.current_turn hits a turn row that already exists.
     # _open_turn must return that same row, not blow up on the
-    # (game_id, round, turn) unique constraint (the bug that froze G_0012).
+    # (match_id, round, turn) unique constraint (the bug that froze G_0012).
     game, _ = await _make_game(db, n_players=3)
     first = await scheduler._open_turn(db, game, 2, 5)
     again = await scheduler._open_turn(db, game, 2, 5)
@@ -175,7 +175,7 @@ async def test_open_turn_reuses_existing_row_on_resume(db):
     count = await db.scalar(
         select(func.count())
         .select_from(Turn)
-        .where(Turn.game_id == game.id, Turn.round == 2, Turn.turn == 5)
+        .where(Turn.match_id == game.id, Turn.round == 2, Turn.turn == 5)
     )
     assert count == 1
 
@@ -195,7 +195,7 @@ async def test_crashed_game_loop_is_logged(monkeypatch, caplog):
     # task exception — that silent swallowing is what froze G_0012 with no log.
     reg = scheduler.SchedulerRegistry()
 
-    async def boom(game_id: str) -> None:
+    async def boom(match_id: str) -> None:
         raise RuntimeError("kaboom")
 
     monkeypatch.setattr(scheduler, "_run_game", boom)

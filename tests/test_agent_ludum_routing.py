@@ -11,7 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.main import app
-from app.models import Base, Game, GameState
+from app.models import Base, Match, GameState
 
 
 @pytest.fixture(autouse=True)
@@ -41,13 +41,13 @@ async def client():
 
 async def _seed_game(
     reset_db: async_sessionmaker,
-    game_id: str = "G_001",
-    name: str = "Test Game",
+    match_id: str = "G_001",
+    name: str = "Test Match",
     state: GameState = GameState.REGISTERING,
-) -> Game:
+) -> Match:
     async with reset_db() as db:
-        g = Game(
-            id=game_id,
+        g = Match(
+            id=match_id,
             name=name,
             state=state,
             scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
@@ -78,13 +78,13 @@ async def test_lobby_served_at_play_path(client, reset_db):
     await _seed_game(reset_db)
     r = await client.get("/play/hoard-hurt-help")
     assert r.status_code == 200
-    assert "Test Game" in r.text  # the upcoming-games listing renders here
+    assert "Test Match" in r.text  # the upcoming-games listing renders here
 
 
 @pytest.mark.asyncio
 async def test_game_viewer_unchanged(client, reset_db):
     """The per-match viewer pattern /games/{id} is untouched by the split."""
-    await _seed_game(reset_db, game_id="G_view", state=GameState.ACTIVE)
+    await _seed_game(reset_db, match_id="G_view", state=GameState.ACTIVE)
     r = await client.get("/games/G_view")
     assert r.status_code == 200
 
@@ -95,7 +95,7 @@ async def test_active_game_viewer_wires_live_sse(client, reset_db):
     plain-JS EventSource needs, and must NOT carry the old htmx sse-extension
     attributes — in htmx 1.9.x those silently never fired, so live updates were
     dead and the page only changed on a manual reload."""
-    await _seed_game(reset_db, game_id="G_live", state=GameState.ACTIVE)
+    await _seed_game(reset_db, match_id="G_live", state=GameState.ACTIVE)
     r = await client.get("/games/G_live")
     assert r.status_code == 200
     # The working wiring the EventSource reads off the live region.
@@ -112,7 +112,7 @@ async def test_active_game_viewer_wires_live_sse(client, reset_db):
 async def test_finished_game_viewer_has_no_live_stream(client, reset_db):
     """A non-active game opens no stream: the live-update attributes are absent
     so the page never tries to connect to a stream that will deliver nothing."""
-    await _seed_game(reset_db, game_id="G_done", state=GameState.COMPLETED)
+    await _seed_game(reset_db, match_id="G_done", state=GameState.COMPLETED)
     r = await client.get("/games/G_done")
     assert r.status_code == 200
     assert "data-stream-url=" not in r.text

@@ -14,7 +14,7 @@ from app.config import settings
 from app.engine.sim_presets import sim_presets
 from app.engine.tokens import bot_key_lookup
 from app.main import app
-from app.models import Base, Bot, BotKind, Game, GameState, Player, User
+from app.models import Base, Bot, BotKind, Match, GameState, Player, User
 from app.engine.sims import pack_profile_choices
 from tests.factories import make_bot, make_user
 
@@ -59,11 +59,11 @@ async def _seed_user(reset_db: async_sessionmaker) -> User:
         return u
 
 
-async def _seed_game(reset_db: async_sessionmaker, state=GameState.REGISTERING) -> Game:
+async def _seed_game(reset_db: async_sessionmaker, state=GameState.REGISTERING) -> Match:
     async with reset_db() as db:
-        g = Game(
+        g = Match(
             id="G_001",
-            name="Test Game",
+            name="Test Match",
             state=state,
             scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
             per_turn_deadline_seconds=60,
@@ -91,7 +91,7 @@ async def test_lobby_renders_at_play_path(client, reset_db):
     await _seed_game(reset_db)
     r = await client.get("/play/hoard-hurt-help")
     assert r.status_code == 200
-    assert "Test Game" in r.text
+    assert "Test Match" in r.text
 
 
 async def _seed_completed_showcase(reset_db: async_sessionmaker) -> None:
@@ -100,9 +100,9 @@ async def _seed_completed_showcase(reset_db: async_sessionmaker) -> None:
     from tests.factories import seat_player
 
     async with reset_db() as db:
-        g = Game(
+        g = Match(
             id="G_DONE",
-            name="Finished Game",
+            name="Finished Match",
             state=GameState.COMPLETED,
             scheduled_start=datetime.now(timezone.utc) - timedelta(hours=1),
             current_round=1,
@@ -114,7 +114,7 @@ async def _seed_completed_showcase(reset_db: async_sessionmaker) -> None:
         players = [await seat_player(db, "G_DONE", f"AI_{i}", i=i) for i in range(3)]
         g.winner_player_id = players[0].id
         turn = Turn(
-            game_id="G_DONE",
+            match_id="G_DONE",
             round=1,
             turn=1,
             turn_token="tk1",
@@ -160,7 +160,7 @@ async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
     # CANCELLED, and it drops out of the upcoming list.
     async with reset_db() as db:
         db.add(
-            Game(
+            Match(
                 id="G_LATE",
                 name="Wednesday Wild",
                 state=GameState.REGISTERING,
@@ -175,7 +175,7 @@ async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
     assert "Wednesday Wild" not in r.text  # no longer advertised as upcoming
 
     async with reset_db() as db:
-        g = (await db.execute(select(Game).where(Game.id == "G_LATE"))).scalar_one()
+        g = (await db.execute(select(Match).where(Match.id == "G_LATE"))).scalar_one()
     assert g.state == GameState.CANCELLED
     assert g.cancelled_at is not None
 
@@ -197,16 +197,16 @@ async def test_upcoming_fragment_reconciles_and_lists(client, reset_db):
     # that is past its start time with too few players.
     async with reset_db() as db:
         db.add(
-            Game(
+            Match(
                 id="G_SOON",
-                name="Future Game",
+                name="Future Match",
                 state=GameState.REGISTERING,
                 scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
                 per_turn_deadline_seconds=60,
             )
         )
         db.add(
-            Game(
+            Match(
                 id="G_LATE",
                 name="Wednesday Wild",
                 state=GameState.REGISTERING,
@@ -218,12 +218,12 @@ async def test_upcoming_fragment_reconciles_and_lists(client, reset_db):
 
     r = await client.get("/play/hoard-hurt-help/upcoming")
     assert r.status_code == 200
-    assert "Future Game" in r.text  # still upcoming → listed
+    assert "Future Match" in r.text  # still upcoming → listed
     assert "Wednesday Wild" not in r.text  # overdue + under-filled → cancelled
 
     async with reset_db() as db:
-        late = (await db.execute(select(Game).where(Game.id == "G_LATE"))).scalar_one()
-        soon = (await db.execute(select(Game).where(Game.id == "G_SOON"))).scalar_one()
+        late = (await db.execute(select(Match).where(Match.id == "G_LATE"))).scalar_one()
+        soon = (await db.execute(select(Match).where(Match.id == "G_SOON"))).scalar_one()
     assert late.state == GameState.CANCELLED
     assert soon.state == GameState.REGISTERING
 
@@ -342,7 +342,7 @@ async def test_reissue_invalidates_old_key_anytime(client, reset_db):
     bot_id, _ = await _seed_bot(reset_db, user, key=key)
     # Bot is in the active game.
     async with reset_db() as db:
-        db.add(Player(game_id=game.id, user_id=user.id, bot_id=bot_id, agent_id="AI_x"))
+        db.add(Player(match_id=game.id, user_id=user.id, bot_id=bot_id, agent_id="AI_x"))
         await db.commit()
 
     r = await client.post(
@@ -371,7 +371,7 @@ async def test_enter_bot_into_game(client, reset_db):
     assert r.headers["location"] == f"/me/bots/{bot_id}"
     async with reset_db() as db:
         p = (
-            await db.execute(select(Player).where(Player.game_id == "G_001"))
+            await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
     assert p.bot_id == bot_id
     assert p.agent_id == "AI_qa"
@@ -417,7 +417,7 @@ async def test_two_bots_one_game(client, reset_db):
         assert r.status_code == 303
     async with reset_db() as db:
         players = (
-            (await db.execute(select(Player).where(Player.game_id == "G_001")))
+            (await db.execute(select(Player).where(Player.match_id == "G_001")))
             .scalars()
             .all()
         )
@@ -490,4 +490,4 @@ async def test_my_games_lists_user_games(client, reset_db):
     )
     r = await client.get("/me/games", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
-    assert "Test Game" in r.text
+    assert "Test Match" in r.text

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.resolver import resolve_turn, award_round_winners, finalize_game
 from app.engine.rules import DEFAULT_MISSED_MESSAGE
-from app.models import Base, Game, GameState, Player, Turn, TurnSubmission, User
+from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
 
 
@@ -26,9 +26,9 @@ async def db(engine, session_factory):
         yield session
 
 
-async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Game, list[Player]]:
+async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Match, list[Player]]:
     """Create a game in ACTIVE state with n players, current_round_score=0."""
-    game = Game(
+    game = Match(
         id="G_TEST",
         name="test",
         state=GameState.ACTIVE,
@@ -46,7 +46,7 @@ async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Game, list[
         await db.flush()
         bot, _ = await make_bot(db, u, name=f"AI_{i}")
         p = Player(
-            game_id=game.id,
+            match_id=game.id,
             user_id=u.id,
             bot_id=bot.id,
             agent_id=f"AI_{i}",
@@ -59,10 +59,10 @@ async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Game, list[
     return game, players
 
 
-async def _open_turn(db: AsyncSession, game: Game, round_num: int = 1, turn_num: int = 1) -> Turn:
+async def _open_turn(db: AsyncSession, game: Match, round_num: int = 1, turn_num: int = 1) -> Turn:
     now = datetime.now(timezone.utc)
     t = Turn(
-        game_id=game.id,
+        match_id=game.id,
         round=round_num,
         turn=turn_num,
         turn_token=f"tk_{round_num}_{turn_num}",

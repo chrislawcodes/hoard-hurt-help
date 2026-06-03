@@ -1,4 +1,4 @@
-"""Game-agnostic next-turn endpoint — the heart of the paste-once play loop.
+"""Match-agnostic next-turn endpoint — the heart of the paste-once play loop.
 
 A connected bot (via the MCP `get_next_turn` tool) calls this and gets its single
 most-urgent open turn across ALL of its active games, or a `waiting` response.
@@ -15,7 +15,7 @@ from app.deps import DbSession, require_bot
 from app.engine.next_turn import TurnCandidate, select_next_turn
 from app.games import get as get_game_module
 from app.models.bot import Bot
-from app.models.game import Game, GameState
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
@@ -61,12 +61,12 @@ async def next_turn(
             reason="no_active_games", next_poll_after_seconds=_POLL_WHEN_WAITING
         )
 
-    players_by_game = {p.game_id: p for p in players}
+    players_by_game = {p.match_id: p for p in players}
     games = (
         (
             await db.execute(
-                select(Game).where(
-                    Game.id.in_(list(players_by_game)), Game.state == GameState.ACTIVE
+                select(Match).where(
+                    Match.id.in_(list(players_by_game)), Match.state == GameState.ACTIVE
                 )
             )
         )
@@ -86,7 +86,7 @@ async def next_turn(
         turn = (
             await db.execute(
                 select(Turn)
-                .where(Turn.game_id == game.id, Turn.resolved_at.is_(None))
+                .where(Turn.match_id == game.id, Turn.resolved_at.is_(None))
                 .order_by(Turn.round.desc(), Turn.turn.desc())
                 .limit(1)
             )
@@ -106,7 +106,7 @@ async def next_turn(
             continue
         candidates.append(
             TurnCandidate(
-                game_id=game.id,
+                match_id=game.id,
                 round=turn.round,
                 turn=turn.turn,
                 deadline=_as_aware(turn.deadline_at),
@@ -120,12 +120,12 @@ async def next_turn(
             reason="no_open_turns", next_poll_after_seconds=_POLL_WHEN_WAITING
         )
 
-    game = next(g for g in games if g.id == chosen.game_id)
+    game = next(g for g in games if g.id == chosen.match_id)
     turn = turns_by_game[game.id]
     player = players_by_game[game.id]
 
     all_players = (
-        (await db.execute(select(Player).where(Player.game_id == game.id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
     )
     latest_strategy = (
         await db.execute(
@@ -135,9 +135,9 @@ async def next_turn(
             .limit(1)
         )
     ).scalar_one_or_none()
-    module = get_game_module(game.game_type)
+    module = get_game_module(game.game)
     static = TurnStatic(
-        game_id=game.id,
+        match_id=game.id,
         rules_version=game.rules_version,
         rules=module.rules_text(),
         total_rounds=game.total_rounds,
@@ -147,10 +147,10 @@ async def next_turn(
         your_strategy=latest_strategy.prompt_text if latest_strategy else None,
     )
     # Same raw payload shape as the per-game /turn poll, so the loop and a direct
-    # poll hand the bot identical data — just with the game_id attached.
+    # poll hand the bot identical data — just with the match_id attached.
     history = _group_into_turns(await _load_action_records(db, game))
     return NextTurnYourTurn(
-        game_id=game.id,
+        match_id=game.id,
         static=static,
         history=history,
         scoreboard=await _build_scoreboard(db, game),

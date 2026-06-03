@@ -14,7 +14,7 @@ from datetime import datetime
 class TurnCandidate:
     """One open turn the bot still needs to act on, in one of its active games."""
 
-    game_id: str
+    match_id: str
     round: int
     turn: int
     deadline: datetime
@@ -23,9 +23,9 @@ class TurnCandidate:
 def select_next_turn(candidates: Sequence[TurnCandidate]) -> TurnCandidate | None:
     """Return the most urgent candidate, or None when there are none.
 
-    Most urgent = nearest deadline. Ties break deterministically by game_id,
+    Most urgent = nearest deadline. Ties break deterministically by match_id,
     then round, then turn, so the play loop is predictable and testable.
     """
     if not candidates:
         return None
-    return min(candidates, key=lambda c: (c.deadline, c.game_id, c.round, c.turn))
+    return min(candidates, key=lambda c: (c.deadline, c.match_id, c.round, c.turn))

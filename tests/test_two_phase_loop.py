@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import db as app_db
 from app.engine import scheduler
 from app.engine.resolver import finalize_talk_phase
-from app.models import Base, Game, GameState, Player, Turn, TurnMessage, User
+from app.models import Base, Match, GameState, Player, Turn, TurnMessage, User
 from tests.factories import make_bot
 
 
@@ -58,8 +58,8 @@ def published(monkeypatch):
     return events
 
 
-async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Game, list[Player]]:
-    game = Game(
+async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Match, list[Player]]:
+    game = Match(
         id="G_TEST",
         name="test",
         state=GameState.ACTIVE,
@@ -79,7 +79,7 @@ async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Game, list[
         await db.flush()
         bot, _ = await make_bot(db, u, name=f"AI_{i}")
         p = Player(
-            game_id=game.id,
+            match_id=game.id,
             user_id=u.id,
             bot_id=bot.id,
             agent_id=f"AI_{i}",
@@ -94,7 +94,7 @@ async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Game, list[
 
 async def _open_turn(
     db: AsyncSession,
-    game: Game,
+    game: Match,
     round_num: int = 1,
     turn_num: int = 1,
     *,
@@ -102,7 +102,7 @@ async def _open_turn(
 ) -> Turn:
     now = datetime.now(timezone.utc)
     turn = Turn(
-        game_id=game.id,
+        match_id=game.id,
         round=round_num,
         turn=turn_num,
         turn_token=f"tk_{round_num}_{turn_num}",

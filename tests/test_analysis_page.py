@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.engine.tokens import generate_turn_token
 from app.main import app
-from app.models import Base, Game, GameState, Player, Turn, TurnSubmission, User
+from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
 
 
@@ -40,7 +40,7 @@ async def _seed_game_with_history(reset_db) -> None:
         u = User(google_sub="u", email="u@t.com")
         db.add(u)
         await db.flush()
-        g = Game(
+        g = Match(
             id="G_001",
             name="Test",
             state=GameState.ACTIVE,
@@ -54,7 +54,7 @@ async def _seed_game_with_history(reset_db) -> None:
         pids = {}
         for i in range(3):
             bot, _ = await make_bot(db, u, name=f"AI_{i}")
-            p = Player(game_id="G_001", user_id=u.id, bot_id=bot.id, agent_id=f"AI_{i}")
+            p = Player(match_id="G_001", user_id=u.id, bot_id=bot.id, agent_id=f"AI_{i}")
             if i == 1:
                 p.total_round_wins = 1.0
             db.add(p)
@@ -73,7 +73,7 @@ async def _seed_game_with_history(reset_db) -> None:
         ]
         for rnd, turn, subs in plan:
             t = Turn(
-                game_id="G_001", round=rnd, turn=turn, turn_token=generate_turn_token(),
+                match_id="G_001", round=rnd, turn=turn, turn_token=generate_turn_token(),
                 opened_at=now, deadline_at=now, resolved_at=now,
             )
             db.add(t)

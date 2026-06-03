@@ -125,11 +125,11 @@ async def require_bot(
 
 
 async def require_bot_player(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     bot: Annotated[Bot, Depends(require_bot)],
     db: DbSession,
 ) -> Player:
-    """Resolve the authenticated bot's active player in {game_id}.
+    """Resolve the authenticated bot's active player in {match_id}.
 
     One player per (bot, game), so this is unambiguous. 404 if the bot has no
     player in that game.
@@ -138,7 +138,7 @@ async def require_bot_player(
         await db.execute(
             select(Player).where(
                 Player.bot_id == bot.id,
-                Player.game_id == game_id,
+                Player.match_id == match_id,
                 Player.left_at.is_(None),
             )
         )

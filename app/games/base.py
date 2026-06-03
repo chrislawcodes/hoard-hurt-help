@@ -1,4 +1,4 @@
-"""The Game plugin contract — the interface every turn-based game implements.
+"""The Match plugin contract — the interface every turn-based game implements.
 
 The platform (scheduler turn loop, agent API, viewer, lobby) depends only on
 this `GameModule` protocol, never on a specific game. Games register themselves
@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.models.game import Game
+    from app.models.match import Match
     from app.models.player import Player
     from app.models.turn import Turn, TurnMessage, TurnSubmission
 
@@ -128,9 +128,9 @@ class GameModule(Protocol):
 
     async def resolve_turn(self, db: AsyncSession, turn: Turn) -> None: ...
 
-    async def award_round(self, db: AsyncSession, game: Game, round_num: int) -> None: ...
+    async def award_round(self, db: AsyncSession, game: Match, round_num: int) -> None: ...
 
-    async def finalize(self, db: AsyncSession, game: Game) -> None: ...
+    async def finalize(self, db: AsyncSession, game: Match) -> None: ...
 
     def move_effect(self, action: str) -> tuple[int, int | None]:
         """Per-move display for the spectator viewer: (actor_delta, target_delta)."""

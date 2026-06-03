@@ -1,4 +1,4 @@
-"""Game module registry.
+"""Match module registry.
 
 The platform resolves a `GameModule` by `game_type` via `get()`. Games register
 themselves here on import; the platform never imports a game directly.

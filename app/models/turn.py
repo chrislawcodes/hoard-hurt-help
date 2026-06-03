@@ -19,12 +19,12 @@ from app.models.base import Base
 class Turn(Base):
     __tablename__ = "turns"
     __table_args__ = (
-        UniqueConstraint("game_id", "round", "turn", name="uq_turns_game_id_round_turn"),
+        UniqueConstraint("match_id", "round", "turn", name="uq_turns_match_id_round_turn"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    game_id: Mapped[str] = mapped_column(
-        ForeignKey("games.id"), nullable=False, index=True
+    match_id: Mapped[str] = mapped_column(
+        ForeignKey("matches.id"), nullable=False, index=True
     )
     round: Mapped[int] = mapped_column(Integer, nullable=False)
     turn: Mapped[int] = mapped_column(Integer, nullable=False)

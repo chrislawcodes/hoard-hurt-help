@@ -11,8 +11,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, require_admin
-from app.engine.tokens import generate_game_id
-from app.models.game import Game, GameState
+from app.engine.tokens import generate_match_id
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
@@ -31,10 +31,10 @@ async def create_game(
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
     # Allocate next G_NNNN id.
-    existing_ids = (await db.execute(select(Game.id))).scalars().all()
+    existing_ids = (await db.execute(select(Match.id))).scalars().all()
     n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("G_")), default=0) + 1
-    g = Game(
-        id=generate_game_id(n),
+    g = Match(
+        id=generate_match_id(n),
         name=body.name,
         state=GameState.REGISTERING,
         scheduled_start=body.scheduled_start,
@@ -62,19 +62,19 @@ async def create_game(
     )
 
 
-@router.post("/games/{game_id}/cancel", response_model=CancelResponse)
+@router.post("/games/{match_id}/cancel", response_model=CancelResponse)
 async def cancel_game(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
     _: Annotated[User, Depends(require_admin)],
 ) -> CancelResponse:
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     if g.state == GameState.ACTIVE:
-        raise HTTPException(409, detail="Game already started.")
+        raise HTTPException(409, detail="Match already started.")
     if g.state in (GameState.COMPLETED, GameState.CANCELLED):
-        raise HTTPException(409, detail="Game already ended.")
+        raise HTTPException(409, detail="Match already ended.")
     g.state = GameState.CANCELLED
     g.cancelled_at = datetime.now(timezone.utc)
     await db.commit()
@@ -82,7 +82,7 @@ async def cancel_game(
 
 
 _EXPORT_COLUMNS = [
-    "game_id",
+    "match_id",
     "round",
     "turn",
     "agent_id",
@@ -96,13 +96,13 @@ _EXPORT_COLUMNS = [
 ]
 
 
-@router.get("/games/{game_id}/export.csv")
+@router.get("/games/{match_id}/export.csv")
 async def export_csv(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
     _: Annotated[User, Depends(require_admin)],
 ):
-    rows = await _gather_export_rows(db, game_id)
+    rows = await _gather_export_rows(db, match_id)
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(_EXPORT_COLUMNS)
@@ -111,21 +111,21 @@ async def export_csv(
     return StreamingResponse(
         iter([out.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{game_id}.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="{match_id}.csv"'},
     )
 
 
-@router.get("/games/{game_id}/export.json")
+@router.get("/games/{match_id}/export.json")
 async def export_json(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
     _: Annotated[User, Depends(require_admin)],
 ):
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     players = (
-        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
     players_payload = []
     for p in players:
@@ -146,7 +146,7 @@ async def export_json(
                 "strategy_prompt": prompt.prompt_text if prompt else None,
             }
         )
-    rows = await _gather_export_rows(db, game_id)
+    rows = await _gather_export_rows(db, match_id)
     payload = {
         "game": {
             "id": g.id,
@@ -163,19 +163,19 @@ async def export_json(
     return StreamingResponse(
         iter([json.dumps(payload, indent=2)]),
         media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{game_id}.json"'},
+        headers={"Content-Disposition": f'attachment; filename="{match_id}.json"'},
     )
 
 
-async def _gather_export_rows(db, game_id: str) -> list[dict]:
+async def _gather_export_rows(db, match_id: str) -> list[dict]:
     players = (
-        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
     players_by_id = {p.id: p for p in players}
     turns = (
         (
             await db.execute(
-                select(Turn).where(Turn.game_id == game_id).order_by(Turn.round, Turn.turn)
+                select(Turn).where(Turn.match_id == match_id).order_by(Turn.round, Turn.turn)
             )
         )
         .scalars()
@@ -195,7 +195,7 @@ async def _gather_export_rows(db, game_id: str) -> list[dict]:
                 continue
             rows.append(
                 {
-                    "game_id": game_id,
+                    "match_id": match_id,
                     "round": t.round,
                     "turn": t.turn,
                     "agent_id": actor.agent_id,

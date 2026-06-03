@@ -35,7 +35,7 @@ class SpectatorTurn(BaseModel):
 
 
 class SpectatorState(BaseModel):
-    game_id: str
+    match_id: str
     name: str
     state: str
     scheduled_start: datetime

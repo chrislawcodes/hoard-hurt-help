@@ -20,7 +20,7 @@ from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
 from app.games.base import GameError, GameTheme
 from app.models.bot import Bot
-from app.models.game import Game, GameState
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.request_logging import set_request_trace_context
 from app.models.strategy_prompt import StrategyPrompt
@@ -32,12 +32,12 @@ router = APIRouter(tags=["web"])
 logger = logging.getLogger(__name__)
 
 
-async def _player_count(db, game_id: str) -> int:
+async def _player_count(db, match_id: str) -> int:
     """Active players only — a pulled-out (left) bot frees its seat."""
     return len(
         (
             await db.execute(
-                select(Player).where(Player.game_id == game_id, Player.left_at.is_(None))
+                select(Player).where(Player.match_id == match_id, Player.left_at.is_(None))
             )
         )
         .scalars()
@@ -58,9 +58,9 @@ async def _upcoming_views(db) -> list[dict]:
     games = (
         (
             await db.execute(
-                select(Game)
-                .where(Game.state.in_([GameState.SCHEDULED, GameState.REGISTERING]))
-                .order_by(Game.scheduled_start.desc())
+                select(Match)
+                .where(Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]))
+                .order_by(Match.scheduled_start.desc())
             )
         )
         .scalars()
@@ -80,14 +80,14 @@ async def _upcoming_views(db) -> list[dict]:
     return views
 
 
-def _game_theme(game: Game) -> GameTheme | None:
+def _game_theme(game: Match) -> GameTheme | None:
     """A game's content tint for its pages (lobby, viewer, analysis, join, etc.).
 
     base.html stamps it on <main data-game>, so the shared chrome is untouched.
     Unknown game types fall back to the platform-neutral look (no tint).
     """
     try:
-        return get_game_module(game.game_type).theme()
+        return get_game_module(game.game).theme()
     except GameError:
         return None
 
@@ -104,12 +104,12 @@ def _is_showcase(view: dict) -> bool:
     )
 
 
-async def _top_standings(db, game_id: str, limit: int = 3) -> list[dict]:
+async def _top_standings(db, match_id: str, limit: int = 3) -> list[dict]:
     """Top-N active players by round-wins then round-score, ranked from 1."""
     players = (
         (
             await db.execute(
-                select(Player).where(Player.game_id == game_id, Player.left_at.is_(None))
+                select(Player).where(Player.match_id == match_id, Player.left_at.is_(None))
             )
         )
         .scalars()
@@ -136,19 +136,19 @@ async def _showcase_replay_data(
 ) -> tuple[str | None, str]:
     """Robot-circle replay of the most-recent completed showcase game.
 
-    Returns ``(game_id, rc_data_json)``. ``game_id`` is None and the JSON is ""
+    Returns ``(match_id, rc_data_json)``. ``match_id`` is None and the JSON is ""
     when no finished showcase game exists. Shared by the platform front page and
     the Hoard·Hurt·Help lobby so both replay the same latest game the same way.
     """
-    game_id = next((v["id"] for v in completed_views if _is_showcase(v)), None)
-    if not game_id:
+    match_id = next((v["id"] for v in completed_views if _is_showcase(v)), None)
+    if not match_id:
         return None, ""
     try:
-        ctx = await _game_view_context(request, db, game_id)
-        return game_id, _build_rc_data(ctx["scoreboard"], ctx["history"])
+        ctx = await _game_view_context(request, db, match_id)
+        return match_id, _build_rc_data(ctx["scoreboard"], ctx["history"])
     except Exception:
-        logger.exception("Failed to build robot-circle replay data for %s", game_id)
-        return game_id, ""
+        logger.exception("Failed to build robot-circle replay data for %s", match_id)
+        return match_id, ""
 
 
 def _move_effect_for(game_type: str, action: str) -> tuple[int, int | None]:
@@ -180,7 +180,7 @@ async def home(request: Request, db: DbSession):
     """
     user = await get_current_user(request, db)
     all_games = (
-        (await db.execute(select(Game).order_by(Game.scheduled_start.desc()))).scalars().all()
+        (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
     live: list[dict] = []
     completed: list[dict] = []
@@ -249,7 +249,7 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
     except Exception:
         logger.exception("lobby: failed to reconcile overdue games")
     all_games = (
-        (await db.execute(select(Game).order_by(Game.scheduled_start.desc()))).scalars().all()
+        (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
     live = []
     recent = []
@@ -411,16 +411,16 @@ def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
     }, ensure_ascii=False)
 
 
-async def _game_view_context(request: Request, db, game_id: str) -> dict:
+async def _game_view_context(request: Request, db, match_id: str) -> dict:
     """Build the shared context for the game viewer page and its live fragment."""
     from app.models.turn import Turn, TurnMessage, TurnSubmission
 
     user = await get_current_user(request, db)
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     players = (
-        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
     players_by_id = {p.id: p for p in players}
 
@@ -442,7 +442,7 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
         (
             await db.execute(
                 select(Turn)
-                .where(Turn.game_id == game_id, Turn.resolved_at.is_not(None))
+                .where(Turn.match_id == match_id, Turn.resolved_at.is_not(None))
                 .order_by(Turn.round, Turn.turn)
             )
         )
@@ -521,7 +521,7 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
             target = players_by_id.get(s.target_player_id) if s.target_player_id else None
             if not actor:
                 continue
-            actor_delta, target_delta = _move_effect_for(g.game_type, s.action)
+            actor_delta, target_delta = _move_effect_for(g.game, s.action)
             actions.append(
                 {
                     "agent_id": actor.agent_id,
@@ -618,34 +618,34 @@ async def _game_view_context(request: Request, db, game_id: str) -> dict:
     }
 
 
-@router.get("/games/{game_id}", response_class=HTMLResponse)
+@router.get("/games/{match_id}", response_class=HTMLResponse)
 async def game_viewer(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
 ):
-    ctx = await _game_view_context(request, db, game_id)
+    ctx = await _game_view_context(request, db, match_id)
     ctx["rc_data"] = _build_rc_data(ctx["scoreboard"], ctx["history"])
     return templates.TemplateResponse(request, "game.html", ctx)
 
 
-@router.get("/games/{game_id}/live", response_class=HTMLResponse)
+@router.get("/games/{match_id}/live", response_class=HTMLResponse)
 async def game_live_fragment(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
 ):
     """Server-rendered live region. SSE events trigger the page to re-fetch this."""
-    ctx = await _game_view_context(request, db, game_id)
+    ctx = await _game_view_context(request, db, match_id)
     return templates.TemplateResponse(request, "fragments/live_region.html", ctx)
 
 
-async def _insight_records(db, game: Game) -> tuple[list[PlayerRecord], list[ActionRecord]]:
+async def _insight_records(db, game: Match) -> tuple[list[PlayerRecord], list[ActionRecord]]:
     """Map DB rows to the DB-free records the insights engine consumes."""
     from app.models.turn import Turn, TurnMessage, TurnSubmission
 
     players = (
-        (await db.execute(select(Player).where(Player.game_id == game.id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
     )
     player_records = [
         PlayerRecord(
@@ -661,7 +661,7 @@ async def _insight_records(db, game: Game) -> tuple[list[PlayerRecord], list[Act
         (
             await db.execute(
                 select(Turn)
-                .where(Turn.game_id == game.id, Turn.resolved_at.is_not(None))
+                .where(Turn.match_id == game.id, Turn.resolved_at.is_not(None))
                 .order_by(Turn.round, Turn.turn)
             )
         )
@@ -715,16 +715,16 @@ async def _insight_records(db, game: Game) -> tuple[list[PlayerRecord], list[Act
     return player_records, actions
 
 
-@router.get("/games/{game_id}/analysis", response_class=HTMLResponse)
+@router.get("/games/{match_id}/analysis", response_class=HTMLResponse)
 async def game_analysis(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
 ):
     """Season home for the spectator analysis — the round-win race, results,
     grudges, and (when live) a peek into the current round."""
     user = await get_current_user(request, db)
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     players, actions = await _insight_records(db, g)
@@ -752,16 +752,16 @@ async def game_analysis(
     )
 
 
-@router.get("/games/{game_id}/analysis/rounds/{round_num}", response_class=HTMLResponse)
+@router.get("/games/{match_id}/analysis/rounds/{round_num}", response_class=HTMLResponse)
 async def game_analysis_round(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     round_num: Annotated[int, Path()],
     request: Request,
     db: DbSession,
 ):
     """Drill-in for one round: leaderboard-from-0, mood, alliances, event feed."""
     user = await get_current_user(request, db)
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     players, actions = await _insight_records(db, g)
@@ -852,9 +852,9 @@ async def agent_runner_script(name: Annotated[str, Path()]) -> FileResponse:
     return FileResponse(path, media_type="text/x-python", filename=name)
 
 
-@router.get("/games/{game_id}/join", response_class=HTMLResponse)
+@router.get("/games/{match_id}/join", response_class=HTMLResponse)
 async def join_form(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
 ):
@@ -862,12 +862,12 @@ async def join_form(
     if user is None:
         # Send through OAuth, returning back to this URL.
         return RedirectResponse(
-            url=f"/auth/google/login?next=/games/{game_id}/join",
+            url=f"/auth/google/login?next=/games/{match_id}/join",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
-    set_request_trace_context(request, game_id=game_id, stage="join_form")
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    set_request_trace_context(request, match_id=match_id, stage="join_form")
+    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if game is None:
         raise HTTPException(404)
 
@@ -885,7 +885,7 @@ async def join_form(
         .scalars()
         .all()
     )
-    module = get_game_module(game.game_type)
+    module = get_game_module(game.game)
     presets = [asdict(p) for p in module.strategy_presets()]
     return templates.TemplateResponse(
         request,
@@ -905,9 +905,9 @@ async def join_form(
     )
 
 
-@router.post("/games/{game_id}/join")
+@router.post("/games/{match_id}/join")
 async def join_submit(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
@@ -917,13 +917,13 @@ async def join_submit(
 ):
     """Enter one of the user's bots into a game. No credential is issued."""
     set_request_trace_context(
-        request, game_id=game_id, stage="join_submit", bot_id=bot_id, display_name=display_name
+        request, match_id=match_id, stage="join_submit", bot_id=bot_id, display_name=display_name
     )
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if game is None:
         raise HTTPException(404)
     if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
-        raise HTTPException(409, detail="Game not open for registration.")
+        raise HTTPException(409, detail="Match not open for registration.")
 
     bot = (
         await db.execute(
@@ -943,7 +943,7 @@ async def join_submit(
         await db.execute(
             select(Player).where(
                 Player.bot_id == bot.id,
-                Player.game_id == game.id,
+                Player.match_id == game.id,
                 Player.left_at.is_(None),
             )
         )
@@ -951,7 +951,7 @@ async def join_submit(
     name_taken = (
         await db.execute(
             select(Player).where(
-                Player.game_id == game.id,
+                Player.match_id == game.id,
                 Player.agent_id == display_name,
                 Player.left_at.is_(None),
             )
@@ -968,7 +968,7 @@ async def join_submit(
     elif name_taken is not None:
         error = "That display name is already taken in this game."
     elif count >= game.max_players:
-        error, code = "Game is full.", status.HTTP_409_CONFLICT
+        error, code = "Match is full.", status.HTTP_409_CONFLICT
     if error is not None:
         bots = (
             (
@@ -981,7 +981,7 @@ async def join_submit(
             .scalars()
             .all()
         )
-        presets = [asdict(p) for p in get_game_module(game.game_type).strategy_presets()]
+        presets = [asdict(p) for p in get_game_module(game.game).strategy_presets()]
         return templates.TemplateResponse(
             request,
             "join.html",
@@ -1005,7 +1005,7 @@ async def join_submit(
     else:
         _model_label = None
     player = Player(
-        game_id=game.id,
+        match_id=game.id,
         user_id=bot.user_id,
         bot_id=bot.id,
         agent_id=display_name,
@@ -1016,7 +1016,7 @@ async def join_submit(
     # Seed the player's per-game strategy from what they submitted at entry (a
     # preset they picked or text they wrote); blank falls back to the game's
     # default. Copy-at-entry: later edits on the player page don't rewrite this.
-    seed = strategy_prompt.strip() or get_game_module(game.game_type).default_strategy()
+    seed = strategy_prompt.strip() or get_game_module(game.game).default_strategy()
     db.add(
         StrategyPrompt(
             player_id=player.id,
@@ -1042,7 +1042,7 @@ async def my_games(
     )
     games = []
     for p in players:
-        g = (await db.execute(select(Game).where(Game.id == p.game_id))).scalar_one()
+        g = (await db.execute(select(Match).where(Match.id == p.match_id))).scalar_one()
         games.append(
             {
                 "id": g.id,
@@ -1075,8 +1075,8 @@ async def player_dashboard(
     if player is None:
         raise HTTPException(404, detail="Bot slot not found.")
 
-    game = (await db.execute(select(Game).where(Game.id == player.game_id))).scalar_one()
-    presets = [asdict(p) for p in get_game_module(game.game_type).strategy_presets()]
+    game = (await db.execute(select(Match).where(Match.id == player.match_id))).scalar_one()
+    presets = [asdict(p) for p in get_game_module(game.game).strategy_presets()]
 
     latest_prompt = (
         await db.execute(
@@ -1138,7 +1138,7 @@ async def update_strategy(
     ).scalar_one_or_none()
     if player is None:
         raise HTTPException(404)
-    game = (await db.execute(select(Game).where(Game.id == player.game_id))).scalar_one()
+    game = (await db.execute(select(Match).where(Match.id == player.match_id))).scalar_one()
     if game.state in (GameState.ACTIVE, GameState.COMPLETED):
         raise HTTPException(409, detail="Strategy locked after game starts.")
     db.add(
@@ -1167,7 +1167,7 @@ async def web_leave(
     ).scalar_one_or_none()
     if player is None:
         raise HTTPException(404)
-    game = (await db.execute(select(Game).where(Game.id == player.game_id))).scalar_one()
+    game = (await db.execute(select(Match).where(Match.id == player.match_id))).scalar_one()
     if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Cannot leave after start.")
     player.left_at = datetime.now(timezone.utc)

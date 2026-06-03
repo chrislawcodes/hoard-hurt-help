@@ -10,10 +10,10 @@ from app.broadcast import subscribe
 router = APIRouter(tags=["web"])
 
 
-@router.get("/games/{game_id}/stream")
-async def game_stream(game_id: Annotated[str, Path()]):
+@router.get("/games/{match_id}/stream")
+async def game_stream(match_id: Annotated[str, Path()]):
     async def event_gen():
-        async for msg in subscribe(game_id):
+        async for msg in subscribe(match_id):
             yield msg
 
     return StreamingResponse(
