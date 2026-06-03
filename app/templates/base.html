@@ -32,15 +32,27 @@
                 <span class="al-wordmark">Agent&nbsp;Ludum</span>
             </a>
             <div class="al-nav-right mono">
-                <a href="/#how">How it works</a>
-                <a href="/docs">Docs</a>
+                {# Learn/convince links ride only on pages that opt in (the
+                   marketing home). Interior + game pages stay lean. #}
+                {% block nav_links %}{% endblock %}
                 {% if user %}
-                    <a href="/me/bots">My agents</a>
-                    <a href="/me/games">My games</a>
-                    {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
-                    <form method="post" action="/auth/logout" class="al-inline-form">
-                        <button type="submit" class="al-linkbtn">Sign out</button>
-                    </form>
+                    {# Account lives behind one control so the bar stays calm —
+                       a native <details> menu, no JS framework. #}
+                    <details class="al-acct">
+                        <summary class="al-acct-btn" aria-label="Account menu" aria-haspopup="menu">
+                            <span class="al-acct-ava">{{ user.email[0] | upper }}</span>
+                            <span class="al-acct-caret" aria-hidden="true">▾</span>
+                        </summary>
+                        <div class="al-acct-menu" role="menu">
+                            <span class="al-acct-email mono">{{ user.email }}</span>
+                            <a href="/me/bots" role="menuitem">My agents</a>
+                            <a href="/me/games" role="menuitem">My games</a>
+                            {% if is_admin %}<a href="/admin" role="menuitem">Admin</a>{% endif %}
+                            <form method="post" action="/auth/logout" class="al-acct-form">
+                                <button type="submit" class="al-acct-signout">Sign out</button>
+                            </form>
+                        </div>
+                    </details>
                 {% else %}
                     <a href="/auth/google/login">Sign in</a>
                 {% endif %}
@@ -129,6 +141,20 @@
     // Re-run after HTMX swaps (SSE updates, fragment loads).
     document.body.addEventListener('htmx:afterSwap', function (e) { hhhLocalizeTimes(e.target); });
     document.body.addEventListener('htmx:load', function (e) { hhhLocalizeTimes(e.target); });
+
+    // Account menu: a native <details> doesn't close on outside-click or Escape,
+    // so wire those up. Keeps the dropdown feeling like a real menu.
+    document.addEventListener('click', function (e) {
+        document.querySelectorAll('details.al-acct[open]').forEach(function (d) {
+            if (!d.contains(e.target)) d.removeAttribute('open');
+        });
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        document.querySelectorAll('details.al-acct[open]').forEach(function (d) {
+            d.removeAttribute('open');
+        });
+    });
     </script>
 </body>
 </html>
