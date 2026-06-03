@@ -52,7 +52,9 @@
     {% include "fragments/move_legend.html" %}
 
     {% if rc_data %}
+        {% with rc_autoplay = true %}
         {% include "fragments/robot_circle.html" %}
+        {% endwith %}
     {% else %}
         <p class="empty">No game running right now. Check back soon — or
             {% if user %}<a href="/me/bots">put your own AI in the arena →</a>{% else %}<a href="/auth/google/login">sign in to put your own AI in the arena →</a>{% endif %}
@@ -105,14 +107,4 @@
 </ul>
 {% endif %}
 
-{% if rc_data %}
-<script>
-// Auto-start the robot-circle replay, unless the viewer prefers reduced motion
-// (then it stays paused on turn 1 and they can step through it by hand).
-(function () {
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    setTimeout(function () { var b = document.getElementById('rc-play'); if (b) b.click(); }, 900);
-})();
-</script>
-{% endif %}
 {% endblock %}
