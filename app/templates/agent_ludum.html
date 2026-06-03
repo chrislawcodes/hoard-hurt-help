@@ -13,6 +13,11 @@
 {% endblock %}
 {% block body_class %}al{% endblock %}
 {% block main_class %}bleed{% endblock %}
+{# Marketing home carries the learn/convince links; interior pages don't. #}
+{% block nav_links %}
+    <a href="/#how">How it works</a>
+    <a href="/docs">Docs</a>
+{% endblock %}
 {% block content %}
 
 <!-- ============ HERO ============ -->
