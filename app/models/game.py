@@ -3,10 +3,11 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.models.enum_types import FlexibleEnumType
 
 
 class GameState(str, enum.Enum):
@@ -28,7 +29,7 @@ class Game(Base):
         String(64), nullable=False, default="hoard-hurt-help", index=True
     )
     state: Mapped[GameState] = mapped_column(
-        Enum(GameState, native_enum=False, length=32),
+        FlexibleEnumType(GameState, length=32),
         nullable=False,
         index=True,
     )

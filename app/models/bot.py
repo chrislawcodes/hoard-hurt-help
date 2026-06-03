@@ -9,18 +9,11 @@ and never stored. One user may own several bots.
 import enum
 from datetime import datetime
 
-from sqlalchemy import (
-    DateTime,
-    Enum,
-    ForeignKey,
-    Integer,
-    String,
-    UniqueConstraint,
-    func,
-)
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.models.enum_types import FlexibleEnumType
 
 
 class BotStatus(str, enum.Enum):
@@ -63,13 +56,13 @@ class Bot(Base):
     key_hint: Mapped[str] = mapped_column(String(8), nullable=False)
     # Whether this bot is an external LLM runner or a deterministic platform Sim.
     kind: Mapped[BotKind] = mapped_column(
-        Enum(BotKind, native_enum=False, length=16),
+        FlexibleEnumType(BotKind, length=16),
         nullable=False,
         default=BotKind.EXTERNAL,
         server_default=BotKind.EXTERNAL.value,
     )
     status: Mapped[BotStatus] = mapped_column(
-        Enum(BotStatus, native_enum=False, length=16),
+        FlexibleEnumType(BotStatus, length=16),
         nullable=False,
         default=BotStatus.ACTIVE,
     )
@@ -100,7 +93,7 @@ class Bot(Base):
     )
     # Which AI provider this bot uses. NULL = not configured (runner defaults to Claude).
     provider: Mapped[BotProvider | None] = mapped_column(
-        Enum(BotProvider, native_enum=False, length=16),
+        FlexibleEnumType(BotProvider, length=16),
         nullable=True,
     )
     # Specific model ID within the provider (e.g. "claude-sonnet-4-6"). NULL = provider default.
