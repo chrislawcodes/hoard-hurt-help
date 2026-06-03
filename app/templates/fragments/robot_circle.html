@@ -122,6 +122,34 @@
 .rc-tag.mutual{background:#e0f3e8;color:#1a8f4c;border:1px solid #b6e0c6}
 .rc-tag.missed{background:#eef1f5;color:var(--ink-soft,#5b6470);border:1px solid var(--line,#e2e6ea)}
 
+/* ---- Speaking animation (talk phase) ---- */
+.rc-bot.speaking .rc-body{animation:rc-speakpulse 1.4s ease-in-out infinite}
+@keyframes rc-speakpulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.06)}}
+
+/* ---- Rolling talk log ---- */
+.rc-tele{display:none;flex-direction:column;border-top:1px solid var(--line,#e2e6ea);background:var(--surface-2,#f6f8fa);overflow:hidden}
+.rc-tele-rows{display:flex;flex-direction:column}
+.rc-trow{display:flex;align-items:baseline;gap:9px;padding:7px 14px;transition:opacity .35s ease,transform .35s ease;animation:rc-tslide .28s ease-out}
+@keyframes rc-tslide{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+.rc-trow.fading{opacity:0;transform:translateY(-6px);pointer-events:none;transition:opacity .2s ease}
+.rc-trow .tdot{width:9px;height:9px;border-radius:50%;background:var(--c,#888);flex:none;margin-top:5px;min-width:9px}
+.rc-trow .tname{font-weight:700;flex:none;min-width:54px}
+.rc-trow .ttext{line-height:1.38;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+.rc-tele-rows .rc-trow:nth-child(1) .tname{font-size:14px;color:var(--ink,#1a1d21)}
+.rc-tele-rows .rc-trow:nth-child(1) .ttext{font-size:14px;color:var(--ink,#1a1d21);-webkit-line-clamp:3}
+.rc-tele-rows .rc-trow:nth-child(2) .tname{font-size:12.5px;color:var(--ink-soft,#5b6470)}
+.rc-tele-rows .rc-trow:nth-child(2) .ttext{font-size:12.5px;color:var(--ink-soft,#5b6470);-webkit-line-clamp:2}
+.rc-tele-rows .rc-trow:nth-child(2){opacity:.65}
+.rc-tele-rows .rc-trow:nth-child(3) .tname{font-size:11px;color:var(--ink-soft,#5b6470)}
+.rc-tele-rows .rc-trow:nth-child(3) .ttext{font-size:11px;color:var(--ink-soft,#5b6470);-webkit-line-clamp:1}
+.rc-tele-rows .rc-trow:nth-child(3){opacity:.35}
+.rc-trow.pinned .tname,.rc-trow.pinned .ttext{color:var(--ink,#1a1d21) !important;font-size:14px !important}
+.rc-trow.pinned{opacity:1 !important}
+.rc-trow.muted{opacity:.2 !important}
+.rc-tele-div{height:1px;background:var(--line,#e2e6ea);display:none}
+.rc-tele-div.show{display:block}
+@media (prefers-reduced-motion:reduce){.rc-trow{animation:none}.rc-bot.speaking .rc-body{animation:none}}
+
 .rc-caption{padding:12px 14px;border-top:1px solid var(--line,#e2e6ea);font-size:14px;min-height:44px;display:flex;align-items:center;gap:8px}
 .rc-badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:#eef1f5;color:var(--ink-soft,#5b6470);flex:none}
 
@@ -268,6 +296,10 @@
           <div class="rc-ring" id="rc-ring"></div>
           <svg class="rc-fx" id="rc-fx" preserveAspectRatio="none"></svg>
         </div>
+        <div class="rc-tele" id="rc-tele">
+          <div class="rc-tele-rows" id="rc-tele-rows"></div>
+          <div class="rc-tele-div" id="rc-tele-div"></div>
+        </div>
         <div class="rc-caption" id="rc-caption"><span class="rc-badge">—</span> Press play to watch the turns.</div>
       </div>
 
@@ -298,6 +330,15 @@
   var DATA = JSON.parse(document.getElementById('rc-data').textContent);
   var AGENTS = DATA.agents || [];
   var TURNS = DATA.turns || [];
+  TURNS.forEach(function(t){
+    var best=null,br=99;
+    t.actions.forEach(function(a){
+      a._marquee=false;
+      var r=(a.betrayal?0:a.mutual?1:a.action==='HURT'?2:a.action==='HELP'?3:4);
+      if(r<br){br=r;best=a;}
+    });
+    if(best) best._marquee=true;
+  });
   // Identity hues deliberately avoid the three action colours (amber --hoard,
   // green --help, red --hurt) so a bot's colour never reads as a move. Greens and
   // reds here are shifted to lime/rose, clearly distinct from the action shades.
@@ -326,6 +367,9 @@
   var stage=document.getElementById('rc-stage'), fx=document.getElementById('rc-fx'), ring=document.getElementById('rc-ring');
   var caption=document.getElementById('rc-caption'), turnlabel=document.getElementById('rc-turnlabel'), feedbody=document.getElementById('rc-feedbody');
   var railEl=document.getElementById('rc-rail');
+  var teleEl=document.getElementById('rc-tele');
+  var teleRowsEl=document.getElementById('rc-tele-rows');
+  var teleDivEl=document.getElementById('rc-tele-div');
 
   if(!TURNS.length){
     caption.innerHTML='<span class="rc-badge">Empty</span> No resolved turns yet.';
@@ -501,6 +545,45 @@
   }
 
   var DUR=1520;
+  var MAX_TELE_ROWS=3;
+  var TALK_STAGGER=1750;
+  var PAUSE_AFTER_TALK=750;
+  var teleRows=[];
+
+  function talkDurOf(t){ return (t.talk&&t.talk.length?t.talk.length*TALK_STAGGER:0)+PAUSE_AFTER_TALK; }
+
+  function teleAddRow(id,text){
+    if(teleRows.length>=MAX_TELE_ROWS){
+      var oldest=teleRows.pop();
+      oldest.classList.add('fading');
+      setTimeout(function(){if(oldest.parentNode)oldest.parentNode.removeChild(oldest);},220);
+    }
+    var row=document.createElement('div');
+    row.className='rc-trow'; row.dataset.agent=id;
+    row.style.setProperty('--c',colorOf[id]);
+    row.innerHTML='<span class="tdot"></span><span class="tname">'+id+'</span><span class="ttext">'+text+'</span>';
+    teleRowsEl.insertBefore(row,teleRowsEl.firstChild);
+    teleRows.unshift(row);
+    teleEl.style.display='flex';
+  }
+  function teleReset(){
+    teleRows.forEach(function(r){if(r.parentNode)r.parentNode.removeChild(r);});
+    teleRows=[]; teleRowsEl.innerHTML=''; teleDivEl.classList.remove('show');
+    teleEl.style.display='none';
+  }
+  function telePinMarquee(agentId){
+    teleRows.forEach(function(r){
+      if(r.dataset.agent===agentId){r.classList.add('pinned');r.classList.remove('muted');}
+      else{r.classList.add('muted');r.classList.remove('pinned');}
+    });
+    teleDivEl.classList.add('show');
+  }
+  function speakLine(a){
+    if(!a.text) return;
+    AGENTS.forEach(function(id){ if(id!==a.agent) dimDown(id); });
+    litUp(a.agent); botEls[a.agent].classList.add('speaking');
+    teleAddRow(a.agent,a.text);
+  }
   var TURN_DUR=200;
   var BEND_DUR=500;
   var EXPAND_DUR=150;
@@ -580,6 +663,7 @@
     turnlabel.textContent='Round '+t.round+' · Turn '+t.turn;
     fx.innerHTML='';
     clearPhaseTimers();
+    teleReset();
     Object.keys(botEls).forEach(function(id){
       var el=botEls[id];
       el.className='rc-bot dim';
@@ -589,15 +673,36 @@
       el.querySelector('.rc-mover').getAnimations().forEach(function(a){a.cancel();});
       el.querySelector('.rc-mover').style.transform='';
     });
+    var talk=t.talk||[];
+    var hasTalk=talk.length>0;
+    if(hasTalk){
+      caption.innerHTML='<span class="rc-badge">Talk</span>';
+      talk.forEach(function(a,k){
+        phaseTimers.push(setTimeout(function(){speakLine(a);},k*TALK_STAGGER));
+      });
+    }
+
+    var talkDur=talkDurOf(t);
     var sched=buildSchedule(t);
+
+    if(hasTalk){
+      phaseTimers.push(setTimeout(function(){
+        AGENTS.forEach(function(id){botEls[id].classList.remove('speaking');dimDown(id);});
+        var mq=t.actions.filter(function(a){return a._marquee;})[0];
+        if(mq) telePinMarquee(mq.agent);
+        caption.innerHTML='<span class="rc-badge">'+t.badge+'</span> '+t.cap;
+      },talkDur-60));
+    } else {
+      caption.innerHTML='<span class="rc-badge">'+t.badge+'</span> '+t.cap;
+    }
+
     requestAnimationFrame(function(){requestAnimationFrame(function(){
       sched.slots.forEach(function(slot){
         phaseTimers.push(setTimeout(function(){
           slot.actions.forEach(playAction);
-        }, slot.delay));
+        }, talkDur+slot.delay));
       });
     });});
-    caption.innerHTML='<span class="rc-badge">'+t.badge+'</span> '+t.cap;
     renderFeed(t);
   }
 
@@ -746,7 +851,7 @@
       if(idx>=TURNS.length-1){stop();return;}
       go(idx+1);
       scheduleNext();
-    }, buildSchedule(TURNS[idx]).totalDuration + 400);
+    }, talkDurOf(TURNS[idx]) + buildSchedule(TURNS[idx]).totalDuration + 400);
   }
   document.getElementById('rc-next').onclick=function(){stop();go(idx+1);};
   document.getElementById('rc-prev').onclick=function(){stop();go(idx-1);};
