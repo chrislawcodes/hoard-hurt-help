@@ -22,6 +22,9 @@
 .rc-body{transition:transform .3s ease;transform-origin:center}
 .rc-bot.act-hoard .rc-body{animation:rc-squash .5s ease}
 @keyframes rc-squash{40%{transform:translateY(3px) scaleY(.94)}100%{transform:none}}
+/* amber "banked" pulse so a hoard reads at a glance (coin lands -> money stored) */
+.rc-bot.act-hoard .torso{animation:rc-bank .6s ease}
+@keyframes rc-bank{0%{box-shadow:0 0 0 0 var(--hoard,#b07e0d)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 .rc-bot.recoil .rc-body{animation:rc-recoil .55s ease}
 @keyframes rc-recoil{20%{transform:translateX(-6px) rotate(-10deg)}45%{transform:translateX(5px) rotate(5deg)}100%{transform:none}}
 .rc-bot.betray .rc-body{animation:rc-turnback .6s ease}
@@ -91,7 +94,7 @@
 
 .rc-delta{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;opacity:0;white-space:nowrap;z-index:9}
 .rc-delta.show{animation:rc-floatup 1.6s ease forwards}
-.rc-delta.pos{color:#1a8f4c}.rc-delta.neg{color:#c0392b}.rc-delta.zero{color:var(--ink-soft,#5b6470)}
+.rc-delta.pos{color:var(--help,#1a8f4c)}.rc-delta.neg{color:var(--hurt,#c0392b)}.rc-delta.zero{color:var(--ink-soft,#5b6470)}
 @keyframes rc-floatup{0%{opacity:0;top:-8px}25%{opacity:1}100%{opacity:0;top:-34px}}
 .rc-tag{position:absolute;top:-30px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:1px 5px;border-radius:999px;white-space:nowrap;z-index:9;opacity:0}
 .rc-tag.show{opacity:1;transition:opacity .3s}
@@ -112,7 +115,7 @@
 .rc-row{padding:8px 14px;border-bottom:1px solid var(--line,#e2e6ea);font-size:13.5px}
 .rc-row:last-child{border-bottom:0}
 .rc-who{font-weight:700}
-.rc-a-hoard{color:#2f6feb;font-weight:700}.rc-a-help{color:#1a8f4c;font-weight:700}.rc-a-hurt{color:#c0392b;font-weight:700}
+.rc-a-hoard{color:var(--hoard,#b07e0d);font-weight:700}.rc-a-help{color:var(--help,#1a8f4c);font-weight:700}.rc-a-hurt{color:var(--hurt,#c0392b);font-weight:700}
 .rc-said{color:var(--ink-soft,#5b6470)}
 .rc-empty{padding:24px 14px;color:var(--ink-soft,#5b6470)}
 @media (max-width:560px){.rc-stage{height:340px}.rc-robot{width:38px;height:46px}.rc-robot .head{width:30px;height:24px}}
@@ -204,9 +207,9 @@
       </div>
 
       <div class="rc-legend">
-        <span><span class="rc-sw" style="background:#2f6feb"></span><strong>Hoard</strong> — banks +2</span>
-        <span><span class="rc-sw" style="background:#1a8f4c"></span><strong>Help</strong> — delivers a present (+4 / +8 mutual)</span>
-        <span><span class="rc-sw" style="background:#c0392b"></span><strong>Hurt</strong> — swings a bat (−4)</span>
+        <span><span class="rc-sw" style="background:var(--hoard,#b07e0d)"></span><strong>Hoard</strong> — banks +2</span>
+        <span><span class="rc-sw" style="background:var(--help,#1a8f4c)"></span><strong>Help</strong> — delivers a present (+4 / +8 mutual)</span>
+        <span><span class="rc-sw" style="background:var(--hurt,#c0392b)"></span><strong>Hurt</strong> — swings a bat (−4)</span>
       </div>
 
       <div class="rc-feed">
