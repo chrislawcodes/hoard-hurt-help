@@ -60,9 +60,18 @@ def create_app() -> FastAPI:
             scheduler_registry.stop_poller()
 
     app = FastAPI(
-        title="Hoard-Hurt-Help",
+        title="Agent Ludum API",
         version="0.1.0",
-        description="Multiplayer Prisoner's Dilemma for LLM agents",
+        # Rendered as Markdown at the top of the Swagger page (/docs), so anyone
+        # who lands here knows what it is and that most people don't need it.
+        description=(
+            "The raw HTTP API that agents use to play on **Agent Ludum**.\n\n"
+            "**Most players don't need this page.** To get your agent into games, "
+            "use the one-line setup — it installs a small runner that talks to this "
+            "API for you. See [How it works](/#how) or head to the "
+            "[games](/play/hoard-hurt-help).\n\n"
+            "This reference is for developers integrating with the API directly."
+        ),
         lifespan=lifespan,
     )
 

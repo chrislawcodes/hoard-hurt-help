@@ -861,12 +861,9 @@ button.danger:hover,
 .al-acct-form { margin: 4px 0 0; padding: 4px 0 0; border-top: 1px solid var(--line); }
 .al-acct-signout { color: var(--hurt); }
 
-/* "Games" — the nav's one wayfinding button. Lighter than a hero CTA: a clean
-   bordered pill without the hard call-to-action shadow, so the emphasis reads
-   "go here for the games", not "convert now". */
-.al-nav-games { box-shadow: none; }
-.al-nav-games:hover { box-shadow: none; transform: translate(-1px, -1px); }
-.al-nav-games:active { transform: none; box-shadow: none; }
+/* "Games" is a plain wayfinding link (styled by .al-nav-right > a:not(.btn)),
+   not a button. The class is only a hook so it survives the mobile hide rule
+   below — it's the one nav link a phone viewer needs to reach the games. */
 
 /* sections */
 .al-section { padding: clamp(64px, 9vw, 120px) 0; }
@@ -1013,13 +1010,15 @@ button.danger:hover,
     .al-footer-grid { grid-template-columns: 1fr; }
     .al-meta { gap: 12px; }
     .al-cta-row .btn { width: 100%; }
-    /* Hide top-level utility links on phones, but keep the account menu (a
-       <details>) and its dropdown contents reachable. Direct-child only.
-       The auth link (.al-nav-auth) is exempt: when signed out there's no
-       account menu, so it's the only way to sign in. */
-    .al-nav-right > a:not(.btn):not(.al-nav-auth), .al-nav-right > .al-inline-form { display: none; }
-    /* When signed in, the avatar + CTA are tight on a phone — drop the wordmark
-       to the logo mark alone so "Play now" never wraps. Signed-out keeps it. */
+    /* Hide secondary links on phones (e.g. How it works), but keep the account
+       menu and its dropdown reachable. Direct-child only. Two exemptions: the
+       auth link (.al-nav-auth) — the only way to sign in when there's no account
+       menu — and Games (.al-nav-games), the one wayfinding link a phone viewer
+       needs to reach the games. */
+    .al-nav-right > a:not(.btn):not(.al-nav-auth):not(.al-nav-games), .al-nav-right > .al-inline-form { display: none; }
+    /* When signed in, drop the wordmark to the logo mark on a phone so the
+       avatar + links never crowd the bar (tighter on the narrowest screens).
+       Signed-out keeps the full wordmark. */
     .al-nav-inner:has(.al-acct) .al-wordmark { display: none; }
     .al-lb-row { grid-template-columns: 40px 1fr 90px; }
     .al-lb-row > .al-num:last-child, .al-lb-head > span:last-child { display: none; }
