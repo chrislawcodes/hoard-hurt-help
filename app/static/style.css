@@ -775,6 +775,7 @@ button.danger:hover,
     padding: 10px 18px; border-radius: 999px; cursor: pointer;
     border: 2px solid var(--line-bold); background: var(--surface); color: var(--ink);
     box-shadow: var(--al-shadow); transition: transform 0.12s ease, box-shadow 0.12s ease;
+    text-decoration: none; /* button-as-link must never underline (interior pages aren't .al-scoped) */
 }
 .btn:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--line-bold); }
 .btn:active { transform: none; box-shadow: var(--al-shadow); }
@@ -847,6 +848,13 @@ button.danger:hover,
 .al-acct-menu a:hover, .al-acct-signout:hover { background: var(--bg-2); }
 .al-acct-form { margin: 4px 0 0; padding: 4px 0 0; border-top: 1px solid var(--line); }
 .al-acct-signout { color: var(--hurt); }
+
+/* "Games" — the nav's one wayfinding button. Lighter than a hero CTA: a clean
+   bordered pill without the hard call-to-action shadow, so the emphasis reads
+   "go here for the games", not "convert now". */
+.al-nav-games { box-shadow: none; }
+.al-nav-games:hover { box-shadow: none; transform: translate(-1px, -1px); }
+.al-nav-games:active { transform: none; box-shadow: none; }
 
 /* sections */
 .al-section { padding: clamp(64px, 9vw, 120px) 0; }
