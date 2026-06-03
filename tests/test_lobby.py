@@ -154,6 +154,81 @@ async def test_lobby_shows_robot_replay_of_latest_game(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
+    # A game past its start time with too few players must not linger as
+    # "Upcoming" with a live Join button. Viewing the lobby reconciles it to
+    # CANCELLED, and it drops out of the upcoming list.
+    async with reset_db() as db:
+        db.add(
+            Game(
+                id="G_LATE",
+                name="Wednesday Wild",
+                state=GameState.REGISTERING,
+                scheduled_start=datetime.now(timezone.utc) - timedelta(minutes=5),
+                per_turn_deadline_seconds=60,
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/play/hoard-hurt-help")
+    assert r.status_code == 200
+    assert "Wednesday Wild" not in r.text  # no longer advertised as upcoming
+
+    async with reset_db() as db:
+        g = (await db.execute(select(Game).where(Game.id == "G_LATE"))).scalar_one()
+    assert g.state == GameState.CANCELLED
+    assert g.cancelled_at is not None
+
+
+@pytest.mark.asyncio
+async def test_lobby_polls_upcoming_every_minute(client, reset_db):
+    # The lobby wires a 60s poller at the upcoming fragment endpoint so an open
+    # page self-updates without a manual reload.
+    await _seed_game(reset_db)
+    r = await client.get("/play/hoard-hurt-help")
+    assert r.status_code == 200
+    assert 'hx-get="/play/hoard-hurt-help/upcoming"' in r.text
+    assert "every 60s" in r.text
+
+
+@pytest.mark.asyncio
+async def test_upcoming_fragment_reconciles_and_lists(client, reset_db):
+    # The polled fragment lists upcoming games and, on each fetch, cancels a game
+    # that is past its start time with too few players.
+    async with reset_db() as db:
+        db.add(
+            Game(
+                id="G_SOON",
+                name="Future Game",
+                state=GameState.REGISTERING,
+                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+                per_turn_deadline_seconds=60,
+            )
+        )
+        db.add(
+            Game(
+                id="G_LATE",
+                name="Wednesday Wild",
+                state=GameState.REGISTERING,
+                scheduled_start=datetime.now(timezone.utc) - timedelta(minutes=5),
+                per_turn_deadline_seconds=60,
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/play/hoard-hurt-help/upcoming")
+    assert r.status_code == 200
+    assert "Future Game" in r.text  # still upcoming → listed
+    assert "Wednesday Wild" not in r.text  # overdue + under-filled → cancelled
+
+    async with reset_db() as db:
+        late = (await db.execute(select(Game).where(Game.id == "G_LATE"))).scalar_one()
+        soon = (await db.execute(select(Game).where(Game.id == "G_SOON"))).scalar_one()
+    assert late.state == GameState.CANCELLED
+    assert soon.state == GameState.REGISTERING
+
+
+@pytest.mark.asyncio
 async def test_join_requires_sign_in(client, reset_db):
     await _seed_game(reset_db)
     r = await client.get("/games/G_001/join", follow_redirects=False)
