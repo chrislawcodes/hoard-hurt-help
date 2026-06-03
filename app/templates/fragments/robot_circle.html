@@ -41,14 +41,13 @@
 .rc-robot.rc-h1 .head{width:30px;height:34px;border-radius:8px}
 .rc-robot.rc-h2 .head{width:43px;height:23px;border-radius:12px}
 .rc-robot.rc-h3 .head{width:37px;height:30px;border-radius:17px 17px 7px 7px}
-/* eyes: default round pair (e3 hidden), visor (one bar), trio (three small) */
+/* eyes: always a pair so every expression reads; identity varies by SIZE +
+   SPACING (es0 small/close, es1 medium=default, es2 large/wide) */
 .rc-robot .eye{transition:transform .12s ease;transform-origin:center}
-.rc-robot .eye.e3{display:none}
-.rc-robot.rc-e1 .eye.e1{width:18px;height:6px;border-radius:3px}
-.rc-robot.rc-e1 .eye.e2{display:none}
-.rc-robot.rc-e2 .head{gap:3px}
-.rc-robot.rc-e2 .eye{width:5px;height:5px}
-.rc-robot.rc-e2 .eye.e3{display:block}
+.rc-robot.rc-es0 .head{gap:4px}
+.rc-robot.rc-es0 .eye{width:6px;height:6px}
+.rc-robot.rc-es2 .head{gap:9px}
+.rc-robot.rc-es2 .eye{width:8.5px;height:8.5px}
 /* antennae: default single centre; duo on the sides; none */
 .rc-robot .ant.l,.rc-robot .ant.r{display:none}
 .rc-robot .ant.l{left:33%}.rc-robot .ant.r{left:67%}
@@ -67,8 +66,6 @@
    reads cheerful and stays distinct from the mean squint. They "bloom" in. */
 .rc-robot.eyes-happy .eye{background:transparent;border-bottom:0;border-top:3px solid var(--c);border-radius:7px 7px 0 0;height:5px;animation:rc-smile .42s ease}
 @keyframes rc-smile{0%{transform:translateY(2px) scaleY(.3)}55%{transform:translateY(-1px) scaleY(1.25)}100%{transform:none}}
-/* visor eye: a wider arch so the single bar still reads as a smile */
-.rc-robot.rc-e1.eyes-happy .eye.e1{width:14px;height:6px;border-radius:8px 8px 0 0}
 
 /* Side-profile robot — swapped in when carrying a gift or bat */
 .rc-robot-side{display:none;width:44px;height:52px;position:relative}
@@ -257,7 +254,7 @@
   function rcIdentity(id,idx){
     var h=rcHash(id);
     return { color: idx<PALETTE.length ? PALETTE[idx] : 'hsl('+(h%360)+',58%,48%)',
-             head:h%4, eye:(h>>3)%3, ant:(h>>6)%3, torso:(h>>9)%3 };
+             head:h%4, eyesize:(h>>3)%3, ant:(h>>6)%3, torso:(h>>9)%3 };
   }
   var colorOf={}, identOf={};
   AGENTS.forEach(function(id,i){ var it=rcIdentity(id,i); identOf[id]=it; colorOf[id]=it.color; });
@@ -372,9 +369,9 @@
       +'<div class="rc-carry-bat"><div class="rc-batbox"><div class="rc-bat-barrel"></div><div class="rc-bat-handle"></div></div></div>'
       +'</div>'
       +'<div class="rc-body">'
-      +'<div class="rc-robot rc-h'+it.head+' rc-e'+it.eye+' rc-a'+it.ant+' rc-t'+it.torso+'" style="--c:'+colorOf[id]+'">'
+      +'<div class="rc-robot rc-h'+it.head+' rc-es'+it.eyesize+' rc-a'+it.ant+' rc-t'+it.torso+'" style="--c:'+colorOf[id]+'">'
       +'<span class="ant c"></span><span class="ant l"></span><span class="ant r"></span>'
-      +'<div class="head"><span class="eye e1"></span><span class="eye e2"></span><span class="eye e3"></span></div>'
+      +'<div class="head"><span class="eye e1"></span><span class="eye e2"></span></div>'
       +'<div class="torso"><span class="rc-coin"></span></div>'
       +'<span class="arm l"></span><span class="arm r"></span>'
       +'</div>'
