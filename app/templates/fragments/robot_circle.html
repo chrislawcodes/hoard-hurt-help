@@ -181,10 +181,11 @@
 .rc-bot.turning-gift.facing-left .rc-carry-wrap,.rc-bot.turning-bat.facing-left .rc-carry-wrap,
 .rc-bot.grabbing-gift.facing-left .rc-carry-wrap,.rc-bot.grabbing-bat.facing-left .rc-carry-wrap
   {left:calc(50% + 18px)}
-/* bat stands perfectly vertical on a stand — handle at the bottom, barrel up,
-   centered behind the robot's body — bot bends to grab the handle then flips it up */
-.rc-bot.turning-bat .rc-carry-wrap,.rc-bot.grabbing-bat .rc-carry-wrap{top:8px;left:calc(50% - 5px)}
-.rc-bot.turning-bat.facing-left .rc-carry-wrap,.rc-bot.grabbing-bat.facing-left .rc-carry-wrap{left:calc(50% + 5px)}
+/* bat stands vertical on a stand, set off to the side OPPOSITE the bot's travel
+   direction (bot travels toward its target — right by default, left when facing-left),
+   so the bot walks up to it, grabs the handle, and flips it up onto the shoulder */
+.rc-bot.turning-bat .rc-carry-wrap,.rc-bot.grabbing-bat .rc-carry-wrap{top:26px;left:calc(50% - 22px)}
+.rc-bot.turning-bat.facing-left .rc-carry-wrap,.rc-bot.grabbing-bat.facing-left .rc-carry-wrap{left:calc(50% + 22px)}
 /* The prop rides the hands: it rests on the floor while the bot bends down, then
    lifts up with the body as it stands back up (synced to rc-grab-bend's rise). */
 .rc-bot.grabbing-gift .rc-carry-wrap{animation:rc-lift .5s ease-in-out forwards}
@@ -198,14 +199,14 @@
    and flips the bat from vertical up onto the shoulder (48-100%) */
 .rc-bot.grabbing-bat .rc-carry-wrap{animation:rc-bat-lift .5s ease-in-out forwards}
 @keyframes rc-bat-lift{
-  0%,48%{top:8px;left:calc(50% - 5px)}
-  72%{top:6px;left:calc(50% + 4px)}
+  0%,48%{top:26px;left:calc(50% - 22px)}
+  72%{top:6px;left:calc(50% + 2px)}
   100%{top:6px;left:calc(50% + 16px)}
 }
 .rc-bot.grabbing-bat.facing-left .rc-carry-wrap{animation:rc-bat-lift-l .5s ease-in-out forwards}
 @keyframes rc-bat-lift-l{
-  0%,48%{top:8px;left:calc(50% + 5px)}
-  72%{top:6px;left:calc(50% - 8px)}
+  0%,48%{top:26px;left:calc(50% + 22px)}
+  72%{top:6px;left:calc(50% - 6px)}
   100%{top:6px;left:calc(50% - 30px)}
 }
 /* vertical at rest, flips to shoulder angle as bot stands */
@@ -217,12 +218,32 @@
 .rc-bot.grabbing-gift .rc-robot-side,.rc-bot.grabbing-bat .rc-robot-side{display:block}
 .rc-bot.grabbing-gift .rc-robot-side,.rc-bot.grabbing-bat .rc-robot-side{transform:scaleX(-1)}
 .rc-bot.grabbing-gift.facing-left .rc-robot-side,.rc-bot.grabbing-bat.facing-left .rc-robot-side{transform:none}
-.rc-bot.grabbing-gift .rc-body,.rc-bot.grabbing-bat .rc-body{animation:rc-grab-bend .5s ease-in-out forwards}
+.rc-bot.grabbing-gift .rc-body{animation:rc-grab-bend .5s ease-in-out forwards}
 @keyframes rc-grab-bend{
   0%  {transform:scaleX(.05)}
   20% {transform:scaleX(1)}
   48% {transform:translateY(25px) scaleX(1) scaleY(.5)}
   72% {transform:translateY(-6px) scaleX(1) scaleY(1.1)}
+  87% {transform:scaleX(1)}
+  100%{transform:scaleX(.05)}
+}
+/* bat grab leans the bot toward the bat (set off to the side) to reach the handle,
+   then returns to center as it stands and flips the bat onto the shoulder */
+.rc-bot.grabbing-bat .rc-body{animation:rc-grab-bend-bat .5s ease-in-out forwards}
+@keyframes rc-grab-bend-bat{
+  0%  {transform:scaleX(.05)}
+  20% {transform:scaleX(1)}
+  48% {transform:translateX(-15px) translateY(25px) scaleX(1) scaleY(.5)}
+  72% {transform:translateX(0) translateY(-6px) scaleX(1) scaleY(1.1)}
+  87% {transform:scaleX(1)}
+  100%{transform:scaleX(.05)}
+}
+.rc-bot.grabbing-bat.facing-left .rc-body{animation:rc-grab-bend-bat-l .5s ease-in-out forwards}
+@keyframes rc-grab-bend-bat-l{
+  0%  {transform:scaleX(.05)}
+  20% {transform:scaleX(1)}
+  48% {transform:translateX(15px) translateY(25px) scaleX(1) scaleY(.5)}
+  72% {transform:translateX(0) translateY(-6px) scaleX(1) scaleY(1.1)}
   87% {transform:scaleX(1)}
   100%{transform:scaleX(.05)}
 }
