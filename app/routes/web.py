@@ -49,6 +49,37 @@ def _is_admin(user: User | None) -> bool:
     return user is not None and user.email.lower() in settings.admin_emails_set
 
 
+async def _upcoming_views(db) -> list[dict]:
+    """Scheduled/registering games as the lobby's 'Upcoming' cards.
+
+    Shared by the lobby page and the polled `/upcoming` fragment so both render
+    the exact same list. Newest scheduled_start first, matching the page order.
+    """
+    games = (
+        (
+            await db.execute(
+                select(Game)
+                .where(Game.state.in_([GameState.SCHEDULED, GameState.REGISTERING]))
+                .order_by(Game.scheduled_start.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    views: list[dict] = []
+    for g in games:
+        views.append(
+            {
+                "id": g.id,
+                "name": g.name,
+                "scheduled_start": g.scheduled_start.isoformat(),
+                "max_players": g.max_players,
+                "player_count": await _player_count(db, g.id),
+            }
+        )
+    return views
+
+
 def _game_theme(game: Game) -> GameTheme | None:
     """A game's content tint for its pages (lobby, viewer, analysis, join, etc.).
 
@@ -221,9 +252,12 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
         (await db.execute(select(Game).order_by(Game.scheduled_start.desc()))).scalars().all()
     )
     live = []
-    upcoming = []
     recent = []
     for g in all_games:
+        # Upcoming is built separately via _upcoming_views (shared with the polled
+        # /upcoming fragment), so skip those states here.
+        if g.state in (GameState.SCHEDULED, GameState.REGISTERING):
+            continue
         view = {
             "id": g.id,
             "name": g.name,
@@ -240,8 +274,6 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
             # The marquee shows "who's leading", so a live game carries its top-3.
             view["standings"] = await _top_standings(db, g.id, 3)
             live.append(view)
-        elif g.state in (GameState.SCHEDULED, GameState.REGISTERING):
-            upcoming.append(view)
         elif g.state == GameState.COMPLETED:
             if g.winner_player_id:
                 winner = (
@@ -249,6 +281,7 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
                 ).scalar_one_or_none()
                 view["winner_agent_id"] = winner.agent_id if winner else None
             recent.append(view)
+    upcoming = await _upcoming_views(db)
 
     # Marquee = the most-progressed live game (rounds, then turns).
     live.sort(key=lambda v: (v["current_round"], v["current_turn"]), reverse=True)
@@ -274,6 +307,30 @@ async def hoard_hurt_help_lobby(request: Request, db: DbSession):
             # Tint the lobby's content with this game's scheme; the shared chrome
             # (defined outside <main>) is untouched. See GameModule.theme().
             "game_theme": get_game_module("hoard-hurt-help").theme(),
+        },
+    )
+
+
+@router.get("/play/hoard-hurt-help/upcoming", response_class=HTMLResponse)
+async def hoard_hurt_help_upcoming(request: Request, db: DbSession):
+    """Polled fragment of the lobby's 'Upcoming' list, reconciled on each fetch.
+
+    home.html refreshes this every 60s so an already-open lobby self-updates: a
+    game that fills and starts drops off, and one that passes its start time
+    under-filled is cancelled and drops off — no manual reload needed. A failure
+    to reconcile must not break the fragment, so log and render current state.
+    """
+    user = await get_current_user(request, db)
+    try:
+        await cancel_overdue_unfilled_games(db)
+    except Exception:
+        logger.exception("lobby upcoming: failed to reconcile overdue games")
+    return templates.TemplateResponse(
+        request,
+        "fragments/lobby_upcoming.html",
+        {
+            "is_admin": _is_admin(user),
+            "upcoming_games": await _upcoming_views(db),
         },
     )
 

@@ -74,27 +74,16 @@
 {% endif %}
 
 {# ---- UPCOMING (neutral tier) ---- #}
-{% if upcoming_games %}
-<div class="section-head"><h2>Upcoming</h2><span class="count">{{ upcoming_games | length }}</span></div>
-{% for g in upcoming_games %}
-<article class="game-card tier-upcoming">
-    <div class="game-card-info">
-        <h3>{{ g.name }}</h3>
-        <p class="meta">Starts {{ g.scheduled_start | localdt }} · {{ g.player_count }} / {{ g.max_players }} registered</p>
-    </div>
-    <div class="game-card-action">
-        <span class="badge badge-soon">Upcoming</span>
-        <a class="btn btn-ghost" href="/games/{{ g.id }}/join">Join →</a>
-        {% if is_admin %}
-        <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
-            <input type="hidden" name="next" value="/">
-            <button type="submit" class="danger">Delete</button>
-        </form>
-        {% endif %}
-    </div>
-</article>
-{% endfor %}
-{% endif %}
+{# Polled every 60s: a game that fills and starts, or passes its start time
+   under-filled and cancels, drops out without a manual reload. The wrapper is
+   always present (even when empty) so polling keeps running and a newly created
+   game can appear. #}
+<div id="lobby-upcoming"
+     hx-get="/play/hoard-hurt-help/upcoming"
+     hx-trigger="every 60s"
+     hx-swap="innerHTML">
+    {% include "fragments/lobby_upcoming.html" %}
+</div>
 
 {# ---- RECENT (muted, dense rows) ---- #}
 {% if recent_games %}
