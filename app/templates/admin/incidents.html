@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Incidents — Admin{% endblock %}
+{% block content %}
+<a class="backlink" href="/admin">← Admin</a>
+<div class="page-head">
+    <h1>Request incidents</h1>
+    <p class="sub">Trace failures by request id, route, or recent history.</p>
+</div>
+
+<form method="get" action="/admin/incidents" class="toolbar" style="margin-bottom: 1rem;">
+    <input type="text" name="request_id" value="{{ request_id }}" placeholder="Request ID">
+    <button type="submit">Search</button>
+</form>
+
+<table>
+    <tr>
+        <th>Time</th>
+        <th>Request</th>
+        <th>Route</th>
+        <th>User</th>
+        <th>Game</th>
+        <th>Stage</th>
+        <th>Error</th>
+    </tr>
+    {% for i in incidents %}
+    <tr>
+        <td>{{ i.created_at | localdt }}</td>
+        <td><a href="/admin/incidents/{{ i.id }}">{{ i.request_id }}</a></td>
+        <td>{{ i.method }} {{ i.path }}</td>
+        <td>{{ i.user_id if i.user_id is not none else "—" }}</td>
+        <td>{{ i.game_id if i.game_id else "—" }}</td>
+        <td>{{ i.stage if i.stage else "—" }}</td>
+        <td>{{ i.error_type }}: {{ i.error_message }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No incidents yet.</td></tr>
+    {% endfor %}
+</table>
+{% endblock %}

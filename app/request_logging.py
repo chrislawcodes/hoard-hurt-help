@@ -1,15 +1,22 @@
-"""Global request logging and 500 handling."""
+"""Global request logging, incident capture, and 500 handling."""
 
 from __future__ import annotations
 
+import json
 import logging
+import traceback
 from time import monotonic
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, Response
 
+from app.models.request_incident import RequestIncident
+
 logger = logging.getLogger(__name__)
+
+_TRACE_CONTEXT_KEY = "request_trace_context"
 
 
 def _session_user_id(request: Request) -> int | None:
@@ -18,6 +25,94 @@ def _session_user_id(request: Request) -> int | None:
         user_id = session.get("user_id")
         return user_id if isinstance(user_id, int) else None
     return None
+
+
+def set_request_trace_context(request: Request, **fields: Any) -> None:
+    """Attach route-local context to the request for later incident capture."""
+    ctx = getattr(request.state, _TRACE_CONTEXT_KEY, None)
+    if not isinstance(ctx, dict):
+        ctx = {}
+    for key, value in fields.items():
+        if value is not None:
+            ctx[key] = value
+    setattr(request.state, _TRACE_CONTEXT_KEY, ctx)
+
+
+def _trace_context(request: Request) -> dict[str, Any]:
+    ctx = getattr(request.state, _TRACE_CONTEXT_KEY, None)
+    return ctx if isinstance(ctx, dict) else {}
+
+
+def _path_params(request: Request) -> dict[str, Any]:
+    params = request.path_params
+    return params if isinstance(params, dict) else {}
+
+
+def _int_path_param(request: Request, name: str) -> int | None:
+    value = _path_params(request).get(name)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+async def _record_incident(
+    request: Request,
+    *,
+    request_id: str,
+    exc: Exception,
+    status_code: int,
+) -> None:
+    try:
+        from app import db as app_db
+    except Exception:
+        logger.exception("Failed to import db module for request incident capture")
+        return
+
+    ctx = _trace_context(request)
+    path_params = _path_params(request)
+    stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    game_id = ctx.get("game_id") or path_params.get("game_id")
+    bot_id = ctx.get("bot_id") or _int_path_param(request, "bot_id")
+    player_id = ctx.get("player_id") or _int_path_param(request, "player_id")
+    payload = {
+        "request_id": request_id,
+        "method": request.method,
+        "path": request.url.path,
+        "query_string": str(request.query_params) or None,
+        "user_id": _session_user_id(request),
+        "game_id": game_id,
+        "bot_id": bot_id,
+        "player_id": player_id,
+        "stage": ctx.get("stage"),
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+        "stacktrace": stack,
+        "context_json": (
+            json.dumps(
+                {
+                    **ctx,
+                    **({"path_params": path_params} if path_params else {}),
+                },
+                sort_keys=True,
+                default=str,
+            )
+            if (ctx or path_params)
+            else None
+        ),
+    }
+    try:
+        async with app_db.SessionLocal() as db:
+            db.add(RequestIncident(**payload))
+            await db.commit()
+    except Exception:
+        logger.exception(
+            "Failed to persist request incident request_id=%s path=%s status=%s",
+            request_id,
+            request.url.path,
+            status_code,
+        )
 
 
 def install_request_logging(app: FastAPI) -> None:
@@ -48,6 +143,7 @@ def install_request_logging(app: FastAPI) -> None:
                 str(request.query_params),
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
+            await _record_incident(request, request_id=request_id, exc=exc, status_code=500)
             return PlainTextResponse(
                 f"Internal Server Error\nRequest ID: {request_id}",
                 status_code=500,
