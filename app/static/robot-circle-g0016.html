@@ -79,10 +79,12 @@
 @keyframes rc-blink{0%,100%{transform:scaleY(1)}45%{transform:scaleY(.1)}}
 .rc-robot.eyes-wide .eye{transform:scale(1.45)}
 .rc-robot.eyes-mean .eye{transform:scaleY(.4)}
-/* happy: eyes become upward smile-arcs (open-bottom curve) */
-.rc-robot.eyes-happy .eye{background:transparent;border-bottom:2.5px solid var(--c);border-radius:0 0 7px 7px;height:5px;transform:translateY(1px)}
-/* visor eye needs a narrower, deeper arc or the wide bar still reads flat */
-.rc-robot.rc-e1.eyes-happy .eye.e1{width:12px;height:7px;border-radius:0 0 8px 8px}
+/* happy: eyes arch UPWARD (^^) — a downward curve read as sleepy/sad; the arch
+   reads cheerful and stays distinct from the mean squint. They "bloom" in. */
+.rc-robot.eyes-happy .eye{background:transparent;border-bottom:0;border-top:3px solid var(--c);border-radius:7px 7px 0 0;height:5px;animation:rc-smile .42s ease}
+@keyframes rc-smile{0%{transform:translateY(2px) scaleY(.3)}55%{transform:translateY(-1px) scaleY(1.25)}100%{transform:none}}
+/* visor eye: a wider arch so the single bar still reads as a smile */
+.rc-robot.rc-e1.eyes-happy .eye.e1{width:14px;height:6px;border-radius:8px 8px 0 0}
 
 /* Side-profile robot — swapped in when carrying a gift or bat */
 .rc-robot-side{display:none;width:44px;height:52px;position:relative}
