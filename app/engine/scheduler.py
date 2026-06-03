@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.broadcast import publish
 from app.db import SessionLocal
 from app.engine import resolver
+from app.engine.sims.service import auto_submit_sim_phase
 from app.engine.state_machine import assert_transition
 from app.engine.tokens import generate_turn_token
 from app.games import get as get_game_module
@@ -224,6 +225,7 @@ async def _run_game(game_id: str) -> None:
                             "deadline": turn.deadline_at.isoformat(),
                         },
                     )
+                    await auto_submit_sim_phase(db, game, turn, module, phase="talk")
                     await _wait_for_messages(db, turn)
                     await resolver.finalize_talk_phase(db, turn)
                     await _begin_act_phase(db, game, turn)
@@ -241,6 +243,7 @@ async def _run_game(game_id: str) -> None:
                         "deadline": turn.deadline_at.isoformat(),
                     },
                 )
+                await auto_submit_sim_phase(db, game, turn, module, phase="act")
                 await _wait_for_turn(db, turn)
                 await module.resolve_turn(db, turn)
                 await publish(

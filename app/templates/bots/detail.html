@@ -5,13 +5,22 @@
 <div class="page-head">
     <h1>{{ bot.name }}</h1>
     <p class="sub">
-        <span class="bot-health-live" hx-get="/me/bots/{{ bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% include "bots/_health_badge.html" %}</span>
-        · connection code ends …{{ bot.key_hint }}
+        {% if bot.kind.value == 'sim' %}
+            <span class="badge badge-ok">Sim</span>
+            · {{ bot.sim_strategy | replace('_', ' ') | title }}
+            · truth {{ bot.sim_truthfulness }}%
+            · trust {{ bot.sim_trust_model | title }}
+        {% else %}
+            <span class="bot-health-live" hx-get="/me/bots/{{ bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% include "bots/_health_badge.html" %}</span>
+            · connection code ends …{{ bot.key_hint }}
+        {% endif %}
     </p>
 </div>
 
-{% if health.needs_reconnect and not fresh_key %}
-{% include "bots/_reconnect.html" %}
+{% if bot.kind.value != 'sim' %}
+    {% if health.needs_reconnect and not fresh_key %}
+    {% include "bots/_reconnect.html" %}
+    {% endif %}
 {% endif %}
 
 <form method="post" action="/me/bots/{{ bot.id }}/rename" class="form" style="display:flex; gap:0.5rem; align-items:center; max-width:420px; margin:0.5rem 0 1.5rem;">
@@ -19,6 +28,24 @@
     <button type="submit" class="secondary">Rename</button>
 </form>
 
+{% if bot.kind.value == 'sim' %}
+<div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-top:0;">Sim profile</h3>
+    <p class="hint" style="margin-top:0;">This bot runs inside the game loop. It does not need a runner, API key, or MCP setup.</p>
+    <ul style="margin:0; padding-left:1.2rem;">
+        <li>Strategy: <strong>{{ bot.sim_strategy | replace('_', ' ') | title }}</strong></li>
+        <li>Truthfulness: <strong>{{ bot.sim_truthfulness }}%</strong></li>
+        <li>Trust model: <strong>{{ bot.sim_trust_model | title }}</strong></li>
+        <li>Seed: <strong>{{ bot.sim_seed }}</strong></li>
+        <li>Version: <strong>{{ bot.sim_version }}</strong></li>
+        {% if bot.sim_fixture_pack %}
+        <li>Fixture pack: <strong>{{ bot.sim_fixture_pack }}</strong></li>
+        {% endif %}
+    </ul>
+</div>
+{% endif %}
+
+{% if bot.kind.value != 'sim' %}
 <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-top:0;">Agent</h3>
     <form method="post" action="/me/bots/{{ bot.id }}/set-model" class="form" style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
@@ -51,8 +78,9 @@
         {% endif %}
     </p>
 </div>
+{% endif %}
 
-{% if fresh_key %}
+{% if bot.kind.value != 'sim' and fresh_key %}
 {%- set _tools = {'claude': 'claude', 'openai': 'codex', 'gemini': 'gemini'} %}
 {%- set _pnames = {'claude': 'Claude', 'gemini': 'Gemini', 'openai': 'OpenAI', 'hermes': 'Hermes', 'openclaw': 'OpenClaw'} %}
 {%- set _provider = bot.provider.value if bot.provider else 'claude' %}
@@ -114,7 +142,7 @@ Reload or restart so the tools load, then loop:
 
 Don't stop to ask me anything until my games are over.</pre>
 </details>
-{% elif not health.needs_reconnect %}
+{% elif bot.kind.value != 'sim' and not health.needs_reconnect %}
 {# Disconnected/stalled bots get the single-action reconnect block above, so this
    generic card only shows for connected bots — where Revoke (leaked-key cutoff)
    is the relevant escape hatch. #}
@@ -134,7 +162,7 @@ Don't stop to ask me anything until my games are over.</pre>
 </div>
 {% endif %}
 
-{% if onboarding.state.value != "playing" %}
+{% if bot.kind.value != 'sim' and onboarding.state.value != "playing" %}
 {# Onboarding panel — only for a bot that hasn't established itself yet. Once it
    has played a real move ("playing"), the health badge at the top is the single
    source of truth for whether it's connected, so a separate status line here

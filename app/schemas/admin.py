@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field, field_validator
 class CreateGameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     scheduled_start: datetime
-    min_players: int = Field(default=3, ge=3, le=100)
-    max_players: int = Field(default=100, ge=3, le=100)
+    min_players: int = Field(default=3, ge=3, le=20)
+    max_players: int = Field(default=20, ge=3, le=20)
     per_turn_deadline_seconds: int = Field(default=60, ge=5, le=600)
 
     @field_validator("max_players")

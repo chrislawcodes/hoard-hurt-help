@@ -14,6 +14,7 @@ from app.config import settings
 from app.engine.tokens import bot_key_lookup
 from app.main import app
 from app.models import Base, Bot, Game, GameState, Player, User
+from app.engine.sims import pack_profile_choices
 from tests.factories import make_bot, make_user
 
 
@@ -178,6 +179,37 @@ async def test_create_bot_shows_key_once(client, reset_db):
     assert r2.status_code == 200
     assert "sk_bot_" not in r2.text  # never shown again
     assert "Reissue" in r2.text
+
+
+@pytest.mark.asyncio
+async def test_create_sim_bot_shows_sim_profile(client, reset_db):
+    user = await _seed_user(reset_db)
+    choice = next(
+        choice
+        for choice in pack_profile_choices(include_hidden=False)
+        if choice.pack_id == "mixed_20"
+    )
+    r = await client.post(
+        "/me/bots",
+        data={
+            "name": "Sable",
+            "kind": "sim",
+            "sim_profile_id": choice.id,
+        },
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=True,
+    )
+    assert r.status_code == 200
+    assert "Sim profile" in r.text
+    assert "sk_bot_" not in r.text
+    async with reset_db() as db:
+        bot = (await db.execute(select(Bot).where(Bot.user_id == user.id))).scalar_one()
+    assert bot.kind.value == "sim"
+    assert bot.sim_strategy == choice.strategy
+    assert bot.sim_truthfulness == choice.truthfulness
+    assert bot.sim_trust_model == choice.trust_model
+    assert bot.sim_seed == choice.seed_offset + bot.id
+    assert bot.sim_version == "v1"
 
 
 @pytest.mark.asyncio

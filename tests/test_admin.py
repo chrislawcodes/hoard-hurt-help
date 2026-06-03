@@ -92,6 +92,24 @@ async def test_admin_creates_game_via_api(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_admin_api_rejects_games_over_twenty_players(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    r = await client.post(
+        "/api/admin/games",
+        json={
+            "name": "Too Big",
+            "scheduled_start": when,
+            "min_players": 3,
+            "max_players": 21,
+            "per_turn_deadline_seconds": 30,
+        },
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_create_game_via_web_form(client, reset_db):
     """The browser posts a UTC ISO string (from datetime-local JS conversion)."""
     admin = await _seed_user(reset_db, "admin@test.com")
@@ -111,6 +129,28 @@ async def test_create_game_via_web_form(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303  # redirect on success
+
+
+@pytest.mark.asyncio
+async def test_web_form_rejects_games_over_twenty_players(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
+        "%Y-%m-%dT%H:%M:00.000Z"
+    )
+    r = await client.post(
+        "/admin/games/new",
+        data={
+            "name": "Too Big",
+            "scheduled_start": future,
+            "min_players": "3",
+            "max_players": "21",
+            "per_turn_deadline_seconds": "60",
+        },
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+    assert "3 to 20" in r.text
 
 
 @pytest.mark.asyncio
