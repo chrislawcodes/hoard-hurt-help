@@ -9,8 +9,11 @@ from sqlalchemy import delete, select
 
 from app.deps import DbSession, require_admin
 from app.engine.scheduler import registry, start_game
+from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
+from app.engine.sims.seating import SimSeatingError, add_sims_to_game
 from app.engine.state_machine import TransitionError
 from app.engine.tokens import generate_game_id
+from app.models.bot import Bot, BotKind
 from app.models.game import Game, GameState
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
@@ -175,6 +178,7 @@ async def admin_game_detail(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_admin)],
+    added: int | None = None,
 ):
     g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
     if g is None:
@@ -182,6 +186,16 @@ async def admin_game_detail(
     players = (
         (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
     )
+    bots_by_id = {
+        b.id: b
+        for b in (
+            await db.execute(
+                select(Bot).where(Bot.id.in_([p.bot_id for p in players]))
+            )
+        )
+        .scalars()
+        .all()
+    } if players else {}
     player_views = []
     for p in players:
         prompt = (
@@ -192,18 +206,154 @@ async def admin_game_detail(
                 .limit(1)
             )
         ).scalar_one_or_none()
+        bot = bots_by_id.get(p.bot_id)
+        is_sim = bot is not None and bot.kind == BotKind.SIM
+        personality = (
+            (bot.sim_strategy or "").replace("_", " ").title()
+            if is_sim and bot is not None
+            else ""
+        )
         player_views.append(
             {
                 "agent_id": p.agent_id,
                 "total_round_wins": p.total_round_wins,
                 "total_round_score": p.total_round_score,
                 "strategy": prompt.prompt_text if prompt else "",
+                "is_sim": is_sim,
+                "personality": personality,
             }
         )
+    can_add_sims = g.state in (GameState.SCHEDULED, GameState.REGISTERING)
     return templates.TemplateResponse(
         request,
         "admin/game_detail.html",
-        {"user": user, "is_admin": True, "game": g, "players": player_views},
+        {
+            "user": user,
+            "is_admin": True,
+            "game": g,
+            "players": player_views,
+            "can_add_sims": can_add_sims,
+            "added": added,
+        },
+    )
+
+
+async def _render_add_sims(
+    request: Request,
+    db,
+    user: User,
+    game: Game,
+    *,
+    error: str | None = None,
+    prefill: list[tuple[str, str]] | None = None,
+    status_code: int = 200,
+):
+    """Render the Add Sims screen with the catalog and live-roster data."""
+    existing = list(
+        (
+            await db.execute(
+                select(Player.agent_id).where(
+                    Player.game_id == game.id, Player.left_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    can_add = game.state in (GameState.SCHEDULED, GameState.REGISTERING)
+    sims_data = {
+        "maxPlayers": game.max_players,
+        "currentCount": len(existing),
+        "existing": existing,
+        "names": list(SIM_NAME_POOL),
+        "personalities": [
+            {"id": p.id, "label": p.label, "description": p.description, "lean": p.lean}
+            for p in PERSONALITIES
+        ],
+        "packs": [
+            {
+                "id": pk.id,
+                "label": pk.label,
+                "description": pk.description,
+                "strategies": list(pk.strategies),
+            }
+            for pk in PACKS
+        ],
+        "prefill": [{"name": n, "strategy": s} for n, s in (prefill or [])],
+    }
+    return templates.TemplateResponse(
+        request,
+        "admin/add_sims.html",
+        {
+            "user": user,
+            "is_admin": True,
+            "game": game,
+            "personalities": PERSONALITIES,
+            "packs": PACKS,
+            "can_add": can_add,
+            "current_count": len(existing),
+            "error": error,
+            "sims_data": sims_data,
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/admin/games/{game_id}/sims", response_class=HTMLResponse)
+async def add_sims_form(
+    game_id: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_admin)],
+):
+    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    if g is None:
+        raise HTTPException(404)
+    return await _render_add_sims(request, db, user, g)
+
+
+@router.post("/admin/games/{game_id}/sims")
+async def add_sims_submit(
+    game_id: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_admin)],
+    seat_name: Annotated[list[str] | None, Form()] = None,
+    seat_strategy: Annotated[list[str] | None, Form()] = None,
+):
+    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    if g is None:
+        raise HTTPException(404)
+    if g.state not in (GameState.SCHEDULED, GameState.REGISTERING):
+        return await _render_add_sims(
+            request,
+            db,
+            user,
+            g,
+            error="Sims can only be added before a game starts.",
+            status_code=409,
+        )
+    names = [n.strip() for n in (seat_name or [])]
+    strategies = [s.strip() for s in (seat_strategy or [])]
+    if len(names) != len(strategies):
+        return await _render_add_sims(
+            request,
+            db,
+            user,
+            g,
+            error="Something went wrong reading the roster. Please try again.",
+            status_code=400,
+        )
+    seats = list(zip(names, strategies))
+    try:
+        created = await add_sims_to_game(db, g, seats)
+    except SimSeatingError as exc:
+        return await _render_add_sims(
+            request, db, user, g, error=str(exc), prefill=seats, status_code=400
+        )
+    return RedirectResponse(
+        url=f"/admin/games/{game_id}?added={len(created)}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
