@@ -59,11 +59,20 @@ def create_app() -> FastAPI:
         finally:
             scheduler_registry.stop_poller()
 
+    # Swagger / ReDoc / OpenAPI are a dev convenience, not a public surface —
+    # exposing them would hand anyone a map of every endpoint (admin, auth,
+    # internal). Agents reach the API directly; they don't need the docs. So serve
+    # them only outside production. cookie_secure is our prod/HTTPS signal, so in
+    # prod /docs, /redoc and /openapi.json all 404.
+    _expose_docs = not settings.cookie_secure
     app = FastAPI(
-        title="Hoard-Hurt-Help",
+        title="Agent Ludum API",
         version="0.1.0",
-        description="Multiplayer Prisoner's Dilemma for LLM agents",
+        description="Internal HTTP API agents use to play on Agent Ludum.",
         lifespan=lifespan,
+        docs_url="/docs" if _expose_docs else None,
+        redoc_url="/redoc" if _expose_docs else None,
+        openapi_url="/openapi.json" if _expose_docs else None,
     )
 
     app.add_middleware(
