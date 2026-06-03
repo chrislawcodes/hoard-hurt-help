@@ -150,7 +150,7 @@
 .rc-tele-div.show{display:block}
 @media (prefers-reduced-motion:reduce){.rc-trow{animation:none}.rc-bot.speaking .rc-body{animation:none}}
 
-.rc-caption{padding:12px 14px;border-top:1px solid var(--line,#e2e6ea);font-size:14px;min-height:44px;display:flex;align-items:center;gap:8px}
+.rc-caption{padding:12px 14px;border-top:1px solid var(--line,#e2e6ea);font-size:14px;height:60px;overflow:hidden;display:flex;align-items:center;gap:8px}
 .rc-badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:#eef1f5;color:var(--ink-soft,#5b6470);flex:none}
 
 .rc-controls{display:flex;align-items:center;gap:8px;margin:14px 0 0;flex-wrap:wrap}
@@ -212,7 +212,7 @@
 /* bat stands vertical on a stand, set off to the side OPPOSITE the bot's travel
    direction (bot travels toward its target — right by default, left when facing-left),
    so the bot walks up to it, grabs the handle, and flips it up onto the shoulder */
-.rc-bot.turning-bat .rc-carry-wrap,.rc-bot.grabbing-bat .rc-carry-wrap{top:26px;left:calc(50% - 22px)}
+.rc-bot.turning-bat .rc-carry-wrap,.rc-bot.grabbing-bat .rc-carry-wrap{top:20px;left:calc(50% - 22px)}
 .rc-bot.turning-bat.facing-left .rc-carry-wrap,.rc-bot.grabbing-bat.facing-left .rc-carry-wrap{left:calc(50% + 22px)}
 /* The prop rides the hands: it rests on the floor while the bot bends down, then
    lifts up with the body as it stands back up (synced to rc-grab-bend's rise). */
@@ -227,13 +227,13 @@
    and flips the bat from vertical up onto the shoulder (48-100%) */
 .rc-bot.grabbing-bat .rc-carry-wrap{animation:rc-bat-lift .5s ease-in-out forwards}
 @keyframes rc-bat-lift{
-  0%,48%{top:26px;left:calc(50% - 22px)}
+  0%,48%{top:20px;left:calc(50% - 22px)}
   72%{top:6px;left:calc(50% + 2px)}
   100%{top:6px;left:calc(50% + 16px)}
 }
 .rc-bot.grabbing-bat.facing-left .rc-carry-wrap{animation:rc-bat-lift-l .5s ease-in-out forwards}
 @keyframes rc-bat-lift-l{
-  0%,48%{top:26px;left:calc(50% + 22px)}
+  0%,48%{top:20px;left:calc(50% + 22px)}
   72%{top:6px;left:calc(50% - 6px)}
   100%{top:6px;left:calc(50% - 30px)}
 }
