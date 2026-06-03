@@ -27,6 +27,9 @@
 @keyframes rc-bank{0%{box-shadow:0 0 0 0 var(--hoard,#b07e0d)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 .rc-bot.recoil .rc-body{animation:rc-recoil .55s ease}
 @keyframes rc-recoil{20%{transform:translateX(-6px) rotate(-10deg)}45%{transform:translateX(5px) rotate(5deg)}100%{transform:none}}
+/* red hit-flash on the struck bot — tinting the character reads as "damage" */
+.rc-bot.hit .rc-robot{animation:rc-hitflash .42s ease}
+@keyframes rc-hitflash{0%,100%{filter:none}25%{filter:drop-shadow(0 0 7px var(--hurt,#c0392b)) saturate(1.5) brightness(1.12)}}
 .rc-bot.betray .rc-body{animation:rc-turnback .6s ease}
 @keyframes rc-turnback{30%{transform:rotateY(180deg)}60%{transform:rotateY(180deg)}100%{transform:none}}
 
@@ -390,13 +393,33 @@
   }
 
   var NS='http://www.w3.org/2000/svg';
+  // Hurt impact: a bold shock ring + radiating spokes at the point of contact.
+  // The struck bot itself also red-flashes (see .rc-bot.hit) — tinting the
+  // character reads as "damage" far better than an overlay ring at this size.
   function strikeAt(x,y){
-    var s=document.createElementNS(NS,'circle');
-    s.setAttribute('cx',x);s.setAttribute('cy',y);s.setAttribute('r','5');
-    s.setAttribute('fill','none');s.setAttribute('stroke',C_HURT);s.setAttribute('stroke-width','4');
-    fx.appendChild(s);
-    s.animate([{r:5,opacity:1},{r:30,opacity:0}],{duration:560,fill:'forwards'});
-    setTimeout(function(){s.remove();},620);
+    function C(r,sw,fill){
+      var c=document.createElementNS(NS,'circle');
+      c.setAttribute('cx',x);c.setAttribute('cy',y);c.setAttribute('r',r);
+      c.setAttribute('fill',fill||'none');
+      if(sw){c.setAttribute('stroke',C_HURT);c.setAttribute('stroke-width',sw);}
+      fx.appendChild(c);return c;
+    }
+    var f=C(3,0,C_HURT);        // contact pop
+    f.animate([{r:3,opacity:.7},{r:18,opacity:0}],{duration:260,fill:'forwards',easing:'ease-out'});
+    var s=C(8,6,'none');        // shock ring
+    s.animate([{r:8,opacity:1,strokeWidth:6},{r:34,opacity:0,strokeWidth:1}],{duration:460,fill:'forwards',easing:'ease-out'});
+    var g=document.createElementNS(NS,'g'); fx.appendChild(g);   // radiating spokes
+    g.style.transformBox='view-box'; g.style.transformOrigin=x+'px '+y+'px';
+    for(var k=0;k<6;k++){
+      var ang=(k/6)*2*Math.PI - Math.PI/2;
+      var ln=document.createElementNS(NS,'line');
+      ln.setAttribute('x1',x+10*Math.cos(ang));ln.setAttribute('y1',y+10*Math.sin(ang));
+      ln.setAttribute('x2',x+30*Math.cos(ang));ln.setAttribute('y2',y+30*Math.sin(ang));
+      ln.setAttribute('stroke',C_HURT);ln.setAttribute('stroke-width','3.5');ln.setAttribute('stroke-linecap','round');
+      g.appendChild(ln);
+    }
+    g.animate([{transform:'scale(.45)',opacity:1},{transform:'scale(1.2)',opacity:0}],{duration:380,fill:'forwards',easing:'ease-out'});
+    setTimeout(function(){f.remove();s.remove();g.remove();},560);
   }
   function lockRing(x,y){
     var r=document.createElementNS(NS,'circle');
@@ -597,7 +620,7 @@
         });
       }, REACH_DUR);
     } else {
-      var hx=ax+(tx-ax)*0.6, hy=ay+(ty-ay)*0.6;
+      var hx=ax+(tx-ax)*0.68, hy=ay+(ty-ay)*0.68;
       if(tx<ax) el.classList.add('facing-left');
       el.classList.add('turning-bat');
       eyes(a.agent,'mean', REACH_DUR+DUR);
@@ -617,8 +640,8 @@
           rScore[a.target]=Math.max(0,(rScore[a.target]||0)-4);
           dmgRail(a.target);
           updateRail();
-          T.classList.add('recoil');
-          setTimeout(function(){ T.classList.remove('recoil'); }, 550);
+          T.classList.add('recoil','hit');
+          setTimeout(function(){ T.classList.remove('recoil','hit'); }, 550);
           setTimeout(function(){ dimDown(a.agent); dimDown(a.target); }, 600);
         });
       }, REACH_DUR);
