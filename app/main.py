@@ -19,7 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.engine.scheduler import registry as scheduler_registry
-from app.request_errors import install_request_error_logging
+from app.request_logging import install_request_logging
 from app.routes import (
     admin_api,
     admin_web,
@@ -115,7 +115,7 @@ def create_app() -> FastAPI:
         https_only=settings.cookie_secure,  # Secure cookie in prod (COOKIE_SECURE=true)
         session_cookie="hhh_session",
     )
-    install_request_error_logging(app)
+    install_request_logging(app)
 
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.include_router(auth_routes.router)
