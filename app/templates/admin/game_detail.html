@@ -7,6 +7,16 @@
     <p class="sub">State: {{ game.state.value }} · Round {{ game.current_round }} / {{ game.total_rounds }} · Turn {{ game.current_turn }} / {{ game.turns_per_round }}</p>
 </div>
 
+{% if added %}
+<p class="notice-ok" role="status">Added {{ added }} Sim{{ '' if added == 1 else 's' }}.</p>
+{% endif %}
+
+{% if can_add_sims %}
+<div class="admin-actions">
+    <a class="btn btn-primary" href="/admin/games/{{ game.id }}/sims">+ Add Sims</a>
+</div>
+{% endif %}
+
 {% if game.state.value == "registering" %}
 <form method="post" action="/admin/games/{{ game.id }}/start">
     <button type="submit">▶ Start now</button>
@@ -16,10 +26,11 @@
 
 <h2>Players + strategy prompts</h2>
 <table>
-    <tr><th>Agent</th><th>Round wins</th><th>Total score</th><th>Strategy prompt</th></tr>
+    <tr><th>Agent</th><th>Type</th><th>Round wins</th><th>Total score</th><th>Strategy prompt</th></tr>
     {% for p in players %}
     <tr>
         <td>{{ p.agent_id }}</td>
+        <td>{% if p.is_sim %}<span class="tag tag-sim">Sim</span> {{ p.personality }}{% else %}<span class="muted">External</span>{% endif %}</td>
         <td>{{ p.total_round_wins }}</td>
         <td>{{ p.total_round_score }}</td>
         <td><details><summary>view</summary><pre>{{ p.strategy }}</pre></details></td>

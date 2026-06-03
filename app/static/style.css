@@ -1037,3 +1037,98 @@ button.danger:hover,
     .al-lb-row { grid-template-columns: 40px 1fr 90px; }
     .al-lb-row > .al-num:last-child, .al-lb-head > span:last-child { display: none; }
 }
+
+/* ── Admin: Add Sims ───────────────────────────────────────────────────────
+   The roster builder. A small, calm set of controls: quick-add packs, a
+   per-personality stepper, and the live roster of seats being added. */
+.notice-ok {
+    color: var(--help);
+    background: color-mix(in srgb, var(--help) 10%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--help) 35%, var(--line));
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin: 0.5rem 0;
+}
+.admin-actions { margin: 0.5rem 0 1rem; }
+.muted { color: var(--ink-soft); }
+.tag-sim { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+.sims-section { margin: 1.5rem 0; }
+.sims-section h2 { margin: 0 0 0.5rem; }
+
+.sims-pack-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* The action-lean dot: cooperative / aggressive / self, by colour + position. */
+.lean-dot {
+    display: inline-block;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--ink-soft);
+    vertical-align: middle;
+}
+.lean-help { background: var(--help); }
+.lean-hurt { background: var(--hurt); }
+.lean-hoard { background: var(--hoard); }
+
+.sims-personality-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
+.sims-personality {
+    display: grid;
+    grid-template-columns: minmax(9rem, auto) 1fr auto;
+    align-items: center;
+    gap: 0.4rem 0.85rem;
+    padding: 0.55rem 0.7rem;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+}
+.sims-p-head { display: inline-flex; align-items: center; gap: 0.45rem; }
+.sims-p-name { font-weight: 600; }
+.sims-p-desc { color: var(--ink-soft); font-size: 0.85rem; }
+
+.stepper { display: inline-flex; align-items: center; gap: 0.5rem; }
+.stepper button {
+    width: 1.9rem; height: 1.9rem;
+    border: 1.5px solid var(--line-bold);
+    background: var(--surface);
+    border-radius: 6px;
+    font-size: 1.05rem; line-height: 1;
+    cursor: pointer;
+}
+.stepper button:hover { background: var(--surface-2); }
+.stepper button:disabled { opacity: 0.4; cursor: not-allowed; }
+.step-count { min-width: 1.4rem; text-align: center; font-variant-numeric: tabular-nums; }
+
+.sims-legend {
+    display: flex; flex-wrap: wrap; gap: 1rem;
+    color: var(--ink-soft); font-size: 0.8rem; margin: 0.6rem 0 0;
+}
+.sims-legend > span { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+.sims-roster-list { display: grid; gap: 0.4rem; }
+.sims-seat {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.6rem;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+}
+.sims-seat .seat-name {
+    font: inherit;
+    padding: 0.3rem 0.5rem;
+    border: 1.5px solid var(--line);
+    border-radius: 6px;
+    max-width: 12rem;
+}
+.seat-personality { color: var(--ink-soft); font-size: 0.9rem; }
+.seat-remove {
+    border: none; background: transparent;
+    color: var(--hurt); font-size: 1rem; line-height: 1; cursor: pointer;
+}
+
+@media (max-width: 560px) {
+    .sims-personality { grid-template-columns: 1fr auto; }
+    .sims-p-desc { grid-column: 1 / -1; }
+}
