@@ -205,7 +205,7 @@ async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
     assert len(bots) == len(presets)
     assert {bot.sim_profile_id for bot in bots} == {preset.id for preset in presets}
     assert {bot.sim_profile_name for bot in bots} == {preset.name for preset in presets}
-    assert all(" - " in bot.name for bot in bots)
+    assert {bot.name for bot in bots} == {preset.name for preset in presets}
 
     await _seed_game(reset_db)
     join = await client.get("/games/G_001/join", cookies=cookies)

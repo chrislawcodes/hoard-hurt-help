@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 
 
@@ -92,30 +91,6 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
     ),
 )
 
-GREEK_GODS: tuple[str, ...] = (
-    "Zeus",
-    "Hera",
-    "Poseidon",
-    "Demeter",
-    "Athena",
-    "Apollo",
-    "Artemis",
-    "Ares",
-    "Aphrodite",
-    "Hephaestus",
-    "Hermes",
-    "Dionysus",
-    "Hades",
-    "Persephone",
-    "Hestia",
-    "Cronus",
-    "Rhea",
-    "Nike",
-    "Eros",
-    "Helios",
-)
-
-
 def sim_presets() -> list[SimPreset]:
     return list(SIM_PRESETS)
 
@@ -128,20 +103,15 @@ def build_sim_bot_name(
     preset_name: str,
     *,
     used_names: set[str] | None = None,
-    rng: random.Random | None = None,
 ) -> str:
-    """Pick a friendly Greek-god name and pair it with the Sim profile name."""
-    chooser = rng or random.SystemRandom()
+    """Build the generic display name for a preset Sim bot."""
     taken = used_names if used_names is not None else set()
-    gods = list(GREEK_GODS)
-    chooser.shuffle(gods)
-    for god in gods:
-        candidate = f"{god} - {preset_name}"
-        if candidate not in taken:
-            return candidate
+    candidate = preset_name
+    if candidate not in taken:
+        return candidate
     suffix = 2
     while True:
-        candidate = f"{gods[0]} - {preset_name} {suffix}"
+        candidate = f"{preset_name} {suffix}"
         if candidate not in taken:
             return candidate
         suffix += 1
