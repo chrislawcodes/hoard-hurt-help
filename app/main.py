@@ -3,9 +3,14 @@
 Routes and middleware are added by each phase.
 """
 
+import asyncio
+import os
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +37,32 @@ logging.basicConfig(
 )
 
 
+def _should_run_startup_migrations() -> bool:
+    """Skip automatic migrations in tests; run them everywhere else."""
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    return os.getenv("SKIP_STARTUP_MIGRATIONS", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _alembic_config() -> Config:
+    cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    return cfg
+
+
+async def _upgrade_database() -> None:
+    if not _should_run_startup_migrations():
+        return
+
+    def _run_upgrade() -> None:
+        command.upgrade(_alembic_config(), "head")
+
+    await asyncio.to_thread(_run_upgrade)
+
+
 def create_app() -> FastAPI:
     # Resolve the MCP sub-app up front. Its Starlette lifespan starts the
     # streamable-HTTP session manager, and a mounted ASGI app's lifespan is
@@ -48,6 +79,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        await _upgrade_database()
         await scheduler_registry.resume_active_games_on_startup()
         scheduler_registry.start_poller()  # auto-start games when their time comes
         try:
