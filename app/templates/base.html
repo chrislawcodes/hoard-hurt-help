@@ -54,7 +54,9 @@
                         </div>
                     </details>
                 {% else %}
-                    <a href="/auth/google/login">Sign in</a>
+                    {# Auth entry must survive the mobile utility-link hide rule —
+                       it's the only way in when there's no account menu. #}
+                    <a href="/auth/google/login" class="al-nav-auth">Sign in</a>
                 {% endif %}
                 {# Wayfinding, not a conversion shout: "Games" is the door to the
                    platform's content — the visitor decides what to do there. #}
