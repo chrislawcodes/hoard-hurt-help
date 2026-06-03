@@ -181,6 +181,15 @@
 .rc-bot.turning-gift.facing-left .rc-carry-wrap,.rc-bot.turning-bat.facing-left .rc-carry-wrap,
 .rc-bot.grabbing-gift.facing-left .rc-carry-wrap,.rc-bot.grabbing-bat.facing-left .rc-carry-wrap
   {left:calc(50% + 18px)}
+/* The prop rides the hands: it rests on the floor while the bot bends down, then
+   lifts up with the body as it stands back up (synced to rc-grab-bend's rise). */
+.rc-bot.grabbing-gift .rc-carry-wrap,.rc-bot.grabbing-bat .rc-carry-wrap{animation:rc-lift .5s ease-in-out forwards}
+@keyframes rc-lift{
+  0%,20%{top:52px}
+  48%{top:60px}
+  72%{top:20px}
+  100%{top:30px}
+}
 .rc-bot.grabbing-gift .rc-robot,.rc-bot.grabbing-bat .rc-robot{display:none}
 .rc-bot.grabbing-gift .rc-robot-side,.rc-bot.grabbing-bat .rc-robot-side{display:block}
 .rc-bot.grabbing-gift .rc-robot-side,.rc-bot.grabbing-bat .rc-robot-side{transform:scaleX(-1)}
