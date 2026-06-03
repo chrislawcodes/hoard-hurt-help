@@ -981,7 +981,7 @@ button.danger:hover,
 
 /* footer */
 .al-footer { border-top: 1.5px solid var(--line); padding: 54px 0 38px; }
-.al-footer-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 32px; }
+.al-footer-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 32px; }
 .al-foot-blurb { font-size: 13px; color: var(--ink-soft); margin-top: 14px; max-width: 240px; }
 .al-foot-col { display: flex; flex-direction: column; gap: 10px; }
 .al-foot-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink); margin-bottom: 4px; }
