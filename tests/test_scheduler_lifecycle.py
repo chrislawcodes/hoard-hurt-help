@@ -209,6 +209,50 @@ async def test_crashed_game_loop_is_logged(monkeypatch, caplog):
     assert any("crashed" in r.getMessage() for r in caplog.records)
 
 
+# --- read-path reconciliation (lobby self-heal) ---
+
+
+async def test_cancel_overdue_unfilled_cancels_due_underfilled(db):
+    # A due game with too few players is cancelled on the caller's own session,
+    # so the lobby render that triggered it immediately sees CANCELLED.
+    game, _ = await _make_game(
+        db, state=GameState.REGISTERING, n_players=0, start_offset=-5
+    )
+
+    n = await scheduler.cancel_overdue_unfilled_games(db)
+
+    assert n == 1
+    await db.refresh(game)
+    assert game.state == GameState.CANCELLED
+    assert game.cancelled_at is not None
+
+
+async def test_cancel_overdue_unfilled_leaves_future_game(db):
+    game, _ = await _make_game(
+        db, state=GameState.REGISTERING, n_players=0, start_offset=300
+    )
+
+    n = await scheduler.cancel_overdue_unfilled_games(db)
+
+    assert n == 0
+    await db.refresh(game)
+    assert game.state == GameState.REGISTERING
+
+
+async def test_cancel_overdue_unfilled_leaves_due_full_game(db):
+    # Due and at the floor: the poller starts it. The read path must NOT cancel a
+    # game that is merely waiting to start, nor spin up its turn loop.
+    game, _ = await _make_game(
+        db, state=GameState.REGISTERING, n_players=3, start_offset=-5
+    )
+
+    n = await scheduler.cancel_overdue_unfilled_games(db)
+
+    assert n == 0
+    await db.refresh(game)
+    assert game.state == GameState.REGISTERING
+
+
 async def test_start_due_games_starts_due_scheduled_game(db, monkeypatch):
     # start_due_games sweeps SCHEDULED too; start_game must promote it (SCHEDULED
     # can't transition straight to ACTIVE) rather than throw.

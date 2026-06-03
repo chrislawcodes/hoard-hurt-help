@@ -16,6 +16,7 @@ from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
 from app.engine.game_insights import round_detail, season_overview
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
+from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
 from app.games.base import GameError, GameTheme
 from app.models.bot import Bot
@@ -207,6 +208,15 @@ async def home(request: Request, db: DbSession):
 async def hoard_hurt_help_lobby(request: Request, db: DbSession):
     """Hoard·Hurt·Help lobby (game #1). The platform front page lives at `/`."""
     user = await get_current_user(request, db)
+    # Self-heal before reading: a game past its start time with too few players
+    # should show as cancelled, not linger as "Upcoming" with a live Join button.
+    # The background poller normally does this within seconds, but the lobby must
+    # not depend on it having run. A failure here must never break the page — log
+    # and fall through to whatever state the DB already holds.
+    try:
+        await cancel_overdue_unfilled_games(db)
+    except Exception:
+        logger.exception("lobby: failed to reconcile overdue games")
     all_games = (
         (await db.execute(select(Game).order_by(Game.scheduled_start.desc()))).scalars().all()
     )

@@ -154,6 +154,33 @@ async def test_lobby_shows_robot_replay_of_latest_game(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
+    # A game past its start time with too few players must not linger as
+    # "Upcoming" with a live Join button. Viewing the lobby reconciles it to
+    # CANCELLED, and it drops out of the upcoming list.
+    async with reset_db() as db:
+        db.add(
+            Game(
+                id="G_LATE",
+                name="Wednesday Wild",
+                state=GameState.REGISTERING,
+                scheduled_start=datetime.now(timezone.utc) - timedelta(minutes=5),
+                per_turn_deadline_seconds=60,
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/play/hoard-hurt-help")
+    assert r.status_code == 200
+    assert "Wednesday Wild" not in r.text  # no longer advertised as upcoming
+
+    async with reset_db() as db:
+        g = (await db.execute(select(Game).where(Game.id == "G_LATE"))).scalar_one()
+    assert g.state == GameState.CANCELLED
+    assert g.cancelled_at is not None
+
+
+@pytest.mark.asyncio
 async def test_join_requires_sign_in(client, reset_db):
     await _seed_game(reset_db)
     r = await client.get("/games/G_001/join", follow_redirects=False)

@@ -52,6 +52,17 @@ def _as_aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
+async def _active_player_count(db, game_id: str) -> int:
+    """Seats currently held in a game — a player who left frees their seat."""
+    return (
+        await db.scalar(
+            select(func.count())
+            .select_from(Player)
+            .where(Player.game_id == game_id, Player.left_at.is_(None))
+        )
+    ) or 0
+
+
 class SchedulerRegistry:
     """Singleton-ish registry of running per-game tasks."""
 
@@ -112,11 +123,7 @@ class SchedulerRegistry:
             for g in games:
                 if _as_aware(g.scheduled_start) > now:
                     continue  # not due yet
-                count = await db.scalar(
-                    select(func.count())
-                    .select_from(Player)
-                    .where(Player.game_id == g.id, Player.left_at.is_(None))
-                ) or 0
+                count = await _active_player_count(db, g.id)
                 if count >= MIN_PLAYERS_TO_START:
                     await start_game(db, g)
                     started += 1
@@ -369,6 +376,52 @@ async def _wait_for_turn(db, turn: Turn) -> None:
         if await _all_submitted(db, turn):
             return
         await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
+
+
+async def cancel_overdue_unfilled_games(db) -> int:
+    """Cancel SCHEDULED/REGISTERING games that are past start with too few players.
+
+    Read paths (the lobby) call this on render so a stuck game shows as cancelled
+    even when the background poller hasn't swept it yet — the displayed state must
+    not depend on a poller having run. Operates on the caller's session, so the
+    same request sees the change, and returns how many games it cancelled.
+
+    Cancel-only by design. Starting a due-and-full game spins up a turn-loop task;
+    that side effect belongs to the poller, not a page render, so a full game still
+    waiting to start is left untouched here. Only the (common) under-floor case —
+    a game whose moment passed without enough players — is resolved on read.
+    """
+    now = datetime.now(timezone.utc)
+    games = (
+        (
+            await db.execute(
+                select(Game).where(
+                    Game.state.in_([GameState.SCHEDULED, GameState.REGISTERING])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    cancelled = 0
+    for g in games:
+        if _as_aware(g.scheduled_start) > now:
+            continue  # not due yet
+        count = await _active_player_count(db, g.id)
+        if count >= MIN_PLAYERS_TO_START:
+            continue  # due and full — leave it for the poller to start
+        g.state = GameState.CANCELLED
+        g.cancelled_at = now
+        cancelled += 1
+        logger.info(
+            "lobby-cancelled %s: %d players at start time (< %d)",
+            g.id,
+            count,
+            MIN_PLAYERS_TO_START,
+        )
+    if cancelled:
+        await db.commit()
+    return cancelled
 
 
 async def start_game(db, game: Game) -> None:
