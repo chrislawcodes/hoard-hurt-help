@@ -47,8 +47,8 @@
 
 **Independent Test**: Seed prod-shaped rows at `0017`, run `upgrade head`, assert IDs are `M_`, counts unchanged, zero orphans; dry-run counts equal applied counts.
 
-- [ ] T012 [P: tests/test_migrations.py] [US3] Extend `tests/test_migrations.py`: build SQLite DB, seed a `G_` match + players + turns + turn_submissions + a request_incident, run `upgrade head`, assert table `matches`, columns renamed, all IDs `M_`, every FK resolves, per-table counts preserved, zero rows `LIKE 'G\_%'`.
-- [ ] T013 [P: tests/test_match_id_preview.py] [US3] Create `tests/test_match_id_preview.py`: run the preview script against the seeded DB; assert it prints the mapping + counts, leaves the DB unchanged, and its counts equal the post-`upgrade` counts (SC-005).
+- [X] T012 [P: tests/test_migrations.py] [US3] Extend `tests/test_migrations.py`: build SQLite DB, seed a `G_` match + players + turns + turn_submissions + a request_incident, run `upgrade head`, assert table `matches`, columns renamed, all IDs `M_`, every FK resolves, per-table counts preserved, zero rows `LIKE 'G\_%'`.
+- [X] T013 [P: tests/test_match_id_preview.py] [US3] Create `tests/test_match_id_preview.py`: run the preview script against the seeded DB; assert it prints the mapping + counts, leaves the DB unchanged, and its counts equal the post-`upgrade` counts (SC-005).
 
 **Checkpoint**: migration + preview proven on prod-shaped fixtures.
 
