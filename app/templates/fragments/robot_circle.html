@@ -403,9 +403,16 @@
   var TURN_DUR=200;
   var BEND_DUR=500;
   var EXPAND_DUR=150;
-  var REACH_DUR=TURN_DUR+BEND_DUR+EXPAND_DUR;
-  var PHASE_GAP=1000;
-  var HELP_GAP=REACH_DUR+DUR+200;
+  var REACH_DUR=TURN_DUR+BEND_DUR+EXPAND_DUR;   // turn, bend-to-grab, expand item
+  var REACH_FULL=REACH_DUR+DUR;                  // a whole reach action incl. the walk back
+  var HOARD_FULL=950;                            // coin pop + settle
+  // Breathing room: phases (help -> pact -> hurt -> hoard) no longer overlap —
+  // each waits for the previous to finish — and actions within a phase are
+  // staggered so they read as distinct beats instead of all firing at once.
+  var PHASE_GAP=600;                             // pause between phase types
+  var HELP_STAGGER=REACH_FULL+180;               // helps play one at a time
+  var REACH_STAGGER=1150;                        // hurts / separate pacts: slight overlap, distinct impacts
+  var HOARD_STAGGER=340;                         // hoards pop in sequence, not a single flash
 
   var phaseTimers=[];
   function clearPhaseTimers(){ phaseTimers.forEach(clearTimeout); phaseTimers=[]; }
@@ -420,16 +427,33 @@
     var mutuals=t.actions.filter(function(a){return phaseOf(a)==='mutual';});
     var hurts  =t.actions.filter(function(a){return phaseOf(a)==='hurt';});
     var hoards =t.actions.filter(function(a){return phaseOf(a)==='hoard';});
-    helps.forEach(function(a,i){
-      slots.push({delay:cursor, actions:[a]});
-      cursor+=(i<helps.length-1)?HELP_GAP:PHASE_GAP;
-    });
-    if(mutuals.length){slots.push({delay:cursor,actions:mutuals});cursor+=PHASE_GAP;}
-    if(hurts.length)  {slots.push({delay:cursor,actions:hurts});  cursor+=PHASE_GAP;}
-    if(hoards.length) {slots.push({delay:cursor,actions:hoards}); cursor+=PHASE_GAP;}
-    var lastDelay=slots.length?slots[slots.length-1].delay:0;
-    var hasReach=slots.some(function(s){return s.actions.some(function(a){return a.action!=='HOARD';});});
-    return {slots:slots, totalDuration:lastDelay+(hasReach?REACH_DUR:0)+DUR+600};
+
+    // helps: one gift at a time
+    helps.forEach(function(a,i){ slots.push({delay:cursor+i*HELP_STAGGER, actions:[a]}); });
+    if(helps.length) cursor += (helps.length-1)*HELP_STAGGER + REACH_FULL + PHASE_GAP;
+
+    // mutuals: each PACT (both halves) fires together so the pair meets in the
+    // middle — but separate pacts are staggered so they don't all happen at once.
+    if(mutuals.length){
+      var pacts=[], byPair={};
+      mutuals.forEach(function(a){
+        var key=[a.agent,a.target].sort().join('');
+        if(!byPair[key]){ byPair[key]=[]; pacts.push(byPair[key]); }
+        byPair[key].push(a);
+      });
+      pacts.forEach(function(g,i){ slots.push({delay:cursor+i*REACH_STAGGER, actions:g}); });
+      cursor += (pacts.length-1)*REACH_STAGGER + REACH_FULL + PHASE_GAP;
+    }
+
+    // hurts: distinct strikes, slightly overlapped
+    hurts.forEach(function(a,i){ slots.push({delay:cursor+i*REACH_STAGGER, actions:[a]}); });
+    if(hurts.length) cursor += (hurts.length-1)*REACH_STAGGER + REACH_FULL + PHASE_GAP;
+
+    // hoards: a quick readable run of coin pops, not one simultaneous flash
+    hoards.forEach(function(a,i){ slots.push({delay:cursor+i*HOARD_STAGGER, actions:[a]}); });
+    if(hoards.length) cursor += (hoards.length-1)*HOARD_STAGGER + HOARD_FULL;
+
+    return {slots:slots, totalDuration:cursor+400};
   }
 
   function walk(actorEl,toX,toY,onArrive){
