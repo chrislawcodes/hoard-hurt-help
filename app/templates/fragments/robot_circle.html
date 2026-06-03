@@ -225,16 +225,21 @@
   var DATA = JSON.parse(document.getElementById('rc-data').textContent);
   var AGENTS = DATA.agents || [];
   var TURNS = DATA.turns || [];
-  var PALETTE = ['#2f6feb','#1a8f4c','#c0392b','#8a5cf6','#d98324','#0f9d9d',
-                 '#d11a8a','#5b6470','#3a7d2c','#b4434e','#1f5fbf','#b06f00',
-                 '#6a3fb0','#0a7d6a','#a01c5a'];
+  // Identity hues deliberately avoid the three action colours (amber --hoard,
+  // green --help, red --hurt) so a bot's colour never reads as a move. Greens and
+  // reds here are shifted to lime/rose, clearly distinct from the action shades.
+  var PALETTE = ['#2f6feb','#9b51e0','#e84e8a','#00a8a8','#7cb342','#5b6470',
+                 '#c2185b','#3f51b5','#d11a8a','#0288d1','#6a3fb0','#00897b',
+                 '#b0338a','#4527a0','#ef6c91'];
   // --- Bot identity: a stable look (color + silhouette) derived from the agent id.
   //     Kept self-contained so it can be lifted into a shared avatar module when
   //     user-built bots need the same face on their setup/profile pages.
   function rcHash(s){ var h=2166136261; for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
   function rcIdentity(id,idx){
     var h=rcHash(id);
-    return { color: idx<PALETTE.length ? PALETTE[idx] : 'hsl('+(h%360)+',58%,48%)',
+    // Overflow (>15 bots): generate in the 178-350 hue band (cyan->blue->pink),
+    // which holds no action hue, so even auto colours stay action-safe.
+    return { color: idx<PALETTE.length ? PALETTE[idx] : 'hsl('+(178+h%172)+',55%,50%)',
              head:h%4, eyesize:(h>>3)%3, ant:(h>>6)%3, torso:(h>>9)%3 };
   }
   var colorOf={}, identOf={};
