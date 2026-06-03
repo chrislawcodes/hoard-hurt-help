@@ -319,6 +319,12 @@ def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
         else:
             badge, cap = "Hoard", "A quiet turn — everyone banks a coin."
 
+        talk = [
+            {"agent": m["agent_id"], "text": m["text"].strip()}
+            for m in h["messages"]
+            if m["text"].strip()
+        ]
+
         turns.append({
             "round": h["round"],
             "turn": h["turn"],
@@ -326,6 +332,7 @@ def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
             "cap": cap,
             "spotlight": sorted(spot),
             "actions": rc_actions,
+            "talk": talk,
         })
 
     return json.dumps({
