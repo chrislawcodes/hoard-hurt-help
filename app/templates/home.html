@@ -52,10 +52,12 @@
     {% include "fragments/move_legend.html" %}
 
     {% if rc_data %}
-        <div class="rc-layout">
+        <div class="rc-layout home-replay">
             {% include "fragments/robot_circle_standings.html" %}
-            <div>
-                {% with rc_autoplay = true %}
+            <div class="home-replay-stage">
+                {# Compact: hides the viewer's own legend + feed (the page already
+                   shows the move legend) and uses the smaller hero stage. #}
+                {% with rc_autoplay = true, rc_compact = true %}
                 {% include "fragments/robot_circle.html" %}
                 {% endwith %}
             </div>

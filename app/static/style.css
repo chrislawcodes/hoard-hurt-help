@@ -693,9 +693,21 @@ button.danger:hover,
     .hero-quiet h1 { font-size: 1.5rem; }
     .marquee { padding: 1.1rem 1.1rem 1.25rem; }
     .marquee-title { font-size: 1.45rem; }
-    .marquee-standings li { grid-template-columns: 1.4rem 1fr auto auto; gap: 0.55rem; }
-    .marquee-cta { display: block; text-align: center; }
+    /* Drop the muted "pts" column on phones — round-wins is the number that
+       decides the game, so leave one unambiguous figure next to the name. */
+    .marquee-standings li { grid-template-columns: 1.4rem 1fr auto; gap: 0.55rem; }
+    .marquee-standings .ms-score { display: none; }
+    /* The hero CTA must be a full-width tap target. .btn (inline-flex) is
+       defined later in the file, so qualify the selector to win on source order. */
+    .marquee .marquee-cta { display: block; width: 100%; text-align: center; }
     .recent-row { flex-wrap: wrap; }
+}
+
+/* Quiet-state replay: on phones the rc-layout collapses to one column (≤620px,
+   set in robot_circle_standings.html). Lead with the animated robots — the
+   moment that matters — and let the standings rail follow below it. */
+@media (max-width: 620px) {
+    .home-replay .home-replay-stage { order: -1; }
 }
 
 /* ============================================================
@@ -1002,8 +1014,10 @@ button.danger:hover,
     .al-meta { gap: 12px; }
     .al-cta-row .btn { width: 100%; }
     /* Hide top-level utility links on phones, but keep the account menu (a
-       <details>) and its dropdown contents reachable. Direct-child only. */
-    .al-nav-right > a:not(.btn), .al-nav-right > .al-inline-form { display: none; }
+       <details>) and its dropdown contents reachable. Direct-child only.
+       The auth link (.al-nav-auth) is exempt: when signed out there's no
+       account menu, so it's the only way to sign in. */
+    .al-nav-right > a:not(.btn):not(.al-nav-auth), .al-nav-right > .al-inline-form { display: none; }
     /* When signed in, the avatar + CTA are tight on a phone — drop the wordmark
        to the logo mark alone so "Play now" never wraps. Signed-out keeps it. */
     .al-nav-inner:has(.al-acct) .al-wordmark { display: none; }
