@@ -155,8 +155,8 @@
 .rc-bat-handle::after{content:'';position:absolute;bottom:-4px;left:-1px;width:6px;height:5px;background:#8B5532;border-radius:0 0 3px 3px}
 .rc-bot.carrying-bat .rc-batbox{transform:rotate(30deg);transform-origin:50% 80%}
 .rc-bot.carrying-bat.facing-left .rc-batbox{transform:rotate(-30deg);transform-origin:50% 80%}
-.rc-bot.turning-bat .rc-batbox{transform:rotate(82deg);transform-origin:50% 80%}
-.rc-bot.turning-bat.facing-left .rc-batbox{transform:rotate(-82deg);transform-origin:50% 80%}
+.rc-bot.turning-bat .rc-batbox{transform:rotate(76deg);transform-origin:50% 80%}
+.rc-bot.turning-bat.facing-left .rc-batbox{transform:rotate(-76deg);transform-origin:50% 80%}
 .rc-bot.carrying-gift .rc-carry-gift{display:block}
 .rc-bot.carrying-bat .rc-carry-bat{display:block}
 
@@ -195,22 +195,24 @@
    exactly where carrying-bat parks it, so the hand-off has no snap. */
 .rc-bot.grabbing-bat .rc-carry-wrap{animation:rc-bat-lift .5s ease-in-out forwards}
 @keyframes rc-bat-lift{
-  0%,20%{top:52px;left:calc(50% - 18px)}
-  48%{top:60px;left:calc(50% - 14px)}
-  72%{top:16px;left:calc(50% + 6px)}
+  0%,20%{top:52px;left:calc(50% - 16px)}
+  46%{top:54px;left:calc(50% - 14px)}
+  70%{top:6px;left:calc(50% - 8px)}
   100%{top:6px;left:calc(50% + 16px)}
 }
 .rc-bot.grabbing-bat.facing-left .rc-carry-wrap{animation:rc-bat-lift-l .5s ease-in-out forwards}
 @keyframes rc-bat-lift-l{
-  0%,20%{top:52px;left:calc(50% + 18px)}
-  48%{top:60px;left:calc(50% + 14px)}
-  72%{top:16px;left:calc(50% - 20px)}
+  0%,20%{top:52px;left:calc(50% + 16px)}
+  46%{top:54px;left:calc(50% + 14px)}
+  70%{top:6px;left:calc(50% + 8px)}
   100%{top:6px;left:calc(50% - 30px)}
 }
+/* rotate the bat upright while it lifts (so it rides up tucked behind the robot,
+   not swung around the front), then tip it onto the shoulder at the end */
 .rc-bot.grabbing-bat .rc-batbox{animation:rc-bat-rot .5s ease-in-out forwards;transform-origin:50% 80%}
-@keyframes rc-bat-rot{0%,48%{transform:rotate(82deg)}100%{transform:rotate(30deg)}}
+@keyframes rc-bat-rot{0%,40%{transform:rotate(76deg)}70%{transform:rotate(6deg)}100%{transform:rotate(30deg)}}
 .rc-bot.grabbing-bat.facing-left .rc-batbox{animation:rc-bat-rot-l .5s ease-in-out forwards;transform-origin:50% 80%}
-@keyframes rc-bat-rot-l{0%,48%{transform:rotate(-82deg)}100%{transform:rotate(-30deg)}}
+@keyframes rc-bat-rot-l{0%,40%{transform:rotate(-76deg)}70%{transform:rotate(-6deg)}100%{transform:rotate(-30deg)}}
 .rc-bot.grabbing-gift .rc-robot,.rc-bot.grabbing-bat .rc-robot{display:none}
 .rc-bot.grabbing-gift .rc-robot-side,.rc-bot.grabbing-bat .rc-robot-side{display:block}
 .rc-bot.grabbing-gift .rc-robot-side,.rc-bot.grabbing-bat .rc-robot-side{transform:scaleX(-1)}
