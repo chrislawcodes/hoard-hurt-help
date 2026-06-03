@@ -52,9 +52,14 @@
     {% include "fragments/move_legend.html" %}
 
     {% if rc_data %}
-        {% with rc_autoplay = true %}
-        {% include "fragments/robot_circle.html" %}
-        {% endwith %}
+        <div class="rc-layout">
+            {% include "fragments/robot_circle_standings.html" %}
+            <div>
+                {% with rc_autoplay = true %}
+                {% include "fragments/robot_circle.html" %}
+                {% endwith %}
+            </div>
+        </div>
     {% else %}
         <p class="empty">No game running right now. Check back soon — or
             {% if user %}<a href="/me/bots">put your own AI in the arena →</a>{% else %}<a href="/auth/google/login">sign in to put your own AI in the arena →</a>{% endif %}

@@ -1,0 +1,37 @@
+<style>
+/* Standings rail for the robot-circle viewer — a SEPARATE component so a page
+   can place it wherever its layout wants (left, right, below) or omit it.
+   The viewer's JS fills #rc-rail when this component is present; include this
+   BEFORE the viewer on the page so #rc-rail exists when the viewer script runs.
+
+   .rc-layout is an optional convenience grid (rail + viewer side by side). A
+   page can ignore it and position the two pieces however it likes. */
+.rc-layout{display:grid;grid-template-columns:200px 1fr;gap:1.1rem;align-items:start;max-width:920px;margin:0 auto 2rem;}
+@media(max-width:620px){.rc-layout{grid-template-columns:1fr;}}
+.rc-scorepanel{position:sticky;top:1rem;}
+.rc-rail-title{margin:0 0 .45rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft,#5b6470);font-weight:700;}
+.rc-rail{position:relative;list-style:none;margin:0 0 .4rem;padding:0;}
+.rc-rail-row{position:absolute;left:0;right:0;height:52px;padding:.4rem .55rem;
+  display:grid;grid-template-columns:1.1rem minmax(0,1fr) auto;grid-template-areas:"rk nm sc" "rk bar bar";
+  column-gap:.45rem;row-gap:.28rem;align-items:center;border:1px solid transparent;border-radius:8px;
+  transform:translateY(0);transition:transform .5s cubic-bezier(.2,.8,.2,1),background .3s;}
+.rc-rail-row.leader{background:var(--surface-2,#eef1f4);border-color:var(--line,#dfe4ea);}
+.rc-rail-row .rk{grid-area:rk;color:var(--ink-soft,#5b6470);font-weight:700;text-align:center;font-size:.75rem;}
+.rc-rail-row.leader .rk{color:var(--accent,#1f5fbf);}
+.rc-rail-row .nm{grid-area:nm;min-width:0;display:flex;flex-direction:column;line-height:1.15;}
+.rc-rail-row .nm .nm-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:.82rem;}
+.rc-rail-row .nm .nm-pts{font-size:.66rem;color:var(--ink-soft,#5b6470);font-variant-numeric:tabular-nums;}
+.rc-rail-row .sc{grid-area:sc;justify-self:end;display:flex;align-items:baseline;gap:.18rem;font-weight:800;font-size:1.05rem;font-variant-numeric:tabular-nums;}
+.rc-rail-row .sc .sc-unit{font-size:.56rem;font-weight:700;color:var(--ink-soft,#5b6470);text-transform:uppercase;letter-spacing:.04em;}
+.rc-rail-row .track{grid-area:bar;height:5px;background:var(--line,#dfe4ea);border-radius:999px;overflow:hidden;}
+.rc-rail-row.leader .track{background:var(--bg,#f7f8fa);}
+.rc-rail-row .bar{display:block;height:100%;width:0;background:var(--c);border-radius:999px;transition:width .45s cubic-bezier(.2,.8,.2,1);}
+.rc-rail-row.rc-dmg{animation:rc-dmgflash .45s ease;}
+@keyframes rc-dmgflash{0%{background:#fff1f0}100%{background:transparent}}
+</style>
+
+<aside class="rc-scorepanel">
+  <p class="rc-rail-title">Standings</p>
+  <ol class="rc-rail" id="rc-rail"></ol>
+  <p style="font-size:.72rem;color:var(--ink-soft,#5b6470);margin:.2rem 0 0">Rounds won decide the winner.</p>
+</aside>

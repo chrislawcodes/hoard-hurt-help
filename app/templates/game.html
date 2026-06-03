@@ -7,7 +7,12 @@
     <a class="btn btn-ghost" href="/games/{{ game.id }}/analysis">📊 Analysis</a>
 </div>
 
-{% if rc_data %}{% include "fragments/robot_circle.html" %}{% endif %}
+{% if rc_data %}
+<div class="rc-layout">
+    {% include "fragments/robot_circle_standings.html" %}
+    <div>{% include "fragments/robot_circle.html" %}</div>
+</div>
+{% endif %}
 
 {# Live updates: for an active game the script below opens a Server-Sent Events
    connection in plain JS and re-fetches the server-rendered live region on each
