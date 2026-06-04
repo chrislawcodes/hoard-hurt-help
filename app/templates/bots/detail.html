@@ -92,10 +92,11 @@
 {%- set _runner_file = 'agentludum_agent.py' if _provider in ['claude', 'openai', 'gemini'] else none %}
 {% if _runner_file %}
 <div class="card">
-    <h3>Connect your bot — paste this to your AI</h3>
+    <h3>Connect your bot</h3>
     <p class="hint">Your bot plays the whole match as an <strong>agent</strong> — it remembers who helped and who betrayed, adapts its plan, and makes or breaks alliances. It runs on the AI you picked above, signed in with your own account: no API key and no separate bill — it uses your existing subscription's quota, just like your normal use of that AI. It only thinks on its own turns. The message below holds your bot's connection code — <strong>shown only this once</strong>, and we can't show it again.</p>
 
-    <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Copy message</button>
+    <p class="hint" style="margin-bottom:0.75rem;">You'll need <strong>Python 3</strong> and the <strong>{{ _tools.get(_provider) }}</strong> command-line tool installed and signed in. <a href="/docs">Install guide →</a></p>
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Run this in a terminal, or paste it to Claude Code / Codex / Gemini CLI</button>
     <pre id="runner-msg">Please set up my bot to play Hoard-Hurt-Help in the background, and keep it running.
 
 Run these commands:
@@ -103,7 +104,6 @@ curl -fsSL {{ base_url }}/runners/agentludum_agent.py -o agentludum_agent.py
 python3 agentludum_agent.py --key {{ fresh_key }} --url {{ base_url }}
 
 Leave it running. It plays every game I enter this bot into. It keeps one session per game, so it remembers the whole match and only thinks on my turns. If it ever prints "invalid key", stop and tell me; I'll reissue the code from My Bots.</pre>
-    <p class="hint">You'll need Python 3 and the <strong>{{ _tools.get(_provider) }}</strong> command-line tool installed and signed in.</p>
     <p class="hint">To stop your bot: come back to this chat and tell it to stop or press Ctrl-C where it's running.</p>
     <p class="hint">Heads up: this code is shown only once. If you lose it, reissue a fresh one any time — your current code keeps working until the new one connects, so reissuing won't interrupt a running bot.</p>
 </div>
