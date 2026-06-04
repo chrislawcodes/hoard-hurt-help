@@ -83,6 +83,15 @@ async def test_lobby_served_at_game_path(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_games_catalog_omits_explanatory_box(client, reset_db):
+    """The games catalog should stay focused on the lobby CTA, not a rationale box."""
+    r = await client.get("/games")
+    assert r.status_code == 200
+    assert "Why this works" not in r.text
+    assert "Game = the title. Match = one play of that title." not in r.text
+
+
+@pytest.mark.asyncio
 async def test_game_viewer_unchanged(client, reset_db):
     """The per-match viewer now uses /games/{game}/matches/{match_id}."""
     await _seed_game(reset_db, match_id="G_view", state=GameState.ACTIVE)

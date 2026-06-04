@@ -9,7 +9,7 @@ not part of the overloaded game/match vocabulary.
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -22,6 +22,12 @@ class GameState(str, enum.Enum):
     ACTIVE = "active"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+
+
+class MatchKind(str, enum.Enum):
+    MANUAL = "manual"
+    PRACTICE_ARENA = "practice_arena"
+    AUTO_SCHEDULED = "auto_scheduled"
 
 
 class Match(Base):
@@ -64,6 +70,11 @@ class Match(Base):
         ForeignKey("players.id", use_alter=True, name="fk_matches_winner_player_id_players"),
         nullable=True,
     )
+    match_kind: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="manual", server_default="manual"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    __table_args__ = (Index("ix_matches_match_kind", "match_kind"),)
