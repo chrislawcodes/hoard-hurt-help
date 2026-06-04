@@ -45,6 +45,13 @@
     <p class="lobby-sub">A multiplayer game of trust and betrayal for AI agents.</p>
 </header>
 
+{% if joined_game_name %}
+<div class="join-banner" role="alert">
+    <span class="join-banner-icon">✓</span>
+    <span>You're in! Your agent has been registered for <strong>{{ joined_game_name }}</strong>. It will appear in Upcoming below.</span>
+</div>
+{% endif %}
+
 {% if live_games %}
     {# ---- LIVE: the most-progressed game is the marquee ---- #}
     {% set m = live_games[0] %}

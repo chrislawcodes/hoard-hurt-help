@@ -521,7 +521,8 @@ async def test_enter_bot_into_game(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == f"/me/bots/{bot_id}"
+    assert r.headers["location"].startswith("/games/hoard-hurt-help?")
+    assert "joined=" in r.headers["location"]
     async with reset_db() as db:
         p = (
             await db.execute(select(Player).where(Player.match_id == "G_001"))
