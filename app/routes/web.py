@@ -446,6 +446,172 @@ def _turn_summary(actions: list[dict]) -> dict[str, int]:
     return counts
 
 
+# Phrase banks for the deterministic play-by-play headline. Variety comes from
+# rotating through each bank by a stable index (turn ordinal + beat position),
+# so the text differs turn to turn but is fully reproducible — no LLM, no
+# randomness. Add entries to a bank to widen variety without touching logic.
+_HEADLINE_PHRASES: dict[str, tuple[str, ...]] = {
+    "betray": (
+        "{a} turns on former ally {b}",
+        "{a} breaks faith with {b}",
+        "{a} stabs {b} in the back",
+        "{a} abandons the pact with {b}",
+    ),
+    "pact": (
+        "{a} and {b} lock in a pact (+8 each)",
+        "{a} and {b} shake hands — +8 apiece",
+        "a fresh alliance forms: {a} and {b} (+8 each)",
+    ),
+    "gangup": (
+        "{n} bots pile on {t}",
+        "the table turns on {t} — {n} strikes land",
+        "{n} bots gang up on {t}",
+    ),
+    "revenge": (
+        "{n} bots round on {t} — payback for the betrayal",
+        "{t} pays for the betrayal as {n} pile in",
+    ),
+    "lead": (
+        "that hands {a} the lead",
+        "{a} seizes first place",
+        "that vaults {a} to the top",
+    ),
+    "swing": (
+        "{a} clobbers {b} ({d})",
+        "{a}'s strike sends {b} reeling ({d})",
+    ),
+    "residual": (
+        "the other {n} just hoard",
+        "{n} more keep their heads down",
+        "the remaining {n} bank quietly",
+    ),
+    "quiet": (
+        "a quiet turn — most of the table just hoards",
+        "a calm turn; almost everyone banks a coin",
+    ),
+}
+
+_NUM_WORDS = (
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+    "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+)
+
+
+def _num_word(n: int) -> str:
+    return _NUM_WORDS[n] if 0 <= n < len(_NUM_WORDS) else str(n)
+
+
+def _mutual_pairs(actions: list[dict]) -> set[frozenset[str]]:
+    return {
+        frozenset((a["agent_id"], a["target_id"]))
+        for a in actions
+        if a.get("mutual") and a["target_id"]
+    }
+
+
+def _turn_headline(
+    actions: list[dict],
+    prev_actions: list[dict],
+    leader: str | None,
+    prev_leader: str | None,
+    ordinal: int,
+) -> str:
+    """A deterministic one-line play-by-play for a turn.
+
+    Pure function of its inputs — the same turn always produces the same text,
+    so it is replay-stable and unit-testable. It ranks "beats" (betrayal, lead
+    change, new pact, gang-up/revenge, big swing), narrates the top one or two,
+    and adds a residual clause for the quiet majority.
+    """
+    def phrase(kind: str, idx: int) -> str:
+        bank = _HEADLINE_PHRASES[kind]
+        return bank[idx % len(bank)]
+
+    beats: list[tuple[int, dict]] = []
+
+    for a in actions:
+        if a.get("betrayal"):
+            beats.append(
+                (100 + abs(a.get("display_delta") or 0),
+                 {"kind": "betray", "a": a["agent_id"], "b": a["target_id"]})
+            )
+
+    prev_pairs = _mutual_pairs(prev_actions)
+    for pair in _mutual_pairs(actions):
+        if pair not in prev_pairs:
+            x, y = sorted(pair)
+            beats.append((70, {"kind": "pact", "a": x, "b": y}))
+
+    hits: dict[str, list[str]] = {}
+    for a in actions:
+        if a["action"] == "HURT" and a["target_id"]:
+            hits.setdefault(a["target_id"], []).append(a["agent_id"])
+    prev_betrayers = {a["agent_id"] for a in prev_actions if a.get("betrayal")}
+    for target, hitters in hits.items():
+        if len(hitters) >= 2:
+            kind = "revenge" if target in prev_betrayers else "gangup"
+            beats.append((75 + len(hitters), {"kind": kind, "t": target, "n": len(hitters)}))
+
+    # A "swing" is a notable strike — only HURTs qualify (the verbs are violent);
+    # a big HELP is cooperation, surfaced via the pact beat, not a swing.
+    swing = max(
+        (a for a in actions
+         if a["action"] == "HURT" and a["target_id"] and not a.get("betrayal")),
+        key=lambda a: abs(a.get("display_delta") or 0),
+        default=None,
+    )
+    if swing is not None and abs(swing.get("display_delta") or 0) >= 4:
+        d = swing.get("display_delta") or 0
+        beats.append(
+            (60, {"kind": "swing", "a": swing["agent_id"], "b": swing["target_id"], "d": str(d)})
+        )
+
+    if leader and prev_leader and leader != prev_leader:
+        beats.append((90, {"kind": "lead", "a": leader}))
+
+    beats.sort(key=lambda b: -b[0])
+
+    used: set[str] = set()
+    chosen: list[dict] = []
+    lead_beat: dict | None = None
+    for _prio, b in beats:
+        if b["kind"] == "lead":
+            lead_beat = lead_beat or b
+            continue
+        actors = [b[k] for k in ("a", "b", "t") if b.get(k)]
+        if any(x in used for x in actors):
+            continue
+        used.update(actors)
+        chosen.append(b)
+        if len(chosen) == 2:
+            break
+
+    def render(kind: str, idx: int, b: dict) -> str:
+        s = phrase(kind, idx).format(
+            a=b.get("a"), b=b.get("b"), t=b.get("t"), n=_num_word(b.get("n", 0)), d=b.get("d", ""),
+        )
+        return s[0].upper() + s[1:]
+
+    sentences: list[str] = []
+    for i, b in enumerate(chosen):
+        s = render(b["kind"], ordinal + i, b)
+        # Fold a lead change onto the top beat as a clause when a different bot took over.
+        if i == 0 and lead_beat is not None and lead_beat["a"] != b.get("a"):
+            s += " — " + phrase("lead", ordinal).format(a=lead_beat["a"])
+            lead_beat = None
+        sentences.append(s + ".")
+    if lead_beat is not None:
+        sentences.append(render("lead", ordinal, lead_beat) + ".")
+
+    if not sentences:
+        return render("quiet", ordinal, {}) + "."
+
+    hoards = sum(1 for a in actions if a["action"] == "HOARD")
+    if hoards >= len(actions) / 2:
+        sentences.append(render("residual", ordinal, {"n": hoards}) + ".")
+    return " ".join(sentences)
+
+
 def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
     """Serialize game history as the robot-circle viewer JSON format."""
     agents = [r["agent_id"] for r in scoreboard]
@@ -601,6 +767,11 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
     # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
     # the same turn; a "betrayal" is a HURT aimed at last turn's pact partner.
     prev_mutual: set[frozenset[str]] = set()
+    # Carried across turns to narrate a deterministic play-by-play headline.
+    prev_actions: list[dict] = []
+    prev_leader: str | None = None
+    inround: dict[str, int] = {}
+    inround_round: int | None = None
     for seq, t in enumerate(turns, start=1):
         subs = subs_by_turn.get(t.id, [])
         turn_messages = messages_by_turn.get(t.id, [])
@@ -690,6 +861,26 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
                 a["display_action"] = "HURT"
                 a["display_delta"] = a["target_delta"]
 
+        # Running in-round score (resets each round) → who leads, for the
+        # play-by-play "lead change" beat.
+        if t.round != inround_round:
+            inround_round = t.round
+            inround = {p.agent_id: 0 for p in players}
+        for a in actions:
+            if a["action"] == "HOARD":
+                inround[a["agent_id"]] = inround.get(a["agent_id"], 0) + 2
+            elif a["action"] == "HELP" and a["mutual"]:
+                inround[a["agent_id"]] = inround.get(a["agent_id"], 0) + 8
+            elif a["action"] == "HELP" and a["target_id"]:
+                inround[a["target_id"]] = inround.get(a["target_id"], 0) + 4
+            elif a["action"] == "HURT" and a["target_id"]:
+                inround[a["target_id"]] = max(0, inround.get(a["target_id"], 0) - 4)
+        # Highest score, ties broken alphabetically — deterministic.
+        leader = min(inround, key=lambda k: (-inround[k], k)) if inround else None
+        headline = _turn_headline(actions, prev_actions, leader, prev_leader, seq)
+        prev_leader = leader
+        prev_actions = actions
+
         history.append(
             {
                 "seq": seq,
@@ -701,6 +892,7 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
                 # renders `feed_actions` (highlights first) and `summary` (counts).
                 "feed_actions": sorted(actions, key=_feed_sort_key),
                 "summary": _turn_summary(actions),
+                "headline": headline,
             }
         )
 

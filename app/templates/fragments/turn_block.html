@@ -13,6 +13,10 @@
         {% endif %}
     </div>
 
+    {% if turn.headline %}
+    <div class="commentary"><span class="commentary-play" aria-hidden="true">▶</span><span class="commentary-text">{{ turn.headline }}</span></div>
+    {% endif %}
+
     <ul class="moves">
         {% for a in turn.feed_actions %}
         <li class="move-row action-card {{ a.action | lower }}{% if a.betrayal %} is-betrayal{% elif a.action == 'HURT' %} is-hurt{% endif %}">

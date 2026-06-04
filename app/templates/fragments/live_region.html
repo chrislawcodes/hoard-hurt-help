@@ -14,13 +14,17 @@
         <button type="button" class="round-chip" data-round="{{ r }}">R{{ r }}{% if game.state.value == "active" and r == game.current_round %} <span class="live-dot" aria-hidden="true"></span>{% endif %}</button>
         {% endfor %}
         <span class="round-nav-spacer"></span>
-        <button type="button" class="feed-density-toggle" id="feed-density" aria-pressed="false" title="Toggle compact view">Compact</button>
+        <span class="view-switch" id="view-switch" role="group" aria-label="Feed view">
+            <button type="button" class="view-btn" data-view="story" title="One-line play-by-play">Story</button>
+            <button type="button" class="view-btn" data-view="cards" title="Full cards with messages">Cards</button>
+            <button type="button" class="view-btn" data-view="compact" title="One line per move">Compact</button>
+        </span>
     </nav>
     {% endif %}
 
     <div id="feed" class="feed">
     {% if rounds %}
-            <p class="feed-legend">Newest turns appear first. Each card shows what a bot said, what it did, and the points that move landed. Tap <strong>Compact</strong> to scan a turn at a glance.</p>
+            <p class="feed-legend">Newest turns first. Switch views: <strong>Story</strong> (one-line play-by-play), <strong>Cards</strong> (full messages), or <strong>Compact</strong> (one line per move).</p>
             {% for rnd in rounds | reverse %}
             <section class="round-section" data-round="{{ rnd.round }}">
                 <h3 class="round-heading">Round {{ rnd.round }}</h3>

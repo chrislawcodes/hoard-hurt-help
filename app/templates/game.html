@@ -19,7 +19,7 @@
    event. We deliberately do NOT use htmx's sse extension here — in htmx 1.9.x it
    never wires `hx-trigger="sse:..."` to the `sse-connect` source, so live updates
    silently never fired and the page only changed on a manual reload. #}
-<div id="live-region"
+<div id="live-region" class="view-cards"
      data-state="{{ game.state.value }}"
      {% if game.state.value == "active" %}data-stream-url="/games/{{ game.game }}/matches/{{ game.id }}/stream"
      data-live-url="/games/{{ game.game }}/matches/{{ game.id }}/live"{% endif %}>
@@ -41,9 +41,10 @@
     // 'all' = show the whole log
     // Start by following the latest round for both live and finished games.
     let selected = null;
-    // Compact (one-line scoreboard) vs full (messages shown). Lives in this
-    // closure so it survives the SSE swaps that replace the feed's innerHTML.
-    let compact = false;
+    // Feed view: 'story' (one-line play-by-play), 'cards' (full messages), or
+    // 'compact' (one line per move). Lives in this closure so it survives the
+    // SSE swaps that replace the feed's innerHTML. Cards is the default.
+    let view = 'cards';
 
     function maxRound() {
         let m = 0;
@@ -55,14 +56,13 @@
     }
 
     function apply() {
-        // Compact state lives on #live-region — it persists across the SSE
-        // innerHTML swaps that replace the inner #feed. Keep the button in sync.
-        region.classList.toggle('feed-compact', compact);
-        const dbtn = region.querySelector('#feed-density');
-        if (dbtn) {
-            dbtn.setAttribute('aria-pressed', compact ? 'true' : 'false');
-            dbtn.textContent = compact ? 'Detailed' : 'Compact';
-        }
+        // View mode lives on #live-region — it persists across the SSE innerHTML
+        // swaps that replace the inner #feed. Keep the switcher buttons in sync.
+        region.classList.remove('view-story', 'view-cards', 'view-compact');
+        region.classList.add('view-' + view);
+        region.querySelectorAll('#view-switch .view-btn').forEach(function (b) {
+            b.setAttribute('aria-pressed', b.dataset.view === view ? 'true' : 'false');
+        });
 
         const max = maxRound();
         if (max === 0) return;  // nothing resolved yet
@@ -94,10 +94,10 @@
             }
             return;
         }
-        // Compact / detailed feed toggle.
-        const dtoggle = e.target.closest('#feed-density');
-        if (dtoggle) {
-            compact = !compact;
+        // Feed view switcher (Story / Cards / Compact).
+        const vbtn = e.target.closest('.view-btn');
+        if (vbtn) {
+            view = vbtn.dataset.view;
             apply();
             return;
         }
