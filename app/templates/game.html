@@ -21,6 +21,10 @@
 </div>
 {% endif %}
 
+{% if game.state.value == 'completed' %}
+<p class="meta" style="margin: 0.5rem 0 1rem;">Game over. <a href="/games/{{ game.game }}">Find your next match →</a></p>
+{% endif %}
+
 {# Live updates: for an active game the script below opens a Server-Sent Events
    connection in plain JS and re-fetches the server-rendered live region on each
    event. We deliberately do NOT use htmx's sse extension here — in htmx 1.9.x it
