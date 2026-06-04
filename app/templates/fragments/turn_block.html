@@ -1,13 +1,25 @@
 <article class="turn-block" data-seq="{{ turn.seq }}">
-    <h4 class="turn-head">Round {{ turn.round }} · Turn {{ turn.turn }}</h4>
+    <div class="turn-head">
+        <span class="turn-head-label">Round {{ turn.round }} · Turn {{ turn.turn }}</span>
+        {% if turn.summary %}
+        <span class="turn-summary" aria-label="What happened this turn">
+            {% if turn.summary.help %}<span class="ts ts-help">{{ turn.summary.help }} help</span>{% endif %}
+            {% if turn.summary.hurt %}<span class="ts ts-hurt">{{ turn.summary.hurt }} hurt</span>{% endif %}
+            {% if turn.summary.hoard %}<span class="ts ts-hoard">{{ turn.summary.hoard }} hoard</span>{% endif %}
+            {% if turn.summary.mutual %}<span class="ts ts-mutual">{{ turn.summary.mutual }} pact{{ '' if turn.summary.mutual == 1 else 's' }}</span>{% endif %}
+            {% if turn.summary.betrayal %}<span class="ts ts-betrayal">{{ turn.summary.betrayal }} betrayal{{ '' if turn.summary.betrayal == 1 else 's' }}</span>{% endif %}
+            {% if turn.summary.missed %}<span class="ts ts-missed">{{ turn.summary.missed }} missed</span>{% endif %}
+        </span>
+        {% endif %}
+    </div>
 
     <ul class="moves">
-        {% for a in turn.actions %}
+        {% for a in turn.feed_actions %}
         <li class="move-row action-card {{ a.action | lower }}{% if a.betrayal %} is-betrayal{% elif a.action == 'HURT' %} is-hurt{% endif %}">
             <div class="move-line action-line">
                 <strong class="who-name">{{ a.agent_id }}</strong>
                 <span class="act act-{{ a.action | lower }}">{{ a.display_action }}</span>
-                {% if a.target_id %}<strong class="who-name">{{ a.target_id }}</strong>{% endif %}
+                {% if a.target_id %}<span class="arrow" aria-hidden="true">→</span><strong class="who-name">{{ a.target_id }}</strong>{% endif %}
                 {% if a.mutual %}<span class="mutual-note">(mutual)</span>{% endif %}
                 {% if a.display_delta is not none %}
                 <span class="delta {{ 'pos' if a.display_delta > 0 else ('neg' if a.display_delta < 0 else 'zero') }}">{{ "%+d" | format(a.display_delta) }}</span>
@@ -23,11 +35,12 @@
             {% endif %}
 
             {% if a.message_thinking or a.thinking %}
-            <div class="thought">
-                <span class="thought-label">thinking</span>
-                {% if a.message_thinking %}<span class="thought-text">{{ a.message_thinking }}</span>{% endif %}
-                {% if a.thinking %}<span class="thought-text">{{ a.thinking }}</span>{% endif %}
-                {% if (a.message_thinking | length > 140) or (a.thinking | length > 140) %}<button type="button" class="thought-more">more</button>{% endif %}
+            <div class="thought-wrap">
+                <button type="button" class="thinking-toggle" aria-expanded="false">💭 thinking</button>
+                <div class="thought" hidden>
+                    {% if a.message_thinking %}<span class="thought-text">{{ a.message_thinking }}</span>{% endif %}
+                    {% if a.thinking %}<span class="thought-text">{{ a.thinking }}</span>{% endif %}
+                </div>
             </div>
             {% endif %}
         </li>

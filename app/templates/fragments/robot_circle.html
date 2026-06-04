@@ -160,16 +160,6 @@
 .rc-legend{display:flex;gap:14px;font-size:12px;color:var(--ink-soft,#5b6470);margin-top:10px;flex-wrap:wrap}
 .rc-sw{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
 
-.rc-feed{margin-top:14px;border:1px solid var(--line,#e2e6ea);border-radius:10px}
-.rc-feed h3{margin:0;padding:9px 14px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft,#5b6470);border-bottom:1px solid var(--line,#e2e6ea)}
-/* fixed-height scrolling body so a turn with many actions doesn't grow the viewer */
-#rc-feedbody{height:228px;overflow-y:auto}
-.rc-row{padding:8px 14px;border-bottom:1px solid var(--line,#e2e6ea);font-size:13.5px}
-.rc-row:last-child{border-bottom:0}
-.rc-who{font-weight:700}
-.rc-a-hoard{color:var(--hoard,#b07e0d);font-weight:700}.rc-a-help{color:var(--help,#1a8f4c);font-weight:700}.rc-a-hurt{color:var(--hurt,#c0392b);font-weight:700}
-.rc-said{color:var(--ink-soft,#5b6470)}
-.rc-empty{padding:24px 14px;color:var(--ink-soft,#5b6470)}
 @media (max-width:560px){.rc-stage{height:340px}.rc-robot{width:38px;height:46px}.rc-robot .head{width:30px;height:24px}}
 
 /* The standings rail is a SEPARATE component (fragments/robot_circle_standings.html)
@@ -284,7 +274,7 @@
 /* compact mode (hero): smaller stage, no feed/legend, full-bleed card */
 .rc-wrap.rc-compact{margin:0;max-width:none}
 .rc-compact .rc-stage{height:300px}
-.rc-compact .rc-feed,.rc-compact .rc-legend{display:none}
+.rc-compact .rc-legend{display:none}
 .rc-compact .rc-card{border-radius:var(--al-radius-lg,14px);box-shadow:var(--al-shadow-soft,0 6px 20px rgba(20,20,40,.08))}
 .rc-compact .rc-controls{margin-top:10px}
 </style>
@@ -319,11 +309,6 @@
         <span><span class="rc-sw" style="background:var(--hoard,#b07e0d)"></span><strong>Hoard</strong> — banks +2</span>
         <span><span class="rc-sw" style="background:var(--help,#1a8f4c)"></span><strong>Help</strong> — delivers a present (+4 / +8 mutual)</span>
         <span><span class="rc-sw" style="background:var(--hurt,#c0392b)"></span><strong>Hurt</strong> — swings a bat (−4)</span>
-      </div>
-
-      <div class="rc-feed">
-        <h3>Turn summary</h3>
-        <div id="rc-feedbody"></div>
       </div>
     </div>
 </div>
@@ -369,7 +354,7 @@
   var C_HURT=themeColor('--hurt','#c0392b'), C_HELP=themeColor('--help','#1a8f4c');
 
   var stage=document.getElementById('rc-stage'), fx=document.getElementById('rc-fx'), ring=document.getElementById('rc-ring');
-  var caption=document.getElementById('rc-caption'), turnlabel=document.getElementById('rc-turnlabel'), feedbody=document.getElementById('rc-feedbody');
+  var caption=document.getElementById('rc-caption'), turnlabel=document.getElementById('rc-turnlabel');
   var railEl=document.getElementById('rc-rail');
   var teleEl=document.getElementById('rc-tele');
   var teleRowsEl=document.getElementById('rc-tele-rows');
@@ -377,7 +362,6 @@
 
   if(!TURNS.length){
     caption.innerHTML='<span class="rc-badge">Empty</span> No resolved turns yet.';
-    if(feedbody) feedbody.innerHTML='<div class="rc-empty">No turn data to show.</div>';
     return;
   }
 
@@ -385,7 +369,7 @@
   // wins. The winner of a game is decided by rounds won (highest in-round
   // score when a round ends; ties split the win), so the rail tracks that —
   // the in-round score is shown underneath as live context and resets each round.
-  var scoreAt=[], winsAt=[], finalWins={};
+  var scoreAt=[], winsAt=[], finalWins={}, finalScore={};
   (function(){
     var lastIdxOfRound={};
     TURNS.forEach(function(t,i){ lastIdxOfRound[t.round]=i; });
@@ -412,7 +396,7 @@
         winners.forEach(function(id){ wins[id]=(wins[id]||0)+share; });
       }
     });
-    AGENTS.forEach(function(id){ finalWins[id]=wins[id]; });
+    AGENTS.forEach(function(id){ finalWins[id]=wins[id]; finalScore[id]=sim[id]||0; });
   })();
 
   // Format a (possibly fractional) win count: 0, 1, 1.5 — never "1.0".
@@ -462,6 +446,15 @@
     var row=railRowEl[id]; if(!row) return;
     row.classList.remove('rc-dmg'); void row.offsetWidth; row.classList.add('rc-dmg');
     setTimeout(function(){ row.classList.remove('rc-dmg'); }, 500);
+  }
+
+  // Standings default to the LATEST resolved turn (final wins + the last
+  // turn's in-round scores) so a passive watcher always sees current standings,
+  // even though the replay itself is cued to the start. Once the user steps
+  // through turns, renderTurn() takes over and the rail follows the scrubber.
+  function railToLatest(){
+    AGENTS.forEach(function(id){ rScore[id]=finalScore[id]||0; rWins[id]=finalWins[id]||0; });
+    updateRail();
   }
 
   buildRail(); updateRail();
@@ -707,7 +700,6 @@
         }, talkDur+slot.delay));
       });
     });});
-    renderFeed(t);
   }
 
   function showDelta(el, val){
@@ -827,24 +819,8 @@
     }
   }
 
-  function renderFeed(t){
-    if(!feedbody) return;
-    var ordered=t.actions.slice().sort(function(a,b){
-      return (t.spotlight.indexOf(b.agent)>=0?1:0)-(t.spotlight.indexOf(a.agent)>=0?1:0);
-    });
-    feedbody.innerHTML=ordered.slice(0,6).map(function(a){
-      var act=a.action.toLowerCase();
-      var verb={hoard:'Hoard',help:'Help →',hurt:'Hurt →'}[act]||a.action;
-      var tgt=a.target?' <span class="rc-who">'+a.target+'</span>':'';
-      var dl=' ('+(a.delta>0?'+':'')+a.delta+')';
-      var said=a.msg?'<div class="rc-said">“'+a.msg+'”</div>':'';
-      return '<div class="rc-row"><span class="rc-who">'+a.agent+'</span> '
-        +'<span class="rc-a-'+act+'">'+verb+'</span>'+tgt+dl+said+'</div>';
-    }).join('');
-  }
-
-  var idx=0, playing=false, timer=null;
-  function go(i){ idx=(i+TURNS.length)%TURNS.length; renderTurn(idx); }
+  var idx=0, playing=false, timer=null, stepped=false;
+  function go(i){ stepped=true; idx=(i+TURNS.length)%TURNS.length; renderTurn(idx); }
   function stop(){
     playing=false; clearTimeout(timer);
     var p=document.getElementById('rc-play');
@@ -859,16 +835,19 @@
   }
   document.getElementById('rc-next').onclick=function(){stop();go(idx+1);};
   document.getElementById('rc-prev').onclick=function(){stop();go(idx-1);};
-  document.getElementById('rc-replay').onclick=function(){renderTurn(idx);};
+  document.getElementById('rc-replay').onclick=function(){stepped=true;renderTurn(idx);};
   document.getElementById('rc-play').onclick=function(){
     if(playing){stop();return;}
+    stepped=true;
     playing=true; this.textContent='❚❚ Pause'; this.classList.remove('btn-primary');
     renderTurn(idx);
     scheduleNext();
   };
-  window.addEventListener('resize',function(){layout();renderTurn(idx);});
+  window.addEventListener('resize',function(){layout();renderTurn(idx);if(!stepped)railToLatest();});
   layout();
   renderTurn(0);
+  // Until the user starts stepping, show the latest standings (not turn 1's).
+  if(!stepped) railToLatest();
   // Autoplay is a control option (rc_autoplay), centralised here so every
   // surface behaves the same and honours reduced-motion.
   if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)){
