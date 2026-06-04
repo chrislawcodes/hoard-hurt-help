@@ -3,8 +3,8 @@
 import json
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Path, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Path, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, get_current_user
@@ -13,7 +13,13 @@ from app.games.base import GameError
 from app.models.match import Match
 from app.models.player import Player
 from app.read_models.matches import load_resolved_turn_rows
-from app.routes.web_support import _game_theme, _is_admin, _match_url, _redirect_to_match
+from app.routes.web_support import (
+    _game_theme,
+    _is_admin,
+    _load_match_or_404,
+    _redirect_if_game_slug_mismatch,
+    _redirect_to_match,
+)
 from app.templating import templates
 
 router = APIRouter(tags=["web"])
@@ -363,13 +369,11 @@ def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
     }, ensure_ascii=False)
 
 
-async def _game_view_context(request: Request, db, match_id: str) -> dict:
+async def _game_view_context(request: Request, db, match: Match) -> dict:
     """Build the shared context for the game viewer page and its live fragment."""
     user = await get_current_user(request, db)
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
-    turn_rows = await load_resolved_turn_rows(db, match_id)
+    g = match
+    turn_rows = await load_resolved_turn_rows(db, g.id)
     players = turn_rows.players
     players_by_id = turn_rows.players_by_id
 
@@ -564,11 +568,10 @@ async def game_viewer(
     request: Request,
     db: DbSession,
 ):
-    ctx = await _game_view_context(request, db, match_id)
-    if ctx["game"].game != game:
-        return RedirectResponse(
-            url=_match_url(ctx["game"]), status_code=status.HTTP_301_MOVED_PERMANENTLY
-        )
+    match = await _load_match_or_404(db, match_id)
+    if redirect := _redirect_if_game_slug_mismatch(match, game):
+        return redirect
+    ctx = await _game_view_context(request, db, match)
     ctx["rc_data"] = _build_rc_data(ctx["scoreboard"], ctx["history"])
     return templates.TemplateResponse(request, "game.html", ctx)
 
@@ -581,12 +584,10 @@ async def game_live_fragment(
     db: DbSession,
 ):
     """Server-rendered live region. SSE events trigger the page to re-fetch this."""
-    ctx = await _game_view_context(request, db, match_id)
-    if ctx["game"].game != game:
-        return RedirectResponse(
-            url=_match_url(ctx["game"], "/live"),
-            status_code=status.HTTP_301_MOVED_PERMANENTLY,
-        )
+    match = await _load_match_or_404(db, match_id)
+    if redirect := _redirect_if_game_slug_mismatch(match, game, "/live"):
+        return redirect
+    ctx = await _game_view_context(request, db, match)
     return templates.TemplateResponse(request, "fragments/live_region.html", ctx)
 
 

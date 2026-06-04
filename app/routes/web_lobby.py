@@ -20,6 +20,7 @@ from app.routes.web_support import (
     _TEST_NAME_PREFIX,
     _is_admin,
     _is_showcase,
+    _load_match_or_404,
     _player_count,
     _redirect_to_match,
     _top_standings,
@@ -44,7 +45,8 @@ async def _showcase_replay_data(
     if not match_id:
         return None, ""
     try:
-        ctx = await _game_view_context(request, db, match_id)
+        match = await _load_match_or_404(db, match_id)
+        ctx = await _game_view_context(request, db, match)
         return match_id, _build_rc_data(ctx["scoreboard"], ctx["history"])
     except Exception:
         logger.exception("Failed to build robot-circle replay data for %s", match_id)

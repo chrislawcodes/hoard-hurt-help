@@ -3,6 +3,7 @@
 from fastapi import HTTPException, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.engine.match_id_rewrite import match_id_candidates
@@ -82,6 +83,45 @@ def _game_theme(game: Match) -> GameTheme | None:
 
 def _match_url(match: Match, suffix: str = "") -> str:
     return f"/games/{match.game}/matches/{match.id}{suffix}"
+
+
+async def _load_match_or_404(db: AsyncSession, match_id: str) -> Match:
+    match = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
+    if match is None:
+        raise HTTPException(404)
+    return match
+
+
+def _redirect_if_game_slug_mismatch(
+    match: Match,
+    game_slug: str,
+    suffix: str = "",
+    *,
+    status_code: int = status.HTTP_301_MOVED_PERMANENTLY,
+) -> RedirectResponse | None:
+    if match.game == game_slug:
+        return None
+    return RedirectResponse(url=_match_url(match, suffix), status_code=status_code)
+
+
+async def _load_owned_player_match_or_404(
+    db: AsyncSession,
+    player_id: int,
+    user_id: int,
+    *,
+    missing_detail: str | None = None,
+) -> tuple[Player, Match]:
+    player = (
+        await db.execute(
+            select(Player).where(Player.id == player_id, Player.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    if player is None:
+        if missing_detail is not None:
+            raise HTTPException(404, detail=missing_detail)
+        raise HTTPException(404)
+    match = await _load_match_or_404(db, player.match_id)
+    return player, match
 
 
 async def _redirect_to_match(

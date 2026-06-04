@@ -2,16 +2,21 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi.responses import HTMLResponse
 
 from app.deps import DbSession, get_current_user
 from app.engine.game_insights import round_detail, season_overview
 from app.engine.game_records import ActionRecord, PlayerRecord
 from app.models.match import Match, GameState
 from app.read_models.matches import load_action_records, load_player_records
-from app.routes.web_support import _game_theme, _is_admin, _match_url, _redirect_to_match
+from app.routes.web_support import (
+    _game_theme,
+    _is_admin,
+    _load_match_or_404,
+    _redirect_if_game_slug_mismatch,
+    _redirect_to_match,
+)
 from app.templating import templates
 
 router = APIRouter(tags=["web"])
@@ -34,13 +39,9 @@ async def game_analysis(
     """Season home for the spectator analysis — the round-win race, results,
     grudges, and (when live) a peek into the current round."""
     user = await get_current_user(request, db)
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
-    if g.game != game:
-        return RedirectResponse(
-            url=_match_url(g, "/analysis"), status_code=status.HTTP_301_MOVED_PERMANENTLY
-        )
+    g = await _load_match_or_404(db, match_id)
+    if redirect := _redirect_if_game_slug_mismatch(g, game, "/analysis"):
+        return redirect
     players, actions = await _insight_records(db, g)
     active = g.state == GameState.ACTIVE
     overview = season_overview(players, actions, g.total_rounds, g.current_round, active)
@@ -87,14 +88,13 @@ async def game_analysis_round(
 ):
     """Drill-in for one round: leaderboard-from-0, mood, alliances, event feed."""
     user = await get_current_user(request, db)
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
-    if g.game != game:
-        return RedirectResponse(
-            url=_match_url(g, f"/analysis/rounds/{round_num}"),
-            status_code=status.HTTP_301_MOVED_PERMANENTLY,
-        )
+    g = await _load_match_or_404(db, match_id)
+    if redirect := _redirect_if_game_slug_mismatch(
+        g,
+        game,
+        f"/analysis/rounds/{round_num}",
+    ):
+        return redirect
     players, actions = await _insight_records(db, g)
     played = sorted({a.round for a in actions})
     if round_num not in played:
@@ -121,4 +121,3 @@ async def legacy_game_analysis_round_redirect(
     db: DbSession,
 ):
     return await _redirect_to_match(db, match_id, suffix=f"/analysis/rounds/{round_num}")
-

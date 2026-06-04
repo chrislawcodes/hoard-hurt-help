@@ -24,9 +24,11 @@ from app.routes.web_support import (
     _GENERAL_NAMES,
     _game_theme,
     _is_admin,
-    _match_url,
+    _load_match_or_404,
+    _load_owned_player_match_or_404,
     _player_count,
     _redirect_to_match,
+    _redirect_if_game_slug_mismatch,
 )
 from app.templating import templates
 
@@ -136,13 +138,9 @@ async def join_form(
         )
 
     set_request_trace_context(request, match_id=match_id, stage="join_form")
-    match = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if match is None:
-        raise HTTPException(404)
-    if match.game != game:
-        return RedirectResponse(
-            url=_match_url(match, "/join"), status_code=status.HTTP_301_MOVED_PERMANENTLY
-        )
+    match = await _load_match_or_404(db, match_id)
+    if redirect := _redirect_if_game_slug_mismatch(match, game, "/join"):
+        return redirect
 
     # Entry is "pick one of your bots" — no per-game key is issued. The bot's
     # stable key was shown once when it was created (see /me/bots). Archived
@@ -198,13 +196,14 @@ async def join_submit(
     set_request_trace_context(
         request, match_id=match_id, stage="join_submit", bot_id=bot_id, display_name=display_name
     )
-    match = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if match is None:
-        raise HTTPException(404)
-    if match.game != game:
-        return RedirectResponse(
-            url=_match_url(match, "/join"), status_code=status.HTTP_308_PERMANENT_REDIRECT
-        )
+    match = await _load_match_or_404(db, match_id)
+    if redirect := _redirect_if_game_slug_mismatch(
+        match,
+        game,
+        "/join",
+        status_code=status.HTTP_308_PERMANENT_REDIRECT,
+    ):
+        return redirect
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Match not open for registration.")
 
@@ -360,15 +359,12 @@ async def player_dashboard(
     user: Annotated[User, Depends(require_user)],
     saved: bool = False,
 ):
-    player = (
-        await db.execute(
-            select(Player).where(Player.id == player_id, Player.user_id == user.id)
-        )
-    ).scalar_one_or_none()
-    if player is None:
-        raise HTTPException(404, detail="Bot slot not found.")
-
-    game = (await db.execute(select(Match).where(Match.id == player.match_id))).scalar_one()
+    player, game = await _load_owned_player_match_or_404(
+        db,
+        player_id,
+        user.id,
+        missing_detail="Bot slot not found.",
+    )
     presets = [asdict(p) for p in get_game_module(game.game).strategy_presets()]
 
     latest_prompt = (
@@ -424,14 +420,7 @@ async def update_strategy(
     user: Annotated[User, Depends(require_user)],
     strategy_prompt: Annotated[str, Form()],
 ):
-    player = (
-        await db.execute(
-            select(Player).where(Player.id == player_id, Player.user_id == user.id)
-        )
-    ).scalar_one_or_none()
-    if player is None:
-        raise HTTPException(404)
-    game = (await db.execute(select(Match).where(Match.id == player.match_id))).scalar_one()
+    player, game = await _load_owned_player_match_or_404(db, player_id, user.id)
     if game.state in (GameState.ACTIVE, GameState.COMPLETED):
         raise HTTPException(409, detail="Strategy locked after game starts.")
     db.add(
@@ -453,14 +442,7 @@ async def web_leave(
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
 ):
-    player = (
-        await db.execute(
-            select(Player).where(Player.id == player_id, Player.user_id == user.id)
-        )
-    ).scalar_one_or_none()
-    if player is None:
-        raise HTTPException(404)
-    game = (await db.execute(select(Match).where(Match.id == player.match_id))).scalar_one()
+    player, game = await _load_owned_player_match_or_404(db, player_id, user.id)
     if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Cannot leave after start.")
     player.left_at = datetime.now(timezone.utc)

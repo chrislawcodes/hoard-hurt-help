@@ -20,7 +20,7 @@ from app.models.request_incident import RequestIncident
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
-from app.routes.web_support import _seated_player_count
+from app.routes.web_support import _load_match_or_404, _seated_player_count
 from app.templating import templates  # shared instance with custom filters
 
 router = APIRouter(tags=["admin"])
@@ -186,9 +186,7 @@ async def admin_game_detail(
     user: Annotated[User, Depends(require_admin)],
     added: int | None = None,
 ):
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
+    g = await _load_match_or_404(db, match_id)
     players = (
         (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
@@ -313,9 +311,7 @@ async def add_sims_form(
     db: DbSession,
     user: Annotated[User, Depends(require_admin)],
 ):
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
+    g = await _load_match_or_404(db, match_id)
     return await _render_add_sims(request, db, user, g)
 
 
@@ -329,9 +325,7 @@ async def add_sims_submit(
     seat_name: Annotated[list[str] | None, Form()] = None,
     seat_strategy: Annotated[list[str] | None, Form()] = None,
 ):
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
+    g = await _load_match_or_404(db, match_id)
     if g.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         return await _render_add_sims(
             request,
@@ -373,9 +367,7 @@ async def admin_start_game(
     user: Annotated[User, Depends(require_admin)],
 ):
     """Force a REGISTERING game to start now (manual override of the auto-start poller)."""
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
+    g = await _load_match_or_404(db, match_id)
     try:
         await start_game(db, g)
     except TransitionError:
@@ -399,9 +391,7 @@ async def admin_delete_game(
     submissions → turns → strategy prompts → players → the game itself.
     Stops the game's loop first if it happens to be running.
     """
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
+    g = await _load_match_or_404(db, match_id)
 
     registry.stop(match_id)  # no-op if not running
 
