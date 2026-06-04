@@ -41,6 +41,9 @@
     // 'all' = show the whole log
     // Start by following the latest round for both live and finished games.
     let selected = null;
+    // Compact (one-line scoreboard) vs full (messages shown). Lives in this
+    // closure so it survives the SSE swaps that replace the feed's innerHTML.
+    let compact = false;
 
     function maxRound() {
         let m = 0;
@@ -52,6 +55,15 @@
     }
 
     function apply() {
+        // Compact state lives on #live-region — it persists across the SSE
+        // innerHTML swaps that replace the inner #feed. Keep the button in sync.
+        region.classList.toggle('feed-compact', compact);
+        const dbtn = region.querySelector('#feed-density');
+        if (dbtn) {
+            dbtn.setAttribute('aria-pressed', compact ? 'true' : 'false');
+            dbtn.textContent = compact ? 'Detailed' : 'Compact';
+        }
+
         const max = maxRound();
         if (max === 0) return;  // nothing resolved yet
         let target;
@@ -71,14 +83,22 @@
     }
 
     region.addEventListener('click', function (e) {
-        // Expand/collapse a clamped "thinking" note. Delegated so it survives swaps.
-        const more = e.target.closest('.thought-more');
-        if (more) {
-            const thought = more.closest('.thought');
+        // Reveal/hide a bot's private "thinking" note. Delegated so it survives swaps.
+        const tt = e.target.closest('.thinking-toggle');
+        if (tt) {
+            const thought = tt.parentNode.querySelector('.thought');
             if (thought) {
-                const open = thought.classList.toggle('expanded');
-                more.textContent = open ? 'less' : 'more';
+                const open = thought.hasAttribute('hidden');
+                if (open) thought.removeAttribute('hidden'); else thought.setAttribute('hidden', '');
+                tt.setAttribute('aria-expanded', open ? 'true' : 'false');
             }
+            return;
+        }
+        // Compact / detailed feed toggle.
+        const dtoggle = e.target.closest('#feed-density');
+        if (dtoggle) {
+            compact = !compact;
+            apply();
             return;
         }
         const chip = e.target.closest('.round-chip');

@@ -2,35 +2,35 @@
     {% include "fragments/game_status.html" %}
 </div>
 
-<div class="layout">
-    <aside class="scorepanel">
-        {% include "fragments/scoreboard.html" %}
-    </aside>
-    <section class="feed-col">
-        {% if rounds %}
-        <nav class="round-nav" aria-label="Jump to round">
-            <span class="round-nav-label">Round</span>
-            <button type="button" class="round-chip" data-round="all">All</button>
-            {% for r in range(1, max_played_round + 1) %}
-            <button type="button" class="round-chip" data-round="{{ r }}">R{{ r }}{% if game.state.value == "active" and r == game.current_round %} <span class="live-dot" aria-hidden="true"></span>{% endif %}</button>
-            {% endfor %}
-        </nav>
-        {% endif %}
+{# One feed, full width. The standings rail lives in the hero row above (the
+   robot-circle viewer's live JS rail); the old static scoreboard + the
+   animation's mini "Turn summary" were removed to stop showing the game twice. #}
+<section class="feed-col feed-col-full">
+    {% if rounds %}
+    <nav class="round-nav" aria-label="Jump to round">
+        <span class="round-nav-label">Round</span>
+        <button type="button" class="round-chip" data-round="all">All</button>
+        {% for r in range(1, max_played_round + 1) %}
+        <button type="button" class="round-chip" data-round="{{ r }}">R{{ r }}{% if game.state.value == "active" and r == game.current_round %} <span class="live-dot" aria-hidden="true"></span>{% endif %}</button>
+        {% endfor %}
+        <span class="round-nav-spacer"></span>
+        <button type="button" class="feed-density-toggle" id="feed-density" aria-pressed="false" title="Toggle compact view">Compact</button>
+    </nav>
+    {% endif %}
 
-        <div id="feed" class="feed">
-        {% if rounds %}
-                <p class="feed-legend">Newest turns appear first. Each card shows what a bot said, what it did, and the points that move landed.</p>
-                {% for rnd in rounds | reverse %}
-                <section class="round-section" data-round="{{ rnd.round }}">
-                    <h3 class="round-heading">Round {{ rnd.round }}</h3>
-                    {% for turn in rnd.turns | reverse %}
-                        {% include "fragments/turn_block.html" %}
-                    {% endfor %}
-                </section>
+    <div id="feed" class="feed">
+    {% if rounds %}
+            <p class="feed-legend">Newest turns appear first. Each card shows what a bot said, what it did, and the points that move landed. Tap <strong>Compact</strong> to scan a turn at a glance.</p>
+            {% for rnd in rounds | reverse %}
+            <section class="round-section" data-round="{{ rnd.round }}">
+                <h3 class="round-heading">Round {{ rnd.round }}</h3>
+                {% for turn in rnd.turns | reverse %}
+                    {% include "fragments/turn_block.html" %}
                 {% endfor %}
-            {% else %}
-                <p class="empty">No turns resolved yet. Waiting for the first move…</p>
-            {% endif %}
-        </div>
-    </section>
-</div>
+            </section>
+            {% endfor %}
+        {% else %}
+            <p class="empty">No turns resolved yet. Waiting for the first move…</p>
+        {% endif %}
+    </div>
+</section>

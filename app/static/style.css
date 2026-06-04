@@ -252,16 +252,16 @@ tr:last-child td { border-bottom: none; }
     font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.07em;
     font-weight: 700; color: var(--ink-soft); margin-bottom: 0.15rem;
 }
-.thought-text {
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-    overflow: hidden;
-    font-style: italic; color: var(--ink-soft);
+.thought-text { font-style: italic; color: var(--ink-soft); }
+/* Thinking is shown on demand (opt-in), so it is never clamped once revealed. */
+.thought-wrap { margin-top: 0.4rem; }
+.thinking-toggle {
+    padding: 0.1rem 0.45rem; background: none; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 999px;
+    color: var(--ink-soft); font-size: 0.72rem; font-weight: 600;
 }
-.thought.expanded .thought-text { -webkit-line-clamp: unset; overflow: visible; }
-.thought-more {
-    margin-top: 0.3rem; padding: 0; background: none; border: 0;
-    color: var(--accent); font-size: 0.75rem; font-weight: 600; cursor: pointer;
-}
+.thinking-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.thinking-toggle[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
 
 .missed {
     font-size: 0.72rem;
@@ -272,6 +272,48 @@ tr:last-child td { border-bottom: none; }
     margin-left: 0.1rem;
 }
 .feed-legend { font-size: 0.85rem; color: var(--ink-soft); margin: 0 0 0.75rem; }
+
+/* One full-width feed (the standings rail lives in the hero row above). */
+.feed-col-full { min-width: 0; }
+
+/* Turn header: label on the left, an at-a-glance summary of the turn's shape
+   on the right so a 16-bot turn reads without scanning every card. */
+.turn-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 0.4rem 0.6rem; margin: 0 0 0.6rem;
+}
+.turn-head-label { font-size: 0.8rem; color: var(--ink-soft); font-weight: 700; }
+.turn-summary { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.ts {
+    font-size: 0.7rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--ink-soft); white-space: nowrap;
+}
+.ts-help { color: var(--help); border-color: color-mix(in srgb, var(--help) 35%, var(--line)); }
+.ts-hurt { color: var(--hurt); border-color: color-mix(in srgb, var(--hurt) 35%, var(--line)); }
+.ts-hoard { color: var(--hoard); border-color: color-mix(in srgb, var(--hoard) 35%, var(--line)); }
+.ts-mutual { color: var(--help); border-color: color-mix(in srgb, var(--help) 35%, var(--line)); }
+.ts-betrayal { color: var(--hurt); background: var(--bad-bg); border-color: var(--bad-line); }
+.ts-missed { color: var(--ink-soft); }
+.action-line .arrow { color: var(--ink-soft); font-weight: 700; }
+
+/* Compact / detailed toggle, pushed to the right end of the round-nav. */
+.round-nav-spacer { flex: 1 1 auto; }
+.feed-density-toggle {
+    background: transparent; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 20px; font-weight: 600; font-size: 0.8rem;
+    padding: 0.3rem 0.7rem; cursor: pointer;
+}
+.feed-density-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.feed-density-toggle[aria-pressed="true"] {
+    background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+}
+
+/* Compact view: drop messages + thinking so each action is a single scannable
+   line. The summary line and action line stay. */
+.feed-compact .said,
+.feed-compact .thought-wrap { display: none; }
+.feed-compact .move-row { padding: 0.3rem 0.6rem; margin-bottom: 0.3rem; }
+.feed-compact .turn-block { padding: 0.65rem 0.75rem; }
 
 /* Action color-coding (works in every theme) */
 .act {

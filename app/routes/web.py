@@ -401,6 +401,51 @@ async def legacy_play_upcoming_redirect(game: Annotated[str, Path()]):
     )
 
 
+def _feed_sort_key(a: dict) -> tuple[int, int, str]:
+    """Highlights-first ordering for one turn's actions in the feed.
+
+    Tiers, top first: betrayals, mutual pacts, then the rest grouped by action
+    type (hurt, help, hoard), with missed/defaulted turns last. Within a tier
+    the biggest score swing comes first; ties break by agent id so the order is
+    stable and testable.
+    """
+    if a.get("betrayal"):
+        tier = 0
+    elif a.get("mutual"):
+        tier = 1
+    elif a.get("was_defaulted"):
+        tier = 5
+    elif a["action"] == "HURT":
+        tier = 2
+    elif a["action"] == "HELP":
+        tier = 3
+    else:  # HOARD
+        tier = 4
+    delta = a.get("display_delta") or 0
+    return (tier, -abs(delta), a["agent_id"])
+
+
+def _turn_summary(actions: list[dict]) -> dict[str, int]:
+    """Per-turn action counts for the feed's at-a-glance summary line.
+
+    `mutual` is a subset of `help` and `betrayal` a subset of `hurt`; the
+    template shows help/hurt/hoard as the base counts and surfaces betrayal /
+    mutual as extra markers when present.
+    """
+    counts = {"help": 0, "hurt": 0, "hoard": 0, "betrayal": 0, "mutual": 0, "missed": 0}
+    for a in actions:
+        act = a["action"].lower()
+        if act in ("help", "hurt", "hoard"):
+            counts[act] += 1
+        if a.get("betrayal"):
+            counts["betrayal"] += 1
+        if a.get("mutual"):
+            counts["mutual"] += 1
+        if a.get("was_defaulted"):
+            counts["missed"] += 1
+    return counts
+
+
 def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
     """Serialize game history as the robot-circle viewer JSON format."""
     agents = [r["agent_id"] for r in scoreboard]
@@ -652,6 +697,10 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
                 "turn": t.turn,
                 "messages": messages,
                 "actions": actions,
+                # `actions` stays in submission order for the animation; the feed
+                # renders `feed_actions` (highlights first) and `summary` (counts).
+                "feed_actions": sorted(actions, key=_feed_sort_key),
+                "summary": _turn_summary(actions),
             }
         )
 
