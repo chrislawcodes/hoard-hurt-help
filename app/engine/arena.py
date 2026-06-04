@@ -31,13 +31,34 @@ from app.models.player import Player
 logger = logging.getLogger(__name__)
 
 PRACTICE_ARENA_NAME = "Practice Arena"
-PRACTICE_ARENA_MAX_PLAYERS = 5
-PRACTICE_ARENA_SIM_COUNT = 4
+PRACTICE_ARENA_MAX_PLAYERS = 10
+PRACTICE_ARENA_SIM_COUNT = 9
 
 AUTO_MATCH_INTERVAL_MINUTES = 30
 AUTO_MATCH_MAX_PLAYERS = 8
 AUTO_MATCH_SIM_COUNT_MAX = 7
-AUTO_MATCH_NAME_PREFIX = "Auto Match"
+
+# Rotating names for auto-matches — one name per 30-min boundary slot (48/day),
+# cycling through the list.  Keyed deterministically by slot index so the same
+# boundary always gets the same name across restarts.
+_AUTO_MATCH_NAMES: tuple[str, ...] = (
+    "Iron Accord",
+    "Silver Pact",
+    "Crimson Summit",
+    "Shadow Council",
+    "Storm Table",
+    "Ember Trial",
+    "Hollow Gambit",
+    "Gilded Forum",
+    "Jade Alliance",
+    "Frost Round",
+    "Amber Summit",
+    "Obsidian Accord",
+    "Scarlet Council",
+    "Void Gambit",
+    "Copper Pact",
+    "Onyx Trial",
+)
 
 
 def _choose_sim_seats(n: int) -> list[tuple[str, str]]:
@@ -66,6 +87,12 @@ async def _next_match_id(db: AsyncSession) -> str:
         default=0,
     ) + 1
     return generate_match_id(n)
+
+
+def _auto_match_name(boundary: datetime) -> str:
+    """Pick a name from _AUTO_MATCH_NAMES keyed to the boundary's 30-min slot."""
+    slot = boundary.hour * 2 + boundary.minute // 30
+    return f"{_AUTO_MATCH_NAMES[slot % len(_AUTO_MATCH_NAMES)]} Match"
 
 
 def _next_boundary() -> datetime:
@@ -139,7 +166,7 @@ async def ensure_auto_match(db: AsyncSession) -> None:
 
     boundary = _next_boundary()
     match_id = await _next_match_id(db)
-    name = f"{AUTO_MATCH_NAME_PREFIX} {boundary.strftime('%H:%M')}"
+    name = _auto_match_name(boundary)
     auto = Match(
         id=match_id,
         name=name,
