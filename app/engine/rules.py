@@ -61,3 +61,17 @@ Include `thinking` on every submission (max 200 characters). The first valid sub
 """
 
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
+
+
+def make_rules_text(total_rounds: int = 10, turns_per_round: int = 10) -> str:
+    """Return RULES_TEXT with the actual round/turn counts substituted in."""
+    if total_rounds == 10 and turns_per_round == 10:
+        return RULES_TEXT
+    return (
+        RULES_TEXT
+        .replace("**10 rounds**", f"**{total_rounds} rounds**")
+        .replace("**10 turns**", f"**{turns_per_round} turns**")
+        .replace("(100 turns total)", f"({total_rounds * turns_per_round} turns total)")
+        .replace("after turn 10", f"after turn {turns_per_round}")
+        .replace("after all 10 rounds", f"after all {total_rounds} rounds")
+    )
