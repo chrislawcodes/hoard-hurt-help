@@ -12,6 +12,13 @@
     {% include "fragments/robot_circle_standings.html" %}
     <div>{% include "fragments/robot_circle.html" %}</div>
 </div>
+{# Now-strip: the bridge between the stage and the feed. Filled by the booth
+   coordinator below from the turn the animation is currently playing. #}
+<div id="now-strip" class="now-strip" hidden>
+    <span class="now-strip-play" aria-hidden="true">▶</span>
+    <span class="now-strip-turn" id="now-strip-turn"></span>
+    <span class="now-strip-headline" id="now-strip-headline"></span>
+</div>
 {% endif %}
 
 {# Live updates: for an active game the script below opens a Server-Sent Events
@@ -163,6 +170,50 @@
     } else {
         init();
     }
+})();
+
+// Broadcast booth coordinator. The robot-circle animation is the single
+// playhead; it writes data-rc-seq on #live-region and dispatches `rc:turn`.
+// Here we make the feed + now-strip follow that playhead: show the playing
+// turn's round, highlight + scroll its feed block into view, and fill the
+// now-strip with its headline. Re-applies after SSE swaps via the persisted seq.
+(function () {
+    const region = document.getElementById('live-region');
+    if (!region) return;
+    const strip = document.getElementById('now-strip');
+    const stripTurn = document.getElementById('now-strip-turn');
+    const stripHeadline = document.getElementById('now-strip-headline');
+
+    function sync(seq, round) {
+        if (seq == null) seq = parseInt(region.dataset.rcSeq || '0', 10);
+        if (!seq) return;
+        // Show the playhead's round (reuse the round-nav's own handler).
+        if (round != null) {
+            const chip = region.querySelector('.round-chip[data-round="' + round + '"]');
+            if (chip) chip.click();
+        }
+        let cur = null;
+        region.querySelectorAll('#feed .turn-block').forEach(function (b) {
+            const s = parseInt(b.dataset.seq, 10);
+            const on = s === seq;
+            b.classList.toggle('is-current', on);
+            // Reveal the story up to the playhead — hide turns not yet reached.
+            b.hidden = s > seq;
+            if (on) cur = b;
+        });
+        if (strip && cur) {
+            const hl = cur.querySelector('.commentary-text');
+            const lbl = cur.querySelector('.turn-head-label');
+            stripTurn.textContent = lbl ? lbl.textContent : ('Turn ' + seq);
+            stripHeadline.textContent = hl ? hl.textContent : '';
+            strip.hidden = false;
+            if (cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
+
+    region.addEventListener('rc:turn', function (e) { sync(e.detail.seq, e.detail.round); });
+    // The feed is replaced on each SSE swap — re-apply from the persisted seq.
+    region.addEventListener('htmx:afterSwap', function () { sync(null); });
 })();
 </script>
 {% endblock %}

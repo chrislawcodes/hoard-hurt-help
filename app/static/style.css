@@ -276,6 +276,28 @@ tr:last-child td { border-bottom: none; }
 /* One full-width feed (the standings rail lives in the hero row above). */
 .feed-col-full { min-width: 0; }
 
+/* Now-strip: the bridge between the animated stage and the feed. Shows the
+   headline of the turn the animation is currently playing. */
+.now-strip {
+    display: flex; align-items: baseline; gap: 0.6rem;
+    margin: 0 0 1.25rem; padding: 0.7rem 0.9rem;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent); border-radius: 0 var(--radius) var(--radius) 0;
+}
+.now-strip[hidden] { display: none; }
+.now-strip .now-strip-play { color: var(--accent); font-weight: 800; flex: none; }
+.now-strip .now-strip-turn {
+    flex: none; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--ink-soft); white-space: nowrap;
+}
+.now-strip .now-strip-headline { font-size: 1.02rem; line-height: 1.4; color: var(--ink); }
+
+/* The feed block for the turn the animation is currently playing. */
+.turn-block.is-current {
+    border-color: var(--accent);
+    box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
 /* Turn header: label on the left, an at-a-glance summary of the turn's shape
    on the right so a 16-bot turn reads without scanning every card. */
 .turn-head {

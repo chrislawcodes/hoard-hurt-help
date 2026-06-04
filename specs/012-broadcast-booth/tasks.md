@@ -54,12 +54,12 @@
 
 **Independent Test**: step the playhead; all four regions describe the same turn and advance together (SC-003/SC-004); rail follows (not pinned latest).
 
-- [ ] T011 [US2] In `app/templates/fragments/robot_circle.html` `renderTurn()`, broadcast the current turn: write `data-rc-seq` on `#live-region` and dispatch `CustomEvent('rc:turn', {detail:{seq}})`.
-- [ ] T012 [US2] Retire #121's `railToLatest()` default so the rail follows the playhead (keep a latest-render path for the reduced-motion case in Phase 5).
-- [ ] T013 [US2] Add the now-strip element under the stage in `app/templates/fragments/live_region.html` (or the hero block) — headline slot + marquee-chip slot; reuse the animation's existing transport controls (do not duplicate).
-- [ ] T014 [US2] Feed coordinator JS in `app/templates/game.html`: on `rc:turn`, highlight the matching turn-block (`data-seq`) and fill the now-strip headline from that block's `turn.headline`; source the marquee chip from the animation's per-turn marquee.
-- [ ] T015 [US2] Lay out the booth in `app/static/style.css`: now-strip directly beneath the stage; visual bridge styling.
-- [ ] T016 [US2] Browser-verify: pause, step Prev/Next to the betrayal turn; confirm stage/rail/now-strip/highlighted-feed all match and advance together; scrub back shows earlier rail standings. Screenshot.
+- [X] T011 [US2] In `app/templates/fragments/robot_circle.html` `renderTurn()`, broadcast the current turn: write `data-rc-seq` on `#live-region` and dispatch `CustomEvent('rc:turn', {detail:{seq}})`.
+- [X] T012 [US2] Retire #121's `railToLatest()` default so the rail follows the playhead (keep a latest-render path for the reduced-motion case in Phase 5).
+- [X] T013 [US2] Add the now-strip element under the stage in `app/templates/fragments/live_region.html` (or the hero block) — headline slot + marquee-chip slot; reuse the animation's existing transport controls (do not duplicate).
+- [X] T014 [US2] Feed coordinator JS in `app/templates/game.html`: on `rc:turn`, highlight the matching turn-block (`data-seq`) and fill the now-strip headline from that block's `turn.headline`; source the marquee chip from the animation's per-turn marquee.
+- [X] T015 [US2] Lay out the booth in `app/static/style.css`: now-strip directly beneath the stage; visual bridge styling.
+- [X] T016 [US2] Browser-verify: pause, step Prev/Next to the betrayal turn; confirm stage/rail/now-strip/highlighted-feed all match and advance together; scrub back shows earlier rail standings. Screenshot.
 
 **Checkpoint**: the four regions are synchronized.
 
@@ -71,9 +71,9 @@
 
 **Independent Test**: default load auto-plays from turn 1, feed current-at-top; reduced-motion opens at latest paused (SC-002/SC-005).
 
-- [ ] T017 [US3] Feed coordinator in `app/templates/game.html`: show only turn-blocks with `seq <= playhead`, current turn first with history descending; re-apply on `htmx:afterSwap` by re-reading `data-rc-seq` (survives SSE swaps). Reconcile with the existing view-switch + round-nav closures.
-- [ ] T018 [US3] In `app/templates/fragments/robot_circle.html`, enable autoplay-on-load by default for the viewer; if `prefers-reduced-motion: reduce`, do not auto-animate and render the latest turn (rail + feed current) paused.
-- [ ] T019 [US3] Browser-verify: default load auto-plays + feed current-first/reveal-up-to; force reduced-motion → opens at latest, no animation; live game (`G_9002`) advances to a new turn. Screenshot.
+- [X] T017 [US3] Feed coordinator in `app/templates/game.html`: show only turn-blocks with `seq <= playhead`, current turn first with history descending; re-apply on `htmx:afterSwap` by re-reading `data-rc-seq` (survives SSE swaps). Reconcile with the existing view-switch + round-nav closures.
+- [X] T018 [US3] In `app/templates/fragments/robot_circle.html`, enable autoplay-on-load by default for the viewer; if `prefers-reduced-motion: reduce`, do not auto-animate and render the latest turn (rail + feed current) paused.
+- [X] T019 [US3] Browser-verify: default load auto-plays + feed current-first/reveal-up-to; force reduced-motion → opens at latest, no animation; live game (`G_9002`) advances to a new turn. Screenshot.
 
 **Checkpoint**: the story unfolds on load.
 
@@ -83,7 +83,7 @@
 
 **Goal**: no regression to Cards/Compact; view + playhead survive a live swap.
 
-- [ ] T020 [US4] Browser-verify: switch feed Story/Cards/Compact (all render); simulate an SSE swap (`htmx.ajax` GET `.../live` into `#live-region`) and confirm chosen view + current-turn highlight/order are preserved (SC-007).
+- [X] T020 [US4] Browser-verify: switch feed Story/Cards/Compact (all render); simulate an SSE swap (`htmx.ajax` GET `.../live` into `#live-region`) and confirm chosen view + current-turn highlight/order are preserved (SC-007).
 
 **Checkpoint**: secondary user not regressed.
 

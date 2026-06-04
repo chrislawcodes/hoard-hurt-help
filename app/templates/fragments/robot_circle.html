@@ -309,8 +309,8 @@
         <button type="button" id="rc-next">Next ›</button>
         <span class="rc-speed" role="group" aria-label="Playback speed">
           <button type="button" class="rc-speed-btn" data-speed="1">1×</button>
-          <button type="button" class="rc-speed-btn is-active" data-speed="2">2×</button>
-          <button type="button" class="rc-speed-btn" data-speed="3">3×</button>
+          <button type="button" class="rc-speed-btn" data-speed="2">2×</button>
+          <button type="button" class="rc-speed-btn is-active" data-speed="3">3×</button>
         </span>
         <label class="rc-skiptalk"><input type="checkbox" id="rc-skiptalk"> Skip talk</label>
         <div class="spacer"></div>
@@ -350,7 +350,7 @@
   // scheduleNext()'s inter-turn delay, stays in sync at any speed without
   // touching each call site. Durations passed to element.animate() are scaled
   // separately via scaleDur(). Default speed 2 = snappier than the original pace.
-  var speed = 2;
+  var speed = 3;
   var skipTalk = false;
   var _setTimeout = window.setTimeout.bind(window);
   function setTimeout(fn, delay) { return _setTimeout(fn, Math.round((delay || 0) / speed)); }
@@ -677,6 +677,14 @@
 
   function renderTurn(i){
     var t=TURNS[i];
+    // Broadcast the playhead so the feed + now-strip follow. The seq is 1-based
+    // (rc_data.turns are 1:1 with the server's history, whose seq starts at 1).
+    // State lives on #live-region (persistent) so it survives SSE feed swaps.
+    var _region=document.getElementById('live-region');
+    if(_region){
+      _region.dataset.rcSeq=String(i+1);
+      _region.dispatchEvent(new CustomEvent('rc:turn',{bubbles:true,detail:{seq:i+1,round:t.round,turn:t.turn}}));
+    }
     var snap=scoreAt[i]||{};
     // The last turn finishes the final round, so show the fully-credited wins.
     var wsnap=(i===TURNS.length-1)?finalWins:(winsAt[i]||{});
@@ -880,14 +888,15 @@
   });
   var skipEl=document.getElementById('rc-skiptalk');
   if(skipEl) skipEl.onchange=function(){ skipTalk=skipEl.checked; };
-  window.addEventListener('resize',function(){layout();renderTurn(idx);if(!stepped)railToLatest();});
+  window.addEventListener('resize',function(){layout();renderTurn(idx);});
   layout();
-  renderTurn(0);
-  // Until the user starts stepping, show the latest standings (not turn 1's).
-  if(!stepped) railToLatest();
-  // Autoplay is a control option (rc_autoplay), centralised here so every
-  // surface behaves the same and honours reduced-motion.
-  if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)){
+  // The rail follows the playhead (animation is the clock). With reduced motion
+  // we don't auto-animate — open at the LATEST turn, paused, so the rail + feed
+  // show current standings. Otherwise start at turn 1 and auto-play the story.
+  var _reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(_reduced){ idx=TURNS.length-1; }
+  renderTurn(idx);
+  if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !_reduced){
     setTimeout(function(){ var b=document.getElementById('rc-play'); if(b) b.click(); }, 900);
   }
 })();
