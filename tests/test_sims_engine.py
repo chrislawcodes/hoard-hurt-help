@@ -12,6 +12,7 @@ from app.engine.sims import (
     choose_talk_decision,
     compute_trust_map,
     extract_talk_signals,
+    render_phrase,
 )
 from app.schemas.agent import ScoreboardRow, TalkMessage
 
@@ -57,6 +58,25 @@ def test_extract_talk_signals_matches_exact_agent_ids() -> None:
     assert any(s.kind == "direct_mention" and s.target_id == "AI_10" for s in signals)
     assert any(s.kind == "cooperation_offer" and s.target_id == "AI_10" for s in signals)
     assert not any(s.target_id == "AI_1" for s in signals)
+
+
+def test_render_phrase_uses_target_display_name() -> None:
+    message = render_phrase(
+        "warn_leader",
+        "honest",
+        seed=0,
+        target_name="Sun Tzu",
+    )
+
+    assert message == "Sun Tzu is too far ahead, so I may hurt them."
+    assert "AI_" not in message
+
+
+def test_render_phrase_without_target_does_not_leak_placeholder_id() -> None:
+    message = render_phrase("claim_score_focus", "false", seed=0)
+
+    assert message == "I am helping someone this turn."
+    assert "AI_" not in message
 
 
 def test_trust_clamps_to_bounds() -> None:
