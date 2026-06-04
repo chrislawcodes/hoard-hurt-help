@@ -115,10 +115,10 @@ async def _ensure_preset_sims(db: DbSession, user: User) -> None:
     }
     used_names = {bot.name for bot in existing}
     created = False
-    for preset in presets:
+    for index, preset in enumerate(presets):
         if preset.id in by_profile:
             continue
-        name = build_sim_bot_name(preset.name, used_names=used_names)
+        name = build_sim_bot_name(used_names=used_names, name_index=index)
         used_names.add(name)
         key = generate_bot_key()
         bot = Bot(

@@ -121,7 +121,11 @@ async def test_seats_sims_as_players(client, reset_db):
     await _seed_game(reset_db)
     r = await client.post(
         "/admin/games/G_001/sims",
-        data=_roster(("Zeus", "grudger"), ("Hera", "grudger"), ("Athena", "diplomat")),
+        data=_roster(
+            ("Sun Tzu", "grudger"),
+            ("Hera", "grudger"),
+            ("Athena", "diplomat"),
+        ),
         cookies=_cookies(admin.id),
         follow_redirects=False,
     )
@@ -134,7 +138,7 @@ async def test_seats_sims_as_players(client, reset_db):
             .scalars()
             .all()
         )
-        assert sorted(p.agent_id for p in players) == ["Athena", "Hera", "Zeus"]
+        assert sorted(p.agent_id for p in players) == ["Athena", "Hera", "Sun Tzu"]
 
         sims_user = (
             await db.execute(select(User).where(User.google_sub == SIMS_USER_SUB))
@@ -223,7 +227,7 @@ async def test_rejects_invalid_name(client, reset_db):
     await _seed_game(reset_db)
     r = await client.post(
         "/admin/games/G_001/sims",
-        data=_roster(("Bad Name", "grudger")),
+        data=_roster(("Bad_Name", "grudger")),
         cookies=_cookies(admin.id),
         follow_redirects=False,
     )
