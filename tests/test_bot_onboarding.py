@@ -305,7 +305,7 @@ async def test_status_fragment_first_paint_waiting(client, reset_db):
 
     r = await client.get(f"/me/bots/{bid}/status", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    assert "Waiting for your bot to connect" in r.text
+    assert "Waiting for your agent to connect" in r.text
 
 
 async def test_status_fragment_connected_no_game_shows_join(client, reset_db):
