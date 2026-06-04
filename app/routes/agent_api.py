@@ -17,7 +17,7 @@ from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.opponent_stats import rank_players
 from app.games import get as get_game_module
 from app.games.base import GameError
-from app.models.game import Game, GameState
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnMessage, TurnSubmission
@@ -44,7 +44,7 @@ from app.schemas.agent import (
     YourTurnResponse,
 )
 
-router = APIRouter(prefix="/api/games/{game_id}", tags=["agent"])
+router = APIRouter(tags=["agent"])
 
 # Per-bot poll throttle (1 Hz). Keyed by Bot.id — a bot owns many players, so
 # keying by player would let it dodge the cap by switching games.
@@ -67,7 +67,7 @@ _POLL_WHEN_ACTIVE = 5  # live game: waiting for your turn or for others to submi
 _NEAR_START_WINDOW_SECONDS = 180  # "within 3 minutes" → poll more often
 
 
-def _next_poll_before_start(game: Game) -> int:
+def _next_poll_before_start(game: Match) -> int:
     """Seconds a waiting agent should sleep before polling again, pre-start.
 
     Far from the scheduled start we poll slowly to avoid burning an LLM
@@ -101,9 +101,9 @@ def _as_aware(dt: datetime) -> datetime:
 # player for a game via require_bot_player. No per-game credential is issued.
 
 
-async def _build_scoreboard(db, game: Game) -> list[ScoreboardRow]:
+async def _build_scoreboard(db, game: Match) -> list[ScoreboardRow]:
     players = (
-        (await db.execute(select(Player).where(Player.game_id == game.id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
     )
     return [
         ScoreboardRow(
@@ -115,12 +115,12 @@ async def _build_scoreboard(db, game: Game) -> list[ScoreboardRow]:
     ]
 
 
-async def _load_players(db, game: Game) -> list[PlayerRecord]:
+async def _load_players(db, game: Match) -> list[PlayerRecord]:
     """Active (non-left) players as DB-free records for the summary engine."""
     rows = (
         (
             await db.execute(
-                select(Player).where(Player.game_id == game.id, Player.left_at.is_(None))
+                select(Player).where(Player.match_id == game.id, Player.left_at.is_(None))
             )
         )
         .scalars()
@@ -137,7 +137,7 @@ async def _load_players(db, game: Game) -> list[PlayerRecord]:
     ]
 
 
-async def _load_action_records(db, game: Game) -> list[ActionRecord]:
+async def _load_action_records(db, game: Match) -> list[ActionRecord]:
     """Every resolved submission as a DB-free ActionRecord, ids → agent names.
 
     All players (including any who left) are mapped so historical actors/targets
@@ -147,7 +147,7 @@ async def _load_action_records(db, game: Game) -> list[ActionRecord]:
         (
             await db.execute(
                 select(Turn)
-                .where(Turn.game_id == game.id, Turn.resolved_at.is_not(None))
+                .where(Turn.match_id == game.id, Turn.resolved_at.is_not(None))
                 .order_by(Turn.round, Turn.turn)
             )
         )
@@ -159,7 +159,7 @@ async def _load_action_records(db, game: Game) -> list[ActionRecord]:
     turn_by_id = {t.id: t for t in turns}
     name_by_id = {
         p.id: p.agent_id
-        for p in (await db.execute(select(Player).where(Player.game_id == game.id)))
+        for p in (await db.execute(select(Player).where(Player.match_id == game.id)))
         .scalars()
         .all()
     }
@@ -234,7 +234,7 @@ async def _build_current_turn(db, turn: Turn) -> CurrentTurn:
 
 @router.get("/turn")
 async def agent_poll(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     player: Annotated[Player, Depends(require_bot_player)],
     db: DbSession,
 ) -> WaitingResponse | YourTurnResponse:
@@ -246,7 +246,7 @@ async def agent_poll(
         raise _err("RATE_LIMITED", "Polling too fast.", status.HTTP_429_TOO_MANY_REQUESTS)
     _last_poll[player.bot_id] = now_t
 
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
 
     if game.state in (GameState.SCHEDULED, GameState.REGISTERING):
         return WaitingResponse(
@@ -266,7 +266,7 @@ async def agent_poll(
     turn = (
         await db.execute(
             select(Turn)
-            .where(Turn.game_id == game.id, Turn.resolved_at.is_(None))
+            .where(Turn.match_id == game.id, Turn.resolved_at.is_(None))
             .order_by(Turn.round.desc(), Turn.turn.desc())
             .limit(1)
         )
@@ -300,7 +300,7 @@ async def agent_poll(
 
     # Build the full your_turn payload.
     all_players = (
-        (await db.execute(select(Player).where(Player.game_id == game.id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
     )
     latest_strategy = (
         await db.execute(
@@ -310,9 +310,9 @@ async def agent_poll(
             .limit(1)
         )
     ).scalar_one_or_none()
-    module = get_game_module(game.game_type)
+    module = get_game_module(game.game)
     static = TurnStatic(
-        game_id=game.id,
+        match_id=game.id,
         rules_version=game.rules_version,
         rules=module.rules_text(),
         total_rounds=game.total_rounds,
@@ -336,23 +336,23 @@ async def agent_poll(
 
 @router.post("/message", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
 async def agent_message(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     body: MessageRequest,
     db: DbSession,
     player: Annotated[Player, Depends(require_bot_player)],
 ) -> MessageResponse:
     """Submit this turn's talk-phase message. Idempotent on (turn_token, player_id)."""
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
     if game.state != GameState.ACTIVE:
         raise _err(
             "GAME_NOT_ACTIVE",
-            "Game is not active.",
+            "Match is not active.",
             status.HTTP_409_CONFLICT,
         )
 
     turn = (
         await db.execute(
-            select(Turn).where(Turn.game_id == game.id, Turn.turn_token == body.turn_token)
+            select(Turn).where(Turn.match_id == game.id, Turn.turn_token == body.turn_token)
         )
     ).scalar_one_or_none()
     if turn is None:
@@ -386,7 +386,7 @@ async def agent_message(
             phase_resolves_at=turn.deadline_at,
         )
 
-    module = get_game_module(game.game_type)
+    module = get_game_module(game.game)
     await module.record_message(
         db,
         turn,
@@ -403,28 +403,28 @@ async def agent_message(
     )
 
 
-# require_bot_player resolves the bot key + game_id to the Player; FastAPI dep injection handles it.
+# require_bot_player resolves the bot key + match_id to the Player; FastAPI dep injection handles it.
 
 
 @router.post("/submit", response_model=SubmitResponse, status_code=status.HTTP_202_ACCEPTED)
 async def agent_submit(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     body: SubmitRequest,
     db: DbSession,
     player: Annotated[Player, Depends(require_bot_player)],
 ) -> SubmitResponse:
     """Submit this turn's action. Idempotent on (turn_token, player_id)."""
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
     if game.state != GameState.ACTIVE:
         raise _err(
             "GAME_NOT_ACTIVE",
-            "Game is not active.",
+            "Match is not active.",
             status.HTTP_409_CONFLICT,
         )
 
     turn = (
         await db.execute(
-            select(Turn).where(Turn.game_id == game.id, Turn.turn_token == body.turn_token)
+            select(Turn).where(Turn.match_id == game.id, Turn.turn_token == body.turn_token)
         )
     ).scalar_one_or_none()
     if turn is None:
@@ -462,10 +462,10 @@ async def agent_submit(
     # Validate + record through the game module — the platform never hard-codes
     # a game's move vocabulary. The module raises GameError with its own
     # code/message/details, which map straight onto the standard error envelope.
-    module = get_game_module(game.game_type)
+    module = get_game_module(game.game)
     all_agent_ids = list(
         (
-            await db.execute(select(Player.agent_id).where(Player.game_id == game.id))
+            await db.execute(select(Player.agent_id).where(Player.match_id == game.id))
         )
         .scalars()
         .all()
@@ -502,15 +502,15 @@ async def agent_submit(
 
 @router.get("/state", response_model=AgentStateResponse)
 async def agent_state(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
     player: Annotated[Player, Depends(require_bot_player)],
 ) -> AgentStateResponse:
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
     open_turn = (
         await db.execute(
             select(Turn)
-            .where(Turn.game_id == game.id, Turn.resolved_at.is_(None))
+            .where(Turn.match_id == game.id, Turn.resolved_at.is_(None))
             .order_by(Turn.round.desc(), Turn.turn.desc())
             .limit(1)
         )
@@ -528,10 +528,10 @@ async def agent_state(
         you_submitted = s is not None and not s.was_defaulted
 
     all_players = (
-        (await db.execute(select(Player).where(Player.game_id == game.id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
     )
     return AgentStateResponse(
-        game_id=game.id,
+        match_id=game.id,
         game_state=game.state.value,
         current_round=game.current_round,
         current_turn=game.current_turn,
@@ -546,11 +546,11 @@ async def agent_state(
 
 @router.post("/leave", response_model=LeaveResponse)
 async def agent_leave(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
     player: Annotated[Player, Depends(require_bot_player)],
 ) -> LeaveResponse:
-    game = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
     if game.state == GameState.ACTIVE:
         raise _err(
             "GAME_ALREADY_STARTED",
@@ -579,8 +579,8 @@ def _pull_rate_limiter(bucket: str) -> Callable[[Player], Awaitable[Player]]:
     return dep
 
 
-async def _game_for(player: Player, game_id: str, db) -> Game:
-    return (await db.execute(select(Game).where(Game.id == game_id))).scalar_one()
+async def _game_for(player: Player, match_id: str, db) -> Match:
+    return (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
 
 
 def _group_into_turns(actions: Sequence[ActionRecord]) -> list[HistoryTurn]:
@@ -609,16 +609,16 @@ def _parse_cursor(since: str | None) -> tuple[int, int] | None:
 
 @router.get("/history/opponents/{opponent_id}", response_model=OpponentHistoryResponse)
 async def agent_opponent_history(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     opponent_id: Annotated[str, Path()],
     db: DbSession,
     player: Annotated[Player, Depends(_pull_rate_limiter("opponent_history"))],
 ) -> OpponentHistoryResponse:
     """PULL: every action between you and one opponent, grouped by turn."""
-    game = await _game_for(player, game_id, db)
+    game = await _game_for(player, match_id, db)
     opp = (
         await db.execute(
-            select(Player).where(Player.game_id == game.id, Player.agent_id == opponent_id)
+            select(Player).where(Player.match_id == game.id, Player.agent_id == opponent_id)
         )
     ).scalar_one_or_none()
     if opp is None:
@@ -639,13 +639,13 @@ async def agent_opponent_history(
 
 @router.get("/chat", response_model=ChatTranscriptResponse)
 async def agent_chat(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
     player: Annotated[Player, Depends(_pull_rate_limiter("chat"))],
     since: Annotated[str | None, Query()] = None,
 ) -> ChatTranscriptResponse:
     """PULL: the public chat transcript, optionally only after a 'round.turn' cursor."""
-    game = await _game_for(player, game_id, db)
+    game = await _game_for(player, match_id, db)
     cursor = _parse_cursor(since)
     lines: list[ChatLine] = []
     for a in sorted(await _load_action_records(db, game), key=lambda x: (x.round, x.turn)):
@@ -668,18 +668,18 @@ async def agent_chat(
 
 @router.get("/turns/{round}/{turn}", response_model=TurnDetailResponse)
 async def agent_turn_detail(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     round: Annotated[int, Path()],
     turn: Annotated[int, Path()],
     db: DbSession,
     player: Annotated[Player, Depends(_pull_rate_limiter("turn_detail"))],
 ) -> TurnDetailResponse:
     """PULL: every player's action+message+points for one resolved turn."""
-    game = await _game_for(player, game_id, db)
+    game = await _game_for(player, match_id, db)
     t = (
         await db.execute(
             select(Turn).where(
-                Turn.game_id == game.id,
+                Turn.match_id == game.id,
                 Turn.round == round,
                 Turn.turn == turn,
                 Turn.resolved_at.is_not(None),
@@ -696,12 +696,12 @@ async def agent_turn_detail(
 
 @router.get("/standings", response_model=FullStandingsResponse)
 async def agent_standings(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
     player: Annotated[Player, Depends(_pull_rate_limiter("standings"))],
 ) -> FullStandingsResponse:
     """PULL: the full standings, every active player ranked."""
-    game = await _game_for(player, game_id, db)
+    game = await _game_for(player, match_id, db)
     ranked = rank_players(await _load_players(db, game))
     rows = [
         StandingRow(agent_id=p.agent_id, round_score=p.round_score, rank=i + 1)

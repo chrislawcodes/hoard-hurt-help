@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Enter {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/play/hoard-hurt-help">← Lobby</a>
+<a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 <div class="page-head">
     <h1>Enter “{{ game.name }}”</h1>
     <p class="sub">Starts {{ game.scheduled_start | localdt }} · {{ player_count }} / {{ game.max_players }} registered</p>
 </div>
 
 {% if bots %}
-<form method="post" action="/games/{{ game.id }}/join" id="join-form">
+<form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" id="join-form">
     <div class="card form">
         <label>
             Play as bot
@@ -42,10 +42,10 @@
     </div>
     <div class="form-actions">
         <button type="submit" class="btn btn-primary">Enter game</button>
-        <a class="btn btn-ghost" href="/play/hoard-hurt-help">Cancel</a>
+        <a class="btn btn-ghost" href="/games/{{ game.game }}">Cancel</a>
     </div>
 </form>
-<p class="meta">Nothing to copy here — once your bot is connected, it finds and plays this game on its own.</p>
+<p class="meta">Nothing to copy here — once your bot is connected, it finds and plays this match on its own.</p>
 <script>
     const PRESETS = {{ presets | tojson }};
     (function () {

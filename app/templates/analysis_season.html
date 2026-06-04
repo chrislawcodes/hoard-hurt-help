@@ -3,14 +3,14 @@
 {% block content %}
 {% include "fragments/analysis_styles.html" %}
 
-<p class="crumb"><a href="/games/{{ game.id }}">← Watch {{ game.name }}</a></p>
+<p class="crumb"><a href="/games/{{ game.game }}/matches/{{ game.id }}">← Watch {{ game.name }}</a></p>
 <div class="an-head">
   <h1>Analysis · {{ game.name }}</h1>
   <span class="an-state">{{ game.state.value | capitalize }} · Round {{ game.current_round }}/{{ game.total_rounds }}</span>
 </div>
 
 {% if live_peek %}
-<a class="peek" href="/games/{{ game.id }}/analysis/rounds/{{ live_peek.round }}">
+<a class="peek" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis/rounds/{{ live_peek.round }}">
   <div class="peek-head">● LIVE · Round {{ live_peek.round }}
     <span class="mood {{ live_peek.mood_label }}">{{ live_peek.mood_label }}</span></div>
   <div class="peek-body">
@@ -49,10 +49,10 @@
       {% for n in range(1, overview.total_rounds + 1) %}
         {% set res = overview.results | selectattr('round', 'equalto', n) | first %}
         {% if res %}
-          <a class="rd done" href="/games/{{ game.id }}/analysis/rounds/{{ n }}">
+          <a class="rd done" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis/rounds/{{ n }}">
             <span class="n">R{{ n }}</span><span class="w">{{ res.winner }}</span></a>
         {% elif overview.live_round == n %}
-          <a class="rd live" href="/games/{{ game.id }}/analysis/rounds/{{ n }}">
+          <a class="rd live" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis/rounds/{{ n }}">
             <span class="n">R{{ n }}</span><span class="w">live…</span></a>
         {% else %}
           <span class="rd todo"><span class="n">R{{ n }}</span><span class="w">—</span></span>

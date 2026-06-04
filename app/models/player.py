@@ -1,4 +1,4 @@
-"""Player table — one row per (game, user) participation."""
+"""Player table — one row per (match, user) participation."""
 
 from datetime import datetime
 
@@ -10,18 +10,18 @@ from app.models.base import Base
 
 class Player(Base):
     __tablename__ = "players"
-    # Agent names stay unique within a game. A bot has at most one player per
-    # game (UNIQUE(bot_id, game_id)), so a (bot, game) pair maps to exactly one
-    # player; a user fields multiple agents in a game by running multiple bots.
-    # Auth is by the owning bot's stable key, not a per-player key.
+    # Agent names stay unique within a match. A bot has at most one player per
+    # match (UNIQUE(bot_id, match_id)), so a (bot, match) pair maps to exactly
+    # one player; a user fields multiple agents in a match by running multiple
+    # bots. Auth is by the owning bot's stable key, not a per-player key.
     __table_args__ = (
-        UniqueConstraint("game_id", "agent_id", name="uq_players_game_id_agent_id"),
-        UniqueConstraint("bot_id", "game_id", name="uq_players_bot_id_game_id"),
+        UniqueConstraint("match_id", "agent_id", name="uq_players_match_id_agent_id"),
+        UniqueConstraint("bot_id", "match_id", name="uq_players_bot_id_match_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    game_id: Mapped[str] = mapped_column(
-        ForeignKey("games.id"), nullable=False, index=True
+    match_id: Mapped[str] = mapped_column(
+        ForeignKey("matches.id"), nullable=False, index=True
     )
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False, index=True

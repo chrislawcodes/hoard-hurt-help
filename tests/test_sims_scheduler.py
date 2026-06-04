@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import db as app_db
 from app.engine import scheduler
-from app.models import Base, BotKind, Game, GameState, Player, Turn, TurnMessage, TurnSubmission, User
+from app.models import Base, BotKind, Match, GameState, Player, Turn, TurnMessage, TurnSubmission, User
 from tests.factories import make_bot
 
 
@@ -50,8 +50,8 @@ def published(monkeypatch):
     return events
 
 
-async def _seed_sim_game(db: AsyncSession) -> tuple[Game, list[Player]]:
-    game = Game(
+async def _seed_sim_game(db: AsyncSession) -> tuple[Match, list[Player]]:
+    game = Match(
         id="G_SIM",
         name="sim-game",
         state=GameState.ACTIVE,
@@ -85,7 +85,7 @@ async def _seed_sim_game(db: AsyncSession) -> tuple[Game, list[Player]]:
             sim_version="v1",
         )
         player = Player(
-            game_id=game.id,
+            match_id=game.id,
             user_id=user.id,
             bot_id=bot.id,
             agent_id=agent_id,
@@ -106,7 +106,7 @@ async def test_scheduler_auto_submits_sim_talk_and_actions(db, published):
 
     async with scheduler.SessionLocal() as fresh_db:
         turn = (
-            await fresh_db.execute(select(Turn).where(Turn.game_id == game.id))
+            await fresh_db.execute(select(Turn).where(Turn.match_id == game.id))
         ).scalar_one()
         messages = (
             await fresh_db.execute(select(TurnMessage).where(TurnMessage.turn_id == turn.id))
@@ -117,7 +117,7 @@ async def test_scheduler_auto_submits_sim_talk_and_actions(db, published):
             )
         ).scalars().all()
         fresh_game = (
-            await fresh_db.execute(select(Game).where(Game.id == game.id))
+            await fresh_db.execute(select(Match).where(Match.id == game.id))
         ).scalar_one()
 
     assert fresh_game.state is GameState.COMPLETED

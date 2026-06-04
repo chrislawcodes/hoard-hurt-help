@@ -3,7 +3,7 @@
 {% block content %}
 <div class="toolbar">
     <h1>Admin dashboard</h1>
-    <a class="btn btn-primary" href="/admin/games/new">+ Create game</a>
+    <a class="btn btn-primary" href="/admin/matches/new">+ Create game</a>
 </div>
 
 <div class="section-head"><h2>Active</h2><span class="count">{{ active_games | length }}</span></div>
@@ -15,8 +15,8 @@
     </div>
     <div class="game-card-action">
         <span class="badge badge-live"><span class="dot"></span> Live</span>
-        <a class="btn btn-ghost" href="/admin/games/{{ g.id }}">Open →</a>
-        <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+        <a class="btn btn-ghost" href="/admin/matches/{{ g.id }}">Open →</a>
+        <form method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
             <input type="hidden" name="next" value="/admin">
             <button type="submit" class="danger">Delete</button>
         </form>
@@ -32,9 +32,9 @@
         <p class="meta">Starts {{ g.scheduled_start | localdt }} · {{ g.player_count }} / {{ g.max_players }} registered</p>
     </div>
     <div class="game-card-action">
-        <a class="btn btn-ghost" href="/admin/games/{{ g.id }}">Open →</a>
-        <form method="post" action="/api/admin/games/{{ g.id }}/cancel"><button type="submit" class="secondary">Cancel</button></form>
-        <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+        <a class="btn btn-ghost" href="/admin/matches/{{ g.id }}">Open →</a>
+        <form method="post" action="/api/admin/matches/{{ g.id }}/cancel"><button type="submit" class="secondary">Cancel</button></form>
+        <form method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
             <input type="hidden" name="next" value="/admin">
             <button type="submit" class="danger">Delete</button>
         </form>
@@ -50,10 +50,10 @@
         <p class="meta">{{ g.player_count }} agents</p>
     </div>
     <div class="game-card-action">
-        <a class="btn btn-ghost" href="/admin/games/{{ g.id }}">Open →</a>
-        <a href="/api/admin/games/{{ g.id }}/export.csv">CSV</a>
-        <a href="/api/admin/games/{{ g.id }}/export.json">JSON</a>
-        <form method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+        <a class="btn btn-ghost" href="/admin/matches/{{ g.id }}">Open →</a>
+        <a href="/api/admin/matches/{{ g.id }}/export.csv">CSV</a>
+        <a href="/api/admin/matches/{{ g.id }}/export.json">JSON</a>
+        <form method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
             <input type="hidden" name="next" value="/admin">
             <button type="submit" class="danger">Delete</button>
         </form>

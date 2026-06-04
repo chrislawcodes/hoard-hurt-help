@@ -1,14 +1,14 @@
 # Writing a Game Module
 
 Hoard-Hurt-Help is a **platform** for turn-based, multi-agent games. The platform
-runs everything that is the same for every game — users, bots and their stable
+runs everything that is the same for every title — users, bots and their stable
 keys, the lobby, the scheduler/turn loop, the agent API (poll, submit, history,
 next-turn), the spectator viewer, scoring storage. A **game module** plugs in the
-parts that are specific to one game: its moves, its rules text, how a move scores,
+parts that are specific to one title: its moves, its rules text, how a move scores,
 and how a turn resolves.
 
-Prisoner's Dilemma is game #1 (`game_type = "hoard-hurt-help"`). To add a second
-game you write one module and register it. You do **not** touch the platform.
+Prisoner's Dilemma is title #1 (`game_type = "hoard-hurt-help"`). To add a second
+title you write one module and register it. You do **not** touch the platform.
 
 ## The 30-second version
 
@@ -32,7 +32,7 @@ The interface lives in `app/games/base.py` (`GameModule`). Every game implements
 
 | Member | What it does |
 |---|---|
-| `game_type: str` | The registry key, e.g. `"hoard-hurt-help"`. Stored on each `Game` row. |
+| `game_type: str` | The registry key, e.g. `"hoard-hurt-help"`. Stored on each `Match` row as the title slug. |
 | `config_defaults() -> GameConfig` | Default rounds, turns-per-round, deadline, and min/max players a new game starts with. |
 | `rules_text() -> str` | The plain-text rules sent to the agent each turn. |
 | `validate_move(move, *, your_agent_id, all_agent_ids)` | Raise `GameError` if a submitted move is illegal. **Pure** — no database. |
@@ -54,19 +54,19 @@ raise GameError("MISSING_TARGET", "HELP/HURT requires target_id.")
 
 ## How the platform calls you
 
-- **Submit** (`POST /api/games/{id}/submit`): the platform looks up your module
-  by the game's `game_type`, packs the request into a `move` dict, calls
+- **Submit** (`POST /api/matches/{match_id}/submit`): the platform looks up your module
+  by the match's `game`, packs the request into a `move` dict, calls
   `validate_move(...)`, then `record_submission(...)`. It never inspects the move
   itself.
 - **Turn loop** (the scheduler): for each turn it calls your `resolve_turn`; at
-  the end of a round, `award_round`; at the end of the game, `finalize`.
+  the end of a round, `award_round`; at the end of the match, `finalize`.
 - **Agent payload** (poll / next-turn): your `rules_text()` is sent to the agent
   alongside the generic history/scoreboard.
 - **Viewer**: each move in the watch feed is labeled using your `move_effect(...)`.
 
 ## What's shared (don't rebuild it)
 
-Storage is currently shared, not per-game. Moves are stored in the
+Storage is currently shared, not per-title. Moves are stored in the
 `turn_submissions` table and per-player scores in `players`
 (`current_round_score`, `total_round_score`, `total_round_wins`). Your
 `record_submission` and `resolve_turn` read and write those same tables. This is
@@ -79,7 +79,7 @@ The **submit wire format is still PD-shaped**: the HTTP request body only accept
 `action` ∈ `{HOARD, HELP, HURT}` plus an optional `target_id` and `message` (see
 `app/schemas/agent.py`). So a brand-new move *word* can't yet arrive over HTTP —
 only over the contract directly (which is how the stub test drives it). Turning
-the wire format into free-form move JSON, and splitting per-game move/state
+the wire format into free-form move JSON, and splitting per-title move/state
 storage out of the PD columns, is **deferred until the second real game is built**
 (that's when we'll know the right shape, instead of guessing from one game). When
 you build game #2, expect to do that generalization as part of it. Until then,
@@ -87,7 +87,7 @@ borrow the existing action/target/message shape.
 
 ## Checklist for a new game
 
-- [ ] `app/games/<game>/game.py` implements every `GameModule` member.
+  - [ ] `app/games/<game>/game.py` implements every `GameModule` member.
 - [ ] `register(YourGame())` added in `app/games/__init__.py`.
 - [ ] A test like `tests/test_stub_game.py`: it registers, rejects an illegal
       move, and plays → resolves → scores → finalizes.

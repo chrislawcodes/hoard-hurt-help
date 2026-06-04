@@ -8,6 +8,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.schemas.agent import ScoreboardRow
+from app.schemas.agent import MatchIdEnvelope
 
 
 class SpectatorAgent(BaseModel):
@@ -34,8 +35,7 @@ class SpectatorTurn(BaseModel):
     actions: list[SpectatorAction]
 
 
-class SpectatorState(BaseModel):
-    game_id: str
+class SpectatorState(MatchIdEnvelope):
     name: str
     state: str
     scheduled_start: datetime

@@ -73,7 +73,7 @@ async def _record_incident(
     ctx = _trace_context(request)
     path_params = _path_params(request)
     stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    game_id = ctx.get("game_id") or path_params.get("game_id")
+    match_id = ctx.get("match_id") or path_params.get("match_id")
     bot_id = ctx.get("bot_id") or _int_path_param(request, "bot_id")
     player_id = ctx.get("player_id") or _int_path_param(request, "player_id")
     payload = {
@@ -82,7 +82,7 @@ async def _record_incident(
         "path": request.url.path,
         "query_string": str(request.query_params) or None,
         "user_id": _session_user_id(request),
-        "game_id": game_id,
+        "match_id": match_id,
         "bot_id": bot_id,
         "player_id": player_id,
         "stage": ctx.get("stage"),

@@ -11,6 +11,7 @@ from app.config import settings
 from app.auth.session import get_user_from_session
 from app.db import get_session
 from app.engine.bot_activity import mark_seen
+from app.engine.match_id_rewrite import match_id_candidates
 from app.engine.tokens import bot_key_lookup
 from app.models.bot import Bot, BotStatus
 from app.models.player import Player
@@ -125,24 +126,28 @@ async def require_bot(
 
 
 async def require_bot_player(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     bot: Annotated[Bot, Depends(require_bot)],
     db: DbSession,
 ) -> Player:
-    """Resolve the authenticated bot's active player in {game_id}.
+    """Resolve the authenticated bot's active player in {match_id}.
 
     One player per (bot, game), so this is unambiguous. 404 if the bot has no
     player in that game.
     """
-    player = (
-        await db.execute(
-            select(Player).where(
-                Player.bot_id == bot.id,
-                Player.game_id == game_id,
-                Player.left_at.is_(None),
+    player = None
+    for candidate_match_id in match_id_candidates(match_id):
+        player = (
+            await db.execute(
+                select(Player).where(
+                    Player.bot_id == bot.id,
+                    Player.match_id == candidate_match_id,
+                    Player.left_at.is_(None),
+                )
             )
-        )
-    ).scalar_one_or_none()
+        ).scalar_one_or_none()
+        if player is not None:
+            break
     if player is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

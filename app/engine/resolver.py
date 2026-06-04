@@ -16,7 +16,7 @@ from app.engine.rules import (
     MUTUAL_HELP_BONUS,
 )
 from app.engine.state_machine import assert_transition
-from app.models.game import Game, GameState
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 
@@ -34,7 +34,7 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     """
     # Players in this game.
     players: list[Player] = list(
-        (await db.execute(select(Player).where(Player.game_id == turn.game_id)))
+        (await db.execute(select(Player).where(Player.match_id == turn.match_id)))
         .scalars()
         .all()
     )
@@ -110,7 +110,7 @@ async def finalize_talk_phase(db: AsyncSession, turn: Turn) -> None:
         (
             await db.execute(
                 select(Player).where(
-                    Player.game_id == turn.game_id, Player.left_at.is_(None)
+                    Player.match_id == turn.match_id, Player.left_at.is_(None)
                 )
             )
         )
@@ -142,7 +142,7 @@ async def finalize_talk_phase(db: AsyncSession, turn: Turn) -> None:
     await db.commit()
 
 
-async def award_round_winners(db: AsyncSession, game: Game, round_num: int) -> None:
+async def award_round_winners(db: AsyncSession, game: Match, round_num: int) -> None:
     """At end of a round, award fractional round-wins to the top scorers.
 
     Updates total_round_wins and total_round_score on each player.
@@ -157,7 +157,7 @@ async def award_round_winners(db: AsyncSession, game: Game, round_num: int) -> N
         return
 
     players: list[Player] = list(
-        (await db.execute(select(Player).where(Player.game_id == game.id)))
+        (await db.execute(select(Player).where(Player.match_id == game.id)))
         .scalars()
         .all()
     )
@@ -175,10 +175,10 @@ async def award_round_winners(db: AsyncSession, game: Game, round_num: int) -> N
     await db.commit()
 
 
-async def finalize_game(db: AsyncSession, game: Game) -> None:
+async def finalize_game(db: AsyncSession, game: Match) -> None:
     """End-of-game: pick winner, transition state, set completed_at."""
     players: list[Player] = list(
-        (await db.execute(select(Player).where(Player.game_id == game.id)))
+        (await db.execute(select(Player).where(Player.match_id == game.id)))
         .scalars()
         .all()
     )

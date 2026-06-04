@@ -10,7 +10,7 @@ import pytest
 
 from app.engine.bot_activity import BotHealth, compute_bot_health
 from app.engine.tokens import generate_turn_token
-from app.models import Base, Game, GameState, Player, Turn, TurnSubmission
+from app.models import Base, Match, GameState, Player, Turn, TurnSubmission
 from app.models.bot import BotStatus
 from tests.factories import make_bot, make_user
 
@@ -36,10 +36,10 @@ async def reset_db(monkeypatch):
     await test_engine.dispose()
 
 
-async def _game(db, gid: str, state: GameState) -> Game:
-    g = Game(
+async def _game(db, gid: str, state: GameState) -> Match:
+    g = Match(
         id=gid,
-        name=f"Game {gid}",
+        name=f"Match {gid}",
         state=state,
         scheduled_start=NOW + timedelta(hours=1),
         per_turn_deadline_seconds=60,
@@ -49,16 +49,16 @@ async def _game(db, gid: str, state: GameState) -> Game:
     return g
 
 
-async def _seat(db, game: Game, bot, user, agent_id: str = "A") -> Player:
-    p = Player(game_id=game.id, user_id=user.id, bot_id=bot.id, agent_id=agent_id)
+async def _seat(db, game: Match, bot, user, agent_id: str = "A") -> Player:
+    p = Player(match_id=game.id, user_id=user.id, bot_id=bot.id, agent_id=agent_id)
     db.add(p)
     await db.flush()
     return p
 
 
-async def _submit(db, game_id: str, player: Player, turn_: int, defaulted: bool) -> None:
+async def _submit(db, match_id: str, player: Player, turn_: int, defaulted: bool) -> None:
     t = Turn(
-        game_id=game_id,
+        match_id=match_id,
         round=1,
         turn=turn_,
         turn_token=generate_turn_token(),
@@ -102,7 +102,7 @@ async def test_live_when_warm_and_in_active_game(reset_db):
         h = await compute_bot_health(db, bot, now=NOW)
     assert h.state is BotHealth.LIVE
     assert h.needs_reconnect is False
-    assert h.game_id == "G_1"
+    assert h.match_id == "G_1"
     assert h.badge_class == "badge-ok"
 
 
@@ -160,7 +160,7 @@ async def test_stalled_when_cold_in_active_game(reset_db):
         h = await compute_bot_health(db, bot, now=NOW)
     assert h.state is BotHealth.STALLED
     assert h.needs_reconnect is True
-    assert h.game_id == "G_1"
+    assert h.match_id == "G_1"
     assert h.badge_class == "badge-alert"
 
 

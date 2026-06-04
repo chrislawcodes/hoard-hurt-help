@@ -14,7 +14,7 @@ from app.engine.resolver import finalize_talk_phase, resolve_turn
 from app.engine.scheduler import _begin_act_phase
 from app.engine.tokens import generate_turn_token
 from app.main import app
-from app.models import Base, Game, GameState, Player, Turn, TurnMessage, TurnSubmission
+from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSubmission
 from tests.factories import seat_player
 
 
@@ -48,11 +48,11 @@ async def client():
 
 async def _seed_two_phase_game(
     reset_db: async_sessionmaker,
-) -> tuple[Game, list[Player], Turn, Turn]:
+) -> tuple[Match, list[Player], Turn, Turn]:
     """Seed one resolved turn plus one open act turn with known thinking strings."""
     async with reset_db() as db:
         now = datetime.now(timezone.utc)
-        game = Game(
+        game = Match(
             id="G_007",
             name="segregation",
             state=GameState.ACTIVE,
@@ -72,7 +72,7 @@ async def _seed_two_phase_game(
             players.append(player)
 
         resolved_turn = Turn(
-            game_id=game.id,
+            match_id=game.id,
             round=1,
             turn=1,
             turn_token="resolved-token",
@@ -130,7 +130,7 @@ async def _seed_two_phase_game(
         )
 
         open_turn = Turn(
-            game_id=game.id,
+            match_id=game.id,
             round=1,
             turn=2,
             turn_token="open-token",
@@ -243,7 +243,7 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
         if path == f"/api/games/{game.id}/turn":
             turn_payload = payload
 
-    viewer = await client.get(f"/games/{game.id}")
+    viewer = await client.get(f"/games/hoard-hurt-help/matches/{game.id}")
     assert viewer.status_code == 200, viewer.text
     for secret in secrets[:4]:
         assert secret in viewer.text
@@ -263,7 +263,7 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
     "request_path, method_name, body_factory, expected_code",
     [
         (
-            "/api/games/{game_id}/message",
+            "/api/games/{match_id}/message",
             "post",
             lambda turn_token, thinking, players: {
                 "turn_token": turn_token,
@@ -273,7 +273,7 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
             "WRONG_PHASE",
         ),
         (
-            "/api/games/{game_id}/submit",
+            "/api/games/{match_id}/submit",
             "post",
             lambda turn_token, thinking, players: {
                 "turn_token": turn_token,
@@ -285,7 +285,7 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
             "WRONG_PHASE",
         ),
         (
-            "/api/games/{game_id}/message",
+            "/api/games/{match_id}/message",
             "post",
             lambda turn_token, thinking, players: {
                 "turn_token": "stale-token",
@@ -295,7 +295,7 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
             "STALE_TURN_TOKEN",
         ),
         (
-            "/api/games/{game_id}/submit",
+            "/api/games/{match_id}/submit",
             "post",
             lambda turn_token, thinking, players: {
                 "turn_token": turn_token,
@@ -342,7 +342,7 @@ async def test_error_envelopes_do_not_echo_thinking(
             await db.commit()
 
     response = await getattr(client, method_name)(
-        request_path.format(game_id=game.id),
+        request_path.format(match_id=game.id),
         headers={"X-Agent-Key": players[0]._test_key},
         json=body_factory(token, secret, players),
     )
@@ -357,7 +357,7 @@ async def test_left_player_between_phases_skips_talk_defaulting_and_act_resolves
 ):
     async with reset_db() as db:
         now = datetime.now(timezone.utc)
-        game = Game(
+        game = Match(
             id="G_LEFT",
             name="left-between-phases",
             state=GameState.ACTIVE,
@@ -374,7 +374,7 @@ async def test_left_player_between_phases_skips_talk_defaulting_and_act_resolves
         for i in range(2):
             players.append(await seat_player(db, game.id, f"AI_{i}", i=i))
         talk_turn = Turn(
-            game_id=game.id,
+            match_id=game.id,
             round=1,
             turn=1,
             turn_token=generate_turn_token(),
@@ -411,7 +411,7 @@ async def test_left_player_between_phases_skips_talk_defaulting_and_act_resolves
         by_player_msg = {m.player_id: m for m in messages}
         by_player_sub = {s.player_id: s for s in submissions}
         refreshed_players = (
-            await db.execute(select(Player).where(Player.game_id == game.id))
+            await db.execute(select(Player).where(Player.match_id == game.id))
         ).scalars().all()
 
     assert fresh_turn.talk_resolved_at is not None

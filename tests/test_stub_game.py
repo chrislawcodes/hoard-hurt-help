@@ -22,7 +22,7 @@ import app.games as registry
 from app.db import make_engine
 from app.engine.tokens import generate_turn_token
 from app.games.base import GameConfig, GameError, StrategyPreset
-from app.models import Base, Game, GameState, Player, Turn, TurnSubmission
+from app.models import Base, Match, GameState, Player, Turn, TurnSubmission
 from tests.factories import seat_player
 
 if TYPE_CHECKING:
@@ -107,9 +107,9 @@ class StubGame:
         turn.resolved_at = _now()
         await db.commit()
 
-    async def award_round(self, db: AsyncSession, game: Game, round_num: int) -> None:
+    async def award_round(self, db: AsyncSession, game: Match, round_num: int) -> None:
         players = (
-            (await db.execute(select(Player).where(Player.game_id == game.id)))
+            (await db.execute(select(Player).where(Player.match_id == game.id)))
             .scalars()
             .all()
         )
@@ -121,9 +121,9 @@ class StubGame:
                 p.total_round_wins += 1
         await db.commit()
 
-    async def finalize(self, db: AsyncSession, game: Game) -> None:
+    async def finalize(self, db: AsyncSession, game: Match) -> None:
         players = (
-            (await db.execute(select(Player).where(Player.game_id == game.id)))
+            (await db.execute(select(Player).where(Player.match_id == game.id)))
             .scalars()
             .all()
         )
@@ -170,10 +170,10 @@ async def test_stub_game_plays_resolves_and_scores() -> None:
     cfg = module.config_defaults()
 
     async with factory() as db:
-        game = Game(
+        game = Match(
             id="G_STUB",
             name="stub",
-            game_type="stub",
+            game="stub",
             state=GameState.ACTIVE,
             scheduled_start=_now(),
             total_rounds=cfg.total_rounds,
@@ -190,7 +190,7 @@ async def test_stub_game_plays_resolves_and_scores() -> None:
 
         # One turn: every player submits the novel "MOVE".
         turn = Turn(
-            game_id=game.id,
+            match_id=game.id,
             round=1,
             turn=1,
             turn_token=generate_turn_token(),
@@ -213,14 +213,14 @@ async def test_stub_game_plays_resolves_and_scores() -> None:
         await module.finalize(db, game)
 
         refreshed = (
-            (await db.execute(select(Player).where(Player.game_id == game.id)))
+            (await db.execute(select(Player).where(Player.match_id == game.id)))
             .scalars()
             .all()
         )
         assert all(p.total_round_score == 1 for p in refreshed)
         assert all(p.current_round_score == 1 for p in refreshed)
         g = (
-            await db.execute(select(Game).where(Game.id == game.id))
+            await db.execute(select(Match).where(Match.id == game.id))
         ).scalar_one()
         assert g.state == GameState.COMPLETED
         assert g.winner_player_id in {p.id for p in refreshed}

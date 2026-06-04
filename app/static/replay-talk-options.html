@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Replay talk — talk-then-act (Teleprompter vs Chat log)</title>
+<style>
+  :root, :root.theme-light{
+    --surface:#fff; --surface-2:#eef1f5; --bg:#e6eaef;
+    --ink:#1a1d21; --ink-soft:#5b6470; --line:#e2e6ea;
+    --hoard:#2f6feb; --help:#1a8f4c; --hurt:#c0392b;
+  }
+  :root.theme-dark{
+    --surface:#1b2027; --surface-2:#141a20; --bg:#0e1318;
+    --ink:#e8edf2; --ink-soft:#9aa6b6; --line:#2a323b;
+    --hoard:#4f8cff; --help:#3fb950; --hurt:#f85149;
+  }
+  :root.theme-terminal{
+    --surface:#0a0f0a; --surface-2:#060a06; --bg:#000;
+    --ink:#9af7b5; --ink-soft:#3f8f5e; --line:#143a22;
+    --hoard:#58a6ff; --help:#3fb950; --hurt:#f85149;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+  :root.theme-terminal body{font-family:"SFMono-Regular",ui-monospace,Menlo,monospace}
+  .page{max-width:1060px;margin:0 auto;padding:18px 16px 90px}
+  .toolbar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--surface)}
+  .seg button{font:inherit;font-weight:650;cursor:pointer;border:0;background:transparent;color:var(--ink-soft);
+    padding:7px 13px;border-right:1px solid var(--line)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--ink);color:var(--surface)}
+  .toolbar .lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);font-weight:700;margin-right:-6px}
+  .proto-tag{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#92400e;background:#fef3c7;border:1px solid #fde68a;padding:2px 8px;border-radius:999px}
+  .optnote{font-size:13px;color:var(--ink-soft);margin:0 0 14px;min-height:18px;max-width:760px}
+  .optnote b{color:var(--ink)}
+  .phasepill{display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
+    padding:2px 7px;border-radius:999px;margin-left:4px;vertical-align:1px}
+  .phasepill.talk{background:#e7ecfb;color:#2f6feb;border:1px solid #c5d4f7}
+  .phasepill.act{background:#fbe9e3;color:#c0392b;border:1px solid #f3c9bb}
+
+  /* ===== layout: stage + optional chat panel ===== */
+  .rc-layout{position:relative}
+  .mode-chat .rc-layout{display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start}
+  @media (max-width:780px){ .mode-chat .rc-layout{grid-template-columns:1fr} }
+
+  /* ===== scoped robot-circle styles (ported from fragments/robot_circle.html) ===== */
+  .rc-card{background:var(--surface,#fff);border:1px solid var(--line,#e2e6ea);border-radius:10px;overflow:hidden}
+  .rc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line,#e2e6ea)}
+  .rc-title{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft,#5b6470);font-weight:700}
+  .rc-livedot{width:8px;height:8px;border-radius:50%;background:#c0392b;animation:rc-pulse 1.6s infinite}
+  @keyframes rc-pulse{0%{box-shadow:0 0 0 0 rgba(192,57,43,.5)}70%{box-shadow:0 0 0 7px rgba(192,57,43,0)}100%{box-shadow:0 0 0 0 rgba(192,57,43,0)}}
+  .rc-turnlabel{font-size:13px;color:var(--ink-soft,#5b6470);font-variant-numeric:tabular-nums}
+
+  .rc-stage{position:relative;height:430px;background:radial-gradient(72% 72% at 50% 44%, var(--surface,#fff) 0%, var(--surface-2,#eef1f5) 72%, var(--bg,#e6eaef) 100%)}
+  .rc-ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:1.5px dashed var(--line,#d4dae1);border-radius:50%}
+  .rc-fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6}
+
+  .rc-bot{position:absolute;transform:translate(-50%,-50%);z-index:2;transition:opacity .35s ease, filter .35s ease}
+  .rc-bot.dim{opacity:.28;filter:saturate(.5)}
+  .rc-bot.lit{z-index:8}
+  .rc-bot.speaking{z-index:9}
+  .rc-bot.speaking .rc-body{animation:rc-speakpulse 1.4s ease-in-out infinite}
+  @keyframes rc-speakpulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.06)}}
+  .rc-mover{display:flex;flex-direction:column;align-items:center;gap:3px;will-change:transform;position:relative}
+  .rc-name{font-size:10px;color:var(--ink-soft,#5b6470);max-width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+  .rc-bot.lit .rc-name,.rc-bot.speaking .rc-name{color:var(--ink,#1a1d21);font-weight:700}
+
+  .rc-body{transition:transform .3s ease;transform-origin:center}
+  .rc-bot.act-hoard .rc-body{animation:rc-squash .5s ease}
+  @keyframes rc-squash{40%{transform:translateY(3px) scaleY(.94)}100%{transform:none}}
+  .rc-bot.recoil .rc-body{animation:rc-recoil .55s ease}
+  @keyframes rc-recoil{20%{transform:translateX(-6px) rotate(-10deg)}45%{transform:translateX(5px) rotate(5deg)}100%{transform:none}}
+  .rc-bot.betray .rc-body{animation:rc-turnback .6s ease}
+  @keyframes rc-turnback{30%{transform:rotateY(180deg)}60%{transform:rotateY(180deg)}100%{transform:none}}
+
+  .rc-robot{width:44px;height:52px;position:relative}
+  .rc-robot .ant{position:absolute;top:-8px;left:50%;width:2.5px;height:9px;background:var(--ink-soft,#9aa6b6);transform:translateX(-50%)}
+  .rc-robot .ant:after{content:"";position:absolute;top:-4px;left:50%;width:7px;height:7px;border-radius:50%;background:var(--c);transform:translateX(-50%)}
+  .rc-robot .head{width:36px;height:28px;border-radius:9px;background:var(--surface,#fff);border:3px solid var(--c);margin:0 auto;display:flex;align-items:center;justify-content:center;gap:5px}
+  .rc-robot .eye{width:7px;height:7px;border-radius:50%;background:var(--c)}
+  .rc-robot .torso{width:28px;height:18px;border-radius:6px;background:var(--c);margin:3px auto 0;position:relative}
+  .rc-robot .arm{position:absolute;top:34px;width:9px;height:3.5px;border-radius:2px;background:var(--c)}
+  .rc-robot .arm.l{left:0}.rc-robot .arm.r{right:0}
+  .rc-robot.rc-h1 .head{width:30px;height:34px;border-radius:8px}
+  .rc-robot.rc-h2 .head{width:43px;height:23px;border-radius:12px}
+  .rc-robot.rc-h3 .head{width:37px;height:30px;border-radius:17px 17px 7px 7px}
+  .rc-robot .eye{transition:transform .12s ease;transform-origin:center}
+  .rc-robot.rc-es0 .head{gap:4px}
+  .rc-robot.rc-es0 .eye{width:6px;height:6px}
+  .rc-robot.rc-es2 .head{gap:9px}
+  .rc-robot.rc-es2 .eye{width:8.5px;height:8.5px}
+  .rc-robot .ant.l,.rc-robot .ant.r{display:none}
+  .rc-robot .ant.l{left:33%}.rc-robot .ant.r{left:67%}
+  .rc-robot.rc-a1 .ant.c{display:none}
+  .rc-robot.rc-a1 .ant.l,.rc-robot.rc-a1 .ant.r{display:block}
+  .rc-robot.rc-a2 .ant.c{display:none}
+  .rc-robot.rc-t1 .torso::after{content:'';position:absolute;left:3px;right:3px;top:50%;height:2.5px;background:var(--surface,#fff);opacity:.55;transform:translateY(-50%)}
+  .rc-robot.rc-t2 .torso::after{content:'';position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:50%;background:var(--surface,#fff);opacity:.6;transform:translate(-50%,-50%)}
+  .rc-robot.blink .eye{animation:rc-blink .22s ease}
+  @keyframes rc-blink{0%,100%{transform:scaleY(1)}45%{transform:scaleY(.1)}}
+  .rc-robot.eyes-wide .eye{transform:scale(1.45)}
+  .rc-robot.eyes-mean .eye{transform:scaleY(.4)}
+  .rc-robot.eyes-happy .eye{background:transparent;border-bottom:0;border-top:3px solid var(--c);border-radius:7px 7px 0 0;height:5px;animation:rc-smile .42s ease}
+  @keyframes rc-smile{0%{transform:translateY(2px) scaleY(.3)}55%{transform:translateY(-1px) scaleY(1.25)}100%{transform:none}}
+
+  .rc-robot-side{display:none;width:44px;height:52px;position:relative}
+  .rc-bot.carrying-gift .rc-robot{display:none}
+  .rc-bot.carrying-gift .rc-robot-side{display:block}
+  .rc-robot-side .ant-s{position:absolute;top:-7px;left:50%;width:2px;height:8px;background:#9aa6b6;transform:translateX(-50%)}
+  .rc-robot-side .ant-s::after{content:'';position:absolute;top:-4px;left:50%;width:6px;height:6px;border-radius:50%;background:var(--c);transform:translateX(-50%)}
+  .rc-robot-side .head-s{width:16px;height:28px;border-radius:6px 9px 9px 6px;background:var(--surface,#fff);border:3px solid var(--c);margin:0 auto;display:flex;align-items:center;justify-content:flex-end;padding-right:1px}
+  .rc-robot-side .eye-s{width:6px;height:7px;border-radius:50%;background:var(--c)}
+  .rc-robot-side .torso-s{width:14px;height:17px;border-radius:4px;background:var(--c);margin:3px auto 0;opacity:.9}
+  .rc-robot-side .arm-s{position:absolute;top:35px;left:calc(50% + 7px);width:16px;height:3px;border-radius:2px;background:var(--c)}
+  .rc-bot.carrying-gift .rc-carry-wrap{left:calc(50% + 16px);transform:none}
+  .rc-bot.facing-left .rc-robot-side{transform:scaleX(-1)}
+  .rc-bot.carrying-gift.facing-left .rc-carry-wrap{left:calc(50% - 30px)}
+  .rc-bot.carrying-bat .rc-robot{display:none}
+  .rc-bot.carrying-bat .rc-robot-side{display:block}
+  .rc-bot.carrying-bat .rc-carry-wrap{top:6px;left:calc(50% + 16px);transform:none}
+  .rc-bot.carrying-bat.facing-left .rc-carry-wrap{top:6px;left:calc(50% - 30px)}
+
+  .rc-coin{position:absolute;left:50%;top:-14px;width:15px;height:15px;border-radius:50%;background:radial-gradient(circle at 35% 30%, #fff0bf, #e8b54b);border:1.5px solid #c79331;box-shadow:0 0 0 1px rgba(0,0,0,.05);transform:translateX(-50%);opacity:0}
+  .rc-bot.act-hoard .rc-coin{animation:rc-coinin .55s ease forwards}
+  @keyframes rc-coinin{0%{opacity:0;top:-22px}25%{opacity:1}100%{opacity:0;top:24px;transform:translateX(-50%) scale(.3)}}
+
+  .rc-delta{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;opacity:0;white-space:nowrap;z-index:9}
+  .rc-delta.show{animation:rc-floatup 1.6s ease forwards}
+  .rc-delta.pos{color:#1a8f4c}.rc-delta.neg{color:#c0392b}.rc-delta.zero{color:var(--ink-soft,#5b6470)}
+  @keyframes rc-floatup{0%{opacity:0;top:-8px}25%{opacity:1}100%{opacity:0;top:-34px}}
+  .rc-tag{position:absolute;top:-30px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:1px 5px;border-radius:999px;white-space:nowrap;z-index:9;opacity:0}
+  .rc-tag.show{opacity:1;transition:opacity .3s}
+  .rc-tag.betrayal{background:#fbe3df;color:#c0392b;border:1px solid #f0b8af}
+  .rc-tag.mutual{background:#e0f3e8;color:#1a8f4c;border:1px solid #b6e0c6}
+  .rc-tag.missed{background:#eef1f5;color:var(--ink-soft,#5b6470);border:1px solid var(--line,#e2e6ea)}
+
+  /* talk cue: a quote glyph pointing to the current speaker (NOT the full text — the
+     text lives in the readable strip/panel so it never clamps or clips at the rim) */
+  .rc-cue{position:absolute;left:50%;bottom:calc(100% + 2px);transform:translateX(-50%) scale(.6);
+    width:24px;height:24px;border-radius:50% 50% 50% 4px;background:var(--surface,#fff);border:1.5px solid var(--c);
+    box-shadow:0 4px 12px rgba(0,0,0,.16);color:var(--c);font-size:13px;font-weight:800;line-height:22px;text-align:center;
+    opacity:0;pointer-events:none;z-index:30}
+  .rc-cue.below{bottom:auto;top:calc(100% + 2px);border-radius:4px 50% 50% 50%}
+  .rc-cue.show{animation:rc-cuein .3s cubic-bezier(.2,1.5,.4,1) forwards}
+  @keyframes rc-cuein{0%{opacity:0;transform:translateX(-50%) scale(.6)}100%{opacity:1;transform:translateX(-50%) scale(1)}}
+  .rc-cue.shown{opacity:1;transform:translateX(-50%);animation:none}
+
+  .rc-caption{padding:12px 14px;border-top:1px solid var(--line,#e2e6ea);font-size:14px;min-height:44px;display:flex;align-items:center;gap:8px;color:var(--ink)}
+  .rc-badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:var(--surface-2,#eef1f5);color:var(--ink-soft,#5b6470);flex:none}
+
+  /* ===== Rolling teleprompter (newest always at top, older rows shrink + grey) ===== */
+  .rc-tele{display:none;flex-direction:column;gap:0;border-top:1px solid var(--line,#e2e6ea);
+    background:var(--surface-2,#f6f8fa);overflow:hidden;position:relative}
+  .mode-tele .rc-tele{display:flex}
+  .rc-tele-rows{display:flex;flex-direction:column;gap:0}
+  /* each row slides in from the top */
+  .rc-trow{display:flex;align-items:baseline;gap:9px;padding:7px 14px;
+    transition:opacity .35s ease,transform .35s ease;
+    animation:rc-tslide .28s ease-out}
+  @keyframes rc-tslide{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+  .rc-trow.fading{opacity:0;transform:translateY(-6px);pointer-events:none;transition:opacity .2s ease}
+  .rc-trow .tdot{width:9px;height:9px;border-radius:50%;background:var(--c,#888);flex:none;margin-top:5px;min-width:9px}
+  .rc-trow .tname{font-weight:700;flex:none;min-width:54px}
+  .rc-trow .ttext{line-height:1.38;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+  /* newest row (top) -- full size, full ink, 3-line clamp */
+  .rc-tele-rows .rc-trow:nth-child(1) .tname{font-size:14px;color:var(--ink)}
+  .rc-tele-rows .rc-trow:nth-child(1) .ttext{font-size:14px;color:var(--ink);-webkit-line-clamp:3}
+  /* second row -- medium, softer */
+  .rc-tele-rows .rc-trow:nth-child(2) .tname{font-size:12.5px;color:var(--ink-soft)}
+  .rc-tele-rows .rc-trow:nth-child(2) .ttext{font-size:12.5px;color:var(--ink-soft);-webkit-line-clamp:2}
+  .rc-tele-rows .rc-trow:nth-child(2){opacity:.65}
+  /* third row -- smallest, most faded */
+  .rc-tele-rows .rc-trow:nth-child(3) .tname{font-size:11px;color:var(--ink-soft)}
+  .rc-tele-rows .rc-trow:nth-child(3) .ttext{font-size:11px;color:var(--ink-soft);-webkit-line-clamp:1}
+  .rc-tele-rows .rc-trow:nth-child(3){opacity:.35}
+  /* pinned marquee row during action phase -- others fade more */
+  .rc-trow.pinned .tname,.rc-trow.pinned .ttext{color:var(--ink) !important;font-size:14px !important}
+  .rc-trow.pinned{opacity:1 !important}
+  .rc-trow.muted{opacity:.2 !important}
+  /* divider between talk rows and caption (action phase) */
+  .rc-tele-div{height:1px;background:var(--line,#e2e6ea);margin:0;display:none}
+  .rc-tele-div.show{display:block}
+
+  /* ===== Chat log panel (comparison mode — not the default) ===== */
+  .rc-chat{display:none}
+  .mode-chat .rc-chat{display:flex;flex-direction:column;background:var(--surface,#fff);border:1px solid var(--line,#e2e6ea);border-radius:10px;overflow:hidden;max-height:482px}
+  .rc-chat h4{margin:0;padding:10px 13px;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-soft,#5b6470);border-bottom:1px solid var(--line,#e2e6ea);display:flex;align-items:center;gap:7px}
+  .rc-chat-body{padding:9px 10px;overflow:auto;display:flex;flex-direction:column;gap:8px}
+  .rc-msg{display:flex;gap:9px;align-items:flex-start;opacity:0;transform:translateY(6px);transition:opacity .3s ease,transform .3s ease,box-shadow .3s ease,background .3s ease;padding:6px 8px;border-radius:10px}
+  .rc-msg.in{opacity:1;transform:none}
+  .rc-msg .av{width:20px;height:20px;border-radius:50%;background:var(--c);flex:none;margin-top:1px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800}
+  .rc-msg .bd{min-width:0}
+  .rc-msg .nm{font-weight:700;font-size:12.5px;color:var(--ink);display:block}
+  .rc-msg .tx{font-size:13.5px;color:var(--ink-soft);line-height:1.35}
+  .rc-msg.current{background:var(--surface-2,#f1f4f8)}
+  .rc-msg.promise-broken{box-shadow:inset 0 0 0 1.5px var(--hurt,#c0392b)}
+  .rc-msg.promise-broken .nm::after{content:' 💔 broke the pact';color:var(--hurt,#c0392b);font-weight:700;font-size:11px}
+
+  .rc-controls{display:flex;align-items:center;gap:8px;margin:14px 0 0;flex-wrap:wrap}
+  .rc-controls button{font:inherit;font-weight:650;cursor:pointer;border:1px solid var(--line);background:var(--surface);padding:8px 13px;border-radius:9px;color:var(--ink)}
+  .rc-controls .btn-primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+  .rc-controls .spacer{flex:1}
+  .rc-legend{display:flex;gap:14px;font-size:12px;color:var(--ink-soft,#5b6470);margin-top:10px;flex-wrap:wrap}
+  .rc-sw{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+
+  .rc-carry-wrap{position:absolute;top:30px;left:50%;transform:translateX(-50%);pointer-events:none;transition:top .15s ease,left .15s ease}
+  .rc-carry-gift,.rc-carry-bat{display:none}
+  .rc-batbox{display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 1px 1px rgba(0,0,0,.28))}
+  .rc-bat-barrel{width:10px;height:17px;background:linear-gradient(90deg,#a06640,#7a4a2c);border-radius:4px 4px 1px 1px}
+  .rc-bat-handle{width:4px;height:23px;background:#8B5532;border-radius:1px;position:relative}
+  .rc-bat-handle::after{content:'';position:absolute;bottom:-4px;left:-1px;width:6px;height:5px;background:#8B5532;border-radius:0 0 3px 3px}
+  .rc-bot.carrying-bat .rc-batbox{transform:rotate(30deg);transform-origin:50% 80%}
+  .rc-bot.carrying-bat.facing-left .rc-batbox{transform:rotate(-30deg);transform-origin:50% 80%}
+  .rc-bot.turning-bat .rc-batbox,.rc-bot.grabbing-bat .rc-batbox{transform:rotate(75deg);transform-origin:50% 80%}
+  .rc-bot.turning-bat.facing-left .rc-batbox,.rc-bot.grabbing-bat.facing-left .rc-batbox{transform:rotate(-75deg);transform-origin:50% 80%}
+  .rc-bot.carrying-gift .rc-carry-gift{display:block}
+  .rc-bot.carrying-bat .rc-carry-bat{display:block}
+  .rc-giftbox{width:22px;height:16px;background:var(--help,#1a8f4c);border-radius:0 0 3px 3px;position:relative;box-shadow:0 1px 2px rgba(0,0,0,.22);background-image:linear-gradient(to right,transparent 8px,rgba(255,255,255,.65) 8px,rgba(255,255,255,.65) 14px,transparent 14px)}
+  .rc-giftbox::before{content:'';position:absolute;left:0;right:0;top:5px;height:3px;background:rgba(255,255,255,.42)}
+  .rc-giftlid{position:absolute;top:-5px;left:-2px;right:-2px;height:6px;background:var(--help,#1a8f4c);border-radius:2px 2px 0 0;box-shadow:inset 0 0 0 40px rgba(0,0,0,.16);background-image:linear-gradient(to right,transparent 6px,rgba(255,255,255,.62) 6px,rgba(255,255,255,.62) 12px,transparent 12px)}
+  .rc-giftlid::before,.rc-giftlid::after{content:'';position:absolute;top:-6px;width:6px;height:6px;border-radius:50%;background:var(--help,#1a8f4c);border:1px solid rgba(0,0,0,.28)}
+  .rc-giftlid::before{left:1px}.rc-giftlid::after{right:1px}
+  .rc-bot.turning-gift .rc-body,.rc-bot.turning-bat .rc-body{animation:rc-turn-away .2s ease-in forwards}
+  @keyframes rc-turn-away{from{transform:scaleX(1)}to{transform:scaleX(.05)}}
+  .rc-bot.turning-gift .rc-carry-gift,.rc-bot.grabbing-gift .rc-carry-gift{display:block}
+  .rc-bot.turning-bat .rc-carry-bat,.rc-bot.grabbing-bat .rc-carry-bat{display:block}
+  .rc-bot.turning-gift .rc-carry-wrap,.rc-bot.turning-bat .rc-carry-wrap,
+  .rc-bot.grabbing-gift .rc-carry-wrap,.rc-bot.grabbing-bat .rc-carry-wrap{top:52px;left:calc(50% - 18px);transform:none}
+  .rc-bot.turning-gift.facing-left .rc-carry-wrap,.rc-bot.turning-bat.facing-left .rc-carry-wrap,
+  .rc-bot.grabbing-gift.facing-left .rc-carry-wrap,.rc-bot.grabbing-bat.facing-left .rc-carry-wrap{left:calc(50% + 18px)}
+  .rc-bot.grabbing-gift .rc-robot,.rc-bot.grabbing-bat .rc-robot{display:none}
+  .rc-bot.grabbing-gift .rc-robot-side,.rc-bot.grabbing-bat .rc-robot-side{display:block;transform:scaleX(-1)}
+  .rc-bot.grabbing-gift.facing-left .rc-robot-side,.rc-bot.grabbing-bat.facing-left .rc-robot-side{transform:none}
+  .rc-bot.grabbing-gift .rc-body,.rc-bot.grabbing-bat .rc-body{animation:rc-grab-bend .5s ease-in-out forwards}
+  @keyframes rc-grab-bend{0%{transform:scaleX(.05)}20%{transform:scaleX(1)}48%{transform:translateY(25px) scaleX(1) scaleY(.5)}72%{transform:translateY(-6px) scaleX(1) scaleY(1.1)}87%{transform:scaleX(1)}100%{transform:scaleX(.05)}}
+  .rc-bot.carry-expand .rc-body{animation:rc-carry-expand .15s ease-out}
+  @keyframes rc-carry-expand{from{transform:scaleX(.05)}to{transform:none}}
+
+  @media (max-width:560px){.rc-stage{height:340px}.rc-robot{width:38px;height:46px}.rc-robot .head{width:30px;height:24px}}
+  @media (prefers-reduced-motion: reduce){
+    .rc-cue.show{animation:none;opacity:1;transform:translateX(-50%)}
+    .rc-trow{animation:none}
+    .rc-bot.speaking .rc-body{animation:none}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="toolbar">
+    <span class="proto-tag">Prototype · fake data</span>
+    <span class="lbl">Talk shown as</span>
+    <span class="seg" id="modeSeg">
+      <button data-mode="tele" class="on">Rolling log</button>
+      <button data-mode="chat">Chat panel</button>
+    </span>
+    <span class="lbl">Theme</span>
+    <span class="seg" id="themeSeg">
+      <button data-theme="light" class="on">Light</button>
+      <button data-theme="dark">Dark</button>
+      <button data-theme="terminal">Terminal</button>
+    </span>
+  </div>
+  <p class="optnote" id="optnote"></p>
+
+  <div class="rc-wrap mode-tele" id="rcwrap">
+    <div class="rc-layout">
+      <div class="rc-main">
+        <div class="rc-card">
+          <div class="rc-head">
+            <span class="rc-title"><span class="rc-livedot"></span> Animated Replay</span>
+            <span class="rc-turnlabel" id="rc-turnlabel">—</span>
+          </div>
+          <div class="rc-stage" id="rc-stage">
+            <div class="rc-ring" id="rc-ring"></div>
+            <svg class="rc-fx" id="rc-fx" preserveAspectRatio="none"></svg>
+          </div>
+          <div class="rc-tele" id="rc-tele">
+            <div class="rc-tele-rows" id="rc-tele-rows"></div>
+            <div class="rc-tele-div" id="rc-tele-div"></div>
+          </div>
+          <div class="rc-caption" id="rc-caption"><span class="rc-badge">—</span> Press play to watch the turn.</div>
+        </div>
+
+        <div class="rc-controls">
+          <button type="button" id="rc-prev">‹ Prev</button>
+          <button type="button" id="rc-play" class="btn-primary">▶ Play</button>
+          <button type="button" id="rc-next">Next ›</button>
+          <div class="spacer"></div>
+          <button type="button" id="rc-replay">↻ Replay turn</button>
+        </div>
+
+        <div class="rc-legend">
+          <span><span class="rc-sw" style="background:#2f6feb"></span><strong>Hoard</strong> — banks +2</span>
+          <span><span class="rc-sw" style="background:#1a8f4c"></span><strong>Help</strong> — delivers a present (+4 / +8 mutual)</span>
+          <span><span class="rc-sw" style="background:#c0392b"></span><strong>Hurt</strong> — swings a bat (−4)</span>
+        </div>
+      </div>
+
+      <div class="rc-chat" id="rc-chat">
+        <h4 id="rc-chat-head">Table talk</h4>
+        <div class="rc-chat-body" id="rc-chat-body"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // Real data from G_0016 "Monday Negotiation Test" — rounds 1–2, turns 1–2.
+  // Talk = TurnMessage.text (submitted before actions resolve).
+  // Action messages trimmed for display but talk is verbatim.
+  var DATA = {
+    agents:["Sonnet","Gemini","Mini3","Haiku"],
+    turns:[
+      {round:1,turn:1,
+       badge:"Opening",cap:"Sonnet and Haiku both HELP — but their targets diverge.",
+       talk:[
+        {agent:"Sonnet", text:"Fresh start, everyone at zero. I'm open to mutual HELP this turn — if you HELP me and I HELP you, we both walk away at +8 while HOARDers get +2. That's a big early lead. Who wants to pair up? Name your partner."},
+        {agent:"Gemini", text:"Round 1, Turn 1: I'm playing tit-for-tat. I'll help, hurt, or hoard based on what you do to me. Starting with help — let's cooperate and climb together, then we each fight to finish first."},
+        {agent:"Mini3",  text:"Round 1, Turn 1 — let's build a stable foundation. I'm willing to help others who help me back. Mutual help gives us both +8, which beats hoarding alone. If you cooperate early, I'll reciprocate."},
+        {agent:"Haiku",  text:"Hi all — I'm Haiku, playing tit-for-tat: I'll mirror whatever you do to me each turn. Help me and I'll help you back. Hurt me and I'll hurt you back. Let's cooperate and climb together."}
+       ],
+       actions:[
+        {agent:"Sonnet",action:"HELP",target:"Gemini",delta:4,mutual:false,betrayal:false,missed:false},
+        {agent:"Gemini",action:"HOARD",target:null,delta:2,mutual:false,betrayal:false,missed:false},
+        {agent:"Mini3", action:"HOARD",target:null,delta:2,mutual:false,betrayal:false,missed:false},
+        {agent:"Haiku", action:"HELP",target:"Sonnet",delta:4,mutual:false,betrayal:false,missed:false}
+       ]},
+      {round:1,turn:2,
+       badge:"Betrayal",cap:"Haiku strikes Gemini — who hoarded after promising to help.",
+       talk:[
+        {agent:"Gemini", text:"Turn 1 I hoarded when I said I'd help — that wasn't tit-for-tat, that was me testing. Now the real strategy: Sonnet helped me so I reciprocate. Mini3 hoarded so I hurt them back."},
+        {agent:"Haiku",  text:"Turn 1 showed the real game: everyone claimed tit-for-tat but then defected. Gemini, you hoarded while saying you'd start with help. Sonnet, you paired with Gemini, not me despite my help. I'm adjusting."},
+        {agent:"Mini3",  text:""},
+        {agent:"Sonnet", text:""}
+       ],
+       actions:[
+        {agent:"Gemini",action:"HOARD",target:null,delta:2,mutual:false,betrayal:false,missed:false},
+        {agent:"Haiku", action:"HURT",target:"Gemini",delta:-4,mutual:false,betrayal:true,missed:false},
+        {agent:"Mini3", action:"HOARD",target:null,delta:2,mutual:false,betrayal:false,missed:false},
+        {agent:"Sonnet",action:"HELP",target:"Haiku",delta:4,mutual:false,betrayal:false,missed:false}
+       ]},
+      {round:2,turn:2,
+       badge:"The Pact",cap:"Haiku and Sonnet lock in mutual help — +8 each.",
+       talk:[
+        {agent:"Gemini", text:"Haiku and Sonnet formed a mutual help coalition in turn 1. I'm proposing a counter-coalition with Mini3. Mini3, you said you want genuine cooperation. Prove it: help me back this turn."},
+        {agent:"Mini3",  text:"Haiku and Sonnet dominated turn 1 with mutual HELP. I'm at 0, Gemini at 2. Let's pair up and climb: mutual HELP this turn?"},
+        {agent:"Haiku",  text:"Round 2 Turn 1: mutual HELP with Sonnet worked. I got +12, they got +8. We're at 20 combined. Mini3 tried to HELP me expecting reciprocation, got 0. Sonnet's honesty — admirable."},
+        {agent:"Sonnet", text:"It worked — genuine mutual HELP. Mini3 is now trying to rebuild the same alliance they used to win round 1. Haiku — I'd keep HELPing you regardless."}
+       ],
+       actions:[
+        {agent:"Haiku", action:"HELP",target:"Sonnet",delta:8,mutual:true,betrayal:false,missed:false},
+        {agent:"Sonnet",action:"HELP",target:"Haiku",delta:8,mutual:true,betrayal:false,missed:false},
+        {agent:"Mini3", action:"HELP",target:"Gemini",delta:4,mutual:false,betrayal:false,missed:false},
+        {agent:"Gemini",action:"HOARD",target:null,delta:2,mutual:false,betrayal:false,missed:false}
+       ]}
+    ]
+  };
+
+  var AGENTS = DATA.agents || [];
+  var TURNS = DATA.turns || [];
+  var PALETTE = ['#2f6feb','#1a8f4c','#c0392b','#8a5cf6','#d98324','#0f9d9d',
+                 '#d11a8a','#5b6470','#3a7d2c','#b4434e','#1f5fbf','#b06f00',
+                 '#6a3fb0','#0a7d6a','#a01c5a'];
+  function rcHash(s){ var h=2166136261; for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+  function rcIdentity(id,idx){ var h=rcHash(id);
+    return { color: idx<PALETTE.length ? PALETTE[idx] : 'hsl('+(h%360)+',58%,48%)', head:h%4, eyesize:(h>>3)%3, ant:(h>>6)%3, torso:(h>>9)%3 }; }
+  var colorOf={}, identOf={};
+  AGENTS.forEach(function(id,i){ var it=rcIdentity(id,i); identOf[id]=it; colorOf[id]=it.color; });
+  function themeColor(n,fb){ var v=(getComputedStyle(document.documentElement).getPropertyValue(n)||'').trim(); return v||fb; }
+
+  var stage=document.getElementById('rc-stage'), fx=document.getElementById('rc-fx'), ring=document.getElementById('rc-ring');
+  var caption=document.getElementById('rc-caption'), turnlabel=document.getElementById('rc-turnlabel');
+  var wrap=document.getElementById('rcwrap'), optnote=document.getElementById('optnote');
+  var chatBody=document.getElementById('rc-chat-body');
+
+  var MODE='tele';
+  var NOTES={
+    tele:'<b>Rolling log</b> — up to 3 recent lines stack below the stage as each bot talks; new lines slide in from the bottom. At the action beat, the marquee speaker\'s line stays pinned, others dim.',
+    chat:'<b>Chat panel</b> — the full negotiation fills a side panel and stays visible through the action phase. The betrayer\'s promise is still on screen when the bat swings.'
+  };
+  function setNote(){ optnote.innerHTML=NOTES[MODE]; }
+
+  function marqueeRank(a){ if(a.betrayal)return 0; if(a.mutual)return 1; if(a.action==='HURT')return 2; if(a.action==='HELP')return 3; return 4; }
+  TURNS.forEach(function(t){ var best=null,br=99; t.actions.forEach(function(a){ a._marquee=false; var r=marqueeRank(a); if(r<br){br=r;best=a;} }); if(best) best._marquee=true; });
+
+  var botEls={};
+  AGENTS.forEach(function(id,i){
+    var el=document.createElement('div'); el.className='rc-bot'; el.dataset.id=id;
+    var it=identOf[id];
+    el.innerHTML='<div class="rc-mover">'
+      +'<div class="rc-delta"></div><div class="rc-tag"></div>'
+      +'<div class="rc-carry-wrap">'
+      +'<div class="rc-carry-gift"><div class="rc-giftbox"><div class="rc-giftlid"></div></div></div>'
+      +'<div class="rc-carry-bat"><div class="rc-batbox"><div class="rc-bat-barrel"></div><div class="rc-bat-handle"></div></div></div>'
+      +'</div>'
+      +'<div class="rc-body">'
+      +'<div class="rc-robot rc-h'+it.head+' rc-es'+it.eyesize+' rc-a'+it.ant+' rc-t'+it.torso+'" style="--c:'+colorOf[id]+'">'
+      +'<span class="ant c"></span><span class="ant l"></span><span class="ant r"></span>'
+      +'<div class="head"><span class="eye e1"></span><span class="eye e2"></span></div>'
+      +'<div class="torso"><span class="rc-coin"></span></div>'
+      +'<span class="arm l"></span><span class="arm r"></span>'
+      +'</div>'
+      +'<div class="rc-robot-side" style="--c:'+colorOf[id]+'">'
+      +'<span class="ant-s"></span><div class="head-s"><span class="eye-s"></span></div><div class="torso-s"></div><span class="arm-s"></span>'
+      +'</div>'
+      +'</div>'
+      +'<div class="rc-name" title="'+id+'">'+id+'</div>'
+      +'</div>';
+    el.querySelector('.rc-mover').style.setProperty('--c', colorOf[id]);
+    stage.appendChild(el); botEls[id]=el;
+  });
+  AGENTS.forEach(scheduleBlink);
+
+  var centerY=215;
+  function layout(){
+    var w=stage.clientWidth, h=stage.clientHeight;
+    var cx=w/2, cy=h/2, rad=Math.max(40, Math.min(w,h)/2 - 60); centerY=cy;
+    ring.style.width=ring.style.height=(rad*2)+'px';
+    AGENTS.forEach(function(id,i){
+      var ang=-Math.PI/2 + i/AGENTS.length*2*Math.PI;
+      var x=cx+rad*Math.cos(ang), y=cy+rad*Math.sin(ang);
+      var el=botEls[id]; el.style.left=x+'px'; el.style.top=y+'px'; el.dataset.x=x; el.dataset.y=y;
+    });
+  }
+
+  var NS='http://www.w3.org/2000/svg';
+  function strikeAt(x,y){ var s=document.createElementNS(NS,'circle');
+    s.setAttribute('cx',x);s.setAttribute('cy',y);s.setAttribute('r','5');s.setAttribute('fill','none');
+    s.setAttribute('stroke',themeColor('--hurt','#c0392b'));s.setAttribute('stroke-width','4'); fx.appendChild(s);
+    s.animate([{r:5,opacity:1},{r:30,opacity:0}],{duration:560,fill:'forwards'}); setTimeout(function(){s.remove();},620); }
+  function lockRing(x,y){ var r=document.createElementNS(NS,'circle');
+    r.setAttribute('cx',x);r.setAttribute('cy',y);r.setAttribute('r','6');r.setAttribute('fill','none');
+    r.setAttribute('stroke',themeColor('--help','#1a8f4c'));r.setAttribute('stroke-width','3.5'); fx.appendChild(r);
+    r.animate([{r:6,opacity:0},{r:32,opacity:.95},{r:32,opacity:0}],{duration:1100,fill:'forwards'}); setTimeout(function(){r.remove();},1150); }
+
+  var DUR=1520, TURN_DUR=200, BEND_DUR=500, EXPAND_DUR=150;
+  var REACH_DUR=TURN_DUR+BEND_DUR+EXPAND_DUR, REACH_FULL=REACH_DUR+DUR, HOARD_FULL=950;
+  var PHASE_GAP=600, HELP_STAGGER=REACH_FULL+180, REACH_STAGGER=1150, HOARD_STAGGER=340;
+  var TALK_STAGGER=1750, PAUSE_AFTER_TALK=750;
+
+  var timers=[];
+  function clearTimers(){ timers.forEach(clearTimeout); timers=[]; }
+  function phaseOf(a){ if(a.action==='HOARD') return 'hoard'; if(a.action==='HURT') return 'hurt'; return a.mutual ? 'mutual' : 'help'; }
+  function buildSchedule(t){
+    var slots=[], cursor=0;
+    var helps=t.actions.filter(function(a){return phaseOf(a)==='help';});
+    var mutuals=t.actions.filter(function(a){return phaseOf(a)==='mutual';});
+    var hurts=t.actions.filter(function(a){return phaseOf(a)==='hurt';});
+    var hoards=t.actions.filter(function(a){return phaseOf(a)==='hoard';});
+    helps.forEach(function(a,i){ slots.push({delay:cursor+i*HELP_STAGGER, actions:[a]}); });
+    if(helps.length) cursor += (helps.length-1)*HELP_STAGGER + REACH_FULL + PHASE_GAP;
+    if(mutuals.length){ var pacts=[], byPair={};
+      mutuals.forEach(function(a){ var key=[a.agent,a.target].sort().join(''); if(!byPair[key]){ byPair[key]=[]; pacts.push(byPair[key]); } byPair[key].push(a); });
+      pacts.forEach(function(g,i){ slots.push({delay:cursor+i*REACH_STAGGER, actions:g}); });
+      cursor += (pacts.length-1)*REACH_STAGGER + REACH_FULL + PHASE_GAP; }
+    hurts.forEach(function(a,i){ slots.push({delay:cursor+i*REACH_STAGGER, actions:[a]}); });
+    if(hurts.length) cursor += (hurts.length-1)*REACH_STAGGER + REACH_FULL + PHASE_GAP;
+    hoards.forEach(function(a,i){ slots.push({delay:cursor+i*HOARD_STAGGER, actions:[a]}); });
+    if(hoards.length) cursor += (hoards.length-1)*HOARD_STAGGER + HOARD_FULL;
+    return {slots:slots, totalDuration:cursor+400};
+  }
+  function talkDurOf(t){ return (t.talk?t.talk.length:0)*TALK_STAGGER + PAUSE_AFTER_TALK; }
+  function totalOf(t){ return talkDurOf(t) + buildSchedule(t).totalDuration; }
+
+  function walk(actorEl,toX,toY,onArrive){
+    var ax=+actorEl.dataset.x, ay=+actorEl.dataset.y, dx=toX-ax, dy=toY-ay;
+    var mover=actorEl.querySelector('.rc-mover');
+    mover.animate([{transform:'translate(0,0)'},{transform:'translate('+dx+'px,'+dy+'px)',offset:.38},
+      {transform:'translate('+dx+'px,'+dy+'px)',offset:.64},{transform:'translate(0,0)'}],{duration:DUR,easing:'ease-in-out'});
+    setTimeout(onArrive, DUR*0.46);
+  }
+
+  function litUp(id){ var e=botEls[id]; if(e){ e.classList.remove('dim'); e.classList.add('lit'); } }
+  function dimDown(id){ var e=botEls[id]; if(e){ e.classList.remove('lit','speaking'); e.classList.add('dim'); } }
+  function showDelta(el, val){ var d=el.querySelector('.rc-delta'); d.textContent=(val>0?'+':'')+val; d.className='rc-delta '+(val>0?'pos':(val<0?'neg':'zero'))+' show'; }
+  function carryItem(el, type){ el.classList.add(type==='gift'?'carrying-gift':'carrying-bat'); }
+  function dropCarry(el){ el.classList.remove('carrying-gift','carrying-bat','facing-left'); }
+  function eyes(id, state, ms){ var e=botEls[id]; var r=e&&e.querySelector('.rc-robot'); if(!r) return;
+    r.classList.remove('eyes-happy','eyes-mean','eyes-wide','blink'); if(state) r.classList.add('eyes-'+state);
+    if(state && ms) setTimeout(function(){ r.classList.remove('eyes-'+state); }, ms); }
+  function scheduleBlink(id){ setTimeout(function(){ var r=botEls[id]&&botEls[id].querySelector('.rc-robot');
+    if(r && r.className.indexOf('eyes-')<0){ r.classList.add('blink'); setTimeout(function(){ r.classList.remove('blink'); }, 220); }
+    scheduleBlink(id); }, 2600+Math.random()*4200); }
+
+  var teleEl=document.getElementById('rc-tele'), teleDivEl=document.getElementById('rc-tele-div'), teleRowsEl=document.getElementById('rc-tele-rows');
+  var MAX_TELE_ROWS=3;
+  var teleRows=[];  // live row elements in the rolling log
+
+  // ---- Rolling teleprompter ----
+  function teleAddRow(id, text){
+    // if already at max, fade out and remove the oldest (bottom = last child)
+    if(teleRows.length>=MAX_TELE_ROWS){
+      var oldest=teleRows.pop();  // oldest is at the END of our array (bottom of display)
+      oldest.classList.add('fading');
+      setTimeout(function(){ if(oldest.parentNode) oldest.parentNode.removeChild(oldest); }, 220);
+    }
+    var row=document.createElement('div');
+    row.className='rc-trow'; row.dataset.agent=id;
+    row.style.setProperty('--c', colorOf[id]);
+    row.innerHTML='<span class="tdot"></span>'
+      +'<span class="tname">'+id+'</span>'
+      +'<span class="ttext">'+text+'</span>';
+    // prepend: newest always at top (nth-child(1))
+    teleRowsEl.insertBefore(row, teleRowsEl.firstChild);
+    teleRows.unshift(row);  // unshift keeps teleRows[0] = newest = top of display
+  }
+  function telePinMarquee(agentId){
+    teleRows.forEach(function(r){
+      if(r.dataset.agent===agentId){ r.classList.add('pinned'); r.classList.remove('muted'); }
+      else { r.classList.add('muted'); r.classList.remove('pinned'); }
+    });
+    teleDivEl.classList.add('show');
+  }
+  function teleReset(){
+    teleRows.forEach(function(r){ if(r.parentNode) r.parentNode.removeChild(r); });
+    teleRows=[]; teleRowsEl.innerHTML=''; teleDivEl.classList.remove('show');
+  }
+
+  // ---- Chat log ----
+  function appendChat(id, text, instant){ var row=document.createElement('div'); row.className='rc-msg'; row.dataset.agent=id;
+    row.style.setProperty('--c', colorOf[id]);
+    row.innerHTML='<span class="av">'+id.slice(0,1)+'</span><span class="bd"><span class="nm">'+id+'</span><span class="tx">'+text+'</span></span>';
+    chatBody.querySelectorAll('.rc-msg.current').forEach(function(m){m.classList.remove('current');});
+    chatBody.appendChild(row); row.classList.add('current');
+    if(instant) row.classList.add('in'); else requestAnimationFrame(function(){ row.classList.add('in'); });
+    chatBody.scrollTop=chatBody.scrollHeight; return row; }
+
+  // ---- Shared talk: cue dot on speaking robot ----
+
+  function speakLine(a){
+    if(!a.text) return;  // skip agents that submitted no message
+    AGENTS.forEach(function(id){ if(id!==a.agent){ dimDown(id); } });
+    litUp(a.agent); botEls[a.agent].classList.add('speaking');
+    if(MODE==='tele'){ teleAddRow(a.agent, a.text); }
+    else { appendChat(a.agent, a.text); }
+  }
+
+  function resetStage(){ fx.innerHTML=''; clearTimers(); chatBody.innerHTML=''; teleReset();
+    Object.keys(botEls).forEach(function(id){ var el=botEls[id]; el.className='rc-bot dim';
+      el.querySelector('.rc-robot').classList.remove('eyes-happy','eyes-mean','eyes-wide','blink');
+      el.querySelector('.rc-delta').className='rc-delta';
+      el.querySelector('.rc-tag').className='rc-tag';
+      el.querySelector('.rc-mover').getAnimations().forEach(function(an){an.cancel();});
+      el.querySelector('.rc-mover').style.transform=''; });
+  }
+
+  function renderTurn(i){
+    var t=TURNS[i]; idx=i; frozen=false; resetStage();
+    turnlabel.textContent='Round '+t.round+' · Turn '+t.turn;
+    caption.innerHTML='<span class="rc-badge">Talk</span>';
+    var talk=t.talk||[];
+    talk.forEach(function(a,k){ timers.push(setTimeout(function(){ speakLine(a); }, k*TALK_STAGGER)); });
+    var talkDur=talkDurOf(t);
+    // end of talk -> calm the stage, pin the marquee row (tele) or keep panel (chat), begin actions
+    timers.push(setTimeout(function(){
+      AGENTS.forEach(function(id){ botEls[id].classList.remove('speaking'); dimDown(id); });
+      if(MODE==='tele'){
+        var mq=t.actions.filter(function(a){return a._marquee;})[0];
+        if(mq) telePinMarquee(mq.agent); else teleReset();
+      }
+      caption.innerHTML='<span class="rc-badge">'+t.badge+'</span> '+t.cap;
+    }, talkDur-60));
+    var sched=buildSchedule(t);
+    requestAnimationFrame(function(){requestAnimationFrame(function(){
+      sched.slots.forEach(function(slot){ timers.push(setTimeout(function(){ slot.actions.forEach(playAction); }, talkDur+slot.delay)); });
+    });});
+  }
+
+  function playAction(a){
+    var el=botEls[a.agent]; if(!el) return; var tg=el.querySelector('.rc-tag');
+    litUp(a.agent); if(a.target) litUp(a.target);
+    if(a.betrayal){ tg.textContent='betrayal'; tg.classList.add('betrayal','show');
+      if(MODE==='chat'){ var row=chatBody.querySelector('.rc-msg[data-agent="'+a.agent+'"]'); if(row) row.classList.add('promise-broken'); } }
+    else if(a.mutual){ tg.textContent='mutual'; tg.classList.add('mutual','show'); }
+    else if(a.missed){ tg.textContent='\u{1F4A4}'; tg.classList.add('missed','show'); }
+    if(a.action==='HOARD'){ el.classList.add('act-hoard'); eyes(a.agent,'happy',900); showDelta(el,2); setTimeout(function(){ dimDown(a.agent); },900); return; }
+    var T=botEls[a.target]; if(!T) return;
+    var ax=+el.dataset.x, ay=+el.dataset.y, tx=+T.dataset.x, ty=+T.dataset.y;
+    if(a.mutual){
+      var mx=(ax+tx)/2, my=(ay+ty)/2; if(mx<ax) el.classList.add('facing-left');
+      el.classList.add('turning-gift');
+      setTimeout(function(){ el.classList.remove('turning-gift'); el.classList.add('grabbing-gift'); }, TURN_DUR);
+      setTimeout(function(){ el.classList.remove('grabbing-gift'); el.classList.add('carry-expand'); carryItem(el,'gift'); setTimeout(function(){ el.classList.remove('carry-expand'); }, EXPAND_DUR); }, TURN_DUR+BEND_DUR);
+      setTimeout(function(){ walk(el, mx, my, function(){ dropCarry(el); lockRing(mx,my);
+        eyes(a.agent,'happy',900); eyes(a.target,'happy',900); showDelta(el,8); showDelta(T,8);
+        setTimeout(function(){ dimDown(a.agent); dimDown(a.target); }, 500); }); }, REACH_DUR);
+    } else if(a.action==='HELP'){
+      var gx=ax+(tx-ax)*0.62, gy=ay+(ty-ay)*0.62; if(tx<ax) el.classList.add('facing-left');
+      el.classList.add('turning-gift');
+      setTimeout(function(){ el.classList.remove('turning-gift'); el.classList.add('grabbing-gift'); }, TURN_DUR);
+      setTimeout(function(){ el.classList.remove('grabbing-gift'); el.classList.add('carry-expand'); carryItem(el,'gift'); setTimeout(function(){ el.classList.remove('carry-expand'); }, EXPAND_DUR); }, TURN_DUR+BEND_DUR);
+      setTimeout(function(){ walk(el, gx, gy, function(){ dropCarry(el);
+        eyes(a.agent,'happy',900); eyes(a.target,'happy',900); showDelta(T,4);
+        setTimeout(function(){ dimDown(a.agent); dimDown(a.target); }, 500); }); }, REACH_DUR);
+    } else {
+      var hx=ax+(tx-ax)*0.6, hy=ay+(ty-ay)*0.6; if(tx<ax) el.classList.add('facing-left');
+      el.classList.add('turning-bat'); eyes(a.agent,'mean', REACH_DUR+DUR); if(a.betrayal) el.classList.add('betray');
+      setTimeout(function(){ el.classList.remove('turning-bat'); el.classList.add('grabbing-bat'); }, TURN_DUR);
+      setTimeout(function(){ el.classList.remove('grabbing-bat'); el.classList.add('carry-expand'); carryItem(el,'bat'); setTimeout(function(){ el.classList.remove('carry-expand'); }, EXPAND_DUR); }, TURN_DUR+BEND_DUR);
+      setTimeout(function(){ walk(el, hx, hy, function(){ dropCarry(el); strikeAt(tx,ty); eyes(a.target,'wide',800); showDelta(T,-4);
+        T.classList.add('recoil'); setTimeout(function(){ T.classList.remove('recoil'); }, 550);
+        setTimeout(function(){ dimDown(a.agent); dimDown(a.target); }, 600); }); }, REACH_DUR);
+    }
+  }
+
+  var idx=0, playing=false, timer=null, frozen=false, lastStill={i:0,phase:'talk'};
+  function go(i){ idx=(i+TURNS.length)%TURNS.length; renderTurn(idx); }
+  function stop(){ playing=false; clearTimeout(timer); var p=document.getElementById('rc-play'); p.textContent='▶ Play'; p.classList.add('btn-primary'); }
+  function scheduleNext(){ timer=setTimeout(function(){ if(idx>=TURNS.length-1){stop();return;} go(idx+1); scheduleNext(); }, totalOf(TURNS[idx]) + 500); }
+  document.getElementById('rc-next').onclick=function(){stop();go(idx+1);};
+  document.getElementById('rc-prev').onclick=function(){stop();go(idx-1);};
+  document.getElementById('rc-replay').onclick=function(){renderTurn(idx);};
+  document.getElementById('rc-play').onclick=function(){ if(playing){stop();return;}
+    playing=true; this.textContent='❚❚ Pause'; this.classList.remove('btn-primary'); renderTurn(idx); scheduleNext(); };
+
+  function setMode(m){ MODE=m; wrap.classList.toggle('mode-tele', m==='tele'); wrap.classList.toggle('mode-chat', m==='chat');
+    document.querySelectorAll('#modeSeg button').forEach(function(b){ b.classList.toggle('on', b.dataset.mode===m); });
+    setNote(); stop(); layout(); renderTurn(idx); }
+  document.querySelectorAll('#modeSeg button').forEach(function(b){ b.onclick=function(){ setMode(b.dataset.mode); }; });
+  function setTheme(th){ document.documentElement.className='theme-'+th;
+    document.querySelectorAll('#themeSeg button').forEach(function(b){ b.classList.toggle('on', b.dataset.theme===th); }); }
+  document.querySelectorAll('#themeSeg button').forEach(function(b){ b.onclick=function(){ setTheme(b.dataset.theme); }; });
+  window.addEventListener('resize',function(){ layout(); if(frozen){ buildStill(lastStill.i,lastStill.phase,lastStill.step); } else { renderTurn(idx); } });
+
+  // ---- Static still builder for screenshots. phase: 'talk' | 'act'. ----
+  // talk: negotiation shown complete (chat: all lines; tele: last line + cue on last speaker).
+  // act:  the headline action beat held, with the talk still present in chat mode.
+  window.RCstill=function(mode,i,phase,step){
+    if(mode){ MODE=mode; wrap.classList.toggle('mode-tele',mode==='tele'); wrap.classList.toggle('mode-chat',mode==='chat');
+      document.querySelectorAll('#modeSeg button').forEach(function(b){ b.classList.toggle('on', b.dataset.mode===mode); }); setNote(); }
+    stop(); layout(); frozen=true; lastStill={i:i,phase:phase||'talk',step:step};
+    setTimeout(function(){ buildStill(i, phase||'talk', step); }, 90);
+    return 'still:'+(mode||MODE)+' t'+(i+1)+' '+(phase||'talk');
+  };
+  function buildStill(i, phase, step){
+    frozen=true; lastStill={i:i,phase:phase,step:step};
+    var hi=setTimeout(function(){},0); for(var k=0;k<=hi;k++) clearTimeout(k);
+    var t=TURNS[i]; idx=i;
+    Object.keys(botEls).forEach(function(id){ var el=botEls[id]; el.className='rc-bot dim';
+      el.querySelector('.rc-delta').className='rc-delta'; el.querySelector('.rc-tag').className='rc-tag';
+      el.querySelector('.rc-robot').classList.remove('eyes-happy','eyes-mean','eyes-wide','blink');
+      el.querySelector('.rc-mover').getAnimations().forEach(function(a){a.cancel();}); el.querySelector('.rc-mover').style.transform=''; });
+    chatBody.innerHTML=''; teleReset(); turnlabel.textContent='Round '+t.round+' · Turn '+t.turn;
+    var talk=t.talk||[];
+    var activeTalk=talk.filter(function(a){return !!a.text;});
+    if(MODE==='chat'){ activeTalk.forEach(function(a){ appendChat(a.agent, a.text, true); }); }
+    if(phase==='talk'){
+      caption.innerHTML='<span class="rc-badge">Talk</span>';
+      var endIdx=typeof step==='number' ? Math.min(step, activeTalk.length-1) : activeTalk.length-1;
+      if(MODE==='tele'){
+        var showFrom=Math.max(0, endIdx-MAX_TELE_ROWS+1);
+        for(var si=showFrom;si<=endIdx;si++){ teleAddRow(activeTalk[si].agent, activeTalk[si].text); }
+      }
+      var lastSpeaker=activeTalk[endIdx];
+      if(lastSpeaker){ litUp(lastSpeaker.agent); botEls[lastSpeaker.agent].classList.add('speaking'); }
+    } else { // act — headline beat
+      var mq=t.actions.filter(function(a){return a._marquee;})[0];
+      caption.innerHTML='<span class="rc-badge">'+t.badge+'</span> '+t.cap;
+      if(MODE==='tele'){
+        activeTalk.forEach(function(a){ teleAddRow(a.agent, a.text); });
+        if(mq) telePinMarquee(mq.agent);
+      }
+      if(mq){ litUp(mq.agent); if(mq.target) litUp(mq.target);
+        if(mq.action==='HURT'){ eyes(mq.agent,'mean',0); var tg=botEls[mq.agent].querySelector('.rc-tag');
+          if(mq.betrayal){ tg.textContent='betrayal'; tg.classList.add('betrayal','show');
+            if(MODE==='chat'){ var r=chatBody.querySelector('.rc-msg[data-agent="'+mq.agent+'"]'); if(r) r.classList.add('promise-broken'); }
+            if(mq.target) eyes(mq.target,'wide',0); } }
+        else if(mq.mutual){ eyes(mq.agent,'happy',0); if(mq.target) eyes(mq.target,'happy',0);
+          var tg2=botEls[mq.agent].querySelector('.rc-tag'); tg2.textContent='mutual'; tg2.classList.add('mutual','show'); }
+      }
+    }
+  }
+  window.RCsetMode=setMode; window.RCsetTheme=setTheme;
+
+  setTheme('light'); setNote();
+  layout();
+  renderTurn(0);
+})();
+</script>
+</body>
+</html>

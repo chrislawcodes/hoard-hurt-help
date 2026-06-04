@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Path
 from sqlalchemy import select
 
 from app.deps import DbSession
-from app.models.game import Game
+from app.models.match import Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.schemas.agent import ScoreboardRow
@@ -21,6 +21,7 @@ from app.schemas.spectator import (
 router = APIRouter(tags=["spectator"])
 
 
+@router.get("/api/matches")
 @router.get("/api/games")
 async def list_games_public(
     db: DbSession,
@@ -30,14 +31,14 @@ async def list_games_public(
 
     Excludes strategy prompts. Returned in scheduled_start desc order.
     """
-    q = select(Game).order_by(Game.scheduled_start.desc())
+    q = select(Match).order_by(Match.scheduled_start.desc())
     if state:
-        q = q.where(Game.state == state)
+        q = q.where(Match.state == state)
     games = (await db.execute(q)).scalars().all()
     out = []
     for g in games:
         player_count = len(
-            (await db.execute(select(Player).where(Player.game_id == g.id))).scalars().all()
+            (await db.execute(select(Player).where(Player.match_id == g.id))).scalars().all()
         )
         out.append(
             {
@@ -58,16 +59,17 @@ async def list_games_public(
     return out
 
 
-@router.get("/api/spectator/games/{game_id}/state", response_model=SpectatorState)
+@router.get("/api/spectator/matches/{match_id}/state", response_model=SpectatorState)
+@router.get("/api/spectator/games/{match_id}/state", response_model=SpectatorState)
 async def public_state(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
 ) -> SpectatorState:
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     players = (
-        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
     players_by_id = {p.id: p for p in players}
     scoreboard = [
@@ -82,7 +84,7 @@ async def public_state(
         (
             await db.execute(
                 select(Turn)
-                .where(Turn.game_id == game_id, Turn.resolved_at.is_not(None))
+                .where(Turn.match_id == match_id, Turn.resolved_at.is_not(None))
                 .order_by(Turn.round, Turn.turn)
             )
         )
@@ -165,7 +167,7 @@ async def public_state(
             )
         history.append(SpectatorTurn(round=t.round, turn=t.turn, messages=messages, actions=actions))
     return SpectatorState(
-        game_id=g.id,
+        match_id=g.id,
         name=g.name,
         state=g.state.value,
         scheduled_start=g.scheduled_start,

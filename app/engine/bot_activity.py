@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import broadcast
 from app.models.bot import Bot, BotStatus
-from app.models.game import Game, GameState
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
 
@@ -63,8 +63,9 @@ class OnboardingStatus:
 
     state: OnboardingState
     bot_name: str
-    game_id: str | None = None
+    match_id: str | None = None
     game_name: str | None = None
+    game_type: str | None = None
 
 
 async def _has_moved(db: AsyncSession, bot_id: int) -> bool:
@@ -149,8 +150,8 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
     games = (
         (
             await db.execute(
-                select(Game)
-                .join(Player, Player.game_id == Game.id)
+                select(Match)
+                .join(Player, Player.match_id == Match.id)
                 .where(Player.bot_id == bot.id, Player.left_at.is_(None))
             )
         )
@@ -170,25 +171,38 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
         return OnboardingStatus(
             OnboardingState.PLAYING,
             bot_name=bot.name,
-            game_id=active.id if active else None,
+            match_id=active.id if active else None,
             game_name=active.name if active else None,
+            game_type=active.game if active else None,
         )
 
     if connected:
         if active is not None:
             return OnboardingStatus(
-                OnboardingState.IN_GAME_NO_MOVE, bot.name, active.id, active.name
+                OnboardingState.IN_GAME_NO_MOVE,
+                bot.name,
+                active.id,
+                active.name,
+                active.game,
             )
         if pregame is not None:
             return OnboardingStatus(
-                OnboardingState.CONNECTED_PREGAME, bot.name, pregame.id, pregame.name
+                OnboardingState.CONNECTED_PREGAME,
+                bot.name,
+                pregame.id,
+                pregame.name,
+                pregame.game,
             )
         return OnboardingStatus(OnboardingState.CONNECTED_NO_GAME, bot.name)
 
     waiting_game = active or pregame
     if waiting_game is not None:
         return OnboardingStatus(
-            OnboardingState.WAITING_IN_GAME, bot.name, waiting_game.id, waiting_game.name
+            OnboardingState.WAITING_IN_GAME,
+            bot.name,
+            waiting_game.id,
+            waiting_game.name,
+            waiting_game.game,
         )
     return OnboardingStatus(OnboardingState.WAITING, bot.name)
 
@@ -230,7 +244,7 @@ class BotHealthStatus:
     never_connected: bool
     last_connected_at: datetime | None
     last_connected_human: str | None  # "4m ago" / "2h ago", or None if never
-    game_id: str | None = None
+    match_id: str | None = None
     game_name: str | None = None
 
 
@@ -251,7 +265,7 @@ def _humanize_since(dt: datetime, now: datetime) -> str:
 
 
 async def _is_defaulting(
-    db: AsyncSession, bot_id: int, game_id: str, threshold: int
+    db: AsyncSession, bot_id: int, match_id: str, threshold: int
 ) -> bool:
     """True if the bot's last ``threshold`` submissions in this game all defaulted.
 
@@ -264,7 +278,7 @@ async def _is_defaulting(
                 select(TurnSubmission.was_defaulted)
                 .join(Turn, Turn.id == TurnSubmission.turn_id)
                 .join(Player, Player.id == TurnSubmission.player_id)
-                .where(Player.bot_id == bot_id, Player.game_id == game_id)
+                .where(Player.bot_id == bot_id, Player.match_id == match_id)
                 .order_by(Turn.round.desc(), Turn.turn.desc())
                 .limit(threshold)
             )
@@ -299,7 +313,7 @@ async def compute_bot_health(
     human = None if last_connected is None else _humanize_since(last_connected, now)
 
     def build(
-        state: BotHealth, *, game: Game | None = None, needs_reconnect: bool = False
+        state: BotHealth, *, game: Match | None = None, needs_reconnect: bool = False
     ) -> BotHealthStatus:
         label, css, pulse = _HEALTH_PRESENTATION[state]
         return BotHealthStatus(
@@ -311,7 +325,7 @@ async def compute_bot_health(
             never_connected=never,
             last_connected_at=last_connected_aware,
             last_connected_human=human,
-            game_id=game.id if game else None,
+            match_id=game.id if game else None,
             game_name=game.name if game else None,
         )
 
@@ -321,8 +335,8 @@ async def compute_bot_health(
     games = (
         (
             await db.execute(
-                select(Game)
-                .join(Player, Player.game_id == Game.id)
+                select(Match)
+                .join(Player, Player.match_id == Match.id)
                 .where(Player.bot_id == bot.id, Player.left_at.is_(None))
             )
         )

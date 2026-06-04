@@ -16,7 +16,7 @@ from app.engine.sims.runtime import (
 )
 from app.engine.sims.types import SimContext
 from app.models.bot import Bot, BotKind, BotStatus
-from app.models.game import Game
+from app.models.match import Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.schemas.agent import ScoreboardRow, TalkMessage
@@ -28,7 +28,7 @@ Phase = Literal["talk", "act"]
 
 async def auto_submit_sim_phase(
     db: AsyncSession,
-    game: Game,
+    game: Match,
     turn: Turn,
     module: Any,
     *,
@@ -66,7 +66,8 @@ async def auto_submit_sim_phase(
             continue
 
         context = SimContext(
-            game_id=game.id,
+            game_id=game.id,  # internal Sim DTO field; kept as game_id (see types.py)
+            game_started_at=game.started_at or game.scheduled_start,
             round=turn.round,
             turn=turn.turn,
             phase=phase,
@@ -109,7 +110,7 @@ async def auto_submit_sim_phase(
 
 
 async def _load_active_players_with_bots(
-    db: AsyncSession, game_id: str
+    db: AsyncSession, match_id: str
 ) -> list[tuple[Player, Bot]]:
     rows = (
         (
@@ -117,7 +118,7 @@ async def _load_active_players_with_bots(
                 select(Player, Bot)
                 .join(Bot, Bot.id == Player.bot_id)
                 .where(
-                    Player.game_id == game_id,
+                    Player.match_id == match_id,
                     Player.left_at.is_(None),
                 )
                 .order_by(Player.agent_id)
@@ -128,12 +129,12 @@ async def _load_active_players_with_bots(
     return [(player, bot) for player, bot in rows]
 
 
-async def _load_action_records(db: AsyncSession, game_id: str) -> list[ActionRecord]:
+async def _load_action_records(db: AsyncSession, match_id: str) -> list[ActionRecord]:
     turns = (
         (
             await db.execute(
                 select(Turn)
-                .where(Turn.game_id == game_id, Turn.resolved_at.is_not(None))
+                .where(Turn.match_id == match_id, Turn.resolved_at.is_not(None))
                 .order_by(Turn.round, Turn.turn)
             )
         )
@@ -146,7 +147,7 @@ async def _load_action_records(db: AsyncSession, game_id: str) -> list[ActionRec
     name_by_id = {
         p.id: p.agent_id
         for p in (
-            await db.execute(select(Player).where(Player.game_id == game_id))
+            await db.execute(select(Player).where(Player.match_id == match_id))
         )
         .scalars()
         .all()
@@ -192,11 +193,11 @@ async def _load_action_records(db: AsyncSession, game_id: str) -> list[ActionRec
     return records
 
 
-async def _load_scoreboard(db: AsyncSession, game_id: str) -> list[ScoreboardRow]:
+async def _load_scoreboard(db: AsyncSession, match_id: str) -> list[ScoreboardRow]:
     players = (
         (
             await db.execute(
-                select(Player).where(Player.game_id == game_id, Player.left_at.is_(None))
+                select(Player).where(Player.match_id == match_id, Player.left_at.is_(None))
             )
         )
         .scalars()

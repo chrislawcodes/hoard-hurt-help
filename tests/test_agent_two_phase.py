@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.tokens import generate_turn_token
 from app.main import app
-from app.models import Base, Game, GameState, Player, Turn, TurnMessage, TurnSubmission
+from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSubmission
 from tests.factories import seat_player
 
 
@@ -48,9 +48,9 @@ async def _seed_game(
     reset_db: async_sessionmaker,
     *,
     n_players: int = 2,
-) -> tuple[Game, list[Player]]:
+) -> tuple[Match, list[Player]]:
     async with reset_db() as db:
-        game = Game(
+        game = Match(
             id="G_007",
             name="two-phase",
             state=GameState.ACTIVE,
@@ -72,7 +72,7 @@ async def _seed_game(
 
 async def _open_turn(
     reset_db: async_sessionmaker,
-    game_id: str,
+    match_id: str,
     *,
     round_num: int = 1,
     turn_num: int = 1,
@@ -82,7 +82,7 @@ async def _open_turn(
     async with reset_db() as db:
         now = datetime.now(timezone.utc)
         turn = Turn(
-            game_id=game_id,
+            match_id=match_id,
             round=round_num,
             turn=turn_num,
             turn_token=token or generate_turn_token(),
@@ -299,7 +299,7 @@ async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db
     assert r3.status_code == 200, r3.text
     body3 = r3.json()
     assert body3["status"] == "your_turn"
-    assert body3["game_id"] == game.id
+    assert body3["match_id"] == game.id
     assert body3["current"]["phase"] == "act"
     assert body3["current"]["talk_messages"] == [
         {"agent_id": players[0].agent_id, "message": "public from a"},

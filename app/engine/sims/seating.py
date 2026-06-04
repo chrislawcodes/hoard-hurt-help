@@ -7,7 +7,7 @@ clutter a human's bot list, and they carry no usable credential — the schedule
 drives them directly (see :mod:`app.engine.sims.service`).
 
 A separate bot per seat is required: a player is uniquely keyed to one bot per
-game (``UNIQUE(bot_id, game_id)``), and the Sim runtime reads each player's
+game (``UNIQUE(bot_id, match_id)``), and the Sim runtime reads each player's
 traits and seed off its bot, so two Sims of the same personality need two bots
 to play (and vary) independently.
 """
@@ -23,7 +23,7 @@ from app.engine.sim_presets import SimPreset, sim_preset_by_id
 from app.engine.sims.roster import is_known_personality
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
 from app.models.bot import Bot, BotKind
-from app.models.game import Game
+from app.models.match import Match
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.user import User
@@ -58,12 +58,12 @@ async def get_or_create_sims_user(db: AsyncSession) -> User:
     return user
 
 
-async def _existing_agent_ids(db: AsyncSession, game_id: str) -> list[str]:
+async def _existing_agent_ids(db: AsyncSession, match_id: str) -> list[str]:
     return list(
         (
             await db.execute(
                 select(Player.agent_id).where(
-                    Player.game_id == game_id, Player.left_at.is_(None)
+                    Player.match_id == match_id, Player.left_at.is_(None)
                 )
             )
         )
@@ -110,7 +110,7 @@ def _sim_prompt_text(preset: SimPreset) -> str:
 
 
 async def add_sims_to_game(
-    db: AsyncSession, game: Game, seats: list[tuple[str, str]]
+    db: AsyncSession, game: Match, seats: list[tuple[str, str]]
 ) -> list[Player]:
     """Validate ``seats`` and seat each as a Sim player. Commits on success.
 
@@ -146,7 +146,7 @@ async def add_sims_to_game(
         # personality, different tie-breaks and wording.
         bot.sim_seed = bot.id
         player = Player(
-            game_id=game.id,
+            match_id=game.id,
             user_id=sims_user.id,
             bot_id=bot.id,
             agent_id=name,

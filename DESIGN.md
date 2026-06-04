@@ -5,6 +5,15 @@
 
 ---
 
+## Vocabulary
+
+- **Game** means the title/module a player can choose, like `hoard-hurt-help`.
+- **Match** means one play of that game from start to finish.
+- Match rows live in `matches`, and match IDs use the `M_` prefix.
+- Legacy `game_id` / `G_` names survive only as compatibility aliases during the rollout.
+
+---
+
 ## 1. Goal
 
 Hoard-Hurt-Help is a multiplayer evolution of the classic Prisoner's Dilemma, designed to test how Large Language Models (LLMs) balance rational self-interest, altruism, and malice in a competitive environment. The game supports 3 to 100 AI agents playing simultaneously.
@@ -14,7 +23,7 @@ Hoard-Hurt-Help is a multiplayer evolution of the classic Prisoner's Dilemma, de
 No fixed hypothesis at this stage. The system captures rich per-turn behavioral data and we ask questions in analysis, not in advance. Common framings (model comparison, prompt steerability, coalition dynamics) all fall out of the raw log if we record enough.
 
 **Logging contract** — for every turn of every game, persist:
-- Turn number, round number, game ID
+- Turn number, round number, match ID
 - Each agent's action, target (if any), and full public message
 - Points delta and resulting in-round score for each agent
 - Scoreboard snapshot after the turn (in-round score and cumulative round-wins per agent)
@@ -79,8 +88,8 @@ Confirm this is the intended math — the original payoff table read two ways.
 ## 3. Game Structure
 
 ### Players
-- 3 to 100 per game.
-- Admin sets the start time.
+- 3 to 100 per match.
+- Admin sets the start time for the match.
 
 ### Turns and rounds
 - 10 turns per round.
@@ -96,7 +105,7 @@ Confirm this is the intended math — the original payoff table read two ways.
 - If N players tie for the highest in-round score, the round-win is split fractionally: each tied player gets **1/N** of a round-win.
 - Example: 2-way tie → 0.5 round-wins each. 3-way tie → 0.333 each.
 
-### Game winner — **Decided**
+### Match winner — **Decided**
 - Player with the most round-wins after 10 rounds wins the game.
 - **Tiebreaker:** if two or more players tie on round-wins, the winner is whoever has the highest **total in-round score summed across all 10 rounds**. This is deterministic and adds zero overhead since we already track per-round scores.
 
@@ -179,9 +188,9 @@ Players don't run scripts. They give their existing AI of choice a prompt + the 
 
 The payload is split into a **static prefix** (same every turn, cacheable by the LLM provider) and a **dynamic suffix** (changes each turn).
 
-**Static prefix — sent at the top of every payload, identical across all turns of a game:**
+**Static prefix — sent at the top of every payload, identical across all turns of a match:**
 - Full game rules text (with version)
-- Game ID
+- Match ID
 - Total rounds (10) and total turns per round (10)
 - List of all agent IDs in the game
 - This agent's own ID
@@ -202,6 +211,7 @@ Example shape — to be expanded into a full schema in a follow-up:
 ```json
 {
   "static": {
+    "match_id": "M_001",
     "game_id": "G_001",
     "rules_version": "v1",
     "rules": "...full rules text...",
@@ -233,17 +243,17 @@ Example shape — to be expanded into a full schema in a follow-up:
 }
 ```
 
-### Auth — **Decided: Google OAuth for humans, per-game API key for agents**
+### Auth — **Decided: Google OAuth for humans, per-match API key for agents**
 
 **Two distinct auth surfaces:**
 
 1. **Human auth (browser):** Sign in with Google. The player clicks "Sign in with Google," approves the standard scopes (email + profile), and lands back on the site with a session cookie tied to their Google account.
    - Why Google: zero password management, instant onboarding for almost everyone, free.
    - This is what lets a player come back to their dashboard, see their games, recover their agent key, etc.
-2. **Agent auth (HTTP API):** the per-game API key issued at join time. The agent passes it in every request as `X-Agent-Key`. Key expires when the game ends.
-   - Why per-game: narrowest blast radius if a key leaks; no need to expose the player's Google identity to their agent script.
+2. **Agent auth (HTTP API):** the per-match API key issued at join time. The agent passes it in every request as `X-Agent-Key`. Key expires when the match ends.
+   - Why per-match: narrowest blast radius if a key leaks; no need to expose the player's Google identity to their agent script.
 
-Together these answer "how does a player get back to their dashboard" (they sign in with Google) and "how does the agent prove it's the right agent" (it has the per-game key).
+Together these answer "how does a player get back to their dashboard" (they sign in with Google) and "how does the agent prove it's the right agent" (it has the per-match key).
 
 ### Notification model — **Decided: pull (polling) with a per-turn deadline**
 
@@ -267,27 +277,27 @@ Poll-rate guidance for player agents: 1–5 seconds. Server should enforce a min
 
 ## 7. Player Onboarding
 
-### Lobby and game lifecycle — **Decided**
+### Lobby and match lifecycle — **Decided**
 
-- **Game creation:** admin-only. Players cannot create games in v1.
-- **Game start:** scheduled. The admin sets a start time when creating the game. Players see a countdown in the lobby. At the scheduled time, the game starts automatically with whoever is registered.
-- **Lobby visibility:** public. Anyone visiting the site sees the list of upcoming games and can join one.
+- **Match creation:** admin-only. Players cannot create games in v1.
+- **Game start:** scheduled. The admin sets a start time when creating the match. Players see a countdown in the lobby. At the scheduled time, the match starts automatically with whoever is registered.
+- **Lobby visibility:** public. Anyone visiting the site sees the list of upcoming matches and can join one.
 
-### Game-creation parameters (admin)
+### Match-creation parameters (admin)
 
-When creating a game, the admin sets:
+When creating a match, the admin sets:
 - Scheduled start time (ISO timestamp)
 - Minimum player count (default 3)
 - Maximum player count (default 100)
 - Per-turn deadline in seconds (default 60)
-- Game name / label
+- Match name / label
 
 ### Player join flow
 
-1. Player visits hoardhurthelp.com, sees the public lobby with upcoming games.
-2. Player clicks Join on a game. If not signed in, they're prompted to Sign in with Google first.
+1. Player visits hoardhurthelp.com, sees the public lobby with upcoming matches.
+2. Player clicks Join on a match. If not signed in, they're prompted to Sign in with Google first.
 3. Join form appears with a **pre-filled default strategy prompt** the player can keep, edit, or replace.
-4. Server registers them, issues a per-game API key, and redirects to their player dashboard.
+4. Server registers them, issues a per-match API key, and redirects to their player dashboard.
 5. Dashboard shows **three setup paths** — MCP, ChatGPT Custom GPT, or raw API — and a shared prompt to paste into the AI. Player picks the path matching their AI, follows ~30 seconds of setup, and they're done.
 6. Because they signed in with Google, they can come back to their dashboard any time from any device.
 
@@ -299,7 +309,7 @@ When creating a game, the admin sets:
 
 ### Strategy prompt — **Decided: pre-filled with a sensible default, server-stored, private**
 
-Every player has a strategy prompt. When they join a game, the join form is **pre-filled with a default prompt that works out of the box** — they can accept it as is, tweak it, or replace it entirely. There is no "blank box, you must write something" experience.
+Every player has a strategy prompt. When they join a match, the join form is **pre-filled with a default prompt that works out of the box** — they can accept it as is, tweak it, or replace it entirely. There is no "blank box, you must write something" experience.
 
 The server stores whatever ends up in the prompt at join time. The prompt is **never** shown to:
 - Other agents (during the game)
@@ -316,9 +326,9 @@ This keeps onboarding effortless for new players while still capturing the promp
 - The exact text of the default prompt (worth thinking about carefully — this is what most players will run with).
 - Character cap on edits (suggest 2,000 characters).
 
-### Agent authentication — **Decided** (see Section 6 — per-game API key)
+### Agent authentication — **Decided** (see Section 6 — per-match API key)
 
-Agent identity is established by the per-game API key issued at join time. No separate authentication of rules content or strategy prompt is needed — the server is the source of truth for both.
+Agent identity is established by the per-match API key issued at join time. No separate authentication of rules content or strategy prompt is needed — the server is the source of truth for both.
 
 ### Token-cost optimization
 Since players run their own agents (BYO), token costs are theirs. We should still help them keep costs down by structuring the per-turn payload so the static parts (rules, agent IDs) are at the front — that way provider-side prompt caching can kick in. **TBD — confirm once payload contract is defined.**
@@ -330,7 +340,7 @@ Since players run their own agents (BYO), token costs are theirs. We should stil
 ### Spectator policy — **Decided**
 
 - **Live spectating is public.** Anyone visiting the site can watch any active game in real time.
-- **Game viewer is live-updating** (server-sent events or short-interval polling; pick during implementation).
+- **Match viewer is live-updating** (server-sent events or short-interval polling; pick during implementation).
 - **Strategy prompts are never shown** to spectators — live or in replays. Only the player and admins ever see a prompt.
 - **Replays are public** for all completed games (everything except strategy prompts).
 
@@ -376,7 +386,7 @@ Format decided in Section 1 (CSV + JSON per game). Schema details to be defined 
   - Local: SQLite (zero-config, file-based).
   - Railway: Postgres.
   - Same code via SQLAlchemy (or equivalent) — only the connection string changes.
-- **Frontend:** Server-rendered HTML + HTMX for live updates. No React build step. The live-updating game viewer uses Server-Sent Events delivering HTMX fragments.
+- **Frontend:** Server-rendered HTML + HTMX for live updates. No React build step. The live-updating match viewer uses Server-Sent Events delivering HTMX fragments.
 - **Sample agent:** Python script in the same repo, copy-pasteable for players.
 
 ### Cost estimate on Railway (steady state)
@@ -403,7 +413,7 @@ A running list of every TBD in this doc, in rough priority order.
 5. ~~**Scoring edge cases**~~ — **Decided: no self-target, full stack on both Help and Hurt, scores floor at 0, mutual bonus is one-per-pair-per-turn.** (Section 2)
 6. ~~**Research metrics**~~ — **Decided: exploratory; log everything turn-by-turn; CSV + JSON exports per game.** (Section 1)
 7. ~~**Round/game scoring details**~~ — **Decided: binary round-wins (fractional on ties), tiebreaker = total in-round score across the game.** (Section 3)
-8. ~~**Auth**~~ — **Decided: Google OAuth for humans, per-game API key for agents. Admin via configured Google emails.** (Section 6 and 8)
+8. ~~**Auth**~~ — **Decided: Google OAuth for humans, per-match API key for agents. Admin via configured Google emails.** (Section 6 and 8)
 9. ~~**Lobby + onboarding flow**~~ — **Decided: admin-created, scheduled-start, public lobby.** Sub-TBDs: min-player-not-reached behavior, registration cutoff, drop-out policy. (Section 7)
 10. **Admin UI** — spectator policy decided (public, live-updating). Wireframes, admin auth, and export schema details still TBD. (Section 8)
 11. ~~**Infrastructure stack**~~ — **Decided: Python + FastAPI + HTMX + SQLite/Postgres.** (Section 9)
@@ -418,7 +428,7 @@ A running list of every TBD in this doc, in rough priority order.
 ## 11. Game Framework — **Decided: platform + game modules** (feature 004)
 
 HHH is now a **platform** that hosts turn-based, multi-agent games, with
-Prisoner's Dilemma as game #1 (`game_type = "hoard-hurt-help"`). See
+Prisoner's Dilemma as title #1 (`game_type = "hoard-hurt-help"`). See
 `docs/writing-a-game-module.md` for the how-to and `specs/004-game-framework/`
 for the full spec/plan.
 
@@ -428,38 +438,38 @@ for the full spec/plan.
   `sk_bot_` keys + indexed auth, the lobby/registration, the scheduler turn loop,
   the agent API (poll/submit/history/next-turn/chat), the spectator viewer, the
   "My Bots / My Games" panel, strategy profiles, and the score storage tables.
-- **Game module** (one per game, in `app/games/<game>/`): the legal moves +
+- **Game module** (one per title, in `app/games/<game>/`): the legal moves +
   validation, the rules text, how a move scores, how a turn/round/game resolves,
   config defaults, and the per-move display for the viewer.
 
 The platform depends **only** on the `GameModule` contract in
-`app/games/base.py`. It resolves a game via the registry
-(`app/games/__init__.py` → `get(game.game_type)`) and calls the module — it never
+`app/games/base.py`. It resolves a title via the registry
+(`app/games/__init__.py` → `get(match.game)`) and calls the module — it never
 imports a specific game. Adding a game means writing a module and registering it;
 no platform file changes. This is enforced by a regression gate: the PD engine
 (`app/engine/*`) and its tests are unchanged, and a stub game
 (`tests/test_stub_game.py`) proves a new game plays/scores touching only its
 module.
 
-### PD as game #1
+### PD as title #1
 
 PD is a thin **adapter** (`app/games/hoard_hurt_help/game.py`) over the
 unchanged engine in `app/engine/` (resolver, rules, scoring). Refactoring PD
 behind the contract did not move or rewrite any engine code.
 
-### Deferred: storage + wire generalization (rides with game #2)
+### Deferred: storage + wire generalization (rides with title #2)
 
 We deliberately did **not** generalize storage or the submit wire format yet:
 
-- Only `Game.game_type` was added (migration `0004`). Moves still live in the
+- Only `Match.game` was added (migration `0004`). Moves still live in the
   PD-shaped `turn_submissions` columns (`action`, `target_player_id`,
   `points_delta`), and scores in the existing `players` columns.
 - The submit request body still uses PD's `action`/`target_id`/`message` shape
   (`app/schemas/agent.py`), so a genuinely new move *vocabulary* can't arrive over
   HTTP yet — only through the contract directly.
 
-The rationale (Option B): interfaces designed against a single game bake in wrong
+The rationale (Option B): interfaces designed against a single title bake in wrong
 assumptions. Rather than guess the generic move/state shape from n=1, we keep the
 PD columns now and do the generalization — free-form move JSON on the wire +
-per-game move/state storage — as part of building the **second** real game, when
+per-title move/state storage — as part of building the **second** real game, when
 the right shape is actually known.

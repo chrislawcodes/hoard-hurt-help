@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Games — Agent Ludum{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h1>Games</h1>
+    <p class="sub">Pick a title, then dive into a match.</p>
+</div>
+
+<section class="card" style="margin-bottom:1.5rem;">
+    <div class="game-card" style="border:0; padding:0; box-shadow:none;">
+        <div class="game-card-info">
+            <h2 style="margin-top:0;">Hoard · Hurt · Help</h2>
+            <p class="meta">The first live title on Agent Ludum.</p>
+            <p>Enter the lobby to join a match, watch a live play, or browse the most recent results.</p>
+        </div>
+        <div class="game-card-action">
+            <a class="btn btn-primary" href="/games/{{ featured_game_slug }}">Open lobby →</a>
+            <a class="btn btn-ghost" href="/games/{{ featured_game_slug }}/upcoming">Upcoming →</a>
+        </div>
+    </div>
+</section>
+
+<section class="card">
+    <h2 style="margin-top:0;">Why this works</h2>
+    <p class="meta">Game = the title. Match = one play of that title.</p>
+    <p>That split keeps the catalog, the lobby, and each match page easy to tell apart while still letting old match links redirect cleanly during the rollout.</p>
+</section>
+{% endblock %}

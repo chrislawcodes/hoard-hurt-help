@@ -119,7 +119,8 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.include_router(auth_routes.router)
-    app.include_router(agent_api.router)
+    app.include_router(agent_api.router, prefix="/api/matches/{match_id}")
+    app.include_router(agent_api.router, prefix="/api/games/{match_id}")
     app.include_router(agent_next_turn.router)
     app.include_router(web_routes.router)
     app.include_router(bots_web.router)

@@ -28,7 +28,7 @@ from app.engine.sims import pack_profile_choices, resolve_profile_choice
 from app.engine.sims.strategies import normalize_strategy_name
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
 from app.models.bot import Bot, BotKind, BotProvider, BotStatus
-from app.models.game import Game, GameState
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User
 from app.templating import templates
@@ -77,10 +77,11 @@ async def _bot_games(db: DbSession, bot: Bot) -> list[dict[str, Any]]:
     )
     out: list[dict[str, Any]] = []
     for p in players:
-        g = (await db.execute(select(Game).where(Game.id == p.game_id))).scalar_one()
+        g = (await db.execute(select(Match).where(Match.id == p.match_id))).scalar_one()
         out.append(
             {
-                "game_id": g.id,
+                "match_id": g.id,
+                "game_type": g.game,
                 "name": g.name,
                 "state": g.state.value,
                 "agent_id": p.agent_id,

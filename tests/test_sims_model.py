@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select, text
 
 from app.db import make_engine
-from app.models import Base, BotKind, Game, GameState
+from app.models import Base, BotKind, Match, GameState
 from app.models.bot import Bot
 from tests.factories import make_bot, make_user
 
@@ -30,7 +30,7 @@ async def reset_db(monkeypatch):
 @pytest.mark.asyncio
 async def test_game_defaults_to_twenty_player_cap(reset_db):
     async with reset_db() as db:
-        g = Game(
+        g = Match(
             id="G_SIM",
             name="Sim Test",
             state=GameState.REGISTERING,

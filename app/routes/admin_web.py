@@ -12,9 +12,9 @@ from app.engine.scheduler import registry, start_game
 from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
 from app.engine.state_machine import TransitionError
-from app.engine.tokens import generate_game_id
+from app.engine.tokens import generate_match_id
 from app.models.bot import Bot, BotKind
-from app.models.game import Game, GameState
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
 from app.models.strategy_prompt import StrategyPrompt
@@ -25,9 +25,9 @@ from app.templating import templates  # shared instance with custom filters
 router = APIRouter(tags=["admin"])
 
 
-async def _player_count(db, game_id: str) -> int:
+async def _player_count(db, match_id: str) -> int:
     return len(
-        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
 
 
@@ -38,7 +38,7 @@ async def admin_dashboard(
     user: Annotated[User, Depends(require_admin)],
 ):
     all_games = (
-        (await db.execute(select(Game).order_by(Game.scheduled_start.desc()))).scalars().all()
+        (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
     active, scheduled, completed = [], [], []
     for g in all_games:
@@ -112,6 +112,7 @@ async def admin_incident_detail(
     )
 
 
+@router.get("/admin/matches/new", response_class=HTMLResponse)
 @router.get("/admin/games/new", response_class=HTMLResponse)
 async def create_game_form(
     request: Request,
@@ -124,6 +125,7 @@ async def create_game_form(
     )
 
 
+@router.post("/admin/matches/new")
 @router.post("/admin/games/new")
 async def create_game_submit(
     request: Request,
@@ -156,10 +158,10 @@ async def create_game_submit(
     if min_players > max_players:
         return _error("Min players cannot be greater than max players.")
 
-    existing_ids = (await db.execute(select(Game.id))).scalars().all()
-    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("G_")), default=0) + 1
-    g = Game(
-        id=generate_game_id(n),
+    existing_ids = (await db.execute(select(Match.id))).scalars().all()
+    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
+    g = Match(
+        id=generate_match_id(n),
         name=name,
         state=GameState.REGISTERING,
         scheduled_start=when,
@@ -172,19 +174,20 @@ async def create_game_submit(
     return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.get("/admin/games/{game_id}", response_class=HTMLResponse)
+@router.get("/admin/matches/{match_id}", response_class=HTMLResponse)
+@router.get("/admin/games/{match_id}", response_class=HTMLResponse)
 async def admin_game_detail(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_admin)],
     added: int | None = None,
 ):
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     players = (
-        (await db.execute(select(Player).where(Player.game_id == game_id))).scalars().all()
+        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
     bots_by_id = {
         b.id: b
@@ -242,7 +245,7 @@ async def _render_add_sims(
     request: Request,
     db,
     user: User,
-    game: Game,
+    game: Match,
     *,
     error: str | None = None,
     prefill: list[tuple[str, str]] | None = None,
@@ -253,7 +256,7 @@ async def _render_add_sims(
         (
             await db.execute(
                 select(Player.agent_id).where(
-                    Player.game_id == game.id, Player.left_at.is_(None)
+                    Player.match_id == game.id, Player.left_at.is_(None)
                 )
             )
         )
@@ -299,29 +302,31 @@ async def _render_add_sims(
     )
 
 
-@router.get("/admin/games/{game_id}/sims", response_class=HTMLResponse)
+@router.get("/admin/matches/{match_id}/sims", response_class=HTMLResponse)
+@router.get("/admin/games/{match_id}/sims", response_class=HTMLResponse)
 async def add_sims_form(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_admin)],
 ):
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     return await _render_add_sims(request, db, user, g)
 
 
-@router.post("/admin/games/{game_id}/sims")
+@router.post("/admin/matches/{match_id}/sims")
+@router.post("/admin/games/{match_id}/sims")
 async def add_sims_submit(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_admin)],
     seat_name: Annotated[list[str] | None, Form()] = None,
     seat_strategy: Annotated[list[str] | None, Form()] = None,
 ):
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     if g.state not in (GameState.SCHEDULED, GameState.REGISTERING):
@@ -352,19 +357,20 @@ async def add_sims_submit(
             request, db, user, g, error=str(exc), prefill=seats, status_code=400
         )
     return RedirectResponse(
-        url=f"/admin/games/{game_id}?added={len(created)}",
+        url=f"/admin/matches/{match_id}?added={len(created)}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
-@router.post("/admin/games/{game_id}/start")
+@router.post("/admin/matches/{match_id}/start")
+@router.post("/admin/games/{match_id}/start")
 async def admin_start_game(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
     user: Annotated[User, Depends(require_admin)],
 ):
     """Force a REGISTERING game to start now (manual override of the auto-start poller)."""
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
     try:
@@ -372,13 +378,14 @@ async def admin_start_game(
     except TransitionError:
         raise HTTPException(409, detail=f"Cannot start a game in state {g.state.value}.")
     return RedirectResponse(
-        url=f"/admin/games/{game_id}", status_code=status.HTTP_303_SEE_OTHER
+        url=f"/admin/matches/{match_id}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
-@router.post("/admin/games/{game_id}/delete")
+@router.post("/admin/matches/{match_id}/delete")
+@router.post("/admin/games/{match_id}/delete")
 async def admin_delete_game(
-    game_id: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
     db: DbSession,
     user: Annotated[User, Depends(require_admin)],
     next: Annotated[str, Form()] = "/admin",
@@ -389,31 +396,31 @@ async def admin_delete_game(
     submissions → turns → strategy prompts → players → the game itself.
     Stops the game's loop first if it happens to be running.
     """
-    g = (await db.execute(select(Game).where(Game.id == game_id))).scalar_one_or_none()
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
 
-    registry.stop(game_id)  # no-op if not running
+    registry.stop(match_id)  # no-op if not running
 
     # Break the games → players FK so players can be deleted.
     g.winner_player_id = None
     await db.flush()
 
     turn_ids = (
-        (await db.execute(select(Turn.id).where(Turn.game_id == game_id))).scalars().all()
+        (await db.execute(select(Turn.id).where(Turn.match_id == match_id))).scalars().all()
     )
     if turn_ids:
         await db.execute(delete(TurnSubmission).where(TurnSubmission.turn_id.in_(turn_ids)))
-    await db.execute(delete(Turn).where(Turn.game_id == game_id))
+    await db.execute(delete(Turn).where(Turn.match_id == match_id))
 
     player_ids = (
-        (await db.execute(select(Player.id).where(Player.game_id == game_id))).scalars().all()
+        (await db.execute(select(Player.id).where(Player.match_id == match_id))).scalars().all()
     )
     if player_ids:
         await db.execute(delete(StrategyPrompt).where(StrategyPrompt.player_id.in_(player_ids)))
-    await db.execute(delete(Player).where(Player.game_id == game_id))
+    await db.execute(delete(Player).where(Player.match_id == match_id))
 
-    await db.execute(delete(Game).where(Game.id == game_id))
+    await db.execute(delete(Match).where(Match.id == match_id))
     await db.commit()
 
     # Only redirect to safe local paths.
@@ -442,7 +449,7 @@ async def admin_prompts(
             continue
         rows.append(
             {
-                "game_id": player.game_id,
+                "match_id": player.match_id,
                 "agent_id": player.agent_id,
                 "created_at": pr.created_at.isoformat(),
                 "is_default": pr.is_default,

@@ -11,7 +11,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-from app.models import Base, Game, GameState
+from app.models import Base, Match, GameState
 from tests.factories import seat_player
 
 
@@ -61,7 +61,7 @@ async def test_empty_state_has_no_fabricated_rows(client, reset_db):
 async def test_standings_band_shows_real_agents(client, reset_db):
     """A finished showcase game's real agents appear in the standings band."""
     async with reset_db() as db:
-        g = Game(
+        g = Match(
             id="G_done",
             name="Final Showdown",
             state=GameState.COMPLETED,

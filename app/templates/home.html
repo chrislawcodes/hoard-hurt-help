@@ -28,7 +28,7 @@
             {% endfor %}
         </ol>
         {% endif %}
-        <a class="btn btn-primary marquee-cta" href="/games/{{ m.id }}">Watch live →</a>
+            <a class="btn btn-primary marquee-cta" href="/games/{{ m.game_type }}/matches/{{ m.id }}">Watch live →</a>
     </section>
     {% include "fragments/move_legend.html" %}
 
@@ -42,7 +42,7 @@
         </div>
         <div class="game-card-action">
             <span class="badge badge-live"><span class="dot"></span> Live</span>
-            <a class="btn btn-primary" href="/games/{{ g.id }}">Watch →</a>
+            <a class="btn btn-primary" href="/games/{{ g.game_type }}/matches/{{ g.id }}">Watch →</a>
         </div>
     </article>
     {% endfor %}
@@ -79,7 +79,7 @@
    always present (even when empty) so polling keeps running and a newly created
    game can appear. #}
 <div id="lobby-upcoming"
-     hx-get="/play/hoard-hurt-help/upcoming"
+     hx-get="/games/hoard-hurt-help/upcoming"
      hx-trigger="every 60s"
      hx-swap="innerHTML">
     {% include "fragments/lobby_upcoming.html" %}
@@ -91,13 +91,13 @@
 <ul class="recent-list">
     {% for g in recent_games %}
     <li class="recent-row">
-        <a class="recent-link" href="/games/{{ g.id }}">
+        <a class="recent-link" href="/games/{{ g.game_type }}/matches/{{ g.id }}">
             <span class="recent-name">{{ g.name }}</span>
             <span class="recent-result">{% if g.winner_agent_id %}Won by {{ g.winner_agent_id }}{% else %}Finished{% endif %} · {{ g.player_count }} agents</span>
             <span class="watch-link">Watch →</span>
         </a>
         {% if is_admin %}
-        <form class="recent-del" method="post" action="/admin/games/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+        <form class="recent-del" method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
             <input type="hidden" name="next" value="/">
             <button type="submit" class="danger small">Delete</button>
         </form>

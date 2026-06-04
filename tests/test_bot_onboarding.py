@@ -24,7 +24,7 @@ from app.engine.bot_activity import (
 )
 from app.engine.tokens import generate_turn_token
 from app.main import app
-from app.models import Base, Bot, Game, GameState, Player, Turn, TurnSubmission, User
+from app.models import Base, Bot, Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot, make_user, seat_player
 
 NOW = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
@@ -75,10 +75,10 @@ def _signed_in_cookies(user_id: int) -> dict:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
-async def _game(db, gid: str, state: GameState) -> Game:
-    g = Game(
+async def _game(db, gid: str, state: GameState) -> Match:
+    g = Match(
         id=gid,
-        name=f"Game {gid}",
+        name=f"Match {gid}",
         state=state,
         scheduled_start=NOW + timedelta(hours=1),
         per_turn_deadline_seconds=60,
@@ -88,18 +88,18 @@ async def _game(db, gid: str, state: GameState) -> Game:
     return g
 
 
-async def _player(db, game_id: str, bot: Bot, user: User, agent_id: str = "AI_0") -> Player:
-    p = Player(game_id=game_id, user_id=user.id, bot_id=bot.id, agent_id=agent_id)
+async def _player(db, match_id: str, bot: Bot, user: User, agent_id: str = "AI_0") -> Player:
+    p = Player(match_id=match_id, user_id=user.id, bot_id=bot.id, agent_id=agent_id)
     db.add(p)
     await db.flush()
     return p
 
 
 async def _submission(
-    db, game_id: str, player: Player, *, round_: int, turn_: int, defaulted: bool = False
+    db, match_id: str, player: Player, *, round_: int, turn_: int, defaulted: bool = False
 ) -> TurnSubmission:
     t = Turn(
-        game_id=game_id,
+        match_id=match_id,
         round=round_,
         turn=turn_,
         turn_token=generate_turn_token(),
@@ -143,7 +143,7 @@ async def test_state_waiting_in_game_when_entered_but_not_connected(reset_db):
         await db.commit()
         status = await compute_onboarding_status(db, bot)
     assert status.state is OnboardingState.WAITING_IN_GAME
-    assert status.game_name == "Game G_1"
+    assert status.game_name == "Match G_1"
 
 
 async def test_state_connected_no_game(reset_db):
@@ -178,7 +178,7 @@ async def test_state_in_game_no_move(reset_db):
         await db.commit()
         status = await compute_onboarding_status(db, bot)
     assert status.state is OnboardingState.IN_GAME_NO_MOVE
-    assert status.game_id == "G_1"
+    assert status.match_id == "G_1"
 
 
 async def test_state_playing_when_moved(reset_db):
@@ -192,7 +192,7 @@ async def test_state_playing_when_moved(reset_db):
         status = await compute_onboarding_status(db, bot)
     # Play history wins even though first_connected_at is NULL (back-compat).
     assert status.state is OnboardingState.PLAYING
-    assert status.game_id == "G_1"
+    assert status.match_id == "G_1"
 
 
 async def test_playing_points_only_at_a_live_game_not_a_finished_one(reset_db):
@@ -208,7 +208,7 @@ async def test_playing_points_only_at_a_live_game_not_a_finished_one(reset_db):
         await db.commit()
         status = await compute_onboarding_status(db, bot)
     assert status.state is OnboardingState.PLAYING
-    assert status.game_id is None
+    assert status.match_id is None
     assert status.game_name is None
 
 
@@ -318,7 +318,7 @@ async def test_status_fragment_connected_no_game_shows_join(client, reset_db):
 
     r = await client.get(f"/me/bots/{bid}/status", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    assert "Find a game to join" in r.text
+    assert "Find a match to join" in r.text
 
 
 async def test_detail_empty_games_copy_when_connected(client, reset_db):
@@ -331,7 +331,7 @@ async def test_detail_empty_games_copy_when_connected(client, reset_db):
 
     r = await client.get(f"/me/bots/{bid}", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    assert "Connected but not in a game yet" in r.text
+    assert "Connected but not in a match yet" in r.text
 
 
 async def test_detail_established_bot_shows_only_badge_not_a_playing_line(client, reset_db):

@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.engine.resolver import award_round_winners, finalize_game, resolve_turn
 from app.engine.tokens import generate_turn_token
-from app.models import Base, Game, GameState, Player, Turn, TurnSubmission, User
+from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
 
 
@@ -23,8 +23,8 @@ async def db(engine, session_factory):
         yield session
 
 
-async def _setup_game(db, n_players: int = 4) -> tuple[Game, list[Player]]:
-    game = Game(
+async def _setup_game(db, n_players: int = 4) -> tuple[Match, list[Player]]:
+    game = Match(
         id="G_E2E",
         name="end-to-end",
         state=GameState.ACTIVE,
@@ -43,7 +43,7 @@ async def _setup_game(db, n_players: int = 4) -> tuple[Game, list[Player]]:
         await db.flush()
         bot, _ = await make_bot(db, u, name=f"AI_{i}")
         p = Player(
-            game_id=game.id,
+            match_id=game.id,
             user_id=u.id,
             bot_id=bot.id,
             agent_id=f"AI_{i}",
@@ -72,10 +72,10 @@ def _action_for(player_idx: int, turn_num: int) -> tuple[str, int | None]:
     return ("HURT", 0)
 
 
-async def _play_turn(db, game: Game, players: list[Player], round_num: int, turn_num: int) -> Turn:
+async def _play_turn(db, game: Match, players: list[Player], round_num: int, turn_num: int) -> Turn:
     now = datetime.now(timezone.utc)
     turn = Turn(
-        game_id=game.id,
+        match_id=game.id,
         round=round_num,
         turn=turn_num,
         turn_token=generate_turn_token(),
@@ -132,7 +132,7 @@ async def test_full_game_runs_to_completion(db):
     # AI_3 wastes turns Hurting AI_0, gets 0.
     # So AI_1 or AI_2 should be tied for round winner each round.
     winners = await db.execute(
-        select(Player).where(Player.game_id == game.id, Player.total_round_wins > 0)
+        select(Player).where(Player.match_id == game.id, Player.total_round_wins > 0)
     )
     winner_rows = winners.scalars().all()
     winner_agent_ids = {p.agent_id for p in winner_rows}

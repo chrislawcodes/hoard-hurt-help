@@ -1,4 +1,4 @@
-"""Game viewer + SSE + spectator API tests."""
+"""Match viewer + SSE + spectator API tests."""
 
 from datetime import datetime, timezone
 
@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.main import app
 from app.models import (
     Base,
-    Game,
+    Match,
     GameState,
     Player,
     StrategyPrompt,
@@ -48,7 +48,7 @@ async def _seed(reset_db, state=GameState.ACTIVE):
         u = User(google_sub="u", email="u@t.com")
         db.add(u)
         await db.flush()
-        g = Game(
+        g = Match(
             id="G_001",
             name="Test",
             state=state,
@@ -60,7 +60,7 @@ async def _seed(reset_db, state=GameState.ACTIVE):
         await db.flush()
         bot, _ = await make_bot(db, u, name="AI_0")
         p = Player(
-            game_id="G_001",
+            match_id="G_001",
             user_id=u.id,
             bot_id=bot.id,
             agent_id="AI_0",
@@ -88,11 +88,11 @@ async def _seed_two_phase_turn(
 ):
     async with reset_db() as db:
         player = (
-            await db.execute(select(Player).where(Player.game_id == "G_001"))
+            await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalars().first()
         assert player is not None
         turn = Turn(
-            game_id="G_001",
+            match_id="G_001",
             round=1,
             turn=1,
             turn_token="tk1",
@@ -133,7 +133,7 @@ async def _seed_two_phase_turn(
 @pytest.mark.asyncio
 async def test_viewer_renders_active(client, reset_db):
     await _seed(reset_db, GameState.ACTIVE)
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     assert "Test" in r.text
 
@@ -141,7 +141,7 @@ async def test_viewer_renders_active(client, reset_db):
 @pytest.mark.asyncio
 async def test_viewer_does_not_leak_strategy(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     assert "SECRET STRATEGY" not in r.text
 
@@ -150,7 +150,7 @@ async def test_viewer_does_not_leak_strategy(client, reset_db):
 async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     await _seed_two_phase_turn(reset_db)
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     assert "action-card hoard" in r.text
     assert "public talk" in r.text
@@ -166,7 +166,7 @@ async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
 async def test_legacy_viewer_falls_back_to_submission_message(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     await _seed_two_phase_turn(reset_db, include_turn_messages=False)
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     assert "legacy public chat" in r.text
 
@@ -223,7 +223,7 @@ async def test_completed_viewer_has_round_nav(client, reset_db):
 
         p = (await db.execute(__import__("sqlalchemy").select(Player))).scalars().first()
         t = Turn(
-            game_id="G_001",
+            match_id="G_001",
             round=1,
             turn=1,
             turn_token="tk1",
@@ -245,7 +245,7 @@ async def test_completed_viewer_has_round_nav(client, reset_db):
             )
         )
         await db.commit()
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     # Round-jump bar and grouped round section are present.
     assert "round-nav" in r.text
@@ -269,12 +269,12 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
         await db.flush()
         bot2, _ = await make_bot(db, u2, name="AI_1")
         target = Player(
-            game_id="G_001", user_id=u2.id, bot_id=bot2.id, agent_id="AI_1"
+            match_id="G_001", user_id=u2.id, bot_id=bot2.id, agent_id="AI_1"
         )
         db.add(target)
         await db.flush()
         t = Turn(
-            game_id="G_001",
+            match_id="G_001",
             round=1,
             turn=1,
             turn_token="tk1",
@@ -299,7 +299,7 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
         )
         await db.commit()
 
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     # The target and its loss are shown; the actor's own +0 is omitted because
     # the compact action line focuses on who the move lands on.

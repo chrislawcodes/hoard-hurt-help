@@ -18,7 +18,7 @@
         <th>Request</th>
         <th>Route</th>
         <th>User</th>
-        <th>Game</th>
+        <th>Match</th>
         <th>Stage</th>
         <th>Error</th>
     </tr>
@@ -28,7 +28,7 @@
         <td><a href="/admin/incidents/{{ i.id }}">{{ i.request_id }}</a></td>
         <td>{{ i.method }} {{ i.path }}</td>
         <td>{{ i.user_id if i.user_id is not none else "—" }}</td>
-        <td>{{ i.game_id if i.game_id else "—" }}</td>
+        <td>{{ i.match_id if i.match_id else "—" }}</td>
         <td>{{ i.stage if i.stage else "—" }}</td>
         <td>{{ i.error_type }}: {{ i.error_message }}</td>
     </tr>

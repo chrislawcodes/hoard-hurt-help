@@ -1,4 +1,10 @@
-"""Game table — one row per game, with lifecycle state."""
+"""Match table — one row per match (a single play), with lifecycle state.
+
+Renamed from Game (feature 009): a "match" is one play start→finish; "game" now
+means the title/module in app/games/. The lifecycle enum keeps the name
+`GameState` deliberately — it names the state machine, not a single play, and is
+not part of the overloaded game/match vocabulary.
+"""
 
 import enum
 from datetime import datetime
@@ -18,14 +24,15 @@ class GameState(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
-class Game(Base):
-    __tablename__ = "games"
+class Match(Base):
+    __tablename__ = "matches"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # Which game module runs this game (registry key in app/games/). Defaults to
-    # PD; a future game would set its own type. See specs/004-game-framework/.
-    game_type: Mapped[str] = mapped_column(
+    # Which game (title/module in app/games/) this match plays. Defaults to PD;
+    # a future game would set its own slug. Registry key string is unchanged;
+    # only the column moved game_type→game. See specs/004-game-framework/.
+    game: Mapped[str] = mapped_column(
         String(64), nullable=False, default="hoard-hurt-help", index=True
     )
     state: Mapped[GameState] = mapped_column(
@@ -54,7 +61,7 @@ class Game(Base):
     rounds_awarded: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     rules_version: Mapped[str] = mapped_column(String(16), default="v1", nullable=False)
     winner_player_id: Mapped[int | None] = mapped_column(
-        ForeignKey("players.id", use_alter=True, name="fk_games_winner_player_id_players"),
+        ForeignKey("players.id", use_alter=True, name="fk_matches_winner_player_id_players"),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(

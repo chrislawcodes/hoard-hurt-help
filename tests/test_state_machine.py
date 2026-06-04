@@ -1,4 +1,4 @@
-"""Game state transitions."""
+"""Match state transitions."""
 
 import pytest
 
@@ -7,7 +7,7 @@ from app.engine.state_machine import (
     allowed_transitions,
     assert_transition,
 )
-from app.models.game import GameState
+from app.models.match import GameState
 
 
 @pytest.mark.parametrize(
