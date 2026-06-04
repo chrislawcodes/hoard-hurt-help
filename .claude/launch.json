@@ -2,9 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "dev-server",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--host", "127.0.0.1", "--port", "8000"],
+      "port": 8000
+    },
+    {
       "name": "hoard-hurt-help",
-      "runtimeExecutable": ".venv/bin/python",
-      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--port", "8766", "--reload"],
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--host", "127.0.0.1", "--port", "8766"],
       "port": 8766
     }
   ]
