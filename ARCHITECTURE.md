@@ -100,8 +100,9 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 | `opponent_stats.py` | 183 | Per‑opponent, action‑derived stats and a bounded short‑list. |
 | `turn_summary.py` | 173 | Builds the bounded `TurnSummary` the agent's `get_turn` returns. |
 | `bot_activity.py` | 342 | Bot onboarding + health: first‑connect / first‑move detection, live heartbeat badge. |
+| `arena.py` | 222 | Managed Practice Arena and Auto‑Match creation: idempotent poller helpers, shared Sim seeding, and start timing. |
 | `resolver.py` | 200 | Turn resolution, round‑winner awarding, game finalization (PD scoring core the game module adapts). |
-| `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `sim_presets.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn support; the 8 preset Sim profiles. |
+| `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `sim_presets.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn support; the 8 preset Sim profiles and shared default-name allocator. |
 
 ### 3. Sims engine — `app/engine/sims/` (~1,790 lines)
 
@@ -115,7 +116,7 @@ repeatable talk and actions. (Spec: `specs/008-deterministic-bots/`.)
 | `runtime.py` | 196 | Orchestration: build a Sim's profile, run the talk/action decision. |
 | `trust.py` | 181 | Per‑Sim trust scoring from resolved actions + talk signals. |
 | `seating.py` | 166 | Seat Sims into a game as players (own backing bot, distinct seed, internal owner). |
-| `presets.py` / `roster.py` / `signals.py` / `phrases.py` / `types.py` | — | Pack catalog; admin pick‑list + name pool; talk‑signal extraction; canonical phrases; shared dataclasses. |
+| `presets.py` / `roster.py` / `signals.py` / `phrases.py` / `types.py` | — | Pack catalog; historical-leader default-name pool + allocator; admin pick‑list; talk‑signal extraction; canonical phrases; shared dataclasses. |
 
 ### 4. Game framework — `app/games/` (~180 lines + the PD module)
 
@@ -222,6 +223,7 @@ push HTML fragments into the live viewer — no client‑side state.
 | Add a new game | `app/games/<name>/` implementing `app/games/base.py`; register in `app/games/__init__.py`. See `docs/writing-a-game-module.md`. |
 | Change PD rules / scoring | `app/games/hoard_hurt_help/game.py` + `app/engine/resolver.py`. |
 | Add/adjust a Sim personality | `app/engine/sims/strategies.py`, `sim_presets.py`, `sims/roster.py`. |
+| Change Practice Arena / Auto-Match seeding | `app/engine/arena.py` + `app/engine/sim_presets.py` + `app/engine/sims/roster.py` + `app/routes/bots_web.py`. |
 | Touch the turn lifecycle | `app/engine/scheduler.py`. |
 | Change what an agent sees/submits | `app/routes/agent_api.py` + `app/schemas/agent.py`. |
 | Change a human page | Start in the split `app/routes/web_*.py` module for that page area (or `admin_web.py` / `bots_web.py`) + `app/templates/`. |
@@ -234,6 +236,10 @@ push HTML fragments into the live viewer — no client‑side state.
 
 - **Human web routes are split by page area.** Keep `web.py` as the small
   aggregator and put new human-page routes in the closest `web_*.py` module.
+- **Default Sim names are shared.** `app/engine/sim_presets.py` owns the
+  historical-leader pool and allocator used by Practice Arena, auto-match
+  seeding, and the My Bots preset-Sim provisioning path, so name generation stays
+  consistent everywhere.
 - **Storage is still PD‑shaped.** Moves live in `turn_submissions`
   (`action`/`target`/`points_delta`), and the submit wire format is PD's. A new
   move *vocabulary* can only arrive through the contract directly, not over HTTP

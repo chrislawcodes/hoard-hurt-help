@@ -1,7 +1,7 @@
 # Hoard-Hurt-Help — Design Doc
 
 **Status:** Draft v0.2 — gaps marked **TBD**
-**Last updated:** 2026-05-28
+**Last updated:** 2026-06-04
 
 ---
 
@@ -31,8 +31,8 @@ No fixed hypothesis at this stage. The system captures rich per-turn behavioral 
 - Per-agent metadata: declared strategy prompt (if any), agent identity / model self-report (if any)
 
 **Export format — TBD details, but the shape:**
-- One CSV per game (turn-level, easy to load in pandas/R)
-- One JSON dump per game (the full game state including all messages)
+- One CSV per match (turn-level, easy to load in pandas/R)
+- One JSON dump per match (the full match state including all messages)
 - Bulk export across games as a single zipped archive
 
 **Cadence — TBD:** how many games do we need before a result is trustworthy? Defer until we see the variance in early runs.
@@ -93,8 +93,8 @@ Confirm this is the intended math — the original payoff table read two ways.
 
 ### Turns and rounds
 - 10 turns per round.
-- 10 rounds per game.
-- 100 turns total per game.
+- 10 rounds per match.
+- 100 turns total per match.
 
 ### Round winner — **Decided**
 - The player with the highest in-round score at the end of turn 10 wins the round and gets **1 round-win**.
@@ -339,33 +339,33 @@ Since players run their own agents (BYO), token costs are theirs. We should stil
 
 ### Spectator policy — **Decided**
 
-- **Live spectating is public.** Anyone visiting the site can watch any active game in real time.
-- **Match viewer is live-updating** (server-sent events or short-interval polling; pick during implementation).
+- **Live spectating is public.** Anyone visiting the site can watch any active match in real time.
+- **Match viewer is live-updating** via Server-Sent Events and HTMX fragment swaps.
 - **Strategy prompts are never shown** to spectators — live or in replays. Only the player and admins ever see a prompt.
-- **Replays are public** for all completed games (everything except strategy prompts).
+- **Replays are public** for all completed matches (everything except strategy prompts).
 
 ### What different viewers see
 
-| Viewer | Live game | Replay | Strategy prompts |
+| Viewer | Live match | Replay | Strategy prompts |
 |---|---|---|---|
 | Public spectator | All actions, targets, messages, scoreboard | All actions, targets, messages, scoreboard | Never |
-| Player (own game) | Same as spectator + their own current state | Same + their own strategy prompt visible | Their own only |
+| Player (own match) | Same as spectator + their own current state | Same + their own strategy prompt visible | Their own only |
 | Admin | Everything | Everything | All players' prompts visible |
 
 ### What admins need to do
-- See games currently running, scheduled, and finished.
-- Create a new game (start time, min/max players, per-turn deadline, name).
-- Drill into a game → rounds → individual turns, with full detail.
-- See strategy prompts for all players in a game.
-- Export game data (CSV + JSON, see Section 1).
+- See matches currently running, scheduled, and finished.
+- Create a new match (start time, min/max players, per-turn deadline, name).
+- Drill into a match → rounds → individual turns, with full detail.
+- See strategy prompts for all players in a match.
+- Export match data (CSV + JSON, see Section 1).
 
-### Admin auth — **TBD**
-Who counts as admin? For v1, simplest is a single hardcoded admin password / API key in env config. Multi-admin support can come later.
+### Admin auth — **Decided**
+Admin access comes from the signed-in Google user: if the email is in the configured admin allowlist, the UI shows the admin surface. No separate password or API key is used for humans.
 
 ### Wireframes — **TBD**
 
 ### Data export — **TBD details**
-Format decided in Section 1 (CSV + JSON per game). Schema details to be defined alongside implementation.
+Format decided in Section 1 (CSV + JSON per match). Schema details to be defined alongside implementation.
 
 ---
 
@@ -387,7 +387,7 @@ Format decided in Section 1 (CSV + JSON per game). Schema details to be defined 
   - Railway: Postgres.
   - Same code via SQLAlchemy (or equivalent) — only the connection string changes.
 - **Frontend:** Server-rendered HTML + HTMX for live updates. No React build step. The live-updating match viewer uses Server-Sent Events delivering HTMX fragments.
-- **Sample agent:** Python script in the same repo, copy-pasteable for players.
+- **Agent integrations:** MCP server sub-app, ChatGPT Custom GPT, and a public OpenAPI spec. All three reduce to the same HTTP API.
 
 ### Cost estimate on Railway (steady state)
 
@@ -411,24 +411,24 @@ A running list of every TBD in this doc, in rough priority order.
 3. ~~**Notification model**~~ — **Decided: pull (polling) with per-turn deadline.** (Section 6)
 4. ~~**Turn deadline length**~~ — **Decided: 60s default, admin-configurable.** Slow-agent kick policy still TBD. (Section 3)
 5. ~~**Scoring edge cases**~~ — **Decided: no self-target, full stack on both Help and Hurt, scores floor at 0, mutual bonus is one-per-pair-per-turn.** (Section 2)
-6. ~~**Research metrics**~~ — **Decided: exploratory; log everything turn-by-turn; CSV + JSON exports per game.** (Section 1)
-7. ~~**Round/game scoring details**~~ — **Decided: binary round-wins (fractional on ties), tiebreaker = total in-round score across the game.** (Section 3)
+6. ~~**Research metrics**~~ — **Decided: exploratory; log everything turn-by-turn; CSV + JSON exports per match.** (Section 1)
+7. ~~**Round/game scoring details**~~ — **Decided: binary round-wins (fractional on ties), tiebreaker = total in-round score across the match.** (Section 3)
 8. ~~**Auth**~~ — **Decided: Google OAuth for humans, per-match API key for agents. Admin via configured Google emails.** (Section 6 and 8)
 9. ~~**Lobby + onboarding flow**~~ — **Decided: admin-created, scheduled-start, public lobby.** Sub-TBDs: min-player-not-reached behavior, registration cutoff, drop-out policy. (Section 7)
-10. **Admin UI** — spectator policy decided (public, live-updating). Wireframes, admin auth, and export schema details still TBD. (Section 8)
+10. **Admin UI** — spectator policy and auth are decided; wireframes and final layout polish are still TBD. (Section 8)
 11. ~~**Infrastructure stack**~~ — **Decided: Python + FastAPI + HTMX + SQLite/Postgres.** (Section 9)
 12. ~~**Sample agent**~~ — **Replaced by tool-using AI model: MCP server + ChatGPT Custom GPT + OpenAPI docs.** (Section 5)
 13. **Full JSON schemas** for the payload and submission, including all error responses. Deferred to implementation. (Section 6)
 14. ~~**Slow-agent kick policy**~~ — **Decided: never kick. Missed turns default to Hoard indefinitely.** (Section 3)
 15. **Lobby sub-TBDs** — min-player-not-reached behavior, registration cutoff, drop-out policy, strategy-prompt character cap. (Section 7)
-16. **Admin UI specifics** — wireframes, admin auth approach, export schema. (Section 8)
+16. **Admin UI specifics** — wireframes and final layout polish for the existing admin pages. (Section 8)
 
 ---
 
 ## 11. Game Framework — **Decided: platform + game modules** (feature 004)
 
 HHH is now a **platform** that hosts turn-based, multi-agent games, with
-Prisoner's Dilemma as title #1 (`game_type = "hoard-hurt-help"`). See
+Prisoner's Dilemma as title #1 (`game = "hoard-hurt-help"` on each match row). See
 `docs/writing-a-game-module.md` for the how-to and `specs/004-game-framework/`
 for the full spec/plan.
 
@@ -461,7 +461,7 @@ behind the contract did not move or rewrite any engine code.
 
 We deliberately did **not** generalize storage or the submit wire format yet:
 
-- Only `Match.game` was added (migration `0004`). Moves still live in the
+- The match row stores the game title slug in `game`. Moves still live in the
   PD-shaped `turn_submissions` columns (`action`, `target_player_id`,
   `points_delta`), and scores in the existing `players` columns.
 - The submit request body still uses PD's `action`/`target_id`/`message` shape
