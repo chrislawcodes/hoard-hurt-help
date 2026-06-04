@@ -54,6 +54,7 @@ async def _seed_game_user_bot(
         user = await make_user(db)
         await db.flush()
         bot, _ = await make_bot(db, user, name="Atlas")
+        bot.last_seen_at = datetime.now(timezone.utc)
         db.add(
             Match(
                 id="G_001",
