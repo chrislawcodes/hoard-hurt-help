@@ -17,11 +17,12 @@ from app.deps import DbSession, get_current_user, require_user
 from app.engine.game_insights import round_detail, season_overview
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.match_id_rewrite import match_id_candidates
-from app.engine.scheduler import cancel_overdue_unfilled_games
+from app.engine.scheduler import cancel_overdue_unfilled_games, start_game
 from app.games import get as get_game_module
 from app.games.base import GameError, GameTheme
-from app.models.bot import Bot
-from app.models.match import Match, GameState
+from app.engine.bot_activity import compute_bot_health
+from app.models.bot import Bot, BotKind
+from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
 from app.request_logging import set_request_trace_context
 from app.models.strategy_prompt import StrategyPrompt
@@ -275,6 +276,98 @@ async def games_catalog(request: Request, db: DbSession):
             "is_admin": _is_admin(user),
             "game_theme": module.theme(),
             "featured_game_slug": "hoard-hurt-help",
+        },
+    )
+
+
+@router.get("/play", response_class=HTMLResponse)
+async def operator_join_page(request: Request, db: DbSession):
+    """Operator-facing join hub: bot status, Practice Arena, next auto-match."""
+    user = await get_current_user(request, db)
+
+    practice_arena: dict | None = None
+    next_auto_match: dict | None = None
+    bot_rows: list[dict] = []
+    my_entries: list[dict] = []
+
+    # Upcoming arena/auto-match cards — visible to all visitors.
+    pa_match = (
+        await db.execute(
+            select(Match).where(
+                Match.match_kind == MatchKind.PRACTICE_ARENA.value,
+                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+            )
+        )
+    ).scalars().first()
+    if pa_match is not None:
+        practice_arena = {
+            "id": pa_match.id,
+            "name": pa_match.name,
+            "game": pa_match.game,
+            "player_count": await _player_count(db, pa_match.id),
+            "max_players": pa_match.max_players,
+            "state": pa_match.state,
+        }
+
+    am_match = (
+        await db.execute(
+            select(Match).where(
+                Match.match_kind == MatchKind.AUTO_SCHEDULED.value,
+                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                Match.scheduled_start >= datetime.now(timezone.utc),
+            ).order_by(Match.scheduled_start)
+        )
+    ).scalars().first()
+    if am_match is not None:
+        next_auto_match = {
+            "id": am_match.id,
+            "name": am_match.name,
+            "game": am_match.game,
+            "scheduled_start": am_match.scheduled_start,
+            "player_count": await _player_count(db, am_match.id),
+            "max_players": am_match.max_players,
+            "state": am_match.state,
+        }
+
+    if user is not None:
+        bots = (
+            await db.execute(
+                select(Bot)
+                .where(Bot.user_id == user.id, Bot.archived_at.is_(None), Bot.kind != BotKind.SIM)
+                .order_by(Bot.name)
+            )
+        ).scalars().all()
+        for bot in bots:
+            health = await compute_bot_health(db, bot)
+            bot_rows.append({"bot": bot, "health": health})
+
+        active_players = (
+            await db.execute(
+                select(Player, Match)
+                .join(Match, Player.match_id == Match.id)
+                .where(
+                    Player.user_id == user.id,
+                    Player.left_at.is_(None),
+                    Match.state.in_([GameState.ACTIVE, GameState.SCHEDULED, GameState.REGISTERING]),
+                )
+                .order_by(Match.scheduled_start)
+            )
+        ).all()
+        my_entries = [
+            {"player": p, "match": m}
+            for p, m in active_players
+        ]
+
+    return templates.TemplateResponse(
+        request,
+        "play.html",
+        {
+            "user": user,
+            "is_admin": _is_admin(user),
+            "practice_arena": practice_arena,
+            "next_auto_match": next_auto_match,
+            "bots": bot_rows,
+            "my_entries": my_entries,
         },
     )
 
@@ -1453,6 +1546,9 @@ async def join_submit(
         )
     )
     await db.commit()
+
+    if match.match_kind == MatchKind.PRACTICE_ARENA.value:
+        await start_game(db, match)
 
     return RedirectResponse(
         url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER

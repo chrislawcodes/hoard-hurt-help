@@ -151,7 +151,37 @@ class SchedulerRegistry:
             self._poller.cancel()
 
     async def _poll_due_loop(self, session_factory: async_sessionmaker | None) -> None:
+        from app.engine.arena import (
+            ensure_auto_match,
+            ensure_practice_arena,
+            fill_and_start_auto_matches,
+        )
+
+        factory = session_factory or SessionLocal
         while True:
+            # 1st: fill overdue auto-matches with Sims before start_due_games
+            # evaluates player count — if reversed, auto-matches get cancelled.
+            try:
+                async with factory() as db:
+                    await fill_and_start_auto_matches(db)
+            except Exception:
+                logger.exception("fill_and_start_auto_matches poll failed")
+
+            # 2nd: recreate Practice Arena if the last one ended.
+            try:
+                async with factory() as db:
+                    await ensure_practice_arena(db)
+            except Exception:
+                logger.exception("ensure_practice_arena poll failed")
+
+            # 3rd: open the next 30-min auto-match window if none exists.
+            try:
+                async with factory() as db:
+                    await ensure_auto_match(db)
+            except Exception:
+                logger.exception("ensure_auto_match poll failed")
+
+            # 4th: existing logic — start/cancel non-arena games that are due.
             try:
                 await self.start_due_games(session_factory)
             except Exception:  # never let the poller die on a transient error
