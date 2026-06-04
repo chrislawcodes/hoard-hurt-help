@@ -4,8 +4,11 @@ The build and start config live in [`railway.json`](../railway.json) (version-co
 so you do **not** type a start command into the Railway UI. It runs:
 
 ```
-alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
 ```
+
+The app runs `alembic upgrade head` during startup, so Railway only needs to
+launch Uvicorn.
 
 ## Hard rule: one instance, one worker, always-on
 
