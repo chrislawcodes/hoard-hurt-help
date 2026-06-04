@@ -157,6 +157,12 @@
 
 .rc-controls{display:flex;align-items:center;gap:8px;margin:14px 0 0;flex-wrap:wrap}
 .rc-controls .spacer{flex:1}
+.rc-speed{display:inline-flex;border:1px solid var(--line,#e2e6ea);border-radius:20px;overflow:hidden}
+.rc-speed-btn{background:transparent;border:0;border-left:1px solid var(--line,#e2e6ea);cursor:pointer;font-weight:700;font-size:12px;padding:5px 9px;color:var(--ink-soft,#5b6470)}
+.rc-speed-btn:first-child{border-left:0}
+.rc-speed-btn:hover{color:var(--accent,#2f6feb)}
+.rc-speed-btn.is-active{background:var(--accent,#2f6feb);color:#fff}
+.rc-skiptalk{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-soft,#5b6470);cursor:pointer}
 .rc-legend{display:flex;gap:14px;font-size:12px;color:var(--ink-soft,#5b6470);margin-top:10px;flex-wrap:wrap}
 .rc-sw{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
 
@@ -301,6 +307,12 @@
         <button type="button" id="rc-prev">‹ Prev</button>
         <button type="button" id="rc-play" class="btn btn-primary">▶ Play</button>
         <button type="button" id="rc-next">Next ›</button>
+        <span class="rc-speed" role="group" aria-label="Playback speed">
+          <button type="button" class="rc-speed-btn" data-speed="1">1×</button>
+          <button type="button" class="rc-speed-btn" data-speed="2">2×</button>
+          <button type="button" class="rc-speed-btn is-active" data-speed="3">3×</button>
+        </span>
+        <label class="rc-skiptalk"><input type="checkbox" id="rc-skiptalk"> Skip talk</label>
         <div class="spacer"></div>
         <button type="button" id="rc-replay">↻ Replay turn</button>
       </div>
@@ -331,6 +343,19 @@
   // Identity hues deliberately avoid the three action colours (amber --hoard,
   // green --help, red --hurt) so a bot's colour never reads as a move. Greens and
   // reds here are shifted to lime/rose, clearly distinct from the action shades.
+  // --- Playback speed + skip-talk ---
+  // Defined early (before any setTimeout fires, e.g. scheduleBlink during init).
+  // A local `setTimeout` shadows the global INSIDE this closure and scales EVERY
+  // scheduled delay by `speed` — so the whole choreography, including
+  // scheduleNext()'s inter-turn delay, stays in sync at any speed without
+  // touching each call site. Durations passed to element.animate() are scaled
+  // separately via scaleDur(). Default speed 2 = snappier than the original pace.
+  var speed = 3;
+  var skipTalk = false;
+  var _setTimeout = window.setTimeout.bind(window);
+  function setTimeout(fn, delay) { return _setTimeout(fn, Math.round((delay || 0) / speed)); }
+  function scaleDur(n) { return Math.round(n / speed); }
+
   var PALETTE = ['#2f6feb','#9b51e0','#e84e8a','#00a8a8','#7cb342','#5b6470',
                  '#c2185b','#3f51b5','#d11a8a','#0288d1','#6a3fb0','#00897b',
                  '#b0338a','#4527a0','#ef6c91'];
@@ -516,9 +541,9 @@
       fx.appendChild(c);return c;
     }
     var f=C(3,0,C_HURT);        // contact pop
-    f.animate([{r:3,opacity:.7},{r:18,opacity:0}],{duration:260,fill:'forwards',easing:'ease-out'});
+    f.animate([{r:3,opacity:.7},{r:18,opacity:0}],{duration:scaleDur(260),fill:'forwards',easing:'ease-out'});
     var s=C(8,6,'none');        // shock ring
-    s.animate([{r:8,opacity:1,strokeWidth:6},{r:34,opacity:0,strokeWidth:1}],{duration:460,fill:'forwards',easing:'ease-out'});
+    s.animate([{r:8,opacity:1,strokeWidth:6},{r:34,opacity:0,strokeWidth:1}],{duration:scaleDur(460),fill:'forwards',easing:'ease-out'});
     var g=document.createElementNS(NS,'g'); fx.appendChild(g);   // radiating spokes
     g.style.transformBox='view-box'; g.style.transformOrigin=x+'px '+y+'px';
     for(var k=0;k<6;k++){
@@ -529,7 +554,7 @@
       ln.setAttribute('stroke',C_HURT);ln.setAttribute('stroke-width','3.5');ln.setAttribute('stroke-linecap','round');
       g.appendChild(ln);
     }
-    g.animate([{transform:'scale(.45)',opacity:1},{transform:'scale(1.2)',opacity:0}],{duration:380,fill:'forwards',easing:'ease-out'});
+    g.animate([{transform:'scale(.45)',opacity:1},{transform:'scale(1.2)',opacity:0}],{duration:scaleDur(380),fill:'forwards',easing:'ease-out'});
     setTimeout(function(){f.remove();s.remove();g.remove();},560);
   }
   function lockRing(x,y){
@@ -537,7 +562,7 @@
     r.setAttribute('cx',x);r.setAttribute('cy',y);r.setAttribute('r','6');
     r.setAttribute('fill','none');r.setAttribute('stroke',C_HELP);r.setAttribute('stroke-width','3.5');
     fx.appendChild(r);
-    r.animate([{r:6,opacity:0},{r:32,opacity:.95},{r:32,opacity:0}],{duration:1100,fill:'forwards'});
+    r.animate([{r:6,opacity:0},{r:32,opacity:.95},{r:32,opacity:0}],{duration:scaleDur(1100),fill:'forwards'});
     setTimeout(function(){r.remove();},1150);
   }
 
@@ -547,7 +572,7 @@
   var PAUSE_AFTER_TALK=750;
   var teleRows=[];
 
-  function talkDurOf(t){ return (t.talk&&t.talk.length?t.talk.length*TALK_STAGGER:0)+PAUSE_AFTER_TALK; }
+  function talkDurOf(t){ if(skipTalk) return 0; return (t.talk&&t.talk.length?t.talk.length*TALK_STAGGER:0)+PAUSE_AFTER_TALK; }
 
   function teleAddRow(id,text){
     if(teleRows.length>=MAX_TELE_ROWS){
@@ -646,12 +671,20 @@
       {transform:'translate('+dx+'px,'+dy+'px)',offset:.38},
       {transform:'translate('+dx+'px,'+dy+'px)',offset:.64},
       {transform:'translate(0,0)'}
-    ],{duration:DUR,easing:'ease-in-out'});
+    ],{duration:scaleDur(DUR),easing:'ease-in-out'});
     setTimeout(onArrive, DUR*0.46);
   }
 
   function renderTurn(i){
     var t=TURNS[i];
+    // Broadcast the playhead so the feed + now-strip follow. The seq is 1-based
+    // (rc_data.turns are 1:1 with the server's history, whose seq starts at 1).
+    // State lives on #live-region (persistent) so it survives SSE feed swaps.
+    var _region=document.getElementById('live-region');
+    if(_region){
+      _region.dataset.rcSeq=String(i+1);
+      _region.dispatchEvent(new CustomEvent('rc:turn',{bubbles:true,detail:{seq:i+1,round:t.round,turn:t.turn}}));
+    }
     var snap=scoreAt[i]||{};
     // The last turn finishes the final round, so show the fully-credited wins.
     var wsnap=(i===TURNS.length-1)?finalWins:(winsAt[i]||{});
@@ -671,8 +704,8 @@
       el.querySelector('.rc-mover').style.transform='';
     });
     var talk=t.talk||[];
-    var hasTalk=talk.length>0;
-    if(hasTalk){
+    var showTalk=talk.length>0 && !skipTalk;
+    if(showTalk){
       caption.innerHTML='<span class="rc-badge">Talk</span>';
       talk.forEach(function(a,k){
         phaseTimers.push(setTimeout(function(){speakLine(a);},k*TALK_STAGGER));
@@ -682,7 +715,7 @@
     var talkDur=talkDurOf(t);
     var sched=buildSchedule(t);
 
-    if(hasTalk){
+    if(showTalk){
       phaseTimers.push(setTimeout(function(){
         AGENTS.forEach(function(id){botEls[id].classList.remove('speaking');dimDown(id);});
         var mq=t.actions.filter(function(a){return a._marquee;})[0];
@@ -843,14 +876,27 @@
     renderTurn(idx);
     scheduleNext();
   };
-  window.addEventListener('resize',function(){layout();renderTurn(idx);if(!stepped)railToLatest();});
+  // Speed + skip-talk take effect from the next scheduled timer (i.e. the next
+  // turn / next action), so changing them never cuts off the turn in progress.
+  Array.prototype.forEach.call(document.querySelectorAll('.rc-speed-btn'), function(b){
+    b.onclick=function(){
+      speed=parseInt(b.dataset.speed,10)||1;
+      Array.prototype.forEach.call(document.querySelectorAll('.rc-speed-btn'), function(x){
+        x.classList.toggle('is-active', x===b);
+      });
+    };
+  });
+  var skipEl=document.getElementById('rc-skiptalk');
+  if(skipEl) skipEl.onchange=function(){ skipTalk=skipEl.checked; };
+  window.addEventListener('resize',function(){layout();renderTurn(idx);});
   layout();
-  renderTurn(0);
-  // Until the user starts stepping, show the latest standings (not turn 1's).
-  if(!stepped) railToLatest();
-  // Autoplay is a control option (rc_autoplay), centralised here so every
-  // surface behaves the same and honours reduced-motion.
-  if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)){
+  // The rail follows the playhead (animation is the clock). With reduced motion
+  // we don't auto-animate — open at the LATEST turn, paused, so the rail + feed
+  // show current standings. Otherwise start at turn 1 and auto-play the story.
+  var _reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(_reduced){ idx=TURNS.length-1; }
+  renderTurn(idx);
+  if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !_reduced){
     setTimeout(function(){ var b=document.getElementById('rc-play'); if(b) b.click(); }, 900);
   }
 })();
