@@ -61,8 +61,8 @@
             <li class="{{ 'leader' if loop.first else '' }}">
                 <span class="ms-rank">{{ s.rank }}</span>
                 <span class="ms-name">{{ s.agent_id }}</span>
-                <span class="ms-score">{{ s.round_score }} pts</span>
-                <span class="ms-wins">{{ "%g" | format(s.round_wins) }} {{ "win" if s.round_wins == 1 else "wins" }}</span>
+                <span class="ms-score">{{ "%.1f" | format(s.round_score) }} pts</span>
+                <span class="ms-wins">{{ "%g" | format(s.round_wins) }} {{ "round" if s.round_wins == 1 else "rounds" }}</span>
             </li>
             {% endfor %}
         </ol>
