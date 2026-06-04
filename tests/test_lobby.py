@@ -173,6 +173,96 @@ async def test_lobby_shows_robot_replay_of_latest_game(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
+    base = datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc)
+    async with reset_db() as db:
+        for i in range(6):
+            g = Match(
+                id=f"G_AGENT_{i}",
+                name=f"Agent Match {i}",
+                state=GameState.COMPLETED,
+                scheduled_start=base - timedelta(days=10 + i),
+                per_turn_deadline_seconds=60,
+            )
+            db.add(g)
+            await db.flush()
+            players = []
+            for seat in range(3):
+                user = await make_user(db, 100 + (i * 10) + seat)
+                kind = BotKind.EXTERNAL if seat < 2 else BotKind.SIM
+                bot, _ = await make_bot(
+                    db,
+                    user,
+                    name=f"agent-{i}-{seat}",
+                    kind=kind,
+                )
+                player = Player(match_id=g.id, user_id=user.id, bot_id=bot.id, agent_id=f"AI_{i}_{seat}")
+                db.add(player)
+                await db.flush()
+                players.append(player)
+            g.winner_player_id = players[0].id
+            g.completed_at = base - timedelta(days=10 + i, hours=1)
+
+        for i in range(6):
+            g = Match(
+                id=f"G_SIM_{i}",
+                name=f"Sim Match {i}",
+                state=GameState.COMPLETED,
+                scheduled_start=base - timedelta(days=20 + i),
+                per_turn_deadline_seconds=60,
+            )
+            db.add(g)
+            await db.flush()
+            players = []
+            for seat in range(2):
+                user = await make_user(db, 300 + (i * 10) + seat)
+                bot, _ = await make_bot(
+                    db,
+                    user,
+                    name=f"sim-{i}-{seat}",
+                    kind=BotKind.SIM,
+                )
+                player = Player(match_id=g.id, user_id=user.id, bot_id=bot.id, agent_id=f"SIM_{i}_{seat}")
+                db.add(player)
+                await db.flush()
+                players.append(player)
+            g.winner_player_id = players[0].id
+            g.completed_at = base - timedelta(days=20 + i, hours=1)
+
+        cancelled = Match(
+            id="G_CANCELLED",
+            name="Cancelled Match",
+            state=GameState.CANCELLED,
+            scheduled_start=base - timedelta(days=2),
+            per_turn_deadline_seconds=60,
+        )
+        db.add(cancelled)
+        await db.flush()
+        cancelled.cancelled_at = base - timedelta(days=2, minutes=30)
+        await db.commit()
+
+    r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 200
+    assert "Recent Games" in r.text
+    assert "Recent Games with only Sims" in r.text
+    assert "Cancelled Games" in r.text
+    assert "Agent Match 5" not in r.text
+    assert "Sim Match 5" not in r.text
+    assert "Agent Match 4" in r.text
+    assert "Sim Match 4" in r.text
+    assert "2026-05-25T11:00:00Z" in r.text
+    assert "2026-06-02T11:30:00Z" in r.text
+    assert "See all" in r.text
+    assert "Delete" not in r.text
+
+    expanded = await client.get("/games/hoard-hurt-help?recent=all&sims=all&cancelled=all")
+    assert expanded.status_code == 200
+    assert "Agent Match 5" in expanded.text
+    assert "Sim Match 5" in expanded.text
+    assert "Show fewer" in expanded.text
+
+
+@pytest.mark.asyncio
 async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
     # A game past its start time with too few players must not linger as
     # "Upcoming" with a live Join button. Viewing the lobby reconciles it to
@@ -191,7 +281,8 @@ async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
 
     r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
-    assert "Wednesday Wild" not in r.text  # no longer advertised as upcoming
+    assert "Cancelled Games" in r.text
+    assert "Wednesday Wild" in r.text  # now shown in the cancelled section
 
     async with reset_db() as db:
         g = (await db.execute(select(Match).where(Match.id == "G_LATE"))).scalar_one()
