@@ -40,7 +40,7 @@ def _cookies(user_id: int) -> dict:
 
 @pytest.mark.asyncio
 async def test_two_sessions_same_user_see_same_games(reset_db):
-    """Sign-in on device A and device B (same Google sub) both see /me/games content."""
+    """Sign-in on device A and device B (same Google sub) both see /me/matches content."""
     async with reset_db() as db:
         u = User(google_sub="shared-sub", email="alice@test.com", name="Alice")
         db.add(u)
@@ -68,13 +68,13 @@ async def test_two_sessions_same_user_see_same_games(reset_db):
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as device_a:
-        a = await device_a.get("/me/games", cookies=_cookies(user_id))
+        a = await device_a.get("/me/matches", cookies=_cookies(user_id))
         assert a.status_code == 200
         assert "Cross-device" in a.text
         assert "AI_alice" in a.text
 
     async with AsyncClient(transport=transport, base_url="http://test") as device_b:
-        b = await device_b.get("/me/games", cookies=_cookies(user_id))
+        b = await device_b.get("/me/matches", cookies=_cookies(user_id))
         assert b.status_code == 200
         assert "Cross-device" in b.text
         assert "AI_alice" in b.text

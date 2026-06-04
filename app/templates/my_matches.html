@@ -1,21 +1,22 @@
 {% extends "base.html" %}
-{% block title %}My Games — Hoard-Hurt-Help{% endblock %}
+{% block title %}My Matches — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<div class="page-head"><h1>My games</h1></div>
+<div class="page-head"><h1>My matches</h1></div>
 {% if games %}
     {% for g in games %}
     <article class="game-card">
         <div class="game-card-info">
             <h3>{{ g.name }}</h3>
-            <p class="meta">Playing as {{ g.agent_id }}</p>
+            <p class="meta">Playing as {{ g.agent_id }} · <span class="mono">{{ g.game_type }}</span></p>
         </div>
         <div class="game-card-action">
             <span class="badge {{ 'badge-live' if g.state.value == 'active' else ('badge-done' if g.state.value in ['completed','cancelled'] else 'badge-soon') }}">{{ g.state.value | capitalize }}</span>
-            <a class="btn btn-primary" href="/me/players/{{ g.player_id }}">Manage →</a>
+            <a class="btn btn-primary" href="{{ g.watch_url }}">Watch →</a>
+            <a class="btn btn-ghost" href="/me/players/{{ g.player_id }}">Manage →</a>
         </div>
     </article>
     {% endfor %}
 {% else %}
-    <p class="empty">You haven't joined any games yet. <a href="/games/hoard-hurt-help">Browse the lobby →</a></p>
+    <p class="empty">You haven't joined any matches yet. <a href="/play">Find a match →</a></p>
 {% endif %}
 {% endblock %}
