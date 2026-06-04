@@ -47,7 +47,7 @@ class StubGame:
             max_players=4,
         )
 
-    def rules_text(self) -> str:
+    def rules_text(self, total_rounds: int = 10, turns_per_round: int = 10) -> str:
         return "Stub game: submit MOVE; each move scores you +1 point."
 
     def strategy_presets(self) -> list[StrategyPreset]:

@@ -314,7 +314,7 @@ async def agent_poll(
     static = TurnStatic(
         match_id=game.id,
         rules_version=game.rules_version,
-        rules=module.rules_text(),
+        rules=module.rules_text(game.total_rounds, game.turns_per_round),
         total_rounds=game.total_rounds,
         turns_per_round=game.turns_per_round,
         your_agent_id=player.agent_id,
