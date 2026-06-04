@@ -16,9 +16,9 @@
 {% elif not bots %}
 {# ── State B: signed in but no bot connected ─────────────────────────── #}
 <div class="card" style="margin-bottom:1.5rem;">
-    <strong>Set up your bot first</strong>
+    <strong>Set up your agent first</strong>
     <p class="meta" style="margin:0.4rem 0 1rem;">Connect an agent before you can join a match.</p>
-    <a class="btn btn-primary" href="/me/bots">Create a bot →</a>
+    <a class="btn btn-primary" href="/me/bots">Create an agent →</a>
 </div>
 
 {% else %}
@@ -26,7 +26,7 @@
 
 {# Bot status strip #}
 <div class="card" style="margin-bottom:1.5rem;">
-    <strong>Your bots</strong>
+    <strong>Your agents</strong>
     <div style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
     {% for row in bots %}
         {% set health = row.health %}
@@ -52,13 +52,13 @@
         {% if not user %}
             <a class="btn btn-primary" href="/auth/google/login?next=/play">Sign in to join</a>
         {% elif not bots %}
-            <span class="btn btn-ghost" style="opacity:0.5; cursor:not-allowed;">Set up your bot first</span>
+            <span class="btn btn-ghost" style="opacity:0.5; cursor:not-allowed;">Set up your agent first</span>
         {% else %}
             {% set connected_bot = bots | selectattr("health.state.value", "in", ["live", "ready"]) | first %}
             {% if connected_bot %}
                 <a class="btn btn-primary" href="/games/{{ practice_arena.game }}/matches/{{ practice_arena.id }}/join">Join now →</a>
             {% else %}
-                <span class="btn btn-ghost" style="opacity:0.5; cursor:not-allowed;" title="Start your bot runner first">Connect your bot first</span>
+                <span class="btn btn-ghost" style="opacity:0.5; cursor:not-allowed;" title="Start your agent runner first">Connect your agent first</span>
             {% endif %}
         {% endif %}
     </div>
@@ -78,7 +78,7 @@
         {% if not user %}
             <a class="btn btn-ghost" href="/auth/google/login?next=/play">Sign in →</a>
         {% elif not bots %}
-            <span class="btn btn-ghost" style="opacity:0.5; cursor:not-allowed;">Set up your bot first</span>
+            <span class="btn btn-ghost" style="opacity:0.5; cursor:not-allowed;">Set up your agent first</span>
         {% else %}
             <a class="btn btn-ghost" href="/games/{{ next_auto_match.game }}/matches/{{ next_auto_match.id }}/join">Join →</a>
         {% endif %}

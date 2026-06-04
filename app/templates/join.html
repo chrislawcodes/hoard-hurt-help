@@ -15,13 +15,13 @@
 <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" id="join-form">
     <div class="card form">
         <label>
-            Play as bot
+            Play as agent
             <select name="bot_id" required>
                 {% for b in bots %}
                 <option value="{{ b.id }}">{{ b.name }}{% if b.kind.value == 'sim' and b.sim_profile_name %} · {{ b.sim_profile_name }}{% endif %}{% if b.status.value == 'paused' %} (paused){% endif %}</option>
                 {% endfor %}
             </select>
-            <small>Manage bots and connection codes under <a href="/me/bots">My Bots</a>.</small>
+            <small>Manage agents and connection codes under <a href="/me/bots">My Agents</a>.</small>
         </label>
         <label>
             In-game agent name
@@ -49,7 +49,7 @@
         <a class="btn btn-ghost" href="/games/{{ game.game }}">Cancel</a>
     </div>
 </form>
-<p class="meta">Nothing to copy here — once your bot is connected, it finds and plays this match on its own.</p>
+<p class="meta">Nothing to copy here — once your agent is connected, it finds and plays this match on its own.</p>
 <script>
     const PRESETS = {{ presets | tojson }};
     (function () {
@@ -64,8 +64,8 @@
 </script>
 {% else %}
 <div class="card form">
-    <p>You don't have a bot yet. Create one — you'll get a connection code to paste into your AI <strong>once</strong> — then come back and enter it here.</p>
-    <a class="btn btn-primary" href="/me/bots">Create a bot →</a>
+    <p>You don't have an agent yet. Create one — you'll get a connection code to paste into your AI <strong>once</strong> — then come back and enter it here.</p>
+    <a class="btn btn-primary" href="/me/bots">Create an agent →</a>
 </div>
 {% endif %}
 {% endblock %}

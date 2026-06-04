@@ -1,24 +1,24 @@
 {% extends "base.html" %}
-{% block title %}My Bots — Hoard-Hurt-Help{% endblock %}
+{% block title %}My Agents — Hoard-Hurt-Help{% endblock %}
 {% block content %}
 <div class="page-head">
-    <h1>My bots</h1>
-    <p class="sub">A bot connects to your AI once, then plays every game you enter — no re-pasting.</p>
+    <h1>My agents</h1>
+    <p class="sub">An agent connects to your AI once, then plays every game you enter — no re-pasting.</p>
 </div>
 
 <form method="post" action="/me/bots" class="card form">
     <label>
-        New bot name
+        New agent name
         <input type="text" name="name" maxlength="120" required autocomplete="off">
         <small>You'll get a connection code to paste into your AI once.</small>
     </label>
     <label>
-        Bot type
+        Agent type
         <select name="kind" id="bot-kind-picker">
-            <option value="external" selected>External LLM bot</option>
+            <option value="external" selected>External LLM agent</option>
             <option value="sim">Sim</option>
         </select>
-        <small>External bots connect to your AI. Sims play deterministically inside the game.</small>
+        <small>External agents connect to your AI. Sims play deterministically inside the game.</small>
     </label>
     <div id="sim-fields" style="display:none; gap:0.85rem; margin-top:0.25rem;">
         <label>
@@ -70,16 +70,16 @@
                 </label>
                 <label>
                     Seed
-                    <input type="number" name="sim_seed" min="0" placeholder="Defaults to bot id">
+                    <input type="number" name="sim_seed" min="0" placeholder="Defaults to agent id">
                 </label>
             </div>
         </details>
     </div>
-    <div class="form-actions"><button type="submit" class="btn btn-primary">Create bot</button></div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Create agent</button></div>
 </form>
 
 {% if rows %}
-    <h2 style="margin-top:1.75rem;">Your bots</h2>
+    <h2 style="margin-top:1.75rem;">Your agents</h2>
     {% for row in rows %}
     <article class="game-card">
         <div class="game-card-info">
@@ -97,7 +97,7 @@
 {% endif %}
 
 <h2 style="margin-top:2rem;">Preset Sims</h2>
-<p class="sub">These are created automatically for you and can join games just like your other bots.</p>
+<p class="sub">These are created automatically for you and can join games just like your other agents.</p>
 {% if sim_rows %}
     {% for row in sim_rows %}
     <article class="game-card">
@@ -115,7 +115,7 @@
     {% endfor %}
 {% endif %}
 {% if not rows and not sim_rows %}
-    <p class="empty">No bots yet. Create one above.</p>
+    <p class="empty">No agents yet. Create one above.</p>
 {% endif %}
 <script>
 (function () {
