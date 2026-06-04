@@ -1,14 +1,15 @@
 # Deploy to Railway
 
 The build and start config live in [`railway.json`](../railway.json) (version-controlled),
-so you do **not** type a start command into the Railway UI. It runs:
+so you do **not** type a start command into the Railway UI. Railway runs:
 
 ```
+alembic upgrade head
 uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
 ```
 
-The app runs `alembic upgrade head` during startup, so Railway only needs to
-launch Uvicorn.
+The pre-deploy migration runs before healthchecks start, and the app skips its
+boot-time migration on Railway so the same work is not repeated twice.
 
 ## Hard rule: one instance, one worker, always-on
 
@@ -65,7 +66,7 @@ Railway → Settings → Custom domain. Update `BASE_URL` and `GOOGLE_REDIRECT_U
 "Deployed" ≠ "working." After pass 2, confirm:
 
 - [ ] `GET /healthz` returns `{"status":"ok"}`
-- [ ] Deploy logs show `alembic upgrade head` ran; Postgres has the tables
+- [ ] Deploy logs show `alembic upgrade head` ran in pre-deploy; Postgres has the tables
 - [ ] Google sign-in works end-to-end
 - [ ] Create a game as admin; confirm the scheduler advances turns
 - [ ] Connect an MCP client with `X-Agent-Key`; a bogus key returns `401 INVALID_KEY` (proves header auth flows through)

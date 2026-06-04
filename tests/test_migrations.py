@@ -22,6 +22,7 @@ from alembic import command
 from alembic.config import Config
 
 import app.config as app_config
+import app.main as app_main
 from app.db_bootstrap import detect_legacy_revision, prepare_database_for_upgrade
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -100,6 +101,13 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
         )
     finally:
         conn.close()
+
+
+def test_startup_migrations_skip_on_railway(monkeypatch) -> None:
+    """Railway pre-deploy migrations should keep the app from repeating them."""
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env_test")
+    assert app_main._should_run_startup_migrations() is False
 
 
 # --- feature 009: game → match id rewrite (migration 0018) ---------------------

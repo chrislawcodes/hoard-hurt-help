@@ -40,8 +40,13 @@ logging.basicConfig(
 
 
 def _should_run_startup_migrations() -> bool:
-    """Skip automatic migrations in tests; run them everywhere else."""
+    """Skip automatic migrations in tests and on Railway; run them elsewhere."""
     if os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    # Railway runs migrations in preDeployCommand, before the container starts.
+    # The runtime env marker keeps the app from repeating the same work and
+    # stalling the healthcheck window.
+    if os.getenv("RAILWAY_ENVIRONMENT_ID"):
         return False
     return os.getenv("SKIP_STARTUP_MIGRATIONS", "").strip().lower() not in {
         "1",
