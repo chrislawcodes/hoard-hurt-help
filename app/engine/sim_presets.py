@@ -91,6 +91,143 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
     ),
 )
 
+HISTORICAL_SIM_NAME_POOL: tuple[str, ...] = (
+    # Africa and North Africa
+    "Cleopatra",
+    "Hannibal",
+    "Dido",
+    "Mansa Musa",
+    "Ramesses II",
+    "Hatshepsut",
+    "Nefertiti",
+    "Tutankhamun",
+    "Shaka",
+    "Haile Selassie",
+    "Askia",
+    "Menelik",
+    "Nelson Mandela",
+    "Nzinga",
+    "Amanirenas",
+    "Kwame Nkrumah",
+    # Middle East
+    "Cyrus",
+    "Darius",
+    "Xerxes",
+    "Saladin",
+    "Khalid",
+    "Suleiman",
+    "Nebuchadnezzar",
+    "Harun al Rashid",
+    "Mehmed",
+    "Zenobia",
+    "Hammurabi",
+    "Sargon",
+    "Gilgamesh",
+    "Ataturk",
+    "Nader Shah",
+    "Baybars",
+    # Europe
+    "Caesar",
+    "Augustus",
+    "Scipio",
+    "Trajan",
+    "Constantine",
+    "Justinian",
+    "Theodora",
+    "Nero",
+    "Alexander",
+    "Leonidas",
+    "Pericles",
+    "Themistocles",
+    "Boudica",
+    "Charlemagne",
+    "Joan of Arc",
+    "Napoleon",
+    "Nelson",
+    "Wellington",
+    "Marlborough",
+    "Elizabeth",
+    "Victoria",
+    "Peter the Great",
+    "Catherine the Great",
+    "Frederick",
+    "Gustavus Adolphus",
+    "Cromwell",
+    "Churchill",
+    "Bismarck",
+    "Eisenhower",
+    "Grant",
+    "Zhukov",
+    "Suvorov",
+    "Alfred the Great",
+    "William the Conqueror",
+    "Isabella",
+    "Maria Theresa",
+    "Louis XIV",
+    "Henry VIII",
+    "Richard the Lionheart",
+    "William Wallace",
+    "Robert the Bruce",
+    "Charles V",
+    "Charles Martel",
+    "El Cid",
+    "Francis Drake",
+    "de Gaulle",
+    "Rommel",
+    "Patton",
+    # East Asia
+    "Sun Tzu",
+    "Qin Shi Huang",
+    "Wu Zetian",
+    "Kublai Khan",
+    "Yi Sun Sin",
+    "Tokugawa",
+    "Oda Nobunaga",
+    "Toyotomi Hideyoshi",
+    "Meiji",
+    "Mao",
+    "Chiang Kai Shek",
+    "Zhuge Liang",
+    "Cao Cao",
+    "Sejong",
+    "Kangxi",
+    # South Asia
+    "Ashoka",
+    "Chandragupta",
+    "Akbar",
+    "Gandhi",
+    "Shivaji",
+    "Tipu Sultan",
+    "Rani Lakshmibai",
+    "Indira Gandhi",
+    # Central Asia
+    "Genghis Khan",
+    "Subutai",
+    "Tamerlane",
+    "Attila",
+    "Tomyris",
+    "Alp Arslan",
+    # Southeast Asia and Oceania
+    "Gajah Mada",
+    "Kamehameha",
+    "Ramkhamhaeng",
+    "Trung Trac",
+    "Ho Chi Minh",
+    "Sukarno",
+    # Americas
+    "Washington",
+    "Lincoln",
+    "Montezuma",
+    "Pachacuti",
+    "Sitting Bull",
+    "Geronimo",
+    "Tecumseh",
+    "Bolivar",
+    "Toussaint",
+    "Teddy Roosevelt",
+)
+
+
 def sim_presets() -> list[SimPreset]:
     return list(SIM_PRESETS)
 
@@ -100,18 +237,36 @@ def sim_preset_by_id(preset_id: str) -> SimPreset | None:
 
 
 def build_sim_bot_name(
-    preset_name: str,
     *,
     used_names: set[str] | None = None,
+    name_index: int = 0,
 ) -> str:
-    """Build the generic display name for a preset Sim bot."""
+    """Build the default display name for a preset Sim bot."""
     taken = used_names if used_names is not None else set()
-    candidate = preset_name
-    if candidate not in taken:
-        return candidate
-    suffix = 2
+    for offset in range(len(HISTORICAL_SIM_NAME_POOL)):
+        candidate = HISTORICAL_SIM_NAME_POOL[
+            (name_index + offset) % len(HISTORICAL_SIM_NAME_POOL)
+        ]
+        if candidate not in taken:
+            return candidate
+    suffix = 1
     while True:
-        candidate = f"{preset_name} {suffix}"
+        candidate = f"Leader {suffix}"
         if candidate not in taken:
             return candidate
         suffix += 1
+
+
+def allocate_default_sim_names(
+    count: int,
+    *,
+    used_names: set[str] | None = None,
+) -> list[str]:
+    """Pick default Sim names from the historical leader pool."""
+    taken = set(used_names or set())
+    names: list[str] = []
+    for index in range(count):
+        name = build_sim_bot_name(used_names=taken, name_index=index)
+        names.append(name)
+        taken.add(name)
+    return names

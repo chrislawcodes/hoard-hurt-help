@@ -17,7 +17,7 @@ _GENERAL_NAMES: tuple[str, ...] = (
     "Napoleon", "Hannibal", "Caesar", "Wellington", "Patton",
     "Eisenhower", "Rommel", "Alexander", "Scipio", "Marlborough",
     "Sherman", "Grant", "Montgomery", "Zhukov", "MacArthur",
-    "Khalid", "Saladin", "Genghis", "Sun_Tzu", "Bolivar",
+    "Khalid", "Saladin", "Genghis", "Sun Tzu", "Bolivar",
 )
 
 
@@ -133,4 +133,3 @@ async def _top_standings(db, match_id: str, limit: int = 3) -> list[dict]:
     for i, row in enumerate(rows, start=1):
         row["rank"] = i
     return rows
-

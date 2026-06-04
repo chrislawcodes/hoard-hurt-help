@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.sim_presets import sim_presets
+from app.engine.sim_presets import allocate_default_sim_names, sim_presets
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
 from app.engine.tokens import generate_match_id
 from app.models.bot import Bot, BotKind
@@ -60,15 +60,20 @@ _AUTO_MATCH_NAMES: tuple[str, ...] = (
 )
 
 
-def _choose_sim_seats(n: int) -> list[tuple[str, str]]:
+def _choose_sim_seats(
+    n: int,
+    *,
+    used_names: set[str] | None = None,
+) -> list[tuple[str, str]]:
     """Pick n sim personality IDs from the preset list (cycling if needed)."""
     presets = sim_presets()
     if not presets:
         return []
+    names = allocate_default_sim_names(n, used_names=used_names)
     seats = []
     for i in range(n):
         preset = presets[i % len(presets)]
-        seats.append((f"Sim_{i + 1}", preset.id))
+        seats.append((names[i], preset.id))
     return seats
 
 
@@ -220,7 +225,8 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
         empty_slots = match.max_players - player_count
         if empty_slots > 0:
             n_sims = min(empty_slots, AUTO_MATCH_SIM_COUNT_MAX)
-            seats = _choose_sim_seats(n_sims)
+            agent_ids = {agent_id for agent_id, _ in active_players}
+            seats = _choose_sim_seats(n_sims, used_names=agent_ids)
             if seats:
                 try:
                     await add_sims_to_game(db, match, seats)

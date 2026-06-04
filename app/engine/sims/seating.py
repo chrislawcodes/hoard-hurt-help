@@ -28,8 +28,9 @@ from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.user import User
 
-# Same shape the human join flow enforces for an in-game name (see web.join).
-AGENT_NAME_RE = re.compile(r"[A-Za-z0-9_]{1,32}")
+# Platform Sim display names may include spaces so historical names like
+# "Sun Tzu" do not have to be flattened.
+SIM_AGENT_NAME_RE = re.compile(r"[A-Za-z0-9 ]{1,32}")
 
 # The internal owner of every platform Sim. Not a real Google identity, so the
 # sentinel sub never collides with a signed-in user.
@@ -81,10 +82,10 @@ def _validate_roster(
     for name, strategy in seats:
         if not is_known_personality(strategy):
             raise SimSeatingError(f"Unknown personality: {strategy!r}.")
-        if not AGENT_NAME_RE.fullmatch(name):
+        if not SIM_AGENT_NAME_RE.fullmatch(name):
             raise SimSeatingError(
-                f"“{name}” isn’t a valid name. Use letters, numbers, or _ "
-                "(no spaces, up to 32)."
+                f"“{name}” isn’t a valid name. Use letters, numbers, or spaces "
+                "(up to 32)."
             )
         if name in existing:
             raise SimSeatingError(f"“{name}” is already taken in this game.")

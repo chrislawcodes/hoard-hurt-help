@@ -2,9 +2,9 @@
 
 Static, presentation-facing data: the eight personalities (with a one-word
 action *lean* for glanceable colour), the quick-add packs that bundle them, and
-the Greek-god name pool used for default Sim names. The actual trait values for
-each personality live in :mod:`app.engine.sim_presets`; this module only adds
-the labels, descriptions, and grouping the admin screen needs.
+the historical leader name pool used for default Sim names. The actual trait
+values for each personality live in :mod:`app.engine.sim_presets`; this module
+only adds the labels, descriptions, and grouping the admin screen needs.
 """
 
 from __future__ import annotations
@@ -12,7 +12,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from app.engine.sim_presets import SIM_PRESETS
+from app.engine.sim_presets import (
+    HISTORICAL_SIM_NAME_POOL,
+    SIM_PRESETS,
+    allocate_default_sim_names,
+)
 
 # Each personality leans toward one of the three actions. Used only to colour a
 # dot in the picker so the admin can read cooperative / aggressive / self at a
@@ -77,15 +81,9 @@ PACKS: tuple[Pack, ...] = (
 )
 
 
-# Default Sim names. Single-token Greek gods so they pass the agent-id rule
-# (letters/numbers/underscore). The admin can overwrite any of them.
-SIM_NAME_POOL: tuple[str, ...] = (
-    "Zeus", "Hera", "Poseidon", "Demeter", "Athena", "Apollo", "Artemis",
-    "Ares", "Aphrodite", "Hephaestus", "Hermes", "Hestia", "Dionysus", "Hades",
-    "Persephone", "Helios", "Selene", "Eos", "Nike", "Iris", "Atlas", "Nemesis",
-    "Tyche", "Hypnos", "Hecate", "Eros", "Gaia", "Rhea", "Themis", "Hebe",
-    "Triton", "Morpheus",
-)
+# Default Sim names. These are historical generals and leaders; multi-word
+# names use spaces for display.
+SIM_NAME_POOL: tuple[str, ...] = HISTORICAL_SIM_NAME_POOL
 
 
 def is_known_personality(strategy: str) -> bool:
@@ -95,22 +93,7 @@ def is_known_personality(strategy: str) -> bool:
 def allocate_default_names(count: int, used: Iterable[str]) -> list[str]:
     """Pick ``count`` default names, skipping any already ``used``.
 
-    Walks the Greek-god pool first, then falls back to ``Sim_N`` if a very large
-    table exhausts it (the 20-player cap means that should never happen).
+    Walks the historical leader pool first, then falls back to ``Leader N`` if
+    a very large table exhausts it.
     """
-    taken = set(used)
-    out: list[str] = []
-    for name in SIM_NAME_POOL:
-        if len(out) >= count:
-            break
-        if name not in taken:
-            out.append(name)
-            taken.add(name)
-    fallback = 1
-    while len(out) < count:
-        candidate = f"Sim_{fallback}"
-        fallback += 1
-        if candidate not in taken:
-            out.append(candidate)
-            taken.add(candidate)
-    return out
+    return allocate_default_sim_names(count, used_names=set(used))
