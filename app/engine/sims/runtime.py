@@ -46,7 +46,12 @@ def choose_talk_decision(context: SimContext, profile: SimProfile) -> SimTalkDec
     )
     plan = choose_talk_plan(context, profile, trust_map, [])
     truth_mode = _choose_truth_mode(profile, context, plan.intent, "talk")
-    message = render_phrase(plan.intent, truth_mode, seed=_seed_int(profile, context, plan.intent))
+    message = render_phrase(
+        plan.intent,
+        truth_mode,
+        seed=_seed_int(profile, context, plan.intent),
+        target_name=plan.target_id,
+    )
     thinking = _thinking(profile, context, plan, truth_mode, trust_map)
     return SimTalkDecision(
         intent=plan.intent,
