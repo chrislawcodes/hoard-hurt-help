@@ -33,6 +33,13 @@ router = APIRouter(tags=["web"])
 
 logger = logging.getLogger(__name__)
 
+_GENERAL_NAMES: tuple[str, ...] = (
+    "Napoleon", "Hannibal", "Caesar", "Wellington", "Patton",
+    "Eisenhower", "Rommel", "Alexander", "Scipio", "Marlborough",
+    "Sherman", "Grant", "Montgomery", "Zhukov", "MacArthur",
+    "Khalid", "Saladin", "Genghis", "Sun_Tzu", "Bolivar",
+)
+
 
 async def _player_count(db, match_id: str) -> int:
     """Active players only — a pulled-out (left) bot frees its seat."""
@@ -1403,6 +1410,9 @@ async def join_form(
     )
     module = get_game_module(match.game)
     presets = [asdict(p) for p in module.strategy_presets()]
+    default_preset_id = presets[0]["id"] if presets else ""
+    strategy_prompt = presets[0]["prompt"] if presets else module.default_strategy()
+    default_display_name = _GENERAL_NAMES[user.id % len(_GENERAL_NAMES)]
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -1414,7 +1424,9 @@ async def join_form(
             "player_count": await _player_count(db, match.id),
             "bots": bots,
             "presets": presets,
-            "strategy_prompt": module.default_strategy(),
+            "default_preset_id": default_preset_id,
+            "strategy_prompt": strategy_prompt,
+            "default_display_name": default_display_name,
             "base_url": settings.base_url,
             "error": None,
         },

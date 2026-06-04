@@ -50,3 +50,24 @@ def localdt(value: object) -> Markup:
 
 
 templates.env.filters["localdt"] = localdt
+
+
+def reltime(value: object) -> str:
+    """Return a human-readable relative time string like 'in 42 min' or '5 min ago'."""
+    iso = _to_utc_iso(value)
+    if iso is None:
+        return "unknown time"
+    dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)
+    total_seconds = int((dt - now).total_seconds())
+    if total_seconds < -3600:
+        return f"{abs(total_seconds) // 3600}h ago"
+    if total_seconds < -60:
+        return f"{abs(total_seconds) // 60} min ago"
+    if total_seconds < 60:
+        return "starting now"
+    if total_seconds < 3600:
+        return f"in {total_seconds // 60} min"
+    return f"in {total_seconds // 3600}h"
+
+templates.env.filters["reltime"] = reltime
