@@ -1,7 +1,6 @@
 """Scheduler lifecycle tests: resolve-early and auto-start of due games."""
 
 import asyncio
-import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -190,23 +189,25 @@ async def test_open_turn_creates_fresh_row_and_sets_pointer(db):
     assert (game.current_round, game.current_turn) == (3, 7)
 
 
-async def test_crashed_game_loop_is_logged(monkeypatch, caplog):
+async def test_crashed_game_loop_is_logged(monkeypatch):
     # A crash inside the loop must be surfaced, not swallowed as an unretrieved
     # task exception — that silent swallowing is what froze G_0012 with no log.
     reg = scheduler.SchedulerRegistry()
+    logged: list[str] = []
 
     async def boom(match_id: str) -> None:
         raise RuntimeError("kaboom")
 
-    monkeypatch.setattr(scheduler, "_run_game", boom)
-    with caplog.at_level(logging.ERROR):
-        reg.start("G_X")
-        task = reg._tasks["G_X"]
-        with pytest.raises(RuntimeError):
-            await task
-        await asyncio.sleep(0)  # let the done-callback fire
+    def record_error(msg: str, *args, **kwargs) -> None:
+        logged.append(msg % args if args else msg)
 
-    assert any("crashed" in r.getMessage() for r in caplog.records)
+    monkeypatch.setattr(scheduler, "_run_game", boom)
+    monkeypatch.setattr(scheduler.logger, "error", record_error)
+    reg.start("G_X")
+    task = reg._tasks["G_X"]
+    with pytest.raises(RuntimeError):
+        await task
+    assert any("crashed" in message for message in logged)
 
 
 # --- read-path reconciliation (lobby self-heal) ---

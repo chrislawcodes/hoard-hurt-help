@@ -18,6 +18,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
+
+import app.config as app_config
+from app.db_bootstrap import detect_legacy_revision, prepare_database_for_upgrade
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -48,6 +54,52 @@ def test_sqlite_migrations_round_trip(tmp_path: Path) -> None:
     assert down.returncode == 0, (
         f"`alembic downgrade base` failed:\n{down.stdout}\n{down.stderr}"
     )
+
+
+def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatch) -> None:
+    """A legacy DB with schema but no revision must stamp before upgrading.
+
+    Old deployments built their schema from model metadata, so the database can
+    already contain the pre-0018 tables with an empty or missing
+    ``alembic_version`` table. Startup should stamp that legacy shape and then
+    apply the current head
+    instead of crashing on revision 0001.
+    """
+    db_path = tmp_path / "legacy.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+
+    monkeypatch.setattr(app_config, "settings", app_config.Settings(database_url=db_url))
+
+    cfg = Config(str(REPO_ROOT / "alembic.ini"))
+    command.upgrade(cfg, "0017")
+
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.execute("DELETE FROM alembic_version")
+    conn.close()
+
+    assert detect_legacy_revision(db_url) == "0017"
+
+    prepare_database_for_upgrade(cfg, db_url)
+    command.upgrade(cfg, "head")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0018",)]
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='games'"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        conn.close()
 
 
 # --- feature 009: game → match id rewrite (migration 0018) ---------------------

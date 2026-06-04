@@ -18,6 +18,7 @@ from starlette.applications import Starlette
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
+from app.db_bootstrap import prepare_database_for_upgrade
 from app.engine.scheduler import registry as scheduler_registry
 from app.request_logging import install_request_logging
 from app.routes import (
@@ -59,7 +60,9 @@ async def _upgrade_database() -> None:
         return
 
     def _run_upgrade() -> None:
-        command.upgrade(_alembic_config(), "head")
+        cfg = _alembic_config()
+        prepare_database_for_upgrade(cfg, settings.database_url)
+        command.upgrade(cfg, "head")
 
     await asyncio.to_thread(_run_upgrade)
 

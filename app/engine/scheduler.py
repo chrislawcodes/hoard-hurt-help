@@ -77,10 +77,10 @@ class SchedulerRegistry:
     def start(self, match_id: str) -> None:
         if self.is_running(match_id):
             return
-        task = asyncio.create_task(_run_game(match_id))
-        # The loop is fire-and-forget. Without a done-callback its exception sits
-        # unretrieved on the task and is NEVER logged — that is how a crashed
-        # game silently froze mid-turn. Surface it instead.
+        task = asyncio.create_task(_run_game_guarded(match_id))
+        # The loop is fire-and-forget. The guarded wrapper logs crashes, and the
+        # done-callback still retrieves the exception so Python doesn't emit an
+        # unretrieved-task warning when the task dies.
         task.add_done_callback(functools.partial(self._log_task_result, match_id))
         self._tasks[match_id] = task
 
@@ -88,9 +88,9 @@ class SchedulerRegistry:
         """Log a game loop that ended in an exception (not a clean finish)."""
         if task.cancelled():
             return
-        exc = task.exception()
-        if exc is not None:
-            logger.error("game %s loop task crashed", match_id, exc_info=exc)
+        # Retrieving the exception prevents the "Task exception was never
+        # retrieved" warning when the guarded task has already logged it.
+        task.exception()
 
     def stop(self, match_id: str) -> None:
         t = self._tasks.pop(match_id, None)
@@ -258,12 +258,20 @@ async def _run_game(match_id: str) -> None:
                     "turn_resolved",
                     {"round": round_num, "turn": turn_num},
                 )
-
             await module.award_round(db, game, round_num)
             await publish(game.id, "round_ended", {"round": round_num})
 
         await module.finalize(db, game)
         await publish(game.id, "game_completed", {"winner_player_id": game.winner_player_id})
+
+
+async def _run_game_guarded(match_id: str) -> None:
+    """Run one game loop and log any crash before re-raising it."""
+    try:
+        await _run_game(match_id)
+    except Exception as exc:
+        logger.error("game %s loop task crashed", match_id, exc_info=exc)
+        raise
 
 
 async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
