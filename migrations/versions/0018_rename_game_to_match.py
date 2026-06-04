@@ -31,6 +31,11 @@ FK enforcement is OFF during Alembic SQLite migrations (env.py sets no
 ``PRAGMA foreign_keys``), so the value rewrite needs no drop/re-add dance. All
 schema changes go through ``op.batch_alter_table`` (SQLite cannot ALTER in
 place — MEMORY: sqlite-migration-batch-mode).
+
+Postgres *does* enforce those foreign keys immediately. To keep the id rewrite
+atomic there, we temporarily drop the two game-id foreign keys that point at the
+parent table, rewrite the ids, then recreate the constraints after the table
+and column renames are complete.
 """
 
 from typing import Sequence, Union
@@ -45,6 +50,36 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _dialect_name() -> str:
+    return op.get_context().dialect.name
+
+
+def _drop_game_fks() -> None:
+    if _dialect_name() != "postgresql":
+        return
+    op.drop_constraint("fk_players_game_id_games", "players", type_="foreignkey")
+    op.drop_constraint("fk_turns_game_id_games", "turns", type_="foreignkey")
+
+
+def _create_game_fks(parent_table: str, local_column: str) -> None:
+    if _dialect_name() != "postgresql":
+        return
+    op.create_foreign_key(
+        "fk_players_game_id_games",
+        "players",
+        parent_table,
+        [local_column],
+        ["id"],
+    )
+    op.create_foreign_key(
+        "fk_turns_game_id_games",
+        "turns",
+        parent_table,
+        [local_column],
+        ["id"],
+    )
+
+
 def _swap(table: str, column: str, to: str, frm_first: str) -> None:
     """Rewrite ``<prefix>xxxx`` in one column. Escaped LIKE so the ``_`` in the
     two-char prefix is literal, not a wildcard."""
@@ -55,6 +90,8 @@ def _swap(table: str, column: str, to: str, frm_first: str) -> None:
 
 
 def upgrade() -> None:
+    _drop_game_fks()
+
     # 1. Value rewrite G_ → M_ (FK enforcement off; columns still named game_id).
     _swap("games", "id", "M_", "G")
     for table in ("players", "turns", "request_incidents"):
@@ -89,11 +126,15 @@ def upgrade() -> None:
     op.drop_index("ix_request_incidents_game_id", table_name="request_incidents")
     op.create_index("ix_request_incidents_match_id", "request_incidents", ["match_id"])
 
+    _create_game_fks("matches", "match_id")
+
     # Guard: the shared contract with the preview script.
     assert affected_tables()[0] == ("matches", "id")
 
 
 def downgrade() -> None:
+    _drop_game_fks()
+
     # Reverse order: rename columns back first, then recreate their indexes, then
     # rename the table, then swap values M_ → G_.
     with op.batch_alter_table("request_incidents") as b:
@@ -123,3 +164,5 @@ def downgrade() -> None:
     _swap("games", "id", "G_", "M")
     for table in ("players", "turns", "request_incidents"):
         _swap(table, "game_id", "G_", "M")
+
+    _create_game_fks("games", "game_id")
