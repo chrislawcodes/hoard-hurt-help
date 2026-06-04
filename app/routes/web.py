@@ -6,7 +6,7 @@ import re
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
-from typing import Annotated, cast
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -15,7 +15,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
 from app.engine.game_insights import round_detail, season_overview
-from app.engine.game_records import Action, ActionRecord, PlayerRecord
+from app.engine.game_records import ActionRecord, PlayerRecord
 from app.engine.match_id_rewrite import match_id_candidates
 from app.engine.scheduler import cancel_overdue_unfilled_games, start_game
 from app.games import get as get_game_module
@@ -27,6 +27,12 @@ from app.models.player import Player
 from app.request_logging import set_request_trace_context
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.user import User
+from app.read_models.matches import (
+    count_players,
+    load_action_records,
+    load_player_records,
+    load_resolved_turn_rows,
+)
 from app.templating import templates  # shared instance with custom filters
 
 router = APIRouter(tags=["web"])
@@ -43,15 +49,7 @@ _GENERAL_NAMES: tuple[str, ...] = (
 
 async def _player_count(db, match_id: str) -> int:
     """Active players only — a pulled-out (left) bot frees its seat."""
-    return len(
-        (
-            await db.execute(
-                select(Player).where(Player.match_id == match_id, Player.left_at.is_(None))
-            )
-        )
-        .scalars()
-        .all()
-    )
+    return await count_players(db, match_id, active_only=True)
 
 
 def _is_admin(user: User | None) -> bool:
@@ -831,18 +829,15 @@ def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
 
 async def _game_view_context(request: Request, db, match_id: str) -> dict:
     """Build the shared context for the game viewer page and its live fragment."""
-    from app.models.turn import Turn, TurnMessage, TurnSubmission
-
     user = await get_current_user(request, db)
     g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
-    players = (
-        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
-    )
-    players_by_id = {p.id: p for p in players}
+    turn_rows = await load_resolved_turn_rows(db, match_id)
+    players = turn_rows.players
+    players_by_id = turn_rows.players_by_id
 
-    scoreboard = sorted(
+    scoreboard: list[dict[str, Any]] = sorted(
         (
             {
                 "agent_id": p.agent_id,
@@ -856,60 +851,16 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
     for i, row in enumerate(scoreboard, start=1):
         row["rank"] = i
 
-    turns = (
-        (
-            await db.execute(
-                select(Turn)
-                .where(Turn.match_id == match_id, Turn.resolved_at.is_not(None))
-                .order_by(Turn.round, Turn.turn)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    history = []
-    turn_ids = [t.id for t in turns]
-    messages_by_turn: dict[int, list[TurnMessage]] = {}
-    if turn_ids:
-        messages = (
-            (
-                await db.execute(
-                    select(TurnMessage)
-                    .where(TurnMessage.turn_id.in_(turn_ids))
-                    .order_by(TurnMessage.turn_id, TurnMessage.submitted_at, TurnMessage.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for message in messages:
-            messages_by_turn.setdefault(message.turn_id, []).append(message)
-
-    subs_by_turn: dict[int, list[TurnSubmission]] = {}
-    if turn_ids:
-        subs = (
-            (
-                await db.execute(
-                    select(TurnSubmission)
-                    .where(TurnSubmission.turn_id.in_(turn_ids))
-                    .order_by(
-                        TurnSubmission.turn_id,
-                        TurnSubmission.submitted_at,
-                        TurnSubmission.id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for sub in subs:
-            subs_by_turn.setdefault(sub.turn_id, []).append(sub)
+    turns = turn_rows.turns
+    history: list[dict[str, Any]] = []
+    messages_by_turn = turn_rows.messages_by_turn
+    subs_by_turn = turn_rows.submissions_by_turn
 
     # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
     # the same turn; a "betrayal" is a HURT aimed at last turn's pact partner.
     prev_mutual: set[frozenset[str]] = set()
     # Carried across turns to narrate a deterministic play-by-play headline.
-    prev_actions: list[dict] = []
+    prev_actions: list[dict[str, Any]] = []
     prev_leader: str | None = None
     inround: dict[str, int] = {}
     inround_round: int | None = None
@@ -917,7 +868,7 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
         subs = subs_by_turn.get(t.id, [])
         turn_messages = messages_by_turn.get(t.id, [])
         if turn_messages:
-            messages = [
+            messages: list[dict[str, Any]] = [
                 {
                     "agent_id": players_by_id[msg.player_id].agent_id,
                     "text": msg.text,
@@ -938,7 +889,7 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
                 for s in subs
                 if s.player_id in players_by_id
             ]
-        actions = []
+        actions: list[dict[str, Any]] = []
         for s in subs:
             actor = players_by_id.get(s.player_id)
             target = players_by_id.get(s.target_player_id) if s.target_player_id else None
@@ -1110,77 +1061,10 @@ async def legacy_game_live_redirect(
 
 async def _insight_records(db, game: Match) -> tuple[list[PlayerRecord], list[ActionRecord]]:
     """Map DB rows to the DB-free records the insights engine consumes."""
-    from app.models.turn import Turn, TurnMessage, TurnSubmission
-
-    players = (
-        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
+    return (
+        await load_player_records(db, game.id, active_only=False),
+        await load_action_records(db, game.id),
     )
-    player_records = [
-        PlayerRecord(
-            agent_id=p.agent_id,
-            round_score=p.current_round_score,
-            total_score=p.total_round_score,
-            round_wins=p.total_round_wins,
-        )
-        for p in players
-    ]
-    name_by_id = {p.id: p.agent_id for p in players}
-    turns = (
-        (
-            await db.execute(
-                select(Turn)
-                .where(Turn.match_id == game.id, Turn.resolved_at.is_not(None))
-                .order_by(Turn.round, Turn.turn)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not turns:
-        return player_records, []
-    turn_by_id = {t.id: t for t in turns}
-    turn_ids = [t.id for t in turns]
-    message_text_by_turn_player: dict[tuple[int, int], str] = {}
-    if turn_ids:
-        for msg in (
-            (
-                await db.execute(
-                    select(TurnMessage).where(TurnMessage.turn_id.in_(turn_ids))
-                )
-            )
-            .scalars()
-            .all()
-        ):
-            message_text_by_turn_player[(msg.turn_id, msg.player_id)] = msg.text
-    subs = []
-    if turn_ids:
-        subs = (
-            (
-                await db.execute(
-                    select(TurnSubmission).where(TurnSubmission.turn_id.in_(turn_ids))
-                )
-            )
-            .scalars()
-            .all()
-        )
-    actions: list[ActionRecord] = []
-    for s in subs:
-        t = turn_by_id[s.turn_id]
-        target = name_by_id.get(s.target_player_id) if s.target_player_id else None
-        actions.append(
-            ActionRecord(
-                round=t.round,
-                turn=t.turn,
-                actor_id=name_by_id[s.player_id],
-                action=cast(Action, s.action),
-                target_id=target,
-                message=message_text_by_turn_player.get((s.turn_id, s.player_id), s.message),
-                points_delta=s.points_delta,
-                round_score_after=s.round_score_after,
-                was_defaulted=s.was_defaulted,
-            )
-        )
-    return player_records, actions
 
 
 @router.get("/games/{game}/matches/{match_id}/analysis", response_class=HTMLResponse)

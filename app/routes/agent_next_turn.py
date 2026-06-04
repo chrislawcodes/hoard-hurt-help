@@ -19,11 +19,10 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
+from app.read_models.matches import load_action_records, load_scoreboard
 from app.routes.agent_api import (
-    _build_scoreboard,
     _build_current_turn,
     _group_into_turns,
-    _load_action_records,
 )
 from app.schemas.agent import NextTurnWaiting, NextTurnYourTurn, TurnStatic
 
@@ -148,12 +147,12 @@ async def next_turn(
     )
     # Same raw payload shape as the per-game /turn poll, so the loop and a direct
     # poll hand the bot identical data — just with the match_id attached.
-    history = _group_into_turns(await _load_action_records(db, game))
+    history = _group_into_turns(await load_action_records(db, game.id))
     return NextTurnYourTurn(
         match_id=game.id,
         static=static,
         history=history,
-        scoreboard=await _build_scoreboard(db, game),
+        scoreboard=await load_scoreboard(db, game.id),
         current=await _build_current_turn(db, turn),
         preferred_provider=bot.provider.value if bot.provider else None,
         preferred_model=bot.model,

@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.deps import DbSession, require_bot_player
 from app.engine.bot_activity import mark_first_move
-from app.engine.game_records import Action, ActionRecord, PlayerRecord
+from app.engine.game_records import ActionRecord
 from app.engine.opponent_stats import rank_players
 from app.games import get as get_game_module
 from app.games.base import GameError
@@ -21,6 +21,11 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnMessage, TurnSubmission
+from app.read_models.matches import (
+    load_action_records,
+    load_player_records,
+    load_scoreboard,
+)
 from app.schemas.agent import (
     AgentStateResponse,
     ChatLine,
@@ -33,7 +38,6 @@ from app.schemas.agent import (
     MessageRequest,
     MessageResponse,
     OpponentHistoryResponse,
-    ScoreboardRow,
     StandingRow,
     SubmitRequest,
     SubmitResponse,
@@ -99,109 +103,6 @@ def _as_aware(dt: datetime) -> datetime:
 # Joining a game is a web action — the owner picks one of their bots (see
 # app/routes/web.py). The agent API is play-only; auth resolves the bot's
 # player for a game via require_bot_player. No per-game credential is issued.
-
-
-async def _build_scoreboard(db, game: Match) -> list[ScoreboardRow]:
-    players = (
-        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
-    )
-    return [
-        ScoreboardRow(
-            agent_id=p.agent_id,
-            round_score=p.current_round_score,
-            round_wins=p.total_round_wins,
-        )
-        for p in players
-    ]
-
-
-async def _load_players(db, game: Match) -> list[PlayerRecord]:
-    """Active (non-left) players as DB-free records for the summary engine."""
-    rows = (
-        (
-            await db.execute(
-                select(Player).where(Player.match_id == game.id, Player.left_at.is_(None))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return [
-        PlayerRecord(
-            agent_id=p.agent_id,
-            round_score=p.current_round_score,
-            total_score=p.total_round_score,
-            round_wins=p.total_round_wins,
-        )
-        for p in rows
-    ]
-
-
-async def _load_action_records(db, game: Match) -> list[ActionRecord]:
-    """Every resolved submission as a DB-free ActionRecord, ids → agent names.
-
-    All players (including any who left) are mapped so historical actors/targets
-    still resolve to a name.
-    """
-    turns = (
-        (
-            await db.execute(
-                select(Turn)
-                .where(Turn.match_id == game.id, Turn.resolved_at.is_not(None))
-                .order_by(Turn.round, Turn.turn)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not turns:
-        return []
-    turn_by_id = {t.id: t for t in turns}
-    name_by_id = {
-        p.id: p.agent_id
-        for p in (await db.execute(select(Player).where(Player.match_id == game.id)))
-        .scalars()
-        .all()
-    }
-    subs = (
-        (
-            await db.execute(
-                select(TurnSubmission).where(
-                    TurnSubmission.turn_id.in_([t.id for t in turns])
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    messages = (
-        (
-            await db.execute(
-                select(TurnMessage).where(TurnMessage.turn_id.in_([t.id for t in turns]))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    message_by_key = {(m.turn_id, m.player_id): m.text for m in messages}
-    records: list[ActionRecord] = []
-    for s in subs:
-        t = turn_by_id[s.turn_id]
-        target = name_by_id.get(s.target_player_id) if s.target_player_id else None
-        records.append(
-            ActionRecord(
-                round=t.round,
-                turn=t.turn,
-                actor_id=name_by_id[s.player_id],
-                action=cast(Action, s.action),
-                target_id=target,
-                message=message_by_key.get((s.turn_id, s.player_id), s.message),
-                points_delta=s.points_delta,
-                round_score_after=s.round_score_after,
-                was_defaulted=s.was_defaulted,
-            )
-        )
-    return records
 
 
 async def _load_talk_messages(db, turn: Turn) -> list[TalkMessage]:
@@ -325,11 +226,11 @@ async def agent_poll(
     # form a prefix a client can prompt-cache; the volatile `scoreboard` and
     # `current` come last. Nothing is pre-digested — the agent reads the moves
     # and messages and does its own analysis.
-    history = _group_into_turns(await _load_action_records(db, game))
+    history = _group_into_turns(await load_action_records(db, game.id))
     return YourTurnResponse(
         static=static,
         history=history,
-        scoreboard=await _build_scoreboard(db, game),
+        scoreboard=await load_scoreboard(db, game.id),
         current=await _build_current_turn(db, turn),
     )
 
@@ -537,7 +438,7 @@ async def agent_state(
         current_turn=game.current_turn,
         deadline=open_turn.deadline_at if open_turn else None,
         you_have_submitted_current_turn=you_submitted,
-        scoreboard=await _build_scoreboard(db, game),
+        scoreboard=await load_scoreboard(db, game.id),
         all_agent_ids=sorted(p.agent_id for p in all_players),
     )
 
@@ -631,7 +532,7 @@ async def agent_opponent_history(
     you = player.agent_id
     actions = [
         a
-        for a in await _load_action_records(db, game)
+        for a in await load_action_records(db, game.id)
         if a.actor_id == opponent_id or (a.actor_id == you and a.target_id == opponent_id)
     ]
     return OpponentHistoryResponse(opponent_id=opponent_id, turns=_group_into_turns(actions))
@@ -648,7 +549,7 @@ async def agent_chat(
     game = await _game_for(player, match_id, db)
     cursor = _parse_cursor(since)
     lines: list[ChatLine] = []
-    for a in sorted(await _load_action_records(db, game), key=lambda x: (x.round, x.turn)):
+    for a in sorted(await load_action_records(db, game.id), key=lambda x: (x.round, x.turn)):
         if a.was_defaulted or not a.message:
             continue
         if cursor is not None and (a.round, a.turn) <= cursor:
@@ -688,7 +589,7 @@ async def agent_turn_detail(
     ).scalar_one_or_none()
     if t is None:
         raise _err("NOT_FOUND", "No such resolved turn.", status.HTTP_404_NOT_FOUND)
-    these = [a for a in await _load_action_records(db, game) if a.round == round and a.turn == turn]
+    these = [a for a in await load_action_records(db, game.id) if a.round == round and a.turn == turn]
     grouped = _group_into_turns(these)
     actions = grouped[0].actions if grouped else []
     return TurnDetailResponse(round=round, turn=turn, actions=actions)
@@ -702,7 +603,7 @@ async def agent_standings(
 ) -> FullStandingsResponse:
     """PULL: the full standings, every active player ranked."""
     game = await _game_for(player, match_id, db)
-    ranked = rank_players(await _load_players(db, game))
+    ranked = rank_players(await load_player_records(db, game.id, active_only=True))
     rows = [
         StandingRow(agent_id=p.agent_id, round_score=p.round_score, rank=i + 1)
         for i, p in enumerate(ranked)

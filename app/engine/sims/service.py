@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.game_records import Action, ActionRecord
 from app.engine.sims.runtime import (
     build_sim_profile,
     choose_action_decision,
@@ -19,7 +18,8 @@ from app.models.bot import Bot, BotKind, BotStatus
 from app.models.match import Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
-from app.schemas.agent import ScoreboardRow, TalkMessage
+from app.read_models.matches import load_action_records, load_scoreboard
+from app.schemas.agent import TalkMessage
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +51,8 @@ async def auto_submit_sim_phase(
     if not sim_players:
         return 0
 
-    history = await _load_action_records(db, game.id)
-    scoreboard = await _load_scoreboard(db, game.id)
+    history = await load_action_records(db, game.id)
+    scoreboard = await load_scoreboard(db, game.id, active_only=True)
     current_talk_messages = (
         await _load_current_talk_messages(db, turn.id) if phase == "act" else []
     )
@@ -127,90 +127,6 @@ async def _load_active_players_with_bots(
         .all()
     )
     return [(player, bot) for player, bot in rows]
-
-
-async def _load_action_records(db: AsyncSession, match_id: str) -> list[ActionRecord]:
-    turns = (
-        (
-            await db.execute(
-                select(Turn)
-                .where(Turn.match_id == match_id, Turn.resolved_at.is_not(None))
-                .order_by(Turn.round, Turn.turn)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not turns:
-        return []
-    turn_by_id = {t.id: t for t in turns}
-    name_by_id = {
-        p.id: p.agent_id
-        for p in (
-            await db.execute(select(Player).where(Player.match_id == match_id))
-        )
-        .scalars()
-        .all()
-    }
-    subs = (
-        (
-            await db.execute(
-                select(TurnSubmission).where(
-                    TurnSubmission.turn_id.in_([t.id for t in turns])
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    messages = (
-        (
-            await db.execute(
-                select(TurnMessage).where(TurnMessage.turn_id.in_([t.id for t in turns]))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    message_by_key = {(m.turn_id, m.player_id): m.text for m in messages}
-    records: list[ActionRecord] = []
-    for s in subs:
-        t = turn_by_id[s.turn_id]
-        target = name_by_id.get(s.target_player_id) if s.target_player_id else None
-        records.append(
-            ActionRecord(
-                round=t.round,
-                turn=t.turn,
-                actor_id=name_by_id[s.player_id],
-                action=cast(Action, s.action),
-                target_id=target,
-                message=message_by_key.get((s.turn_id, s.player_id), s.message),
-                points_delta=s.points_delta,
-                round_score_after=s.round_score_after,
-                was_defaulted=s.was_defaulted,
-            )
-        )
-    return records
-
-
-async def _load_scoreboard(db: AsyncSession, match_id: str) -> list[ScoreboardRow]:
-    players = (
-        (
-            await db.execute(
-                select(Player).where(Player.match_id == match_id, Player.left_at.is_(None))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return [
-        ScoreboardRow(
-            agent_id=p.agent_id,
-            round_score=p.current_round_score,
-            round_wins=p.total_round_wins,
-        )
-        for p in players
-    ]
 
 
 async def _load_current_talk_messages(

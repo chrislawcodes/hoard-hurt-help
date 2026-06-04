@@ -7,9 +7,7 @@ from sqlalchemy import select
 
 from app.deps import DbSession
 from app.models.match import Match
-from app.models.player import Player
-from app.models.turn import Turn, TurnMessage, TurnSubmission
-from app.schemas.agent import ScoreboardRow
+from app.read_models.matches import count_players, load_resolved_turn_rows, load_scoreboard
 from app.schemas.spectator import (
     SpectatorAction,
     SpectatorAgent,
@@ -37,9 +35,6 @@ async def list_games_public(
     games = (await db.execute(q)).scalars().all()
     out = []
     for g in games:
-        player_count = len(
-            (await db.execute(select(Player).where(Player.match_id == g.id))).scalars().all()
-        )
         out.append(
             {
                 "id": g.id,
@@ -53,7 +48,7 @@ async def list_games_public(
                 "per_turn_deadline_seconds": g.per_turn_deadline_seconds,
                 "current_round": g.current_round,
                 "current_turn": g.current_turn,
-                "player_count": player_count,
+                "player_count": await count_players(db, g.id),
             }
         )
     return out
@@ -68,65 +63,12 @@ async def public_state(
     g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
-    players = (
-        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
-    )
-    players_by_id = {p.id: p for p in players}
-    scoreboard = [
-        ScoreboardRow(
-            agent_id=p.agent_id,
-            round_score=p.current_round_score,
-            round_wins=p.total_round_wins,
-        )
-        for p in players
-    ]
-    turns = (
-        (
-            await db.execute(
-                select(Turn)
-                .where(Turn.match_id == match_id, Turn.resolved_at.is_not(None))
-                .order_by(Turn.round, Turn.turn)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    turn_ids = [t.id for t in turns]
-    messages_by_turn: dict[int, list[TurnMessage]] = {}
-    if turn_ids:
-        message_rows = (
-            (
-                await db.execute(
-                    select(TurnMessage)
-                    .where(TurnMessage.turn_id.in_(turn_ids))
-                    .order_by(TurnMessage.turn_id, TurnMessage.submitted_at, TurnMessage.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for message in message_rows:
-            messages_by_turn.setdefault(message.turn_id, []).append(message)
-
-    subs_by_turn: dict[int, list[TurnSubmission]] = {}
-    if turn_ids:
-        subs = (
-            (
-                await db.execute(
-                    select(TurnSubmission)
-                    .where(TurnSubmission.turn_id.in_(turn_ids))
-                    .order_by(
-                        TurnSubmission.turn_id,
-                        TurnSubmission.submitted_at,
-                        TurnSubmission.id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for sub in subs:
-            subs_by_turn.setdefault(sub.turn_id, []).append(sub)
+    turn_rows = await load_resolved_turn_rows(db, match_id)
+    players = turn_rows.players
+    players_by_id = turn_rows.players_by_id
+    turns = turn_rows.turns
+    messages_by_turn = turn_rows.messages_by_turn
+    subs_by_turn = turn_rows.submissions_by_turn
 
     history: list[SpectatorTurn] = []
     for t in turns:
@@ -180,6 +122,6 @@ async def public_state(
             SpectatorAgent(agent_id=p.agent_id, model_self_report=p.model_self_report)
             for p in players
         ],
-        scoreboard=scoreboard,
+        scoreboard=await load_scoreboard(db, match_id),
         history=history,
     )
