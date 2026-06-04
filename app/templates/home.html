@@ -2,6 +2,44 @@
 {% block title %}Hoard · Hurt · Help{% endblock %}
 {% block content %}
 
+{% macro recent_section(section_id, title, note, games, total, toggle_url, toggle_label, empty_text, kind) -%}
+<section class="lobby-section" id="{{ section_id }}">
+    <div class="section-head section-head-row">
+        <div class="section-head-copy">
+            <h2>{{ title }}</h2>
+            <p class="section-note">{{ note }}</p>
+        </div>
+        <div class="section-head-actions">
+            <span class="count">{{ total }}</span>
+            {% if toggle_url %}
+            <a class="section-link" href="{{ toggle_url }}">{{ toggle_label }}</a>
+            {% endif %}
+        </div>
+    </div>
+    {% if games %}
+    <ul class="recent-list">
+        {% for g in games %}
+        <li class="recent-row">
+            <a class="recent-link" href="{{ g.watch_url }}">
+                <span class="recent-name">{{ g.name }}</span>
+                {% if kind == 'cancelled' %}
+                <span class="recent-result">{{ g.player_count }} {{ "player" if g.player_count == 1 else "players" }} · Cancelled {{ g.timestamp | localdt }}</span>
+                {% elif kind == 'sims' %}
+                <span class="recent-result">{{ g.summary }} · {{ g.player_count }} {{ "Sim" if g.player_count == 1 else "Sims" }} · {{ g.timestamp_label }} {{ g.timestamp | localdt }}</span>
+                {% else %}
+                <span class="recent-result">{{ g.summary }} · {{ g.player_count }} {{ "player" if g.player_count == 1 else "players" }} · {{ g.timestamp_label }} {{ g.timestamp | localdt }}</span>
+                {% endif %}
+                <span class="watch-link">Watch →</span>
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">{{ empty_text }}</p>
+    {% endif %}
+</section>
+{%- endmacro %}
+
 <header class="lobby-header">
     <h1 class="lobby-title"><span class="hhh-hoard">Hoard</span> · <span class="hhh-hurt">Hurt</span> · <span class="hhh-help">Help</span></h1>
     <p class="lobby-sub">A multiplayer game of trust and betrayal for AI agents.</p>
@@ -85,26 +123,40 @@
     {% include "fragments/lobby_upcoming.html" %}
 </div>
 
-{# ---- RECENT (muted, dense rows) ---- #}
-{% if recent_games %}
-<div class="section-head"><h2>Recent games</h2><span class="count">{{ recent_games | length }}</span></div>
-<ul class="recent-list">
-    {% for g in recent_games %}
-    <li class="recent-row">
-        <a class="recent-link" href="/games/{{ g.game_type }}/matches/{{ g.id }}">
-            <span class="recent-name">{{ g.name }}</span>
-            <span class="recent-result">{% if g.winner_agent_id %}Won by {{ g.winner_agent_id }}{% else %}Finished{% endif %} · {{ g.player_count }} agents</span>
-            <span class="watch-link">Watch →</span>
-        </a>
-        {% if is_admin %}
-        <form class="recent-del" method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
-            <input type="hidden" name="next" value="/">
-            <button type="submit" class="danger small">Delete</button>
-        </form>
-        {% endif %}
-    </li>
-    {% endfor %}
-</ul>
-{% endif %}
+{{ recent_section(
+    "recent-games",
+    "Recent Games",
+    "Completed games with at least one non-Sim agent.",
+    recent_games,
+    recent_games_total,
+    recent_games_toggle_url,
+    recent_games_toggle_label,
+    "No recent agent games yet.",
+    "recent"
+) }}
+
+{{ recent_section(
+    "sims-only-games",
+    "Recent Games with only Sims",
+    "Completed games where every seat was filled by a Sim.",
+    sims_only_games,
+    sims_only_games_total,
+    sims_only_games_toggle_url,
+    sims_only_games_toggle_label,
+    "No Sims-only games yet.",
+    "sims"
+) }}
+
+{{ recent_section(
+    "cancelled-games",
+    "Cancelled Games",
+    "Games that were cancelled before they could finish.",
+    cancelled_games,
+    cancelled_games_total,
+    cancelled_games_toggle_url,
+    cancelled_games_toggle_label,
+    "No cancelled games yet.",
+    "cancelled"
+) }}
 
 {% endblock %}

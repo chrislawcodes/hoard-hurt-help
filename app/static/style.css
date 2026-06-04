@@ -460,6 +460,14 @@ pre code { background: none; padding: 0; }
     border-radius: 999px;
     padding: 0.05rem 0.5rem;
 }
+.lobby-section { margin-bottom: 1.75rem; }
+.lobby-section:last-of-type { margin-bottom: 0; }
+.section-head-row { align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem 1rem; }
+.section-head-copy { min-width: 0; }
+.section-note { color: var(--ink-soft); margin: 0.2rem 0 0; font-size: 0.88rem; max-width: 60ch; }
+.section-head-actions { display: flex; align-items: center; gap: 0.65rem; flex-shrink: 0; flex-wrap: wrap; }
+.section-link { color: var(--accent); font-size: 0.88rem; font-weight: 700; text-decoration: none; }
+.section-link:hover { text-decoration: underline; }
 .empty { color: var(--ink-soft); padding: 0.25rem 0 0.5rem; }
 
 .game-card-info { min-width: 0; }
@@ -804,8 +812,6 @@ button.danger:hover,
 .recent-result { color: var(--ink-soft); font-size: 0.85rem; }
 .watch-link { margin-left: auto; color: var(--accent); font-size: 0.88rem; font-weight: 600; }
 .recent-link:hover .recent-name { color: var(--accent); }
-.recent-del { margin: 0; flex-shrink: 0; }
-.danger.small { padding: 0.22rem 0.55rem; font-size: 0.78rem; }
 
 @media (max-width: 600px) {
     .hero-quiet h1 { font-size: 1.5rem; }

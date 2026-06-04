@@ -2,11 +2,13 @@
 
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlencode
+from typing import Any
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 from app.deps import DbSession, get_current_user
 from app.engine.bot_activity import compute_bot_health
@@ -51,6 +53,107 @@ async def _showcase_replay_data(
     except Exception:
         logger.exception("Failed to build robot-circle replay data for %s", match_id)
         return match_id, ""
+
+
+def _lobby_timestamp(match: Match) -> datetime:
+    """Pick the timestamp we want to show for a finished or cancelled match."""
+
+    return match.completed_at or match.cancelled_at or match.started_at or match.scheduled_start
+
+
+async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
+    """Build the lobby's finished-match sections in one read-side projection."""
+
+    player_counts = (
+        select(
+            Player.match_id.label("match_id"),
+            func.count(Player.id).label("player_count"),
+            func.coalesce(
+                func.sum(case((Bot.kind == BotKind.SIM, 1), else_=0)),
+                0,
+            ).label("sim_count"),
+            func.coalesce(
+                func.sum(case((Bot.kind != BotKind.SIM, 1), else_=0)),
+                0,
+            ).label("agent_count"),
+        )
+        .join(Bot, Bot.id == Player.bot_id)
+        .group_by(Player.match_id)
+        .subquery()
+    )
+    rows = (
+        await db.execute(
+            select(
+                Match,
+                func.coalesce(player_counts.c.player_count, 0),
+                func.coalesce(player_counts.c.sim_count, 0),
+                func.coalesce(player_counts.c.agent_count, 0),
+            )
+            .outerjoin(player_counts, player_counts.c.match_id == Match.id)
+            .where(Match.state.in_([GameState.COMPLETED, GameState.CANCELLED]))
+            .order_by(Match.scheduled_start.desc())
+        )
+    ).all()
+
+    winner_ids = {
+        match.winner_player_id
+        for match, *_ in rows
+        if match.state == GameState.COMPLETED and match.winner_player_id is not None
+    }
+    winner_names: dict[int, str] = {}
+    if winner_ids:
+        winner_names = {
+            player_id: agent_id
+            for player_id, agent_id in (
+                await db.execute(select(Player.id, Player.agent_id).where(Player.id.in_(winner_ids)))
+            ).all()
+        }
+
+    completed: list[dict[str, Any]] = []
+    recent: list[dict[str, Any]] = []
+    sims_only: list[dict[str, Any]] = []
+    cancelled: list[dict[str, Any]] = []
+    for match, player_count, sim_count, agent_count in rows:
+        if str(match.name).strip().lower().startswith(_TEST_NAME_PREFIX):
+            continue
+        timestamp = _lobby_timestamp(match)
+        view: dict[str, Any] = {
+            "id": match.id,
+            "game_type": match.game,
+            "name": match.name,
+            "state": match.state,
+            "player_count": int(player_count),
+            "sim_count": int(sim_count),
+            "agent_count": int(agent_count),
+            "timestamp": timestamp,
+            "timestamp_label": "Completed" if match.state == GameState.COMPLETED else "Cancelled",
+            "winner_agent_id": winner_names.get(match.winner_player_id) if match.winner_player_id else None,
+            "watch_url": f"/games/{match.game}/matches/{match.id}",
+        }
+        if view["winner_agent_id"]:
+            view["summary"] = f"Won by {view['winner_agent_id']}"
+        elif match.state == GameState.COMPLETED:
+            view["summary"] = "Finished"
+        else:
+            view["summary"] = "Cancelled"
+        if match.state == GameState.COMPLETED:
+            completed.append(view)
+            if int(agent_count) > 0:
+                recent.append(view)
+            elif int(player_count) > 0:
+                sims_only.append(view)
+        elif match.state == GameState.CANCELLED:
+            cancelled.append(view)
+
+    for group in (completed, recent, sims_only, cancelled):
+        group.sort(key=lambda v: v["timestamp"], reverse=True)
+
+    return {
+        "completed": completed,
+        "recent": recent,
+        "sims_only": sims_only,
+        "cancelled": cancelled,
+    }
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -258,7 +361,6 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
         (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
     live = []
-    recent = []
     for g in all_games:
         # Upcoming is built separately via _upcoming_views (shared with the polled
         # /upcoming fragment), so skip those states here.
@@ -281,24 +383,32 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             # The marquee shows "who's leading", so a live game carries its top-3.
             view["standings"] = await _top_standings(db, g.id, 3)
             live.append(view)
-        elif g.state == GameState.COMPLETED:
-            if g.winner_player_id:
-                winner = (
-                    await db.execute(select(Player).where(Player.id == g.winner_player_id))
-                ).scalar_one_or_none()
-                view["winner_agent_id"] = winner.agent_id if winner else None
-            recent.append(view)
     upcoming = await _upcoming_views(db)
+    finished_views = await _lobby_recent_views(db)
+    show_recent_all = request.query_params.get("recent") == "all"
+    show_sims_all = request.query_params.get("sims") == "all"
+    show_cancelled_all = request.query_params.get("cancelled") == "all"
 
     # Marquee = the most-progressed live game (rounds, then turns).
     live.sort(key=lambda v: (v["current_round"], v["current_turn"]), reverse=True)
     # When nothing is live, replay the latest finished game with the same
     # robot-circle animation the platform front page uses.
-    rc_game_id, rc_data = (None, "") if live else await _showcase_replay_data(request, db, recent)
-    # Keep smoke-test games out of the public recent list.
-    recent_display = [
-        v for v in recent if not str(v["name"]).strip().lower().startswith(_TEST_NAME_PREFIX)
-    ]
+    rc_game_id, rc_data = (None, "") if live else await _showcase_replay_data(
+        request, db, finished_views["completed"]
+    )
+    recent_games = finished_views["recent"]
+    sims_only_games = finished_views["sims_only"]
+    cancelled_games = finished_views["cancelled"]
+
+    def _toggle_url(section: str, key: str, show_all: bool) -> str:
+        base = f"/games/{game}"
+        params = dict(request.query_params)
+        if show_all:
+            params.pop(key, None)
+        else:
+            params[key] = "all"
+        query = f"?{urlencode(params, doseq=True)}" if params else ""
+        return f"{base}{query}#{section}"
 
     return templates.TemplateResponse(
         request,
@@ -308,7 +418,27 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "is_admin": _is_admin(user),
             "live_games": live,
             "upcoming_games": upcoming,
-            "recent_games": recent_display[:8],
+            "recent_games": recent_games[:5] if not show_recent_all else recent_games,
+            "recent_games_total": len(recent_games),
+            "recent_games_toggle_url": _toggle_url("recent-games", "recent", show_recent_all)
+            if len(recent_games) > 5
+            else None,
+            "recent_games_toggle_label": "Show fewer" if show_recent_all else "See all",
+            "show_recent_all": show_recent_all,
+            "sims_only_games": sims_only_games[:5] if not show_sims_all else sims_only_games,
+            "sims_only_games_total": len(sims_only_games),
+            "sims_only_games_toggle_url": _toggle_url("sims-only-games", "sims", show_sims_all)
+            if len(sims_only_games) > 5
+            else None,
+            "sims_only_games_toggle_label": "Show fewer" if show_sims_all else "See all",
+            "show_sims_all": show_sims_all,
+            "cancelled_games": cancelled_games[:5] if not show_cancelled_all else cancelled_games,
+            "cancelled_games_total": len(cancelled_games),
+            "cancelled_games_toggle_url": _toggle_url("cancelled-games", "cancelled", show_cancelled_all)
+            if len(cancelled_games) > 5
+            else None,
+            "cancelled_games_toggle_label": "Show fewer" if show_cancelled_all else "See all",
+            "show_cancelled_all": show_cancelled_all,
             "rc_game_id": rc_game_id,
             "rc_data": rc_data,
             # Tint the lobby's content with this game's scheme; the shared chrome

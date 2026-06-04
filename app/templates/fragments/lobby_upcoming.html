@@ -15,12 +15,6 @@
     <div class="game-card-action">
         <span class="badge badge-soon">Upcoming</span>
         <a class="btn btn-ghost" href="/games/{{ g.game_type }}/matches/{{ g.id }}/join">Join →</a>
-        {% if is_admin %}
-        <form method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
-            <input type="hidden" name="next" value="/">
-            <button type="submit" class="danger">Delete</button>
-        </form>
-        {% endif %}
     </div>
 </article>
 {% endfor %}
