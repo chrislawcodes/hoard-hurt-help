@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import cast
 
 from sqlalchemy import func, select
@@ -23,6 +24,42 @@ class ResolvedTurnRows:
     turns: list[Turn]
     messages_by_turn: dict[int, list[TurnMessage]]
     submissions_by_turn: dict[int, list[TurnSubmission]]
+
+
+@dataclass(frozen=True)
+class TimelineMessage:
+    """A public talk message with DB ids resolved to agent ids."""
+
+    agent_id: str
+    text: str
+    thinking: str
+    was_defaulted: bool
+    submitted_at: datetime | None
+
+
+@dataclass(frozen=True)
+class TimelineAction:
+    """A submitted action with actor/target DB ids resolved to agent ids."""
+
+    agent_id: str
+    action: str
+    target_id: str | None
+    message: str
+    thinking: str
+    points_delta: int
+    round_score_after: int
+    submitted_at: datetime | None
+    was_defaulted: bool
+
+
+@dataclass(frozen=True)
+class TimelineTurn:
+    """One match turn as a DB-free read model."""
+
+    round: int
+    turn: int
+    messages: list[TimelineMessage]
+    actions: list[TimelineAction]
 
 
 async def count_players(
@@ -90,22 +127,20 @@ async def load_player_records(
     ]
 
 
-async def load_resolved_turn_rows(db: AsyncSession, match_id: str) -> ResolvedTurnRows:
-    """Load players plus resolved turns with grouped messages and submissions."""
+async def _load_turn_rows(
+    db: AsyncSession,
+    match_id: str,
+    *,
+    resolved_only: bool,
+) -> ResolvedTurnRows:
+    """Load players plus turns with grouped messages and submissions."""
 
     players = await load_players(db, match_id)
     players_by_id = {p.id: p for p in players}
-    turns = list(
-        (
-            await db.execute(
-                select(Turn)
-                .where(Turn.match_id == match_id, Turn.resolved_at.is_not(None))
-                .order_by(Turn.round, Turn.turn)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    turn_stmt = select(Turn).where(Turn.match_id == match_id).order_by(Turn.round, Turn.turn)
+    if resolved_only:
+        turn_stmt = turn_stmt.where(Turn.resolved_at.is_not(None))
+    turns = list((await db.execute(turn_stmt)).scalars().all())
     turn_ids = [t.id for t in turns]
     messages_by_turn: dict[int, list[TurnMessage]] = {}
     submissions_by_turn: dict[int, list[TurnSubmission]] = {}
@@ -159,41 +194,103 @@ async def load_resolved_turn_rows(db: AsyncSession, match_id: str) -> ResolvedTu
     )
 
 
-async def load_action_records(db: AsyncSession, match_id: str) -> list[ActionRecord]:
-    """Every resolved submission as DB-free records with DB ids resolved to agent ids."""
+async def load_resolved_turn_rows(db: AsyncSession, match_id: str) -> ResolvedTurnRows:
+    """Load players plus resolved turns with grouped messages and submissions."""
 
-    rows = await load_resolved_turn_rows(db, match_id)
-    name_by_id = {p.id: p.agent_id for p in rows.players}
-    message_by_key = {
-        (message.turn_id, message.player_id): message.text
-        for messages in rows.messages_by_turn.values()
-        for message in messages
-    }
-    records: list[ActionRecord] = []
+    return await _load_turn_rows(db, match_id, resolved_only=True)
+
+
+async def load_match_timeline(
+    db: AsyncSession,
+    match_id: str,
+    *,
+    resolved_only: bool = True,
+) -> list[TimelineTurn]:
+    """Load turn history with player ids resolved for viewers, exports, and APIs."""
+
+    rows = await _load_turn_rows(db, match_id, resolved_only=resolved_only)
+    timeline: list[TimelineTurn] = []
     for turn in rows.turns:
-        for submission in rows.submissions_by_turn.get(turn.id, []):
-            actor_id = name_by_id.get(submission.player_id)
-            if actor_id is None:
-                continue
-            target_id = (
-                name_by_id.get(submission.target_player_id)
+        turn_messages = rows.messages_by_turn.get(turn.id, [])
+        submissions = rows.submissions_by_turn.get(turn.id, [])
+        messages: list[TimelineMessage]
+        if turn_messages:
+            messages = [
+                TimelineMessage(
+                    agent_id=rows.players_by_id[message.player_id].agent_id,
+                    text=message.text,
+                    thinking=message.thinking,
+                    was_defaulted=message.was_defaulted,
+                    submitted_at=message.submitted_at,
+                )
+                for message in turn_messages
+                if message.player_id in rows.players_by_id
+            ]
+        else:
+            messages = [
+                TimelineMessage(
+                    agent_id=rows.players_by_id[submission.player_id].agent_id,
+                    text=submission.message,
+                    thinking="",
+                    was_defaulted=submission.was_defaulted,
+                    submitted_at=submission.submitted_at,
+                )
+                for submission in submissions
+                if submission.player_id in rows.players_by_id
+            ]
+
+        actions: list[TimelineAction] = []
+        for submission in submissions:
+            actor = rows.players_by_id.get(submission.player_id)
+            target = (
+                rows.players_by_id.get(submission.target_player_id)
                 if submission.target_player_id
                 else None
             )
+            if actor is None:
+                continue
+            actions.append(
+                TimelineAction(
+                    agent_id=actor.agent_id,
+                    action=submission.action,
+                    target_id=target.agent_id if target else None,
+                    message=submission.message,
+                    thinking=submission.thinking,
+                    points_delta=submission.points_delta,
+                    round_score_after=submission.round_score_after,
+                    submitted_at=submission.submitted_at,
+                    was_defaulted=submission.was_defaulted,
+                )
+            )
+        timeline.append(
+            TimelineTurn(
+                round=turn.round,
+                turn=turn.turn,
+                messages=messages,
+                actions=actions,
+            )
+        )
+    return timeline
+
+
+async def load_action_records(db: AsyncSession, match_id: str) -> list[ActionRecord]:
+    """Every resolved submission as DB-free records with DB ids resolved to agent ids."""
+
+    records: list[ActionRecord] = []
+    for turn in await load_match_timeline(db, match_id):
+        message_by_agent = {message.agent_id: message.text for message in turn.messages}
+        for action in turn.actions:
             records.append(
                 ActionRecord(
                     round=turn.round,
                     turn=turn.turn,
-                    actor_id=actor_id,
-                    action=cast(Action, submission.action),
-                    target_id=target_id,
-                    message=message_by_key.get(
-                        (submission.turn_id, submission.player_id),
-                        submission.message,
-                    ),
-                    points_delta=submission.points_delta,
-                    round_score_after=submission.round_score_after,
-                    was_defaulted=submission.was_defaulted,
+                    actor_id=action.agent_id,
+                    action=cast(Action, action.action),
+                    target_id=action.target_id,
+                    message=message_by_agent.get(action.agent_id, action.message),
+                    points_delta=action.points_delta,
+                    round_score_after=action.round_score_after,
+                    was_defaulted=action.was_defaulted,
                 )
             )
     return records

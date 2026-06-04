@@ -12,7 +12,7 @@ from app.games import get as get_game_module
 from app.games.base import GameError
 from app.models.match import Match
 from app.models.player import Player
-from app.read_models.matches import load_resolved_turn_rows
+from app.read_models.matches import load_match_timeline, load_players
 from app.routes.web_support import (
     _game_theme,
     _is_admin,
@@ -373,9 +373,8 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     """Build the shared context for the game viewer page and its live fragment."""
     user = await get_current_user(request, db)
     g = match
-    turn_rows = await load_resolved_turn_rows(db, g.id)
-    players = turn_rows.players
-    players_by_id = turn_rows.players_by_id
+    players = await load_players(db, g.id)
+    timeline = await load_match_timeline(db, g.id)
 
     scoreboard: list[dict[str, Any]] = sorted(
         (
@@ -391,10 +390,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     for i, row in enumerate(scoreboard, start=1):
         row["rank"] = i
 
-    turns = turn_rows.turns
     history: list[dict[str, Any]] = []
-    messages_by_turn = turn_rows.messages_by_turn
-    subs_by_turn = turn_rows.submissions_by_turn
     viewer_player = next((p for p in players if user and p.user_id == user.id), None)
 
     # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
@@ -405,48 +401,29 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     prev_leader: str | None = None
     inround: dict[str, int] = {}
     inround_round: int | None = None
-    for seq, t in enumerate(turns, start=1):
-        subs = subs_by_turn.get(t.id, [])
-        turn_messages = messages_by_turn.get(t.id, [])
-        if turn_messages:
-            messages: list[dict[str, Any]] = [
-                {
-                    "agent_id": players_by_id[msg.player_id].agent_id,
-                    "text": msg.text,
-                    "thinking": msg.thinking,
-                    "was_defaulted": msg.was_defaulted,
-                }
-                for msg in turn_messages
-                if msg.player_id in players_by_id
-            ]
-        else:
-            messages = [
-                {
-                    "agent_id": players_by_id[s.player_id].agent_id,
-                    "text": s.message,
-                    "thinking": "",
-                    "was_defaulted": s.was_defaulted,
-                }
-                for s in subs
-                if s.player_id in players_by_id
-            ]
+    for seq, t in enumerate(timeline, start=1):
+        messages: list[dict[str, Any]] = [
+            {
+                "agent_id": message.agent_id,
+                "text": message.text,
+                "thinking": message.thinking,
+                "was_defaulted": message.was_defaulted,
+            }
+            for message in t.messages
+        ]
         actions: list[dict[str, Any]] = []
-        for s in subs:
-            actor = players_by_id.get(s.player_id)
-            target = players_by_id.get(s.target_player_id) if s.target_player_id else None
-            if not actor:
-                continue
-            actor_delta, target_delta = _move_effect_for(g.game, s.action)
+        for action in t.actions:
+            actor_delta, target_delta = _move_effect_for(g.game, action.action)
             actions.append(
                 {
-                    "agent_id": actor.agent_id,
-                    "action": s.action,
-                    "target_id": target.agent_id if target else None,
+                    "agent_id": action.agent_id,
+                    "action": action.action,
+                    "target_id": action.target_id,
                     # Nominal per-move effect, attributed to who it lands on.
                     "actor_delta": actor_delta,
                     "target_delta": target_delta,
-                    "thinking": s.thinking,
-                    "was_defaulted": s.was_defaulted,
+                    "thinking": action.thinking,
+                    "was_defaulted": action.was_defaulted,
                     "mutual": False,
                     "betrayal": False,
                 }
