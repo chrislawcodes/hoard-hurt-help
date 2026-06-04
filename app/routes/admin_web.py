@@ -20,15 +20,14 @@ from app.models.request_incident import RequestIncident
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
+from app.read_models.matches import count_players
 from app.templating import templates  # shared instance with custom filters
 
 router = APIRouter(tags=["admin"])
 
 
 async def _player_count(db, match_id: str) -> int:
-    return len(
-        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
-    )
+    return await count_players(db, match_id)
 
 
 @router.get("/admin", response_class=HTMLResponse)
