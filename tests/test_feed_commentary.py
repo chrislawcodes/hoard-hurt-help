@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.routes.web_viewer import _turn_headline
+from app.routes.viewer_presentation import _turn_headline
 
 
 def act(agent, action, target=None, *, mutual=False, betrayal=False, delta=0, missed=False):

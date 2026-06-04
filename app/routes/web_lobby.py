@@ -28,7 +28,8 @@ from app.routes.web_support import (
     _top_standings,
     _upcoming_views,
 )
-from app.routes.web_viewer import _build_rc_data, _game_view_context
+from app.routes.viewer_presentation import _build_rc_data
+from app.routes.web_viewer import _game_view_context
 from app.templating import templates
 
 router = APIRouter(tags=["web"])
