@@ -42,6 +42,8 @@ async def create_game(
         min_players=body.min_players,
         max_players=body.max_players,
         per_turn_deadline_seconds=body.per_turn_deadline_seconds,
+        total_rounds=body.total_rounds,
+        turns_per_round=body.turns_per_round,
     )
     db.add(g)
     await db.commit()

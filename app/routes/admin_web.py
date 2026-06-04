@@ -133,9 +133,11 @@ async def create_game_submit(
     user: Annotated[User, Depends(require_admin)],
     name: Annotated[str, Form()],
     scheduled_start: Annotated[str, Form()],
-    min_players: Annotated[int, Form()] = 3,
+    min_players: Annotated[int, Form()] = 6,
     max_players: Annotated[int, Form()] = 20,
     per_turn_deadline_seconds: Annotated[int, Form()] = 60,
+    total_rounds: Annotated[int, Form()] = 10,
+    turns_per_round: Annotated[int, Form()] = 10,
 ):
     def _error(msg: str):
         return templates.TemplateResponse(
@@ -157,6 +159,10 @@ async def create_game_submit(
         return _error("Player counts must be 3 to 20.")
     if min_players > max_players:
         return _error("Min players cannot be greater than max players.")
+    if not (3 <= total_rounds <= 20):
+        return _error("Total rounds must be 3 to 20.")
+    if not (3 <= turns_per_round <= 20):
+        return _error("Turns per round must be 3 to 20.")
 
     existing_ids = (await db.execute(select(Match.id))).scalars().all()
     n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
@@ -168,6 +174,8 @@ async def create_game_submit(
         min_players=min_players,
         max_players=max_players,
         per_turn_deadline_seconds=per_turn_deadline_seconds,
+        total_rounds=total_rounds,
+        turns_per_round=turns_per_round,
     )
     db.add(g)
     await db.commit()
