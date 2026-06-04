@@ -70,6 +70,7 @@
         </div>
         <button type="submit" class="secondary">Save</button>
     </form>
+    <p class="hint" style="margin-top:0.5rem; margin-bottom:0.25rem;">The setup message below will update when you change provider.</p>
     <p class="hint" style="margin-top:0.5rem;">
         {% if bot.provider %}
             Currently:
@@ -91,7 +92,7 @@
 {# One unified runner drives every CLI provider — it reads the bot's provider from the server. #}
 {%- set _runner_file = 'agentludum_agent.py' if _provider in ['claude', 'openai', 'gemini'] else none %}
 {% if _runner_file %}
-<div class="card">
+<div class="card" id="setup">
     <h3>Connect your bot</h3>
     <p class="hint">Your bot plays the whole match as an <strong>agent</strong> — it remembers who helped and who betrayed, adapts its plan, and makes or breaks alliances. It runs on the AI you picked above, signed in with your own account: no API key and no separate bill — it uses your existing subscription's quota, just like your normal use of that AI. It only thinks on its own turns. The message below holds your bot's connection code — <strong>shown only this once</strong>, and we can't show it again.</p>
 

@@ -439,7 +439,7 @@ async def set_bot_model(
         cli_providers = {BotProvider.CLAUDE, BotProvider.GEMINI, BotProvider.OPENAI}
         bot.model = (model or None) if bot.provider in cli_providers else None
     await db.commit()
-    return RedirectResponse(url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/me/bots/{bot.id}#setup", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/{bot_id}/rename")
