@@ -27,6 +27,11 @@ async def get_current_user(request: Request, db: DbSession) -> User | None:
     return await get_user_from_session(request, db)
 
 
+def is_admin(user: User | None) -> bool:
+    """Non-raising admin check for conditional rendering. None is never admin."""
+    return user is not None and user.email.lower() in settings.admin_emails_set
+
+
 async def require_user(request: Request, db: DbSession) -> User:
     user = await get_user_from_session(request, db)
     if user is None:
@@ -45,7 +50,7 @@ async def require_user(request: Request, db: DbSession) -> User:
 
 async def require_admin(request: Request, db: DbSession) -> User:
     user = await require_user(request, db)
-    if user.email.lower() not in settings.admin_emails_set:
+    if not is_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={

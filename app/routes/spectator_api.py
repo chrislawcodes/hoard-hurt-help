@@ -6,10 +6,15 @@ from fastapi import APIRouter, HTTPException, Path
 from sqlalchemy import select
 
 from app.deps import DbSession
+from app.engine.match_reads import (
+    load_messages_by_turn,
+    load_submissions_by_turn,
+    player_count,
+)
+from app.engine.scoreboard import scoreboard_rows
 from app.models.match import Match
 from app.models.player import Player
-from app.models.turn import Turn, TurnMessage, TurnSubmission
-from app.schemas.agent import ScoreboardRow
+from app.models.turn import Turn
 from app.schemas.spectator import (
     SpectatorAction,
     SpectatorAgent,
@@ -37,9 +42,6 @@ async def list_games_public(
     games = (await db.execute(q)).scalars().all()
     out = []
     for g in games:
-        player_count = len(
-            (await db.execute(select(Player).where(Player.match_id == g.id))).scalars().all()
-        )
         out.append(
             {
                 "id": g.id,
@@ -53,7 +55,7 @@ async def list_games_public(
                 "per_turn_deadline_seconds": g.per_turn_deadline_seconds,
                 "current_round": g.current_round,
                 "current_turn": g.current_turn,
-                "player_count": player_count,
+                "player_count": await player_count(db, g.id, active_only=False),
             }
         )
     return out
@@ -72,14 +74,7 @@ async def public_state(
         (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
     players_by_id = {p.id: p for p in players}
-    scoreboard = [
-        ScoreboardRow(
-            agent_id=p.agent_id,
-            round_score=p.current_round_score,
-            round_wins=p.total_round_wins,
-        )
-        for p in players
-    ]
+    scoreboard = scoreboard_rows(players)
     turns = (
         (
             await db.execute(
@@ -92,41 +87,8 @@ async def public_state(
         .all()
     )
     turn_ids = [t.id for t in turns]
-    messages_by_turn: dict[int, list[TurnMessage]] = {}
-    if turn_ids:
-        message_rows = (
-            (
-                await db.execute(
-                    select(TurnMessage)
-                    .where(TurnMessage.turn_id.in_(turn_ids))
-                    .order_by(TurnMessage.turn_id, TurnMessage.submitted_at, TurnMessage.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for message in message_rows:
-            messages_by_turn.setdefault(message.turn_id, []).append(message)
-
-    subs_by_turn: dict[int, list[TurnSubmission]] = {}
-    if turn_ids:
-        subs = (
-            (
-                await db.execute(
-                    select(TurnSubmission)
-                    .where(TurnSubmission.turn_id.in_(turn_ids))
-                    .order_by(
-                        TurnSubmission.turn_id,
-                        TurnSubmission.submitted_at,
-                        TurnSubmission.id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for sub in subs:
-            subs_by_turn.setdefault(sub.turn_id, []).append(sub)
+    messages_by_turn = await load_messages_by_turn(db, turn_ids)
+    subs_by_turn = await load_submissions_by_turn(db, turn_ids)
 
     history: list[SpectatorTurn] = []
     for t in turns:

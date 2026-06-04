@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.game_records import Action, ActionRecord
+from app.engine.scoreboard import scoreboard_rows
 from app.engine.sims.runtime import (
     build_sim_profile,
     choose_action_decision,
@@ -203,14 +204,7 @@ async def _load_scoreboard(db: AsyncSession, match_id: str) -> list[ScoreboardRo
         .scalars()
         .all()
     )
-    return [
-        ScoreboardRow(
-            agent_id=p.agent_id,
-            round_score=p.current_round_score,
-            round_wins=p.total_round_wins,
-        )
-        for p in players
-    ]
+    return scoreboard_rows(players)
 
 
 async def _load_current_talk_messages(

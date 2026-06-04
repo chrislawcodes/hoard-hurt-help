@@ -15,7 +15,7 @@ from app.engine.board_signals import (
     compute_board_signals,
     detect_pattern_breaks,
 )
-from app.engine.game_records import ActionRecord, PlayerRecord
+from app.engine.game_records import ActionRecord, PlayerRecord, tally_actions
 from app.engine.opponent_stats import (
     NEIGHBOR_RADIUS,
     build_opponent_view,
@@ -135,9 +135,8 @@ def _delta(
         if a.actor_id == you or a.target_id == you
     ]
     others = [a for a in last if a.actor_id != you]
-    hoard = sum(1 for a in others if a.action == "HOARD")
-    helped = sum(1 for a in others if a.action == "HELP")
-    hurt = sum(1 for a in others if a.action == "HURT")
+    counts = tally_actions(others)
+    hoard, helped, hurt = counts["HOARD"], counts["HELP"], counts["HURT"]
     return TurnDelta(
         round=last_rt[0],
         turn=last_rt[1],

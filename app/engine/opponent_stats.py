@@ -11,7 +11,7 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Literal
 
-from app.engine.game_records import ActionRecord, PlayerRecord
+from app.engine.game_records import ActionRecord, PlayerRecord, tally_actions
 from app.schemas.agent import OpponentsAggregate, OpponentStat, StyleMix
 
 OpponentReason = Literal["interacted", "threat", "neighbor", "flagged"]
@@ -169,15 +169,15 @@ def _aggregate(
     if not folded:
         return None
     folded_set = set(folded)
-    hoard = help = hurt = 0
-    if last_rt is not None:
-        for a in actions:
-            if (a.round, a.turn) != last_rt or a.actor_id not in folded_set:
-                continue
-            if a.action == "HOARD":
-                hoard += 1
-            elif a.action == "HELP":
-                help += 1
-            elif a.action == "HURT":
-                hurt += 1
-    return OpponentsAggregate(count=len(folded), hoard=hoard, help=help, hurt=hurt)
+    relevant = (
+        [a for a in actions if (a.round, a.turn) == last_rt and a.actor_id in folded_set]
+        if last_rt is not None
+        else []
+    )
+    counts = tally_actions(relevant)
+    return OpponentsAggregate(
+        count=len(folded),
+        hoard=counts["HOARD"],
+        help=counts["HELP"],
+        hurt=counts["HURT"],
+    )

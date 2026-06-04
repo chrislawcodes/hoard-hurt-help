@@ -8,6 +8,7 @@ pure function over data — trivially unit-testable without a live DB.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -37,3 +38,11 @@ class ActionRecord:
     points_delta: int
     round_score_after: int
     was_defaulted: bool
+
+
+def tally_actions(actions: Iterable[ActionRecord]) -> dict[Action, int]:
+    """Count actions by type. Every action type is present, defaulting to 0."""
+    counts: dict[Action, int] = {"HOARD": 0, "HELP": 0, "HURT": 0}
+    for a in actions:
+        counts[a.action] += 1
+    return counts

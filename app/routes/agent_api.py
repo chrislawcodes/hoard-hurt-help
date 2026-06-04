@@ -15,6 +15,7 @@ from app.deps import DbSession, require_bot_player
 from app.engine.bot_activity import mark_first_move
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.opponent_stats import rank_players
+from app.engine.scoreboard import scoreboard_rows
 from app.games import get as get_game_module
 from app.games.base import GameError
 from app.models.match import Match, GameState
@@ -105,14 +106,7 @@ async def _build_scoreboard(db, game: Match) -> list[ScoreboardRow]:
     players = (
         (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
     )
-    return [
-        ScoreboardRow(
-            agent_id=p.agent_id,
-            round_score=p.current_round_score,
-            round_wins=p.total_round_wins,
-        )
-        for p in players
-    ]
+    return scoreboard_rows(players)
 
 
 async def _load_players(db, game: Match) -> list[PlayerRecord]:

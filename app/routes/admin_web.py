@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, select
 
 from app.deps import DbSession, require_admin
+from app.engine.match_reads import player_count
 from app.engine.scheduler import registry, start_game
 from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
@@ -23,12 +24,6 @@ from app.models.user import User
 from app.templating import templates  # shared instance with custom filters
 
 router = APIRouter(tags=["admin"])
-
-
-async def _player_count(db, match_id: str) -> int:
-    return len(
-        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
-    )
 
 
 @router.get("/admin", response_class=HTMLResponse)
@@ -49,7 +44,7 @@ async def admin_dashboard(
             "min_players": g.min_players,
             "max_players": g.max_players,
             "state": g.state,
-            "player_count": await _player_count(db, g.id),
+            "player_count": await player_count(db, g.id, active_only=False),
         }
         if g.state == GameState.ACTIVE:
             active.append(view)

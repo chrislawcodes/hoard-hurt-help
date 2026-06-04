@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.broadcast import subscribe
 from app.config import settings
-from app.deps import DbSession, require_user
+from app.deps import DbSession, is_admin, require_user
 from app.engine.bot_activity import (
     bot_channel,
     compute_bot_health,
@@ -37,10 +37,6 @@ router = APIRouter(prefix="/me/bots", tags=["bots"])
 logger = logging.getLogger(__name__)
 
 _NAME_RE = re.compile(r"^[a-zA-Z0-9 _-]{1,120}$")
-
-
-def _is_admin(user: User) -> bool:
-    return user.email.lower() in settings.admin_emails_set
 
 
 async def _owned_bot(db: DbSession, user: User, bot_id: int) -> Bot:
@@ -186,10 +182,10 @@ async def list_bots(
         "bots/list.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "rows": rows,
             "sim_rows": sim_rows,
-            "sim_profile_choices": pack_profile_choices(include_hidden=_is_admin(user)),
+            "sim_profile_choices": pack_profile_choices(include_hidden=is_admin(user)),
         },
     )
 
@@ -236,7 +232,7 @@ async def create_bot(
     if bot.kind == BotKind.SIM:
         allowed_choices = {
             choice.id: choice
-            for choice in pack_profile_choices(include_hidden=_is_admin(user))
+            for choice in pack_profile_choices(include_hidden=is_admin(user))
         }
         if sim_profile_id and sim_profile_id not in allowed_choices:
             raise HTTPException(400, detail="Unknown Sim profile.")
@@ -285,7 +281,7 @@ async def bot_detail(
         "bots/detail.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "bot": bot,
             "fresh_key": fresh_key,
             "games": await _bot_games(db, bot),

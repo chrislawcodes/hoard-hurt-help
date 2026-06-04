@@ -13,10 +13,15 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
 from app.config import settings
-from app.deps import DbSession, get_current_user, require_user
+from app.deps import DbSession, get_current_user, is_admin, require_user
 from app.engine.game_insights import round_detail, season_overview
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.engine.match_id_rewrite import match_id_candidates
+from app.engine.match_reads import (
+    load_messages_by_turn,
+    load_submissions_by_turn,
+    player_count,
+)
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
 from app.games.base import GameError, GameTheme
@@ -31,23 +36,6 @@ from app.templating import templates  # shared instance with custom filters
 router = APIRouter(tags=["web"])
 
 logger = logging.getLogger(__name__)
-
-
-async def _player_count(db, match_id: str) -> int:
-    """Active players only — a pulled-out (left) bot frees its seat."""
-    return len(
-        (
-            await db.execute(
-                select(Player).where(Player.match_id == match_id, Player.left_at.is_(None))
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-
-def _is_admin(user: User | None) -> bool:
-    return user is not None and user.email.lower() in settings.admin_emails_set
 
 
 async def _upcoming_views(db) -> list[dict]:
@@ -76,7 +64,7 @@ async def _upcoming_views(db) -> list[dict]:
                 "name": g.name,
                 "scheduled_start": g.scheduled_start.isoformat(),
                 "max_players": g.max_players,
-                "player_count": await _player_count(db, g.id),
+                "player_count": await player_count(db, g.id),
             }
         )
     return views
@@ -217,7 +205,7 @@ async def home(request: Request, db: DbSession):
             "current_round": g.current_round,
             "current_turn": g.current_turn,
             "winner_agent_id": None,
-            "player_count": await _player_count(db, g.id),
+            "player_count": await player_count(db, g.id),
         }
         if g.state == GameState.ACTIVE:
             live.append(view)
@@ -251,7 +239,7 @@ async def home(request: Request, db: DbSession):
         "agent_ludum.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "rc_data": rc_data,
             "rc_game_id": rc_game_id,
             "rc_game_type": rc_game_type,
@@ -272,7 +260,7 @@ async def games_catalog(request: Request, db: DbSession):
         "games.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "game_theme": module.theme(),
             "featured_game_slug": "hoard-hurt-help",
         },
@@ -322,7 +310,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "current_round": g.current_round,
             "current_turn": g.current_turn,
             "winner_agent_id": None,
-            "player_count": await _player_count(db, g.id),
+            "player_count": await player_count(db, g.id),
         }
         if g.state == GameState.ACTIVE:
             # The marquee shows "who's leading", so a live game carries its top-3.
@@ -352,7 +340,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
         "home.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "live_games": live,
             "upcoming_games": upcoming,
             "recent_games": recent_display[:8],
@@ -387,7 +375,7 @@ async def game_upcoming(request: Request, db: DbSession, game: Annotated[str, Pa
         request,
         "fragments/lobby_upcoming.html",
         {
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "upcoming_games": await _upcoming_views(db),
             "game_theme": module.theme(),
         },
@@ -479,7 +467,7 @@ def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
 
 async def _game_view_context(request: Request, db, match_id: str) -> dict:
     """Build the shared context for the game viewer page and its live fragment."""
-    from app.models.turn import Turn, TurnMessage, TurnSubmission
+    from app.models.turn import Turn
 
     user = await get_current_user(request, db)
     g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
@@ -517,41 +505,8 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
     )
     history = []
     turn_ids = [t.id for t in turns]
-    messages_by_turn: dict[int, list[TurnMessage]] = {}
-    if turn_ids:
-        messages = (
-            (
-                await db.execute(
-                    select(TurnMessage)
-                    .where(TurnMessage.turn_id.in_(turn_ids))
-                    .order_by(TurnMessage.turn_id, TurnMessage.submitted_at, TurnMessage.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for message in messages:
-            messages_by_turn.setdefault(message.turn_id, []).append(message)
-
-    subs_by_turn: dict[int, list[TurnSubmission]] = {}
-    if turn_ids:
-        subs = (
-            (
-                await db.execute(
-                    select(TurnSubmission)
-                    .where(TurnSubmission.turn_id.in_(turn_ids))
-                    .order_by(
-                        TurnSubmission.turn_id,
-                        TurnSubmission.submitted_at,
-                        TurnSubmission.id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for sub in subs:
-            subs_by_turn.setdefault(sub.turn_id, []).append(sub)
+    messages_by_turn = await load_messages_by_turn(db, turn_ids)
+    subs_by_turn = await load_submissions_by_turn(db, turn_ids)
 
     # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
     # the same turn; a "betrayal" is a HURT aimed at last turn's pact partner.
@@ -673,7 +628,7 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
 
     return {
         "user": user,
-        "is_admin": _is_admin(user),
+        "is_admin": is_admin(user),
         "game": g,
         "game_theme": _game_theme(g),
         "scoreboard": scoreboard,
@@ -832,7 +787,7 @@ async def game_analysis(
         "analysis_season.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "game": g,
             "game_theme": _game_theme(g),
             "overview": overview,
@@ -881,7 +836,7 @@ async def game_analysis_round(
         "analysis_round.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "game": g,
             "game_theme": _game_theme(g),
             "detail": detail,
@@ -917,7 +872,7 @@ async def guide(name: Annotated[str, Path()], request: Request, db: DbSession):
         "guide.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "title": name.replace("-", " ").title(),
             "body": path.read_text(encoding="utf-8"),
         },
@@ -1032,10 +987,10 @@ async def join_form(
         "join.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "game": match,
             "game_theme": _game_theme(match),
-            "player_count": await _player_count(db, match.id),
+            "player_count": await player_count(db, match.id),
             "bots": bots,
             "presets": presets,
             "strategy_prompt": module.default_strategy(),
@@ -1102,7 +1057,7 @@ async def join_submit(
             )
         )
     ).scalar_one_or_none()
-    count = await _player_count(db, match.id)
+    count = await player_count(db, match.id)
 
     error: str | None = None
     code = status.HTTP_400_BAD_REQUEST
@@ -1132,7 +1087,7 @@ async def join_submit(
             "join.html",
             {
                 "user": user,
-                "is_admin": _is_admin(user),
+                "is_admin": is_admin(user),
                 "game": match,
                 "game_theme": _game_theme(match),
                 "player_count": count,
@@ -1200,7 +1155,7 @@ async def my_games(
     return templates.TemplateResponse(
         request,
         "my_games.html",
-        {"user": user, "is_admin": _is_admin(user), "games": games},
+        {"user": user, "is_admin": is_admin(user), "games": games},
     )
 
 
@@ -1247,7 +1202,7 @@ async def player_dashboard(
         "connection.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": is_admin(user),
             "game": game,
             "game_theme": _game_theme(game),
             "player": player,
