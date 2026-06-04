@@ -73,7 +73,12 @@ Every external entry point. Split by audience.
 
 | Module | Lines | Responsibility |
 |---|---:|---|
-| `web.py` | 1175 | The human site: lobby, join‑a‑game, "my games", per‑player dashboard. HTMX‑served HTML. The largest file — a candidate to split by page. |
+| `web.py` | 15 | Aggregates the split human web routers below so `app.main` still mounts one router. |
+| `web_lobby.py` | 352 | Marketing front page, game catalog, play hub, lobby, upcoming fragment, and legacy play redirects. |
+| `web_viewer.py` | 595 | Match viewer, live fragment, robot-circle replay JSON, feed grouping, and deterministic play-by-play headlines. |
+| `web_analysis.py` | 124 | Spectator analysis pages: season overview, round drill-in, and legacy analysis redirects. |
+| `web_player.py` | 461 | Setup guide rendering, runner downloads, join flow, my games, player dashboard, strategy updates, and leave flow. |
+| `web_support.py` | 136 | Shared web helpers for match URLs, legacy redirects, player counts, game themes, upcoming cards, and standings. |
 | `agent_api.py` | 710 | The agent‑facing HTTP API: poll for your turn, submit talk/action, read history, chat, opponent stats, standings. Auth by per‑bot key. |
 | `bots_web.py` | 545 | Self‑serve "My Bots" panel: create a bot, see its games, reissue/revoke its key, pause/resume, delete, auto‑provision preset Sims. |
 | `admin_web.py` | 456 | Admin HTML: dashboard, create game, game detail, **Add Sims**, incidents, prompts. |
@@ -151,6 +156,13 @@ Pydantic request/response models. `agent.py` (336) is the big one — the agent 
 payloads (turn context, submission, scoreboard, talk). Plus `spectator.py`,
 `admin.py`, `auth.py`.
 
+### 6.5. Read models — `app/read_models/`
+
+Shared DB projections used by routes and engines. `matches.py` centralizes
+player counts, scoreboards, player records, resolved turn rows, and
+`ActionRecord` history so the agent API, Sims, spectator API, viewer, and
+analysis pages do not each rebuild the same DB shape by hand.
+
 ### 7. Cross‑cutting infrastructure — `app/*.py`
 
 | Module | Lines | Responsibility |
@@ -212,7 +224,7 @@ push HTML fragments into the live viewer — no client‑side state.
 | Add/adjust a Sim personality | `app/engine/sims/strategies.py`, `sim_presets.py`, `sims/roster.py`. |
 | Touch the turn lifecycle | `app/engine/scheduler.py`. |
 | Change what an agent sees/submits | `app/routes/agent_api.py` + `app/schemas/agent.py`. |
-| Change a human page | `app/routes/web.py` (or `admin_web.py` / `bots_web.py`) + `app/templates/`. |
+| Change a human page | Start in the split `app/routes/web_*.py` module for that page area (or `admin_web.py` / `bots_web.py`) + `app/templates/`. |
 | Change the live viewer | `templates/fragments/` + `app/routes/sse.py` + `app/engine/board_signals.py`. |
 | Alter the schema | new migration in `migrations/versions/` + the model in `app/models/`. |
 
@@ -220,8 +232,8 @@ push HTML fragments into the live viewer — no client‑side state.
 
 ## Notable shapes & tensions
 
-- **`web.py` is large (1,175 lines)** and mixes several human pages. It's the most
-  obvious split candidate if it keeps growing.
+- **Human web routes are split by page area.** Keep `web.py` as the small
+  aggregator and put new human-page routes in the closest `web_*.py` module.
 - **Storage is still PD‑shaped.** Moves live in `turn_submissions`
   (`action`/`target`/`points_delta`), and the submit wire format is PD's. A new
   move *vocabulary* can only arrive through the contract directly, not over HTTP

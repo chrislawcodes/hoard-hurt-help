@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.routes.web import _feed_sort_key, _turn_groups, _turn_summary
+from app.routes.web_viewer import _feed_sort_key, _turn_groups, _turn_summary
 
 
 def _ga(agent, action, target=None, *, mutual=False, betrayal=False):
