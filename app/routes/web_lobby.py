@@ -1,5 +1,6 @@
 """Marketing, game catalog, play hub, and lobby web routes."""
 
+import dataclasses
 import logging
 from datetime import datetime, timezone
 from urllib.parse import urlencode
@@ -230,17 +231,10 @@ async def home(request: Request, db: DbSession):
     rc_game_id, rc_data = await _showcase_replay_data(request, db, completed)
     rc_game_type = next((v["game_type"] for v in completed if v["id"] == rc_game_id), None)
 
-    # Leaderboard band: real standings. Prefer the most-progressed live game;
-    # otherwise the most-recent finished showcase game. Empty list → empty state.
-    live.sort(key=lambda v: (v["current_round"], v["current_turn"]), reverse=True)
-    standings: list[dict] = []
-    standings_game: str | None = None
-    standings_source = next((v for v in live), None) or next(
-        (v for v in completed if _is_showcase(v)), None
-    )
-    if standings_source is not None:
-        standings = await _top_standings(db, standings_source["id"], 6)
-        standings_game = standings_source["name"]
+    # Leaderboard band: real ELO standings across all competitors (agents + sims),
+    # sliced to the top 8 per game section for the home page teaser.
+    lb_sections_full = await load_leaderboard_sections(db, included="all")
+    lb_sections = [dataclasses.replace(s, rows=s.rows[:8]) for s in lb_sections_full]
 
     return templates.TemplateResponse(
         request,
@@ -251,8 +245,7 @@ async def home(request: Request, db: DbSession):
             "rc_data": rc_data,
             "rc_game_id": rc_game_id,
             "rc_game_type": rc_game_type,
-            "standings": standings,
-            "standings_game": standings_game,
+            "lb_sections": lb_sections,
             "has_live": bool(live),
         },
     )

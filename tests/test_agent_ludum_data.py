@@ -54,7 +54,7 @@ async def test_empty_state_has_no_fabricated_rows(client, reset_db):
     assert r.status_code == 200
     _assert_no_fabricated_marketing_claims(r.text)
     # Honest empty copy for the standings band, not invented leaderboard rows.
-    assert "No games have been scored yet" in r.text
+    assert "No ranked competitors yet" in r.text
 
 
 @pytest.mark.asyncio
