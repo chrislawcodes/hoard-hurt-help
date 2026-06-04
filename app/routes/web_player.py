@@ -317,8 +317,8 @@ async def join_submit(
     )
 
 
-@router.get("/me/games", response_class=HTMLResponse)
-async def my_games(
+@router.get("/me/matches", response_class=HTMLResponse)
+async def my_matches(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
@@ -336,13 +336,20 @@ async def my_games(
                 "state": g.state,
                 "agent_id": p.agent_id,
                 "player_id": p.id,
+                "game_type": g.game,
+                "watch_url": f"/games/{g.game}/matches/{g.id}",
             }
         )
     return templates.TemplateResponse(
         request,
-        "my_games.html",
+        "my_matches.html",
         {"user": user, "is_admin": _is_admin(user), "games": games},
     )
+
+
+@router.get("/me/games", response_class=HTMLResponse, include_in_schema=False)
+async def my_games_redirect(request: Request):
+    return RedirectResponse(url="/me/matches", status_code=status.HTTP_301_MOVED_PERMANENTLY)
 
 
 @router.get("/me/players/{player_id}", response_class=HTMLResponse)
@@ -458,4 +465,4 @@ async def web_leave(
         raise HTTPException(409, detail="Cannot leave after start.")
     player.left_at = datetime.now(timezone.utc)
     await db.commit()
-    return RedirectResponse(url="/me/games", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)

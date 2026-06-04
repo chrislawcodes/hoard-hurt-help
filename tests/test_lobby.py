@@ -488,6 +488,6 @@ async def test_my_games_lists_user_games(client, reset_db):
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
-    r = await client.get("/me/games", cookies=_signed_in_cookies(user.id))
+    r = await client.get("/me/matches", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
     assert "Test Match" in r.text
