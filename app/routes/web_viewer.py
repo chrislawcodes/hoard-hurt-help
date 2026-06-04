@@ -391,6 +391,7 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
     history: list[dict[str, Any]] = []
     messages_by_turn = turn_rows.messages_by_turn
     subs_by_turn = turn_rows.submissions_by_turn
+    viewer_player = next((p for p in players if user and p.user_id == user.id), None)
 
     # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
     # the same turn; a "betrayal" is a HURT aimed at last turn's pact partner.
@@ -551,6 +552,8 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
         "rounds": rounds,
         "max_played_round": max_played_round,
         "winner_agent_id": winner_agent_id,
+        "viewer_player_id": viewer_player.id if viewer_player else None,
+        "viewer_agent_id": viewer_player.agent_id if viewer_player else None,
     }
 
 

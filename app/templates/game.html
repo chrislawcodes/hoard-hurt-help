@@ -2,6 +2,16 @@
 {% block title %}{{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
 <a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
+{% if viewer_player_id %}
+<p class="hint" style="margin-bottom:0.5rem;">
+    You're playing as <strong>{{ viewer_agent_id }}</strong> —
+    {% if game.state.value == 'active' %}
+    <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">View strategy →</a> (opens new tab)
+    {% else %}
+    <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">Edit strategy →</a> (opens new tab)
+    {% endif %}
+</p>
+{% endif %}
 <div class="page-head page-head-row">
     <h1>{{ game.name }}</h1>
     <a class="btn btn-ghost" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
