@@ -424,8 +424,9 @@
     AGENTS.forEach(function(id){ finalWins[id]=wins[id]; finalScore[id]=sim[id]||0; });
   })();
 
-  // Format a (possibly fractional) win count: 0, 1, 1.5 — never "1.0".
+  // Format a (possibly fractional) round count: 0, 1, 1.5 — never "1.0".
   function fmtWins(w){ return (Math.round(w*10)/10).toString(); }
+  function fmtWinsUnit(w){ return (Math.round(w*10)/10) === 1 ? 'round' : 'rounds'; }
 
   var rScore={}, rWins={}, railRowEl={};
   AGENTS.forEach(function(id){ rScore[id]=0; rWins[id]=0; });
@@ -439,7 +440,7 @@
       li.innerHTML='<span class="rk">1</span>'
         +'<span class="nm"><span class="nm-name" title="'+id+'">'+id+'</span>'
         +'<span class="nm-pts">0 pts this round</span></span>'
-        +'<span class="sc">0<span class="sc-unit">wins</span></span>'
+        +'<span class="sc">0<span class="sc-unit">rounds</span></span>'
         +'<span class="track"><span class="bar"></span></span>';
       railEl.appendChild(li); railRowEl[id]=li;
     });
@@ -459,7 +460,9 @@
       var row=railRowEl[id];
       row.style.transform='translateY('+(i*52)+'px)';
       row.querySelector('.rk').textContent=i+1;
-      row.querySelector('.sc').firstChild.textContent=fmtWins(rWins[id]||0);
+      var winsVal=rWins[id]||0;
+      row.querySelector('.sc').firstChild.textContent=fmtWins(winsVal);
+      row.querySelector('.sc-unit').textContent=fmtWinsUnit(winsVal);
       row.querySelector('.nm-pts').textContent=rScore[id]+' pts this round';
       // Bars show rounds won (what decides the winner); empty until round 1 ends.
       row.querySelector('.bar').style.width=(maxw>0?Math.max(0,Math.min(100,rWins[id]/maxw*100)):0)+'%';
