@@ -10,6 +10,7 @@ from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import DbSession, require_bot_player
 from app.engine.bot_activity import mark_first_move
@@ -133,6 +134,75 @@ async def _build_current_turn(db, turn: Turn) -> CurrentTurn:
     )
 
 
+async def _load_active_phase_turn(
+    db: AsyncSession,
+    match_id: str,
+    turn_token: str,
+    expected_phase: Literal["talk", "act"],
+) -> tuple[Match, Turn]:
+    """Load the match and validate that a token can accept this phase's input."""
+    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+    if game.state != GameState.ACTIVE:
+        raise _err(
+            "GAME_NOT_ACTIVE",
+            "Match is not active.",
+            status.HTTP_409_CONFLICT,
+        )
+
+    turn = (
+        await db.execute(
+            select(Turn).where(Turn.match_id == game.id, Turn.turn_token == turn_token)
+        )
+    ).scalar_one_or_none()
+    if turn is None:
+        raise _err(
+            "STALE_TURN_TOKEN",
+            "turn_token doesn't match the open turn.",
+            status.HTTP_409_CONFLICT,
+        )
+    if turn.resolved_at is not None:
+        raise _err(
+            "STALE_TURN_TOKEN",
+            "Turn already resolved.",
+            status.HTTP_409_CONFLICT,
+        )
+    if turn.phase != expected_phase:
+        raise _err(
+            "WRONG_PHASE",
+            f"Turn is not in {expected_phase} phase.",
+            status.HTTP_409_CONFLICT,
+        )
+    if datetime.now(timezone.utc) >= _as_aware(turn.deadline_at):
+        raise _err("DEADLINE_PASSED", "Submission past deadline.", status.HTTP_410_GONE)
+    return game, turn
+
+
+async def _existing_message_for_player(
+    db: AsyncSession, turn: Turn, player: Player
+) -> TurnMessage | None:
+    return (
+        await db.execute(
+            select(TurnMessage).where(
+                TurnMessage.turn_id == turn.id,
+                TurnMessage.player_id == player.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _existing_submission_for_player(
+    db: AsyncSession, turn: Turn, player: Player
+) -> TurnSubmission | None:
+    return (
+        await db.execute(
+            select(TurnSubmission).where(
+                TurnSubmission.turn_id == turn.id,
+                TurnSubmission.player_id == player.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
 @router.get("/turn")
 async def agent_poll(
     match_id: Annotated[str, Path()],
@@ -243,44 +313,8 @@ async def agent_message(
     player: Annotated[Player, Depends(require_bot_player)],
 ) -> MessageResponse:
     """Submit this turn's talk-phase message. Idempotent on (turn_token, player_id)."""
-    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
-    if game.state != GameState.ACTIVE:
-        raise _err(
-            "GAME_NOT_ACTIVE",
-            "Match is not active.",
-            status.HTTP_409_CONFLICT,
-        )
-
-    turn = (
-        await db.execute(
-            select(Turn).where(Turn.match_id == game.id, Turn.turn_token == body.turn_token)
-        )
-    ).scalar_one_or_none()
-    if turn is None:
-        raise _err(
-            "STALE_TURN_TOKEN",
-            "turn_token doesn't match the open turn.",
-            status.HTTP_409_CONFLICT,
-        )
-    if turn.resolved_at is not None:
-        raise _err(
-            "STALE_TURN_TOKEN",
-            "Turn already resolved.",
-            status.HTTP_409_CONFLICT,
-        )
-    if turn.phase != "talk":
-        raise _err("WRONG_PHASE", "Turn is not in talk phase.", status.HTTP_409_CONFLICT)
-    if datetime.now(timezone.utc) >= _as_aware(turn.deadline_at):
-        raise _err("DEADLINE_PASSED", "Submission past deadline.", status.HTTP_410_GONE)
-
-    existing = (
-        await db.execute(
-            select(TurnMessage).where(
-                TurnMessage.turn_id == turn.id,
-                TurnMessage.player_id == player.id,
-            )
-        )
-    ).scalar_one_or_none()
+    game, turn = await _load_active_phase_turn(db, match_id, body.turn_token, "talk")
+    existing = await _existing_message_for_player(db, turn, player)
     if existing is not None and not existing.was_defaulted:
         return MessageResponse(
             received_at=existing.submitted_at or datetime.now(timezone.utc),
@@ -315,45 +349,8 @@ async def agent_submit(
     player: Annotated[Player, Depends(require_bot_player)],
 ) -> SubmitResponse:
     """Submit this turn's action. Idempotent on (turn_token, player_id)."""
-    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
-    if game.state != GameState.ACTIVE:
-        raise _err(
-            "GAME_NOT_ACTIVE",
-            "Match is not active.",
-            status.HTTP_409_CONFLICT,
-        )
-
-    turn = (
-        await db.execute(
-            select(Turn).where(Turn.match_id == game.id, Turn.turn_token == body.turn_token)
-        )
-    ).scalar_one_or_none()
-    if turn is None:
-        raise _err(
-            "STALE_TURN_TOKEN",
-            "turn_token doesn't match the open turn.",
-            status.HTTP_409_CONFLICT,
-        )
-    if turn.resolved_at is not None:
-        raise _err(
-            "STALE_TURN_TOKEN",
-            "Turn already resolved.",
-            status.HTTP_409_CONFLICT,
-        )
-    if turn.phase != "act":
-        raise _err("WRONG_PHASE", "Turn is not in act phase.", status.HTTP_409_CONFLICT)
-    if datetime.now(timezone.utc) >= _as_aware(turn.deadline_at):
-        raise _err("DEADLINE_PASSED", "Submission past deadline.", status.HTTP_410_GONE)
-
-    # Idempotency: a prior submission with the same token returns same shape.
-    existing = (
-        await db.execute(
-            select(TurnSubmission).where(
-                TurnSubmission.turn_id == turn.id,
-                TurnSubmission.player_id == player.id,
-            )
-        )
-    ).scalar_one_or_none()
+    game, turn = await _load_active_phase_turn(db, match_id, body.turn_token, "act")
+    existing = await _existing_submission_for_player(db, turn, player)
     if existing is not None and not existing.was_defaulted:
         return SubmitResponse(
             received_at=existing.submitted_at or datetime.now(timezone.utc),
