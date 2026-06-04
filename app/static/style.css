@@ -1098,6 +1098,89 @@ button.danger:hover,
 .al-lb-empty { text-align: center; padding: 36px 20px; }
 .al-lb-empty p { color: var(--ink-soft); margin-bottom: 18px; }
 
+/* Global leaderboard */
+.lb-note { color: var(--ink-soft); margin-top: 10px; max-width: 68ch; }
+.lb-toolbar {
+    margin-bottom: 1.5rem;
+    padding: 18px;
+    display: flex;
+    gap: 18px 24px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+.lb-control { display: flex; flex-direction: column; gap: 0.45rem; }
+.lb-control-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+}
+.lb-section { margin-bottom: 1.5rem; overflow: hidden; }
+.lb-section:last-of-type { margin-bottom: 0; }
+.lb-table { border-top: 1px solid var(--line); }
+.lb-row {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr) 110px 92px 150px;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 18px;
+    border-top: 1px solid var(--line);
+}
+.lb-head {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    border-top: none;
+    background: var(--surface-2);
+}
+.lb-row.leader { background: color-mix(in oklab, var(--brand) 10%, var(--surface)); }
+.lb-rank {
+    display: grid;
+    place-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--line);
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 13px;
+}
+.lb-row.leader .lb-rank { background: var(--accent); color: var(--on-brand); }
+.lb-name {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-weight: 700;
+    font-size: 15px;
+}
+.lb-num { text-align: right; font-variant-numeric: tabular-nums; }
+.lb-last { color: var(--ink-soft); }
+.lb-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    white-space: nowrap;
+}
+.lb-tag-sim {
+    color: var(--help);
+    border-color: color-mix(in srgb, var(--help) 35%, var(--line));
+}
+.lb-tag-provisional {
+    color: var(--brand);
+    border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
+}
+.lb-empty { text-align: center; padding: 36px 20px; }
+.lb-empty-note { color: var(--ink-soft); margin-top: 10px; }
+
 /* CTA band */
 .al-cta-band { background: var(--brand); border: 2px solid var(--line-bold); border-radius: var(--al-radius-lg); padding: clamp(36px, 5vw, 64px); text-align: center; box-shadow: var(--al-shadow-soft); }
 .al-cta-band h2 { color: var(--on-brand); }
@@ -1145,6 +1228,9 @@ button.danger:hover,
     .al-nav-inner:has(.al-acct) .al-wordmark { display: none; }
     .al-lb-row { grid-template-columns: 40px 1fr 90px; }
     .al-lb-row > .al-num:last-child, .al-lb-head > span:last-child { display: none; }
+    .lb-toolbar { padding: 14px; }
+    .lb-row { grid-template-columns: 40px minmax(0, 1fr) 86px; }
+    .lb-row > .lb-num:nth-child(4), .lb-row > .lb-last, .lb-head > .lb-matches, .lb-head > .lb-last { display: none; }
 }
 
 /* ── Admin: Add Sims ───────────────────────────────────────────────────────

@@ -31,6 +31,8 @@ Each game section must support six views:
 
 Both Elo variants should run from the same rated match history. Standard Elo should be the default public view. First-place Bonus Elo should be available as a comparison toggle while we test whether it produces better rankings or just noisier rankings.
 
+The page should only include completed matches from **June 3, 2026 onward**.
+
 ---
 
 ## Goals
@@ -68,7 +70,7 @@ The primary user for the page is the **spectator**. If the spectator and admin n
 
 ## Leaderboard Controls
 
-The page should have two top-level controls.
+The page should have two rating controls and one game-section filter.
 
 ### Rating Mode Toggle
 
@@ -122,6 +124,28 @@ Included
 ```
 
 Sims must always be visually labeled as Sims in the table. Agents do not need a label unless they are provisional.
+
+### Sim Game Filter
+
+The page should also let the user hide entire game sections that contain Sims.
+
+| Option | Meaning |
+|---|---|
+| Show all | Show every game section, even if some competitors are Sims. |
+| Hide sim games | Remove any game section that includes one or more Sims from the visible leaderboard. |
+
+Default:
+
+```text
+Show all
+```
+
+Recommended microcopy:
+
+```text
+Sim games
+[Show all] [Hide sim games]
+```
 
 ---
 

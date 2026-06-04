@@ -13,11 +13,12 @@ from sqlalchemy import case, func, select
 from app.deps import DbSession, get_current_user
 from app.engine.bot_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
-from app.games import get as get_game_module, known_types
+from app.games import get as get_game_module
 from app.games.base import GameError
 from app.models.bot import Bot, BotKind
 from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
+from app.read_models.leaderboard import load_leaderboard_sections
 from app.routes.web_support import (
     _TEST_NAME_PREFIX,
     _is_admin,
@@ -66,6 +67,28 @@ def _lobby_timestamp(match: Match) -> datetime:
     """Pick the timestamp we want to show for a finished or cancelled match."""
 
     return match.completed_at or match.cancelled_at or match.started_at or match.scheduled_start
+
+
+def _leaderboard_url(
+    request: Request,
+    *,
+    rating: str | None = None,
+    included: str | None = None,
+    hide_sim_games: bool | None = None,
+) -> str:
+    """Build a leaderboard link while preserving the other active filters."""
+
+    params = dict(request.query_params)
+    if rating is not None:
+        params["rating"] = rating
+    if included is not None:
+        params["included"] = included
+    if hide_sim_games is not None:
+        if hide_sim_games:
+            params["hide_sim_games"] = "1"
+        else:
+            params.pop("hide_sim_games", None)
+    return f"/leaderboard?{urlencode(params)}" if params else "/leaderboard"
 
 
 async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
@@ -251,27 +274,24 @@ async def games_catalog(request: Request, db: DbSession):
 
 
 @router.get("/leaderboard", response_class=HTMLResponse)
-async def leaderboard_page(request: Request, db: DbSession):
-    """Global leaderboard shell, grouped by game."""
+async def leaderboard_page(
+    request: Request,
+    db: DbSession,
+    rating: str = "standard",
+    included: str = "agents",
+    hide_sim_games: bool = False,
+):
+    """Global leaderboard, grouped by game."""
     user = await get_current_user(request, db)
-    sections: list[dict] = []
-    for game_type in known_types():
-        try:
-            module = get_game_module(game_type)
-        except GameError:
-            continue
-        try:
-            game_theme = module.theme()
-        except AttributeError:
-            game_theme = None
-        sections.append(
-            {
-                "game_type": game_type,
-                "game_name": _game_display_name(game_type),
-                "game_theme": game_theme,
-                "lobby_url": f"/games/{game_type}",
-            }
-        )
+    rating_mode = "bonus" if rating == "bonus" else "standard"
+    included_mode = "sims" if included == "sims" else "all" if included == "all" else "agents"
+    sections = await load_leaderboard_sections(
+        db,
+        rating_mode=rating_mode,
+        included=included_mode,
+    )
+    if hide_sim_games:
+        sections = [section for section in sections if not section.has_sims]
     return templates.TemplateResponse(
         request,
         "leaderboard.html",
@@ -279,6 +299,30 @@ async def leaderboard_page(request: Request, db: DbSession):
             "user": user,
             "is_admin": _is_admin(user),
             "sections": sections,
+            "rating_mode": rating_mode,
+            "included": included_mode,
+            "hide_sim_games": hide_sim_games,
+            "rating_standard_url": _leaderboard_url(
+                request, rating="standard", included=included_mode, hide_sim_games=hide_sim_games
+            ),
+            "rating_bonus_url": _leaderboard_url(
+                request, rating="bonus", included=included_mode, hide_sim_games=hide_sim_games
+            ),
+            "included_agents_url": _leaderboard_url(
+                request, rating=rating_mode, included="agents", hide_sim_games=hide_sim_games
+            ),
+            "included_sims_url": _leaderboard_url(
+                request, rating=rating_mode, included="sims", hide_sim_games=hide_sim_games
+            ),
+            "included_all_url": _leaderboard_url(
+                request, rating=rating_mode, included="all", hide_sim_games=hide_sim_games
+            ),
+            "sim_games_show_url": _leaderboard_url(
+                request, rating=rating_mode, included=included_mode, hide_sim_games=False
+            ),
+            "sim_games_hide_url": _leaderboard_url(
+                request, rating=rating_mode, included=included_mode, hide_sim_games=True
+            ),
         },
     )
 
