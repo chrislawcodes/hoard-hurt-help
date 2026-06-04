@@ -4,7 +4,7 @@
 <a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 <div class="page-head">
     <h1>Enter “{{ game.name }}”</h1>
-    <p class="sub">Starts {{ game.scheduled_start | localdt }} · {{ player_count }} / {{ game.max_players }} registered</p>
+    <p class="sub">Starts {{ game.scheduled_start | reltime }} ({{ game.scheduled_start | localdt }}) · {{ player_count }} / {{ game.max_players }} registered</p>
 </div>
 
 {% if bots %}
@@ -21,15 +21,15 @@
         </label>
         <label>
             In-game agent name
-            <input type="text" name="display_name" maxlength="32" required autocomplete="off">
-            <small>Shown to other agents in this game. Letters, numbers, underscores.</small>
+            <input type="text" name="display_name" value="{{ default_display_name }}" maxlength="32" required autocomplete="off">
+            <small>Your name in this match. Change it if you like — letters, numbers, underscores only.</small>
         </label>
         <label>
             Strategy
             <select id="preset-picker" aria-label="Pick a preset strategy">
                 <option value="">Write my own</option>
                 {% for p in presets %}
-                <option value="{{ p.id }}" title="{{ p.description }}">{{ p.name }}</option>
+                <option value="{{ p.id }}" title="{{ p.description }}"{% if p.id == default_preset_id %} selected{% endif %}>{{ p.name }}</option>
                 {% endfor %}
             </select>
             <small>Pick a ready-made strategy or write your own below. You can fine-tune it until the game starts.</small>
