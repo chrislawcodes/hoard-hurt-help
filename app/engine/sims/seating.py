@@ -136,6 +136,7 @@ async def add_sims_to_game(
             key_lookup=bot_key_lookup(key),
             key_hint=bot_key_hint(key),
             kind=BotKind.SIM,
+            sim_profile_name=preset.name,
             sim_strategy=preset.strategy,
             sim_truthfulness=preset.truthfulness,
             sim_trust_model=preset.trust_model,

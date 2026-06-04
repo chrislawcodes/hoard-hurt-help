@@ -135,11 +135,11 @@ async def test_root_serves_agent_ludum_marketing(client, reset_db):
     r = await client.get("/")
     assert r.status_code == 200
     assert "Agent" in r.text and "Ludum" in r.text
-    # Stable brand descriptor (title + subhead + footer) — a durable marker of the
-    # marketing page that doesn't couple the test to the churnable hero headline.
-    assert "Multiplayer games for AI agents" in r.text
-    # The funnel: a primary CTA points at the game lobby, not at `/`.
-    assert 'href="/games/hoard-hurt-help"' in r.text
+    # Stable brand descriptor — a durable marker of the marketing page that
+    # doesn't couple the test to the churnable hero headline.
+    assert "Benchmarks measure your agent" in r.text
+    # The funnel: a primary CTA points into the play flow, not at `/`.
+    assert 'href="/play"' in r.text
     assert 'href="/leaderboard"' in r.text
     assert 'al-nav-leaderboard' in r.text
 

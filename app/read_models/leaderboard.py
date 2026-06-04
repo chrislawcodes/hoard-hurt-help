@@ -11,6 +11,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.sim_presets import sim_preset_by_id
 from app.games import known_types
 from app.models.bot import Bot, BotKind
 from app.models.match import GameState, Match
@@ -82,9 +83,29 @@ class _CompetitorState:
     display_name: str = ""
 
 
+def _sim_display_name(bot: Bot) -> str:
+    """Human-readable profile name for a Sim — works for old records too.
+
+    Old Sims have sim_profile_name=None but sim_strategy set (e.g.
+    'coalition_seeker'). New Sims will have sim_profile_name set by the
+    seating code, but we derive from sim_strategy as a stable fallback so
+    both old and new records group under the same key.
+    """
+    if bot.sim_profile_name:
+        return bot.sim_profile_name
+    if bot.sim_strategy:
+        preset = sim_preset_by_id(bot.sim_strategy)
+        if preset:
+            return preset.name
+    return bot.name
+
+
 def _competitor_key(bot: Bot) -> str:
     if bot.kind == BotKind.SIM:
-        return bot.sim_profile_name or bot.name
+        # Use sim_strategy as the stable grouping key so old and new records
+        # (before/after seating.py started setting sim_profile_name) stay
+        # under the same entry. Fall back to display name then raw bot.name.
+        return bot.sim_strategy or bot.sim_profile_name or bot.name
     return str(bot.id)
 
 
@@ -206,7 +227,7 @@ async def load_leaderboard_sections(
                 *bundle.participants,
                 _Participant(
                     competitor_key=_competitor_key(bot),
-                    display_name=bot.sim_profile_name or bot.name,
+                    display_name=_sim_display_name(bot) if bot.kind == BotKind.SIM else bot.name,
                     is_sim=bot.kind == BotKind.SIM,
                     round_wins=float(player.total_round_wins),
                     total_score=player.total_round_score,
