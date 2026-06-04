@@ -396,7 +396,9 @@ async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
     await _seed_game(reset_db)
     join = await client.get("/games/hoard-hurt-help/matches/G_001/join", cookies=cookies)
     assert join.status_code == 200
-    assert any(name in join.text for name in expected_names)
+    # Sims appear in the dropdown by profile name, not internal bot name.
+    expected_profile_names = {bot.sim_profile_name for bot in bots}
+    assert any(name in join.text for name in expected_profile_names)
 
 
 @pytest.mark.asyncio

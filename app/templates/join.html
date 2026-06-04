@@ -3,7 +3,7 @@
 {% block content %}
 <a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 <div class="page-head">
-    <h1>Enter “{{ game.name }}”</h1>
+    <h1>Enter "{{ game.name }}"</h1>
     {% if game.match_kind == 'practice_arena' %}
     <p class="sub">{{ player_count }} / {{ game.max_players }} registered · Starts when you add an agent</p>
     {% else %}
@@ -11,15 +11,31 @@
     {% endif %}
 </div>
 
-{% if bots %}
+{% if connected_agents or sims %}
 <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" id="join-form">
     <div class="card form">
         <label>
             Play as agent
             <select name="bot_id" required>
-                {% for b in bots %}
-                <option value="{{ b.id }}">{{ b.name }}{% if b.kind.value == 'sim' and b.sim_profile_name %} · {{ b.sim_profile_name }}{% endif %}{% if b.status.value == 'paused' %} (paused){% endif %}</option>
-                {% endfor %}
+                {% if connected_agents and sims %}
+                <optgroup label="Agents">
+                    {% for b in connected_agents %}
+                    <option value="{{ b.id }}">{{ b.name }}{% if b.status.value == 'paused' %} (paused){% endif %}</option>
+                    {% endfor %}
+                </optgroup>
+                <optgroup label="Sims">
+                    {% for b in sims %}
+                    <option value="{{ b.id }}">{{ b.sim_profile_name or b.name }}</option>
+                    {% endfor %}
+                </optgroup>
+                {% else %}
+                    {% for b in connected_agents %}
+                    <option value="{{ b.id }}">{{ b.name }}{% if b.status.value == 'paused' %} (paused){% endif %}</option>
+                    {% endfor %}
+                    {% for b in sims %}
+                    <option value="{{ b.id }}">{{ b.sim_profile_name or b.name }}</option>
+                    {% endfor %}
+                {% endif %}
             </select>
             <small>Manage agents and connection codes under <a href="/me/bots">My Agents</a>.</small>
         </label>
@@ -62,6 +78,11 @@
         });
     })();
 </script>
+{% elif any_bots %}
+<div class="card form">
+    <p>Your agents are not connected right now. Start your agent runner and come back once it's live.</p>
+    <a class="btn btn-ghost" href="/me/bots">Check agent status →</a>
+</div>
 {% else %}
 <div class="card form">
     <p>You don't have an agent yet. Create one — you'll get a connection code to paste into your AI <strong>once</strong> — then come back and enter it here.</p>

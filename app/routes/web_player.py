@@ -1,8 +1,9 @@
 """Guide, runner download, join, and player dashboard web routes."""
 
+import random
 import re
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path as FsPath
 from typing import Annotated
 
@@ -14,7 +15,7 @@ from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
 from app.engine.scheduler import start_game
 from app.games import get as get_game_module
-from app.models.bot import Bot
+from app.models.bot import Bot, BotKind
 from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
@@ -36,6 +37,16 @@ router = APIRouter(tags=["web"])
 
 _DOCS_DIR = FsPath("docs")
 _GUIDE_NAME = re.compile(r"^[a-z0-9-]+$")
+_BOT_LIVE_WINDOW = timedelta(seconds=90)
+
+
+def _is_warm(bot: Bot) -> bool:
+    """True if this bot's runner contacted the server in the last 90 seconds."""
+    ls = bot.last_seen_at
+    if ls is None:
+        return False
+    aware = ls if ls.tzinfo is not None else ls.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - aware <= _BOT_LIVE_WINDOW
 
 
 @router.get("/guide/{name}", response_class=HTMLResponse)
@@ -145,7 +156,7 @@ async def join_form(
     # Entry is "pick one of your bots" — no per-game key is issued. The bot's
     # stable key was shown once when it was created (see /me/bots). Archived
     # (deleted) bots are excluded — they can't enter games.
-    bots = (
+    all_bots = (
         (
             await db.execute(
                 select(Bot)
@@ -156,11 +167,15 @@ async def join_form(
         .scalars()
         .all()
     )
+    # Only show external agents that are currently connected; sims are always ready.
+    connected_agents = [b for b in all_bots if b.kind == BotKind.EXTERNAL and _is_warm(b)]
+    sims = [b for b in all_bots if b.kind == BotKind.SIM]
+
     module = get_game_module(match.game)
     presets = [asdict(p) for p in module.strategy_presets()]
     default_preset_id = presets[0]["id"] if presets else ""
     strategy_prompt = presets[0]["prompt"] if presets else module.default_strategy()
-    default_display_name = _GENERAL_NAMES[user.id % len(_GENERAL_NAMES)]
+    default_display_name = random.choice(_GENERAL_NAMES)
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -170,7 +185,9 @@ async def join_form(
             "game": match,
             "game_theme": _game_theme(match),
             "player_count": await _player_count(db, match.id),
-            "bots": bots,
+            "connected_agents": connected_agents,
+            "sims": sims,
+            "any_bots": bool(all_bots),
             "presets": presets,
             "default_preset_id": default_preset_id,
             "strategy_prompt": strategy_prompt,
@@ -252,7 +269,7 @@ async def join_submit(
     elif count >= match.max_players:
         error, code = "Match is full.", status.HTTP_409_CONFLICT
     if error is not None:
-        bots = (
+        all_bots_err = (
             (
                 await db.execute(
                     select(Bot)
@@ -273,9 +290,13 @@ async def join_submit(
                 "game": match,
                 "game_theme": _game_theme(match),
                 "player_count": count,
-                "bots": bots,
+                "connected_agents": [b for b in all_bots_err if b.kind == BotKind.EXTERNAL],
+                "sims": [b for b in all_bots_err if b.kind == BotKind.SIM],
+                "any_bots": bool(all_bots_err),
                 "presets": presets,
+                "default_preset_id": presets[0]["id"] if presets else "",
                 "strategy_prompt": strategy_prompt,
+                "default_display_name": display_name,
                 "base_url": settings.base_url,
                 "error": error,
             },
