@@ -7,11 +7,11 @@
     <h3 style="margin-top:0;">⚠ Agent not connected</h3>
     <p class="hint">
         {% if health.state.value == "stalled" and health.game_name %}
-            This bot is in <strong>{{ health.game_name }}</strong> right now but isn't responding — its turns are defaulting.
+            This agent is in <strong>{{ health.game_name }}</strong> right now but isn't responding — its turns are defaulting.
         {% elif health.never_connected %}
-            This bot has never connected, so it can't play yet.
+            This agent has never connected, so it can't play yet.
         {% else %}
-            This bot's runner isn't running{% if health.last_connected_at %} — last connected <time class="localtime-secs" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_at.strftime('%H:%M:%S UTC') }}</time>{% endif %}.
+            This agent's runner isn't running{% if health.last_connected_at %} — last connected <time class="localtime-secs" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_at.strftime('%H:%M:%S UTC') }}</time>{% endif %}.
         {% endif %}
         Reissue a fresh setup message and paste it to your AI to bring it back.
     </p>

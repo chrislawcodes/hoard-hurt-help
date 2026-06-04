@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ player.agent_id }} in {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/me/bots/{{ player.bot_id }}">← Back to bot</a>
+<a class="backlink" href="/me/bots/{{ player.bot_id }}">← Back to agent</a>
 <div class="page-head">
     <h1>{{ player.agent_id }}</h1>
     <p class="sub">In “{{ game.name }}” · <span class="badge badge-done">{{ game.state.value | capitalize }}</span> · starts {{ game.scheduled_start | localdt }}</p>
@@ -10,8 +10,8 @@
 {% if just_saved %}<p class="save-confirm">✓ Strategy saved</p>{% endif %}
 
 <div class="card">
-    <p>This agent is played by your bot. Its connection code lives on
-    <a href="/me/bots/{{ player.bot_id }}">the bot's page</a> — there's no per-game key.</p>
+    <p>Your agent plays this slot. Its connection code lives on
+    <a href="/me/bots/{{ player.bot_id }}">the agent's page</a> — there's no per-game key.</p>
 </div>
 
 <h2>Strategy for this game</h2>
@@ -53,7 +53,7 @@
 </div>
 
 {% if can_leave %}
-<form method="post" action="/me/players/{{ player.id }}/leave" onsubmit="return confirm('Pull this bot out of the game?');" class="danger-zone">
+<form method="post" action="/me/players/{{ player.id }}/leave" onsubmit="return confirm('Pull this agent out of the game?');" class="danger-zone">
     <button type="submit" class="btn btn-ghost">Leave game</button>
 </form>
 {% endif %}
