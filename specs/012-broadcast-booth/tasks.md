@@ -91,10 +91,10 @@
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T021 [P: app/static/style.css] Mobile (375px): stage → rail → now-strip → feed stack, no horizontal overflow (SC-006). Verify in preview.
-- [ ] T022 Empty-game state: a game with no resolved turns shows the stage empty state + "waiting for the first move"; nothing auto-plays. Verify.
-- [ ] T023 Run the preflight gate from the worktree: `ruff check . && mypy app/ mcp_server/ && pytest -q`. (Note: pre-existing `app/models/enum_types.py:68` mypy error on `origin/main`, mypy 2.1.0 — not from this feature; do not suppress.)
-- [ ] T024 Run the full quickstart.md pass; capture before/after screenshots for the PR.
+- [X] T021 [P: app/static/style.css] Mobile (375px): stage → rail → now-strip → feed stack, no horizontal overflow (SC-006). Verify in preview.
+- [X] T022 Empty-game state: a game with no resolved turns shows the stage empty state + "waiting for the first move"; nothing auto-plays. Verify.
+- [X] T023 Run the preflight gate from the worktree: `ruff check . && mypy app/ mcp_server/ && pytest -q`. (Note: pre-existing `app/models/enum_types.py:68` mypy error on `origin/main`, mypy 2.1.0 — not from this feature; do not suppress.)
+- [X] T024 Run the full quickstart.md pass; capture before/after screenshots for the PR.
 - [ ] T025 Open the PR (Validation section with exact commands + results) and ship via `/ship`.
 
 ---
