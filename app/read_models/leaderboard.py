@@ -52,7 +52,10 @@ class LeaderboardSection:
 
 @dataclass(frozen=True)
 class _Participant:
-    bot_id: int
+    # For Sims: sim_profile_name (or bot.name as fallback).
+    # For agents: str(bot.id).
+    # Sims sharing the same key in one match are merged before Elo is computed.
+    competitor_key: str
     display_name: str
     is_sim: bool
     round_wins: float
@@ -77,6 +80,43 @@ class _CompetitorState:
     last_played_at: datetime | None = None
     is_sim: bool = False
     display_name: str = ""
+
+
+def _competitor_key(bot: Bot) -> str:
+    if bot.kind == BotKind.SIM:
+        return bot.sim_profile_name or bot.name
+    return str(bot.id)
+
+
+def _merge_same_key_participants(participants: list[_Participant]) -> list[_Participant]:
+    """Merge participants that share a competitor_key (same Sim profile in one match).
+
+    Averages round_wins and total_score across instances so the merged entry
+    competes once in the Elo pairings rather than appearing multiple times.
+    """
+    grouped: dict[str, list[_Participant]] = {}
+    for p in participants:
+        grouped.setdefault(p.competitor_key, []).append(p)
+
+    merged: list[_Participant] = []
+    for key, group in grouped.items():
+        if len(group) == 1:
+            merged.append(group[0])
+        else:
+            avg_wins = sum(p.round_wins for p in group) / len(group)
+            avg_score = sum(p.total_score for p in group) // len(group)
+            latest = max(p.last_played_at for p in group)
+            merged.append(
+                _Participant(
+                    competitor_key=key,
+                    display_name=group[0].display_name,
+                    is_sim=group[0].is_sim,
+                    round_wins=avg_wins,
+                    total_score=avg_score,
+                    last_played_at=latest,
+                )
+            )
+    return merged
 
 
 def _game_display_name(game_type: str) -> str:
@@ -165,7 +205,7 @@ async def load_leaderboard_sections(
             participants=[
                 *bundle.participants,
                 _Participant(
-                    bot_id=bot.id,
+                    competitor_key=_competitor_key(bot),
                     display_name=bot.sim_profile_name or bot.name,
                     is_sim=bot.kind == BotKind.SIM,
                     round_wins=float(player.total_round_wins),
@@ -189,14 +229,14 @@ async def load_leaderboard_sections(
             games[game_type],
             key=lambda bundle: (bundle.scheduled_start, bundle.match_id),
         )
-        states: dict[int, _CompetitorState] = {}
+        states: dict[str, _CompetitorState] = {}
         contributed_matches = 0
         has_sims = any(bundle.has_sims for bundle in bundles)
 
         for bundle in bundles:
-            participants = [
-                participant for participant in bundle.participants if _is_included(participant.is_sim, included_choice)
-            ]
+            participants = _merge_same_key_participants(
+                [p for p in bundle.participants if _is_included(p.is_sim, included_choice)]
+            )
             if len(participants) < 2:
                 continue
 
@@ -218,29 +258,29 @@ async def load_leaderboard_sections(
                             if participant.round_wins == round_wins
                             and participant.total_score == total_score
                         ],
-                        key=lambda participant: participant.bot_id,
+                        key=lambda participant: participant.competitor_key,
                     )
                 )
 
-            group_index_by_bot: dict[int, int] = {
-                participant.bot_id: index
+            group_index_by_key: dict[str, int] = {
+                participant.competitor_key: index
                 for index, group in enumerate(placement_groups)
                 for participant in group
             }
-            first_place_bot_ids = {
-                participant.bot_id for participant in placement_groups[0]
+            first_place_keys = {
+                participant.competitor_key for participant in placement_groups[0]
             }
             start_ratings = {
-                participant.bot_id: states.get(participant.bot_id, _CompetitorState()).rating
+                participant.competitor_key: states.get(participant.competitor_key, _CompetitorState()).rating
                 for participant in participants
             }
-            deltas = {participant.bot_id: 0.0 for participant in participants}
-            opponent_counts = {participant.bot_id: 0 for participant in participants}
+            deltas = {participant.competitor_key: 0.0 for participant in participants}
+            opponent_counts = {participant.competitor_key: 0 for participant in participants}
 
             for index, left in enumerate(participants):
-                for right in participants[index + 1 :]:
-                    left_group = group_index_by_bot[left.bot_id]
-                    right_group = group_index_by_bot[right.bot_id]
+                for right in participants[index + 1:]:
+                    left_group = group_index_by_key[left.competitor_key]
+                    right_group = group_index_by_key[right.competitor_key]
                     if left_group == right_group:
                         left_score = 0.5
                         weight = 1.0
@@ -248,31 +288,31 @@ async def load_leaderboard_sections(
                         left_score = 1.0
                         weight = (
                             FIRST_PLACE_WEIGHT
-                            if rating_mode_choice == "bonus" and left.bot_id in first_place_bot_ids
+                            if rating_mode_choice == "bonus" and left.competitor_key in first_place_keys
                             else 1.0
                         )
                     else:
                         left_score = 0.0
                         weight = (
                             FIRST_PLACE_WEIGHT
-                            if rating_mode_choice == "bonus" and right.bot_id in first_place_bot_ids
+                            if rating_mode_choice == "bonus" and right.competitor_key in first_place_keys
                             else 1.0
                         )
 
                     expected_left = _logistic_expected(
-                        start_ratings[left.bot_id],
-                        start_ratings[right.bot_id],
+                        start_ratings[left.competitor_key],
+                        start_ratings[right.competitor_key],
                     )
                     delta = K_FACTOR * weight * (left_score - expected_left)
-                    deltas[left.bot_id] += delta
-                    deltas[right.bot_id] -= delta
-                    opponent_counts[left.bot_id] += 1
-                    opponent_counts[right.bot_id] += 1
+                    deltas[left.competitor_key] += delta
+                    deltas[right.competitor_key] -= delta
+                    opponent_counts[left.competitor_key] += 1
+                    opponent_counts[right.competitor_key] += 1
 
             for participant in participants:
-                state = states.get(participant.bot_id)
-                current_rating = start_ratings[participant.bot_id]
-                match_delta = deltas[participant.bot_id] / opponent_counts[participant.bot_id]
+                state = states.get(participant.competitor_key)
+                current_rating = start_ratings[participant.competitor_key]
+                match_delta = deltas[participant.competitor_key] / opponent_counts[participant.competitor_key]
                 if state is None:
                     state = _CompetitorState(
                         rating=current_rating,
@@ -289,7 +329,7 @@ async def load_leaderboard_sections(
                 )
                 state.is_sim = participant.is_sim
                 state.display_name = participant.display_name
-                states[participant.bot_id] = state
+                states[participant.competitor_key] = state
 
         if not states:
             continue
