@@ -72,6 +72,7 @@ async def test_root_serves_agent_ludum_marketing(client, reset_db):
     # The funnel: a primary CTA points at the game lobby, not at `/`.
     assert 'href="/games/hoard-hurt-help"' in r.text
     assert 'href="/leaderboard"' in r.text
+    assert 'al-nav-leaderboard' in r.text
 
 
 @pytest.mark.asyncio
@@ -82,6 +83,7 @@ async def test_lobby_served_at_game_path(client, reset_db):
     assert r.status_code == 200
     assert "Test Match" in r.text  # the upcoming-games listing renders here
     assert 'href="/leaderboard"' in r.text
+    assert 'al-nav-leaderboard' in r.text
 
 
 @pytest.mark.asyncio
