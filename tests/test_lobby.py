@@ -15,6 +15,7 @@ from app.engine.sim_presets import HISTORICAL_SIM_NAME_POOL, sim_presets
 from app.engine.tokens import bot_key_lookup
 from app.main import app
 from app.models import Base, Bot, BotKind, Match, GameState, Player, User
+from app.models.match import MatchKind
 from app.engine.sims import pack_profile_choices
 from tests.factories import make_bot, make_user
 
@@ -67,6 +68,24 @@ async def _seed_game(reset_db: async_sessionmaker, state=GameState.REGISTERING) 
             state=state,
             scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
             per_turn_deadline_seconds=60,
+        )
+        db.add(g)
+        await db.commit()
+        await db.refresh(g)
+        return g
+
+
+async def _seed_practice_arena(reset_db: async_sessionmaker) -> Match:
+    async with reset_db() as db:
+        g = Match(
+            id="G_PA",
+            name="Practice Arena",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc) + timedelta(days=365),
+            per_turn_deadline_seconds=60,
+            min_players=1,
+            max_players=10,
+            match_kind=MatchKind.PRACTICE_ARENA.value,
         )
         db.add(g)
         await db.commit()
@@ -287,6 +306,48 @@ async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
     join = await client.get("/games/hoard-hurt-help/matches/G_001/join", cookies=cookies)
     assert join.status_code == 200
     assert any(name in join.text for name in expected_names)
+
+
+@pytest.mark.asyncio
+async def test_practice_arena_join_copy_mentions_agent_start(client, reset_db):
+    user = await _seed_user(reset_db)
+    cookies = _signed_in_cookies(user.id)
+    await _seed_practice_arena(reset_db)
+
+    r = await client.get("/games/hoard-hurt-help/matches/G_PA/join", cookies=cookies)
+    assert r.status_code == 200
+    assert "Starts when you add an agent" in r.text
+
+
+@pytest.mark.asyncio
+async def test_practice_arena_upcoming_copy_mentions_agent_start(client, reset_db):
+    await _seed_practice_arena(reset_db)
+
+    r = await client.get("/games/hoard-hurt-help/upcoming")
+    assert r.status_code == 200
+    assert "Starts when you add an agent" in r.text
+
+
+@pytest.mark.asyncio
+async def test_practice_arena_starts_when_player_joins(client, reset_db, monkeypatch):
+    user = await _seed_user(reset_db)
+    cookies = _signed_in_cookies(user.id)
+    await _seed_practice_arena(reset_db)
+    bot_id, _ = await _seed_bot(reset_db, user)
+    monkeypatch.setattr("app.engine.scheduler.registry.start", lambda match_id: None)
+
+    r = await client.post(
+        "/games/hoard-hurt-help/matches/G_PA/join",
+        data={"bot_id": bot_id, "display_name": "AI_joiner"},
+        cookies=cookies,
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    async with reset_db() as db:
+        g = (await db.execute(select(Match).where(Match.id == "G_PA"))).scalar_one()
+    assert g.state == GameState.ACTIVE
+    assert g.started_at is not None
 
 
 @pytest.mark.asyncio

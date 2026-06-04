@@ -4,7 +4,11 @@
 <a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 <div class="page-head">
     <h1>Enter “{{ game.name }}”</h1>
+    {% if game.match_kind == 'practice_arena' %}
+    <p class="sub">{{ player_count }} / {{ game.max_players }} registered · Starts when you add an agent</p>
+    {% else %}
     <p class="sub">Starts {{ game.scheduled_start | reltime }} ({{ game.scheduled_start | localdt }}) · {{ player_count }} / {{ game.max_players }} registered</p>
+    {% endif %}
 </div>
 
 {% if bots %}
