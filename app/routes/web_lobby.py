@@ -13,7 +13,7 @@ from sqlalchemy import case, func, select
 from app.deps import DbSession, get_current_user
 from app.engine.bot_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
-from app.games import get as get_game_module
+from app.games import get as get_game_module, known_types
 from app.games.base import GameError
 from app.models.bot import Bot, BotKind
 from app.models.match import Match, GameState, MatchKind
@@ -34,6 +34,12 @@ from app.templating import templates
 
 router = APIRouter(tags=["web"])
 logger = logging.getLogger(__name__)
+
+
+def _game_display_name(game_type: str) -> str:
+    if game_type == "hoard-hurt-help":
+        return "Hoard · Hurt · Help"
+    return game_type.replace("-", " ").title()
 
 async def _showcase_replay_data(
     request: Request, db, completed_views: list[dict]
@@ -240,6 +246,39 @@ async def games_catalog(request: Request, db: DbSession):
             "is_admin": _is_admin(user),
             "game_theme": module.theme(),
             "featured_game_slug": "hoard-hurt-help",
+        },
+    )
+
+
+@router.get("/leaderboard", response_class=HTMLResponse)
+async def leaderboard_page(request: Request, db: DbSession):
+    """Global leaderboard shell, grouped by game."""
+    user = await get_current_user(request, db)
+    sections: list[dict] = []
+    for game_type in known_types():
+        try:
+            module = get_game_module(game_type)
+        except GameError:
+            continue
+        try:
+            game_theme = module.theme()
+        except AttributeError:
+            game_theme = None
+        sections.append(
+            {
+                "game_type": game_type,
+                "game_name": _game_display_name(game_type),
+                "game_theme": game_theme,
+                "lobby_url": f"/games/{game_type}",
+            }
+        )
+    return templates.TemplateResponse(
+        request,
+        "leaderboard.html",
+        {
+            "user": user,
+            "is_admin": _is_admin(user),
+            "sections": sections,
         },
     )
 

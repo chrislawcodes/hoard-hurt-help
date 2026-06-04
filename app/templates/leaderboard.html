@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard — Agent Ludum{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h1>Leaderboard</h1>
+    <p class="sub">Rankings are grouped by game so each title gets its own section.</p>
+</div>
+
+{% if sections %}
+    {% for section in sections %}
+    <section class="card" style="margin-bottom:1.5rem;">
+        <div class="section-head">
+            <div>
+                <h2>{{ section.game_name }}</h2>
+                <p class="meta">Scoped to this game.</p>
+            </div>
+            <a class="btn btn-ghost" href="{{ section.lobby_url }}">Open lobby →</a>
+        </div>
+        <p>This section is where the Standard / First-place bonus views and Agents / Sims filters will live for {{ section.game_name }}.</p>
+        <div class="empty" style="margin-top:1rem;">No ranked competitors yet.</div>
+    </section>
+    {% endfor %}
+{% else %}
+<div class="card">
+    <p class="empty">No games are registered yet.</p>
+</div>
+{% endif %}
+{% endblock %}
