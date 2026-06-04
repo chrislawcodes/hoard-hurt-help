@@ -280,6 +280,11 @@ async def bot_detail(
     has_history = (
         await db.execute(select(Player.id).where(Player.bot_id == bot.id).limit(1))
     ).first() is not None
+    games = await _bot_games(db, bot)
+    game_count = len(games)
+    total_wins = sum(g["total_score"] for g in games)
+    avg_wins = round(total_wins / game_count, 1) if game_count else 0
+    bot_stats = {"count": game_count, "total_wins": total_wins, "avg_wins": avg_wins}
     return templates.TemplateResponse(
         request,
         "bots/detail.html",
@@ -288,11 +293,12 @@ async def bot_detail(
             "is_admin": _is_admin(user),
             "bot": bot,
             "fresh_key": fresh_key,
-            "games": await _bot_games(db, bot),
+            "games": games,
             "has_history": has_history,
             "base_url": settings.base_url,
             "onboarding": await compute_onboarding_status(db, bot),
             "health": await compute_bot_health(db, bot),
+            "bot_stats": bot_stats,
         },
     )
 

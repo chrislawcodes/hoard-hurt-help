@@ -186,6 +186,9 @@ Don't stop to ask me anything until my games are over.</pre>
 </div>
 {% endif %}
 
+{% if bot_stats.count %}
+<p class="meta" style="margin-bottom:0.75rem;">Games: {{ bot_stats.count }} · Total round wins: {{ bot_stats.total_wins }} · Avg per game: {{ bot_stats.avg_wins }}</p>
+{% endif %}
 <h2>Games</h2>
 {% if games %}
     {% for g in games %}
@@ -197,6 +200,11 @@ Don't stop to ask me anything until my games are over.</pre>
         <div class="game-card-action">
             <span class="badge {{ 'badge-live' if g.state == 'active' else ('badge-done' if g.state in ['completed','cancelled'] else 'badge-soon') }}">{{ g.state | capitalize }}</span>
             <a class="btn btn-primary" href="/games/{{ g.game_type }}/matches/{{ g.match_id }}">Watch →</a>
+            {% if g.pre_game %}
+            <a class="btn btn-ghost" href="/me/players/{{ g.player_id }}">Manage →</a>
+            {% elif g.state == 'active' %}
+            <a class="btn btn-ghost" href="/me/players/{{ g.player_id }}">View strategy →</a>
+            {% endif %}
             {% if g.pre_game %}
             <form method="post" action="/me/players/{{ g.player_id }}/leave" style="display:inline" onsubmit="return confirm('Pull this bot out of the game?');">
                 <button type="submit">Leave</button>
