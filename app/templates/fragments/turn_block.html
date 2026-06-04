@@ -52,4 +52,26 @@
         <li class="turn-empty">No actions this turn.</li>
         {% endfor %}
     </ul>
+
+    {# Compact view: one line per action type, delta stated once, hoards collapsed. #}
+    {% if turn.groups %}
+    <ul class="moves-grouped">
+        {% set verb = {'hurt': 'Hurt', 'pact': 'Pact', 'help': 'Help', 'hoard': 'Hoard'} %}
+        {% for g in turn.groups %}
+        <li class="cgroup cgroup-{{ g.kind }}">
+            <span class="cglabel"><span class="cgverb">{{ verb[g.kind] }}</span> <span class="cgdelta">{{ g.delta }}</span></span>
+            <span class="citems">
+                {%- if g.kind == 'hoard' -%}
+                    {%- for it in g.members -%}<span class="cwho">{{ it.a }}</span>{{ " · " if not loop.last }}{%- endfor -%}
+                    <span class="ccount">({{ g.members | length }})</span>
+                {%- elif g.kind == 'pact' -%}
+                    {%- for it in g.members -%}<span class="cpair"><span class="cwho">{{ it.a }}</span> ↔ <span class="cwho">{{ it.b }}</span></span>{{ " · " if not loop.last }}{%- endfor -%}
+                {%- else -%}
+                    {%- for it in g.members -%}<span class="cpair"><span class="cwho">{{ it.a }}</span> → <span class="cwho">{{ it.b }}</span>{% if it.betrayal %} <span class="cbetray">betrayal</span>{% endif %}</span>{{ " · " if not loop.last }}{%- endfor -%}
+                {%- endif -%}
+            </span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
 </article>

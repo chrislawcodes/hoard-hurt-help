@@ -2,7 +2,45 @@
 
 from __future__ import annotations
 
-from app.routes.web import _feed_sort_key, _turn_summary
+from app.routes.web import _feed_sort_key, _turn_groups, _turn_summary
+
+
+def _ga(agent, action, target=None, *, mutual=False, betrayal=False):
+    return {
+        "agent_id": agent,
+        "action": action,
+        "target_id": target,
+        "mutual": mutual,
+        "betrayal": betrayal,
+    }
+
+
+def test_groups_collapse_hoards_and_state_delta_once() -> None:
+    actions = [
+        _ga("Aria", "HURT", "Zed", betrayal=True),
+        _ga("Dot", "HURT", "Eli"),
+        _ga("Bex", "HELP", "Cy", mutual=True),
+        _ga("Cy", "HELP", "Bex", mutual=True),
+        _ga("Fin", "HELP", "Gus"),
+        *[_ga(n, "HOARD") for n in ("Hana", "Ivy", "Jax", "Kai")],
+    ]
+    groups = {g["kind"]: g for g in _turn_groups(actions)}
+    # One pact entry for the Bex<->Cy pair, not two.
+    assert len(groups["pact"]["members"]) == 1
+    # Hoards collapse to a single group listing all four names.
+    assert len(groups["hoard"]["members"]) == 4
+    assert groups["hoard"]["delta"] == "+2"
+    # Betrayal sorts first within the hurt group.
+    assert groups["hurt"]["members"][0]["betrayal"] is True
+    # Order leads with conflict, ends with the quiet hoard list.
+    kinds = [g["kind"] for g in _turn_groups(actions)]
+    assert kinds == ["hurt", "pact", "help", "hoard"]
+
+
+def test_groups_omit_empty_kinds() -> None:
+    actions = [_ga(n, "HOARD") for n in ("A", "B", "C")]
+    groups = _turn_groups(actions)
+    assert [g["kind"] for g in groups] == ["hoard"]
 
 
 def _act(agent, action, *, delta=0, mutual=False, betrayal=False, missed=False):

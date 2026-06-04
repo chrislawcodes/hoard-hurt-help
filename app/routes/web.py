@@ -446,6 +446,47 @@ def _turn_summary(actions: list[dict]) -> dict[str, int]:
     return counts
 
 
+def _turn_groups(actions: list[dict]) -> list[dict]:
+    """Group a turn's actions by type for the Compact view.
+
+    The repetitive moves — above all the hoards, where the `+2` is identical for
+    every bot — collapse to one line per type with the delta stated once. Order
+    leads with conflict (hurts, betrayals first) and ends with the quiet hoard
+    list. Returns only non-empty groups.
+    """
+    hurts: list[dict] = []
+    helps: list[dict] = []
+    hoards: list[dict] = []
+    pacts: list[dict] = []
+    seen_pacts: set[frozenset[str]] = set()
+    for a in actions:
+        if a.get("mutual") and a["target_id"]:
+            pair = frozenset((a["agent_id"], a["target_id"]))
+            if pair not in seen_pacts:
+                seen_pacts.add(pair)
+                x, y = sorted(pair)
+                pacts.append({"a": x, "b": y})
+        elif a["action"] == "HURT" and a["target_id"]:
+            hurts.append({"a": a["agent_id"], "b": a["target_id"], "betrayal": bool(a.get("betrayal"))})
+        elif a["action"] == "HELP" and a["target_id"]:
+            helps.append({"a": a["agent_id"], "b": a["target_id"]})
+        else:  # HOARD, including a defaulted/missed turn
+            hoards.append({"a": a["agent_id"]})
+
+    hurts.sort(key=lambda h: (not h["betrayal"], h["a"]))
+
+    groups: list[dict] = []
+    if hurts:
+        groups.append({"kind": "hurt", "delta": "-4", "members": hurts})
+    if pacts:
+        groups.append({"kind": "pact", "delta": "+8", "members": pacts})
+    if helps:
+        groups.append({"kind": "help", "delta": "+4", "members": helps})
+    if hoards:
+        groups.append({"kind": "hoard", "delta": "+2", "members": hoards})
+    return groups
+
+
 # Phrase banks for the deterministic play-by-play headline. Variety comes from
 # rotating through each bank by a stable index (turn ordinal + beat position),
 # so the text differs turn to turn but is fully reproducible — no LLM, no
@@ -892,6 +933,7 @@ async def _game_view_context(request: Request, db, match_id: str) -> dict:
                 # renders `feed_actions` (highlights first) and `summary` (counts).
                 "feed_actions": sorted(actions, key=_feed_sort_key),
                 "summary": _turn_summary(actions),
+                "groups": _turn_groups(actions),
                 "headline": headline,
             }
         )

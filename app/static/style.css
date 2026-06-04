@@ -321,14 +321,39 @@ tr:last-child td { border-bottom: none; }
 /* --- View modes (class on #live-region, so they survive SSE feed swaps) --- */
 /* Story: just the headline (+ the turn-head summary). Hide the per-bot cards. */
 .view-story .moves { display: none; }
-/* Cards (default) and Compact: hide the headline, show the cards. */
+/* Cards (default) and Compact: hide the headline. */
 .view-cards .commentary,
 .view-compact .commentary { display: none; }
-/* Compact: drop messages + thinking so each action is one scannable line. */
-.view-compact .said,
-.view-compact .thought-wrap { display: none; }
-.view-compact .move-row { padding: 0.3rem 0.6rem; margin-bottom: 0.3rem; }
-.view-compact .turn-block { padding: 0.65rem 0.75rem; }
+/* Compact swaps the per-bot cards for the grouped block (one line per action
+   type, delta stated once, hoards collapsed to a named list). */
+.moves-grouped { display: none; list-style: none; margin: 0.3rem 0 0; padding: 0; }
+.view-compact .moves { display: none; }
+.view-compact .moves-grouped { display: block; }
+.view-compact .turn-summary { display: none; }
+.view-compact .turn-block { padding: 0.65rem 0.8rem; }
+
+.cgroup {
+    display: flex; gap: 0.6rem; align-items: baseline;
+    padding: 0.35rem 0; border-top: 1px solid var(--line);
+}
+.cgroup:first-child { border-top: 0; }
+.cglabel {
+    flex: none; width: 5.2rem; font-weight: 800; font-size: 0.78rem;
+    display: flex; gap: 0.25rem; align-items: baseline; white-space: nowrap;
+}
+.cgdelta { font-variant-numeric: tabular-nums; }
+.cgroup-hurt .cgverb, .cgroup-hurt .cgdelta { color: var(--hurt); }
+.cgroup-pact .cgverb, .cgroup-pact .cgdelta,
+.cgroup-help .cgverb, .cgroup-help .cgdelta { color: var(--help); }
+.cgroup-hoard .cgverb, .cgroup-hoard .cgdelta { color: var(--hoard); }
+.citems { color: var(--ink); font-size: 0.9rem; line-height: 1.55; }
+.citems .cwho { font-weight: 600; }
+.citems .ccount { color: var(--ink-soft); margin-left: 0.2rem; }
+.citems .cbetray {
+    font-size: 0.6rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.03em; color: var(--hurt); background: var(--bad-bg);
+    padding: 0 0.25rem; border-radius: 4px;
+}
 
 /* Action color-coding (works in every theme) */
 .act {
