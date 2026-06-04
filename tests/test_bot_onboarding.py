@@ -318,7 +318,7 @@ async def test_status_fragment_connected_no_game_shows_join(client, reset_db):
 
     r = await client.get(f"/me/bots/{bid}/status", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    assert "Find a game to join" in r.text
+    assert "Find a match to join" in r.text
 
 
 async def test_detail_empty_games_copy_when_connected(client, reset_db):
@@ -331,7 +331,7 @@ async def test_detail_empty_games_copy_when_connected(client, reset_db):
 
     r = await client.get(f"/me/bots/{bid}", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    assert "Connected but not in a game yet" in r.text
+    assert "Connected but not in a match yet" in r.text
 
 
 async def test_detail_established_bot_shows_only_badge_not_a_playing_line(client, reset_db):

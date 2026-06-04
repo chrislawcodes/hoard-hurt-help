@@ -22,6 +22,7 @@ from app.schemas.admin import CancelResponse, CreateGameRequest, GameRecord
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+@router.post("/matches", response_model=GameRecord, status_code=status.HTTP_201_CREATED)
 @router.post("/games", response_model=GameRecord, status_code=status.HTTP_201_CREATED)
 async def create_game(
     body: CreateGameRequest,
@@ -30,9 +31,9 @@ async def create_game(
 ) -> GameRecord:
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
-    # Allocate next G_NNNN id.
+    # Allocate the next M_NNNN id.
     existing_ids = (await db.execute(select(Match.id))).scalars().all()
-    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("G_")), default=0) + 1
+    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
     g = Match(
         id=generate_match_id(n),
         name=body.name,
@@ -62,6 +63,7 @@ async def create_game(
     )
 
 
+@router.post("/matches/{match_id}/cancel", response_model=CancelResponse)
 @router.post("/games/{match_id}/cancel", response_model=CancelResponse)
 async def cancel_game(
     match_id: Annotated[str, Path()],
@@ -96,6 +98,7 @@ _EXPORT_COLUMNS = [
 ]
 
 
+@router.get("/matches/{match_id}/export.csv")
 @router.get("/games/{match_id}/export.csv")
 async def export_csv(
     match_id: Annotated[str, Path()],
@@ -115,6 +118,7 @@ async def export_csv(
     )
 
 
+@router.get("/matches/{match_id}/export.json")
 @router.get("/games/{match_id}/export.json")
 async def export_json(
     match_id: Annotated[str, Path()],

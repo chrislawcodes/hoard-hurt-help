@@ -44,7 +44,7 @@ from app.schemas.agent import (
     YourTurnResponse,
 )
 
-router = APIRouter(prefix="/api/games/{match_id}", tags=["agent"])
+router = APIRouter(tags=["agent"])
 
 # Per-bot poll throttle (1 Hz). Keyed by Bot.id — a bot owns many players, so
 # keying by player would let it dodge the cap by switching games.

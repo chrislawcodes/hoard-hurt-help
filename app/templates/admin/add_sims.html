@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Add Sims — {{ game.name }}{% endblock %}
 {% block content %}
-<a class="backlink" href="/admin/games/{{ game.id }}">← {{ game.name }}</a>
+<a class="backlink" href="/admin/matches/{{ game.id }}">← {{ game.name }}</a>
 <div class="page-head page-head-row">
     <div>
         <h1>Add Sims</h1>
@@ -13,7 +13,7 @@
 {% if not can_add %}
     <p class="empty">Sims can only be added before a game starts. This game is {{ game.state.value }}.</p>
 {% else %}
-<form method="post" action="/admin/games/{{ game.id }}/sims" id="add-sims-form">
+<form method="post" action="/admin/matches/{{ game.id }}/sims" id="add-sims-form">
     <section class="sims-section">
         <h2>Quick add</h2>
         <div class="sims-pack-row">
@@ -58,7 +58,7 @@
     {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
     <div class="form-actions">
-        <a class="btn btn-ghost" href="/admin/games/{{ game.id }}">Cancel</a>
+        <a class="btn btn-ghost" href="/admin/matches/{{ game.id }}">Cancel</a>
         <button type="submit" class="btn btn-primary" id="save-btn" disabled>Add Sims</button>
     </div>
 </form>

@@ -94,9 +94,9 @@ async def test_get_turn_forwards_connection_key(monkeypatch):
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap))
     ctx = _FakeCtx({"X-Agent-Key": "sk_game_abc123"})
 
-    await server.get_turn("G_0001", ctx)
+    await server.get_turn(match_id="G_0001", ctx=ctx)
 
-    assert cap["url"] == "/api/games/G_0001/turn"
+    assert cap["url"] == "/api/matches/G_0001/turn"
     assert cap["headers"]["X-Agent-Key"] == "sk_game_abc123"
 
 
@@ -108,7 +108,14 @@ async def test_submit_action_forwards_connection_key(monkeypatch):
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap))
     ctx = _FakeCtx({"X-Agent-Key": "sk_game_abc123"})
 
-    await server.submit_action("G_0001", "HOARD", None, "hi", "tok_1", ctx)
+    await server.submit_action(
+        match_id="G_0001",
+        action="HOARD",
+        target_id=None,
+        message="hi",
+        turn_token="tok_1",
+        ctx=ctx,
+    )
 
     assert cap["headers"]["X-Agent-Key"] == "sk_game_abc123"
     assert cap["body"]["action"] == "HOARD"
@@ -121,7 +128,7 @@ async def test_missing_connection_key_raises(monkeypatch):
 
     monkeypatch.setattr(server, "_client", lambda: _FakeClient({}))
     with pytest.raises(RuntimeError, match="X-Agent-Key"):
-        await server.get_turn("G_0001", _FakeCtx({}))
+        await server.get_turn(match_id="G_0001", ctx=_FakeCtx({}))
 
 
 def test_mcp_asgi_app_constructed():
@@ -148,22 +155,22 @@ async def test_pull_tools_forward_connection_key(monkeypatch):
 
     cap1: dict = {}
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap1))
-    await server.get_opponent_history("G_0001", "AI_2", ctx)
-    assert cap1["url"] == "/api/games/G_0001/history/opponents/AI_2"
+    await server.get_opponent_history(match_id="G_0001", opponent_id="AI_2", ctx=ctx)
+    assert cap1["url"] == "/api/matches/G_0001/history/opponents/AI_2"
     assert cap1["headers"]["X-Agent-Key"] == "sk_game_abc123"
 
     cap2: dict = {}
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap2))
-    await server.get_chat("G_0001", ctx, since="2.3")
-    assert cap2["url"] == "/api/games/G_0001/chat"
+    await server.get_chat(match_id="G_0001", ctx=ctx, since="2.3")
+    assert cap2["url"] == "/api/matches/G_0001/chat"
     assert cap2["params"] == {"since": "2.3"}
 
     cap3: dict = {}
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap3))
-    await server.get_turn_detail("G_0001", 3, 4, ctx)
-    assert cap3["url"] == "/api/games/G_0001/turns/3/4"
+    await server.get_turn_detail(match_id="G_0001", round=3, turn=4, ctx=ctx)
+    assert cap3["url"] == "/api/matches/G_0001/turns/3/4"
 
     cap4: dict = {}
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap4))
-    await server.get_standings("G_0001", ctx)
-    assert cap4["url"] == "/api/games/G_0001/standings"
+    await server.get_standings(match_id="G_0001", ctx=ctx)
+    assert cap4["url"] == "/api/matches/G_0001/standings"

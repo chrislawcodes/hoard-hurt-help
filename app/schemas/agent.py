@@ -9,9 +9,9 @@ this file.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # PD's (game #1, "hoard-hurt-help") move vocabulary. The platform does NOT
 # interpret these — POST /submit packs the request into a generic `move` dict and
@@ -20,6 +20,28 @@ from pydantic import BaseModel, Field
 # to game #2 (see specs/004-game-framework, plan Decision: storage/wire
 # generalization rides with the second game).
 Action = Literal["HOARD", "HELP", "HURT"]
+
+
+class MatchIdEnvelope(BaseModel):
+    """Canonical match_id plus legacy game_id compatibility."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    match_id: str
+    game_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_game_id(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "match_id" not in data and "game_id" in data:
+            data = dict(data)
+            data["match_id"] = data["game_id"]
+        return data
+
+    @model_validator(mode="after")
+    def _mirror_game_id(self) -> "MatchIdEnvelope":
+        self.game_id = self.match_id
+        return self
 
 
 # --- Join ---
@@ -31,8 +53,7 @@ class JoinRequest(BaseModel):
     model_self_report: str | None = Field(default=None, max_length=200)
 
 
-class JoinResponse(BaseModel):
-    match_id: str
+class JoinResponse(MatchIdEnvelope):
     agent_id: str
     agent_key: str
     poll_url: str
@@ -59,8 +80,7 @@ class ScoreboardRow(BaseModel):
     round_wins: float
 
 
-class TurnStatic(BaseModel):
-    match_id: str
+class TurnStatic(MatchIdEnvelope):
     rules_version: str
     rules: str
     total_rounds: int
@@ -236,11 +256,10 @@ class NextTurnWaiting(BaseModel):
     next_poll_after_seconds: int = 5
 
 
-class NextTurnYourTurn(BaseModel):
+class NextTurnYourTurn(MatchIdEnvelope):
     # Same raw payload as YourTurnResponse, plus the match_id (a bot using the
     # loop isn't tracking which game it's in).
     status: Literal["your_turn"] = "your_turn"
-    match_id: str
     static: TurnStatic
     history: list[HistoryTurn]
     scoreboard: list[ScoreboardRow]
@@ -283,8 +302,7 @@ class SubmitResponse(BaseModel):
 # --- State (agent-flavored) ---
 
 
-class AgentStateResponse(BaseModel):
-    match_id: str
+class AgentStateResponse(MatchIdEnvelope):
     game_state: str
     current_round: int
     current_turn: int

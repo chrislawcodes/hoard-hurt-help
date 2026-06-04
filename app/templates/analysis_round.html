@@ -3,7 +3,7 @@
 {% block content %}
 {% include "fragments/analysis_styles.html" %}
 
-<p class="crumb"><a href="/games/{{ game.id }}/analysis">← Season</a> · <a href="/games/{{ game.id }}">Watch</a></p>
+<p class="crumb"><a href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">← Season</a> · <a href="/games/{{ game.game }}/matches/{{ game.id }}">Watch</a></p>
 <div class="an-head">
   <h1>Round {{ detail.round }}{% if detail.complete %} · 🏆 {{ detail.winner }}{% else %} · live{% endif %}</h1>
   <span class="mood {{ detail.mood_label }}">{{ detail.mood_label }}</span>
@@ -13,7 +13,7 @@
 
 <div class="roundnav">
   {% for n in played %}
-    {% if n == detail.round %}<b>R{{ n }}</b>{% else %}<a href="/games/{{ game.id }}/analysis/rounds/{{ n }}">R{{ n }}</a>{% endif %}
+    {% if n == detail.round %}<b>R{{ n }}</b>{% else %}<a href="/games/{{ game.game }}/matches/{{ game.id }}/analysis/rounds/{{ n }}">R{{ n }}</a>{% endif %}
   {% endfor %}
 </div>
 

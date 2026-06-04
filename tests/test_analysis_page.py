@@ -91,7 +91,7 @@ async def _seed_game_with_history(reset_db) -> None:
 @pytest.mark.asyncio
 async def test_season_page_renders(client, reset_db):
     await _seed_game_with_history(reset_db)
-    r = await client.get("/games/G_001/analysis")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001/analysis")
     assert r.status_code == 200, r.text
     assert "Round-win standings" in r.text
     assert "Round results" in r.text
@@ -102,7 +102,7 @@ async def test_season_page_renders(client, reset_db):
 @pytest.mark.asyncio
 async def test_round_drill_in_renders(client, reset_db):
     await _seed_game_with_history(reset_db)
-    r = await client.get("/games/G_001/analysis/rounds/1")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001/analysis/rounds/1")
     assert r.status_code == 200, r.text
     assert "Round 1" in r.text
     assert "Leaderboard" in r.text
@@ -112,7 +112,7 @@ async def test_round_drill_in_renders(client, reset_db):
 @pytest.mark.asyncio
 async def test_unknown_round_404(client, reset_db):
     await _seed_game_with_history(reset_db)
-    r = await client.get("/games/G_001/analysis/rounds/9")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001/analysis/rounds/9")
     assert r.status_code == 404
 
 

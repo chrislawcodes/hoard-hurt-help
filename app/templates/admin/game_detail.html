@@ -13,12 +13,12 @@
 
 {% if can_add_sims %}
 <div class="admin-actions">
-    <a class="btn btn-primary" href="/admin/games/{{ game.id }}/sims">+ Add Sims</a>
+    <a class="btn btn-primary" href="/admin/matches/{{ game.id }}/sims">+ Add Sims</a>
 </div>
 {% endif %}
 
 {% if game.state.value == "registering" %}
-<form method="post" action="/admin/games/{{ game.id }}/start">
+<form method="post" action="/admin/matches/{{ game.id }}/start">
     <button type="submit">▶ Start now</button>
     <span class="hint">Starts immediately, overriding the scheduled time. Needs the players already joined.</span>
 </form>
@@ -39,8 +39,8 @@
 </table>
 
 <p>
-    <a href="/games/{{ game.id }}">Spectator view →</a>
-    · <a href="/api/admin/games/{{ game.id }}/export.csv">Export CSV</a>
-    · <a href="/api/admin/games/{{ game.id }}/export.json">Export JSON</a>
+    <a href="/games/{{ game.game }}/matches/{{ game.id }}">Spectator view →</a>
+    · <a href="/api/admin/matches/{{ game.id }}/export.csv">Export CSV</a>
+    · <a href="/api/admin/matches/{{ game.id }}/export.json">Export JSON</a>
 </p>
 {% endblock %}

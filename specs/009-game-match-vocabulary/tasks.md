@@ -60,11 +60,11 @@
 
 **Independent Test**: Browse `/games`→`/games/hoard-hurt-help`→`/games/hoard-hurt-help/matches/M_xxxx`; old URLs redirect.
 
-- [ ] T014 [US1] In `app/routes/web.py`: add `/games` catalog route; move lobby `/play/hoard-hurt-help`→`/games/hoard-hurt-help`; restructure match pages under `/games/{game}/matches/{match_id}` (viewer, `/live`, `/analysis`, `/analysis/rounds/{n}`, `/join`).
-- [ ] T015 [US1] In `app/routes/web.py`: add 301 redirect handlers — `/play/{game}`→`/games/{game}`, and legacy `/games/{old_id}`(+sub-paths)→`/games/{game}/matches/{match_id}` using `to_match_id()` to swap `G_`→`M_`; 404 only if the resolved match truly doesn't exist.
-- [ ] T016 [P: app/routes/sse.py] [US1] In `app/routes/sse.py`: move the stream to the nested match path; keep the old path as a thin alias.
-- [ ] T017 [US1] Update templates for the nested URL structure and vocabulary: `app/templates/agent_ludum.html` (catalog/home links) and the game/match viewer, join, analysis, and lobby templates — "game"=title, "match"=single play; render `M_` IDs. (Serial: shared partials.)
-- [ ] T018 [P: tests/test_match_urls.py] [US1] Create `tests/test_match_urls.py`: assert `/games` catalog renders; `/games/hoard-hurt-help/matches/M_xxxx` renders; `/play/hoard-hurt-help`→301; `/games/G_xxxx`(+`/analysis`)→301 to the `M_` nested URL.
+- [X] T014 [US1] In `app/routes/web.py`: add `/games` catalog route; move lobby `/play/hoard-hurt-help`→`/games/hoard-hurt-help`; restructure match pages under `/games/{game}/matches/{match_id}` (viewer, `/live`, `/analysis`, `/analysis/rounds/{n}`, `/join`).
+- [X] T015 [US1] In `app/routes/web.py`: add 301 redirect handlers — `/play/{game}`→`/games/{game}`, and legacy `/games/{old_id}`(+sub-paths)→`/games/{game}/matches/{match_id}` using `to_match_id()` to swap `G_`→`M_`; 404 only if the resolved match truly doesn't exist.
+- [X] T016 [P: app/routes/sse.py] [US1] In `app/routes/sse.py`: move the stream to the nested match path; keep the old path as a thin alias.
+- [X] T017 [US1] Update templates for the nested URL structure and vocabulary: `app/templates/agent_ludum.html` (catalog/home links) and the game/match viewer, join, analysis, and lobby templates — "game"=title, "match"=single play; render `M_` IDs. (Serial: shared partials.)
+- [X] T018 [P: tests/test_match_urls.py] [US1] Create `tests/test_match_urls.py`: assert `/games` catalog renders; `/games/hoard-hurt-help/matches/M_xxxx` renders; `/play/hoard-hurt-help`→301; `/games/G_xxxx`(+`/analysis`)→301 to the `M_` nested URL.
 
 **Checkpoint**: full catalog→game→match flow works; no old-link 404s.
 
@@ -76,15 +76,15 @@
 
 **Independent Test**: Same bot completes a turn via `/api/games/...` and via `/api/matches/...`; MCP accepts old+new args; responses contain `match_id` and `game_id`.
 
-- [ ] T019 [US2] In `app/schemas/agent.py`: make `match_id` canonical with a `game_id` request alias (validator/`AliasChoices`); ensure response models emit BOTH `match_id` and legacy `game_id` (same value) for the deprecation window.
-- [ ] T020 [P: app/schemas/spectator.py] [US2] Same alias + dual-key treatment in `app/schemas/spectator.py`.
-- [ ] T021 [US2] In `app/routes/agent_api.py`: register canonical `/api/matches/{match_id}/...` handlers; mount the existing `/api/games/{game_id}/...` paths as aliases to the same handlers. Rename internal vars `game_id`→`match_id`.
+- [X] T019 [US2] In `app/schemas/agent.py`: make `match_id` canonical with a `game_id` request alias (validator/`AliasChoices`); ensure response models emit BOTH `match_id` and legacy `game_id` (same value) for the deprecation window.
+- [X] T020 [P: app/schemas/spectator.py] [US2] Same alias + dual-key treatment in `app/schemas/spectator.py`.
+- [X] T021 [US2] In `app/routes/agent_api.py`: register canonical `/api/matches/{match_id}/...` handlers; mount the existing `/api/games/{game_id}/...` paths as aliases to the same handlers. Rename internal vars `game_id`→`match_id`.
 - [ ] T022 [P: app/routes/agent_next_turn.py] [US2] In `app/routes/agent_next_turn.py`: rename to `match_id`, keep `/next-turn` response shape carrying both keys; alias old path if path changes.
-- [ ] T023 [P: app/routes/spectator_api.py] [US2] In `app/routes/spectator_api.py`: canonical `/api/matches/...` + `/api/games/...` alias; rename internals.
-- [ ] T024 [P: app/routes/admin_api.py] [US2] In `app/routes/admin_api.py`: match-scoped admin endpoints renamed + aliased; export filenames/labels use match.
-- [ ] T025 [P: app/routes/admin_web.py] [US2] In `app/routes/admin_web.py`: admin match pages renamed; internals `game_id`→`match_id`.
-- [ ] T026 [US2] In `mcp_server/server.py`: keep tool NAMES stable (`get_game_state`, `submit_action`, etc.); accept both `game_id` and `match_id` arguments (new canonical); update `mcp_server/README.md`.
-- [ ] T027 [P: tests/test_match_api_aliases.py] [US2] Create `tests/test_match_api_aliases.py`: old path == new path results; POST with `game_id` body and `match_id` body both recorded; responses contain both keys; MCP tool accepts old+new arg names.
+- [X] T023 [P: app/routes/spectator_api.py] [US2] In `app/routes/spectator_api.py`: canonical `/api/matches/...` + `/api/games/...` alias; rename internals.
+- [X] T024 [P: app/routes/admin_api.py] [US2] In `app/routes/admin_api.py`: match-scoped admin endpoints renamed + aliased; export filenames/labels use match.
+- [X] T025 [P: app/routes/admin_web.py] [US2] In `app/routes/admin_web.py`: admin match pages renamed; internals `game_id`→`match_id`.
+- [X] T026 [US2] In `mcp_server/server.py`: keep tool NAMES stable (`get_game_state`, `submit_action`, etc.); accept both `game_id` and `match_id` arguments (new canonical); update `mcp_server/README.md`.
+- [X] T027 [P: tests/test_match_api_aliases.py] [US2] Create `tests/test_match_api_aliases.py`: old path == new path results; POST with `game_id` body and `match_id` body both recorded; responses contain both keys; MCP tool accepts old+new arg names.
 
 **Checkpoint**: an unchanged bot survives the deploy boundary.
 
@@ -105,7 +105,7 @@
 - [X] T034 [US4] `app/games/base.py` + `app/games/__init__.py`: keep the registry key string `"hoard-hurt-help"` and the `game_type` registry concept; only update reads of the renamed match column (`match.game`). Do NOT change `app/games/` directory semantics (FR-016).
 - [X] T035 [P: app/games/hoard_hurt_help/game.py] [US4] `app/games/hoard_hurt_help/game.py`: `Game`→`Match`, `game_id`→`match_id`.
 - [X] T036 [P: app/deps.py, app/broadcast.py, app/request_logging.py] [US4] `app/deps.py`, `app/broadcast.py`, `app/request_logging.py`: `game_id`→`match_id`.
-- [ ] T037 [P: app/routes/bots_web.py] [US4] `app/routes/bots_web.py` + remaining bot/admin templates (`bots/_status.html`, `bots/detail.html`, `admin/prompts.html`, `admin/incidents.html`, `admin/incident_detail.html`): `game_id`→`match_id`, copy uses "match" for a play.
+- [X] T037 [P: app/routes/bots_web.py] [US4] `app/routes/bots_web.py` + remaining bot/admin templates (`bots/_status.html`, `bots/detail.html`, `admin/prompts.html`, `admin/incidents.html`, `admin/incident_detail.html`): `game_id`→`match_id`, copy uses "match" for a play.
 - [ ] T038 [US4] Re-run the T001 grep; reconcile `rename-audit-before.txt` to a clean `rename-audit-after.txt` — every remaining hit must be an intentional keeper (`app/games/` dir, `GameState`, registry key string, the legacy-alias code paths). Document keepers inline in the audit file.
 
 **Checkpoint**: grep audit clean; preflight green.
@@ -116,16 +116,16 @@
 
 **Goal**: DESIGN.md + writing-a-game-module.md teach "game"=title, "match"=play.
 
-- [ ] T039 [P: DESIGN.md] [US5] `DESIGN.md`: update data-model + routing sections to `Match`/`match_id`/`M_` and nested `/games/{game}/matches/{match_id}` URLs; document the alias deprecation window + the `GameState` keeper.
-- [ ] T040 [P: docs/writing-a-game-module.md] [US5] `docs/writing-a-game-module.md`: "game"=title/module, "match"=single play throughout; fix code/URL examples.
+- [X] T039 [P: DESIGN.md] [US5] `DESIGN.md`: update data-model + routing sections to `Match`/`match_id`/`M_` and nested `/games/{game}/matches/{match_id}` URLs; document the alias deprecation window + the `GameState` keeper.
+- [X] T040 [P: docs/writing-a-game-module.md] [US5] `docs/writing-a-game-module.md`: "game"=title/module, "match"=single play throughout; fix code/URL examples.
 
 ---
 
 ## Phase 8: Polish & Cross-Cutting
 
-- [ ] T041 Run the full preflight gate from repo root: `python3 -m ruff check . && mypy app/ mcp_server/ && pytest -q`. Fix root causes; no `# type: ignore`/`# noqa`/swallowed exceptions.
+- [X] T041 Run the full preflight gate from repo root: `python3 -m ruff check . && mypy app/ mcp_server/ && pytest -q`. Fix root causes; no `# type: ignore`/`# noqa`/swallowed exceptions.
 - [ ] T042 Walk `quickstart.md` end-to-end on the dev DB (migration dry-run → apply → URL flow → bot alias checks).
-- [ ] T043 Re-run the leak tests (agent API + MCP + spectator JSON) to confirm the rename changed names only, not visibility (MEMORY: spectator-channel-is-bot-reachable).
+- [X] T043 Re-run the leak tests (agent API + MCP + spectator JSON) to confirm the rename changed names only, not visibility (MEMORY: spectator-channel-is-bot-reachable).
 - [ ] T044 Fill in the Post-Deploy Verification checklist in plan.md as a PR `Validation` section (commands run + pass/fail).
 
 ---

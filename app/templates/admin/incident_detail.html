@@ -9,7 +9,7 @@
 
 <table>
     <tr><th>User</th><td>{{ incident.user_id if incident.user_id is not none else "—" }}</td></tr>
-    <tr><th>Game</th><td>{{ incident.game_id if incident.game_id else "—" }}</td></tr>
+    <tr><th>Match</th><td>{{ incident.match_id if incident.match_id else "—" }}</td></tr>
     <tr><th>Bot</th><td>{{ incident.bot_id if incident.bot_id is not none else "—" }}</td></tr>
     <tr><th>Player</th><td>{{ incident.player_id if incident.player_id is not none else "—" }}</td></tr>
     <tr><th>Stage</th><td>{{ incident.stage if incident.stage else "—" }}</td></tr>

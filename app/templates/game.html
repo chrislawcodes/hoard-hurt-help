@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/play/hoard-hurt-help">← Lobby</a>
+<a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 <div class="page-head page-head-row">
     <h1>{{ game.name }}</h1>
-    <a class="btn btn-ghost" href="/games/{{ game.id }}/analysis">📊 Analysis</a>
+    <a class="btn btn-ghost" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
 </div>
 
 {% if rc_data %}
@@ -21,8 +21,8 @@
    silently never fired and the page only changed on a manual reload. #}
 <div id="live-region"
      data-state="{{ game.state.value }}"
-     {% if game.state.value == "active" %}data-stream-url="/games/{{ game.id }}/stream"
-     data-live-url="/games/{{ game.id }}/live"{% endif %}>
+     {% if game.state.value == "active" %}data-stream-url="/games/{{ game.game }}/matches/{{ game.id }}/stream"
+     data-live-url="/games/{{ game.game }}/matches/{{ game.id }}/live"{% endif %}>
     {% include "fragments/live_region.html" %}
 </div>
 

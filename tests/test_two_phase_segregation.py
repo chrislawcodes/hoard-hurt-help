@@ -243,7 +243,7 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
         if path == f"/api/games/{game.id}/turn":
             turn_payload = payload
 
-    viewer = await client.get(f"/games/{game.id}")
+    viewer = await client.get(f"/games/hoard-hurt-help/matches/{game.id}")
     assert viewer.status_code == 200, viewer.text
     for secret in secrets[:4]:
         assert secret in viewer.text

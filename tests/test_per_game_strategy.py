@@ -100,7 +100,7 @@ def test_pd_module_exposes_presets_and_default() -> None:
 async def test_join_with_custom_strategy_seeds_it(client, reset_db) -> None:
     user_id, bot_id = await _seed_game_user_bot(reset_db)
     r = await client.post(
-        "/games/G_001/join",
+        "/games/hoard-hurt-help/matches/G_001/join",
         data={
             "bot_id": bot_id,
             "display_name": "AI_qa",
@@ -117,7 +117,7 @@ async def test_join_with_custom_strategy_seeds_it(client, reset_db) -> None:
 async def test_join_without_strategy_uses_module_default(client, reset_db) -> None:
     user_id, bot_id = await _seed_game_user_bot(reset_db)
     r = await client.post(
-        "/games/G_001/join",
+        "/games/hoard-hurt-help/matches/G_001/join",
         data={"bot_id": bot_id, "display_name": "AI_def"},
         cookies=_signed_in_cookies(user_id),
         follow_redirects=False,
@@ -130,7 +130,9 @@ async def test_join_without_strategy_uses_module_default(client, reset_db) -> No
 @pytest.mark.asyncio
 async def test_join_form_offers_presets(client, reset_db) -> None:
     user_id, bot_id = await _seed_game_user_bot(reset_db)
-    r = await client.get("/games/G_001/join", cookies=_signed_in_cookies(user_id))
+    r = await client.get(
+        "/games/hoard-hurt-help/matches/G_001/join", cookies=_signed_in_cookies(user_id)
+    )
     assert r.status_code == 200
     # The preset picker + write-your-own textarea are present.
     assert 'id="preset-picker"' in r.text

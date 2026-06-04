@@ -43,3 +43,13 @@ def to_game_id(match_id: str) -> str:
     if match_id.startswith(MATCH_PREFIX):
         return LEGACY_PREFIX + match_id[len(MATCH_PREFIX) :]
     return match_id
+
+
+def match_id_candidates(match_id: str) -> tuple[str, ...]:
+    """All plausible ids for one match, ordered by the caller's preference.
+
+    Useful while the rollout still has a mix of legacy G_ fixtures and migrated
+    M_ data. The first entry is always the input as-is; the rewrite variants are
+    appended in a stable order with duplicates removed.
+    """
+    return tuple(dict.fromkeys((match_id, to_match_id(match_id), to_game_id(match_id))))

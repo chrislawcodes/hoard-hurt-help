@@ -133,7 +133,7 @@ async def _seed_two_phase_turn(
 @pytest.mark.asyncio
 async def test_viewer_renders_active(client, reset_db):
     await _seed(reset_db, GameState.ACTIVE)
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     assert "Test" in r.text
 
@@ -141,7 +141,7 @@ async def test_viewer_renders_active(client, reset_db):
 @pytest.mark.asyncio
 async def test_viewer_does_not_leak_strategy(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     assert "SECRET STRATEGY" not in r.text
 
@@ -150,7 +150,7 @@ async def test_viewer_does_not_leak_strategy(client, reset_db):
 async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     await _seed_two_phase_turn(reset_db)
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     assert "action-card hoard" in r.text
     assert "public talk" in r.text
@@ -166,7 +166,7 @@ async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
 async def test_legacy_viewer_falls_back_to_submission_message(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     await _seed_two_phase_turn(reset_db, include_turn_messages=False)
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     assert "legacy public chat" in r.text
 
@@ -245,7 +245,7 @@ async def test_completed_viewer_has_round_nav(client, reset_db):
             )
         )
         await db.commit()
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     # Round-jump bar and grouped round section are present.
     assert "round-nav" in r.text
@@ -299,7 +299,7 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
         )
         await db.commit()
 
-    r = await client.get("/games/G_001")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     # The target and its loss are shown; the actor's own +0 is omitted because
     # the compact action line focuses on who the move lands on.

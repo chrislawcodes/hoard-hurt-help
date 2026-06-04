@@ -87,9 +87,9 @@ async def _seed_bot(
 @pytest.mark.asyncio
 async def test_lobby_renders_at_play_path(client, reset_db):
     # The HHH lobby moved off `/` (now the Agent Ludum marketing page) to
-    # `/play/hoard-hurt-help`; the upcoming-games listing lives there now.
+    # `/games/hoard-hurt-help`; the upcoming-games listing lives there now.
     await _seed_game(reset_db)
-    r = await client.get("/play/hoard-hurt-help")
+    r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
     assert "Test Match" in r.text
 
@@ -146,7 +146,7 @@ async def test_lobby_shows_robot_replay_of_latest_game(client, reset_db):
     # With no live game, the lobby replays the latest finished showcase game
     # using the same robot-circle animation the front page uses.
     await _seed_completed_showcase(reset_db)
-    r = await client.get("/play/hoard-hurt-help")
+    r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
     assert 'id="rc-data"' in r.text  # the robot-circle data island
     assert "Animated Replay" in r.text
@@ -170,7 +170,7 @@ async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
         )
         await db.commit()
 
-    r = await client.get("/play/hoard-hurt-help")
+    r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
     assert "Wednesday Wild" not in r.text  # no longer advertised as upcoming
 
@@ -185,9 +185,9 @@ async def test_lobby_polls_upcoming_every_minute(client, reset_db):
     # The lobby wires a 60s poller at the upcoming fragment endpoint so an open
     # page self-updates without a manual reload.
     await _seed_game(reset_db)
-    r = await client.get("/play/hoard-hurt-help")
+    r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
-    assert 'hx-get="/play/hoard-hurt-help/upcoming"' in r.text
+    assert 'hx-get="/games/hoard-hurt-help/upcoming"' in r.text
     assert "every 60s" in r.text
 
 
@@ -216,7 +216,7 @@ async def test_upcoming_fragment_reconciles_and_lists(client, reset_db):
         )
         await db.commit()
 
-    r = await client.get("/play/hoard-hurt-help/upcoming")
+    r = await client.get("/games/hoard-hurt-help/upcoming")
     assert r.status_code == 200
     assert "Future Match" in r.text  # still upcoming → listed
     assert "Wednesday Wild" not in r.text  # overdue + under-filled → cancelled
@@ -231,7 +231,7 @@ async def test_upcoming_fragment_reconciles_and_lists(client, reset_db):
 @pytest.mark.asyncio
 async def test_join_requires_sign_in(client, reset_db):
     await _seed_game(reset_db)
-    r = await client.get("/games/G_001/join", follow_redirects=False)
+    r = await client.get("/games/hoard-hurt-help/matches/G_001/join", follow_redirects=False)
     assert r.status_code == 303
     assert "/auth/google/login" in r.headers["location"]
 
@@ -283,7 +283,7 @@ async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
     assert {bot.name for bot in bots} == {preset.name for preset in presets}
 
     await _seed_game(reset_db)
-    join = await client.get("/games/G_001/join", cookies=cookies)
+    join = await client.get("/games/hoard-hurt-help/matches/G_001/join", cookies=cookies)
     assert join.status_code == 200
     assert any(preset.name in join.text for preset in presets)
 
@@ -362,7 +362,7 @@ async def test_enter_bot_into_game(client, reset_db):
     await _seed_game(reset_db)
     bot_id, _ = await _seed_bot(reset_db, user)
     r = await client.post(
-        "/games/G_001/join",
+        "/games/hoard-hurt-help/matches/G_001/join",
         data={"bot_id": bot_id, "display_name": "AI_qa"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
@@ -384,13 +384,13 @@ async def test_duplicate_bot_entry_blocked(client, reset_db):
     bot_id, _ = await _seed_bot(reset_db, user)
     cookies = _signed_in_cookies(user.id)
     await client.post(
-        "/games/G_001/join",
+        "/games/hoard-hurt-help/matches/G_001/join",
         data={"bot_id": bot_id, "display_name": "AI_a"},
         cookies=cookies,
         follow_redirects=False,
     )
     r = await client.post(
-        "/games/G_001/join",
+        "/games/hoard-hurt-help/matches/G_001/join",
         data={"bot_id": bot_id, "display_name": "AI_b"},
         cookies=cookies,
         follow_redirects=False,
@@ -409,7 +409,7 @@ async def test_two_bots_one_game(client, reset_db):
     cookies = _signed_in_cookies(user.id)
     for bid, name in [(b1, "AI_one"), (b2, "AI_two")]:
         r = await client.post(
-            "/games/G_001/join",
+            "/games/hoard-hurt-help/matches/G_001/join",
             data={"bot_id": bid, "display_name": name},
             cookies=cookies,
             follow_redirects=False,
@@ -432,13 +432,13 @@ async def test_name_taken_blocked(client, reset_db):
     b2, _ = await _seed_bot(reset_db, user, name="Two")
     cookies = _signed_in_cookies(user.id)
     await client.post(
-        "/games/G_001/join",
+        "/games/hoard-hurt-help/matches/G_001/join",
         data={"bot_id": b1, "display_name": "Dup"},
         cookies=cookies,
         follow_redirects=False,
     )
     r = await client.post(
-        "/games/G_001/join",
+        "/games/hoard-hurt-help/matches/G_001/join",
         data={"bot_id": b2, "display_name": "Dup"},
         cookies=cookies,
         follow_redirects=False,
@@ -483,7 +483,7 @@ async def test_my_games_lists_user_games(client, reset_db):
     await _seed_game(reset_db)
     bot_id, _ = await _seed_bot(reset_db, user)
     await client.post(
-        "/games/G_001/join",
+        "/games/hoard-hurt-help/matches/G_001/join",
         data={"bot_id": bot_id, "display_name": "AI_qa"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,

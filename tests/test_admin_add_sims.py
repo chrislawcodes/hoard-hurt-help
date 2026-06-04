@@ -126,7 +126,7 @@ async def test_seats_sims_as_players(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == "/admin/games/G_001?added=3"
+    assert r.headers["location"] == "/admin/matches/G_001?added=3"
 
     async with reset_db() as db:
         players = (

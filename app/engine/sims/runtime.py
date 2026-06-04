@@ -191,6 +191,8 @@ def _leader_id(scoreboard: Sequence[ScoreboardRow]) -> str | None:
 
 
 def _seed_int(*parts: object) -> int:
-    payload = "||".join(str(p) for p in parts)
+    payload = "||".join(
+        p.seed_basis() if isinstance(p, SimContext) else str(p) for p in parts
+    )
     digest = hashlib.sha256(payload.encode()).hexdigest()
     return int(digest[:16], 16)

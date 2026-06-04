@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.engine.game_records import ActionRecord
 from app.engine.sims import (
     SimContext,
@@ -23,6 +25,8 @@ def _context(
     scoreboard: list[ScoreboardRow] | None = None,
     history: list[ActionRecord] | None = None,
     talk: list[TalkMessage] | None = None,
+    game_id: str = "G_1",
+    game_started_at: datetime | None = None,
 ) -> SimContext:
     agent_ids = all_agent_ids or ["AI_1", "AI_2", "AI_3", "AI_10"]
     board = scoreboard or [
@@ -32,7 +36,8 @@ def _context(
         ScoreboardRow(agent_id="AI_10", round_score=12, round_wins=0.0),
     ]
     return SimContext(
-        game_id="G_1",
+        game_id=game_id,
+        game_started_at=game_started_at or datetime(2026, 1, 1, tzinfo=timezone.utc),
         round=round_,
         turn=turn,
         phase="act",
@@ -145,11 +150,12 @@ def test_seeded_tie_breaks_do_not_depend_on_agent_order() -> None:
     context_a = _context(
         all_agent_ids=["AI_1", "AI_2", "AI_10"],
         scoreboard=board,
+        game_id="G_100",
     )
     context_b = _context(
         all_agent_ids=["AI_10", "AI_2", "AI_1"],
         scoreboard=list(reversed(board)),
+        game_id="G_999",
     )
     profile = SimProfile(strategy="leader_pressure", truthfulness=80, trust_model="even", seed=11, version="v1")
     assert choose_action_decision(context_a, profile).move == choose_action_decision(context_b, profile).move
-

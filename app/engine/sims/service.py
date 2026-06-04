@@ -67,6 +67,7 @@ async def auto_submit_sim_phase(
 
         context = SimContext(
             game_id=game.id,  # internal Sim DTO field; kept as game_id (see types.py)
+            game_started_at=game.started_at or game.scheduled_start,
             round=turn.round,
             turn=turn.turn,
             phase=phase,

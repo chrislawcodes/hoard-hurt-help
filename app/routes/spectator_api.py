@@ -21,6 +21,7 @@ from app.schemas.spectator import (
 router = APIRouter(tags=["spectator"])
 
 
+@router.get("/api/matches")
 @router.get("/api/games")
 async def list_games_public(
     db: DbSession,
@@ -58,6 +59,7 @@ async def list_games_public(
     return out
 
 
+@router.get("/api/spectator/matches/{match_id}/state", response_model=SpectatorState)
 @router.get("/api/spectator/games/{match_id}/state", response_model=SpectatorState)
 async def public_state(
     match_id: Annotated[str, Path()],

@@ -188,7 +188,7 @@ async def test_archived_bot_cannot_join_new_game(client, reset_db):
     await _seed_game(reset_db, state=GameState.REGISTERING, match_id="G_002")
 
     r = await client.post(
-        "/games/G_002/join",
+        "/games/hoard-hurt-help/matches/G_002/join",
         data={"bot_id": bot_id, "display_name": "atlas2", "strategy_prompt": ""},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,

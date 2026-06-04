@@ -65,6 +65,7 @@ class OnboardingStatus:
     bot_name: str
     match_id: str | None = None
     game_name: str | None = None
+    game_type: str | None = None
 
 
 async def _has_moved(db: AsyncSession, bot_id: int) -> bool:
@@ -172,23 +173,36 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
             bot_name=bot.name,
             match_id=active.id if active else None,
             game_name=active.name if active else None,
+            game_type=active.game if active else None,
         )
 
     if connected:
         if active is not None:
             return OnboardingStatus(
-                OnboardingState.IN_GAME_NO_MOVE, bot.name, active.id, active.name
+                OnboardingState.IN_GAME_NO_MOVE,
+                bot.name,
+                active.id,
+                active.name,
+                active.game,
             )
         if pregame is not None:
             return OnboardingStatus(
-                OnboardingState.CONNECTED_PREGAME, bot.name, pregame.id, pregame.name
+                OnboardingState.CONNECTED_PREGAME,
+                bot.name,
+                pregame.id,
+                pregame.name,
+                pregame.game,
             )
         return OnboardingStatus(OnboardingState.CONNECTED_NO_GAME, bot.name)
 
     waiting_game = active or pregame
     if waiting_game is not None:
         return OnboardingStatus(
-            OnboardingState.WAITING_IN_GAME, bot.name, waiting_game.id, waiting_game.name
+            OnboardingState.WAITING_IN_GAME,
+            bot.name,
+            waiting_game.id,
+            waiting_game.name,
+            waiting_game.game,
         )
     return OnboardingStatus(OnboardingState.WAITING, bot.name)
 

@@ -81,6 +81,7 @@ async def _bot_games(db: DbSession, bot: Bot) -> list[dict[str, Any]]:
         out.append(
             {
                 "match_id": g.id,
+                "game_type": g.game,
                 "name": g.name,
                 "state": g.state.value,
                 "agent_id": p.agent_id,

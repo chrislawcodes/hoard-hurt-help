@@ -1,7 +1,8 @@
 """Routing tests for the Agent Ludum front page + the platform/game URL split.
 
-`/` now serves the Agent Ludum marketing page; the Hoard·Hurt·Help lobby moved
-to `/play/hoard-hurt-help`; the per-match viewer at `/games/{id}` is unchanged.
+`/` now serves the Agent Ludum marketing page; the Hoard·Hurt·Help lobby lives
+at `/games/hoard-hurt-help`; the per-match viewer now uses
+`/games/{game}/matches/{match_id}`.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -69,23 +70,23 @@ async def test_root_serves_agent_ludum_marketing(client, reset_db):
     # marketing page that doesn't couple the test to the churnable hero headline.
     assert "Multiplayer games for AI agents" in r.text
     # The funnel: a primary CTA points at the game lobby, not at `/`.
-    assert 'href="/play/hoard-hurt-help"' in r.text
+    assert 'href="/games/hoard-hurt-help"' in r.text
 
 
 @pytest.mark.asyncio
-async def test_lobby_served_at_play_path(client, reset_db):
-    """The HHH lobby (upcoming games etc.) now lives at /play/hoard-hurt-help."""
+async def test_lobby_served_at_game_path(client, reset_db):
+    """The HHH lobby (upcoming games etc.) now lives at /games/hoard-hurt-help."""
     await _seed_game(reset_db)
-    r = await client.get("/play/hoard-hurt-help")
+    r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
     assert "Test Match" in r.text  # the upcoming-games listing renders here
 
 
 @pytest.mark.asyncio
 async def test_game_viewer_unchanged(client, reset_db):
-    """The per-match viewer pattern /games/{id} is untouched by the split."""
+    """The per-match viewer now uses /games/{game}/matches/{match_id}."""
     await _seed_game(reset_db, match_id="G_view", state=GameState.ACTIVE)
-    r = await client.get("/games/G_view")
+    r = await client.get("/games/hoard-hurt-help/matches/G_view")
     assert r.status_code == 200
 
 
@@ -96,11 +97,11 @@ async def test_active_game_viewer_wires_live_sse(client, reset_db):
     attributes — in htmx 1.9.x those silently never fired, so live updates were
     dead and the page only changed on a manual reload."""
     await _seed_game(reset_db, match_id="G_live", state=GameState.ACTIVE)
-    r = await client.get("/games/G_live")
+    r = await client.get("/games/hoard-hurt-help/matches/G_live")
     assert r.status_code == 200
     # The working wiring the EventSource reads off the live region.
-    assert 'data-stream-url="/games/G_live/stream"' in r.text
-    assert 'data-live-url="/games/G_live/live"' in r.text
+    assert 'data-stream-url="/games/hoard-hurt-help/matches/G_live/stream"' in r.text
+    assert 'data-live-url="/games/hoard-hurt-help/matches/G_live/live"' in r.text
     assert "turn_talked" in r.text
     # The dead htmx sse-extension wiring must be gone.
     assert 'hx-ext="sse"' not in r.text
@@ -113,7 +114,7 @@ async def test_finished_game_viewer_has_no_live_stream(client, reset_db):
     """A non-active game opens no stream: the live-update attributes are absent
     so the page never tries to connect to a stream that will deliver nothing."""
     await _seed_game(reset_db, match_id="G_done", state=GameState.COMPLETED)
-    r = await client.get("/games/G_done")
+    r = await client.get("/games/hoard-hurt-help/matches/G_done")
     assert r.status_code == 200
     assert "data-stream-url=" not in r.text
     assert "data-live-url=" not in r.text
@@ -121,7 +122,7 @@ async def test_finished_game_viewer_has_no_live_stream(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_repointed_lobby_links_resolve(client, reset_db):
-    """Every internal "go to the lobby" link now targets /play/hoard-hurt-help;
+    """Every internal "go to the lobby" link now targets /games/hoard-hurt-help;
     that target must resolve (no 404) so none of the repointed links break."""
-    r = await client.get("/play/hoard-hurt-help")
+    r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200

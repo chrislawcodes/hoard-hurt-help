@@ -112,6 +112,7 @@ async def admin_incident_detail(
     )
 
 
+@router.get("/admin/matches/new", response_class=HTMLResponse)
 @router.get("/admin/games/new", response_class=HTMLResponse)
 async def create_game_form(
     request: Request,
@@ -124,6 +125,7 @@ async def create_game_form(
     )
 
 
+@router.post("/admin/matches/new")
 @router.post("/admin/games/new")
 async def create_game_submit(
     request: Request,
@@ -157,7 +159,7 @@ async def create_game_submit(
         return _error("Min players cannot be greater than max players.")
 
     existing_ids = (await db.execute(select(Match.id))).scalars().all()
-    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("G_")), default=0) + 1
+    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
     g = Match(
         id=generate_match_id(n),
         name=name,
@@ -172,6 +174,7 @@ async def create_game_submit(
     return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
 
 
+@router.get("/admin/matches/{match_id}", response_class=HTMLResponse)
 @router.get("/admin/games/{match_id}", response_class=HTMLResponse)
 async def admin_game_detail(
     match_id: Annotated[str, Path()],
@@ -299,6 +302,7 @@ async def _render_add_sims(
     )
 
 
+@router.get("/admin/matches/{match_id}/sims", response_class=HTMLResponse)
 @router.get("/admin/games/{match_id}/sims", response_class=HTMLResponse)
 async def add_sims_form(
     match_id: Annotated[str, Path()],
@@ -312,6 +316,7 @@ async def add_sims_form(
     return await _render_add_sims(request, db, user, g)
 
 
+@router.post("/admin/matches/{match_id}/sims")
 @router.post("/admin/games/{match_id}/sims")
 async def add_sims_submit(
     match_id: Annotated[str, Path()],
@@ -352,11 +357,12 @@ async def add_sims_submit(
             request, db, user, g, error=str(exc), prefill=seats, status_code=400
         )
     return RedirectResponse(
-        url=f"/admin/games/{match_id}?added={len(created)}",
+        url=f"/admin/matches/{match_id}?added={len(created)}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
+@router.post("/admin/matches/{match_id}/start")
 @router.post("/admin/games/{match_id}/start")
 async def admin_start_game(
     match_id: Annotated[str, Path()],
@@ -372,10 +378,11 @@ async def admin_start_game(
     except TransitionError:
         raise HTTPException(409, detail=f"Cannot start a game in state {g.state.value}.")
     return RedirectResponse(
-        url=f"/admin/games/{match_id}", status_code=status.HTTP_303_SEE_OTHER
+        url=f"/admin/matches/{match_id}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
+@router.post("/admin/matches/{match_id}/delete")
 @router.post("/admin/games/{match_id}/delete")
 async def admin_delete_game(
     match_id: Annotated[str, Path()],
