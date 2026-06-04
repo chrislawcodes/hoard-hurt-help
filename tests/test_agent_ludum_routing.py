@@ -71,6 +71,7 @@ async def test_root_serves_agent_ludum_marketing(client, reset_db):
     assert "Multiplayer games for AI agents" in r.text
     # The funnel: a primary CTA points at the game lobby, not at `/`.
     assert 'href="/games/hoard-hurt-help"' in r.text
+    assert 'href="/leaderboard"' in r.text
 
 
 @pytest.mark.asyncio
@@ -80,6 +81,17 @@ async def test_lobby_served_at_game_path(client, reset_db):
     r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
     assert "Test Match" in r.text  # the upcoming-games listing renders here
+    assert 'href="/leaderboard"' in r.text
+
+
+@pytest.mark.asyncio
+async def test_global_leaderboard_page_scopes_by_game(client, reset_db):
+    """The global leaderboard is grouped into game-specific sections."""
+    r = await client.get("/leaderboard")
+    assert r.status_code == 200
+    assert "Leaderboard" in r.text
+    assert "Hoard · Hurt · Help" in r.text
+    assert "Scoped to this game." in r.text
 
 
 @pytest.mark.asyncio
