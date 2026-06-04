@@ -20,14 +20,10 @@ from app.models.request_incident import RequestIncident
 from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
-from app.read_models.matches import count_players
+from app.routes.web_support import _seated_player_count
 from app.templating import templates  # shared instance with custom filters
 
 router = APIRouter(tags=["admin"])
-
-
-async def _player_count(db, match_id: str) -> int:
-    return await count_players(db, match_id)
 
 
 @router.get("/admin", response_class=HTMLResponse)
@@ -48,7 +44,7 @@ async def admin_dashboard(
             "min_players": g.min_players,
             "max_players": g.max_players,
             "state": g.state,
-            "player_count": await _player_count(db, g.id),
+            "player_count": await _seated_player_count(db, g.id),
         }
         if g.state == GameState.ACTIVE:
             active.append(view)

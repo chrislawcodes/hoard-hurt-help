@@ -31,16 +31,13 @@ from app.models.bot import Bot, BotKind, BotProvider, BotStatus
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User
+from app.routes.web_support import _is_admin
 from app.templating import templates
 
 router = APIRouter(prefix="/me/bots", tags=["bots"])
 logger = logging.getLogger(__name__)
 
 _NAME_RE = re.compile(r"^[a-zA-Z0-9 _-]{1,120}$")
-
-
-def _is_admin(user: User) -> bool:
-    return user.email.lower() in settings.admin_emails_set
 
 
 async def _owned_bot(db: DbSession, user: User, bot_id: int) -> Bot:

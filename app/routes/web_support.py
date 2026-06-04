@@ -26,6 +26,11 @@ async def _player_count(db, match_id: str) -> int:
     return await count_players(db, match_id, active_only=True)
 
 
+async def _seated_player_count(db, match_id: str) -> int:
+    """All seated players, including agents that later left."""
+    return await count_players(db, match_id)
+
+
 def _is_admin(user: User | None) -> bool:
     return user is not None and user.email.lower() in settings.admin_emails_set
 
