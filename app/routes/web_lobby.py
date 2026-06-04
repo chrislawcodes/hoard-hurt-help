@@ -24,6 +24,7 @@ from app.routes.web_support import (
     _is_admin,
     _is_showcase,
     _load_match_or_404,
+    _agent_count,
     _player_count,
     _redirect_to_match,
     _top_standings,
@@ -216,6 +217,7 @@ async def home(request: Request, db: DbSession):
         if g.state == GameState.ACTIVE:
             live.append(view)
         elif g.state == GameState.COMPLETED:
+            view["agent_count"] = await _agent_count(db, g.id)
             if g.winner_player_id:
                 winner = (
                     await db.execute(select(Player).where(Player.id == g.winner_player_id))

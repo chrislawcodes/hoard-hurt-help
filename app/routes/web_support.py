@@ -2,13 +2,14 @@
 
 from fastapi import HTTPException, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.engine.match_id_rewrite import match_id_candidates
 from app.games import get as get_game_module
 from app.games.base import GameError, GameTheme
+from app.models.bot import Bot, BotKind
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User
@@ -25,6 +26,17 @@ _GENERAL_NAMES: tuple[str, ...] = (
 async def _player_count(db, match_id: str) -> int:
     """Active players only — a pulled-out (left) bot frees its seat."""
     return await count_players(db, match_id, active_only=True)
+
+
+async def _agent_count(db, match_id: str) -> int:
+    """Count non-SIM (real agent) players for a match."""
+    result = await db.scalar(
+        select(func.count())
+        .select_from(Player)
+        .join(Bot, Bot.id == Player.bot_id)
+        .where(Player.match_id == match_id, Bot.kind != BotKind.SIM)
+    )
+    return int(result or 0)
 
 
 async def _seated_player_count(db, match_id: str) -> int:
@@ -148,9 +160,11 @@ _TEST_NAME_PREFIX = "prod smoke"
 
 
 def _is_showcase(view: dict) -> bool:
-    """Real, watchable game: had a full table and isn't a smoke test."""
-    return view["player_count"] >= 3 and not view["name"].strip().lower().startswith(
-        _TEST_NAME_PREFIX
+    """Real, watchable game: had a full table, at least one real agent, and isn't a smoke test."""
+    return (
+        view["player_count"] >= 3
+        and view.get("agent_count", 0) >= 1
+        and not view["name"].strip().lower().startswith(_TEST_NAME_PREFIX)
     )
 
 
