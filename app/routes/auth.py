@@ -2,13 +2,14 @@
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.google import oauth
 from app.auth.session import clear_session, set_session_user
 from app.config import settings
 from app.deps import DbSession
+from app.models.bot import Bot, BotKind
 from app.models.user import User
 from app.schemas.auth import GoogleUserInfo
 
@@ -78,6 +79,16 @@ async def google_callback(request: Request, db: DbSession):
     set_session_user(request, user.id)
 
     next_url = request.session.pop("next_after_login", "/") or "/"
+    if next_url == "/":
+        bot_count = await db.scalar(
+            select(func.count()).select_from(Bot).where(
+                Bot.user_id == user.id,
+                Bot.archived_at.is_(None),
+                Bot.kind != BotKind.SIM,
+            )
+        ) or 0
+        if bot_count == 0:
+            next_url = "/me/bots/new"
     return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
 
 

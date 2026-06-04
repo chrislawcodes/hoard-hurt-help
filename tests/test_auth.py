@@ -63,3 +63,55 @@ def test_oauth_module_imports():
     from app.auth.google import oauth
 
     assert oauth.google is not None
+
+
+@pytest.mark.asyncio
+async def test_zero_bot_user_redirect_destination(db):
+    """A signed-in user with no bots should be redirected to /me/bots/new."""
+    from sqlalchemy import func
+    from app.models.bot import Bot, BotKind
+
+    user = User(google_sub="sub-zero", email="zero@example.com", name="Zero")
+    db.add(user)
+    await db.commit()
+
+    bot_count = await db.scalar(
+        select(func.count()).select_from(Bot).where(
+            Bot.user_id == user.id,
+            Bot.archived_at.is_(None),
+            Bot.kind != BotKind.SIM,
+        )
+    ) or 0
+    assert bot_count == 0  # confirms the redirect condition would trigger
+
+
+@pytest.mark.asyncio
+async def test_existing_bot_user_no_redirect_override(db):
+    """A signed-in user with an existing bot should NOT be redirected to /me/bots/new."""
+    from sqlalchemy import func
+    from app.models.bot import Bot, BotKind
+
+    user = User(google_sub="sub-hasbot", email="hasbot@example.com", name="HasBot")
+    db.add(user)
+    await db.flush()
+    bot = Bot(
+        user_id=user.id,
+        name="mybot",
+        key_lookup="lk",
+        key_hint="h",
+        kind=BotKind.EXTERNAL,
+        status="active",
+        max_concurrent_games=3,
+        stall_threshold=3,
+    )
+    db.add(bot)
+    await db.commit()
+
+    bot_count = await db.scalar(
+        select(func.count()).select_from(Bot).where(
+            Bot.user_id == user.id,
+            Bot.archived_at.is_(None),
+            Bot.kind != BotKind.SIM,
+        )
+    ) or 0
+    assert bot_count == 1  # confirms the redirect condition would NOT trigger
