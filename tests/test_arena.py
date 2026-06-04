@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.db import make_engine
 from app.engine.arena import (
     AUTO_MATCH_MAX_PLAYERS,
+    AUTO_MATCH_SIM_COUNT_MAX,
     PRACTICE_ARENA_MAX_PLAYERS,
     PRACTICE_ARENA_NAME,
     PRACTICE_ARENA_SIM_COUNT,
@@ -21,6 +22,7 @@ from app.engine.arena import (
 from app.models import Base
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
+from tests.factories import seat_player
 
 
 @pytest.fixture(autouse=True)
@@ -169,6 +171,8 @@ async def test_fill_and_start_auto_matches_fills_sims(db_session):
             match_kind=MatchKind.AUTO_SCHEDULED.value,
         )
         db.add(m)
+        await db.flush()
+        await seat_player(db, match_id, "Human1", i=1)
         await db.commit()
 
     async with db_session() as db:
@@ -183,13 +187,12 @@ async def test_fill_and_start_auto_matches_fills_sims(db_session):
                 Player.match_id == match_id, Player.left_at.is_(None)
             )
         )
-        # Sims fill up to AUTO_MATCH_SIM_COUNT_MAX (one human slot left open).
-        from app.engine.arena import AUTO_MATCH_SIM_COUNT_MAX
-        assert player_count == min(AUTO_MATCH_MAX_PLAYERS, AUTO_MATCH_SIM_COUNT_MAX)
+        expected_count = 1 + min(AUTO_MATCH_MAX_PLAYERS - 1, AUTO_MATCH_SIM_COUNT_MAX)
+        assert player_count == expected_count
 
 
-async def test_fill_and_start_auto_matches_zero_humans(db_session):
-    """Even with 0 humans, an overdue auto-match should start filled with Sims."""
+async def test_fill_and_start_auto_matches_zero_humans_cancels(db_session):
+    """An overdue auto-match should not run when no external agents joined."""
     past = datetime.now(timezone.utc) - timedelta(minutes=1)
     match_id = "M_9002"
 
@@ -211,11 +214,12 @@ async def test_fill_and_start_auto_matches_zero_humans(db_session):
 
     async with db_session() as db:
         m = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
-        assert m.state == GameState.ACTIVE
+        assert m.state == GameState.CANCELLED
+        assert m.cancelled_at is not None
 
         player_count = await db.scalar(
             select(func.count()).select_from(Player).where(
                 Player.match_id == match_id, Player.left_at.is_(None)
             )
         )
-        assert player_count > 0
+        assert player_count == 0

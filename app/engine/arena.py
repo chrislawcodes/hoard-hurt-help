@@ -5,8 +5,8 @@ Two match types are always available to operators without admin intervention:
 * **Practice Arena** — one open match, pre-seeded with Sims, that starts the
   instant any human joins. Immediately replaced when the match ends.
 * **Auto-Match** — one open match per 30-minute clock boundary. At its
-  scheduled start time, Sims fill empty seats and the match runs regardless of
-  human count.
+  scheduled start time, it runs only if at least one external agent joined.
+  Sims can fill remaining seats once a real participant is present.
 
 All public functions are idempotent — safe to call every 2 seconds from the
 background poller without creating duplicates.
@@ -20,11 +20,10 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import func
-
 from app.engine.sim_presets import sim_presets
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
 from app.engine.tokens import generate_match_id
+from app.models.bot import Bot, BotKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 
@@ -182,7 +181,7 @@ async def ensure_auto_match(db: AsyncSession) -> None:
 
 
 async def fill_and_start_auto_matches(db: AsyncSession) -> None:
-    """Fill overdue auto-matches with Sims and start them."""
+    """Fill and start due auto-matches only after an external agent joins."""
     # Late import to avoid circular dependency: scheduler imports arena.
     from app.engine.scheduler import start_game
 
@@ -198,13 +197,26 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
     ).scalars().all()
 
     for match in due:
-        player_count = (
-            await db.scalar(
-                select(func.count())
-                .select_from(Player)
+        active_players = (
+            await db.execute(
+                select(Player.agent_id, Bot.kind)
+                .join(Bot, Bot.id == Player.bot_id)
                 .where(Player.match_id == match.id, Player.left_at.is_(None))
             )
-        ) or 0
+        ).all()
+        has_external_agent = any(
+            kind not in (BotKind.SIM, BotKind.SIM.value) for _, kind in active_players
+        )
+        if not has_external_agent:
+            match.state = GameState.CANCELLED
+            match.cancelled_at = now
+            await db.commit()
+            logger.info(
+                "Cancelled auto-match %s: no external agents joined.", match.id
+            )
+            continue
+
+        player_count = len(active_players)
         empty_slots = match.max_players - player_count
         if empty_slots > 0:
             n_sims = min(empty_slots, AUTO_MATCH_SIM_COUNT_MAX)
