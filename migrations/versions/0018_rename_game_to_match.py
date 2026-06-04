@@ -41,6 +41,7 @@ and column renames are complete.
 from typing import Sequence, Union
 
 from alembic import op
+from sqlalchemy import inspect as sa_inspect
 
 from app.engine.match_id_rewrite import affected_tables
 
@@ -80,6 +81,11 @@ def _create_game_fks(parent_table: str, local_column: str) -> None:
     )
 
 
+def _ri_exists() -> bool:
+    """Return True if request_incidents table is present (absent on older dev DBs)."""
+    return sa_inspect(op.get_bind()).has_table("request_incidents")
+
+
 def _swap(table: str, column: str, to: str, frm_first: str) -> None:
     """Rewrite ``<prefix>xxxx`` in one column. Escaped LIKE so the ``_`` in the
     two-char prefix is literal, not a wildcard."""
@@ -93,9 +99,12 @@ def upgrade() -> None:
     _drop_game_fks()
 
     # 1. Value rewrite G_ → M_ (FK enforcement off; columns still named game_id).
+    ri = _ri_exists()
     _swap("games", "id", "M_", "G")
-    for table in ("players", "turns", "request_incidents"):
-        _swap(table, "game_id", "M_", "G")
+    _swap("players", "game_id", "M_", "G")
+    _swap("turns", "game_id", "M_", "G")
+    if ri:
+        _swap("request_incidents", "game_id", "M_", "G")
 
     # 2. Rename the parent table (SQLite >=3.25 rewrites child FK references;
     #    Postgres keeps them by identity).
@@ -108,8 +117,9 @@ def upgrade() -> None:
         b.alter_column("game_id", new_column_name="match_id")
     with op.batch_alter_table("turns") as b:
         b.alter_column("game_id", new_column_name="match_id")
-    with op.batch_alter_table("request_incidents") as b:
-        b.alter_column("game_id", new_column_name="match_id")
+    if ri:
+        with op.batch_alter_table("request_incidents") as b:
+            b.alter_column("game_id", new_column_name="match_id")
 
     # 4. Index renames (SQLite reflects/drops named indexes reliably). Includes
     #    the matches-table indexes whose names still said "games".
@@ -123,8 +133,9 @@ def upgrade() -> None:
     op.create_index("ix_players_match_id", "players", ["match_id"])
     op.drop_index("ix_turns_game_id", table_name="turns")
     op.create_index("ix_turns_match_id", "turns", ["match_id"])
-    op.drop_index("ix_request_incidents_game_id", table_name="request_incidents")
-    op.create_index("ix_request_incidents_match_id", "request_incidents", ["match_id"])
+    if ri:
+        op.drop_index("ix_request_incidents_game_id", table_name="request_incidents")
+        op.create_index("ix_request_incidents_match_id", "request_incidents", ["match_id"])
 
     _create_game_fks("matches", "match_id")
 
@@ -137,8 +148,10 @@ def downgrade() -> None:
 
     # Reverse order: rename columns back first, then recreate their indexes, then
     # rename the table, then swap values M_ → G_.
-    with op.batch_alter_table("request_incidents") as b:
-        b.alter_column("match_id", new_column_name="game_id")
+    ri = _ri_exists()
+    if ri:
+        with op.batch_alter_table("request_incidents") as b:
+            b.alter_column("match_id", new_column_name="game_id")
     with op.batch_alter_table("turns") as b:
         b.alter_column("match_id", new_column_name="game_id")
     with op.batch_alter_table("players") as b:
@@ -146,8 +159,9 @@ def downgrade() -> None:
     with op.batch_alter_table("matches") as b:
         b.alter_column("game", new_column_name="game_type")
 
-    op.drop_index("ix_request_incidents_match_id", table_name="request_incidents")
-    op.create_index("ix_request_incidents_game_id", "request_incidents", ["game_id"])
+    if ri:
+        op.drop_index("ix_request_incidents_match_id", table_name="request_incidents")
+        op.create_index("ix_request_incidents_game_id", "request_incidents", ["game_id"])
     op.drop_index("ix_turns_match_id", table_name="turns")
     op.create_index("ix_turns_game_id", "turns", ["game_id"])
     op.drop_index("ix_players_match_id", table_name="players")
@@ -162,7 +176,9 @@ def downgrade() -> None:
     op.rename_table("matches", "games")
 
     _swap("games", "id", "G_", "M")
-    for table in ("players", "turns", "request_incidents"):
-        _swap(table, "game_id", "G_", "M")
+    _swap("players", "game_id", "G_", "M")
+    _swap("turns", "game_id", "G_", "M")
+    if ri:
+        _swap("request_incidents", "game_id", "G_", "M")
 
     _create_game_fks("games", "game_id")
