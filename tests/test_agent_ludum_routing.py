@@ -12,7 +12,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.main import app
-from app.models import Base, Match, GameState
+from app.models import Base, GameState, Match, Player
+from app.models.bot import BotKind
+from tests.factories import make_bot, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +62,73 @@ async def _seed_game(
         return g
 
 
+async def _seed_leaderboard_match(
+    reset_db: async_sessionmaker,
+    *,
+    match_id: str,
+    name: str,
+    scheduled_start: datetime,
+    seat_specs: list[tuple[int, str, BotKind, str | None, float, int]],
+) -> None:
+    async with reset_db() as db:
+        match = Match(
+            id=match_id,
+            name=name,
+            game="hoard-hurt-help",
+            state=GameState.COMPLETED,
+            scheduled_start=scheduled_start,
+            completed_at=scheduled_start + timedelta(hours=1),
+            per_turn_deadline_seconds=60,
+        )
+        db.add(match)
+        await db.flush()
+
+        winners: list[Player] = []
+        for user_index, agent_id, kind, sim_profile_name, round_wins, total_score in seat_specs:
+            user = await make_user(db, user_index)
+            bot, _ = await make_bot(
+                db,
+                user,
+                name=sim_profile_name or f"bot-{agent_id}",
+                kind=kind,
+                sim_profile_name=sim_profile_name if kind == BotKind.SIM else None,
+            )
+            player = Player(match_id=match.id, user_id=user.id, bot_id=bot.id, agent_id=agent_id)
+            db.add(player)
+            await db.flush()
+            player.total_round_wins = round_wins
+            player.total_round_score = total_score
+            player.current_round_score = total_score
+            winners.append(player)
+
+        match.winner_player_id = winners[0].id
+        await db.commit()
+
+
+async def _seed_leaderboard_data(reset_db: async_sessionmaker) -> None:
+    await _seed_leaderboard_match(
+        reset_db,
+        match_id="G_new",
+        name="June ranking",
+        scheduled_start=datetime(2026, 6, 4, 12, tzinfo=timezone.utc),
+        seat_specs=[
+            (1, "Alpha", BotKind.EXTERNAL, None, 3.0, 120),
+            (2, "Beta", BotKind.EXTERNAL, None, 2.0, 100),
+            (3, "Gamma", BotKind.SIM, "Random Sim", 1.0, 90),
+        ],
+    )
+    await _seed_leaderboard_match(
+        reset_db,
+        match_id="G_old",
+        name="Pre-cutoff ranking",
+        scheduled_start=datetime(2026, 6, 2, 12, tzinfo=timezone.utc),
+        seat_specs=[
+            (10, "Old One", BotKind.EXTERNAL, None, 4.0, 200),
+            (11, "Old Two", BotKind.EXTERNAL, None, 1.0, 10),
+        ],
+    )
+
+
 @pytest.mark.asyncio
 async def test_root_serves_agent_ludum_marketing(client, reset_db):
     """`/` is the Agent Ludum platform page with a CTA into the HHH lobby."""
@@ -87,13 +156,38 @@ async def test_lobby_served_at_game_path(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_global_leaderboard_page_scopes_by_game(client, reset_db):
-    """The global leaderboard is grouped into game-specific sections."""
+async def test_global_leaderboard_renders_rankings(client, reset_db):
+    """The global leaderboard shows real rows and the top-level filters."""
+    await _seed_leaderboard_data(reset_db)
     r = await client.get("/leaderboard")
     assert r.status_code == 200
     assert "Leaderboard" in r.text
     assert "Hoard · Hurt · Help" in r.text
-    assert "Scoped to this game." in r.text
+    assert "Alpha" in r.text
+    assert "Beta" in r.text
+    assert "Gamma" not in r.text
+    assert "Old One" not in r.text
+    assert "Open lobby →" not in r.text
+    assert "Scoped to this game." not in r.text
+    assert "This section is where" not in r.text
+    assert "First-place bonus" in r.text
+    assert "Hide sim games" in r.text
+
+
+@pytest.mark.asyncio
+async def test_global_leaderboard_can_include_sims_and_hide_sim_games(client, reset_db):
+    """The sim filter should show Sims when enabled and hide sim sections when requested."""
+    await _seed_leaderboard_data(reset_db)
+    with_sims = await client.get("/leaderboard?included=all")
+    assert with_sims.status_code == 200
+    assert "Random Sim" in with_sims.text
+    assert "lb-tag-sim" in with_sims.text
+
+    hidden = await client.get("/leaderboard?included=all&hide_sim_games=1")
+    assert hidden.status_code == 200
+    assert "No ranked competitors yet for this filter." in hidden.text
+    assert "Alpha" not in hidden.text
+    assert "Random Sim" not in hidden.text
 
 
 @pytest.mark.asyncio

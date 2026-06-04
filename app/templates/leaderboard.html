@@ -3,26 +3,82 @@
 {% block content %}
 <div class="page-head">
     <h1>Leaderboard</h1>
-    <p class="sub">Rankings are grouped by game so each title gets its own section.</p>
+    <p class="sub">Showing completed matches since June 3, 2026.</p>
+    <p class="lb-note">Switch rating modes, choose which competitors to include, or hide game sections that contain Sims.</p>
+</div>
+
+<div class="lb-toolbar card">
+    <div class="lb-control">
+        <span class="lb-control-label">Rating</span>
+        <div class="view-switch">
+            <a class="view-btn" href="{{ rating_standard_url }}" aria-pressed="{{ 'true' if rating_mode == 'standard' else 'false' }}">Standard</a>
+            <a class="view-btn" href="{{ rating_bonus_url }}" aria-pressed="{{ 'true' if rating_mode == 'bonus' else 'false' }}">First-place bonus</a>
+        </div>
+    </div>
+    <div class="lb-control">
+        <span class="lb-control-label">Included</span>
+        <div class="view-switch">
+            <a class="view-btn" href="{{ included_agents_url }}" aria-pressed="{{ 'true' if included == 'agents' else 'false' }}">Agents</a>
+            <a class="view-btn" href="{{ included_sims_url }}" aria-pressed="{{ 'true' if included == 'sims' else 'false' }}">Sims</a>
+            <a class="view-btn" href="{{ included_all_url }}" aria-pressed="{{ 'true' if included == 'all' else 'false' }}">Agents + Sims</a>
+        </div>
+    </div>
+    <div class="lb-control">
+        <span class="lb-control-label">Sim games</span>
+        <div class="view-switch">
+            <a class="view-btn" href="{{ sim_games_show_url }}" aria-pressed="{{ 'true' if not hide_sim_games else 'false' }}">Show all</a>
+            <a class="view-btn" href="{{ sim_games_hide_url }}" aria-pressed="{{ 'true' if hide_sim_games else 'false' }}">Hide sim games</a>
+        </div>
+    </div>
 </div>
 
 {% if sections %}
     {% for section in sections %}
-    <section class="card" style="margin-bottom:1.5rem;">
-        <div class="section-head">
-            <div>
+    <section class="card lb-section">
+        <div class="section-head section-head-row">
+            <div class="section-head-copy">
                 <h2>{{ section.game_name }}</h2>
-                <p class="meta">Scoped to this game.</p>
+                <p class="section-note">{{ section.match_count }} ranked matches since June 3, 2026.</p>
             </div>
-            <a class="btn btn-ghost" href="{{ section.lobby_url }}">Open lobby →</a>
+            <div class="section-head-actions">
+                <span class="count">{{ section.rows | length }} competitors</span>
+                {% if section.has_sims %}
+                <span class="lb-tag lb-tag-sim">Has Sims</span>
+                {% endif %}
+            </div>
         </div>
-        <p>This section is where the Standard / First-place bonus views and Agents / Sims filters will live for {{ section.game_name }}.</p>
-        <div class="empty" style="margin-top:1rem;">No ranked competitors yet.</div>
+        <div class="lb-table">
+            <div class="lb-row lb-head">
+                <span>Rank</span>
+                <span>Competitor</span>
+                <span class="lb-num">Rating</span>
+                <span class="lb-num lb-matches">Matches</span>
+                <span class="lb-last">Last played</span>
+            </div>
+            {% for row in section.rows %}
+            <div class="lb-row {{ 'leader' if loop.first else '' }}">
+                <span class="lb-rank">{{ row.rank }}</span>
+                <span class="lb-name">
+                    {{ row.display_name }}
+                    {% if row.is_sim %}
+                    <span class="lb-tag lb-tag-sim">Sim</span>
+                    {% endif %}
+                    {% if row.provisional %}
+                    <span class="lb-tag lb-tag-provisional">Provisional</span>
+                    {% endif %}
+                </span>
+                <span class="lb-num">{{ "%.0f" | format(row.rating) }}</span>
+                <span class="lb-num lb-matches">{{ row.match_count }}</span>
+                <span class="lb-last">{{ row.last_played_at | localdt }}</span>
+            </div>
+            {% endfor %}
+        </div>
     </section>
     {% endfor %}
 {% else %}
-<div class="card">
-    <p class="empty">No games are registered yet.</p>
+<div class="card lb-empty">
+    <p class="empty">No ranked competitors yet for this filter.</p>
+    <p class="lb-empty-note">Try a different rating mode or include Sims to reveal more sections.</p>
 </div>
 {% endif %}
 {% endblock %}
