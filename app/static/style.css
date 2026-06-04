@@ -1198,7 +1198,7 @@ button.danger:hover,
 /* CTA band */
 .al-cta-band { background: var(--brand); border: 2px solid var(--line-bold); border-radius: var(--al-radius-lg); padding: clamp(36px, 5vw, 64px); text-align: center; box-shadow: var(--al-shadow-soft); }
 .al-cta-band h2 { color: var(--on-brand); }
-.al-cta-band p { color: var(--on-brand); opacity: 0.88; font-size: 18px; margin-top: 14px; max-width: 520px; margin-inline: auto; }
+.al-cta-band p { color: var(--on-brand); opacity: 0.88; font-size: 18px; margin-top: 14px; max-width: 100%; margin-inline: auto; }
 
 /* footer */
 .al-footer { border-top: 1.5px solid var(--line); padding: 54px 0 38px; }
