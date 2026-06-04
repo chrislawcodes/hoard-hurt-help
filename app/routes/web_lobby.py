@@ -39,21 +39,6 @@ router = APIRouter(tags=["web"])
 logger = logging.getLogger(__name__)
 
 
-async def _user_joined_match_ids(db: DbSession, user: Any) -> set[str]:
-    """Return the set of match IDs the user currently has an active entry in."""
-    if user is None:
-        return set()
-    rows = (
-        await db.execute(
-            select(Player.match_id).where(
-                Player.user_id == user.id,
-                Player.left_at.is_(None),
-            )
-        )
-    ).scalars().all()
-    return set(rows)
-
-
 def _game_display_name(game_type: str) -> str:
     if game_type == "hoard-hurt-help":
         return "Hoard · Hurt · Help"
@@ -478,12 +463,6 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             view["standings"] = await _top_standings(db, g.id, 3)
             live.append(view)
     upcoming = await _upcoming_views(db)
-    my_match_ids = await _user_joined_match_ids(db, user)
-    joined_game_name = (
-        request.query_params.get("joined_name")
-        if request.query_params.get("joined")
-        else None
-    )
     finished_views = await _lobby_recent_views(db)
     show_recent_all = request.query_params.get("recent") == "all"
     show_sims_all = request.query_params.get("sims") == "all"
@@ -518,8 +497,6 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "is_admin": _is_admin(user),
             "live_games": live,
             "upcoming_games": upcoming,
-            "my_match_ids": my_match_ids,
-            "joined_game_name": joined_game_name,
             "recent_games": recent_games[:5] if not show_recent_all else recent_games,
             "recent_games_total": len(recent_games),
             "recent_games_toggle_url": _toggle_url("recent-games", "recent", show_recent_all)
@@ -574,7 +551,6 @@ async def game_upcoming(request: Request, db: DbSession, game: Annotated[str, Pa
         {
             "is_admin": _is_admin(user),
             "upcoming_games": await _upcoming_views(db),
-            "my_match_ids": await _user_joined_match_ids(db, user),
             "game_theme": module.theme(),
         },
     )

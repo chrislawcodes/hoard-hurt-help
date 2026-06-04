@@ -14,11 +14,7 @@
     </div>
     <div class="game-card-action">
         <span class="badge badge-soon">Upcoming</span>
-        {% if g.id in my_match_ids %}
-        <span class="badge badge-ok">Joined ✓</span>
-        {% else %}
         <a class="btn btn-ghost" href="/games/{{ g.game_type }}/matches/{{ g.id }}/join">Join →</a>
-        {% endif %}
     </div>
 </article>
 {% endfor %}
