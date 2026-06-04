@@ -35,7 +35,7 @@
                 {# "Games" is the door to the platform's content, shown on every
                    page. The marketing home overrides this block to add its learn
                    links (How it works) right alongside it. #}
-                {% block nav_links %}<a href="/games" class="al-nav-games">Games</a><a href="/leaderboard">Leaderboard</a>{% endblock %}
+                {% block nav_links %}<a href="/games" class="al-nav-games">Games</a><a href="/leaderboard" class="al-nav-leaderboard">Leaderboard</a>{% endblock %}
                 {% if user %}
                     {# Account lives behind one control so the bar stays calm —
                        a native <details> menu, no JS framework. #}

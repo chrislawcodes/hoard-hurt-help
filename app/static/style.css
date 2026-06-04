@@ -1135,11 +1135,10 @@ button.danger:hover,
     .al-meta { gap: 12px; }
     .al-cta-row .btn { width: 100%; }
     /* Hide secondary links on phones (e.g. How it works), but keep the account
-       menu and its dropdown reachable. Direct-child only. Two exemptions: the
-       auth link (.al-nav-auth) — the only way to sign in when there's no account
-       menu — and Games (.al-nav-games), the one wayfinding link a phone viewer
-       needs to reach the games. */
-    .al-nav-right > a:not(.btn):not(.al-nav-auth):not(.al-nav-games), .al-nav-right > .al-inline-form { display: none; }
+       menu and its dropdown reachable. Direct-child only. Three exemptions:
+       the auth link (.al-nav-auth), Games (.al-nav-games), and Leaderboard
+       (.al-nav-leaderboard) — the main wayfinding links a phone viewer needs. */
+    .al-nav-right > a:not(.btn):not(.al-nav-auth):not(.al-nav-games):not(.al-nav-leaderboard), .al-nav-right > .al-inline-form { display: none; }
     /* When signed in, drop the wordmark to the logo mark on a phone so the
        avatar + links never crowd the bar (tighter on the narrowest screens).
        Signed-out keeps the full wordmark. */
