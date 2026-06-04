@@ -79,7 +79,7 @@ async def test_admin_creates_game_via_api(client, reset_db):
         json={
             "name": "QA",
             "scheduled_start": when,
-            "min_players": 3,
+            "min_players": 6,
             "max_players": 10,
             "per_turn_deadline_seconds": 30,
         },
