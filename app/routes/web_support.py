@@ -54,6 +54,7 @@ async def _upcoming_views(db) -> list[dict]:
                 "id": g.id,
                 "game_type": g.game,
                 "name": g.name,
+                "match_kind": g.match_kind,
                 "scheduled_start": g.scheduled_start.isoformat(),
                 "max_players": g.max_players,
                 "player_count": await _player_count(db, g.id),
@@ -133,4 +134,3 @@ async def _top_standings(db, match_id: str, limit: int = 3) -> list[dict]:
     for i, row in enumerate(rows, start=1):
         row["rank"] = i
     return rows
-
