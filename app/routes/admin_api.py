@@ -15,8 +15,8 @@ from app.engine.tokens import generate_match_id
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
-from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
+from app.read_models.matches import load_match_timeline
 from app.schemas.admin import CancelResponse, CreateGameRequest, GameRecord
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -174,44 +174,24 @@ async def export_json(
 
 
 async def _gather_export_rows(db, match_id: str) -> list[dict]:
-    players = (
-        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
-    )
-    players_by_id = {p.id: p for p in players}
-    turns = (
-        (
-            await db.execute(
-                select(Turn).where(Turn.match_id == match_id).order_by(Turn.round, Turn.turn)
-            )
-        )
-        .scalars()
-        .all()
-    )
     rows = []
-    for t in turns:
-        subs = (
-            (await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == t.id)))
-            .scalars()
-            .all()
-        )
-        for s in subs:
-            actor = players_by_id.get(s.player_id)
-            target = players_by_id.get(s.target_player_id) if s.target_player_id else None
-            if not actor:
-                continue
+    for turn in await load_match_timeline(db, match_id, resolved_only=False):
+        for action in turn.actions:
             rows.append(
                 {
                     "match_id": match_id,
-                    "round": t.round,
-                    "turn": t.turn,
-                    "agent_id": actor.agent_id,
-                    "action": s.action,
-                    "target_id": target.agent_id if target else "",
-                    "message": s.message,
-                    "points_delta": s.points_delta,
-                    "round_score_after": s.round_score_after,
-                    "submitted_at": s.submitted_at.isoformat() if s.submitted_at else "",
-                    "was_defaulted": s.was_defaulted,
+                    "round": turn.round,
+                    "turn": turn.turn,
+                    "agent_id": action.agent_id,
+                    "action": action.action,
+                    "target_id": action.target_id or "",
+                    "message": action.message,
+                    "points_delta": action.points_delta,
+                    "round_score_after": action.round_score_after,
+                    "submitted_at": action.submitted_at.isoformat()
+                    if action.submitted_at
+                    else "",
+                    "was_defaulted": action.was_defaulted,
                 }
             )
     return rows

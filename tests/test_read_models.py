@@ -12,6 +12,7 @@ from app.models import Base, GameState, Match, Turn, TurnMessage, TurnSubmission
 from app.read_models.matches import (
     count_players,
     load_action_records,
+    load_match_timeline,
     load_player_records,
     load_scoreboard,
 )
@@ -99,6 +100,70 @@ async def test_load_action_records_prefers_talk_message_over_submission_message(
     ]
     assert actions[0].message == "talk phase message"
     assert actions[1].message == "legacy bob message"
+
+
+@pytest.mark.asyncio
+async def test_load_match_timeline_resolves_agents_and_falls_back_to_submission_messages(
+    db: AsyncSession,
+) -> None:
+    match = await _match(db)
+    alice = await seat_player(db, match.id, "Alice", i=1)
+    bob = await seat_player(db, match.id, "Bob", i=2)
+    turn = Turn(
+        match_id=match.id,
+        round=1,
+        turn=1,
+        turn_token="tk",
+        opened_at=datetime.now(timezone.utc),
+        deadline_at=datetime.now(timezone.utc),
+        phase="act",
+        resolved_at=datetime.now(timezone.utc),
+    )
+    db.add(turn)
+    await db.flush()
+    submitted_at = datetime.now(timezone.utc)
+    db.add_all(
+        [
+            TurnSubmission(
+                turn_id=turn.id,
+                player_id=alice.id,
+                action="HELP",
+                target_player_id=bob.id,
+                message="fallback public message",
+                thinking="private act thinking",
+                points_delta=0,
+                round_score_after=0,
+                was_defaulted=False,
+                submitted_at=submitted_at,
+            ),
+            TurnSubmission(
+                turn_id=turn.id,
+                player_id=bob.id,
+                action="HOARD",
+                target_player_id=None,
+                message="bob banks",
+                points_delta=2,
+                round_score_after=2,
+                submitted_at=submitted_at,
+            ),
+        ]
+    )
+    await db.commit()
+
+    timeline = await load_match_timeline(db, match.id)
+
+    assert len(timeline) == 1
+    assert [(m.agent_id, m.text, m.thinking) for m in timeline[0].messages] == [
+        ("Alice", "fallback public message", ""),
+        ("Bob", "bob banks", ""),
+    ]
+    assert [
+        (a.agent_id, a.action, a.target_id, a.message, a.thinking)
+        for a in timeline[0].actions
+    ] == [
+        ("Alice", "HELP", "Bob", "fallback public message", "private act thinking"),
+        ("Bob", "HOARD", None, "bob banks", ""),
+    ]
 
 
 @pytest.mark.asyncio

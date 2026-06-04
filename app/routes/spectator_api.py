@@ -7,7 +7,12 @@ from sqlalchemy import select
 
 from app.deps import DbSession
 from app.models.match import Match
-from app.read_models.matches import count_players, load_resolved_turn_rows, load_scoreboard
+from app.read_models.matches import (
+    count_players,
+    load_match_timeline,
+    load_players,
+    load_scoreboard,
+)
 from app.schemas.spectator import (
     SpectatorAction,
     SpectatorAgent,
@@ -63,51 +68,32 @@ async def public_state(
     g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
-    turn_rows = await load_resolved_turn_rows(db, match_id)
-    players = turn_rows.players
-    players_by_id = turn_rows.players_by_id
-    turns = turn_rows.turns
-    messages_by_turn = turn_rows.messages_by_turn
-    subs_by_turn = turn_rows.submissions_by_turn
+    players = await load_players(db, match_id)
+    timeline = await load_match_timeline(db, match_id)
 
     history: list[SpectatorTurn] = []
-    for t in turns:
-        subs = subs_by_turn.get(t.id, [])
-        turn_messages = messages_by_turn.get(t.id, [])
-        messages: list[SpectatorMessage]
-        if turn_messages:
-            messages = [
-                SpectatorMessage(
-                    agent_id=players_by_id[msg.player_id].agent_id,
-                    message=msg.text,
-                )
-                for msg in turn_messages
-                if msg.player_id in players_by_id
-            ]
-        else:
-            messages = [
-                SpectatorMessage(
-                    agent_id=players_by_id[s.player_id].agent_id,
-                    message=s.message,
-                )
-                for s in subs
-                if s.player_id in players_by_id
-            ]
-        actions: list[SpectatorAction] = []
-        for s in subs:
-            actor = players_by_id.get(s.player_id)
-            target = players_by_id.get(s.target_player_id) if s.target_player_id else None
-            if not actor:
-                continue
-            actions.append(
-                SpectatorAction(
-                    agent_id=actor.agent_id,
-                    action=s.action,
-                    target_id=target.agent_id if target else None,
-                    points_delta=s.points_delta,
-                )
+    for turn in timeline:
+        messages = [
+            SpectatorMessage(agent_id=message.agent_id, message=message.text)
+            for message in turn.messages
+        ]
+        actions = [
+            SpectatorAction(
+                agent_id=action.agent_id,
+                action=action.action,
+                target_id=action.target_id,
+                points_delta=action.points_delta,
             )
-        history.append(SpectatorTurn(round=t.round, turn=t.turn, messages=messages, actions=actions))
+            for action in turn.actions
+        ]
+        history.append(
+            SpectatorTurn(
+                round=turn.round,
+                turn=turn.turn,
+                messages=messages,
+                actions=actions,
+            )
+        )
     return SpectatorState(
         match_id=g.id,
         name=g.name,
