@@ -5,7 +5,6 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import Annotated
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -312,9 +311,8 @@ async def join_submit(
     if match.match_kind == MatchKind.PRACTICE_ARENA.value:
         await start_game(db, match)
 
-    qs = urlencode({"joined": match.id, "joined_name": match.name})
     return RedirectResponse(
-        url=f"/games/{match.game}?{qs}", status_code=status.HTTP_303_SEE_OTHER
+        url=f"/games/{match.game}/matches/{match.id}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 

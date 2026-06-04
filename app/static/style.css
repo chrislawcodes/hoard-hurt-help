@@ -1261,25 +1261,6 @@ button.danger:hover,
     margin: 0.5rem 0;
 }
 .admin-actions { margin: 0.5rem 0 1rem; }
-
-/* ── Join success banner ────────────────────────────────────────────────── */
-.join-banner {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    color: var(--help);
-    background: color-mix(in srgb, var(--help) 10%, var(--surface));
-    border: 1px solid color-mix(in srgb, var(--help) 35%, var(--line));
-    border-radius: 10px;
-    padding: 0.85rem 1.1rem;
-    margin: 1rem 0 1.5rem;
-    font-size: 0.95rem;
-    line-height: 1.4;
-}
-.join-banner-icon {
-    font-size: 1.2rem;
-    flex-shrink: 0;
-}
 .muted { color: var(--ink-soft); }
 .tag-sim { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 
