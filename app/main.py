@@ -28,6 +28,7 @@ from app.routes import (
     agent_next_turn,
     auth as auth_routes,
     bots_web,
+    handle_web,
     spectator_api,
     sse as sse_routes,
     web as web_routes,
@@ -131,6 +132,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_api.router, prefix="/api/games/{match_id}")
     app.include_router(agent_next_turn.router)
     app.include_router(web_routes.router)
+    app.include_router(handle_web.router)
     app.include_router(bots_web.router)
     app.include_router(admin_web.router)
     app.include_router(admin_api.router)

@@ -14,7 +14,16 @@ from app.models.user import User
 
 
 async def make_user(db, i: int = 0) -> User:
-    u = User(google_sub=f"sub-{i}", email=f"u{i}@t.com")
+    # A normal user has a public handle (required to own an agent). Derived from
+    # `i`, which already keys the unique google_sub/email, so handles stay unique
+    # without new collisions. Tests that exercise the handle gate set/clear it
+    # explicitly instead of relying on this default.
+    u = User(
+        google_sub=f"sub-{i}",
+        email=f"u{i}@t.com",
+        handle=f"agent{i}",
+        handle_key=f"agent{i}",
+    )
     db.add(u)
     await db.flush()
     return u

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from starlette.responses import Response
 
 from app.config import settings
-from app.deps import DbSession, require_user
+from app.deps import DbSession, require_user, require_user_with_handle
 from app.engine.bot_activity import compute_bot_health, compute_onboarding_status
 from app.engine.sims import pack_profile_choices, resolve_profile_choice
 from app.engine.sims.strategies import normalize_strategy_name
@@ -32,7 +32,7 @@ router = APIRouter()
 async def list_bots(
     request: Request,
     db: DbSession,
-    user: Annotated[User, Depends(require_user)],
+    user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
     await ensure_preset_sim_bots(db, user)
     bots = (
@@ -81,7 +81,7 @@ async def list_bots(
 async def create_bot(
     request: Request,
     db: DbSession,
-    user: Annotated[User, Depends(require_user)],
+    user: Annotated[User, Depends(require_user_with_handle)],
     name: Annotated[str, Form()],
     kind: Annotated[str, Form()] = "external",
     sim_profile_id: Annotated[str | None, Form()] = None,

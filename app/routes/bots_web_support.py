@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.deps import DbSession
 from app.engine.sim_presets import sim_presets
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
+from app.identity import word_filter
 from app.models.bot import Bot, BotKind
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -18,6 +19,8 @@ from app.models.user import User
 
 _BOT_NAME_RE = re.compile(r"^[a-zA-Z0-9 _-]{1,120}$")
 _BOT_NAME_ERROR = "Bot name must be 1–120 letters, numbers, spaces, _ or -."
+# Generic — never echoes the offending word back.
+_BOT_NAME_BLOCKED_ERROR = "That name isn't allowed. Pick a different one."
 
 
 async def get_owned_bot(db: DbSession, user: User, bot_id: int) -> Bot:
@@ -33,6 +36,10 @@ def validate_bot_name(name: str) -> str:
     name = name.strip()
     if not _BOT_NAME_RE.fullmatch(name):
         raise HTTPException(400, detail=_BOT_NAME_ERROR)
+    # Agent names are public, so they run through the same shared word filter as
+    # handles. Reject (don't mask) — and never echo the blocked text back.
+    if word_filter.contains_blocked(name):
+        raise HTTPException(400, detail=_BOT_NAME_BLOCKED_ERROR)
     return name
 
 

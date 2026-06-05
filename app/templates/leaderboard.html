@@ -58,12 +58,17 @@
             <div class="lb-row {{ 'leader' if loop.first else '' }}">
                 <span class="lb-rank">{{ row.rank }}</span>
                 <span class="lb-name">
-                    {{ row.display_name }}
-                    {% if row.is_sim %}
-                    <span class="lb-tag lb-tag-sim">Sim</span>
-                    {% endif %}
-                    {% if row.provisional %}
-                    <span class="lb-tag lb-tag-provisional">Provisional</span>
+                    <span class="lb-name-main">
+                        {{ row.display_name }}
+                        {% if row.is_sim %}
+                        <span class="lb-tag lb-tag-sim">Sim</span>
+                        {% endif %}
+                        {% if row.provisional %}
+                        <span class="lb-tag lb-tag-provisional">Provisional</span>
+                        {% endif %}
+                    </span>
+                    {% if row.owner_handle %}
+                    <span class="lb-owner mono">by @{{ row.owner_handle }}</span>
                     {% endif %}
                 </span>
                 <span class="lb-num">{{ "%.0f" | format(row.rating) }}</span>

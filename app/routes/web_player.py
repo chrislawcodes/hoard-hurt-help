@@ -6,13 +6,14 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path as FsPath
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy import case, func, select
 
 from app.config import settings
-from app.deps import DbSession, get_current_user, require_user
+from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
 from app.engine.scheduler import start_game
 from app.games import get as get_game_module
 from app.models.bot import Bot, BotKind
@@ -147,6 +148,12 @@ async def join_form(
             url=f"/auth/google/login?next=/games/{game}/matches/{match_id}/join",
             status_code=status.HTTP_303_SEE_OTHER,
         )
+    if user.handle is None:
+        # A handle is required to enter a match — pick one, then come back here.
+        target = quote(f"/games/{game}/matches/{match_id}/join", safe="")
+        return RedirectResponse(
+            url=f"/me/handle?next={target}", status_code=status.HTTP_303_SEE_OTHER
+        )
 
     set_request_trace_context(request, match_id=match_id, stage="join_form")
     match = await _load_match_or_404(db, match_id)
@@ -204,7 +211,7 @@ async def join_submit(
     match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
-    user: Annotated[User, Depends(require_user)],
+    user: Annotated[User, Depends(require_user_with_handle)],
     bot_id: Annotated[int, Form()],
     display_name: Annotated[str, Form()],
     strategy_prompt: Annotated[str, Form()] = "",

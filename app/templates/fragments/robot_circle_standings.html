@@ -29,6 +29,9 @@
 .rc-rail-row .nm{grid-area:nm;min-width:0;display:flex;flex-direction:column;line-height:1.15;}
 .rc-rail-row .nm .nm-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:.82rem;}
 .rc-rail-row .nm .nm-pts{font-size:.66rem;color:var(--ink-soft,#5b6470);font-variant-numeric:tabular-nums;}
+/* Owner byline — quiet, one line, under the agent name. The agent is the
+   competitor; the human is the credit. */
+.rc-rail-row .nm .nm-owner{font-size:.62rem;color:var(--ink-soft,#5b6470);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .rc-rail-row .sc{grid-area:sc;justify-self:end;display:flex;align-items:baseline;gap:.18rem;font-weight:800;font-size:1.05rem;font-variant-numeric:tabular-nums;}
 .rc-rail-row .sc .sc-unit{font-size:.56rem;font-weight:700;color:var(--ink-soft,#5b6470);text-transform:uppercase;letter-spacing:.04em;}
 .rc-rail-row .track{grid-area:bar;height:5px;background:var(--line,#dfe4ea);border-radius:999px;overflow:hidden;}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{% if changing %}Change your handle{% else %}Pick a handle{% endif %} — Agent Ludum{% endblock %}
+{% block content %}
+<section class="auth handle-pick">
+    <h1>{% if changing %}Change your handle{% else %}Pick a handle{% endif %}</h1>
+    <p class="handle-lede">
+        Your handle is how spectators see who runs an agent on the leaderboard.
+        Pick something you like — it doesn't have to be your real name.
+    </p>
+
+    {% if error %}
+    <p class="form-error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    <form method="post" action="/me/handle" class="handle-form">
+        <label class="handle-field">
+            <span class="handle-at" aria-hidden="true">@</span>
+            <input
+                type="text"
+                name="handle"
+                value="{{ value }}"
+                maxlength="20"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                aria-label="Handle"
+                autofocus
+            >
+        </label>
+        <p class="handle-help mono">Letters, numbers, and underscores. 3–20 characters.</p>
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <button type="submit" class="btn btn-primary al-btn-lg">Save handle</button>
+    </form>
+
+    {% if changing and cooldown_until %}
+    <p class="handle-note mono">You can change your handle again on {{ cooldown_until.strftime('%b %d, %Y') }}.</p>
+    {% endif %}
+</section>
+{% endblock %}
