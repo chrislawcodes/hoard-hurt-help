@@ -9,7 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 from app.config import settings
 from app.deps import DbSession, get_current_user, require_user
@@ -346,24 +346,67 @@ async def my_matches(
     players = (
         (await db.execute(select(Player).where(Player.user_id == user.id))).scalars().all()
     )
-    games = []
-    for p in players:
-        g = (await db.execute(select(Match).where(Match.id == p.match_id))).scalar_one()
-        games.append(
-            {
-                "id": g.id,
-                "name": g.name,
-                "state": g.state,
-                "agent_id": p.agent_id,
-                "player_id": p.id,
-                "game_type": g.game,
-                "watch_url": f"/games/{g.game}/matches/{g.id}",
-            }
+    match_ids = [p.match_id for p in players]
+    if not match_ids:
+        return templates.TemplateResponse(
+            request, "my_matches.html", {"user": user, "is_admin": _is_admin(user), "game_sections": []}
         )
+
+    matches = {
+        m.id: m
+        for m in (await db.execute(select(Match).where(Match.id.in_(match_ids)))).scalars().all()
+    }
+
+    count_rows = (await db.execute(
+        select(
+            Player.match_id,
+            func.count(Player.id).label("total"),
+            func.sum(case((Bot.kind == BotKind.SIM, 1), else_=0)).label("sim_count"),
+        )
+        .join(Bot, Bot.id == Player.bot_id)
+        .where(Player.match_id.in_(match_ids))
+        .group_by(Player.match_id)
+    )).all()
+    counts_by_match = {row.match_id: row for row in count_rows}
+
+    sections_map: dict[str, dict] = {}
+    for p in players:
+        g = matches[p.match_id]
+        slug = g.game
+        if slug not in sections_map:
+            title = {"hoard-hurt-help": "Hoard Hurt Help"}.get(slug, slug.replace("-", " ").title())
+            sections_map[slug] = {"title": title, "active": [], "completed": [], "cancelled": []}
+
+        row = counts_by_match.get(p.match_id)
+        total = int(row.total or 0) if row else 0
+        sim_count = int(row.sim_count or 0) if row else 0
+        agent_count = total - sim_count
+        parts: list[str] = []
+        if agent_count:
+            parts.append(f"{agent_count} {'agent' if agent_count == 1 else 'agents'}")
+        if sim_count:
+            parts.append(f"{sim_count} {'sim' if sim_count == 1 else 'sims'}")
+        players_label = ", ".join(parts) if parts else "0 players"
+
+        entry = {
+            "id": g.id,
+            "name": g.name,
+            "state": g.state,
+            "agent_id": p.agent_id,
+            "watch_url": f"/games/{g.game}/matches/{g.id}",
+            "players_label": players_label,
+        }
+        if g.state == GameState.COMPLETED:
+            sections_map[slug]["completed"].append(entry)
+        elif g.state == GameState.CANCELLED:
+            sections_map[slug]["cancelled"].append(entry)
+        else:
+            sections_map[slug]["active"].append(entry)
+
     return templates.TemplateResponse(
         request,
         "my_matches.html",
-        {"user": user, "is_admin": _is_admin(user), "games": games},
+        {"user": user, "is_admin": _is_admin(user), "game_sections": list(sections_map.values())},
     )
 
 

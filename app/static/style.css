@@ -667,6 +667,9 @@ button.danger:hover,
 /* Inline forms in card actions shouldn't add vertical margin. */
 .game-card-action form { margin: 0; }
 
+.game-card-link { display: block; text-decoration: none; color: inherit; }
+.game-card-link:hover .game-card { border-color: var(--accent); }
+
 /* ---- Guide pages ---- */
 .doc { white-space: pre-wrap; word-wrap: break-word; line-height: 1.55; }
 
