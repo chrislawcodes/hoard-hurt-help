@@ -248,7 +248,7 @@ horizontal scroll.
 | **Migration on SQLite** (unique index + NULLs). | `batch_alter_table`; test that multiple NULL `handle_key` rows coexist and rebuild-from-models works. |
 | **Leaderboard join** accidentally drops Sim rows or duplicates. | Keep the join inner (all bots have `user_id`); set `owner_handle` only for non-Sim; assert Sim rows still appear in `test_leaderboard.py`. |
 | **Word filter false sense of safety.** | Pair with admin reset; document that the list is a first line, not a guarantee. |
-| **Spec said "inline field"; plan uses a gated page.** | Documented in Decision 2 — same user intent, one code path. Confirm with Chris if he specifically wants the field inline instead. |
+| **Spec said "inline field"; plan uses a gated page.** | Resolved (2026-06-05): Chris confirmed the shared `/me/handle` page + gate. Spec flow updated to match. |
 
 ---
 

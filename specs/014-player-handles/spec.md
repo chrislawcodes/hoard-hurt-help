@@ -164,17 +164,19 @@ history — the rating belongs to the agent, the credit belongs to the account.
 
 ### 1. Pick a handle (first time)
 
-Triggered the first time a handle is actually needed — i.e. when the operator
-**creates their first agent** (the existing `/me/bots/new` flow, which login
-already redirects new users to). Pure spectators are never blocked.
+Handled by **one shared page** (`/me/handle`) that the user is routed to the
+first time a handle is actually needed — a **gate** on the agent-owner surfaces
+(the bots panel, `/play`, match-join). A new user hits it the moment they go to
+create their first agent; an existing agent-owner hits it at next login. Pure
+spectators (no agents) are never routed there.
 
-- A `Handle` field appears, **pre-filled** with a suggestion derived from the
-  Google given name, slugified and de-duplicated (`Chris` → `chris`; if taken,
-  `chris2`, `chris_l`, …). The operator can accept it as-is or edit it.
-- On submit, validate (chars, length, uniqueness, reserved, blocklist). On
-  success, store and continue creating the agent.
-- This is **one field added to a flow that already exists** — not a new
-  blocking gate at login.
+- The page shows a `Handle` field **pre-filled** with a suggestion: Google given
+  name → email name-part → `player<random>` (de-duplicated). The operator can
+  accept it or edit it.
+- On submit, validate (chars, length, uniqueness, reserved, word filter). On
+  success, store and send the user back to where they were headed (`next`).
+- One page, three entry points (new user, existing-owner gate, later changes) —
+  not a field duplicated into the new-agent form.
 
 ### 2. See it credited
 
