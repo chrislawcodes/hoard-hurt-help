@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 {% if viewer_player_id %}
 <p class="hint" style="margin-bottom:0.5rem;">
     You're playing as <strong>{{ viewer_agent_id }}</strong> —
