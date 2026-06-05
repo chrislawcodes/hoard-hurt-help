@@ -2,6 +2,7 @@
 
 import logging
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import Depends, Header, HTTPException, Path, Request, status
 from sqlalchemy import or_, select
@@ -39,6 +40,26 @@ async def require_user(request: Request, db: DbSession) -> User:
                     "details": {},
                 }
             },
+        )
+    return user
+
+
+async def require_user_with_handle(request: Request, db: DbSession) -> User:
+    """Like ``require_user``, but bounce a handle-less agent owner to pick one.
+
+    A handle is required to own an agent. New users meet this when they first
+    head to the bots panel to create an agent; existing agent owners meet it at
+    their next visit. Rather than fail, redirect to the handle form and bring
+    them back to where they were headed via ``next``.
+    """
+    user = await require_user(request, db)
+    if user.handle is None:
+        target = request.url.path
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        raise HTTPException(
+            status_code=status.HTTP_303_SEE_OTHER,
+            headers={"Location": f"/me/handle?next={quote(target, safe='')}"},
         )
     return user
 

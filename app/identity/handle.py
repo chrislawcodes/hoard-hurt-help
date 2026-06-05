@@ -20,6 +20,10 @@ from app.identity import word_filter
 MIN_LEN = 3
 MAX_LEN = 20
 
+# How long a user must wait between handle changes. Keeps leaderboard identity
+# stable and stops someone dodging a reset by churning names.
+CHANGE_COOLDOWN_DAYS = 30
+
 # Start with a letter, then letters / digits / underscores. Length is checked
 # separately so we can give a length-specific message.
 _HANDLE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
