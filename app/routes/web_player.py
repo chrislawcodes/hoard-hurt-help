@@ -16,6 +16,7 @@ from app.config import settings
 from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
 from app.engine.scheduler import start_game
 from app.games import get as get_game_module
+from app.identity import word_filter
 from app.models.bot import Bot, BotKind
 from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
@@ -243,8 +244,12 @@ async def join_submit(
     if bot is None:
         raise HTTPException(404, detail="Bot not found.")
 
-    # Validate entry: name shape, one player per (bot, game), unique name, capacity.
+    # Validate entry: name shape, no bad words, one player per (bot, game),
+    # unique name, capacity. The display name is shown publicly in the live
+    # viewer, so it runs through the same shared word filter as handles and
+    # agent names — rejected (not masked), and never echoed back on rejection.
     name_ok = bool(re.fullmatch(r"[a-zA-Z0-9_]{1,32}", display_name))
+    name_blocked = word_filter.contains_blocked(display_name)
     already_in = (
         await db.execute(
             select(Player).where(
@@ -269,6 +274,8 @@ async def join_submit(
     code = status.HTTP_400_BAD_REQUEST
     if not name_ok:
         error = "Name must be 1–32 letters, numbers, or underscores."
+    elif name_blocked:
+        error = "That name isn't allowed. Pick a different one."
     elif already_in is not None:
         error, code = "That bot is already in this game.", status.HTTP_409_CONFLICT
     elif name_taken is not None:
@@ -303,7 +310,8 @@ async def join_submit(
                 "presets": presets,
                 "default_preset_id": presets[0]["id"] if presets else "",
                 "strategy_prompt": strategy_prompt,
-                "default_display_name": display_name,
+                # Don't echo a blocked name back into the field.
+                "default_display_name": "" if name_blocked else display_name,
                 "base_url": settings.base_url,
                 "error": error,
             },
