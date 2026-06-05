@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Handles — Admin{% endblock %}
+{% block content %}
+<a class="backlink" href="/admin">← Admin</a>
+<div class="page-head">
+    <h1>Player handles</h1>
+    <p class="sub">Reset an abusive handle. The name is freed right away and the player picks a new one next time they sign in. Their leaderboard history is kept.</p>
+</div>
+
+<table>
+    <tr>
+        <th>Handle</th>
+        <th>Email</th>
+        <th>Last changed</th>
+        <th></th>
+    </tr>
+    {% for u in users %}
+    <tr>
+        <td class="mono">@{{ u.handle }}</td>
+        <td class="mono">{{ u.email }}</td>
+        <td>{{ u.handle_changed_at | localdt }}</td>
+        <td>
+            <form method="post" action="/admin/users/{{ u.id }}/handle/reset">
+                <button type="submit">Reset</button>
+            </form>
+        </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4">No handles set yet.</td></tr>
+    {% endfor %}
+</table>
+{% endblock %}

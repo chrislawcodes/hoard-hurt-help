@@ -5,8 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.main import app
 from app.models import Base, BotKind, GameState, Match, Player
 from app.read_models.leaderboard import load_leaderboard_sections
 from tests.factories import make_bot, make_user
@@ -26,6 +28,13 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
+
+
+@pytest.fixture
+async def client():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
 
 
 async def _seed_completed_match(reset_db) -> None:
@@ -102,3 +111,11 @@ async def test_agents_view_keeps_handles_and_excludes_sims(reset_db):
     assert "Coalition Seeker" not in rows
     assert rows["AliceBot"].owner_handle == "agent1"
     assert rows["BobBot"].owner_handle is None
+
+
+async def test_leaderboard_page_renders_owner_credit(reset_db, client):
+    await _seed_completed_match(reset_db)
+    resp = await client.get("/leaderboard")
+    assert resp.status_code == 200
+    assert "AliceBot" in resp.text
+    assert "by @agent1" in resp.text

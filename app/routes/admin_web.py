@@ -65,6 +65,49 @@ async def admin_dashboard(
     )
 
 
+@router.get("/admin/handles", response_class=HTMLResponse)
+async def admin_handles(
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_admin)],
+):
+    """List users who have a public handle, so an admin can reset a bad one."""
+    rows = (
+        (
+            await db.execute(
+                select(User).where(User.handle.is_not(None)).order_by(User.handle)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return templates.TemplateResponse(
+        request,
+        "admin/handles.html",
+        {"user": user, "is_admin": True, "users": rows},
+    )
+
+
+@router.post("/admin/users/{user_id}/handle/reset")
+async def admin_reset_handle(
+    user_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_admin)],
+):
+    """Clear a user's handle. The string is freed immediately; the user picks a
+    new one the next time they need it. Identity is keyed on users.id, so all
+    leaderboard history is preserved."""
+    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(404, detail="User not found.")
+    target.handle = None
+    target.handle_key = None
+    target.handle_changed_at = None
+    await db.commit()
+    return RedirectResponse(url="/admin/handles", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @router.get("/admin/incidents", response_class=HTMLResponse)
 async def admin_incidents(
     request: Request,
