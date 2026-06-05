@@ -83,12 +83,12 @@ def _normalize_move(move: dict, phase: str) -> dict:
     if phase == "talk":
         return {
             "message": _clip(move.get("message", ""), 500),
-            "thinking": _clip(move.get("thinking", ""), 2000),
+            "thinking": _clip(move.get("thinking", ""), 200),
         }
     return {
         "action": str(move.get("action", "HOARD")).upper(),
         "target_id": move.get("target_id") or None,
-        "thinking": _clip(move.get("thinking", ""), 2000),
+        "thinking": _clip(move.get("thinking", ""), 200),
     }
 
 
@@ -104,7 +104,7 @@ def _build_prompt(turn: dict, phase: str) -> str:
         phase_block = (
             "Reply with ONLY a JSON object, no other text:\n"
             '{"message": "<public message, max 500 chars>", '
-            '"thinking": "<private reasoning; humans see it, agents never>"}\n'
+            '"thinking": "<why this message: your position, your read on the table, max 200 chars>"}\n'
             "Always fill in `thinking` with a real reason for your move — never leave it empty.\n"
             "TALK PHASE — JSON only"
         )
@@ -113,7 +113,7 @@ def _build_prompt(turn: dict, phase: str) -> str:
             f"ACT PHASE — here are this turn's messages: {_format_talk_messages(current)}\n"
             "Reply with ONLY a JSON object, no other text:\n"
             '{"action": "HOARD|HELP|HURT", "target_id": "<another agent id, or null>", '
-            '"thinking": "<private reasoning, max 2000 chars>"}\n'
+            '"thinking": "<why this move: your position, your read on the table, max 200 chars>"}\n'
             "Always fill in `thinking` with a real reason for your move — never leave it empty.\n"
             f"ACT PHASE — here are this turn's messages: {_format_talk_messages(current)} — JSON only"
         )
