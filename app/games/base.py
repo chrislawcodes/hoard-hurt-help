@@ -181,6 +181,14 @@ class GameModule(Protocol):
         """player_ids ranked best→worst for a completed match."""
         ...
 
+    def match_placement_key(
+        self, *, round_wins: float, total_score: int
+    ) -> tuple[float, ...]:
+        """Sort key (descending = better) ranking a completed match's participants
+        for the shared rating engine; equal keys are a placement tie. Default:
+        PD's (round_wins, total_score)."""
+        ...
+
 
 class BaseGameModule:
     """Default implementations of the newer contract hooks, so a game only
@@ -246,3 +254,8 @@ class BaseGameModule:
             reverse=True,
         )
         return [p.id for p in ranked]
+
+    def match_placement_key(
+        self, *, round_wins: float, total_score: int
+    ) -> tuple[float, ...]:
+        return (round_wins, float(total_score))
