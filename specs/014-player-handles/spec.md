@@ -186,15 +186,15 @@ already redirects new users to). Pure spectators are never blocked.
 
 - From the account / dashboard area: "Your handle: @coin_goblin · Change."
 - Same validation. Blocked with a clear message if inside the 30-day cooldown.
+- The **old handle is released immediately** — anyone can take it right after.
 
 ### 4. Moderation (admin)
 
-- Every public handle has a **Report** affordance (small link on the leaderboard
-  row, or a single report control per page — implementation choice).
-- Admin surface lists reported handles and can **force-reset** a handle (clears
-  it; the operator is prompted to pick a new one next time they need it).
-  Because the Google identity is known, a repeat offender can be banned, not
-  just renamed.
+- **No report button in this version.** The word-list blocks slurs on save, and
+  the admin can reset anything. Reporting is a later addition if needed.
+- Admin surface can **force-reset** a handle (clears it; the operator picks a new
+  one when they next sign in / need it). Because the Google identity is known, a
+  repeat offender can be banned, not just renamed.
 
 ---
 
@@ -349,10 +349,11 @@ engine and turn pipeline, not the signup form. So:
 
 - **Phase 1 (this feature):** ship the shared list + apply it to **handles and
   agent names**. Build the checker so it's reusable.
-- **Phase 2 (follow-up):** apply the same checker to agent turn messages —
-  decide the on-hit behavior there (block the message, replace it with a
-  placeholder, or default the turn to Hoard). That behavior is its own decision
-  and should not block handles from shipping.
+- **Phase 2 (follow-up):** apply the same checker to agent turn messages. On a
+  hit, the message **still posts**, but each blocked word is **replaced with four
+  asterisks (`****`)** — a fixed length that doesn't reveal the original word.
+  This is censoring, not blocking: the turn proceeds normally and is never
+  defaulted to Hoard over a word.
 
 This keeps the handle feature small while honoring the "no slurs in any public
 text" intent and avoiding a second, drifting word list later.
@@ -400,6 +401,11 @@ text" intent and avoiding a second, drifting word list later.
   anywhere public — only a generic "not allowed" message.
 - **FR-017**: The checker MUST be built reusable so agent **turn messages** can
   adopt it in a follow-up phase without a second word list.
+- **FR-018**: When a handle is changed or reset, its previous value MUST become
+  immediately available for any other user to claim (no reuse cooldown).
+- **FR-019** (Phase 2): When an agent turn message hits the bad-words list, the
+  message MUST still post with each blocked word replaced by exactly four
+  asterisks (`****`); the turn MUST NOT be defaulted to Hoard for this reason.
 
 ---
 
@@ -493,15 +499,19 @@ who the person really is.
 - ✅ **Moderation level** — light touch + a single shared bad-words list across
   all public text (see "Shared Bad-Words List").
 
-## Still Open (small, don't block building)
+## Also decided (2026-06-05)
 
-1. **Report affordance.** Per-row report link vs a single "report a handle"
-   control on the page? Per-row is clearer but noisier in the table.
-2. **Freeing a changed/reset handle.** Release the old string immediately for
-   anyone to take, or hold it on a cooldown to stop impersonation churn?
-3. **Agent-message on-hit behavior (Phase 2).** When a turn message hits the
-   bad-words list, block the message, replace it with a placeholder, or default
-   the turn to Hoard?
+- ✅ **Reporting** — **no report button for now.** The word-list blocks slurs on
+  save, admin can reset any handle, and Google ties every handle to a real
+  person. Add reporting later only if bad handles slip through in practice.
+- ✅ **Freeing a handle** — when a handle is changed or reset, the old string is
+  **released immediately** for anyone to take. No reuse cooldown.
+- ✅ **Agent-message on-hit (Phase 2)** — the message still posts, but each
+  blocked word is **replaced with four asterisks (`****`)**. Fixed length, so it
+  never reveals how long the word was. (Handles and agent names are still
+  *rejected* on save — masking is only for the free-text turn messages.)
+
+No open questions remain.
 
 ---
 
