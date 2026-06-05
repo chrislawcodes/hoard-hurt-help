@@ -58,6 +58,17 @@ Decision 3 widens the scope past handles: the same bad-words list must also scre
 agent-message screening is a separate, larger chunk of work (it touches the game
 engine, not the signup form) — see "Shared Bad-Words List" below.
 
+### Edge cases resolved (2026-06-05, with Chris)
+
+| Edge case | Resolution |
+|---|---|
+| **The core rule** | You must have a handle to **own an agent**. New users meet it at first-agent creation; pure spectators (no agents) are never asked. |
+| **Existing operators** | Anyone who already owns an agent is **hard-gated at their next login**: they pick a handle before they can use the dashboard. |
+| **Leaderboard before they've logged in** | An agent whose owner hasn't set a handle yet shows **no credit line** (same as a Sim), until the owner logs in and picks one. |
+| **Where the credit shows** | **Leaderboard only.** Not the lobby, replays, analysis pages, or live turn feed — consistent with the "semi-public, leaderboard only" call. |
+| **Capitalization** | Show the capitals the user typed (`@ZeusMaster`); enforce uniqueness **case-insensitively** so `@zeusmaster` can't also exist. |
+| **Suggestion fallback** | Pre-fill from Google given name → if missing/unusable, the email name-part → if that fails, `player<random>`. Always a valid, free suggestion. |
+
 ### Bonus this also fixes
 
 Agent names are unique only **per owner** (`uq_bots_user_id_name`), so two
@@ -123,7 +134,8 @@ the admin surface.
 
 | Rule | Value | Why |
 |---|---|---|
-| Allowed characters | `a-z`, `0-9`, `_` (lowercased on save) | Predictable, URL-safe, no homoglyph games. |
+| Allowed characters | `A-Z`, `a-z`, `0-9`, `_` | Predictable, URL-safe, no homoglyph games. |
+| Capitalization | Keep the case the user typed for **display**; compare **case-insensitively** for uniqueness | Lets people style their name (`@ZeusMaster`) without allowing a near-duplicate `@zeusmaster`. |
 | Must start with | a letter | Avoids all-number handles that read like IDs. |
 | Length | 3–20 chars | Long enough to be distinct, short enough for a table cell. |
 | Uniqueness | **Globally unique, case-insensitive** | Two `@alice`es defeat the purpose. |
@@ -263,15 +275,19 @@ The existing "Competitor" cell gains a second line. Order of prominence:
 
 | Field | Type | Notes |
 |---|---|---|
-| `handle` | `str \| None`, `String(20)` | Lowercased on save. `NULL` until the user picks one. |
+| `handle` | `str \| None`, `String(20)` | **Display** form, exactly as typed (e.g. `ZeusMaster`). `NULL` until the user picks one. |
+| `handle_key` | `str \| None`, `String(20)` | Lowercased `handle`. Carries the unique index; used for all lookups. `NULL` until set. |
 | `handle_changed_at` | `datetime \| None` | Powers the 30-day change cooldown. `NULL` until first set. |
 
-- **Uniqueness:** case-insensitive unique. Store already-lowercased and add a
-  unique index on `handle`, so `@Alice` and `@alice` can't coexist.
-- **Migration:** Alembic migration adds the nullable column + unique index.
-  Existing users get `NULL` and are prompted to pick a handle the next time they
-  need one (next agent creation). No backfill from real names — that would leak
-  legal names, which this feature explicitly avoids.
+- **Uniqueness:** the unique index lives on `handle_key` (lowercased), so
+  `@Alice` and `@alice` can't coexist while `handle` still shows the typed case.
+  A separate `handle_key` column keeps this portable across SQLite and Postgres
+  without relying on database-specific functional/`COLLATE` indexes.
+- **Migration:** Alembic migration adds the two nullable columns + the unique
+  index on `handle_key`. Existing users get `NULL`; because they already own
+  agents, they are **hard-gated at next login** to pick one (see Edge cases). No
+  backfill from real names — that would leak legal names, which this feature
+  explicitly avoids.
 - SQLite dev DBs rebuild from models (`Base.metadata.create_all`), so confirm
   the migration applies cleanly on SQLite too (per the project's known
   migration caveat).
@@ -345,20 +361,26 @@ text" intent and avoiding a second, drifting word list later.
 
 ## Functional Requirements
 
-- **FR-001**: `users` MUST gain a nullable, case-insensitively-unique `handle`.
+- **FR-001**: `users` MUST gain a nullable display `handle` plus a lowercased
+  `handle_key` that carries a unique index (case-insensitive uniqueness).
 - **FR-002**: The login flow, Google scopes, and session handling MUST be
   unchanged. Handle is display-only and never used for authentication.
-- **FR-003**: A handle MUST match `^[a-z][a-z0-9_]{2,19}$` after lowercasing.
+- **FR-003**: A handle MUST match `^[A-Za-z][A-Za-z0-9_]{2,19}$`; uniqueness MUST
+  be enforced on its lowercased form. The typed case MUST be preserved for
+  display.
 - **FR-004**: Handle creation/change MUST reject taken, reserved, and
   blocklisted values with the specified plain-language messages.
-- **FR-005**: An agent MUST NOT be able to enter a match until its owner has a
-  handle.
-- **FR-006**: The handle field at first-agent creation MUST be pre-filled with a
-  unique suggestion derived from the Google given name.
+- **FR-005**: A user MUST have a handle to own an agent. New users MUST be asked
+  at first-agent creation; existing agent-owners with no handle MUST be gated at
+  next login before using the dashboard.
+- **FR-006**: The handle field MUST be pre-filled with a unique, valid
+  suggestion: Google given name → email name-part → `player<random>` as
+  fallbacks when the prior source is missing or unusable.
 - **FR-007**: A handle MUST be changeable by its owner, no more than once per 30
   days (`handle_changed_at`).
-- **FR-008**: The leaderboard MUST show `by @handle` beneath each **agent**'s
-  name and MUST NOT show an owner line for **Sims**.
+- **FR-008**: The leaderboard MUST show `by @handle` beneath an **agent** whose
+  owner has a handle, and MUST show **no owner line** for Sims or for agents
+  whose owner has not yet set a handle.
 - **FR-009**: The system MUST NOT display any user's email or legal/real name on
   any public surface.
 - **FR-010**: The live turn-by-turn viewer MUST remain agent-only — no human
