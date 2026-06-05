@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.engine.sim_presets import HISTORICAL_SIM_NAME_POOL, sim_presets
+from app.engine.sim_presets import sim_presets
 from app.engine.tokens import bot_key_lookup
 from app.main import app
 from app.models import Base, Bot, BotKind, Match, GameState, Player, User
@@ -390,7 +390,7 @@ async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
     assert len(bots) == len(presets)
     assert {bot.sim_profile_id for bot in bots} == {preset.id for preset in presets}
     assert {bot.sim_profile_name for bot in bots} == {preset.name for preset in presets}
-    expected_names = set(HISTORICAL_SIM_NAME_POOL[: len(presets)])
+    expected_names = {preset.name for preset in presets}
     assert {bot.name for bot in bots} == expected_names
 
     await _seed_game(reset_db)
