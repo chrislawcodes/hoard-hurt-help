@@ -435,9 +435,11 @@ fields (defaults 3/6 from `config_defaults`). Deadline uses the existing field
 
 - Additive migration; deploy with no ACTIVE games (repo operational assumption),
   so no in-flight LD match to migrate; PD is untouched.
-- Ship behind the four seams in the phasing order from `design.md` §11 (platform
-  seams 1–4 land behind unchanged PD before the LD module is registered), then the
-  module, finish-order wiring, Sims, viewer.
+- Ship in the `design.md` §11 phase order: **Phase A** (PD parity refactor) merges
+  first; **Phase B** (the new seams — `SequentialDriver`, private/public payload,
+  generic state — validated by a sequential/hidden stub) second; **Phase C** (this
+  spec's engine → module → Sims → viewer) last. Each phase is its own branch + PR,
+  so a regression is isolated to the layer that introduced it.
 
 ## 14. Open items
 

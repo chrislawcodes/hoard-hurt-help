@@ -139,8 +139,10 @@ refactor and replay it as a golden fixture for SC-P2/SC-P3/SC-P4.
 - **Highest risk:** the `SimultaneousDriver` extraction (§2.1) — it moves the live
   turn loop. Mitigation: pure move (no logic edits) + SC-P4 loop parity + the
   existing resume/restart tests.
-- **Sequencing:** land these PD-side changes (driver split, hooks-as-defaults,
-  payload-behind-contract, wire passthrough, storage migration) **behind the
-  unchanged PD** first, with parity green, *before* the Liar's Dice module is
-  registered. That ordering matches the LD design's phasing (§11): platform seams
-  1–4 ship and prove PD parity, then game #2 plugs in.
+- **Sequencing:** this spec is **Phase A** in the Liar's Dice design's phasing
+  (`specs/014-liars-dice/design.md` §11) — its **own branch + PR, merged first**.
+  It lands these PD-side changes (driver split, hooks-as-defaults,
+  payload-behind-contract, wire passthrough, storage migration) behind the
+  unchanged PD with parity green. Only then does Phase B (the new seams, validated
+  by a sequential/hidden stub) and Phase C (the Liar's Dice game) follow. Isolating
+  Phase A as its own PR is what makes "if it breaks, it's the refactor" true.

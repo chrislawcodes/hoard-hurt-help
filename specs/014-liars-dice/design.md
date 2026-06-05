@@ -368,35 +368,66 @@ Still open:
 
 ---
 
-## 11. Proposed scope / phasing (for when we build)
+## 11. Phasing — decoupling first, then the game
 
-Sequenced so each step is reviewable on its own. This is the *shape*, not a
-committed plan.
+Three phases, **each its own branch + PR**, landed in order. The point of the
+ordering is **cause isolation**: a phase boundary that goes green→broken tells you
+which layer regressed. The decoupling refactor lands and is proven against PD
+*before* any Liar's Dice behavior exists, so early breakage is unambiguously the
+refactor, not the new game. This also honors CLAUDE.md's one-feature-per-branch
+rule — the decoupling is a separate feature from the game.
 
-1. **Platform: sequential loop hooks** — add the module-driven progression
-   (`next_actor`, `is_match_over`, `on_round_start`) with PD-compatible defaults;
-   prove PD + stub tests unchanged.
-2. **Platform: hidden state + private payload** — `your_private_state`, public
-   history scrubbing, leak test.
-3. **Platform: free-form move JSON on the wire** — extend `SubmitRequest`,
-   pass-through `move` dict.
-4. **State storage** — generic `match_state` / `player_state` (and bid columns
-   per TBD-3) + migration.
-5. **The module** — `app/games/liars_dice/`: rules text (per-match wild on/off),
-   `validate_move` (strictly-higher + ace rules + missed-turn default), config
-   defaults (3–6 players, 5 dice, 30s, wild on), `record_submission`,
-   `resolve_turn` (challenge math + ace wild), round/match hooks, elimination,
-   `finalize`, placement mapping, `theme()`, registration.
-6. **Platform: finish-order from the module** — let each game report its own
-   placement (elimination order) so records + Elo (013) stop assuming round-wins
-   (per D-4).
-7. **Sims** — Liar's Dice computer players that bid/bluff/challenge sensibly in
-   both wild and no-wild modes; wire them into the Practice Arena + auto-matches
-   (per D-9). Their own work stream — they consume the same rules engine, which is
-   a good correctness forcing function.
-8. **Viewer** — minimal v1 per TBD-6.
+The split rests on one distinction: some "decoupling" is a **pure parity
+refactor** (provable with PD alone), and some is **new capability** (nothing
+exercises it until a game does — building it blind means guessing the shape).
+We separate the two.
 
-Steps 1–4 are the platform investment that any future hidden-info or sequential
-game reuses. Step 5 is the game itself. Step 7 (Sims) is a substantial addition
-on top of v1 scope. We should land 1–4 behind the unchanged PD before wiring the
-module in.
+### Phase A — PD parity refactor (its own PR, merged first)
+
+The work in `specs/hoard-hurt-help/tech-spec.md`. No new behavior:
+
+- Extract `SimultaneousDriver` from the scheduler (move PD's loop, don't rewrite).
+- Add the new contract hooks with **PD-reproducing defaults** (`is_match_over`,
+  `final_placement`, `default_move`, `private_state_for`, `public_state_for`,
+  `on_round_start`).
+- Route PD's payload through `public_state_for` / `private_state_for` (same bytes).
+- Free-form `move` passthrough on the wire (PD ignores it).
+- Records/Elo read `final_placement` instead of assuming round-wins (D-4).
+- Additive migration: `match_state` / `player_state` tables + `quantity`/`face`
+  columns (PD writes none of them).
+
+**Gate:** parity (SC-P1…SC-P5 in the HHH tech spec). PD suite + the existing stub
+test green, unmodified. If anything breaks, it is here.
+
+### Phase B — new seams, validated by a stub (its own PR)
+
+Build the capability PD never needed, and prove it with a **minimal sequential,
+hidden-information stub game** (extend `tests/test_stub_game.py`) — cheap and
+throwaway, so a seam bug fails the stub, not the real game:
+
+- `SequentialDriver` (single-actor turn loop, `next_actor`-driven).
+- Real private/public payload split + the multi-channel hidden-info leak test.
+- The generic `match_state` / `player_state` store actually read and written.
+
+**Gate:** the stub plays a full sequential, hidden-state match to completion; the
+leak test passes; PD parity from Phase A still green.
+
+### Phase C — Liar's Dice itself (its own PR)
+
+By now the platform is proven, so a failure here is a *game-logic* bug:
+
+1. **Pure engine** — `app/games/liars_dice/engine.py`: legal-raise + ace rules,
+   showdown count (face + wilds), `min_legal_raise` (missed-turn default),
+   elimination/winner. Unit-tested in isolation.
+2. **The module** — `game.py`: rules text (per-match wild on/off), `validate_move`,
+   config defaults (3–6 players, 5 dice, 30s, wild on), `record_submission`,
+   `resolve_turn`, the loop hooks, `award_round` showdown, `finalize`,
+   `final_placement` (elimination order), `theme()`, registration.
+3. **Sims** (D-9) — Liar's Dice players that bid/bluff/challenge in both wild and
+   no-wild modes, on the shared pure engine; wired into the Practice Arena +
+   auto-matches.
+4. **Viewer** — minimal v1 per TBD-6.
+5. **Admin create-match fields** — wild on/off, dice count.
+
+Phase C can itself be reviewed in slices (engine → module → Sims → viewer), but it
+is one feature/branch.
