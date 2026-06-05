@@ -50,9 +50,12 @@ new game's rules, and it plays autonomously.
 
 ### 3.1 Setup — **Decided**
 
-- Each player starts with **5 dice** and a private cup.
-- Player count: **3–8** (see §9 for why not 100). Hard floor stays the
+- Each player starts with **5 dice** and a private cup. (Adjustable per match;
+  5 is the default — see §9.)
+- Player count: **3–6** (see §9 for why not 100). Hard floor stays the
   platform's 3.
+- Default per-turn deadline: **30 seconds** (adjustable per match) — a single
+  bid is a quick decision and there are many turns per match.
 - At the start of each **hand**, every still-in player rolls all their remaining
   dice secretly.
 
@@ -79,7 +82,14 @@ A new bid is legal only if it is strictly higher than the standing bid, where
 
 (Face 1 / "aces" interact with this — see §3.4.)
 
-### 3.4 Wild ones (aces) — **Decided: on, with standard Dudo ace rules**
+### 3.4 Wild ones (aces) — **Decided: on by default, match-creator toggle**
+
+Wild ones are **on by default**, but the match creator can turn them off when
+creating a match (a config flag, like the other match settings). Two
+consequences: the `rules_text()` sent to each AI must state which mode *this*
+match uses, and the Sims (§9, TBD-9) must play both modes correctly.
+
+When wild ones are **on** (standard Dudo ace rules):
 
 - **1s are wild**: they count as every face when a challenge is resolved.
 - Bidding *on* 1s: because aces are wild, they are scarcer, so the quantity
@@ -89,7 +99,9 @@ A new bid is legal only if it is strictly higher than the standing bid, where
   - To switch **from aces back to a normal face**, the new quantity must be at
     least **(2 × ace_quantity) + 1**.
   - Raising aces with aces: just increase the quantity.
-- A "simple" no-wild variant is offered as a config toggle (see §9, TBD-1).
+
+When wild ones are **off**, every die counts only as its own face and the special
+ace-bidding quantities above do not apply.
 
 ### 3.5 Resolving a challenge — **Decided**
 
@@ -111,12 +123,12 @@ eliminated, the player to their left starts.
 - The match ends when **one player has dice left**. That player wins.
 - Total dice on the table shrink over the match, so it always terminates.
 
-### 3.7 Spot-on / exact call — **Recommended: off for v1** (TBD-2)
+### 3.7 Spot-on / exact call — **Decided: off for v1**
 
-Optional "calza"/"spot-on" call (claim the bid is *exactly* right; if so the
+The optional "calza"/"spot-on" call (claim the bid is *exactly* right; if so the
 caller *gains* a die or every other player loses one) adds depth but also a third
-move type and edge cases. Recommend shipping v1 without it and adding it as a
-config toggle later.
+move type and edge cases. v1 ships with just **bid** and **challenge**; spot-on
+is a later config toggle.
 
 ---
 
@@ -170,11 +182,13 @@ without rewriting PD or making the scheduler import game specifics.
   poll/next-turn endpoints return "waiting (not your turn)" to everyone else and
   "your turn" only to the active player. The resolve-early quorum becomes "the one
   expected submitter has submitted."
-- **Missed turn default**: a player who misses their turn must still produce a
-  *legal* move. **Decided default**: if there is a standing bid, default to
-  **Challenge**; if not (first to act), default to the **minimum legal bid**.
-  Defaulting to a fixed bid blind could be illegal, so the default must be
-  computed from the live state.
+- **Missed turn default — Decided: smallest legal raise.** A player who misses
+  their turn must still produce a *legal* move, computed from live state. The
+  default is the **lowest legal bid above the standing bid** ("do no harm" — keeps
+  the no-show in the hand, leaks nothing, costs them nothing directly). Two
+  fallbacks: the first player of a hand (no standing bid) defaults to the
+  **minimum opening bid**; and when the bid is already at the ceiling (no legal
+  raise exists), the default is **Challenge**.
 
 ### 5.2 Hidden per-player state (your dice)
 
@@ -251,11 +265,15 @@ are built around round-wins and round-score, so we map:
   (e.g. `players − placement + 1`, so 1st gets the most) and treat **hands won**
   (challenges you won) as `total_round_wins`. This keeps the existing
   sort/leaderboard meaningful.
-- **Elo (feature 013)**: **TBD-4 — depends on how 013 consumes a finished match.**
-  If 013 reads pairwise/relative placement, feed it the elimination ranking. If it
-  is hard-wired to PD round-wins, we either map placement → round-wins (above) or
-  extend 013. This needs a read of `specs/013-elo-leaderboard/` before we commit.
-  Flagged as a dependency, not solved here.
+- **Elo (feature 013) — good fit, one small change.** 013 rates matches from
+  **final placement** ("Normal Multiplayer Elo from final match placement";
+  "final placement is converted into pairwise comparisons"). Liar's Dice produces
+  a placement (elimination order) natively, so it fits 013's model cleanly — no
+  Elo rework. The one change: 013 currently *derives* placement from PD round-wins,
+  so the platform must let each game report its own finish order (elimination order
+  for Liar's Dice) instead of assuming round-wins. That's a small, clean platform
+  edit, not an Elo redesign. The "First-place Bonus" variant also just works, since
+  the winner is unambiguous (last player standing).
 
 ---
 
@@ -304,19 +322,28 @@ directed taunt/persuasion layer on top.
 
 ---
 
-## 9. Open questions (TBD), with recommendations
+## 9. Decisions and remaining open questions
+
+Decisions made with Chris on 2026-06-05:
+
+| # | Question | **Decision** |
+|---|---|---|
+| D-1 | Wild ones on or off? | **On by default**, with a **match-creator toggle** to turn off. Rules text states the mode; Sims play both. (§3.4) |
+| D-2 | Spot-on / exact call in v1? | **Off** in v1 (bid + challenge only); later toggle. (§3.7) |
+| D-4 | Elo (feature 013) integration. | **Good fit** — 013 rates by final placement, which Liar's Dice gives natively. One small platform edit: let each game report its own finish order (elimination order) instead of assuming round-wins. (§7) |
+| D-5 | Table talk for a single-actor game. | A public **message + thinking ride with each bid/challenge** by default (no separate talk phase). Per-hand table-talk round deferred. (§8.1) |
+| D-7 | Max players. | **Cap at 6** (floor stays 3). Short, readable hands; watchable match length. (§3.1) |
+| D-8 | Per-turn deadline default. | **30s**, adjustable per match. (§3.1) |
+| D-9 | Sims / auto-match support. | **Build Sims in v1** — Liar's Dice gets a Practice Arena and auto-matches from day one. Adds a real work stream: Sims that bid, bluff, and challenge sensibly in both wild/no-wild modes. (§11) |
+| D-10 | Dice per player. | **5 each** by default, adjustable per match. (§3.1) |
+| D-11 | Missed-turn default. | **Smallest legal raise**; opening default = minimum opening bid; ceiling fallback = challenge. (§5.1) |
+
+Still open:
 
 | # | Question | Recommendation |
 |---|---|---|
-| TBD-1 | Wild ones on or off (config)? | **On** by default (classic Dudo); expose an off toggle. |
-| TBD-2 | Spot-on / exact call in v1? | **Off** in v1; add as a toggle later. |
 | TBD-3 | Bid storage: add `quantity`/`face` columns vs. serialize into `message`? | Add **two nullable int columns** — cleaner queries for the viewer/records than parsing strings. |
-| TBD-4 | Elo (feature 013) integration for a placement-based game. | Read 013 first; prefer feeding it the elimination **ranking**. Decide before build. |
-| TBD-5 | **Resolved** (see §8.1): table talk for a single-actor game. | A public **message + thinking ride with each bid/challenge** by default (no separate talk phase). A once-per-hand table-talk round is a deferred option. |
-| TBD-6 | Viewer fidelity for v1. | **Minimal text+dice-count viewer** first; animate later via `game-art`. |
-| TBD-7 | Max players (game quality vs. platform's 100). | Cap at **8**; large tables make hands very long and dilute each AI's read. |
-| TBD-8 | Per-turn deadline default. | **30s** — a single bid is a smaller decision than a PD turn; many quick turns per match. |
-| TBD-9 | Sim/auto-match support (PD has Sims for the Practice Arena). | **Defer** — ship human-driven bots first; Liar's Dice Sims are their own task. |
+| TBD-6 | Viewer fidelity for v1. | **Minimal text + dice-count viewer** first; animate later via `game-art`. |
 
 ---
 
@@ -355,12 +382,21 @@ committed plan.
    pass-through `move` dict.
 4. **State storage** — generic `match_state` / `player_state` (and bid columns
    per TBD-3) + migration.
-5. **The module** — `app/games/liars_dice/`: rules text, `validate_move`,
-   `record_submission`, `resolve_turn` (challenge math + ace wild), round/match
-   hooks, elimination, `finalize`, placement mapping, `theme()`, registration.
-6. **Viewer** — minimal v1 per TBD-6.
-7. **Leaderboard / Elo** — per TBD-4.
+5. **The module** — `app/games/liars_dice/`: rules text (per-match wild on/off),
+   `validate_move` (strictly-higher + ace rules + missed-turn default), config
+   defaults (3–6 players, 5 dice, 30s, wild on), `record_submission`,
+   `resolve_turn` (challenge math + ace wild), round/match hooks, elimination,
+   `finalize`, placement mapping, `theme()`, registration.
+6. **Platform: finish-order from the module** — let each game report its own
+   placement (elimination order) so records + Elo (013) stop assuming round-wins
+   (per D-4).
+7. **Sims** — Liar's Dice computer players that bid/bluff/challenge sensibly in
+   both wild and no-wild modes; wire them into the Practice Arena + auto-matches
+   (per D-9). Their own work stream — they consume the same rules engine, which is
+   a good correctness forcing function.
+8. **Viewer** — minimal v1 per TBD-6.
 
 Steps 1–4 are the platform investment that any future hidden-info or sequential
-game reuses. Step 5 is the game itself. We should land 1–4 behind the unchanged
-PD before wiring the module in.
+game reuses. Step 5 is the game itself. Step 7 (Sims) is a substantial addition
+on top of v1 scope. We should land 1–4 behind the unchanged PD before wiring the
+module in.
