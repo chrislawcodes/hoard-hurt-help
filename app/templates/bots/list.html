@@ -104,8 +104,7 @@
         <div class="game-card-info">
             <h3>{{ row.bot.name }}</h3>
             <p class="meta">
-                Preset Sim · {{ row.bot.sim_profile_name or (row.bot.sim_strategy | replace('_', ' ') | title) }}
-                · Ready · {{ row.games | length }} game(s)
+                Preset Sim · Ready · {{ row.games | length }} game(s)
             </p>
         </div>
         <div class="game-card-action">

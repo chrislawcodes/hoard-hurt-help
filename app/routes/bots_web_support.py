@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.deps import DbSession
-from app.engine.sim_presets import build_sim_bot_name, sim_presets
+from app.engine.sim_presets import sim_presets
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key
 from app.models.bot import Bot, BotKind
 from app.models.match import GameState, Match
@@ -91,13 +91,11 @@ async def ensure_preset_sim_bots(db: DbSession, user: User) -> None:
         for bot in existing
         if bot.kind == BotKind.SIM and bot.sim_profile_id
     }
-    used_names = {bot.name for bot in existing}
     created = False
-    for index, preset in enumerate(presets):
+    for preset in presets:
         if preset.id in by_profile:
             continue
-        name = build_sim_bot_name(used_names=used_names, name_index=index)
-        used_names.add(name)
+        name = preset.name
         key = generate_bot_key()
         bot = Bot(
             user_id=user.id,
