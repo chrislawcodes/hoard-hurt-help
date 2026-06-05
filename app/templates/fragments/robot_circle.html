@@ -127,20 +127,21 @@
 @keyframes rc-speakpulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.06)}}
 
 /* ---- Center say-bubble (talk phase) ---- */
-/* The line the speaking bot is saying, shown in the empty center of the ring.
-   It lives only during the talk phase and clears before any bot moves, so it
-   never collides with the gift / bat / pact choreography that crosses center. */
+/* The one line the speaking bot is saying right now, shown in the empty center
+   of the ring. It lives only during the talk phase and clears before any bot
+   moves, so it never collides with the gift / bat / pact choreography that
+   crosses center. There is no name inside — the bubble wears the speaker's own
+   colour as its border, and only that bot is lit + pulsing, so it reads as
+   theirs. max-width is clamped to the ring in layout() so this centred card can
+   never reach a seat: the speaking bot (wherever it sits) is always left clear. */
 .rc-saybubble{position:absolute;left:50%;top:50%;z-index:6;pointer-events:none;text-align:center;
-  width:max-content;max-width:min(62%,260px);padding:10px 14px;border-radius:14px;
-  background:var(--surface,#fff);border:1px solid var(--line,#e2e6ea);box-shadow:0 8px 24px rgba(20,20,40,.14);
+  width:max-content;max-width:300px;padding:12px 17px;border-radius:15px;
+  background:var(--surface,#fff);border:2px solid var(--c,var(--line,#e2e6ea));box-shadow:0 8px 24px rgba(20,20,40,.16);
   opacity:0;transform:translate(-50%,-50%) scale(.96);transition:opacity .2s ease,transform .2s ease}
 .rc-saybubble.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
-.rc-say-prev{font-size:11px;line-height:1.3;color:var(--ink-soft,#9aa6b6);opacity:.7;margin-bottom:4px;
-  display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
-.rc-say-name{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--c,#5b6470)}
-.rc-say-text{font-size:13.5px;line-height:1.4;color:var(--ink,#1a1d21);margin-top:2px;
-  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-@media (max-width:560px){.rc-saybubble{max-width:min(60%,205px);padding:8px 11px}.rc-say-text{font-size:12.5px;-webkit-line-clamp:3}}
+.rc-say-text{font-size:15px;line-height:1.4;font-weight:500;color:var(--ink,#1a1d21);
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+@media (max-width:560px){.rc-saybubble{padding:9px 13px}.rc-say-text{font-size:13.5px;-webkit-line-clamp:2}}
 @media (prefers-reduced-motion:reduce){
   .rc-bot.speaking .rc-body{animation:none}
   .rc-saybubble{transition:opacity .12s linear}
@@ -300,8 +301,6 @@
           <svg class="rc-fx" id="rc-fx" preserveAspectRatio="none"></svg>
           <div class="rc-progress" id="rc-progress"></div>
           <div class="rc-saybubble" id="rc-say">
-            <div class="rc-say-prev" id="rc-say-prev"></div>
-            <div class="rc-say-name" id="rc-say-name"></div>
             <div class="rc-say-text" id="rc-say-text"></div>
           </div>
         </div>
@@ -378,8 +377,6 @@
   var caption=document.getElementById('rc-caption'), turnlabel=document.getElementById('rc-turnlabel');
   var railEl=document.getElementById('rc-rail');
   var sayEl=document.getElementById('rc-say');
-  var sayPrevEl=document.getElementById('rc-say-prev');
-  var sayNameEl=document.getElementById('rc-say-name');
   var sayTextEl=document.getElementById('rc-say-text');
 
   if(!TURNS.length){
@@ -535,6 +532,10 @@
     var w=stage.clientWidth, h=stage.clientHeight;
     var cx=w/2, cy=h/2, rad=Math.max(40, Math.min(w,h)/2 - 60);
     ring.style.width=ring.style.height=(rad*2)+'px';
+    // Keep the centred say-bubble inside the ring's empty middle: cap its width so
+    // even at its widest it stops short of the nearest seat (rad minus a robot
+    // half-width plus a gap). Whichever bot is speaking always stays uncovered.
+    sayEl.style.maxWidth=Math.min(300,Math.round(rad*2-72))+'px';
     AGENTS.forEach(function(id,i){
       var ang=-Math.PI/2 + i/AGENTS.length*2*Math.PI;
       var x=cx+rad*Math.cos(ang), y=cy+rad*Math.sin(ang);
@@ -586,17 +587,11 @@
   var DUR=1520;
   var TALK_STAGGER=1750;
   var PAUSE_AFTER_TALK=750;
-  var sayCur='';
-
   function talkDurOf(t){ if(skipTalk) return 0; return (t.talk&&t.talk.length?t.talk.length*TALK_STAGGER:0)+PAUSE_AFTER_TALK; }
 
-  // The center say-bubble shows the current line; the prior line lingers as a
-  // faint ghost above it so a quick exchange still reads as a back-and-forth.
+  // The center say-bubble shows only the current speaker's line, in their colour.
   // textContent (not innerHTML) keeps bot-authored messages from injecting markup.
   function saySet(id,text){
-    sayPrevEl.textContent=sayCur;
-    sayCur=text;
-    sayNameEl.textContent=id;
     sayTextEl.textContent=text;
     sayEl.style.setProperty('--c',colorOf[id]);
     sayEl.classList.add('show');
@@ -604,7 +599,7 @@
   function sayHide(){ sayEl.classList.remove('show'); }   // fade out before the action phase
   function sayReset(){
     sayEl.classList.remove('show');
-    sayCur=''; sayPrevEl.textContent=''; sayNameEl.textContent=''; sayTextEl.textContent='';
+    sayTextEl.textContent='';
   }
   function speakLine(a){
     if(!a.text) return;
