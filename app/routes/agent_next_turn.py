@@ -156,4 +156,6 @@ async def next_turn(
         current=await _build_current_turn(db, turn),
         preferred_provider=bot.provider.value if bot.provider else None,
         preferred_model=bot.model,
+        your_private_state=(await module.private_state_for(db, game, player)) or None,
+        public_state=(await module.public_state_for(db, game, player)) or None,
     )

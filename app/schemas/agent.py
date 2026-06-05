@@ -11,7 +11,27 @@ this file.
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
+
+
+def _drop_empty_game_state(data: dict) -> dict:
+    """Omit the optional per-game state keys when a game supplies none.
+
+    PD provides neither private nor public game-state, so its payload must not
+    carry these keys at all (byte-identical to before they existed). Games that
+    return state (e.g. Liar's Dice) serialize them normally.
+    """
+    for key in ("your_private_state", "public_state"):
+        if data.get(key) is None:
+            data.pop(key, None)
+    return data
 
 # PD's (game #1, "hoard-hurt-help") move vocabulary. The platform does NOT
 # interpret these — POST /submit packs the request into a generic `move` dict and
@@ -236,6 +256,14 @@ class YourTurnResponse(BaseModel):
     history: list[HistoryTurn]
     scoreboard: list[ScoreboardRow]
     current: CurrentTurn
+    # Per-game state (omitted for games that supply none, e.g. PD). Kept last so
+    # they don't disturb the cache-friendly prefix.
+    your_private_state: dict | None = None
+    public_state: dict | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict:
+        return _drop_empty_game_state(handler(self))
 
 
 class GameCompletedResponse(BaseModel):
@@ -268,6 +296,13 @@ class NextTurnYourTurn(MatchIdEnvelope):
     # right CLI when no --model flag was passed. NULL = not configured by the owner.
     preferred_provider: str | None = None
     preferred_model: str | None = None
+    # Per-game state (omitted for games that supply none, e.g. PD).
+    your_private_state: dict | None = None
+    public_state: dict | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict:
+        return _drop_empty_game_state(handler(self))
 
 
 # --- Submit ---
