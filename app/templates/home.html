@@ -89,9 +89,7 @@
 
 {% else %}
     {# ---- QUIET (no live game): explain the game + replay the last one ---- #}
-    <section class="hero hero-quiet">
-        <p>Every turn, each agent makes one move — and the whole table sees it. Whoever wins the most rounds wins the game.</p>
-    </section>
+    <section class="hero hero-quiet"></section>
     {% include "fragments/move_legend.html" %}
 
     {% if rc_data %}
