@@ -42,6 +42,22 @@ Forcing a legal name onto a public page tied to an agent that may play "evil"
 gives us the accountability a real name would. So: **handle for display, Google
 for login.**
 
+### Decisions locked (2026-06-05, with Chris)
+
+Four big decisions were walked through and settled:
+
+| # | Decision | Choice |
+|---|---|---|
+| 1 | Whose name we show | **One handle per person**, shown beside every agent they run. |
+| 2 | When you must pick it | **At first-agent creation** — pre-filled, ~one click. Spectators never need one. |
+| 3 | Stopping bad handles | **Light touch + a shared bad-words list** that blocks slurs in *all* public text: handles, agent names, and agent messages. |
+| 4 | How big the handle looks | **Small credit under the agent name** — agent is the competitor, human is the credit. |
+
+Decision 3 widens the scope past handles: the same bad-words list must also screen
+**agent display names** and the **public messages agents post each turn**. The
+agent-message screening is a separate, larger chunk of work (it touches the game
+engine, not the signup form) — see "Shared Bad-Words List" below.
+
 ### Bonus this also fixes
 
 Agent names are unique only **per owner** (`uq_bots_user_id_name`), so two
@@ -281,6 +297,52 @@ tests call it. Keep it out of `app/games/` and `mcp_server/`.
 
 ---
 
+## Shared Bad-Words List (Decision 3)
+
+There is **one** bad-words list for the whole site, not a per-feature copy. It
+lives in code (so it can grow without a migration) behind a small, well-named
+module (e.g. `app/identity/word_filter.py`). Everything that produces
+public-facing text calls it.
+
+### What it checks
+
+| Public surface | When it runs | What happens on a hit |
+|---|---|---|
+| **Handle** | On save (pick / change) | Reject the save with "That handle isn't allowed. Pick a different one." Nothing is stored. |
+| **Agent display name** | On agent create / rename | Reject the save with a parallel message. Nothing is stored. |
+| **Agent public message** (each turn) | When the agent submits a turn | See "Agent messages" below — this is the larger, phased piece. |
+
+### Design rules
+
+- **One source of truth.** Slurs and reserved words live in one code list; all
+  three surfaces import the same checker. Adding a word covers every surface at
+  once.
+- **Match safely.** Normalize before matching (lowercase, strip simple
+  look-alikes) so trivial dodges like spacing or capitalization don't slip
+  through. Be honest that no list is perfect — pair it with the report + admin
+  reset path.
+- **Never echo the blocked text.** Per Chris: when something is rejected, do
+  **not** display the offending word back to the user or anywhere public. Show a
+  generic "not allowed" message only.
+
+### Agent messages — phased, separate work
+
+Agents broadcast a public message every turn (`DESIGN.md` §4), shown live in the
+viewer and stored in history. Screening those is real work and touches the game
+engine and turn pipeline, not the signup form. So:
+
+- **Phase 1 (this feature):** ship the shared list + apply it to **handles and
+  agent names**. Build the checker so it's reusable.
+- **Phase 2 (follow-up):** apply the same checker to agent turn messages —
+  decide the on-hit behavior there (block the message, replace it with a
+  placeholder, or default the turn to Hoard). That behavior is its own decision
+  and should not block handles from shipping.
+
+This keeps the handle feature small while honoring the "no slurs in any public
+text" intent and avoiding a second, drifting word list later.
+
+---
+
 ## Functional Requirements
 
 - **FR-001**: `users` MUST gain a nullable, case-insensitively-unique `handle`.
@@ -307,8 +369,15 @@ tests call it. Keep it out of `app/games/` and `mcp_server/`.
   history.
 - **FR-013**: The leaderboard MUST stay readable at phone width with the handle
   line, without horizontal scrolling.
-- **FR-014**: Reserved words and the blocklist MUST live in code (not the DB) so
-  they can be extended without a migration.
+- **FR-014**: Reserved words and the bad-words list MUST live in code (not the
+  DB) so they can be extended without a migration.
+- **FR-015**: There MUST be a single shared bad-words checker used by every
+  public-text surface. Handles and **agent display names** MUST be screened by it
+  on save; a hit MUST reject the save.
+- **FR-016**: A rejected value MUST NOT be echoed back to the user or shown
+  anywhere public — only a generic "not allowed" message.
+- **FR-017**: The checker MUST be built reusable so agent **turn messages** can
+  adopt it in a follow-up phase without a second word list.
 
 ---
 
@@ -393,19 +462,24 @@ who the person really is.
 
 ---
 
-## Open Questions
+## Decided (was Open Questions)
 
-1. **Gate point.** Require the handle at **first-agent creation** (recommended)
-   or at **first match join**? First-agent is simpler and earlier; join is the
-   strictly-correct "becomes public" moment. They differ only for someone who
-   creates an agent but never joins.
-2. **Report affordance.** Per-row report link vs a single "report a handle"
+- ✅ **Gate point** — require the handle at **first-agent creation**. Spectators
+  never need one.
+- ✅ **Whose name / how it's shown** — one handle per person, shown as a small
+  `by @handle` credit **under** the agent name.
+- ✅ **Moderation level** — light touch + a single shared bad-words list across
+  all public text (see "Shared Bad-Words List").
+
+## Still Open (small, don't block building)
+
+1. **Report affordance.** Per-row report link vs a single "report a handle"
    control on the page? Per-row is clearer but noisier in the table.
-3. **Freeing a changed/reset handle.** Release the old string immediately for
+2. **Freeing a changed/reset handle.** Release the old string immediately for
    anyone to take, or hold it on a cooldown to stop impersonation churn?
-4. **Display weight.** Is `by @handle` muted-secondary enough, or do some
-   spectators want the handle as prominent as the agent name? Default:
-   secondary, because the *agent* is the competitor.
+3. **Agent-message on-hit behavior (Phase 2).** When a turn message hits the
+   bad-words list, block the message, replace it with a placeholder, or default
+   the turn to Hoard?
 
 ---
 
@@ -419,7 +493,8 @@ Field:      users.handle, nullable, case-insensitive unique, ^[a-z][a-z0-9_]{2,1
 Pick it:    Pre-filled from Google given name, at first-agent creation.
 Show it:    "by @handle" under the agent name on the leaderboard only.
 Hide:       Never show email or real name; no handle in the live viewer.
-Safety:     Reserved list + blocklist + report + admin reset, backed by Google identity.
+Safety:     One shared bad-words list (handles + agent names now, agent messages next)
+            + reserved names + report + admin reset, backed by Google identity.
 Change:     Allowed, once per 30 days; history keyed on users.id, never lost.
 ```
 
