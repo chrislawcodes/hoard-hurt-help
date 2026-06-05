@@ -23,6 +23,10 @@ class FlexibleEnumType(TypeDecorator[enum.Enum]):
 
     def __init__(self, enum_cls: type[enum.Enum], *, length: int) -> None:
         self.enum_cls = enum_cls
+        # Keep our own copy of the column length. Reading it back off ``self.impl``
+        # only works by SQLAlchemy runtime magic (``impl`` is the type *class*, so
+        # ``.length`` is an instance-only attribute the type checker can't see).
+        self._length = length
         super().__init__(length=length)
 
     def _coerce_enum(self, value: str) -> enum.Enum:
@@ -65,4 +69,4 @@ class FlexibleEnumType(TypeDecorator[enum.Enum]):
         return self._coerce_enum(value)
 
     def copy(self, **kw: Any) -> FlexibleEnumType:
-        return type(self)(self.enum_cls, length=self.impl.length or 0)
+        return type(self)(self.enum_cls, length=self._length)
