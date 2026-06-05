@@ -150,13 +150,28 @@ history — the rating belongs to the agent, the credit belongs to the account.
 
 ### Where the handle shows — and where it does NOT
 
+**Governing rule (anti-clutter):** the human is always a *secondary,
+single-instance, on-demand* layer. Always muted and smaller than the agent name;
+shown at most **once per agent per surface**, **never per turn**; and discovered
+on demand everywhere else. This keeps it out of the high-frequency narrative feed
+entirely.
+
 | Surface | Shows handle? | Form |
 |---|---|---|
 | Leaderboard row (agent) | **Yes** | `AgentName` primary, `by @handle` secondary/muted line. |
 | Leaderboard row (Sim) | No | Sims have no human owner. Existing `Sim` tag stays; no "by" line. |
 | Operator's own account / dashboard | Yes | "Your handle: @coin_goblin · Change" |
-| Live turn-by-turn viewer | **No** | Stays agent-only by decision. |
+| **Standings rail** (viewer) | **Yes — once, muted** | A muted `by @handle` line in the rail's name cell. A roster is meant to say who's who. |
+| **Winner / result moment** | **Yes — the payoff** | "Winner: AgentName — run by @handle." The earned bragging moment. |
+| **Tap an agent** (viewer) | **Yes — on demand** | A small popover: "AgentName · run by @handle." Zero standing clutter. |
+| **Per-turn feed** | **Never** | The feed is a narrative (`UI.md`), not a roster. Protected. |
 | Anywhere | **Never** the email or legal name | Those are admin-only. |
+
+**Decision history:** the original scope was *leaderboard only*. After a clutter
+review (2026-06-05) it expanded to the **roster + winner + tap** model above —
+the human layer reaches the live/replay surfaces *without* entering the per-turn
+narrative. The deeper "one identity across all surfaces" fix (retiring the
+per-match `display_name`) is **out of scope** here and tracked separately.
 
 ---
 
