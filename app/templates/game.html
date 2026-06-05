@@ -66,10 +66,10 @@
     // null  = follow the latest round (auto-advances as a live game progresses)
     // <num> = pinned to that round
     // 'all' = show the whole log
-    // A live game follows the latest round so new turns appear; a finished game
-    // opens on round 1 to line up with where the replay starts, then stays put
-    // (the playhead never moves the transcript — see the booth coordinator).
-    let selected = isActive ? null : 1;
+    // 'all' is the reader baseline (the whole match, newest first). During
+    // playback the booth coordinator streams turns up to the playhead instead
+    // (see region.dataset.follow); clicking a round chip drops back to reader.
+    let selected = 'all';
     // Feed view: 'story' (one-line play-by-play), 'cards' (full messages), or
     // 'compact' (one line per move). Lives in this closure so it survives the
     // SSE swaps that replace the feed's innerHTML. Cards is the default.
@@ -133,12 +133,20 @@
         const chip = e.target.closest('.round-chip');
         if (!chip || chip.disabled) return;
         const v = chip.dataset.round;
+        let resumeLive = false;
         if (v === 'all') {
             selected = 'all';
         } else {
             const n = parseInt(v, 10);
             // In a live game, clicking the current/latest round resumes auto-follow.
-            selected = (isActive && n === maxRound()) ? null : n;
+            resumeLive = isActive && n === maxRound();
+            selected = resumeLive ? null : n;
+        }
+        // Picking a round is a reader action: stop the auto-follow stream and show
+        // that round in full. Clicking the live round (live game) resumes follow.
+        region.dataset.follow = resumeLive ? '1' : '0';
+        if (!resumeLive) {
+            region.querySelectorAll('#feed .turn-block').forEach(function (b) { b.hidden = false; });
         }
         apply();
     });
@@ -216,6 +224,10 @@
     const stripMoves = document.getElementById('now-strip-moves');
     const isActive = region.dataset.state === 'active';
     if (strip) strip.classList.toggle('is-live', isActive);
+    // Stream the transcript (reveal up to the playhead, newest on top) while a
+    // game plays; a finished match opens in reader mode showing the full record,
+    // then streams once the viewer hits play (rc-play sets follow='1').
+    if (!region.dataset.follow) region.dataset.follow = isActive ? '1' : '0';
 
     const MAX_CHIPS = 5;  // beyond this the dock would crowd; collapse the tail
 
@@ -276,13 +288,27 @@
     function sync(seq) {
         if (seq == null) seq = parseInt(region.dataset.rcSeq || '0', 10);
         if (!seq) return;
+        const follow = region.dataset.follow !== '0';
         let cur = null;
         region.querySelectorAll('#feed .turn-block').forEach(function (b) {
             const s = parseInt(b.dataset.seq, 10);
             const on = s === seq;
             b.classList.toggle('is-current', on);
+            // Stream mode: reveal the match up to the playhead so the live turn
+            // sits at the TOP of the transcript and played turns stack below it —
+            // the feed grows downward while the stage + dock above stay put (no
+            // window scroll). Reader mode leaves every turn shown.
+            if (follow) b.hidden = s > seq;
             if (on) cur = b;
         });
+        if (follow) {
+            // Don't print a round heading before that round has started.
+            region.querySelectorAll('#feed .round-section').forEach(function (sec) {
+                let any = false;
+                sec.querySelectorAll('.turn-block').forEach(function (b) { if (!b.hidden) any = true; });
+                sec.hidden = !any;
+            });
+        }
         if (strip && cur) {
             const hl = cur.querySelector('.commentary-text');
             const lbl = cur.querySelector('.turn-head-label');
