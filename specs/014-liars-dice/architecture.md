@@ -86,6 +86,104 @@ the module's `theme()`. Lives in `templates/fragments/` + `app/routes/web_viewer
 
 ---
 
+## Coupling & decoupling
+
+The goal: a change to one game can't break the other. The two games **do not
+share a rules engine** — they share the *platform*. This section makes that line
+explicit so it survives future edits.
+
+### The litmus test
+
+One rule decides what is shared:
+
+> Share what is about **running a turn-based competition between agents.**
+> Never share what is about **what the moves mean.**
+
+The first is the platform (identity, scheduling, message transport, rating,
+persistence, spectating). The second is the game (legal moves, scoring, win
+conditions, and *what a player sees*). The anti-pattern we refuse: a shared
+"game engine" base class carrying PD assumptions that Liar's Dice has to fight.
+
+### Share vs. separate
+
+| Concern | Share? | Shared (platform) | Per-game (its own layer) |
+|---|---|---|---|
+| Agents / bots | ✅ fully | identity, keys, auth, poll/submit/next-turn | — (already game-agnostic) |
+| Leaderboard / Elo | ✅ core + seam | Elo math, leaderboard page, rating storage | how a match yields a finish order (`final_placement`) |
+| Strategy | ✅ mechanism | prompt storage, join form, presets framework | the presets + default prompt (on the module) |
+| Communication | ✅ transport | message/thinking storage, broadcast/SSE | phase structure (PD talk→act vs. LD message-with-bid) |
+| Turn loop | ⚠️ skeleton | task-per-game, resume-on-restart, due-game poller | how a turn advances (simultaneous grid vs. sequential) |
+| Rules / scoring | ❌ never | — | each game's own pure engine |
+| Player-facing payload | ❌ never | the envelope only | each game renders its own public/private state |
+
+Three of the four shared pillars are "share the plumbing, keep your own top
+layer." That layering *is* the decoupling.
+
+### The turn loop: shared skeleton + per-game drivers
+
+The scheduler is the highest-risk shared file — both games' loops run through it.
+We split it rather than branch it:
+
+| Approach | Blast radius | Verdict |
+|---|---|---|
+| One scheduler with an `if simultaneous:` branch | sequential code lives in the same function as PD's — easy to break PD by accident | rejected |
+| **Shared skeleton + two `TurnDriver`s** | each driver is a separate unit behind an interface; the scheduler picks one; editing the sequential driver cannot touch PD's | **chosen** |
+
+Concretely:
+
+- `scheduler.py` keeps the **game-agnostic** hard parts: one asyncio task per
+  match, resume-on-restart, the due-game poller, broadcasting. This stays one
+  place — it is genuinely shared concurrency code, not game logic.
+- A new small **`TurnDriver`** interface owns *per-turn progression*. Two impls:
+  - `SimultaneousDriver` — today's PD loop (open turn → talk → act → resolve for
+    all players → award on fixed count). **Moved, not rewritten.**
+  - `SequentialDriver` — Liar's Dice (ask `next_actor` → open single-actor turn →
+    resolve on that one submission → repeat until `next_actor` is `None` →
+    `award_round` → `on_round_start`; end on `is_match_over`).
+- The scheduler selects the driver from `GameConfig.simultaneous` (the existing,
+  currently-unused flag).
+
+This is the direct answer to "changes in one don't break the other": the new
+sequential logic physically lives where it cannot reach PD's path.
+
+### Coupling hotspots in today's code (the decoupling work)
+
+`app/engine/` is currently a grab-bag of **platform** code *and* **PD's** game
+logic side by side. The PD module (`app/games/hoard_hurt_help/game.py`) is a thin
+shell that delegates back into `app/engine/`. That colocation is the source of
+accidental coupling. Four hotspots must move behind the contract before LD is
+safe to add:
+
+1. **Turn loop** — `scheduler.py` hard-codes simultaneous + fixed grid + two-phase
+   talk/act → split into the `TurnDriver`s above.
+2. **Agent payload** — `turn_summary.py` / `board_signals.py` / `opponent_stats.py`
+   are PD-shaped but built by the *shared* agent API → move payload-building behind
+   `private_state_for` / `public_state_for`.
+3. **Storage** — PD-shaped `turn_submissions` columns → generic `match_state` /
+   `player_state` (see Data structures).
+4. **Placement** — Elo/records derive placement from PD round-wins → read
+   `module.final_placement(...)`.
+
+Hotspots 2–4 are the contract additions already listed under *Platform extensions*;
+hotspot 1 is the `TurnDriver` split.
+
+### Guardrails that keep it decoupled
+
+1. **One seam only.** `app/games/base.py` is the *only* code both games touch. No
+   game imports another; no LD code lives in `app/engine/`; LD's rules live in its
+   own pure `app/games/liars_dice/engine.py`.
+2. **PD's specifics live in PD's module**, reached through the contract — "shared"
+   code stops being PD-shaped.
+3. **Regression tests are the tripwire.** The PD suite + the stub-game conformance
+   test prove "adding a game didn't change PD." Keep them green as the merge gate.
+
+**Explicitly out of scope now:** physically relocating PD's engine out of
+`app/engine/` into `app/games/hoard_hurt_help/`. It is the "pure" finish, but a big
+refactor the framework deferred. The contract + driver split gets ~90% of the
+decoupling without it. (Tracked in the HHH tech spec.)
+
+---
+
 ## Data structures
 
 ### Persistent (database)
