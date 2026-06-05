@@ -2,21 +2,37 @@
 {% block title %}My Matches — Hoard-Hurt-Help{% endblock %}
 {% block content %}
 <div class="page-head"><h1>My matches</h1></div>
-{% if games %}
-    {% for g in games %}
+{% set active_games = games | rejectattr('state.value', 'equalto', 'cancelled') | list %}
+{% set cancelled_games = games | selectattr('state.value', 'equalto', 'cancelled') | list %}
+{% if active_games %}
+    {% for g in active_games %}
     <article class="game-card">
         <div class="game-card-info">
             <h3>{{ g.name }}</h3>
             <p class="meta">Playing as {{ g.agent_id }} · <span class="mono">{{ g.game_type }}</span></p>
         </div>
         <div class="game-card-action">
-            <span class="badge {{ 'badge-live' if g.state.value == 'active' else ('badge-done' if g.state.value in ['completed','cancelled'] else 'badge-soon') }}">{{ g.state.value | capitalize }}</span>
+            <span class="badge {{ 'badge-live' if g.state.value == 'active' else ('badge-done' if g.state.value == 'completed' else 'badge-soon') }}">{{ g.state.value | capitalize }}</span>
             <a class="btn btn-primary" href="{{ g.watch_url }}">Watch →</a>
-            <a class="btn btn-ghost" href="/me/players/{{ g.player_id }}">Manage →</a>
         </div>
     </article>
     {% endfor %}
-{% else %}
+{% elif not cancelled_games %}
     <p class="empty">You haven't joined any matches yet. <a href="/play">Find a match →</a></p>
+{% endif %}
+{% if cancelled_games %}
+<div class="page-head" style="margin-top:2.5rem;"><h2>Cancelled</h2></div>
+    {% for g in cancelled_games %}
+    <article class="game-card">
+        <div class="game-card-info">
+            <h3>{{ g.name }}</h3>
+            <p class="meta">Playing as {{ g.agent_id }} · <span class="mono">{{ g.game_type }}</span></p>
+        </div>
+        <div class="game-card-action">
+            <span class="badge badge-done">Cancelled</span>
+            <a class="btn btn-primary" href="{{ g.watch_url }}">Watch →</a>
+        </div>
+    </article>
+    {% endfor %}
 {% endif %}
 {% endblock %}
