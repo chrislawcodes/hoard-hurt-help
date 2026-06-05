@@ -310,8 +310,15 @@ class NextTurnYourTurn(MatchIdEnvelope):
 
 class SubmitRequest(BaseModel):
     turn_token: str
-    action: Action
+    # PD's move vocabulary. `action` is optional because a non-PD game submits a
+    # free-form `move` instead; which fields are required is enforced by the
+    # target game module's validate_move, not the wire schema.
+    action: Action | None = None
     target_id: str | None = None
+    # Free-form move for games whose vocabulary isn't PD's HOARD/HELP/HURT (e.g.
+    # Liar's Dice {"type":"BID","quantity":3,"face":5}). The platform passes it to
+    # the game module untouched. PD bots omit it and use `action`.
+    move: dict[str, Any] | None = None
     message: str = Field(default="", max_length=200)
     thinking: str = Field(default="", max_length=200)
 

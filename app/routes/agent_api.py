@@ -190,6 +190,23 @@ async def _existing_message_for_player(
     ).scalar_one_or_none()
 
 
+def _move_from_submit(body: SubmitRequest) -> dict:
+    """Pack a submit request into the generic move dict the game module validates.
+
+    A non-PD game sends a free-form `move`; PD bots send `action`/`target_id`.
+    Either way `message`/`thinking` ride along. The platform never interprets the
+    move — it hands this dict to the game module.
+    """
+    if body.move is not None:
+        return {**body.move, "message": body.message, "thinking": body.thinking}
+    return {
+        "action": body.action,
+        "target_id": body.target_id,
+        "message": body.message,
+        "thinking": body.thinking,
+    }
+
+
 async def _existing_submission_for_player(
     db: AsyncSession, turn: Turn, player: Player
 ) -> TurnSubmission | None:
@@ -370,12 +387,7 @@ async def agent_submit(
         .scalars()
         .all()
     )
-    move = {
-        "action": body.action,
-        "target_id": body.target_id,
-        "message": body.message,
-        "thinking": body.thinking,
-    }
+    move = _move_from_submit(body)
     try:
         module.validate_move(
             move, your_agent_id=player.agent_id, all_agent_ids=all_agent_ids
