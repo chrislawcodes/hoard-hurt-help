@@ -938,6 +938,8 @@
     if(playing){stop();return;}
     stepped=true;
     playing=true; this.textContent='❚❚ Pause'; this.classList.remove('btn-primary');
+    // Watching engages the transcript stream (live turn on top, growing down).
+    var _lr=document.getElementById('live-region'); if(_lr) _lr.dataset.follow='1';
     renderTurn(idx);
     scheduleNext();
   };

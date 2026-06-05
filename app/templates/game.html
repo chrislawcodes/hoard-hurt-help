@@ -22,12 +22,18 @@
     {% include "fragments/robot_circle_standings.html" %}
     <div>{% include "fragments/robot_circle.html" %}</div>
 </div>
-{# Now-strip: the bridge between the stage and the feed. Filled by the booth
-   coordinator below from the turn the animation is currently playing. #}
+{# Narration dock: the single story source during playback. The booth
+   coordinator below fills it from the turn the animation is currently playing —
+   a locator (Round x · Turn y), the headline, and the key moves as chips with
+   point deltas — so a watcher can follow the whole match here without the feed.
+   Its height is reserved in CSS so a longer headline never reflows the page. #}
 <div id="now-strip" class="now-strip" hidden>
-    <span class="now-strip-play" aria-hidden="true">▶</span>
-    <span class="now-strip-turn" id="now-strip-turn"></span>
-    <span class="now-strip-headline" id="now-strip-headline"></span>
+    <div class="now-strip-main">
+        <span class="now-strip-play" aria-hidden="true">▶</span>
+        <span class="now-strip-turn" id="now-strip-turn"></span>
+        <span class="now-strip-headline" id="now-strip-headline"></span>
+    </div>
+    <div class="now-strip-moves" id="now-strip-moves" aria-label="Key moves this turn"></div>
 </div>
 {% endif %}
 
@@ -60,8 +66,10 @@
     // null  = follow the latest round (auto-advances as a live game progresses)
     // <num> = pinned to that round
     // 'all' = show the whole log
-    // Start by following the latest round for both live and finished games.
-    let selected = null;
+    // 'all' is the reader baseline (the whole match, newest first). During
+    // playback the booth coordinator streams turns up to the playhead instead
+    // (see region.dataset.follow); clicking a round chip drops back to reader.
+    let selected = 'all';
     // Feed view: 'story' (one-line play-by-play), 'cards' (full messages), or
     // 'compact' (one line per move). Lives in this closure so it survives the
     // SSE swaps that replace the feed's innerHTML. Cards is the default.
@@ -125,12 +133,20 @@
         const chip = e.target.closest('.round-chip');
         if (!chip || chip.disabled) return;
         const v = chip.dataset.round;
+        let resumeLive = false;
         if (v === 'all') {
             selected = 'all';
         } else {
             const n = parseInt(v, 10);
             // In a live game, clicking the current/latest round resumes auto-follow.
-            selected = (isActive && n === maxRound()) ? null : n;
+            resumeLive = isActive && n === maxRound();
+            selected = resumeLive ? null : n;
+        }
+        // Picking a round is a reader action: stop the auto-follow stream and show
+        // that round in full. Clicking the live round (live game) resumes follow.
+        region.dataset.follow = resumeLive ? '1' : '0';
+        if (!resumeLive) {
+            region.querySelectorAll('#feed .turn-block').forEach(function (b) { b.hidden = false; });
         }
         apply();
     });
@@ -188,44 +204,124 @@
 
 // Broadcast booth coordinator. The robot-circle animation is the single
 // playhead; it writes data-rc-seq on #live-region and dispatches `rc:turn`.
-// Here we make the feed + now-strip follow that playhead: show the playing
-// turn's round, highlight + scroll its feed block into view, and fill the
-// now-strip with its headline. Re-applies after SSE swaps via the persisted seq.
+// The narration dock (#now-strip) is the story source that follows that
+// playhead: locator + headline + the key moves as chips with point deltas, so a
+// watcher never needs the feed to keep up. We deliberately do NOT move the page
+// while it plays — the feed below stays a still transcript:
+//   * every turn is rendered up front (no reveal-ahead height pumping),
+//   * we never scroll the feed into view (the dock carries the story),
+//   * we never touch the round-filter chips (a reader tool — the dock shows the
+//     round itself).
+// The current turn still gets a quiet .is-current left-bar so a glance down
+// finds the playhead, but the viewport never jumps. Re-applies after SSE swaps
+// via the seq persisted on #live-region.
 (function () {
     const region = document.getElementById('live-region');
     if (!region) return;
     const strip = document.getElementById('now-strip');
     const stripTurn = document.getElementById('now-strip-turn');
     const stripHeadline = document.getElementById('now-strip-headline');
+    const stripMoves = document.getElementById('now-strip-moves');
+    const isActive = region.dataset.state === 'active';
+    if (strip) strip.classList.toggle('is-live', isActive);
+    // Stream the transcript (reveal up to the playhead, newest on top) while a
+    // game plays; a finished match opens in reader mode showing the full record,
+    // then streams once the viewer hits play (rc-play sets follow='1').
+    if (!region.dataset.follow) region.dataset.follow = isActive ? '1' : '0';
 
-    function sync(seq, round) {
+    const MAX_CHIPS = 5;  // beyond this the dock would crowd; collapse the tail
+
+    // Build the move chips for one turn from its (always-rendered) feed block.
+    // The Compact grouping (.moves-grouped) already dedupes pacts and states one
+    // delta per move type, so it maps straight onto chips — and reading it from
+    // the DOM keeps the dock correct across SSE swaps without a second data path.
+    function fillMoves(block) {
+        if (!stripMoves) return;
+        stripMoves.textContent = '';
+        const groups = block.querySelectorAll('.moves-grouped .cgroup');
+        let shown = 0, hidden = 0;
+        groups.forEach(function (g) {
+            const kind = (g.className.match(/cgroup-(\w+)/) || [])[1] || '';
+            const delta = (g.querySelector('.cgdelta') || {}).textContent || '';
+            const pairs = g.querySelectorAll('.citems .cpair');
+            if (kind === 'hoard') {
+                // Hoards are the quiet background — collapse to a single count chip.
+                const n = g.querySelectorAll('.citems .cwho').length;
+                if (n) addChip(kind, n + ' hoard', delta, false);
+                return;
+            }
+            pairs.forEach(function (p) {
+                if (shown >= MAX_CHIPS) { hidden++; return; }
+                const who = p.querySelectorAll('.cwho');
+                const a = who[0] ? who[0].textContent : '';
+                const b = who[1] ? who[1].textContent : '';
+                const sep = kind === 'pact' ? ' ↔ ' : ' → ';
+                const betrayal = !!p.querySelector('.cbetray');
+                addChip(betrayal ? 'betray' : kind, a + sep + b, delta, betrayal);
+                shown++;
+            });
+        });
+        if (hidden > 0) {
+            const more = document.createElement('span');
+            more.className = 'dock-chip dock-chip-more';
+            more.textContent = '+' + hidden + ' more';
+            stripMoves.appendChild(more);
+        }
+    }
+
+    function addChip(kind, label, delta, betrayal) {
+        const chip = document.createElement('span');
+        chip.className = 'dock-chip dock-chip-' + kind;
+        const lab = document.createElement('span');
+        lab.className = 'dock-chip-label';
+        lab.textContent = label + (betrayal ? ' · betrayal' : '');
+        chip.appendChild(lab);
+        if (delta) {
+            const d = document.createElement('span');
+            d.className = 'dock-chip-delta';
+            d.textContent = delta;
+            chip.appendChild(d);
+        }
+        stripMoves.appendChild(chip);
+    }
+
+    function sync(seq) {
         if (seq == null) seq = parseInt(region.dataset.rcSeq || '0', 10);
         if (!seq) return;
-        // Show the playhead's round (reuse the round-nav's own handler).
-        if (round != null) {
-            const chip = region.querySelector('.round-chip[data-round="' + round + '"]');
-            if (chip) chip.click();
-        }
+        const follow = region.dataset.follow !== '0';
         let cur = null;
         region.querySelectorAll('#feed .turn-block').forEach(function (b) {
             const s = parseInt(b.dataset.seq, 10);
             const on = s === seq;
             b.classList.toggle('is-current', on);
-            // Reveal the story up to the playhead — hide turns not yet reached.
-            b.hidden = s > seq;
+            // Stream mode: reveal the match up to the playhead so the live turn
+            // sits at the TOP of the transcript and played turns stack below it —
+            // the feed grows downward while the stage + dock above stay put (no
+            // window scroll). Reader mode leaves every turn shown.
+            if (follow) b.hidden = s > seq;
             if (on) cur = b;
         });
+        if (follow) {
+            // Don't print a round heading before that round has started.
+            region.querySelectorAll('#feed .round-section').forEach(function (sec) {
+                let any = false;
+                sec.querySelectorAll('.turn-block').forEach(function (b) { if (!b.hidden) any = true; });
+                sec.hidden = !any;
+            });
+        }
         if (strip && cur) {
             const hl = cur.querySelector('.commentary-text');
             const lbl = cur.querySelector('.turn-head-label');
-            stripTurn.textContent = lbl ? lbl.textContent : ('Turn ' + seq);
+            const loc = lbl ? lbl.textContent : ('Turn ' + seq);
+            // Live game: name the state in the locator (the red dot pulses alongside).
+            stripTurn.textContent = isActive ? ('LIVE · ' + loc) : loc;
             stripHeadline.textContent = hl ? hl.textContent : '';
+            fillMoves(cur);
             strip.hidden = false;
-            if (cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
     }
 
-    region.addEventListener('rc:turn', function (e) { sync(e.detail.seq, e.detail.round); });
+    region.addEventListener('rc:turn', function (e) { sync(e.detail.seq); });
     // The feed is replaced on each SSE swap — re-apply from the persisted seq.
     region.addEventListener('htmx:afterSwap', function () { sync(null); });
 })();
