@@ -4,6 +4,7 @@ from app.models.base import Base
 from app.models.user import User
 from app.models.match import GameState, Match
 from app.models.bot import Bot, BotKind, BotStatus
+from app.models.game_state import MatchState, PlayerState
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
 from app.models.strategy_prompt import StrategyPrompt
@@ -17,6 +18,8 @@ __all__ = [
     "Bot",
     "BotKind",
     "BotStatus",
+    "MatchState",
+    "PlayerState",
     "Player",
     "RequestIncident",
     "StrategyPrompt",
