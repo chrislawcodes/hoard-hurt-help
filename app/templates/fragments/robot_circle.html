@@ -152,7 +152,6 @@
 .rc-badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:#eef1f5;color:var(--ink-soft,#5b6470);flex:none}
 
 .rc-controls{display:flex;align-items:center;gap:8px;margin:14px 0 0;flex-wrap:wrap}
-.rc-controls .spacer{flex:1}
 .rc-speed{display:inline-flex;border:1px solid var(--line,#e2e6ea);border-radius:20px;overflow:hidden}
 .rc-speed-btn{background:transparent;border:0;border-left:1px solid var(--line,#e2e6ea);cursor:pointer;font-weight:700;font-size:12px;padding:5px 9px;color:var(--ink-soft,#5b6470)}
 .rc-speed-btn:first-child{border-left:0}
@@ -317,8 +316,6 @@
           <button type="button" class="rc-speed-btn is-active" data-speed="3">3×</button>
         </span>
         <label class="rc-skiptalk"><input type="checkbox" id="rc-skiptalk"> Skip talk</label>
-        <div class="spacer"></div>
-        <button type="button" id="rc-replay">↻ Replay turn</button>
       </div>
 
       <div class="rc-legend">
@@ -891,7 +888,6 @@
   }
   document.getElementById('rc-next').onclick=function(){stop();go(idx+1);};
   document.getElementById('rc-prev').onclick=function(){stop();go(idx-1);};
-  document.getElementById('rc-replay').onclick=function(){stepped=true;renderTurn(idx);};
   document.getElementById('rc-play').onclick=function(){
     if(playing){stop();return;}
     stepped=true;
