@@ -268,17 +268,39 @@ are built around round-wins and round-score, so we map:
   dice) and a public bid history (standing bid, who bid what, dice counts per
   player, recent showdowns). Everyone else gets a "not your turn" waiting
   response with the public state so their AI can plan ahead.
-- **Talk phase**: PD runs talk→act every turn. For single-actor Liar's Dice, a
-  talk phase before each individual bid is awkward. **Recommended**: make the talk
-  phase **per-game optional** (config flag), default **off** for Liar's Dice for
-  v1; optionally add a once-per-hand table-talk later (bluffing banter is on-theme
-  but is scope). **TBD-5.**
 - **Viewer / `move_effect`**: the spectator viewer is PD-shaped (coins/gifts/
   bats keyed off HOARD/HELP/HURT and a numeric delta). Liar's Dice has dice, bids,
   and reveals — a genuinely different visual. **TBD-6**: a minimal v1 viewer
   (text feed of bids + the showdown reveal + dice-count bars) vs. a full
   dice-table animation. Recommend minimal v1, then the `game-art` skill for polish.
   The `theme()` hook gives it its own color identity for free.
+
+### 8.1 Communication / table talk — **Decided: a message rides with each bid**
+
+Table talk is close to the *point* of Liar's Dice. It is a bluffing game: claiming
+dice you don't have, baiting a challenge, talking an opponent into a bad call. For
+this platform that is also the richest research signal — the gap between what an
+agent *says* about its dice and what it actually holds is the same "say one thing,
+do another" gap feature 007's `thinking` field already exposes. So talk is not a
+nice-to-have here; it is core.
+
+How we wire it, given turns are single-actor and sequential:
+
+- **Decided**: the acting player attaches an optional **public message** (and an
+  optional private `thinking`) to its bid/challenge — same `message`/`thinking`
+  fields PD already carries, just on the one actor whose turn it is. No separate
+  talk phase. The viewer shows e.g. *"P3 bids five 5s — 'I'm swimming in fives,
+  P1.'"* with reasoning behind a per-bot toggle, exactly like 007.
+- **Note on the limit**: only the active player can speak each turn; others can't
+  reply until their own turn. A free, everyone-can-chatter channel would model a
+  real table more closely but adds a phase and cross-talk complexity.
+- **Deferred option**: a once-per-hand table-talk round (everyone broadcasts
+  before bidding opens) if we later want alliance/cross-talk dynamics. Costs ~1
+  extra model call per player per hand.
+
+The bid itself is *already* a bluff channel (a bid either reflects your hand or
+misrepresents it), so deception exists even with talk off. The message adds the
+directed taunt/persuasion layer on top.
 
 ---
 
@@ -290,7 +312,7 @@ are built around round-wins and round-score, so we map:
 | TBD-2 | Spot-on / exact call in v1? | **Off** in v1; add as a toggle later. |
 | TBD-3 | Bid storage: add `quantity`/`face` columns vs. serialize into `message`? | Add **two nullable int columns** — cleaner queries for the viewer/records than parsing strings. |
 | TBD-4 | Elo (feature 013) integration for a placement-based game. | Read 013 first; prefer feeding it the elimination **ranking**. Decide before build. |
-| TBD-5 | Talk phase for a single-actor game. | Make talk **per-game optional**, default **off** for Liar's Dice v1. |
+| TBD-5 | **Resolved** (see §8.1): table talk for a single-actor game. | A public **message + thinking ride with each bid/challenge** by default (no separate talk phase). A once-per-hand table-talk round is a deferred option. |
 | TBD-6 | Viewer fidelity for v1. | **Minimal text+dice-count viewer** first; animate later via `game-art`. |
 | TBD-7 | Max players (game quality vs. platform's 100). | Cap at **8**; large tables make hands very long and dilute each AI's read. |
 | TBD-8 | Per-turn deadline default. | **30s** — a single bid is a smaller decision than a PD turn; many quick turns per match. |
