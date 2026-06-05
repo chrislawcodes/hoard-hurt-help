@@ -8,12 +8,14 @@
    page can ignore it and position the two pieces however it likes. */
 .rc-layout{display:grid;grid-template-columns:200px 1fr;gap:1.1rem;align-items:start;max-width:920px;margin:0 auto 2rem;}
 .rc-scorepanel{position:sticky;top:1rem;}
-/* Mobile: stack rail above stage, but cap the rail to a scrollable strip so the
-   animation (the star) is reachable without scrolling past all 16 standings. */
+/* Mobile: put the replay first (the action is what you came for) with the rail
+   directly below it, still capped to a scrollable strip so a long board never
+   pushes the rest of the page down. The home hero keeps its own order. */
 @media(max-width:620px){
   .rc-layout{grid-template-columns:1fr;}
   .rc-scorepanel{position:static;}
   #rc-rail{max-height:264px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+  .rc-layout:not(.home-replay) > .rc-scorepanel{order:2;}
 }
 .rc-rail-title{margin:0 0 .45rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft,#5b6470);font-weight:700;}
 .rc-rail{position:relative;list-style:none;margin:0 0 .4rem;padding:0;}

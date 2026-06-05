@@ -126,31 +126,26 @@
 .rc-bot.speaking .rc-body{animation:rc-speakpulse 1.4s ease-in-out infinite}
 @keyframes rc-speakpulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.06)}}
 
-/* ---- Rolling talk log ---- */
-/* Always reserves a fixed-height strip (even when empty) so the card never changes
-   height when bots start/stop speaking; the rolling rows clip inside it. */
-.rc-tele{display:flex;flex-direction:column;height:104px;border-top:1px solid var(--line,#e2e6ea);background:var(--surface-2,#f6f8fa);overflow:hidden}
-.rc-tele-rows{display:flex;flex-direction:column}
-.rc-trow{display:flex;align-items:baseline;gap:9px;padding:7px 14px;transition:opacity .35s ease,transform .35s ease;animation:rc-tslide .28s ease-out}
-@keyframes rc-tslide{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
-.rc-trow.fading{opacity:0;transform:translateY(-6px);pointer-events:none;transition:opacity .2s ease}
-.rc-trow .tdot{width:9px;height:9px;border-radius:50%;background:var(--c,#888);flex:none;margin-top:5px;min-width:9px}
-.rc-trow .tname{font-weight:700;flex:none;min-width:54px}
-.rc-trow .ttext{line-height:1.38;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
-.rc-tele-rows .rc-trow:nth-child(1) .tname{font-size:14px;color:var(--ink,#1a1d21)}
-.rc-tele-rows .rc-trow:nth-child(1) .ttext{font-size:14px;color:var(--ink,#1a1d21);-webkit-line-clamp:3}
-.rc-tele-rows .rc-trow:nth-child(2) .tname{font-size:12.5px;color:var(--ink-soft,#5b6470)}
-.rc-tele-rows .rc-trow:nth-child(2) .ttext{font-size:12.5px;color:var(--ink-soft,#5b6470);-webkit-line-clamp:2}
-.rc-tele-rows .rc-trow:nth-child(2){opacity:.65}
-.rc-tele-rows .rc-trow:nth-child(3) .tname{font-size:11px;color:var(--ink-soft,#5b6470)}
-.rc-tele-rows .rc-trow:nth-child(3) .ttext{font-size:11px;color:var(--ink-soft,#5b6470);-webkit-line-clamp:1}
-.rc-tele-rows .rc-trow:nth-child(3){opacity:.35}
-.rc-trow.pinned .tname,.rc-trow.pinned .ttext{color:var(--ink,#1a1d21) !important;font-size:14px !important}
-.rc-trow.pinned{opacity:1 !important}
-.rc-trow.muted{opacity:.2 !important}
-.rc-tele-div{height:1px;background:var(--line,#e2e6ea);display:none}
-.rc-tele-div.show{display:block}
-@media (prefers-reduced-motion:reduce){.rc-trow{animation:none}.rc-bot.speaking .rc-body{animation:none}}
+/* ---- Center say-bubble (talk phase) ---- */
+/* The line the speaking bot is saying, shown in the empty center of the ring.
+   It lives only during the talk phase and clears before any bot moves, so it
+   never collides with the gift / bat / pact choreography that crosses center. */
+.rc-saybubble{position:absolute;left:50%;top:50%;z-index:6;pointer-events:none;text-align:center;
+  width:max-content;max-width:min(62%,260px);padding:10px 14px;border-radius:14px;
+  background:var(--surface,#fff);border:1px solid var(--line,#e2e6ea);box-shadow:0 8px 24px rgba(20,20,40,.14);
+  opacity:0;transform:translate(-50%,-50%) scale(.96);transition:opacity .2s ease,transform .2s ease}
+.rc-saybubble.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.rc-say-prev{font-size:11px;line-height:1.3;color:var(--ink-soft,#9aa6b6);opacity:.7;margin-bottom:4px;
+  display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.rc-say-name{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--c,#5b6470)}
+.rc-say-text{font-size:13.5px;line-height:1.4;color:var(--ink,#1a1d21);margin-top:2px;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+@media (max-width:560px){.rc-saybubble{max-width:min(60%,205px);padding:8px 11px}.rc-say-text{font-size:12.5px;-webkit-line-clamp:3}}
+@media (prefers-reduced-motion:reduce){
+  .rc-bot.speaking .rc-body{animation:none}
+  .rc-saybubble{transition:opacity .12s linear}
+  .rc-saybubble,.rc-saybubble.show{transform:translate(-50%,-50%)}
+}
 
 .rc-caption{padding:12px 14px;border-top:1px solid var(--line,#e2e6ea);font-size:14px;height:60px;overflow:hidden;display:flex;align-items:center;gap:8px}
 .rc-badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:#eef1f5;color:var(--ink-soft,#5b6470);flex:none}
@@ -304,10 +299,11 @@
           <div class="rc-ring" id="rc-ring"></div>
           <svg class="rc-fx" id="rc-fx" preserveAspectRatio="none"></svg>
           <div class="rc-progress" id="rc-progress"></div>
-        </div>
-        <div class="rc-tele" id="rc-tele">
-          <div class="rc-tele-rows" id="rc-tele-rows"></div>
-          <div class="rc-tele-div" id="rc-tele-div"></div>
+          <div class="rc-saybubble" id="rc-say">
+            <div class="rc-say-prev" id="rc-say-prev"></div>
+            <div class="rc-say-name" id="rc-say-name"></div>
+            <div class="rc-say-text" id="rc-say-text"></div>
+          </div>
         </div>
         <div class="rc-caption" id="rc-caption"><span class="rc-badge">—</span> Press play to watch the turns.</div>
       </div>
@@ -340,15 +336,6 @@
   var DATA = JSON.parse(document.getElementById('rc-data').textContent);
   var AGENTS = DATA.agents || [];
   var TURNS = DATA.turns || [];
-  TURNS.forEach(function(t){
-    var best=null,br=99;
-    t.actions.forEach(function(a){
-      a._marquee=false;
-      var r=(a.betrayal?0:a.mutual?1:a.action==='HURT'?2:a.action==='HELP'?3:4);
-      if(r<br){br=r;best=a;}
-    });
-    if(best) best._marquee=true;
-  });
   // Identity hues deliberately avoid the three action colours (amber --hoard,
   // green --help, red --hurt) so a bot's colour never reads as a move. Greens and
   // reds here are shifted to lime/rose, clearly distinct from the action shades.
@@ -390,9 +377,10 @@
   var stage=document.getElementById('rc-stage'), fx=document.getElementById('rc-fx'), ring=document.getElementById('rc-ring');
   var caption=document.getElementById('rc-caption'), turnlabel=document.getElementById('rc-turnlabel');
   var railEl=document.getElementById('rc-rail');
-  var teleEl=document.getElementById('rc-tele');
-  var teleRowsEl=document.getElementById('rc-tele-rows');
-  var teleDivEl=document.getElementById('rc-tele-div');
+  var sayEl=document.getElementById('rc-say');
+  var sayPrevEl=document.getElementById('rc-say-prev');
+  var sayNameEl=document.getElementById('rc-say-name');
+  var sayTextEl=document.getElementById('rc-say-text');
 
   if(!TURNS.length){
     caption.innerHTML='<span class="rc-badge">Empty</span> No resolved turns yet.';
@@ -596,44 +584,33 @@
   }
 
   var DUR=1520;
-  var MAX_TELE_ROWS=3;
   var TALK_STAGGER=1750;
   var PAUSE_AFTER_TALK=750;
-  var teleRows=[];
+  var sayCur='';
 
   function talkDurOf(t){ if(skipTalk) return 0; return (t.talk&&t.talk.length?t.talk.length*TALK_STAGGER:0)+PAUSE_AFTER_TALK; }
 
-  function teleAddRow(id,text){
-    if(teleRows.length>=MAX_TELE_ROWS){
-      var oldest=teleRows.pop();
-      oldest.classList.add('fading');
-      setTimeout(function(){if(oldest.parentNode)oldest.parentNode.removeChild(oldest);},220);
-    }
-    var row=document.createElement('div');
-    row.className='rc-trow'; row.dataset.agent=id;
-    row.style.setProperty('--c',colorOf[id]);
-    row.innerHTML='<span class="tdot"></span><span class="tname">'+id+'</span><span class="ttext">'+text+'</span>';
-    teleRowsEl.insertBefore(row,teleRowsEl.firstChild);
-    teleRows.unshift(row);
+  // The center say-bubble shows the current line; the prior line lingers as a
+  // faint ghost above it so a quick exchange still reads as a back-and-forth.
+  // textContent (not innerHTML) keeps bot-authored messages from injecting markup.
+  function saySet(id,text){
+    sayPrevEl.textContent=sayCur;
+    sayCur=text;
+    sayNameEl.textContent=id;
+    sayTextEl.textContent=text;
+    sayEl.style.setProperty('--c',colorOf[id]);
+    sayEl.classList.add('show');
   }
-  function teleReset(){
-    teleRows.forEach(function(r){if(r.parentNode)r.parentNode.removeChild(r);});
-    teleRows=[]; teleRowsEl.innerHTML=''; teleDivEl.classList.remove('show');
-    // note: the strip stays in the layout (fixed height) — we only clear its rows,
-    // so the card height never changes between talking and non-talking phases
-  }
-  function telePinMarquee(agentId){
-    teleRows.forEach(function(r){
-      if(r.dataset.agent===agentId){r.classList.add('pinned');r.classList.remove('muted');}
-      else{r.classList.add('muted');r.classList.remove('pinned');}
-    });
-    teleDivEl.classList.add('show');
+  function sayHide(){ sayEl.classList.remove('show'); }   // fade out before the action phase
+  function sayReset(){
+    sayEl.classList.remove('show');
+    sayCur=''; sayPrevEl.textContent=''; sayNameEl.textContent=''; sayTextEl.textContent='';
   }
   function speakLine(a){
     if(!a.text) return;
     AGENTS.forEach(function(id){ if(id!==a.agent) dimDown(id); });
     litUp(a.agent); botEls[a.agent].classList.add('speaking');
-    teleAddRow(a.agent,a.text);
+    saySet(a.agent,a.text);
   }
   var TURN_DUR=200;
   var BEND_DUR=500;
@@ -724,7 +701,7 @@
     fx.innerHTML='';
     drawnPactArcs={};
     clearPhaseTimers();
-    teleReset();
+    sayReset();
     Object.keys(botEls).forEach(function(id){
       var el=botEls[id];
       el.className='rc-bot dim';
@@ -749,8 +726,8 @@
     if(showTalk){
       phaseTimers.push(setTimeout(function(){
         AGENTS.forEach(function(id){botEls[id].classList.remove('speaking');dimDown(id);});
-        var mq=t.actions.filter(function(a){return a._marquee;})[0];
-        if(mq) telePinMarquee(mq.agent);
+        // Talk is over: clear the center so the movers have the middle to themselves.
+        sayHide();
         caption.innerHTML='<span class="rc-badge">'+t.badge+'</span> '+t.cap;
       },talkDur-60));
     } else {
