@@ -3,7 +3,7 @@
     <span class="meta">Round {{ game.current_round }} / {{ game.total_rounds }} · Turn {{ game.current_turn }} / {{ game.turns_per_round }}</span>
 {% elif game.state.value == "completed" %}
     <span class="badge badge-done">Final</span>
-    <span class="meta">Winner: <strong>{{ winner_agent_id or "—" }}</strong></span>
+    <span class="meta">Winner: <strong>{{ winner_agent_id or "—" }}</strong>{% if winner_owner_handle %} <span class="winner-owner mono">run by @{{ winner_owner_handle }}</span>{% endif %}</span>
 {% else %}
     <span class="badge badge-soon">{{ game.state.value | capitalize }}</span>
     <span class="meta">Starts {{ game.scheduled_start | localdt }}</span>

@@ -333,6 +333,10 @@
 (function(){
   var DATA = JSON.parse(document.getElementById('rc-data').textContent);
   var AGENTS = DATA.agents || [];
+  var OWNERS = DATA.owners || {};
+  // Taller rail rows only when there's an owner byline to show, so an all-Sim
+  // game keeps the compact layout.
+  var RAIL_ROW_H = Object.keys(OWNERS).length ? 60 : 52;
   var TURNS = DATA.turns || [];
   // Identity hues deliberately avoid the three action colours (amber --hoard,
   // green --help, red --hurt) so a bot's colour never reads as a move. Greens and
@@ -432,14 +436,17 @@
     AGENTS.forEach(function(id){
       var li=document.createElement('li');
       li.className='rc-rail-row'; li.style.setProperty('--c', colorOf[id]);
+      li.style.height=RAIL_ROW_H+'px';
+      var owner=OWNERS[id];
       li.innerHTML='<span class="rk">1</span>'
         +'<span class="nm"><span class="nm-name" title="'+id+'">'+id+'</span>'
+        +(owner?'<span class="nm-owner">by @'+owner+'</span>':'')
         +'<span class="nm-pts">0 pts this round</span></span>'
         +'<span class="sc">0<span class="sc-unit">rounds</span></span>'
         +'<span class="track"><span class="bar"></span></span>';
       railEl.appendChild(li); railRowEl[id]=li;
     });
-    railEl.style.height=(AGENTS.length*52)+'px';
+    railEl.style.height=(AGENTS.length*RAIL_ROW_H)+'px';
   }
 
   function updateRail(){
@@ -453,7 +460,7 @@
     });
     order.forEach(function(id,i){
       var row=railRowEl[id];
-      row.style.transform='translateY('+(i*52)+'px)';
+      row.style.transform='translateY('+(i*RAIL_ROW_H)+'px)';
       row.querySelector('.rk').textContent=i+1;
       var winsVal=rWins[id]||0;
       row.querySelector('.sc').firstChild.textContent=fmtWins(winsVal);

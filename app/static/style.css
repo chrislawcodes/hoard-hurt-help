@@ -1223,6 +1223,8 @@ button.danger:hover,
     font-weight: 400;
     color: var(--ink-soft);
 }
+/* Owner credit on the winner card — the earned bragging moment, kept quiet. */
+.winner-owner { color: var(--ink-soft); font-weight: 400; }
 .lb-num { text-align: right; font-variant-numeric: tabular-nums; }
 .lb-last { color: var(--ink-soft); }
 .lb-tag {

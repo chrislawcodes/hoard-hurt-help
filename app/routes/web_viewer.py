@@ -7,8 +7,10 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, get_current_user
+from app.models.bot import Bot, BotKind
 from app.models.match import Match
 from app.models.player import Player
+from app.models.user import User
 from app.read_models.matches import load_match_timeline, load_players
 from app.routes.viewer_presentation import (
     _build_rc_data,
@@ -36,12 +38,28 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     players = await load_players(db, g.id)
     timeline = await load_match_timeline(db, g.id)
 
+    # Owner handle per agent, for the standings rail + winner credit. Sims have a
+    # user owner too, but show no human byline — suppress them here.
+    owner_rows = (
+        await db.execute(
+            select(Player.agent_id, Bot.kind, User.handle)
+            .join(Bot, Bot.id == Player.bot_id)
+            .join(User, User.id == Bot.user_id)
+            .where(Player.match_id == g.id)
+        )
+    ).all()
+    owner_handles: dict[str, str | None] = {
+        agent_id: (None if kind == BotKind.SIM else handle)
+        for agent_id, kind, handle in owner_rows
+    }
+
     scoreboard: list[dict[str, Any]] = sorted(
         (
             {
                 "agent_id": p.agent_id,
                 "round_score": p.current_round_score,
                 "round_wins": p.total_round_wins,
+                "owner_handle": owner_handles.get(p.agent_id),
             }
             for p in players
         ),
@@ -193,6 +211,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         "rounds": rounds,
         "max_played_round": max_played_round,
         "winner_agent_id": winner_agent_id,
+        "winner_owner_handle": owner_handles.get(winner_agent_id) if winner_agent_id else None,
         "viewer_player_id": viewer_player.id if viewer_player else None,
         "viewer_agent_id": viewer_player.agent_id if viewer_player else None,
     }
