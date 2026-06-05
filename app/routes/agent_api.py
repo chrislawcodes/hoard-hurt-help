@@ -18,6 +18,7 @@ from app.engine.game_records import ActionRecord
 from app.engine.opponent_stats import rank_players
 from app.games import get as get_game_module
 from app.games.base import GameError
+from app.identity import word_filter
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.strategy_prompt import StrategyPrompt
@@ -322,12 +323,14 @@ async def agent_message(
         )
 
     module = get_game_module(game.game)
+    # Public text is censored, not blocked: the message still posts with any
+    # bad word masked to **** (handles/agent names are rejected instead).
     await module.record_message(
         db,
         turn,
         player,
-        body.message,
-        body.thinking,
+        word_filter.mask(body.message),
+        word_filter.mask(body.thinking),
         existing=existing,
     )
     await db.commit()
@@ -371,8 +374,9 @@ async def agent_submit(
     move = {
         "action": body.action,
         "target_id": body.target_id,
-        "message": body.message,
-        "thinking": body.thinking,
+        # Censor bad words in the public message/reasoning (mask, don't block).
+        "message": word_filter.mask(body.message),
+        "thinking": word_filter.mask(body.thinking),
     }
     try:
         module.validate_move(
