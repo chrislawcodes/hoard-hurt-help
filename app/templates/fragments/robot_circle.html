@@ -166,8 +166,6 @@
 .rc-legend{display:flex;gap:14px;font-size:12px;color:var(--ink-soft,#5b6470);margin-top:10px;flex-wrap:wrap}
 .rc-sw{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
 
-/* Score aura — soft glow ring behind each bot reflecting in-round score */
-.rc-aura{position:absolute;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;z-index:1;transition:width .6s ease,height .6s ease,opacity .6s ease,box-shadow .6s ease}
 /* Seat ghost — faint home-position marker so the ring reads as a circuit board */
 .rc-seat{position:absolute;transform:translate(-50%,-50%);width:52px;height:52px;border-radius:50%;border:1.5px dashed var(--line,#d4dae1);opacity:.3;pointer-events:none;z-index:1}
 /* Turn progress dots — bottom of stage, current round only */
@@ -388,7 +386,6 @@
   var THEME=getComputedStyle(document.documentElement);
   function themeColor(n,fb){ var v=(THEME.getPropertyValue(n)||'').trim(); return v||fb; }
   var C_HURT=themeColor('--hurt','#c0392b'), C_HELP=themeColor('--help','#1a8f4c');
-  function hexRgba(hex,a){var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return 'rgba('+r+','+g+','+b+','+a+')';}
 
   var stage=document.getElementById('rc-stage'), fx=document.getElementById('rc-fx'), ring=document.getElementById('rc-ring');
   var caption=document.getElementById('rc-caption'), turnlabel=document.getElementById('rc-turnlabel');
@@ -442,7 +439,7 @@
 
   var rScore={}, rWins={}, railRowEl={};
   var drawnPactArcs={};
-  var auraEls={}, seatEls={};
+  var seatEls={};
   AGENTS.forEach(function(id){ rScore[id]=0; rWins[id]=0; });
 
   function buildRail(){
@@ -482,28 +479,12 @@
       row.querySelector('.bar').style.width=(maxw>0?Math.max(0,Math.min(100,rWins[id]/maxw*100)):0)+'%';
       row.classList.toggle('leader', i===0);
     });
-    updateAuras();
   }
 
   function dmgRail(id){
     var row=railRowEl[id]; if(!row) return;
     row.classList.remove('rc-dmg'); void row.offsetWidth; row.classList.add('rc-dmg');
     setTimeout(function(){ row.classList.remove('rc-dmg'); }, 500);
-  }
-
-  function updateAuras(){
-    var maxS=0;
-    AGENTS.forEach(function(id){ if((rScore[id]||0)>maxS) maxS=rScore[id]; });
-    AGENTS.forEach(function(id){
-      var a=auraEls[id]; if(!a) return;
-      var s=rScore[id]||0;
-      var frac=maxS>0 ? s/maxS : 0;
-      var sz=Math.round(56+frac*28);
-      a.style.width=sz+'px'; a.style.height=sz+'px';
-      a.style.opacity=s>0 ? (0.14+frac*0.24).toFixed(2) : '0';
-      a.style.background=hexRgba(colorOf[id], 1);
-      a.style.boxShadow='0 0 '+(s>0?Math.round(6+frac*18):0)+'px '+hexRgba(colorOf[id],0.55);
-    });
   }
 
   function updateProgress(i){
@@ -531,8 +512,6 @@
 
   var botEls={};
   AGENTS.forEach(function(id,i){
-    var aur=document.createElement('div');
-    aur.className='rc-aura'; stage.appendChild(aur); auraEls[id]=aur;
     var seat=document.createElement('div');
     seat.className='rc-seat'; stage.appendChild(seat); seatEls[id]=seat;
     var el=document.createElement('div');
@@ -574,7 +553,6 @@
       var el=botEls[id];
       el.style.left=x+'px'; el.style.top=y+'px';
       el.dataset.x=x; el.dataset.y=y;
-      var aur=auraEls[id]; if(aur){aur.style.left=x+'px';aur.style.top=y+'px';}
       var s=seatEls[id]; if(s){s.style.left=x+'px';s.style.top=y+'px';}
     });
   }
