@@ -16,6 +16,7 @@ from app.games import known_types
 from app.models.bot import Bot, BotKind
 from app.models.match import GameState, Match
 from app.models.player import Player
+from app.models.user import User
 
 LeaderboardRatingMode = Literal["standard", "bonus"]
 LeaderboardIncluded = Literal["agents", "sims", "all"]
@@ -33,6 +34,9 @@ class LeaderboardRow:
 
     rank: int
     display_name: str
+    # The owner's public handle, shown as "by @handle". None for Sims and for
+    # agents whose owner has not picked a handle yet.
+    owner_handle: str | None
     rating: float
     match_count: int
     last_played_at: datetime | None
@@ -58,6 +62,7 @@ class _Participant:
     # Sims sharing the same key in one match are merged before Elo is computed.
     competitor_key: str
     display_name: str
+    owner_handle: str | None
     is_sim: bool
     round_wins: float
     total_score: int
@@ -81,6 +86,7 @@ class _CompetitorState:
     last_played_at: datetime | None = None
     is_sim: bool = False
     display_name: str = ""
+    owner_handle: str | None = None
 
 
 def _sim_display_name(bot: Bot) -> str:
@@ -131,6 +137,7 @@ def _merge_same_key_participants(participants: list[_Participant]) -> list[_Part
                 _Participant(
                     competitor_key=key,
                     display_name=group[0].display_name,
+                    owner_handle=group[0].owner_handle,
                     is_sim=group[0].is_sim,
                     round_wins=avg_wins,
                     total_score=avg_score,
@@ -187,9 +194,10 @@ async def load_leaderboard_sections(
 
     rows = (
         await db.execute(
-            select(Match, Player, Bot)
+            select(Match, Player, Bot, User)
             .join(Player, Player.match_id == Match.id)
             .join(Bot, Bot.id == Player.bot_id)
+            .join(User, User.id == Bot.user_id)
             .where(
                 Match.state == GameState.COMPLETED,
                 Match.scheduled_start >= LEADERBOARD_CUTOFF,
@@ -200,7 +208,7 @@ async def load_leaderboard_sections(
 
     match_groups: dict[str, _MatchBundle] = {}
     skipped_matches: set[str] = set()
-    for match, player, bot in rows:
+    for match, player, bot, user in rows:
         if match.id in skipped_matches:
             continue
         if _is_test_match(match.name):
@@ -228,6 +236,7 @@ async def load_leaderboard_sections(
                 _Participant(
                     competitor_key=_competitor_key(bot),
                     display_name=_sim_display_name(bot) if bot.kind == BotKind.SIM else bot.name,
+                    owner_handle=None if bot.kind == BotKind.SIM else user.handle,
                     is_sim=bot.kind == BotKind.SIM,
                     round_wins=float(player.total_round_wins),
                     total_score=player.total_round_score,
@@ -341,6 +350,7 @@ async def load_leaderboard_sections(
                         last_played_at=None,
                         is_sim=participant.is_sim,
                         display_name=participant.display_name,
+                        owner_handle=participant.owner_handle,
                     )
                 state.rating = current_rating + match_delta
                 state.match_count += 1
@@ -350,6 +360,7 @@ async def load_leaderboard_sections(
                 )
                 state.is_sim = participant.is_sim
                 state.display_name = participant.display_name
+                state.owner_handle = participant.owner_handle
                 states[participant.competitor_key] = state
 
         if not states:
@@ -370,6 +381,7 @@ async def load_leaderboard_sections(
                 LeaderboardRow(
                     rank=current_rank,
                     display_name=state.display_name,
+                    owner_handle=state.owner_handle,
                     rating=state.rating,
                     match_count=state.match_count,
                     last_played_at=state.last_played_at,
