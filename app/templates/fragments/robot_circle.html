@@ -819,7 +819,15 @@
         });
       }, REACH_DUR);
     } else if(a.action==='HELP'){
-      var gx=ax+(tx-ax)*0.62, gy=ay+(ty-ay)*0.62;
+      // Stop a short, roughly constant gap short of the target rather than a flat
+      // 62% of the path. A fixed fraction left the carrier marooned on the long
+      // left<->right cross-ring handoffs (38% of a near-diameter is a big gap);
+      // capping the leftover gap (~60px) closes those up, while still keeping at
+      // least 30% of the path on the short adjacent handoffs so it never crowds
+      // the target.
+      var gdist=Math.hypot(tx-ax,ty-ay)||1;
+      var gfrac=(gdist-Math.min(gdist*0.30,60))/gdist;
+      var gx=ax+(tx-ax)*gfrac, gy=ay+(ty-ay)*gfrac;
       if(tx<ax) el.classList.add('facing-left');
       el.classList.add('turning-gift');
       setTimeout(function(){ el.classList.remove('turning-gift'); el.classList.add('grabbing-gift'); }, TURN_DUR);
