@@ -270,7 +270,7 @@ Tasks, diff, and closeout have no default reviews. Operators can add an extra Ge
 
 All reviews are adversarial — each one is looking for ways the artifact is wrong, incomplete, or risky. Spec and plan concentrate the default leverage because they are the cheapest places to catch bad assumptions before implementation starts. Gemini still gives a different perspective, but the runner now keeps that signal focused on the two design stages.
 
-The judge panel also has a runner-enforced 3-round cap. Reviewers should stay rigorous, but they should not assume the loop can keep refining forever.
+Review rounds are tracked per stage and surfaced by `analyze-reviews` (it flags stages that needed 3+ rounds). There is no hard runner cap — reviewers should stay rigorous but converge, not assume the loop can keep refining forever.
 
 The checkpoint runner selects the specific lenses by stage. Bundle 2 keeps the default lenses on `spec` and `plan` only, and leaves `tasks`, `diff`, and `closeout` empty unless the operator explicitly opts in. Keep the Codex and Gemini lenses independent from each other when they are present.
 
@@ -456,7 +456,7 @@ What the runner does **not** measure: Claude orchestrator session tokens. Claude
 Where to look for cross-feature aggregation:
 
 - Run `analyze-reviews` to generate a full report. Section 7a shows per-feature rollups (wall seconds, Codex tokens, Gemini tokens, TTL crossings, command count) sorted by total wall time. The report is saved to `docs/workflow/analysis/review-performance-<date>.md`.
-- **Auto-generated weekly snapshots** are committed to `docs/workflow/analysis/` every Monday by `.github/workflows/ff-analyzer-weekly.yml`. Browse that directory for the running history without having to run the command manually.
+- **Run `analyze-reviews` manually** to refresh the rollup under `docs/workflow/analysis/`. (No scheduled GitHub Action is wired up in this repo — there is no automatic weekly snapshot.)
 - Run `status --slug <slug> --tokens` to see the last 10 command-telemetry records for a single feature (wall seconds, bytes read/written, TTL crossed). This was shipped in PR #792.
 
 ## Notes
