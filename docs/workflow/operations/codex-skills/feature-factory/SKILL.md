@@ -90,8 +90,10 @@ Do not duplicate checkpoint manifest logic, review file validation, diff writing
 | Discovery | Ask clarifying questions one at a time, record assumptions, determine if spec is stable enough to proceed | Claude | Codex |
 | Write spec | Research real file paths in codebase, author `spec.md` with scope boundaries and acceptance criteria | Claude (research) · Codex (file paths) | Gemini (research) · Codex (authors) |
 | Spec checkpoint | Adversarial attack on spec, semantic review, reconcile findings into spec | Codex (1 adversarial review: `feasibility`) · Gemini (1 adversarial review: `requirements`) · Claude (reconciles) | Codex (1 adversarial review: `feasibility`) · Gemini (1 adversarial review: `requirements`) · Codex (reconciles, escalates blockers to human) |
-| Write plan | Author `plan.md` with architecture decisions, wave breakdown, and risk callouts. Each residual risk MUST have a `verification:` sentence naming a concrete pre-merge check (e.g., "run circumplexAnalysis against a production model ID", "inspect a failing fixture", "grep the migration output for N rows"). Unverified residual risks block plan approval — see "Residual risks must be verifiable" below. | Claude | Codex |
-| Plan checkpoint | Adversarial attack on plan, architecture review, reconcile findings into plan | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Claude (reconciles) | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Codex (reconciles, escalates blockers to human) |
+| Reuse audit (no-duplication) | **Sub-agent** scans the codebase (guided by `ARCHITECTURE.md`) for existing modules/functions that overlap what the feature needs. Writes `reuse-report.md` — each overlap → `reuse` / `extend` / `justified-new`. The plan MUST address every entry. See "Architecture awareness" below. | Claude (spawns a Task sub-agent) | Codex (`codex exec` read-only sub-session) |
+| Write plan | Author `plan.md` with architecture decisions, wave breakdown, and risk callouts, incorporating the reuse-audit decisions. Each residual risk MUST have a `verification:` sentence naming a concrete pre-merge check (e.g., "run circumplexAnalysis against a production model ID", "inspect a failing fixture", "grep the migration output for N rows"). Unverified residual risks block plan approval — see "Residual risks must be verifiable" below. | Claude | Codex |
+| Update design & architecture docs (up front) | **Sub-agent** edits `ARCHITECTURE.md` (modules/flows this feature adds or changes) and `DESIGN.md` (only if a game/design decision changes) to the planned target state, consistent with the reuse decisions. Edits ship on the feature branch with the code. See "Architecture awareness" below. | Claude (spawns a sub-agent) | Codex (`codex exec` workspace-write sub-session) |
+| Plan checkpoint | Adversarial attack on the plan **plus the up-front `ARCHITECTURE.md`/`DESIGN.md` edits and `reuse-report.md`**, architecture review, reconcile findings into plan. Pass the docs and report into the review so Codex reviews them too: `--context ARCHITECTURE.md --context DESIGN.md --context docs/workflow/feature-runs/<slug>/reuse-report.md`. | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Claude (reconciles) | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Codex (reconciles, escalates blockers to human) |
 | Write tasks | Author `tasks.md` with executable slices, checkpoint boundaries (`[CHECKPOINT]`), estimated diff size per slice, dependencies, and verification steps. No slice should exceed ~300 lines changed. | Claude | Codex |
 | Record parallel analysis | Look for safe parallel implementation opportunities in tasks.md. Annotate parallel tasks with `[P: file1, file2]`. Run `parallel --slug <slug> --note "..." [--found]`. If opportunities exist, add `[P:]` annotations first — the command validates they are conflict-free. | Claude | Codex |
 | Tasks checkpoint | Adversarial attack on tasks, execution-order review, reconcile findings into tasks | No default reviews | No default reviews |
@@ -101,6 +103,7 @@ Do not duplicate checkpoint manifest logic, review file validation, diff writing
 | Deliver | Push branch, create PR, watch CI, record delivery state in workflow. The `deliver` invocation is itself the consent — do not re-prompt before push or PR creation. The human still squash-merges. | Claude | Codex (stages, push, create PR) · Human (approves and squash-merges) |
 | CI failure | Extract errors, implement fix, re-run CI | Claude (reviews fix) · Codex (fixes) | Codex (fixes) · Human (approves) |
 | Write closeout | Write summary of what shipped, what remains open, and deferred risks | Claude | Codex |
+| Reconcile design & architecture docs | **Sub-agent** compares what shipped against the plan; if implementation drifted mid-flight in a way that affects `ARCHITECTURE.md`/`DESIGN.md`, update them to match what actually shipped. If no drift, record "docs already accurate — no further change." Required before workflow is marked done. See "Architecture awareness" below. | Claude (sub-agent) | Codex (sub-agent) |
 | Closeout checkpoint | Adversarial attack on closeout, final state review, reconcile findings | No default reviews | No default reviews |
 | Write post mortem | Write `postmortem.md` covering what went well, what didn't, and specific proposed workflow changes. Required before workflow is marked done. | Claude | Codex |
 | Update STATUS.md | Update `STATUS.md` to reflect what shipped. Required before workflow is marked done. | Claude | Codex |
@@ -113,6 +116,36 @@ If the workflow already exists, resume from the earliest incomplete stage instea
 Use `status --slug <slug>` to determine the current workflow state, blockers, delivery state, and next recommended action.
 Use the `diff-review-budget` section in `status` to see whether a large diff is likely to trigger another full Codex rerun.
 Use `doctor` before or during a workflow when the local tooling or GitHub wiring looks suspect.
+
+## Architecture awareness: reuse audit & living docs
+
+Two goals run through every feature: **don't rebuild what already exists**, and **keep `ARCHITECTURE.md` / `DESIGN.md` an accurate, current view of the system**. The orchestrator delivers both with a **sub-agent** — when Claude orchestrates, spawn a Task sub-agent (the Agent tool); when Codex orchestrates, dispatch a `codex exec` sub-session. Read-only scans can run read-only; doc edits need workspace-write.
+
+These steps are part of the **plan** and **closeout** stages — not optional polish. `ARCHITECTURE.md` is the canonical map of subsystems and their modules; the reuse audit reads it, and the doc updates keep it true.
+
+### 1. Reuse audit (plan stage, before authoring the plan)
+
+Spawn a code-aware sub-agent with this task:
+
+> Read `ARCHITECTURE.md` (the subsystem/module map) and the feature `spec.md`. For each capability the feature needs, search the codebase for an existing module/function that already provides or nearly provides it. Write `docs/workflow/feature-runs/<slug>/reuse-report.md` as a table: `capability | existing module (path) | verdict (reuse / extend / justified-new) | note`. Be adversarial about "justified-new" — prefer reuse or extension. Flag any place the planned feature would duplicate existing functionality.
+
+The plan MUST address every row: reuse the named module, extend it, or carry the written justification for building new. The plan checkpoint reviews `reuse-report.md` (passed via `--context`), so an unaddressed real duplication is a finding Codex/Gemini will raise.
+
+### 2. Update design & architecture docs up front (plan stage, after the plan)
+
+Spawn a sub-agent (workspace-write) with this task:
+
+> Update `ARCHITECTURE.md` to describe the system **as it will be after this feature**: new or changed modules (with their responsibility and rough size), new runtime flows, and the "Where to make a change" index. Update `DESIGN.md` only if this feature changes a game/design decision. Keep edits surgical and consistent with `plan.md` and `reuse-report.md`. Do not invent modules the plan doesn't call for.
+
+These edits live on the feature branch and ship with the code, so by merge time the docs match reality. **They are reviewed by Codex at the plan checkpoint** — pass them in with `--context ARCHITECTURE.md --context DESIGN.md`. Treat doc-accuracy and duplication findings like any other plan finding: reconcile before advancing.
+
+### 3. Reconcile docs at closeout (only if implementation drifted)
+
+Spawn a sub-agent with this task:
+
+> Compare what actually shipped (the merged diff for this feature) against `plan.md` and the up-front `ARCHITECTURE.md`/`DESIGN.md` edits. If implementation diverged mid-flight in any way that makes those docs wrong (different module boundaries, renamed/relocated code, a flow that changed), update the docs to match what shipped. If the docs are already accurate, state "docs already accurate — no further change."
+
+This is **required before the workflow is marked done** (alongside the post mortem and `STATUS.md`). It is cheap when nothing drifted and essential when it did — it's what keeps the architecture view trustworthy over time.
 
 ## Residual risks must be verifiable
 
@@ -374,6 +407,8 @@ Each workflow lives in `docs/workflow/feature-runs/<slug>/`. The files have diff
 |------|------|
 | `state.json` | **Authoritative runtime state** — the runner reads and writes this; it is the single source of truth for phase, block status, delivery state, and discovery state |
 | `spec.md`, `plan.md`, `tasks.md`, `closeout.md`, `postmortem.md` | **Authored artifacts** — source of truth for intent, scope, and decisions; edited by the orchestrator. `postmortem.md` is required before the workflow is marked done. |
+| `reuse-report.md` | **Reuse audit (plan stage)** — existing modules that overlap the feature, each marked reuse / extend / justified-new; the plan must address every row. Reviewed at the plan checkpoint. |
+| `ARCHITECTURE.md`, `DESIGN.md` (repo root) | **Living system docs** — updated up front at the plan stage (reviewed by Codex) and reconciled at closeout if implementation drifted. Not per-run artifacts; they are the durable, always-current view of the codebase. |
 | `reviews/*.md` | **Generated + resolved state** — produced by the checkpoint runner, resolved via reconcile; do not edit manually except to update resolution fields |
 | `reviews/*.checkpoint.json` | **Generated state** — checkpoint metadata; do not edit manually |
 
