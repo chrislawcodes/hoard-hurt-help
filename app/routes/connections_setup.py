@@ -124,6 +124,35 @@ async def _load_owned_connection(db: DbSession, user: User, connection_id: int) 
     return connection
 
 
+async def _load_resumeable_pending_connection(
+    db: DbSession, user_id: int, provider: ConnectionProvider
+) -> Connection | None:
+    """Return the newest pending connection for this provider, if one exists."""
+    return (
+        await db.execute(
+            select(Connection)
+            .where(
+                Connection.user_id == user_id,
+                Connection.provider == provider,
+                Connection.status == ConnectionStatus.PENDING,
+                Connection.first_connected_at.is_(None),
+            )
+            .order_by(Connection.created_at.desc(), Connection.id.desc())
+        )
+    ).scalar_one_or_none()
+
+
+def _issue_connection_key(connection: Connection, *, keep_old_overlap: bool) -> str:
+    key = generate_connection_key()
+    if keep_old_overlap and connection.prev_key_lookup is None:
+        connection.prev_key_lookup = connection.key_lookup
+    connection.key_lookup = bot_key_lookup(key)
+    connection.key_hint = bot_key_hint(key)
+    if not keep_old_overlap:
+        connection.prev_key_lookup = None
+    return key
+
+
 @router.get("", response_class=HTMLResponse)
 async def list_connections(
     request: Request,
@@ -179,15 +208,21 @@ async def create_connection(
         raise HTTPException(status_code=400, detail="Unknown provider.") from exc
 
     key = generate_connection_key()
-    connection = Connection(
-        user_id=user.id,
-        nickname=(nickname.strip() if nickname and nickname.strip() else None),
-        provider=provider_choice,
-        key_lookup=bot_key_lookup(key),
-        key_hint=bot_key_hint(key),
-        status=ConnectionStatus.PENDING,
-    )
-    db.add(connection)
+    connection = await _load_resumeable_pending_connection(db, user.id, provider_choice)
+    if connection is None:
+        connection = Connection(
+            user_id=user.id,
+            nickname=(nickname.strip() if nickname and nickname.strip() else None),
+            provider=provider_choice,
+            key_lookup=bot_key_lookup(key),
+            key_hint=bot_key_hint(key),
+            status=ConnectionStatus.PENDING,
+        )
+        db.add(connection)
+        await db.flush()
+    elif nickname and nickname.strip():
+        connection.nickname = nickname.strip()
+        key = _issue_connection_key(connection, keep_old_overlap=True)
     await db.commit()
     request.session[f"fresh_connection_key_{connection.id}"] = key
     return RedirectResponse(

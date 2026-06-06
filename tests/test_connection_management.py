@@ -250,6 +250,51 @@ async def test_create_connection_shows_connection_runner_setup(client: AsyncClie
 
 
 @pytest.mark.asyncio
+async def test_create_connection_reuses_existing_pending_connection(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with session_factory() as db:
+        user = await _make_user(db)
+        await db.commit()
+
+    cookies = _signed_in_cookies(user.id)
+    first = await client.post(
+        "/me/connections",
+        cookies=cookies,
+        data={"provider": "claude", "nickname": "My Claude"},
+        follow_redirects=True,
+    )
+    assert first.status_code == 200
+    first_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", first.text)
+    assert first_match is not None
+    first_key = first_match.group(1)
+
+    second = await client.post(
+        "/me/connections",
+        cookies=cookies,
+        data={"provider": "claude", "nickname": "My Claude (again)"},
+        follow_redirects=True,
+    )
+    assert second.status_code == 200
+    second_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", second.text)
+    assert second_match is not None
+    second_key = second_match.group(1)
+
+    async with session_factory() as db:
+        connections = (
+            await db.execute(
+                select(Connection).where(Connection.user_id == user.id).order_by(Connection.id)
+            )
+        ).scalars().all()
+        assert len(connections) == 1
+        connection = connections[0]
+        assert connection.nickname == "My Claude (again)"
+        assert connection.status is ConnectionStatus.PENDING
+        assert connection.prev_key_lookup == bot_key_lookup(first_key)
+        assert connection.key_lookup == bot_key_lookup(second_key)
+
+
+@pytest.mark.asyncio
 async def test_reissue_overlap_keeps_old_key_until_new_key_used(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

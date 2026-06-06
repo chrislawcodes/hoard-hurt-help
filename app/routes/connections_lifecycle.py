@@ -110,13 +110,15 @@ async def reattach_agent(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
     connection = await _load_owned_connection(db, user, connection_id)
-    if connection.status == ConnectionStatus.PAUSED:
-        raise HTTPException(status_code=409, detail="Connection is paused.")
+    if connection.status != ConnectionStatus.ACTIVE:
+        raise HTTPException(status_code=409, detail="Connection is not active.")
     agent = await _load_owned_agent(db, user, agent_id)
     if agent.kind != AgentKind.AI:
         raise HTTPException(status_code=400, detail="Only AI agents can be reattached.")
     if agent.connection_id is not None:
         raise HTTPException(status_code=409, detail="That agent already has a connection.")
+    if agent.status != AgentStatus.PAUSED:
+        raise HTTPException(status_code=409, detail="That agent is not waiting for a connection.")
     model = await _agent_current_model(db, agent.id)
     allowed_models = PROVIDER_MODELS.get(connection.provider.value, [])
     if model is None or model not in allowed_models:
