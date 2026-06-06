@@ -911,7 +911,9 @@
         });
       }, REACH_DUR);
     } else {
-      var hx=ax+(tx-ax)*0.68, hy=ay+(ty-ay)*0.68;
+      var hdist=Math.hypot(tx-ax,ty-ay)||1;
+      var hfrac=(hdist-Math.min(hdist*0.30,60))/hdist;
+      var hx=ax+(tx-ax)*hfrac, hy=ay+(ty-ay)*hfrac;
       if(tx<ax) el.classList.add('facing-left');
       el.classList.add('turning-bat');
       eyes(a.agent,'mean', REACH_DUR+DUR);
