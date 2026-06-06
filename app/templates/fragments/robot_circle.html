@@ -12,9 +12,14 @@
 .rc-ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:1.5px dashed var(--line,#d4dae1);border-radius:50%}
 .rc-fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6}
 
-.rc-bot{position:absolute;transform:translate(-50%,-50%);z-index:2;transition:opacity .35s ease, filter .35s ease}
+.rc-bot{position:absolute;transform:translate(-50%,-50%);z-index:2;cursor:pointer;transition:opacity .35s ease, filter .35s ease}
 .rc-bot.dim{opacity:.30;filter:saturate(.5)}
 .rc-bot.lit{z-index:8}
+/* Tap-to-reveal owner popover — floats above the tapped robot, on demand only. */
+.rc-owner-pop{position:absolute;transform:translate(-50%,-100%);z-index:20;display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 8px;border-radius:6px;background:var(--ink,#1a1d21);color:var(--surface,#fff);font-size:11px;line-height:1.3;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.rc-owner-pop[hidden]{display:none}
+.rc-op-name{font-weight:700}
+.rc-op-owner{opacity:.82;font-size:10px}
 .rc-mover{display:flex;flex-direction:column;align-items:center;gap:3px;will-change:transform}
 .rc-name{font-size:10px;color:var(--ink-soft,#5b6470);max-width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
 .rc-bot.lit .rc-name{color:var(--ink,#1a1d21);font-weight:700}
@@ -536,6 +541,33 @@
     stage.appendChild(el); botEls[id]=el;
   });
   AGENTS.forEach(scheduleBlink);
+
+  // Tap-to-reveal owner: who runs this agent. On demand only — nothing stands on
+  // the stage, so the narrative never gets cluttered. Tap a robot to show its
+  // name and "run by @handle" (owner line only when known); tap elsewhere to
+  // dismiss. The rail already shows owners textually, so this is an enhancement.
+  var ownerPop=document.createElement('div');
+  ownerPop.className='rc-owner-pop'; ownerPop.hidden=true;
+  stage.appendChild(ownerPop);
+  function showOwnerPop(id){
+    var el=botEls[id]; if(!el) return;
+    var owner=OWNERS[id];
+    ownerPop.innerHTML='<span class="rc-op-name"></span>'+(owner?'<span class="rc-op-owner"></span>':'');
+    ownerPop.querySelector('.rc-op-name').textContent=id;
+    if(owner) ownerPop.querySelector('.rc-op-owner').textContent='run by @'+owner;
+    ownerPop.style.left=el.dataset.x+'px';
+    ownerPop.style.top=(parseFloat(el.dataset.y)-44)+'px';
+    ownerPop.hidden=false;
+  }
+  function hideOwnerPop(){ ownerPop.hidden=true; }
+  stage.addEventListener('click', function(ev){
+    var bot=ev.target.closest('.rc-bot');
+    if(bot){ ev.stopPropagation(); showOwnerPop(bot.dataset.id); }
+    else { hideOwnerPop(); }
+  });
+  document.addEventListener('click', function(ev){
+    if(!ev.target.closest('.rc-bot') && !ev.target.closest('.rc-owner-pop')) hideOwnerPop();
+  });
 
   function layout(){
     var w=stage.clientWidth, h=stage.clientHeight;
