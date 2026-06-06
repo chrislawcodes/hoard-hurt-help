@@ -87,13 +87,14 @@ async def guide(name: Annotated[str, Path()], request: Request, db: DbSession):
     )
 
 
-# Chained-session agent runner. ONE script now drives every CLI provider — it
-# reads the connection's configured provider from the server and calls the matching CLI
-# (claude/codex/gemini). The old per-provider filenames are kept as aliases so an
-# older setup message still fetches a working runner; they all serve the same file.
+# Chained-session connection runner. ONE script now drives every CLI provider
+# for a connection. The old runner name is kept as an alias so older setup
+# messages still fetch a working file, but the canonical filename is the new
+# connector path.
 # Allowlisted by exact filename below.
-_UNIFIED_RUNNER = FsPath("scripts/agentludum_agent.py")
+_UNIFIED_RUNNER = FsPath("scripts/agentludum_connector.py")
 _AGENT_RUNNERS: dict[str, FsPath] = {
+    "agentludum_connector.py": _UNIFIED_RUNNER,
     "agentludum_agent.py": _UNIFIED_RUNNER,
     "agentludum_agent_codex.py": _UNIFIED_RUNNER,
     "agentludum_agent_gemini.py": _UNIFIED_RUNNER,
