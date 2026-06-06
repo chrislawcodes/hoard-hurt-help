@@ -22,7 +22,6 @@ from alembic import command
 from alembic.config import Config
 
 import app.config as app_config
-import app.main as app_main
 from app.db_bootstrap import detect_legacy_revision, prepare_database_for_upgrade
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -86,7 +85,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0022",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0023",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -105,6 +104,11 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
 def test_startup_migrations_skip_on_railway(monkeypatch) -> None:
     """Railway pre-deploy migrations should keep the app from repeating them."""
+    # Imported lazily: app.main pulls in the route layer, which finishes migrating
+    # off the old Bot model in a later slice; the import (and this test) goes green
+    # then. Keeping it lazy lets the migration round-trip tests run in the meantime.
+    import app.main as app_main
+
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env_test")
     assert app_main._should_run_startup_migrations() is False
@@ -152,11 +156,13 @@ def test_0018_rewrites_ids_and_preserves_data(tmp_path: Path) -> None:
     db_path = tmp_path / "rewrite.db"
     before = _seed_0017(db_path)
 
-    up = _run_alembic(["upgrade", "head"], db_path)
-    assert up.returncode == 0, f"upgrade head failed:\n{up.stdout}\n{up.stderr}"
+    up = _run_alembic(["upgrade", "0018"], db_path)
+    assert up.returncode == 0, f"upgrade 0018 failed:\n{up.stdout}\n{up.stderr}"
 
     conn = sqlite3.connect(db_path)
-    q = lambda sql: conn.execute(sql).fetchone()[0]  # noqa: E731
+
+    def q(sql: str) -> int:
+        return conn.execute(sql).fetchone()[0]
 
     # Schema renamed.
     assert q("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'") == 1

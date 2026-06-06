@@ -75,3 +75,23 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+PROVIDER_MODELS: dict[str, list[str]] = {
+    "claude": [
+        "claude-haiku-4-5",
+        "claude-sonnet-4-6",
+        "claude-opus-4-8",
+    ],
+    "gemini": [
+        "gemini-3.1-flash-lite",
+        "gemini-3-flash-preview",
+        "gemini-3.1-pro-preview",
+    ],
+    "openai": [
+        "gpt-5.4-mini",
+        "gpt-5.4",
+        "gpt-5.5",
+    ],
+    "hermes": [],
+    "openclaw": [],
+}
