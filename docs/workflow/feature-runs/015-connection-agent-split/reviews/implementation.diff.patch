@@ -1,0 +1,1024 @@
+diff --git a/app/engine/connection_health.py b/app/engine/connection_health.py
+new file mode 100644
+index 0000000..ebb2119
+--- /dev/null
++++ b/app/engine/connection_health.py
+@@ -0,0 +1,223 @@
++"""Operational health for a Connection and the agents it powers."""
++
++from __future__ import annotations
++
++import enum
++from dataclasses import dataclass
++from datetime import datetime, timezone
++
++from sqlalchemy import select
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.agent import Agent, AgentKind, AgentStatus
++from app.models.connection import Connection, ConnectionStatus
++from app.models.match import GameState, Match
++from app.models.player import Player
++from app.models.turn import Turn, TurnSubmission
++
++_LIVE_WINDOW_SECONDS = 90
++_HEARTBEAT_THROTTLE_SECONDS = 10
++
++
++def _as_aware(dt: datetime) -> datetime:
++    """SQLite may drop tzinfo on read; treat naive values as UTC."""
++    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
++
++
++def _humanize_since(dt: datetime, now: datetime) -> str:
++    """Return a small relative time string for the UI badge."""
++    secs = int((now - _as_aware(dt)).total_seconds())
++    if secs < 10:
++        return "just now"
++    if secs < 60:
++        return f"{secs}s ago"
++    mins = secs // 60
++    if mins < 60:
++        return f"{mins}m ago"
++    hours = mins // 60
++    if hours < 24:
++        return f"{hours}h ago"
++    return f"{hours // 24}d ago"
++
++
++class ConnectionHealth(str, enum.Enum):
++    """Operational states shown on the connection badge."""
++
++    PAUSED = "paused"
++    STALLED = "stalled"
++    LIVE = "live"
++    READY = "ready"
++    DISCONNECTED = "disconnected"
++
++
++_HEALTH_PRESENTATION: dict[ConnectionHealth, tuple[str, str, bool]] = {
++    ConnectionHealth.PAUSED: ("Paused", "badge-done", False),
++    ConnectionHealth.STALLED: ("Stalled", "badge-alert", True),
++    ConnectionHealth.LIVE: ("Live", "badge-ok", True),
++    ConnectionHealth.READY: ("Ready", "badge-ok", False),
++    ConnectionHealth.DISCONNECTED: ("Disconnected", "badge-alert", False),
++}
++
++
++@dataclass(frozen=True)
++class ConnectionHealthStatus:
++    """Resolved connection health plus the metadata rendered in the badge."""
++
++    state: ConnectionHealth
++    label: str
++    badge_class: str
++    pulse: bool
++    needs_reconnect: bool
++    never_connected: bool
++    last_connected_at: datetime | None
++    last_connected_human: str | None
++    match_id: str | None = None
++    game_name: str | None = None
++    agent_count: int = 0
++
++
++async def _is_defaulting(
++    db: AsyncSession, player_id: int, match_id: str, threshold: int
++) -> bool:
++    """True when the player's last `threshold` submissions in this match defaulted."""
++    flags = (
++        (
++            await db.execute(
++                select(TurnSubmission.was_defaulted)
++                .join(Turn, Turn.id == TurnSubmission.turn_id)
++                .where(
++                    TurnSubmission.player_id == player_id,
++                    Turn.match_id == match_id,
++                )
++                .order_by(Turn.round.desc(), Turn.turn.desc(), Turn.id.desc())
++                .limit(threshold)
++            )
++        )
++        .scalars()
++        .all()
++    )
++    return len(flags) >= threshold and all(flags)
++
++
++async def compute_connection_health(
++    db: AsyncSession, connection: Connection, *, now: datetime | None = None
++) -> ConnectionHealthStatus:
++    """Resolve connection health from the connection and all of its agents."""
++    now = now or datetime.now(timezone.utc)
++    last_seen = connection.last_seen_at
++    warm = (
++        last_seen is not None
++        and (now - _as_aware(last_seen)).total_seconds() <= _LIVE_WINDOW_SECONDS
++    )
++    last_connected = connection.last_seen_at or connection.first_connected_at
++    never_connected = last_connected is None
++    last_connected_at = (
++        _as_aware(last_connected) if last_connected is not None else None
++    )
++    last_connected_human = (
++        None if last_connected is None else _humanize_since(last_connected, now)
++    )
++
++    def build(
++        state: ConnectionHealth,
++        *,
++        game: Match | None = None,
++        agent_count: int = 0,
++        needs_reconnect: bool = False,
++    ) -> ConnectionHealthStatus:
++        label, badge_class, pulse = _HEALTH_PRESENTATION[state]
++        return ConnectionHealthStatus(
++            state=state,
++            label=label,
++            badge_class=badge_class,
++            pulse=pulse,
++            needs_reconnect=needs_reconnect,
++            never_connected=never_connected,
++            last_connected_at=last_connected_at,
++            last_connected_human=last_connected_human,
++            match_id=game.id if game else None,
++            game_name=game.name if game else None,
++            agent_count=agent_count,
++        )
++
++    if connection.status == ConnectionStatus.PAUSED:
++        return build(ConnectionHealth.PAUSED)
++
++    agent_rows = (
++        await db.execute(
++            select(Agent.id)
++            .where(
++                Agent.connection_id == connection.id,
++                Agent.kind == AgentKind.AI,
++                Agent.status == AgentStatus.ACTIVE,
++                Agent.archived_at.is_(None),
++            )
++        )
++    ).all()
++    active_agent_ids = [agent_id for (agent_id,) in agent_rows]
++    if not active_agent_ids:
++        if warm:
++            return build(ConnectionHealth.READY)
++        return build(ConnectionHealth.DISCONNECTED, needs_reconnect=True)
++
++    player_rows = (
++        (
++            await db.execute(
++                select(Match, Player)
++                .join(Player, Player.match_id == Match.id)
++                .join(Agent, Agent.id == Player.agent_id)
++                .where(
++                    Match.state == GameState.ACTIVE,
++                    Player.left_at.is_(None),
++                    Agent.connection_id == connection.id,
++                    Agent.kind == AgentKind.AI,
++                    Agent.status == AgentStatus.ACTIVE,
++                    Agent.archived_at.is_(None),
++                )
++                .order_by(Match.id, Player.id)
++            )
++        )
++        .all()
++    )
++    if not player_rows:
++        if warm:
++            return build(ConnectionHealth.READY, agent_count=len(active_agent_ids))
++        return build(
++            ConnectionHealth.DISCONNECTED,
++            agent_count=len(active_agent_ids),
++            needs_reconnect=True,
++        )
++
++    players_by_match: dict[str, list[Player]] = {}
++    match_by_id: dict[str, Match] = {}
++    for match, player in player_rows:
++        match_by_id[match.id] = match
++        players_by_match.setdefault(match.id, []).append(player)
++
++    stalled_match: Match | None = None
++    for match_id, players in players_by_match.items():
++        if not warm:
++            stalled_match = match_by_id[match_id]
++            break
++        threshold = max(1, connection.stall_threshold)
++        for player in players:
++            if await _is_defaulting(db, player.id, match_id, threshold):
++                stalled_match = match_by_id[match_id]
++                break
++        if stalled_match is not None:
++            break
++
++    if stalled_match is not None:
++        return build(
++            ConnectionHealth.STALLED,
++            game=stalled_match,
++            agent_count=len(active_agent_ids),
++            needs_reconnect=True,
++        )
++
++    live_match = next(iter(match_by_id.values()))
++    return build(
++        ConnectionHealth.LIVE,
++        game=live_match,
++        agent_count=len(active_agent_ids),
++    )
+diff --git a/app/engine/pending_connection_gc.py b/app/engine/pending_connection_gc.py
+new file mode 100644
+index 0000000..fda0c34
+--- /dev/null
++++ b/app/engine/pending_connection_gc.py
+@@ -0,0 +1,39 @@
++"""Garbage collection for abandoned pending connections."""
++
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++
++from sqlalchemy import select
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.connection import Connection, ConnectionStatus
++
++_PENDING_MAX_AGE = timedelta(hours=24)
++
++
++async def gc_pending_connections(
++    db: AsyncSession, *, now: datetime | None = None
++) -> int:
++    """Delete pending connections that never connected within 24 hours."""
++    now = now or datetime.now(timezone.utc)
++    cutoff = now - _PENDING_MAX_AGE
++    stale = (
++        (
++            await db.execute(
++                select(Connection).where(
++                    Connection.status == ConnectionStatus.PENDING,
++                    Connection.first_connected_at.is_(None),
++                    Connection.created_at < cutoff,
++                )
++            )
++        )
++        .scalars()
++        .all()
++    )
++    if not stale:
++        return 0
++    for connection in stale:
++        await db.delete(connection)
++    await db.commit()
++    return len(stale)
+diff --git a/app/engine/tokens.py b/app/engine/tokens.py
+index 34f648b..18d2da8 100644
+--- a/app/engine/tokens.py
++++ b/app/engine/tokens.py
+@@ -15,6 +15,11 @@ def generate_bot_key() -> str:
+     return "sk_bot_" + secrets.token_hex(24)
+ 
+ 
++def generate_connection_key() -> str:
++    """Issue a stable per-connection credential. Format: sk_conn_<48 hex>."""
++    return "sk_conn_" + secrets.token_hex(24)
++
++
+ def bot_key_lookup(key: str) -> str:
+     """Indexed lookup handle for a bot key: sha256 hex. Store this; never the key."""
+     return hashlib.sha256(key.encode()).hexdigest()
+diff --git a/app/routes/connections_credentials.py b/app/routes/connections_credentials.py
+new file mode 100644
+index 0000000..7e779a4
+--- /dev/null
++++ b/app/routes/connections_credentials.py
+@@ -0,0 +1,60 @@
++"""Connection key reissue and revoke actions."""
++
++from __future__ import annotations
++
++from typing import Annotated
++
++from fastapi import APIRouter, Depends, Path, Request, status
++from fastapi.responses import RedirectResponse
++
++from app.deps import DbSession, require_user_with_handle
++from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
++from app.models.connection import Connection
++from app.models.user import User
++
++from app.routes.connections_setup import _load_owned_connection
++
++router = APIRouter()
++
++
++def _issue_new_key(connection: Connection, *, keep_old_overlap: bool) -> str:
++    key = generate_connection_key()
++    if keep_old_overlap and connection.prev_key_lookup is None:
++        connection.prev_key_lookup = connection.key_lookup
++    connection.key_lookup = bot_key_lookup(key)
++    connection.key_hint = bot_key_hint(key)
++    if not keep_old_overlap:
++        connection.prev_key_lookup = None
++    return key
++
++
++@router.post("/{connection_id}/reissue")
++async def reissue_key(
++    connection_id: Annotated[int, Path()],
++    request: Request,
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> RedirectResponse:
++    connection = await _load_owned_connection(db, user, connection_id)
++    key = _issue_new_key(connection, keep_old_overlap=True)
++    await db.commit()
++    request.session[f"fresh_connection_key_{connection.id}"] = key
++    return RedirectResponse(
++        url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
++    )
++
++
++@router.post("/{connection_id}/revoke")
++async def revoke_and_reissue(
++    connection_id: Annotated[int, Path()],
++    request: Request,
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> RedirectResponse:
++    connection = await _load_owned_connection(db, user, connection_id)
++    key = _issue_new_key(connection, keep_old_overlap=False)
++    await db.commit()
++    request.session[f"fresh_connection_key_{connection.id}"] = key
++    return RedirectResponse(
++        url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
++    )
+diff --git a/app/routes/connections_lifecycle.py b/app/routes/connections_lifecycle.py
+new file mode 100644
+index 0000000..5fa9ca0
+--- /dev/null
++++ b/app/routes/connections_lifecycle.py
+@@ -0,0 +1,134 @@
++"""Connection pause/resume/delete and agent reattach actions."""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++from typing import Annotated
++
++from fastapi import APIRouter, Depends, HTTPException, Path, status
++from fastapi.responses import RedirectResponse
++from sqlalchemy import select
++
++from app.config import PROVIDER_MODELS
++from app.deps import DbSession, require_user_with_handle
++from app.models.agent import Agent, AgentKind, AgentStatus
++from app.models.agent_version import AgentVersion
++from app.models.connection import ConnectionStatus
++from app.models.user import User
++
++from app.routes.connections_setup import _load_owned_connection
++
++router = APIRouter()
++
++
++async def _load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
++    agent = (
++        await db.execute(
++            select(Agent).where(Agent.id == agent_id, Agent.user_id == user.id)
++        )
++    ).scalar_one_or_none()
++    if agent is None:
++        raise HTTPException(status_code=404, detail="Agent not found.")
++    return agent
++
++
++async def _agent_current_model(db: DbSession, agent_id: int) -> str | None:
++    row = (
++        await db.execute(
++            select(AgentVersion.model)
++            .select_from(Agent)
++            .join(AgentVersion, Agent.current_version_id == AgentVersion.id)
++            .where(Agent.id == agent_id)
++        )
++    ).scalar_one_or_none()
++    return row
++
++
++@router.post("/{connection_id}/pause")
++async def pause_connection(
++    connection_id: Annotated[int, Path()],
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> RedirectResponse:
++    connection = await _load_owned_connection(db, user, connection_id)
++    connection.status = ConnectionStatus.PAUSED
++    connection.paused_at = datetime.now(timezone.utc)
++    connection.paused_reason = "owner"
++    await db.commit()
++    return RedirectResponse(
++        url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
++    )
++
++
++@router.post("/{connection_id}/resume")
++async def resume_connection(
++    connection_id: Annotated[int, Path()],
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> RedirectResponse:
++    connection = await _load_owned_connection(db, user, connection_id)
++    connection.status = ConnectionStatus.ACTIVE
++    connection.paused_at = None
++    connection.paused_reason = None
++    await db.commit()
++    return RedirectResponse(
++        url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
++    )
++
++
++@router.post("/{connection_id}/delete")
++async def delete_connection(
++    connection_id: Annotated[int, Path()],
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> RedirectResponse:
++    connection = await _load_owned_connection(db, user, connection_id)
++    agents = (
++        (
++            await db.execute(
++                select(Agent).where(Agent.connection_id == connection.id)
++            )
++        )
++        .scalars()
++        .all()
++    )
++    for agent in agents:
++        if agent.kind != AgentKind.AI:
++            continue
++        agent.connection_id = None
++        agent.status = AgentStatus.PAUSED
++    await db.delete(connection)
++    await db.commit()
++    return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
++
++
++@router.post("/{connection_id}/reattach/{agent_id}")
++async def reattach_agent(
++    connection_id: Annotated[int, Path()],
++    agent_id: Annotated[int, Path()],
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> RedirectResponse:
++    connection = await _load_owned_connection(db, user, connection_id)
++    if connection.status != ConnectionStatus.ACTIVE:
++        raise HTTPException(status_code=409, detail="Connection is not active.")
++    agent = await _load_owned_agent(db, user, agent_id)
++    if agent.kind != AgentKind.AI:
++        raise HTTPException(status_code=400, detail="Only AI agents can be reattached.")
++    if agent.connection_id is not None:
++        raise HTTPException(status_code=409, detail="That agent already has a connection.")
++    if agent.status != AgentStatus.PAUSED:
++        raise HTTPException(status_code=409, detail="That agent is not waiting for a connection.")
++    model = await _agent_current_model(db, agent.id)
++    allowed_models = PROVIDER_MODELS.get(connection.provider.value, [])
++    if model is None or model not in allowed_models:
++        raise HTTPException(
++            status_code=400,
++            detail="That agent's model is not valid for this connection provider.",
++        )
++    agent.connection_id = connection.id
++    agent.status = AgentStatus.ACTIVE
++    await db.commit()
++    return RedirectResponse(
++        url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
++    )
+diff --git a/app/routes/connections_setup.py b/app/routes/connections_setup.py
+new file mode 100644
+index 0000000..d4ad196
+--- /dev/null
++++ b/app/routes/connections_setup.py
+@@ -0,0 +1,302 @@
++"""Connection list, creation, and detail routes."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Annotated
++
++from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
++from fastapi.responses import HTMLResponse, RedirectResponse
++from sqlalchemy import select
++from starlette.responses import Response
++
++from app.config import PROVIDER_MODELS, settings
++from app.deps import DbSession, require_user_with_handle
++from app.engine.connection_health import compute_connection_health
++from app.engine.pending_connection_gc import gc_pending_connections
++from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
++from app.models.agent import Agent, AgentKind, AgentStatus
++from app.models.agent_version import AgentVersion
++from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
++from app.models.user import User
++from app.templating import templates
++
++router = APIRouter()
++
++
++_PROVIDER_LABELS = {
++    ConnectionProvider.CLAUDE.value: "Claude",
++    ConnectionProvider.GEMINI.value: "Gemini",
++    ConnectionProvider.OPENAI.value: "OpenAI",
++    ConnectionProvider.HERMES.value: "Hermes",
++    ConnectionProvider.OPENCLAW.value: "OpenClaw",
++}
++
++
++@dataclass(frozen=True)
++class AgentRow:
++    agent: Agent
++    version: AgentVersion | None
++
++
++def _provider_label(provider: ConnectionProvider) -> str:
++    return _PROVIDER_LABELS.get(provider.value, provider.value.title())
++
++
++def _connection_display_name(connection: Connection) -> str:
++    return connection.nickname or _provider_label(connection.provider)
++
++
++def _runner_setup_message(connection: Connection, key: str) -> str:
++    provider_label = _provider_label(connection.provider)
++    return (
++        "Please set up my AI connection in the background and keep it running.\n\n"
++        "Run these commands:\n"
++        f"curl -fsSL {settings.base_url}/runners/agentludum_connector.py -o agentludum_connector.py\n"
++        f"python3 agentludum_connector.py --key {key} --url {settings.base_url}\n\n"
++        f"This connection uses the {provider_label} login I already have. "
++        "Use the X-Connection-Key header with that key when the runner talks to the server.\n\n"
++        "Keep this running so it plays all my agents' games. Keep one session per match, "
++        "and only think when it is that agent's turn.\n\n"
++        "If the server says the key is invalid, stop and tell me. I can reissue it from the connection page."
++    )
++
++
++async def _load_attached_agents(db: DbSession, connection_id: int) -> list[AgentRow]:
++    rows = (
++        (
++            await db.execute(
++                select(Agent, AgentVersion)
++                .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
++                .where(
++                    Agent.connection_id == connection_id,
++                    Agent.kind == AgentKind.AI,
++                    Agent.archived_at.is_(None),
++                )
++                .order_by(Agent.name)
++            )
++        )
++        .all()
++    )
++    return [AgentRow(agent=agent, version=version) for agent, version in rows]
++
++
++async def _load_detached_agents(
++    db: DbSession, user_id: int, provider: ConnectionProvider
++) -> list[AgentRow]:
++    rows = (
++        (
++            await db.execute(
++                select(Agent, AgentVersion)
++                .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
++                .where(
++                    Agent.user_id == user_id,
++                    Agent.kind == AgentKind.AI,
++                    Agent.connection_id.is_(None),
++                    Agent.status == AgentStatus.PAUSED,
++                    Agent.archived_at.is_(None),
++                )
++                .order_by(Agent.name)
++            )
++        )
++        .all()
++    )
++    allowed = set(PROVIDER_MODELS.get(provider.value, ()))
++    rows_out: list[AgentRow] = []
++    for agent, version in rows:
++        if version is None or version.model not in allowed:
++            continue
++        rows_out.append(AgentRow(agent=agent, version=version))
++    return rows_out
++
++
++async def _load_owned_connection(db: DbSession, user: User, connection_id: int) -> Connection:
++    connection = (
++        await db.execute(
++            select(Connection).where(
++                Connection.id == connection_id,
++                Connection.user_id == user.id,
++            )
++        )
++    ).scalar_one_or_none()
++    if connection is None:
++        raise HTTPException(status_code=404, detail="Connection not found.")
++    return connection
++
++
++async def _load_resumeable_pending_connection(
++    db: DbSession, user_id: int, provider: ConnectionProvider
++) -> Connection | None:
++    """Return the newest pending connection for this provider, if one exists."""
++    return (
++        await db.execute(
++            select(Connection)
++            .where(
++                Connection.user_id == user_id,
++                Connection.provider == provider,
++                Connection.status == ConnectionStatus.PENDING,
++                Connection.first_connected_at.is_(None),
++            )
++            .order_by(Connection.created_at.desc(), Connection.id.desc())
++        )
++    ).scalar_one_or_none()
++
++
++def _issue_connection_key(connection: Connection, *, keep_old_overlap: bool) -> str:
++    key = generate_connection_key()
++    if keep_old_overlap and connection.prev_key_lookup is None:
++        connection.prev_key_lookup = connection.key_lookup
++    connection.key_lookup = bot_key_lookup(key)
++    connection.key_hint = bot_key_hint(key)
++    if not keep_old_overlap:
++        connection.prev_key_lookup = None
++    return key
++
++
++@router.get("", response_class=HTMLResponse)
++async def list_connections(
++    request: Request,
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> Response:
++    await gc_pending_connections(db)
++    connections = (
++        (
++            await db.execute(
++                select(Connection)
++                .where(Connection.user_id == user.id)
++                .order_by(Connection.created_at.desc(), Connection.id.desc())
++            )
++        )
++        .scalars()
++        .all()
++    )
++    rows = []
++    for connection in connections:
++        health = await compute_connection_health(db, connection)
++        rows.append(
++            {
++                "connection": connection,
++                "display_name": _connection_display_name(connection),
++                "health": health,
++                "agents": await _load_attached_agents(db, connection.id),
++            }
++        )
++    return templates.TemplateResponse(
++        request,
++        "connections/list.html",
++        {
++            "user": user,
++            "connections": rows,
++            "provider_choices": list(ConnectionProvider),
++            "provider_labels": _PROVIDER_LABELS,
++        },
++    )
++
++
++@router.post("")
++async def create_connection(
++    request: Request,
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++    provider: Annotated[str, Form()],
++    nickname: Annotated[str | None, Form()] = None,
++) -> RedirectResponse:
++    try:
++        provider_choice = ConnectionProvider(provider.strip().lower())
++    except ValueError as exc:
++        raise HTTPException(status_code=400, detail="Unknown provider.") from exc
++
++    key = generate_connection_key()
++    connection = await _load_resumeable_pending_connection(db, user.id, provider_choice)
++    if connection is None:
++        connection = Connection(
++            user_id=user.id,
++            nickname=(nickname.strip() if nickname and nickname.strip() else None),
++            provider=provider_choice,
++            key_lookup=bot_key_lookup(key),
++            key_hint=bot_key_hint(key),
++            status=ConnectionStatus.PENDING,
++        )
++        db.add(connection)
++        await db.flush()
++    elif nickname and nickname.strip():
++        connection.nickname = nickname.strip()
++        key = _issue_connection_key(connection, keep_old_overlap=True)
++    await db.commit()
++    request.session[f"fresh_connection_key_{connection.id}"] = key
++    return RedirectResponse(
++        url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
++    )
++
++
++@router.get("/{connection_id}", response_class=HTMLResponse)
++async def connection_detail(
++    connection_id: Annotated[int, Path()],
++    request: Request,
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> Response:
++    connection = await _load_owned_connection(db, user, connection_id)
++    fresh_key = request.session.pop(f"fresh_connection_key_{connection.id}", None)
++    health = await compute_connection_health(db, connection)
++    attached_agents = await _load_attached_agents(db, connection.id)
++    detached_agents = await _load_detached_agents(db, user.id, connection.provider)
++    return templates.TemplateResponse(
++        request,
++        "connections/detail.html",
++        {
++            "user": user,
++            "connection": connection,
++            "display_name": _connection_display_name(connection),
++            "health": health,
++            "fresh_key": fresh_key,
++            "runner_message": (
++                _runner_setup_message(connection, fresh_key) if fresh_key else None
++            ),
++            "attached_agents": attached_agents,
++            "detached_agents": detached_agents,
++            "provider_label": _provider_label(connection.provider),
++            "provider_models": PROVIDER_MODELS.get(connection.provider.value, []),
++            "base_url": settings.base_url,
++            "agent_count": len(attached_agents),
++        },
++    )
++
++
++@router.get("/{connection_id}/status", response_class=HTMLResponse)
++async def connection_status_fragment(
++    connection_id: Annotated[int, Path()],
++    request: Request,
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> Response:
++    connection = await _load_owned_connection(db, user, connection_id)
++    return templates.TemplateResponse(
++        request,
++        "connections/_status.html",
++        {
++            "connection": connection,
++            "display_name": _connection_display_name(connection),
++            "health": await compute_connection_health(db, connection),
++            "agent_count": len(await _load_attached_agents(db, connection.id)),
++        },
++    )
++
++
++@router.get("/{connection_id}/health-badge", response_class=HTMLResponse)
++async def connection_health_badge_fragment(
++    connection_id: Annotated[int, Path()],
++    request: Request,
++    db: DbSession,
++    user: Annotated[User, Depends(require_user_with_handle)],
++) -> Response:
++    connection = await _load_owned_connection(db, user, connection_id)
++    return templates.TemplateResponse(
++        request,
++        "connections/_health_badge.html",
++        {
++            "connection": connection,
++            "health": await compute_connection_health(db, connection),
++        },
++    )
+diff --git a/app/templates/connections/_health_badge.html b/app/templates/connections/_health_badge.html
+new file mode 100644
+index 0000000..da414b3
+--- /dev/null
++++ b/app/templates/connections/_health_badge.html
+@@ -0,0 +1,6 @@
++{# Connection operational-health badge. #}
++{% if connection.status.value == 'pending' and health.never_connected %}
++<span class="badge badge-soon"><span class="dot dot-still"></span>Waiting to connect</span><span class="bot-health-meta"> · waiting to connect</span>
++{% else %}
++<span class="badge {{ health.badge_class }}">{% if health.pulse %}<span class="dot"></span>{% elif health.state.value == 'ready' %}<span class="dot dot-still"></span>{% endif %}{{ health.label }}</span><span class="bot-health-meta">{% if health.never_connected %} · never connected{% else %} · last connected <time class="localtime-secs" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_at.strftime('%H:%M:%S UTC') }}</time>{% endif %}</span>
++{% endif %}
+diff --git a/app/templates/connections/_reconnect.html b/app/templates/connections/_reconnect.html
+new file mode 100644
+index 0000000..7bc435f
+--- /dev/null
++++ b/app/templates/connections/_reconnect.html
+@@ -0,0 +1,18 @@
++<div id="reconnect" class="card bot-reconnect">
++    <h3 style="margin-top:0;">⚠ Connection not ready</h3>
++    <p class="hint">
++        {% if health.state.value == 'stalled' and health.game_name %}
++            This connection has an agent in <strong>{{ health.game_name }}</strong> right now, but the runner isn't keeping up.
++        {% elif health.never_connected %}
++            This connection has never connected, so it can't play yet.
++        {% elif health.state.value == 'paused' %}
++            This connection is paused.
++        {% else %}
++            The runner isn't healthy right now{% if health.last_connected_at %} — last connected <time class="localtime-secs" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_at.strftime('%H:%M:%S UTC') }}</time>{% endif %}.
++        {% endif %}
++        Reissue a fresh setup message and paste it to the runner to bring it back.
++    </p>
++    <form method="post" action="/me/connections/{{ connection.id }}/reissue">
++        <button type="submit">Reissue &amp; show setup message</button>
++    </form>
++</div>
+diff --git a/app/templates/connections/_status.html b/app/templates/connections/_status.html
+new file mode 100644
+index 0000000..c1d7bea
+--- /dev/null
++++ b/app/templates/connections/_status.html
+@@ -0,0 +1,24 @@
++<div id="connection-status" class="card" hx-get="/me/connections/{{ connection.id }}/status" hx-trigger="every 5s" hx-swap="outerHTML">
++    <h3 style="margin-top:0;">Connection status</h3>
++    <p class="hint" style="margin-top:0;">
++        {% if connection.status.value == 'pending' and health.never_connected %}
++            Waiting for the runner to connect. Paste the setup message above, then keep the runner running.
++        {% elif health.state.value == 'paused' %}
++            This connection is paused.
++        {% elif health.state.value == 'stalled' %}
++            The runner is connected, but turns are stalling.
++        {% elif health.state.value == 'live' %}
++            The runner is connected and playing.
++        {% elif health.state.value == 'ready' %}
++            The runner is connected and idle, ready for the next turn.
++        {% else %}
++            Waiting for the runner to connect.
++        {% endif %}
++    </p>
++    <p class="meta">
++        <span class="bot-health-live" hx-get="/me/connections/{{ connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
++            {% include "connections/_health_badge.html" %}
++        </span>
++        {% if agent_count %} · {{ agent_count }} attached agent(s){% endif %}
++    </p>
++</div>
+diff --git a/app/templates/connections/detail.html b/app/templates/connections/detail.html
+new file mode 100644
+index 0000000..410f5ef
+--- /dev/null
++++ b/app/templates/connections/detail.html
+@@ -0,0 +1,90 @@
++{% extends "base.html" %}
++{% block title %}{{ display_name }} — Connections{% endblock %}
++{% block content %}
++<a class="backlink" href="/me/connections">← Connections</a>
++<div class="page-head">
++    <h1>{{ display_name }}</h1>
++    <p class="sub">
++        <span class="bot-health-live" hx-get="/me/connections/{{ connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
++            {% include "connections/_health_badge.html" %}
++        </span>
++        {% if connection.runner_pid and health.state.value != 'paused' and health.state.value != 'disconnected' %}
++            · PID {{ connection.runner_pid }}
++        {% endif %}
++    </p>
++</div>
++
++{% if fresh_key %}
++<div class="card" id="setup">
++    <h3 style="margin-top:0;">Connect your connection</h3>
++    <p class="hint" style="margin-top:0;">This setup message is shown once. Paste it into the runner so it can keep playing all of your agents' games.</p>
++    <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Copy setup message</button>
++    <pre id="runner-msg">{{ runner_message }}</pre>
++    <p class="hint">If you lose this message, reissue a fresh one from the connection controls below.</p>
++</div>
++{% endif %}
++
++{% include "connections/_status.html" %}
++
++{% if health.needs_reconnect and not fresh_key %}
++    {% include "connections/_reconnect.html" %}
++{% endif %}
++
++<div class="card">
++    <h3 style="margin-top:0;">Agents this connection powers</h3>
++    {% if attached_agents %}
++        {% for row in attached_agents %}
++        <article class="game-card">
++            <div class="game-card-info">
++                <h3>{{ row.agent.name }}</h3>
++                <p class="meta">
++                    {{ row.agent.game }}
++                    {% if row.version %} · {{ row.version.model }} · v{{ row.version.version_no }}{% endif %}
++                </p>
++            </div>
++        </article>
++        {% endfor %}
++    {% else %}
++        <p class="empty">No agents are attached yet.</p>
++    {% endif %}
++</div>
++
++<div class="card">
++    <h3 style="margin-top:0;">Detached agents you can reattach</h3>
++    {% if detached_agents %}
++        {% for row in detached_agents %}
++        <article class="game-card">
++            <div class="game-card-info">
++                <h3>{{ row.agent.name }}</h3>
++                <p class="meta">
++                    {{ row.agent.game }} · {{ row.version.model }} · v{{ row.version.version_no }}
++                </p>
++            </div>
++            <div class="game-card-action">
++                <form method="post" action="/me/connections/{{ connection.id }}/reattach/{{ row.agent.id }}">
++                    <button type="submit" class="btn btn-primary">Reattach</button>
++                </form>
++            </div>
++        </article>
++        {% endfor %}
++    {% else %}
++        <p class="empty">No detached agents are waiting for this provider.</p>
++    {% endif %}
++</div>
++
++<div class="card">
++    <h3 style="margin-top:0;">Controls</h3>
++    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
++        {% if connection.status.value == 'paused' %}
++            <form method="post" action="/me/connections/{{ connection.id }}/resume"><button type="submit">Resume</button></form>
++        {% else %}
++            <form method="post" action="/me/connections/{{ connection.id }}/pause"><button type="submit">Pause</button></form>
++        {% endif %}
++        <form method="post" action="/me/connections/{{ connection.id }}/reissue"><button type="submit">Reissue key</button></form>
++        <form method="post" action="/me/connections/{{ connection.id }}/revoke"><button type="submit" class="secondary">Revoke and reissue</button></form>
++        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this connection? Its agents will be detached, paused, and kept. Continue?');">
++            <button type="submit">Delete</button>
++        </form>
++    </div>
++</div>
++{% endblock %}
+diff --git a/app/templates/connections/list.html b/app/templates/connections/list.html
+new file mode 100644
+index 0000000..f23195c
+--- /dev/null
++++ b/app/templates/connections/list.html
+@@ -0,0 +1,52 @@
++{% extends "base.html" %}
++{% block title %}Connections — Hoard-Hurt-Help{% endblock %}
++{% block content %}
++<div class="page-head">
++    <h1>Connections</h1>
++    <p class="sub">Connect once, then reuse the same login across every agent you build.</p>
++</div>
++
++<form method="post" action="/me/connections" class="card form">
++    <label>
++        Provider
++        <select name="provider" required>
++            <option value="" selected disabled>Choose a provider</option>
++            {% for provider in provider_choices %}
++                <option value="{{ provider.value }}">{{ provider_labels[provider.value] }}</option>
++            {% endfor %}
++        </select>
++    </label>
++    <label>
++        Nickname
++        <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="Defaults to the provider name">
++    </label>
++    <div class="form-actions">
++        <button type="submit" class="btn btn-primary">Create connection</button>
++    </div>
++</form>
++
++{% if connections %}
++    <h2 style="margin-top:1.75rem;">Your connections</h2>
++    {% for row in connections %}
++    <article class="game-card">
++        <div class="game-card-info">
++            <h3><a href="/me/connections/{{ row.connection.id }}">{{ row.display_name }}</a></h3>
++            <p class="meta">
++                <span class="bot-health-live" hx-get="/me/connections/{{ row.connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
++                    {% include "connections/_health_badge.html" %}
++                </span>
++                {% if row.connection.runner_pid and row.health.state.value != 'paused' and row.health.state.value != 'disconnected' %}
++                    · PID {{ row.connection.runner_pid }}
++                {% endif %}
++                · {{ row.agents | length }} agent(s)
++            </p>
++        </div>
++        <div class="game-card-action">
++            <a class="btn btn-primary" href="/me/connections/{{ row.connection.id }}">Manage →</a>
++        </div>
++    </article>
++    {% endfor %}
++{% else %}
++    <p class="empty">No connections yet. Create one above.</p>
++{% endif %}
++{% endblock %}

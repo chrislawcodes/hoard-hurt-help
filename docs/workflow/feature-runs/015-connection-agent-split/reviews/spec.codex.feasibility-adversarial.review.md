@@ -9,8 +9,8 @@ git_head_sha: "7086e307a8848a871e03364ed5793c048ca12b7e"
 git_base_ref: "origin/main"
 git_base_sha: "d4cf564e31f694dbd64e46ea785959beb1f55bcc"
 generation_method: "codex-runner"
-resolution_status: "open"
-resolution_note: ""
+resolution_status: "accepted"
+resolution_note: "Spec re-checkpoint completed with no actionable findings ('reviews ran, no actionable findings raised'). Spec also adversarially reviewed in Round 1 (review-log.md)."
 raw_output_path: "docs/workflow/feature-runs/015-connection-agent-split/reviews/spec.codex.feasibility-adversarial.review.md.raw.txt"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -40,5 +40,5 @@ coverage_note: ""
 - total_tokens=0
 
 ## Resolution
-- status: open
-- note: 
+- status: accepted
+- note: Spec re-checkpoint completed with no actionable findings ('reviews ran, no actionable findings raised'). Spec also adversarially reviewed in Round 1 (review-log.md).

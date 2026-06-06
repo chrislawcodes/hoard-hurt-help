@@ -34,7 +34,6 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -269,6 +268,42 @@
       "files_written": 5,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-06T15:25:50Z",
+      "wall_seconds": 1.142,
+      "input_bytes_read": 240306,
+      "output_bytes_written": 71322,
+      "files_read": 29,
+      "files_written": 7,
+      "subprocess_invocations": 54,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-06T15:27:00Z",
+      "wall_seconds": 0.501,
+      "input_bytes_read": 70859,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-06T15:27:01Z",
+      "wall_seconds": 0.557,
+      "input_bytes_read": 71423,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -296,21 +331,31 @@
         "8db1f108e7105aec263f7abdb7c073eedad094d788988dcace626ade69601981"
       ],
       "initial_sha": "8db1f108e7105aec263f7abdb7c073eedad094d788988dcace626ade69601981"
+    },
+    "diff": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "3233ea71db2e390d4e6f468c6146585dbe46fc8cfc43da219607bf55300b8e65"
+      ],
+      "initial_sha": "3233ea71db2e390d4e6f468c6146585dbe46fc8cfc43da219607bf55300b8e65"
     }
   },
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 0,
-    "markers_sha": "",
-    "last_diff_head_sha": ""
+    "index": 1,
+    "markers_sha": "5ce9062252414454507d9049868105dc810dd46b7d589e27c4f5f10c6dc29826",
+    "last_diff_head_sha": "a86facebe809b2f99dcbd25236d0eb500248b641"
   },
   "spec_adversarial_rounds": 1,
   "last_action_result": {
-    "next": "dispatch_next_slice_to_codex",
-    "reason": "tasks checkpoint completed",
+    "next": "reconcile_reviews",
+    "reason": "diff checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 0,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 1,
+  "dirty_overrides": {}
 }

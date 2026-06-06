@@ -1,0 +1,17 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "a86facebe809b2f99dcbd25236d0eb500248b641",
+  "git_base_ref": "47faa1d",
+  "git_base_sha": "47faa1df31f9493603c35769c8d72708723c3871",
+  "paths": [
+    "app/engine",
+    "app/routes",
+    "app/templates",
+    "mcp_server",
+    "scripts"
+  ],
+  "allowed_dirty_paths": [],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/015-connection-agent-split/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}

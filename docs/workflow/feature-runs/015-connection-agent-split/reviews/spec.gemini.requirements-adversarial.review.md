@@ -9,8 +9,8 @@ git_head_sha: "7086e307a8848a871e03364ed5793c048ca12b7e"
 git_base_ref: "origin/main"
 git_base_sha: "d4cf564e31f694dbd64e46ea785959beb1f55bcc"
 generation_method: "gemini-cli"
-resolution_status: "open"
-resolution_note: ""
+resolution_status: "accepted"
+resolution_note: "All findings fixed in commit f8927b5: HIGH FR-015/FR-029 contradiction (delete=detach not block) resolved; version-freeze timing pinned to first rated-match start (FR-011); pending-connection-orphan clarified (agent created only after connect, so GC can't orphan, FR-024)."
 raw_output_path: "docs/workflow/feature-runs/015-connection-agent-split/reviews/spec.gemini.requirements-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -48,5 +48,5 @@ coverage_note: ""
 - `gemini-3.1-flash-lite`: input=20888, output=926, total=41509
 
 ## Resolution
-- status: open
-- note:
+- status: accepted
+- note: All findings fixed in commit f8927b5: HIGH FR-015/FR-029 contradiction (delete=detach not block) resolved; version-freeze timing pinned to first rated-match start (FR-011); pending-connection-orphan clarified (agent created only after connect, so GC can't orphan, FR-024).
