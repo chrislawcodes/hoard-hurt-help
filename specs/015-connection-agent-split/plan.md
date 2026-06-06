@@ -39,33 +39,41 @@ Split the single `Bot` concept into **`Connection`** (a user's AI login: provide
 
 **Tradeoffs**: +clear model, +natural benchmarking; −a join to render an agent's provider (cheap, indexed).
 
-### Decision 2: Strategy stays in `strategy_prompts`, repointed player→agent
+### Decision 2: Versioned agents (revised after adversarial review)
 
-**Chosen**: Keep the versioned `strategy_prompts` table; change its FK from `player_id` to `agent_id`. The agent's current strategy = its latest row. Each `Player` snapshots the strategy text at match start (`players.strategy_snapshot`).
+**Chosen**: An agent is an identity; its (model + strategy) lives in immutable-once-played **`agent_versions`** rows. `players.agent_version_id` records the exact version a match ran. This **replaces** both the per-player `strategy_prompts` table and the planned `players.strategy_snapshot`. Editing an unfrozen (unplayed) version updates it in place; editing a frozen version forks version N+1. Rating is per version; the public board shows one row per agent at its latest rated version.
 
-**Rationale**: Smallest change that satisfies "strategy lives on the agent" while preserving version history and the snapshot-for-history requirement (FR-012). Bots have no strategy_prompts (deterministic from `bot_*`).
+**Rationale**: Resolves the identity contradiction the review caught (editable strategy vs. a meaningful rank) and the history-rewrite bug (a completed match points at its immutable version, so it can never show the wrong strategy — FR-012) with one mechanism. It also reuses today's already-versioned strategy storage rather than inventing a parallel one.
 
-**Alternatives**: inline `strategy_text` on `agents` — rejected (loses versioning, more route churn).
+**Alternatives**: editable strategy keeping one rank — rejected (rank stops meaning anything); fully immutable at creation + clone — rejected (more friction; versions express the iterate-on-my-agent story better).
 
-### Decision 3: Auth resolves a Connection; turn resolution fans out to its agents
+### Decision 3: Auth resolves a Connection; turn resolution is keyed by (agent, match)
 
-**Chosen**: `X-Connection-Key` (prefix `sk_conn_`) → `require_connection` → a `Connection`. `/api/agent/next-turn` returns the most urgent turn across **all agents on that connection**, and the payload names the agent (→ its model, strategy, game) so the runner drives the right session.
+**Chosen**: `X-Connection-Key` (prefix `sk_conn_`) → `require_connection`. `/api/agent/next-turn` returns the most urgent turn across the connection's agents, **keyed by `(agent_id, match_id)`** (not `match_id` alone), and returns an **agent-scoped token** that the write endpoints require so a submission binds to exactly one (agent, match).
 
-**Rationale**: One login serves many competitors (US2/US3). This is the load-bearing change and the riskiest; it lands as its own slice with the most tests.
+**Rationale**: One login serves many competitors (US2/US3). The review flagged that resolving by connection + match alone cannot tell two agents of one connection apart in the same match — the same identity-class failure behind the past mid-deploy freeze. Keying by (agent, match) + a scoped token closes it. Highest-risk slice, most tests.
 
-**Tradeoffs**: turn selection now ranges over a set of players (one per agent) rather than one bot's players — same query shape, wider `IN` set. Keep the existing urgency ordering.
+**Tradeoffs**: a wider candidate set and an extra token to thread; worth it to make wrong-player moves structurally impossible.
 
-### Decision 4: One destructive reshape migration (pre-launch), tests build from models
+### Decision 4: One destructive reshape migration (pre-launch), round-trip safe
 
-**Chosen**: append `0023_connection_agent_split` that drops `strategy_prompts/players/bots` and creates the new tables; tests keep using `create_all` from models. Prod is reset and `alembic upgrade head`.
+**Chosen**: append `0023_connection_agent_split`: `upgrade()` drops `strategy_prompts/players/bots` and creates `connections/agents/agent_versions/players`; **`downgrade()` recreates the prior `bots/players/strategy_prompts` shape** and drops the new tables. Tests keep using `create_all` from models; prod is reset and `alembic upgrade head`.
 
-**Rationale**: No data to preserve, so a destructive reshape is the simplest correct step. Squashing the 0001–0022 chain is unnecessary and risky.
+**Rationale**: No data to preserve, so a destructive reshape is the simplest correct step. But the review caught that `tests/test_migrations.py` runs `upgrade head` **and `downgrade base`** on SQLite — so a one-way migration fails the suite. The downgrade must rebuild the old shape (or the test changes); rebuilding is the safer choice.
 
-**Constraint**: `tests/test_migrations.py` must still pass `alembic upgrade head` on SQLite — keep batch-mode discipline for any in-place alters.
+**Constraint**: `tests/test_migrations.py` must pass the full up/down round trip on SQLite — keep batch-mode discipline; mirror the exact prior columns/constraints in `downgrade()`.
 
-### Decision 5: Combined create-agent flow; provider fixed per connection
+### Decision 5: Combined create-agent flow with a `pending` connection state
 
-**Chosen**: "New agent" detects no connection and walks provider→connect→name+model inline (US1); with a connection present it's pick-connection→name+model+strategy (US2). Provider is set at connect time and not switchable in place (make another connection to use another provider).
+**Chosen**: "New agent" with no connection creates a `pending` connection on provider-select, shows the setup message, and polls for connect; resumable if abandoned; GC'd after 24h. With a connection present it's pick-connection→name+model+strategy. Provider is fixed at connect time.
+
+**Rationale**: The review flagged the original flow assumed a synchronous happy-path connect. The `pending` state + resume + GC make abandonment and runner-never-connects graceful (FR-024).
+
+### Decision 7: Connection health is first-class, not a renamed single-agent helper
+
+**Chosen**: `connection_health` computes live/stalled/ready from the **connection** (heartbeat, `stall_threshold`, paused) across all its agents — replacing `bot_activity`'s single-`Bot` walk of `Player.bot_id`/`Bot.status`. The connection page's badge and SSE use this.
+
+**Rationale**: Review finding — renaming `bot_activity`→`connection_activity` hides a real recompute; health across many agents is genuinely different logic (FR-024).
 
 ### Decision 6: Drop the MCP-direct "Advanced" connect path
 
@@ -77,11 +85,14 @@ Monolithic `app/` + `mcp_server/`. Files this feature creates or changes:
 
 ```
 app/models/
-  connection.py            CREATE  — Connection model + ConnectionProvider/ConnectionStatus enums
-  agent.py                 CREATE  — Agent model + AgentKind/AgentStatus enums (former Bot fields + bot_* config)
-  player.py                MODIFY  — bot_id→agent_id FK, agent_id(str)→seat_name, +strategy_snapshot, constraints
-  strategy_prompt.py       MODIFY  — player_id → agent_id FK
+  connection.py            CREATE  — Connection model + ConnectionProvider/ConnectionStatus(pending/active/paused) enums
+  agent.py                 CREATE  — Agent identity + AgentKind/AgentStatus enums + bot_* config; current_version_id
+  agent_version.py         CREATE  — AgentVersion (agent_id, version_no, model, strategy_text, frozen_at)
+  player.py                MODIFY  — bot_id→agent_id FK, +agent_version_id FK, agent_id(str)→seat_name, constraints
+  strategy_prompt.py       DELETE  — superseded by agent_version.py
   bot.py                   DELETE  — replaced by connection.py + agent.py
+app/config.py              MODIFY  — PROVIDER_MODELS source-of-truth map (FR-023)
+app/engine/connection_health.py  CREATE — live/stalled/ready across a connection's agents (FR-024)
   __init__.py              MODIFY  — export new models, drop Bot
 
 app/deps.py                MODIFY  — require_bot→require_connection (X-Connection-Key); require_bot_player→require_agent_player
@@ -123,7 +134,7 @@ tests/  MODIFY (~34 files) — fixtures bot→connection+agent; new tests for tu
 
 ## Implementation Sequencing (vertical slices; preflight green at each boundary)
 
-> Implementation is **on hold** (concurrent branches). This is the order to use when it resumes.
+> **Implementation is assigned to Codex** (`codex exec -m gpt-5.4-mini -s workspace-write`, per the agent-invocation rules), driven slice-by-slice from `tasks.md`, with an adversarial review at each slice boundary (capture before/after SHA). It is **on hold** until the concurrent bot/sim/leaderboard branches merge and `main` is quiet. **Slice 1 must not be parallelized** — it's the high-care turn-resolution unit. This is the order to use when it resumes:
 
 - **Slice 0 — Models + schema (no behavior change yet).** Create `connection.py`/`agent.py`, modify `player.py`/`strategy_prompt.py`, delete `bot.py`, update `__init__`. Add migration 0023. Get `create_all` + `alembic upgrade head` (SQLite) green. Tests still red elsewhere — that's expected within the slice; the boundary target is models import + migration tests.
 - **Slice 1 — Auth + turn resolution (HIGH-CARE).** `require_connection`, `connection_activity.mark_seen`, and `/api/agent/next-turn` fan-out across a connection's agents with agent identification in the payload. **Heaviest tests here** (single agent, multiple agents, paused connection, urgency ordering, agent identification). Update `agent_api.py` player resolution.

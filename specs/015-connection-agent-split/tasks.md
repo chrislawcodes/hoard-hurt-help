@@ -26,13 +26,15 @@
 
 ⚠️ **CRITICAL**: No other phase can begin until this is complete.
 
-- [ ] T002 [P: app/models/connection.py] Create `Connection` model + `ConnectionProvider` / `ConnectionStatus` enums per data-model.md (provider, key_lookup/prev_key_lookup/key_hint, status/paused, first_connected_at/last_seen_at/runner_pid, max_concurrent_games/stall_threshold; no model, no name).
-- [ ] T003 [P: app/models/agent.py] Create `Agent` model + `AgentKind`(ai/bot) / `AgentStatus` enums (user_id, nullable connection_id, kind, name, game, model, status, archived_at, `bot_*` config fields formerly `sim_*`); add `UNIQUE(user_id,name)` and `UNIQUE(user_id,bot_profile_id)`.
-- [ ] T004 [app/models/player.py] Repoint `Player`: `bot_id`→`agent_id` FK→agents.id; rename string `agent_id`→`seat_name`; add `strategy_snapshot` (Text, nullable); update constraints to `UNIQUE(agent_id,match_id)` + `UNIQUE(match_id,seat_name)`. (Depends T003.)
-- [ ] T005 [app/models/strategy_prompt.py] Repoint `StrategyPrompt.player_id`→`agent_id` FK→agents.id. (Depends T003.)
-- [ ] T006 [app/models/bot.py, app/models/__init__.py] Delete `bot.py`; update `__init__` to export `Connection`/`Agent` and drop `Bot`. (Depends T002–T005.)
-- [ ] T007 [migrations/versions/0023_connection_agent_split.py] Destructive reshape migration: drop `strategy_prompts`,`players`,`bots`; create `connections`,`agents`,`players`(new),`strategy_prompts`(agent_id); recreate indexes/constraints. Use `op.batch_alter_table` for any in-place op. (Depends T002–T006.)
-- [ ] T008 [tests/test_migrations.py, tests/conftest.py] Update test bootstrap so `create_all` + `alembic upgrade head` pass on the reshaped schema; add an Agent/Connection fixture factory to replace bot fixtures. (Depends T007.)
+- [ ] T002 [P: app/models/connection.py] Create `Connection` model + `ConnectionProvider` / `ConnectionStatus`(pending/active/paused) enums per data-model.md (provider, key_lookup/prev_key_lookup/key_hint, status/paused, first_connected_at/last_seen_at/runner_pid, max_concurrent_games/stall_threshold; no model, no name).
+- [ ] T003 [P: app/models/agent.py] Create `Agent` identity model + `AgentKind`(ai/bot) / `AgentStatus` enums (user_id, nullable connection_id, kind, name, game, `current_version_id`, status, archived_at, `bot_*` config formerly `sim_*`); `UNIQUE(user_id,name)`, `UNIQUE(user_id,bot_profile_id)`; CHECK `kind=ai⇒connection_id NOT NULL`, `kind=bot⇒connection_id NULL`.
+- [ ] T003b [P: app/models/agent_version.py] Create `AgentVersion` (agent_id FK, version_no, model, strategy_text, frozen_at); `UNIQUE(agent_id,version_no)`. (Replaces strategy_prompts.)
+- [ ] T004 [app/models/player.py] Repoint `Player`: `bot_id`→`agent_id` FK→agents.id; add `agent_version_id` FK→agent_versions.id (nullable for bots); rename string `agent_id`→`seat_name` (str(40)); constraints `UNIQUE(agent_id,match_id)` + `UNIQUE(match_id,seat_name)`. (Depends T003, T003b.)
+- [ ] T005 [app/models/strategy_prompt.py] **Delete** `strategy_prompt.py` (superseded by `agent_version.py`). (Depends T003b.)
+- [ ] T006 [app/models/bot.py, app/models/__init__.py] Delete `bot.py`; update `__init__` to export `Connection`/`Agent`/`AgentVersion`, drop `Bot`/`StrategyPrompt`. (Depends T002–T005.)
+- [ ] T006b [P: app/config.py] Add `PROVIDER_MODELS: dict[ConnectionProvider, list[str]]` source-of-truth map (FR-023).
+- [ ] T007 [migrations/versions/0023_connection_agent_split.py] Reshape migration — **round-trip safe**: `upgrade()` drops `strategy_prompts/players/bots`, creates `connections/agents/agent_versions/players`(new); `downgrade()` recreates the prior `bots/players/strategy_prompts` shape exactly + drops the new tables. `op.batch_alter_table` for in-place ops. (Depends T002–T006.)
+- [ ] T008 [tests/test_migrations.py, tests/conftest.py] Ensure `create_all` + full `alembic upgrade head`/`downgrade base` round trip pass on SQLite; add Connection+Agent+AgentVersion fixture factories replacing bot fixtures. (Depends T007.)
 
 **Checkpoint**: models import, schema builds, migration tests green. (Other suites still red — expected; later phases fix them.)
 
@@ -45,11 +47,11 @@
 
 ⚠️ **Do NOT split across parallel agents — this is the riskiest unit (past mid-deploy freeze). Tasks are serial.**
 
-- [ ] T009 [US2] [app/deps.py] `require_bot`→`require_connection` (header `X-Connection-Key`, prefix `sk_conn_`); resolve via `connections.key_lookup`/`prev_key_lookup`; `CONNECTION_PAUSED` / `INVALID_KEY`. Add `require_agent_player` (connection→agent→player for a match_id).
+- [ ] T009 [US2] [app/deps.py] `require_bot`→`require_connection` (header `X-Connection-Key`, prefix `sk_conn_`); resolve via `connections.key_lookup`/`prev_key_lookup`; `CONNECTION_PAUSED` / `INVALID_KEY`. Add `require_agent_player` that resolves by **(agent, match)** — via the agent-scoped token for writes, or explicit `agent_id` for reads — never by `match_id` alone.
 - [ ] T010 [US2] [app/engine/connection_activity.py] Rename `bot_activity.py`→`connection_activity.py`; `mark_seen` stamps the **connection** (first_connected_at/last_seen_at, retire superseded key). Update imports.
-- [ ] T011 [US3] [app/routes/agent_next_turn.py] Turn resolution: fan out over the connection's active `kind=ai` agents' players; pick most urgent via existing ordering; payload adds `agent_id`/`agent_name`/`model`/`seat_name`/`strategy` per contracts/endpoints.md. `report-pid` stamps `connections.runner_pid`.
-- [ ] T012 [US2] [app/routes/agent_api.py] Resolve the acting player via `require_agent_player` for submit/message/leave/turn/state/chat/standings/history; `NOT_IN_GAME` if the connection has no agent in that match. Auth header switch.
-- [ ] T013 [P: tests/test_agent_next_turn_fanout.py] [US3] Tests: single agent/one match; one connection / multiple agents / multiple matches → correct agent+model identified; paused connection → waiting; urgency ordering preserved. (Covers SC-002, SC-003.)
+- [ ] T011 [US3] [app/routes/agent_next_turn.py] Turn resolution: **key candidates by `(agent_id, match_id)`** over the connection's active `kind=ai` agents; pick most urgent via existing ordering; payload adds `agent_id`/`agent_name`/`model`/`version_no`/`seat_name`/`strategy` **and an `agent_turn_token`** per contracts/endpoints.md. `report-pid` stamps `connections.runner_pid`.
+- [ ] T012 [US2] [app/routes/agent_api.py] Write endpoints (submit/message/leave) require the `agent_turn_token` to bind to one (agent, match); read endpoints take explicit `agent_id`; expose `seat_name` not int `agent_id`; `NOT_IN_GAME` otherwise. Auth header switch.
+- [ ] T013 [P: tests/test_agent_next_turn_fanout.py] [US3] Tests: single agent/one match; multiple agents/matches on one connection → correct agent+model+version identified; **two agents of one connection in the SAME match → each gets its own turn and a submit with the wrong token is rejected** (the Blocker-#1 regression test); paused connection → waiting; urgency ordering preserved. (Covers SC-002, SC-003, FR-021.)
 - [ ] T014 [P: tests/test_connection_auth.py] [US2] Tests: valid/invalid/missing key; graceful reissue overlap; paused connection 403; `mark_seen` heartbeat. (Covers the auth half.)
 
 **Checkpoint**: auth + next-turn suites green; agent API resolves players via connection→agent.
@@ -63,7 +65,7 @@
 
 - [ ] T015 [P: app/engine/sims/runtime.py, app/engine/sims/service.py] [US4] Operate on `kind=bot` agents (read `bot_*` config from the agent); deterministic play unchanged; rename sim→bot in symbols/strings.
 - [ ] T016 [P: app/engine/sims/seating.py] [US4] Seat bots (kind=bot agents) to fill matches; no key/runner involved.
-- [ ] T017 [US4] [app/read_models/leaderboard.py] A row = an Agent; distinguish `ai` vs `bot`; keep the agents/bots/both views (replaces the agents/sims/both concept). (Depends Phase 2.)
+- [ ] T017 [US4][US7] [app/read_models/leaderboard.py] Rating computed **per agent_version**; public board shows **one row per agent at its latest rated version**; distinguish `ai` vs `bot`; keep the agents/bots/both views (replaces agents/sims/both). (Depends Phase 2.)
 - [ ] T018 [P: tests/test_bot_agents.py] [US4] Tests: bot has null connection + kind=bot; deterministic play; leaderboard labels it; invariant `kind=bot ⇒ no connection` and `kind=ai ⇒ connection+model` enforced. (Covers SC-004.)
 
 **Checkpoint**: bot seating + deterministic play + leaderboard ai/bot suites green.
@@ -76,22 +78,24 @@
 **Independent Test**: see quickstart US1/US5/US6/US7.
 
 ### Connections (US6)
-- [ ] T019 [P: app/routes/connections_setup.py] [US6] `/me/connections` list + create (pick provider → setup message) + detail (runner status, agents it powers).
+- [ ] T019 [P: app/routes/connections_setup.py] [US6] `/me/connections` list + create (provider → **`pending` connection** + setup message + poll-for-connect; resume an abandoned pending) + detail (health, agents it powers).
+- [ ] T019b [P: app/engine/connection_health.py] [US6] Compute live/stalled/ready from the connection across its agents (heartbeat, `stall_threshold`, paused) — replaces single-agent `bot_activity` health. (FR-024)
+- [ ] T019c [app/engine/pending_connection_gc.py or existing scheduler] [US1] Garbage-collect `pending` connections older than 24h. (FR-024)
 - [ ] T020 [P: app/routes/connections_credentials.py] [US6] reissue/revoke key (graceful overlap), report runner health.
 - [ ] T021 [P: app/routes/connections_lifecycle.py] [US6] pause/resume/delete a connection; **block delete while it powers agents** (clear message).
 - [ ] T022 [P: app/templates/connections/list.html, app/templates/connections/detail.html, app/templates/connections/_health_badge.html, app/templates/connections/_reconnect.html] [US6] Connection templates (from `bots/` split); drop the MCP-direct "Advanced" section.
 
 ### Agents (US1, US5, US7)
-- [ ] T023 [P: app/routes/agents_setup.py] [US1] `/me/agents` list + **combined create flow** (no connection → provider→connect→name+model inline; has connection → pick-connection→name+model+strategy) + detail.
-- [ ] T024 [P: app/routes/agents_lifecycle.py] [US5] rename/pause/delete agent; `set-model` (constrained to connection provider); `strategy` edit — **blocked during an active match**; write the per-match `strategy_snapshot` at match start.
-- [ ] T025 [P: app/routes/agents_status.py] [US1] agent onboarding/health fragments (from `bots_status`).
-- [ ] T026 [P: app/templates/agents/list.html, app/templates/agents/detail.html, app/templates/agents/_status.html] [US1] Agent templates incl. the combined create flow + state-driven detail.
-- [ ] T027 [US7] [app/routes/web_player.py] Join uses an agent; strategy comes from the agent + snapshot; `seat_name` derives from agent name. (Depends Phase 2–3.)
-- [ ] T028 [P: app/routes/web_lobby.py, app/routes/admin_web.py, app/routes/web_viewer.py, app/routes/nav_context.py, app/routes/auth.py] [US7] Update agent/connection references; **two nav entries** (Connections, Agents); in-match display name from agent.
-- [ ] T029 [app/routes/bots_setup.py, app/routes/bots_lifecycle.py, app/routes/bots_status.py, app/routes/bots_credentials.py, app/routes/bots_web_support.py, app/templates/bots/] Delete the superseded bots routes + templates; update router registration. (Depends T019–T028.)
-- [ ] T030 [P: tests/test_agent_management.py, tests/test_connection_management.py] [US1][US5][US6] Tests: combined create flow; model constrained by provider; strategy active-match block + snapshot; delete-connection blocked while powering agents. (Covers SC-001, SC-005.)
+- [ ] T023 [P: app/routes/agents_setup.py] [US1] `/me/agents` list + **combined create flow** (no connection → provider→connect→name+model inline; has connection → pick-connection→name+model+strategy → creates agent + version 1) + detail (with version history). Model choice validated against `PROVIDER_MODELS` (FR-023).
+- [ ] T024 [P: app/routes/agents_lifecycle.py] [US5] rename/pause/delete agent; edit model/strategy → **update the current version if unfrozen, else fork version N+1**; block edit while the version is mid-match; freeze a version when it first plays a rated match. (FR-010/011)
+- [ ] T025 [P: app/routes/agents_status.py] [US1] agent onboarding/status fragments (from `bots_status`).
+- [ ] T026 [P: app/templates/agents/list.html, app/templates/agents/detail.html, app/templates/agents/_status.html] [US1] Agent templates: combined create flow, state-driven detail, **version history + per-version rank**.
+- [ ] T027 [US7] [app/routes/web_player.py] Join records `agent_id` + `agent_version_id`; **enforce `max_concurrent_games`** at join (FR-022); `seat_name = handle/name` uniquified per match (FR-013).
+- [ ] T028 [P: app/routes/web_lobby.py, app/routes/admin_web.py, app/routes/web_viewer.py, app/routes/nav_context.py, app/routes/auth.py] [US7] Update references; **two nav entries** (Connections, Agents); **public identity = `seat_name` everywhere the protocol exposed the string `agent_id`** (Codex finding #3); sweep read_models/matches.py + viewer.
+- [ ] T029 [app/routes/bots_setup.py, app/routes/bots_lifecycle.py, app/routes/bots_status.py, app/routes/bots_credentials.py, app/routes/bots_web_support.py, app/templates/bots/] Delete superseded bots routes + templates; update router registration. (Depends T019–T028.)
+- [ ] T030 [P: tests/test_agent_versions.py, tests/test_connection_management.py] [US1][US5][US6] Tests: combined create flow incl. pending/abandon; model validated against PROVIDER_MODELS; **version fork-on-edit-after-play + draft-edit-in-place + completed match shows its own version**; `max_concurrent_games` block; delete-connection blocked while powering agents; `seat_name` uniqueness for two users sharing a name. (Covers SC-001, SC-005.)
 
-**Checkpoint**: management pages work; routers register; these suites green.
+**Checkpoint**: management pages work; versioning + seat_name + health correct; routers register; these suites green.
 
 ---
 

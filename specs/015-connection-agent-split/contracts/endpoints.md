@@ -15,18 +15,20 @@ Returns the single most urgent turn across **all agents on the authenticated con
 
 **Auth**: `X-Connection-Key`.
 
-**200 — a turn is waiting** (payload now identifies the agent):
+**200 — a turn is waiting** (payload identifies the agent *and* carries an agent-scoped token):
 ```jsonc
 {
   "status": "your_turn",
   "match_id": "M_0042",
   "game": "hoard-hurt-help",
-  "agent_id": 123,            // NEW: which agent this turn is for
-  "agent_name": "Sonnet-HHH", // NEW: for the runner's session label
-  "model": "claude-sonnet-4-6", // NEW: drive THIS agent's session with THIS model
-  "seat_name": "Sonnet-HHH",  // in-match display (derived from agent name)
-  "strategy": "…",            // the agent's strategy text
-  "turn_token": "…",
+  "agent_id": 123,             // which agent this turn is for
+  "agent_name": "Sonnet-HHH",  // runner session label
+  "model": "claude-sonnet-4-6",// drive THIS agent's session with THIS model
+  "version_no": 2,             // the agent_version that's playing
+  "seat_name": "alice/Sonnet-HHH", // public in-match display (handle/name)
+  "strategy": "…",             // this version's strategy_text
+  "turn_token": "…",           // the per-turn token (existing)
+  "agent_turn_token": "…",     // NEW: scopes the submit to THIS (agent, match)
   "history": [ … ],
   "scoreboard": { … }
 }
@@ -37,11 +39,12 @@ Returns the single most urgent turn across **all agents on the authenticated con
 { "status": "waiting", "next_poll_after_seconds": 5 }
 ```
 
-**Resolution rules**:
+**Resolution rules** (revised — closes Codex Blocker #1):
 1. Collect the connection's active agents (`kind=ai`, not archived/paused).
-2. Over their players in active matches, pick the most urgent turn using the **existing** urgency ordering.
-3. Include `agent_id`/`agent_name`/`model` so one runner can keep a distinct session per (agent, match).
-4. Paused connection ⇒ none of its agents play.
+2. **Key candidate turns by `(agent_id, match_id)`, not `match_id`** — a connection may field two agents in one match, and they must not collapse together.
+3. Pick the most urgent using the **existing** urgency ordering.
+4. Return `agent_id`/`agent_name`/`model`/`version_no` so one runner keeps a distinct session per (agent, match), plus an **`agent_turn_token`** that the write endpoints require to bind a submission to the exact agent+match (so the server can never apply a move to the wrong player — the failure mode behind the past freeze).
+5. Paused connection ⇒ none of its agents play.
 
 **Tests (required)**: one agent one match; one connection / multiple agents / multiple matches (correct agent identified); paused connection returns waiting/none; urgency ordering preserved; `model` matches the chosen agent.
 
@@ -51,7 +54,14 @@ Unchanged shape; now stamps `connections.runner_pid` (one runner per connection)
 
 ## POST /api/agent/submit, /message, /leave · GET /api/agent/turn, /state, /chat, /standings, /history/opponents/{id}, /turns/{r}/{t}
 
-Auth changes to `X-Connection-Key`. Each must resolve the **specific agent's player** for the given `match_id`: connection → its agent that is in that match → that player. Response bodies unchanged. `403 NOT_IN_GAME` if the connection has no agent in that match.
+Auth changes to `X-Connection-Key`. Each must resolve the **specific agent's player** unambiguously:
+- **Write endpoints** (`submit`, `message`, `leave`) require the `agent_turn_token` from `next-turn`; it binds the call to exactly one `(agent_id, match_id)`. With two agents from one connection in the same match, the token — not `match_id` alone — selects the player.
+- **Read endpoints** accept an explicit `agent_id` (or seat) alongside `match_id` to disambiguate; default to the connection's sole agent in that match when there is only one.
+- Response bodies unchanged except public identity fields now expose `seat_name` (see below). `403 NOT_IN_GAME` if the connection has no matching agent.
+
+## Public seat identity (Codex finding #3 + Gemini finding #3)
+
+Wherever the game protocol, spectator viewer, or history previously exposed a player's `agent_id` **string** as the public label, it now exposes **`seat_name`**, defined as `"{user.handle}/{agent.name}"` (truncated to 40 chars, uniquified within the match). This is a hard contract: DB `agent_id` is an integer FK and is never a public label; `seat_name` is the only human-facing identity. All payloads, viewer templates, and read models must be swept for this rename.
 
 ## Web management routes (renamed/split)
 

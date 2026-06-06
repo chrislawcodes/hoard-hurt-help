@@ -133,20 +133,21 @@ As the platform, I need built-in scripted opponents ("Bots", formerly "Sims") so
 
 ---
 
-### User Story 5 — An agent is a model + strategy (Priority: P2)
+### User Story 5 — An agent is a versioned (model + strategy) (Priority: P2)
 
-As a user, I want each agent to carry its own strategy, so that the agent fully defines how that competitor plays and I don't re-enter strategy every match.
+As a user, I want each change to my agent's model or strategy to become a new **version** with its own rating, so that I can iterate while every leaderboard rank still means "this exact (model + strategy) scored X."
 
-**Why this priority:** Important for a coherent model and fair benchmarking, but the system can run with default strategies before this is polished.
+**Why this priority:** Important for benchmark integrity and a coherent model; the system can run on a single default version before iteration is polished.
 
-**Independent Test:** Set an agent's strategy; enter it in a match; confirm the match runs that strategy. Edit the strategy between matches; confirm new matches use the new text and a finished match still shows the strategy it actually ran.
+**Independent Test:** Create an agent (version 1 = model + strategy); enter it in a match. Edit the strategy after it has played; confirm a version 2 is created, new matches use v2, and the completed match still shows v1. Each rated version has its own rank.
 
 **Acceptance Scenarios:**
 
-1. **Given** an agent with a strategy, **When** it joins a match, **Then** it plays that strategy without the user re-typing it.
-2. **Given** a match in progress, **When** the user tries to edit that agent's strategy, **Then** the edit is blocked until the match is no longer active.
-3. **Given** a completed match, **When** the user later edits the agent's strategy, **Then** the completed match still reflects the strategy text it ran (snapshot preserved).
-4. **Given** a strategy edit, **When** it is saved, **Then** the agent keeps its identity and standing (no new agent is created).
+1. **Given** an agent whose current version is its (model + strategy), **When** it joins a match, **Then** it plays that version without the user re-typing anything.
+2. **Given** the agent's current version has **not** yet played a rated match, **When** the user edits its model or strategy, **Then** the edit updates that same (still-draft) version — no version spam during setup.
+3. **Given** the current version **has** played a rated match (it is frozen), **When** the user edits model or strategy, **Then** a new version (N+1) is created, becomes current, and is used by future matches.
+4. **Given** a completed match, **When** the user later changes the agent, **Then** that match still reflects the exact version it ran (the version is the snapshot; history is never rewritten).
+5. **Given** an agent with several rated versions, **When** the leaderboard renders, **Then** the public board shows one row per agent at its latest rated version, and the agent's page lists every version and its rank.
 
 ---
 
@@ -203,12 +204,15 @@ As Chris, I want the codebase and copy to stop calling a user's AI player a "bot
 - **Delete a connection that still powers agents** → block with a clear message, or require the agents be deleted/detached first (decision: block-and-explain; the user must remove its agents first). AI agents cannot be left "powered by nothing."
 - **Provider change on a connection** → the connection's provider is effectively fixed by the login; changing it would invalidate every agent's model. Treat provider as set at connect time; to use another provider, make another connection. (No in-place provider switch in this cut.)
 - **Agent's model not valid for the connection's provider** → reject at save; only offer models for the connection's provider.
-- **Same connection, two agents in the same single match** → allowed by default (one agent per match via `UNIQUE(agent_id, match_id)`, but two *different* agents of one connection may sit in one match). No special block.
-- **Bot with a connection / AI agent without one** → invalid states; enforce: `kind = bot ⇒ no connection`, `kind = ai ⇒ has connection`.
-- **Runner connects for a connection that has zero agents yet** → connection goes live and simply waits; no turns to play.
-- **Key reissue while the runner is mid-match** → old key works until the new one first connects, so a running agent is never interrupted.
-- **Strategy edit attempted during an active match** → blocked until the match leaves the active state.
-- **Empty states** → no connections yet (the combined create flow handles it); a connection with no agents; an agent in no matches.
+- **Same connection, two agents in the same single match** → allowed; the play API disambiguates by `(agent_id, match_id)` + the agent-scoped token (FR-021), so moves never cross. NOT collapsed by `match_id`.
+- **Bot with a connection / AI agent without one** → invalid; enforce `kind = bot ⇒ no connection`, `kind = ai ⇒ has connection`.
+- **Connection that never connects** → created as `pending` on provider-select; resumable if abandoned; GC'd after 24h (FR-024).
+- **Runner connects for a connection that has zero agents yet** → goes `active` and waits; no turns to play.
+- **Key reissue while the runner is mid-match** → old key works until the new one first connects.
+- **Editing a frozen version vs a draft version** → draft (unplayed) edits in place; frozen (played) edit forks a new version (FR-011).
+- **`max_concurrent_games` reached** → join blocked with a clear message (FR-022).
+- **Two users with the same agent name** → fine; `seat_name` = `handle/name` keeps them distinct in a match (FR-013).
+- **Empty states** → no connections yet (combined flow handles it); a connection with no agents; an agent with no rated version yet (not on the board).
 
 ---
 
@@ -225,10 +229,14 @@ As Chris, I want the codebase and copy to stop calling a user's AI player a "bot
 - **FR-007**: Model choice for an AI agent MUST be constrained to models valid for its connection's provider. Supports US3.
 - **FR-008**: Creating an agent when the user has no connection MUST walk the user through creating a connection inline (provider → connect → name/model), as one flow. Supports US1.
 - **FR-009**: Creating an agent when the user already has a connection MUST let them pick an existing connection without re-connecting. Supports US2.
-- **FR-010**: Strategy MUST be a property of the Agent. Joining a match MUST use the agent's strategy without re-entry. Supports US5.
-- **FR-011**: Editing an agent's strategy MUST be blocked while that agent is in an active match, and MUST be allowed otherwise; the edit MUST keep the same agent identity and standing. Supports US5.
-- **FR-012**: Each match MUST record (snapshot) the strategy text an agent actually ran, so later edits do not alter historical matches. Supports US5.
-- **FR-013**: A **Player** MUST link an Agent to a Match via a real `agent_id` foreign key to the agents table; the in-match display name MUST derive from the agent's name. The legacy display-name string field MUST be renamed to `seat_name`. Supports US7.
+- **FR-010**: An agent's playing definition MUST live in versioned **(model + strategy)** records. Joining a match MUST use the agent's current version without re-entry. Supports US5.
+- **FR-011**: Editing an agent's model or strategy MUST update the current version **if it has not yet played a rated match**, and MUST otherwise create a new version (N+1) that becomes current. Editing MUST be blocked while a version is mid-match. Rating MUST be computed **per version**. Supports US5.
+- **FR-012**: Each match MUST reference the exact **version** an agent ran, so all history/read paths (viewer, exports, admin, summaries) show that version's (model + strategy) and later edits never rewrite a completed match. Supports US5. *(The version is the snapshot — no separate snapshot field.)*
+- **FR-013**: A **Player** MUST link to an Agent via a real `agent_id` FK and to the **AgentVersion** that played via `agent_version_id`. The public in-match identity MUST be a `seat_name` derived as `"{handle}/{agent.name}"` (uniquified within the match); the integer `agent_id` MUST never be exposed as a public label. Every protocol/viewer field that previously exposed the string `agent_id` MUST use `seat_name`. Supports US7.
+- **FR-021**: The play API MUST resolve the acting player by **(agent, match)**, not by match alone: `next-turn` MUST key candidates by `(agent_id, match_id)` and return an **agent-scoped token** that write endpoints (`submit`/`message`/`leave`) require, so a connection fielding two agents in one match can never have a move applied to the wrong player. Supports US2, US3. *(Closes the routing hole behind the past freeze.)*
+- **FR-022**: Joining a match MUST be blocked when the agent's connection already powers `max_concurrent_games` active matches, with a clear message. Supports US2.
+- **FR-023**: Valid models per provider MUST come from a single canonical config (`PROVIDER_MODELS`); setting a model not valid for the connection's provider MUST be rejected. Supports US3 (FR-007).
+- **FR-024**: Connection **health** (live / stalled / ready) MUST be computed at the connection level across its agents (heartbeat, `stall_threshold`, `max_concurrent_games`, paused state) — not via single-agent assumptions. The combined-create flow MUST handle a connection that never connects: a `pending` connection is created on provider-select, can be resumed if abandoned, and is garbage-collected after 24h. Supports US1, US6.
 - **FR-014**: `/me/connections` and `/me/agents` MUST exist as separate pages with separate top-level navigation entries. Bots MUST NOT appear under `/me/connections`. Supports US4, US6, US8.
 - **FR-015**: Connection management MUST support reissue (graceful overlap — old key valid until new one connects), revoke (immediate cutoff), pause/resume, and delete. Deleting a connection that still powers agents MUST be blocked with a clear message. Supports US6.
 - **FR-016**: The leaderboard MUST treat one row as one Agent, label AI agents with their model, and clearly distinguish Bots from AI agents, within each game's section. Supports US7.
@@ -239,10 +247,10 @@ As Chris, I want the codebase and copy to stop calling a user's AI player a "bot
 
 ### Key Entities
 
-- **Connection** — `id`, `user_id`, `provider` (`ConnectionProvider`: claude/gemini/openai/hermes/openclaw), key lookup + previous-key lookup + key hint, status (active/paused) + pause fields, first-connected / last-seen / runner-pid, timestamps. No model field.
-- **Agent** — `id`, `user_id`, optional `connection_id` (null for bots), `kind` (`AgentKind`: ai/bot), `name`, `game` (slug), `model` (string; null/ignored for bots), current strategy, archived/status fields, and the deterministic-bot config fields (formerly `sim_*`) used when `kind = bot`. One leaderboard identity.
-- **Player** — `id`, `match_id`, `user_id`, `agent_id` (FK → agents), `seat_name` (display, derived from agent name), per-match scores, joined/left timestamps, and the snapshot of the strategy actually run.
-- **Strategy record** — the agent's strategy text (versioned on the agent) plus the per-match snapshot referenced by Player.
+- **Connection** — `id`, `user_id`, `provider` (`ConnectionProvider`), key lookup + previous-key lookup + key hint, status (`pending`/`active`/`paused`) + pause fields, first-connected / last-seen / runner-pid, `max_concurrent_games`, `stall_threshold`, timestamps. No model field.
+- **Agent** — identity only: `id`, `user_id`, optional `connection_id` (null for bots), `kind` (`AgentKind`: ai/bot), `name`, `game` (slug), `current_version_id`, archived/status, and the deterministic-bot config (formerly `sim_*`) when `kind = bot`. The competitor identity; its playing definition lives in versions.
+- **AgentVersion** — `id`, `agent_id`, `version_no`, `model`, `strategy_text`, `frozen_at` (set when it first plays a rated match → immutable). The rated unit. Bots have one implicit version (their config).
+- **Player** — `id`, `match_id`, `user_id`, `agent_id` (FK → agents), `agent_version_id` (FK → the version that played), `seat_name` (public display = `handle/name`, uniquified per match), per-match scores, joined/left timestamps.
 
 ---
 
@@ -265,7 +273,7 @@ As Chris, I want the codebase and copy to stop calling a user's AI player a "bot
 - **One game today.** Only `hoard-hurt-help` is registered; the game picker is hidden/auto-set while a single game exists, but nothing bakes the slug in. (Liar's Dice, spec 014, is the eventual second game.)
 - **Combined create flow** (US1) is the chosen on-ramp; strictly-separate creation was rejected.
 - **Provider is fixed per connection** at connect time; switching providers means a new connection (no in-place provider change in this cut).
-- **Model lives on the agent; strategy lives on the agent** — an agent *is* a (model + strategy) entrant. A different model or strategy is a different agent.
+- **Provider on connection; (model + strategy) on a versioned agent** — an agent is an identity; each (model + strategy) it runs is a version with its own rating. Changing model or strategy makes a new version (once the current one has played), so a rank always names a fixed (model + strategy). *(Revised after review — resolves the earlier "different strategy = different agent" contradiction.)*
 - **MCP-direct connect path is dropped**, not reworked.
 - **"Bot" repurposed** from the old "Sim" concept; the standing "never say bot" rule is replaced by "agent = user's AI player; bot = scripted opponent."
 - **Delete-connection rule:** block while it still powers agents (user removes agents first). Chosen over cascade-delete to avoid surprise loss of competitors/standings.
