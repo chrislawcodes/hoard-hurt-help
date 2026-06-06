@@ -127,21 +127,23 @@
 @keyframes rc-speakpulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.06)}}
 
 /* ---- Center say-bubble (talk phase) ---- */
-/* The one line the speaking bot is saying right now, shown in the empty center
-   of the ring. It lives only during the talk phase and clears before any bot
-   moves, so it never collides with the gift / bat / pact choreography that
-   crosses center. There is no name inside — the bubble wears the speaker's own
-   colour as its border, and only that bot is lit + pulsing, so it reads as
-   theirs. max-width is clamped to the ring in layout() so this centred card can
-   never reach a seat: the speaking bot (wherever it sits) is always left clear. */
+/* The one line the speaking bot is saying right now, shown near the center of
+   the ring. It lives only during the talk phase and clears before any bot moves,
+   so it never collides with the gift / bat / pact choreography that crosses
+   center. There is no name inside — the bubble wears the speaker's own colour as
+   its border, and only that bot is lit + pulsing, so it reads as theirs. It is
+   sized to hold ~200 chars (5 lines), so it may overlap idle seats; positionSay()
+   in JS shoves it away from the speaker so that one bot is always left clear. */
 .rc-saybubble{position:absolute;left:50%;top:50%;z-index:6;pointer-events:none;text-align:center;
-  width:max-content;max-width:300px;padding:12px 17px;border-radius:15px;
+  width:max-content;max-width:380px;padding:12px 17px;border-radius:15px;
   background:var(--surface,#fff);border:2px solid var(--c,var(--line,#e2e6ea));box-shadow:0 8px 24px rgba(20,20,40,.16);
   opacity:0;transform:translate(-50%,-50%) scale(.96);transition:opacity .2s ease,transform .2s ease}
 .rc-saybubble.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+/* line-clamp is sized so the bubble holds ~200 chars before it ever cuts: at
+   380px wide / 15px font that is ~46 chars a line, and 5 lines clears 200. */
 .rc-say-text{font-size:15px;line-height:1.4;font-weight:500;color:var(--ink,#1a1d21);
-  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-@media (max-width:560px){.rc-saybubble{padding:9px 13px}.rc-say-text{font-size:13.5px;-webkit-line-clamp:2}}
+  display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+@media (max-width:560px){.rc-saybubble{padding:9px 13px}.rc-say-text{font-size:13px;-webkit-line-clamp:6}}
 @media (prefers-reduced-motion:reduce){
   .rc-bot.speaking .rc-body{animation:none}
   .rc-saybubble{transition:opacity .12s linear}
@@ -381,6 +383,7 @@
   var railEl=document.getElementById('rc-rail');
   var sayEl=document.getElementById('rc-say');
   var sayTextEl=document.getElementById('rc-say-text');
+  var sayGeo={cx:0,cy:0}, saySpeaker=null;
 
   if(!TURNS.length){
     caption.innerHTML='<span class="rc-badge">Empty</span> No resolved turns yet.';
@@ -538,10 +541,11 @@
     var w=stage.clientWidth, h=stage.clientHeight;
     var cx=w/2, cy=h/2, rad=Math.max(40, Math.min(w,h)/2 - 60);
     ring.style.width=ring.style.height=(rad*2)+'px';
-    // Keep the centred say-bubble inside the ring's empty middle: cap its width so
-    // even at its widest it stops short of the nearest seat (rad minus a robot
-    // half-width plus a gap). Whichever bot is speaking always stays uncovered.
-    sayEl.style.maxWidth=Math.min(300,Math.round(rad*2-72))+'px';
+    sayGeo.cx=cx; sayGeo.cy=cy;
+    // The say-bubble may overlap idle seats, so cap its width to the stage (not
+    // the ring) to hold a long line without clipping off-screen. positionSay()
+    // then pushes it clear of whichever bot is actually speaking.
+    sayEl.style.maxWidth=Math.min(380,w-24)+'px';
     AGENTS.forEach(function(id,i){
       var ang=-Math.PI/2 + i/AGENTS.length*2*Math.PI;
       var x=cx+rad*Math.cos(ang), y=cy+rad*Math.sin(ang);
@@ -550,6 +554,7 @@
       el.dataset.x=x; el.dataset.y=y;
       var s=seatEls[id]; if(s){s.style.left=x+'px';s.style.top=y+'px';}
     });
+    if(saySpeaker) positionSay(saySpeaker);
   }
 
   var NS='http://www.w3.org/2000/svg';
@@ -601,11 +606,32 @@
     sayTextEl.textContent=text;
     sayEl.style.setProperty('--c',colorOf[id]);
     sayEl.classList.add('show');
+    saySpeaker=id;
+    positionSay(id);
+  }
+  // Offset the bubble directly away from the speaking bot by the minimum amount
+  // that keeps that bot's seat uncovered (idle seats may be overlapped). Measured
+  // with offsetWidth/Height so the show-transition's scale doesn't skew the math,
+  // then clamped to keep the whole card on the stage.
+  function positionSay(id){
+    var bot=botEls[id]; if(!bot) return;
+    var cx=sayGeo.cx, cy=sayGeo.cy;
+    var dx=(+bot.dataset.x)-cx, dy=(+bot.dataset.y)-cy;
+    var d=Math.hypot(dx,dy)||1, ux=dx/d, uy=dy/d;
+    var hw=sayEl.offsetWidth/2, hh=sayEl.offsetHeight/2;
+    var SEAT_CLEAR=48;                              // robot half-size + a small gap
+    var reach=hw*Math.abs(ux)+hh*Math.abs(uy);     // bubble's extent toward the speaker
+    var off=Math.max(0, SEAT_CLEAR+reach-d);       // minimum push to clear that seat
+    var w=stage.clientWidth, h=stage.clientHeight, m=8;
+    var bx=Math.min(Math.max(cx-off*ux,hw+m), w-hw-m);
+    var by=Math.min(Math.max(cy-off*uy,hh+m), h-hh-m);
+    sayEl.style.left=bx+'px'; sayEl.style.top=by+'px';
   }
   function sayHide(){ sayEl.classList.remove('show'); }   // fade out before the action phase
   function sayReset(){
     sayEl.classList.remove('show');
     sayTextEl.textContent='';
+    saySpeaker=null;
   }
   function speakLine(a){
     if(!a.text) return;
