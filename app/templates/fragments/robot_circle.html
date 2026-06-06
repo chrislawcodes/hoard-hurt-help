@@ -145,19 +145,11 @@
   background:var(--surface,#fff);border:2px solid var(--c,var(--line,#e2e6ea));box-shadow:0 8px 24px rgba(20,20,40,.16);
   opacity:0;transform:translate(-50%,-50%) scale(.96);transition:opacity .2s ease,transform .2s ease}
 .rc-saybubble.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
-/* A speech-bubble tail that points from the bubble's edge straight at the talking
-   bot, so it is never ambiguous who is speaking even when the bubble is offset
-   across the ring. positionSay() sets --tx/--ty (the edge point, relative to the
-   bubble centre) and --ta (the angle toward the speaker). Two stacked triangles
-   give it the bubble's own surface fill with the speaker-colour border on its
-   slanted sides; the base tucks a few px into the body so the join is seamless. */
-.rc-saytail{position:absolute;left:calc(50% + var(--tx,0px));top:calc(50% + var(--ty,0px));
-  width:0;height:0;transform:rotate(var(--ta,0deg));transform-origin:0 0}
-.rc-saytail::before,.rc-saytail::after{content:"";position:absolute;width:0;height:0;
-  border-top:9px solid transparent;border-bottom:9px solid transparent}
-.rc-saytail::before{top:-9px;left:0;border-left:13px solid var(--c,var(--line,#e2e6ea))}
-.rc-saytail::after{top:-7px;left:-4px;border-top-width:7px;border-bottom-width:7px;
-  border-left:13px solid var(--surface,#fff)}
+/* SVG tail that spans the full distance from the bubble edge to the talking bot.
+   positionSay() draws two filled polygons into this SVG: an outer triangle in the
+   speaker colour and a slightly inset inner triangle in the bubble surface colour,
+   producing a bordered wedge whose base tucks under the bubble body. */
+#rc-tail-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;overflow:visible}
 /* line-clamp is sized so the bubble holds ~200 chars before it ever cuts: at
    380px wide / 15px font that is ~46 chars a line, and 5 lines clears 200. */
 .rc-say-text{font-size:15px;line-height:1.4;font-weight:500;color:var(--ink,#1a1d21);
@@ -322,9 +314,9 @@
           <div class="rc-ring" id="rc-ring"></div>
           <svg class="rc-fx" id="rc-fx" preserveAspectRatio="none"></svg>
           <div class="rc-progress" id="rc-progress"></div>
+          <svg id="rc-tail-svg" aria-hidden="true"></svg>
           <div class="rc-saybubble" id="rc-say">
             <div class="rc-say-text" id="rc-say-text"></div>
-            <div class="rc-saytail" id="rc-saytail"></div>
           </div>
         </div>
         <div class="rc-caption" id="rc-caption"><span class="rc-badge">—</span> Press play to watch the turns.</div>
@@ -403,7 +395,7 @@
   var railEl=document.getElementById('rc-rail');
   var sayEl=document.getElementById('rc-say');
   var sayTextEl=document.getElementById('rc-say-text');
-  var sayTailEl=document.getElementById('rc-saytail');
+  var tailSvg=document.getElementById('rc-tail-svg');
   var sayGeo={cx:0,cy:0}, saySpeaker=null;
 
   if(!TURNS.length){
@@ -660,7 +652,8 @@
   // Offset the bubble directly away from the speaking bot by the minimum amount
   // that keeps that bot's seat uncovered (idle seats may be overlapped). Measured
   // with offsetWidth/Height so the show-transition's scale doesn't skew the math,
-  // then clamped to keep the whole card on the stage.
+  // then clamped to keep the whole card on the stage. An SVG wedge is drawn from
+  // the bubble's nearest edge all the way to the speaking robot.
   function positionSay(id){
     var bot=botEls[id]; if(!bot) return;
     var cx=sayGeo.cx, cy=sayGeo.cy;
@@ -674,21 +667,45 @@
     var bx=Math.min(Math.max(cx-off*ux,hw+m), w-hw-m);
     var by=Math.min(Math.max(cy-off*uy,hh+m), h-hh-m);
     sayEl.style.left=bx+'px'; sayEl.style.top=by+'px';
-    // Aim the tail from the bubble's edge at the speaker. Re-derive the direction
-    // from the bubble's *final* (clamped) centre, then find where that ray leaves
-    // the bubble's rectangle so the tail sits flush on the nearest edge.
-    var tdx=(+bot.dataset.x)-bx, tdy=(+bot.dataset.y)-by;
+    // Draw the SVG tail: a bordered wedge from the bubble edge to the robot.
+    // Re-derive direction from the bubble's final (clamped) centre.
+    var botX=+bot.dataset.x, botY=+bot.dataset.y;
+    var tdx=botX-bx, tdy=botY-by;
     var ta=Math.atan2(tdy,tdx), ca=Math.cos(ta), sa=Math.sin(ta);
     var scale=1/Math.max(Math.abs(ca)/hw, Math.abs(sa)/hh);
-    sayTailEl.style.setProperty('--tx',(ca*scale).toFixed(1)+'px');
-    sayTailEl.style.setProperty('--ty',(sa*scale).toFixed(1)+'px');
-    sayTailEl.style.setProperty('--ta',(ta*180/Math.PI).toFixed(1)+'deg');
+    // Edge point where the tail meets the bubble
+    var ex=bx+ca*scale, ey=by+sa*scale;
+    // Perpendicular direction (for the base width)
+    var px=-sa, py=ca;
+    var W=8;   // base half-width
+    var ROB_R=22;  // stop this far from robot center (≈ robot's half-width)
+    // Outer triangle (border/speaker colour)
+    var ob1x=ex+px*W,      ob1y=ey+py*W;
+    var ob2x=ex-px*W,      ob2y=ey-py*W;
+    var tipX=botX-ca*ROB_R, tipY=botY-sa*ROB_R;
+    // Inner triangle (surface fill): base pushed 5 px inside the bubble, 2 px narrower
+    var ib1x=ex-ca*5+px*(W-2), ib1y=ey-sa*5+py*(W-2);
+    var ib2x=ex-ca*5-px*(W-2), ib2y=ey-sa*5-py*(W-2);
+    var itipX=botX-ca*(ROB_R+2), itipY=botY-sa*(ROB_R+2);
+    var borderCol=colorOf[id];
+    var surfaceCol=getComputedStyle(stage).getPropertyValue('--surface').trim()||'#fff';
+    tailSvg.innerHTML='';
+    var ns='http://www.w3.org/2000/svg';
+    var outer=document.createElementNS(ns,'polygon');
+    outer.setAttribute('points',ob1x+','+ob1y+' '+ob2x+','+ob2y+' '+tipX+','+tipY);
+    outer.setAttribute('fill',borderCol);
+    var inner=document.createElementNS(ns,'polygon');
+    inner.setAttribute('points',ib1x+','+ib1y+' '+ib2x+','+ib2y+' '+itipX+','+itipY);
+    inner.setAttribute('fill',surfaceCol);
+    tailSvg.appendChild(outer);
+    tailSvg.appendChild(inner);
   }
-  function sayHide(){ sayEl.classList.remove('show'); }   // fade out before the action phase
+  function sayHide(){ sayEl.classList.remove('show'); tailSvg.innerHTML=''; }
   function sayReset(){
     sayEl.classList.remove('show');
     sayTextEl.textContent='';
     saySpeaker=null;
+    tailSvg.innerHTML='';
   }
   function speakLine(a){
     if(!a.text) return;
