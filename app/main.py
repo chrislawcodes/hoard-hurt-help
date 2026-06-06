@@ -11,7 +11,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.applications import Starlette
@@ -33,6 +33,7 @@ from app.routes import (
     sse as sse_routes,
     web as web_routes,
 )
+from app.routes.nav_context import populate_nav_cta
 
 logging.basicConfig(
     level=logging.INFO,
@@ -131,10 +132,13 @@ def create_app() -> FastAPI:
     app.include_router(agent_api.router, prefix="/api/matches/{match_id}")
     app.include_router(agent_api.router, prefix="/api/games/{match_id}")
     app.include_router(agent_next_turn.router)
-    app.include_router(web_routes.router)
-    app.include_router(handle_web.router)
-    app.include_router(bots_web.router)
-    app.include_router(admin_web.router)
+    # Human-page routers resolve the smart Play CTA (nav + hero) per request.
+    # API/agent/SSE routers are left out — they render no nav.
+    page_deps = [Depends(populate_nav_cta)]
+    app.include_router(web_routes.router, dependencies=page_deps)
+    app.include_router(handle_web.router, dependencies=page_deps)
+    app.include_router(bots_web.router, dependencies=page_deps)
+    app.include_router(admin_web.router, dependencies=page_deps)
     app.include_router(admin_api.router)
     app.include_router(sse_routes.router)
     app.include_router(spectator_api.router)

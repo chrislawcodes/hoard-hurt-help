@@ -6,7 +6,7 @@
     <title>{% block title %}Agent Ludum{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     {% block head %}{% endblock %}
-    <link rel="stylesheet" href="/static/style.css?v=92">
+    <link rel="stylesheet" href="/static/style.css?v=94">
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/htmx-ext-sse.js" defer></script>
 </head>
@@ -36,6 +36,10 @@
                    page. The marketing home overrides this block to add its learn
                    links (How it works) right alongside it. #}
                 {% block nav_links %}<a href="/games" class="al-nav-games">Games</a><a href="/leaderboard" class="al-nav-leaderboard">Leaderboard</a>{% endblock %}
+                {# Smart "Play" door — the one emphasis in the calm bar. Label adapts
+                   to the visitor (Get started / Connect your agent / Play now); the
+                   destination is always the /play smart redirect. #}
+                {% if nav_cta %}<a href="{{ nav_cta.href }}" class="al-nav-cta">{{ nav_cta.label }}</a>{% endif %}
                 {% if user %}
                     {# Account lives behind one control so the bar stays calm —
                        a native <details> menu, no JS framework. #}

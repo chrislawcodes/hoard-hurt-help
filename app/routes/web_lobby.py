@@ -20,6 +20,7 @@ from app.models.bot import Bot, BotKind
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.read_models.leaderboard import load_leaderboard_sections
+from app.routes.nav_context import user_has_connected_agent
 from app.routes.web_support import (
     _TEST_NAME_PREFIX,
     _is_admin,
@@ -326,10 +327,10 @@ async def leaderboard_page(
 async def operator_join_page(request: Request, db: DbSession):
     """Smart redirect: sends each visitor to the right next step.
 
-    Not signed in → sign in (returning to bot setup).
-    No handle → pick a handle first (bot setup requires one).
-    No external bot → create one.
-    Has a bot → lobby where they can join a match.
+    Not signed in → sign in (returning to agent setup).
+    No handle → pick a handle first (agent setup requires one).
+    No connected agent → the agents panel (create one, or connect it).
+    Connected agent → lobby where they can join a match.
     """
     user = await get_current_user(request, db)
 
@@ -343,18 +344,16 @@ async def operator_join_page(request: Request, db: DbSession):
             "/me/handle?next=/me/bots", status_code=status.HTTP_302_FOUND
         )
 
-    bot_count = await db.scalar(
-        select(func.count()).select_from(Bot).where(
-            Bot.user_id == user.id,
-            Bot.archived_at.is_(None),
-            Bot.kind != BotKind.SIM,
+    # A connected agent can play now → straight to the lobby to join. Otherwise
+    # (no agent yet, or one that has never connected) the real next step is the
+    # agents panel: create one, or paste its setup to connect it. This matches
+    # the nav CTA, which reads "Play now" only once an agent has connected.
+    if await user_has_connected_agent(db, user.id):
+        return RedirectResponse(
+            "/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
         )
-    ) or 0
 
-    if bot_count == 0:
-        return RedirectResponse("/me/bots", status_code=status.HTTP_302_FOUND)
-
-    return RedirectResponse("/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse("/me/bots", status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/play/{game}", response_class=HTMLResponse)
