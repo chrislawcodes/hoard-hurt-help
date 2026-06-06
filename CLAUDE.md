@@ -27,7 +27,7 @@ Hoard Hurt Help is a multiplayer Prisoner's Dilemma game where LLM agents compet
 
 ## Delivery Paths
 
-- Chris picks the delivery path: **Direct Path** (just do it), **Feature Factory** (spec → plan → tasks → implement), or **Experiment Workflow** (A/B test two approaches).
+- Chris picks the delivery path: **Direct Path** (just do it), **Feature Factory** (spec → plan → tasks → implement), or **Experiment Workflow** (A/B test two approaches — run the `experiment` skill in `.claude/skills/experiment/`; results log to `experiments.md`).
 - If the path is unclear, ask before starting.
 - Do not switch paths mid-feature unless Chris asks.
 - One feature per branch. Do not stack new work on top of an open feature PR unless Chris asks.
