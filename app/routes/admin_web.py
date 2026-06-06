@@ -13,11 +13,11 @@ from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
 from app.engine.state_machine import TransitionError
 from app.engine.tokens import generate_match_id
-from app.models.bot import Bot, BotKind
+from app.models.agent import Agent, AgentKind
+from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
-from app.models.strategy_prompt import StrategyPrompt
 from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
 from app.routes.web_support import _load_match_or_404, _seated_player_count
@@ -233,40 +233,36 @@ async def admin_game_detail(
     players = (
         (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
-    bots_by_id = {
-        b.id: b
-        for b in (
-            await db.execute(
-                select(Bot).where(Bot.id.in_([p.bot_id for p in players]))
-            )
+    agents_by_id = {
+        agent.id: (agent, version)
+        for agent, version in (
+            (
+                await db.execute(
+                    select(Agent, AgentVersion)
+                    .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+                    .where(Agent.id.in_([p.agent_id for p in players]))
+                )
+            ).all()
         )
-        .scalars()
-        .all()
     } if players else {}
     player_views = []
     for p in players:
-        prompt = (
-            await db.execute(
-                select(StrategyPrompt)
-                .where(StrategyPrompt.player_id == p.id)
-                .order_by(StrategyPrompt.created_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        bot = bots_by_id.get(p.bot_id)
-        is_sim = bot is not None and bot.kind == BotKind.SIM
+        agent_version = agents_by_id.get(p.agent_id)
+        agent = agent_version[0] if agent_version else None
+        version = agent_version[1] if agent_version else None
+        is_bot = agent is not None and agent.kind == AgentKind.BOT
         personality = (
-            (bot.sim_strategy or "").replace("_", " ").title()
-            if is_sim and bot is not None
+            (agent.bot_strategy or "").replace("_", " ").title()
+            if is_bot and agent is not None
             else ""
         )
         player_views.append(
             {
-                "agent_id": p.agent_id,
+                "agent_id": p.seat_name,
                 "total_round_wins": p.total_round_wins,
                 "total_round_score": p.total_round_score,
-                "strategy": prompt.prompt_text if prompt else "",
-                "is_sim": is_sim,
+                "strategy": version.strategy_text if version else (agent.bot_strategy if agent else ""),
+                "is_sim": is_bot,
                 "personality": personality,
             }
         )
@@ -299,7 +295,7 @@ async def _render_add_sims(
     existing = list(
         (
             await db.execute(
-                select(Player.agent_id).where(
+                select(Player.seat_name).where(
                     Player.match_id == game.id, Player.left_at.is_(None)
                 )
             )
@@ -431,8 +427,8 @@ async def admin_delete_game(
     """Permanently delete a game and everything under it. Admin only.
 
     Deletes in FK-safe order: clear the game's winner pointer, then
-    submissions → turns → strategy prompts → players → the game itself.
-    Stops the game's loop first if it happens to be running.
+    submissions → turns → players → the game itself. Stops the game's loop
+    first if it happens to be running.
     """
     g = await _load_match_or_404(db, match_id)
 
@@ -449,11 +445,6 @@ async def admin_delete_game(
         await db.execute(delete(TurnSubmission).where(TurnSubmission.turn_id.in_(turn_ids)))
     await db.execute(delete(Turn).where(Turn.match_id == match_id))
 
-    player_ids = (
-        (await db.execute(select(Player.id).where(Player.match_id == match_id))).scalars().all()
-    )
-    if player_ids:
-        await db.execute(delete(StrategyPrompt).where(StrategyPrompt.player_id.in_(player_ids)))
     await db.execute(delete(Player).where(Player.match_id == match_id))
 
     await db.execute(delete(Match).where(Match.id == match_id))
@@ -471,27 +462,24 @@ async def admin_prompts(
     user: Annotated[User, Depends(require_admin)],
 ):
     prompts = (
-        (await db.execute(select(StrategyPrompt).order_by(StrategyPrompt.created_at.desc())))
-        .scalars()
-        .all()
+        (
+            await db.execute(
+                select(Player.match_id, Player.seat_name, AgentVersion)
+                .join(AgentVersion, AgentVersion.id == Player.agent_version_id)
+                .order_by(AgentVersion.created_at.desc())
+            )
+        ).all()
     )
-    players_by_id = {
-        p.id: p for p in (await db.execute(select(Player))).scalars().all()
-    }
-    rows = []
-    for pr in prompts:
-        player = players_by_id.get(pr.player_id)
-        if not player:
-            continue
-        rows.append(
-            {
-                "match_id": player.match_id,
-                "agent_id": player.agent_id,
-                "created_at": pr.created_at.isoformat(),
-                "is_default": pr.is_default,
-                "prompt": pr.prompt_text,
-            }
-        )
+    rows = [
+        {
+            "match_id": match_id,
+            "agent_id": seat_name,
+            "created_at": version.created_at.isoformat(),
+            "is_default": version.version_no == 1,
+            "prompt": version.strategy_text,
+        }
+        for match_id, seat_name, version in prompts
+    ]
     return templates.TemplateResponse(
         request,
         "admin/prompts.html",

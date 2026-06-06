@@ -18,11 +18,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fastapi import Request
-from sqlalchemy import exists, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import DbSession, get_current_user
-from app.models.bot import Bot, BotKind
+from app.models.agent import Agent, AgentKind
+from app.models.connection import Connection
 from app.models.user import User
 
 
@@ -35,19 +36,22 @@ class NavCta:
 
 
 async def user_has_connected_agent(db: AsyncSession, user_id: int) -> bool:
-    """True if the user owns a real (non-Sim) agent that has connected at least once.
+    """True if the user owns a real (non-bot) agent that has connected at least once.
 
     "Connected once" (``first_connected_at`` is set) — not "alive right now" — is
     the right signal here: once an agent has connected it can play, so the honest
     next step is "Play now". Using live presence would flip the label back to
     "Connect your agent" every time the runner briefly drops, which is wrong.
     """
-    stmt = select(
-        exists().where(
-            Bot.user_id == user_id,
-            Bot.archived_at.is_(None),
-            Bot.kind != BotKind.SIM,
-            Bot.first_connected_at.is_not(None),
+    stmt = (
+        select(func.count())
+        .select_from(Agent)
+        .join(Connection, Connection.id == Agent.connection_id)
+        .where(
+            Agent.user_id == user_id,
+            Agent.archived_at.is_(None),
+            Agent.kind == AgentKind.AI,
+            Connection.first_connected_at.is_not(None),
         )
     )
     return bool(await db.scalar(stmt))

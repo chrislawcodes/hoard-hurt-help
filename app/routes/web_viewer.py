@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, get_current_user
-from app.models.bot import Bot, BotKind
+from app.models.agent import Agent, AgentKind
 from app.models.match import Match
 from app.models.player import Player
 from app.models.user import User
@@ -38,28 +38,28 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     players = await load_players(db, g.id)
     timeline = await load_match_timeline(db, g.id)
 
-    # Owner handle per agent, for the standings rail + winner credit. Sims have a
-    # user owner too, but show no human byline — suppress them here.
+    # Owner handle per agent, for the standings rail + winner credit. Bots have
+    # no human byline — suppress them here.
     owner_rows = (
         await db.execute(
-            select(Player.agent_id, Bot.kind, User.handle)
-            .join(Bot, Bot.id == Player.bot_id)
-            .join(User, User.id == Bot.user_id)
+            select(Player.seat_name, Agent.kind, User.handle)
+            .join(Agent, Agent.id == Player.agent_id)
+            .join(User, User.id == Agent.user_id)
             .where(Player.match_id == g.id)
         )
     ).all()
     owner_handles: dict[str, str | None] = {
-        agent_id: (None if kind == BotKind.SIM else handle)
-        for agent_id, kind, handle in owner_rows
+        seat_name: (None if kind == AgentKind.BOT else handle)
+        for seat_name, kind, handle in owner_rows
     }
 
     scoreboard: list[dict[str, Any]] = sorted(
         (
             {
-                "agent_id": p.agent_id,
+                "agent_id": p.seat_name,
                 "round_score": p.current_round_score,
                 "round_wins": p.total_round_wins,
-                "owner_handle": owner_handles.get(p.agent_id),
+                "owner_handle": owner_handles.get(p.seat_name),
             }
             for p in players
         ),
@@ -199,7 +199,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         winner = (
             await db.execute(select(Player).where(Player.id == g.winner_player_id))
         ).scalar_one_or_none()
-        winner_agent_id = winner.agent_id if winner else None
+        winner_agent_id = winner.seat_name if winner else None
 
     return {
         "user": user,

@@ -24,8 +24,8 @@
                 <span class="recent-name">{{ g.name }}</span>
                 {% if kind == 'cancelled' %}
                 <span class="recent-result">{{ g.player_count }} {{ "player" if g.player_count == 1 else "players" }} · Cancelled {{ g.timestamp | localdt }}</span>
-                {% elif kind == 'sims' %}
-                <span class="recent-result">{{ g.summary }} · {{ g.player_count }} {{ "Sim" if g.player_count == 1 else "Sims" }} · {{ g.timestamp_label }} {{ g.timestamp | localdt }}</span>
+                {% elif kind == 'bots' %}
+                <span class="recent-result">{{ g.summary }} · {{ g.player_count }} {{ "Bot" if g.player_count == 1 else "Bots" }} · {{ g.timestamp_label }} {{ g.timestamp | localdt }}</span>
                 {% else %}
                 <span class="recent-result">{{ g.summary }} · {{ g.player_count }} {{ "player" if g.player_count == 1 else "players" }} · {{ g.timestamp_label }} {{ g.timestamp | localdt }}</span>
                 {% endif %}
@@ -114,7 +114,7 @@
         </div>
     {% else %}
         <p class="empty">No game running right now. Check back soon — or
-            {% if user %}<a href="/me/bots">put your own AI in the arena →</a>{% else %}<a href="/auth/google/login">sign in to put your own AI in the arena →</a>{% endif %}
+            {% if user %}<a href="/me/agents">put your own AI in the arena →</a>{% else %}<a href="/auth/google/login">sign in to put your own AI in the arena →</a>{% endif %}
         </p>
     {% endif %}
 {% endif %}
@@ -134,7 +134,7 @@
 {{ recent_section(
     "recent-games",
     "Recent Games",
-    "Completed games with at least one non-Sim agent.",
+    "Completed games with at least one non-bot agent.",
     recent_games,
     recent_games_total,
     recent_games_toggle_url,
@@ -144,15 +144,15 @@
 ) }}
 
 {{ recent_section(
-    "sims-only-games",
-    "Recent Games with only Sims",
-    "Completed games where every seat was filled by a Sim.",
+    "bots-only-games",
+    "Recent Games with only Bots",
+    "Completed games where every seat was filled by a bot.",
     sims_only_games,
     sims_only_games_total,
     sims_only_games_toggle_url,
     sims_only_games_toggle_label,
-    "No Sims-only games yet.",
-    "sims"
+    "No Bots-only games yet.",
+    "bots"
 ) }}
 
 {{ recent_section(
