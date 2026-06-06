@@ -209,7 +209,39 @@ These are what make FF more than a checklist. The runner enforces them.
 
 ---
 
-## 8. When to use FF vs. the Direct Path
+## 8. Concurrency & isolation
+
+FF is a multi-agent system that *actively looks for parallel work*, so two
+sessions touching the same run is a real failure mode — and historically the
+worst one (a branch switched mid-run, half-written files, commits landing on the
+wrong branch). The design answer has two layers, plus a state assumption that ties
+them together.
+
+1. **Per-slug run locks (enforced).** The long-running mutating commands —
+   `implement` and `autopilot` — each take an exclusive per-slug lock (flock-based,
+   so the OS auto-releases it if the process crashes — no stale locks to clean up).
+   A second concurrent run of the *same* command for the *same* slug exits with an
+   "already running" error instead of clobbering files or state. Locks are keyed by
+   name, so an `implement` lock and an `autopilot` lock don't block each other; the
+   lock guards against two of the same kind racing.
+
+2. **Worktree-per-agent (the real fix for multi-agent).** The run locks do **not**
+   protect two agent sessions that share one *git checkout* — that's the collision
+   that hurts most. The rule is **one git worktree per agent**. `init` warns loudly
+   when it detects it's running in the shared primary checkout rather than a linked
+   worktree; genuine single-agent use silences it with `FF_ALLOW_PRIMARY_CHECKOUT=1`.
+
+3. **Single-writer state assumption.** Full-state writes bypass the state lock;
+   incremental field updates are lock-guarded. The model assumes one mutator per
+   slug at a time — which the run locks and worktree isolation uphold.
+
+The tradeoff is deliberate and honest: the runner **cannot force** an agent into a
+worktree, so layer 2 is a loud nudge, not a hard refusal (a refusal would break
+legitimate single-agent runs in the primary checkout). The *enforced* protection is
+the per-slug run locks; worktree isolation remains operator practice, now surfaced
+at `init`.
+
+## 9. When to use FF vs. the Direct Path
 
 | Situation | Path |
 |---|---|
@@ -223,7 +255,7 @@ print a loud "SKIP FF ENTIRELY" block when it detects trivial work.
 
 ---
 
-## 9. State and artifacts
+## 10. State and artifacts
 
 Each run lives in `docs/workflow/feature-runs/<slug>/`:
 
@@ -240,7 +272,7 @@ When in doubt about where a run stands, read `state.json` or run
 
 ---
 
-## 10. The engine behind the skill
+## 11. The engine behind the skill
 
 FF is split into a thin front door and a durable backend:
 
@@ -259,7 +291,7 @@ end-to-end in this repo (see `STATUS.md`).
 
 ---
 
-## 11. Measuring cost
+## 12. Measuring cost
 
 FF records its own cost so runs can be compared over time:
 
@@ -270,7 +302,7 @@ FF records its own cost so runs can be compared over time:
 
 ---
 
-## 12. Design principles, in one place
+## 13. Design principles, in one place
 
 - Spec before code; questions before assumptions.
 - Catch mistakes where they're cheapest — the spec and plan.
@@ -279,5 +311,6 @@ FF records its own cost so runs can be compared over time:
 - "Accepted risk" must come with a way to check it.
 - Small, scoped, preflight-green slices.
 - One authoritative state file; resumable and handoff-safe.
+- One mutator per slug; one worktree per agent.
 - The engine is durable; the skill is just the front door.
 - Don't use FF for trivial work.
