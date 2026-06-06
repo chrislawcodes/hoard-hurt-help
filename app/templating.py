@@ -8,8 +8,22 @@ from datetime import datetime, timezone
 
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
+from starlette.requests import Request
 
-templates = Jinja2Templates(directory="app/templates")
+
+def _nav_cta_context(request: Request) -> dict[str, object]:
+    """Expose the smart Play CTA to every page.
+
+    Populated by the ``populate_nav_cta`` router dependency on human-page
+    routers; absent on API/fragment responses (where the nav isn't rendered),
+    in which case the template simply omits the button.
+    """
+    return {"nav_cta": getattr(request.state, "nav_cta", None)}
+
+
+templates = Jinja2Templates(
+    directory="app/templates", context_processors=[_nav_cta_context]
+)
 
 
 def _to_utc_iso(value: object) -> str | None:
