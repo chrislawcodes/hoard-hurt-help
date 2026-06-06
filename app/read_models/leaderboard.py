@@ -6,27 +6,30 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import pow
+import re
 from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.sim_presets import sim_preset_by_id
 from app.games import known_types
-from app.models.bot import Bot, BotKind
-from app.routes.bots_web_support import strip_archive_suffix
+from app.models.agent import Agent, AgentKind
+from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
 
 LeaderboardRatingMode = Literal["standard", "bonus"]
-LeaderboardIncluded = Literal["agents", "sims", "all"]
+LeaderboardIncluded = Literal["agents", "bot", "all"]
 
 LEADERBOARD_CUTOFF = datetime(2026, 6, 3, tzinfo=timezone.utc)
 INITIAL_RATING = 1500.0
 K_FACTOR = 24.0
 FIRST_PLACE_WEIGHT = 1.2
 _TEST_NAME_PREFIX = "prod smoke"
+_ARCHIVE_SUFFIX_RE = re.compile(
+    r"\s+\(archived\s[^)]+\)(?:\s*#\d+)?$|\s+#\d+$"
+)
 
 
 @dataclass(frozen=True)
@@ -35,16 +38,20 @@ class LeaderboardRow:
 
     rank: int
     display_name: str
-    # The owner's public handle, shown as "by @handle". None for Sims and for
+    # The owner's public handle, shown as "by @handle". None for bots and for
     # agents whose owner has not picked a handle yet.
     owner_handle: str | None
     rating: float
     match_count: int
     last_played_at: datetime | None
-    is_sim: bool
+    is_bot: bool
     provisional: bool
     is_archived: bool
     archived_at: datetime | None
+
+    @property
+    def is_sim(self) -> bool:
+        return self.is_bot
 
 
 @dataclass(frozen=True)
@@ -55,18 +62,20 @@ class LeaderboardSection:
     game_name: str
     rows: list[LeaderboardRow]
     match_count: int
-    has_sims: bool
+    has_bots: bool
+
+    @property
+    def has_sims(self) -> bool:
+        return self.has_bots
 
 
 @dataclass(frozen=True)
 class _Participant:
-    # For Sims: sim_profile_name (or bot.name as fallback).
-    # For agents: str(bot.id).
-    # Sims sharing the same key in one match are merged before Elo is computed.
+    # For bots and agents: str(agent.id).
     competitor_key: str
     display_name: str
     owner_handle: str | None
-    is_sim: bool
+    is_bot: bool
     is_archived: bool
     archived_at: datetime | None
     round_wins: float
@@ -81,7 +90,7 @@ class _MatchBundle:
     scheduled_start: datetime
     played_at: datetime
     participants: list[_Participant]
-    has_sims: bool
+    has_bots: bool
 
 
 @dataclass
@@ -89,45 +98,40 @@ class _CompetitorState:
     rating: float = INITIAL_RATING
     match_count: int = 0
     last_played_at: datetime | None = None
-    is_sim: bool = False
+    is_bot: bool = False
     is_archived: bool = False
     archived_at: datetime | None = None
     display_name: str = ""
     owner_handle: str | None = None
 
 
-def _sim_display_name(bot: Bot) -> str:
-    """Human-readable profile name for a Sim — works for old records too.
-
-    Old Sims have sim_profile_name=None but sim_strategy set (e.g.
-    'coalition_seeker'). New Sims will have sim_profile_name set by the
-    seating code, but we derive from sim_strategy as a stable fallback so
-    both old and new records group under the same key.
-    """
-    if bot.sim_profile_name:
-        return bot.sim_profile_name
-    if bot.sim_strategy:
-        preset = sim_preset_by_id(bot.sim_strategy)
-        if preset:
-            return preset.name
-    return bot.name
+def _strip_archive_suffix(name: str) -> str:
+    return _ARCHIVE_SUFFIX_RE.sub("", name)
 
 
-def _competitor_key(bot: Bot) -> str:
-    if bot.kind == BotKind.SIM:
-        # Use sim_strategy as the stable grouping key so old and new records
-        # (before/after seating.py started setting sim_profile_name) stay
-        # under the same entry. Fall back to display name then raw bot.name.
-        return bot.sim_strategy or bot.sim_profile_name or bot.name
-    return str(bot.id)
+def _agent_display_name(agent: Agent, version: AgentVersion | None) -> str:
+    if agent.kind == AgentKind.BOT:
+        # A preset bot is seated as a throwaway per-match agent named
+        # "<match_id>:<preset>"; show its stable profile name on the board.
+        return agent.bot_profile_name or _strip_archive_suffix(agent.name)
+    base_name = _strip_archive_suffix(agent.name)
+    if version is not None:
+        return f"{base_name} · {version.model}"
+    return base_name
+
+
+def _competitor_key(agent: Agent) -> str:
+    """Leaderboard grouping key. Preset bots are re-seated as a fresh per-match
+    agent each game, so group them by their stable profile (as the old Sim board
+    did) rather than the throwaway per-match agent id. AI agents are persistent
+    competitors, so they key by their own id."""
+    if agent.kind == AgentKind.BOT:
+        return f"bot:{agent.bot_profile_id or agent.bot_profile_name or agent.id}"
+    return str(agent.id)
 
 
 def _merge_same_key_participants(participants: list[_Participant]) -> list[_Participant]:
-    """Merge participants that share a competitor_key (same Sim profile in one match).
-
-    Averages round_wins and total_score across instances so the merged entry
-    competes once in the Elo pairings rather than appearing multiple times.
-    """
+    """Merge duplicate competitor keys within one match."""
     grouped: dict[str, list[_Participant]] = {}
     for p in participants:
         grouped.setdefault(p.competitor_key, []).append(p)
@@ -145,7 +149,7 @@ def _merge_same_key_participants(participants: list[_Participant]) -> list[_Part
                     competitor_key=key,
                     display_name=group[0].display_name,
                     owner_handle=group[0].owner_handle,
-                    is_sim=group[0].is_sim,
+                    is_bot=group[0].is_bot,
                     is_archived=group[0].is_archived,
                     archived_at=group[0].archived_at,
                     round_wins=avg_wins,
@@ -171,19 +175,19 @@ def _normalize_rating_mode(rating_mode: str) -> LeaderboardRatingMode:
 
 
 def _normalize_included(included: str) -> LeaderboardIncluded:
-    if included == "sims":
-        return "sims"
+    if included in {"bot", "bots", "sims"}:
+        return "bot"
     if included == "all":
         return "all"
     return "agents"
 
 
-def _is_included(is_sim: bool, included: LeaderboardIncluded) -> bool:
+def _is_included(is_bot: bool, included: LeaderboardIncluded) -> bool:
     if included == "all":
         return True
-    if included == "sims":
-        return is_sim
-    return not is_sim
+    if included == "bot":
+        return is_bot
+    return not is_bot
 
 
 def _logistic_expected(rating_a: float, rating_b: float) -> float:
@@ -203,10 +207,11 @@ async def load_leaderboard_sections(
 
     rows = (
         await db.execute(
-            select(Match, Player, Bot, User)
+            select(Match, Player, Agent, AgentVersion, User)
             .join(Player, Player.match_id == Match.id)
-            .join(Bot, Bot.id == Player.bot_id)
-            .join(User, User.id == Bot.user_id)
+            .join(Agent, Agent.id == Player.agent_id)
+            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+            .join(User, User.id == Agent.user_id)
             .where(
                 Match.state == GameState.COMPLETED,
                 Match.scheduled_start >= LEADERBOARD_CUTOFF,
@@ -217,7 +222,7 @@ async def load_leaderboard_sections(
 
     match_groups: dict[str, _MatchBundle] = {}
     skipped_matches: set[str] = set()
-    for match, player, bot, user in rows:
+    for match, player, agent, version, user in rows:
         if match.id in skipped_matches:
             continue
         if _is_test_match(match.name):
@@ -232,7 +237,7 @@ async def load_leaderboard_sections(
                 scheduled_start=match.scheduled_start,
                 played_at=match.completed_at or match.started_at or match.scheduled_start,
                 participants=[],
-                has_sims=bot.kind == BotKind.SIM,
+                has_bots=agent.kind == AgentKind.BOT,
             )
             bundle = match_groups[match.id]
         match_groups[match.id] = _MatchBundle(
@@ -243,18 +248,18 @@ async def load_leaderboard_sections(
             participants=[
                 *bundle.participants,
                 _Participant(
-                    competitor_key=_competitor_key(bot),
-                    display_name=_sim_display_name(bot) if bot.kind == BotKind.SIM else strip_archive_suffix(bot.name),
-                    owner_handle=None if bot.kind == BotKind.SIM else user.handle,
-                    is_sim=bot.kind == BotKind.SIM,
-                    is_archived=bot.archived_at is not None,
-                    archived_at=bot.archived_at,
+                    competitor_key=_competitor_key(agent),
+                    display_name=_agent_display_name(agent, version),
+                    owner_handle=None if agent.kind == AgentKind.BOT else user.handle,
+                    is_bot=agent.kind == AgentKind.BOT,
+                    is_archived=agent.archived_at is not None,
+                    archived_at=agent.archived_at,
                     round_wins=float(player.total_round_wins),
                     total_score=player.total_round_score,
                     last_played_at=match.completed_at or match.started_at or match.scheduled_start,
                 ),
             ],
-            has_sims=bundle.has_sims or bot.kind == BotKind.SIM,
+            has_bots=bundle.has_bots or agent.kind == AgentKind.BOT,
         )
 
     games: dict[str, list[_MatchBundle]] = defaultdict(list)
@@ -272,11 +277,11 @@ async def load_leaderboard_sections(
         )
         states: dict[str, _CompetitorState] = {}
         contributed_matches = 0
-        has_sims = any(bundle.has_sims for bundle in bundles)
+        has_bots = any(bundle.has_bots for bundle in bundles)
 
         for bundle in bundles:
             participants = _merge_same_key_participants(
-                [p for p in bundle.participants if _is_included(p.is_sim, included_choice)]
+                [p for p in bundle.participants if _is_included(p.is_bot, included_choice)]
             )
             if len(participants) < 2:
                 continue
@@ -359,7 +364,7 @@ async def load_leaderboard_sections(
                         rating=current_rating,
                         match_count=0,
                         last_played_at=None,
-                        is_sim=participant.is_sim,
+                        is_bot=participant.is_bot,
                         is_archived=participant.is_archived,
                         archived_at=participant.archived_at,
                         display_name=participant.display_name,
@@ -371,7 +376,7 @@ async def load_leaderboard_sections(
                     state.last_played_at or participant.last_played_at,
                     participant.last_played_at,
                 )
-                state.is_sim = participant.is_sim
+                state.is_bot = participant.is_bot
                 state.is_archived = participant.is_archived
                 state.archived_at = participant.archived_at
                 state.display_name = participant.display_name
@@ -400,7 +405,7 @@ async def load_leaderboard_sections(
                     rating=state.rating,
                     match_count=state.match_count,
                     last_played_at=state.last_played_at,
-                    is_sim=state.is_sim,
+                    is_bot=state.is_bot,
                     provisional=state.match_count < 5,
                     is_archived=state.is_archived,
                     archived_at=state.archived_at,
@@ -413,7 +418,7 @@ async def load_leaderboard_sections(
                 game_name=_game_display_name(game_type),
                 rows=rows_out,
                 match_count=contributed_matches,
-                has_sims=has_sims,
+                has_bots=has_bots,
             )
         )
 

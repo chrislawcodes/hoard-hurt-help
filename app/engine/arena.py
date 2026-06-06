@@ -2,11 +2,11 @@
 
 Two match types are always available to operators without admin intervention:
 
-* **Practice Arena** — one open match, pre-seeded with Sims, that starts the
+* **Practice Arena** — one open match, pre-seeded with bots, that starts the
   instant any human joins. Immediately replaced when the match ends.
 * **Auto-Match** — one open match per 30-minute clock boundary. At its
   scheduled start time, it runs only if at least one external agent joined.
-  Sims can fill remaining seats once a real participant is present.
+  Bots can fill remaining seats once a real participant is present.
 
 All public functions are idempotent — safe to call every 2 seconds from the
 background poller without creating duplicates.
@@ -21,9 +21,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.sim_presets import allocate_default_sim_names, sim_presets
-from app.engine.sims.seating import SimSeatingError, add_sims_to_game
+from app.engine.sims.seating import SimSeatingError, add_bots_to_game
 from app.engine.tokens import generate_match_id
-from app.models.bot import Bot, BotKind
+from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 
@@ -64,12 +64,12 @@ _AUTO_MATCH_NAMES: tuple[str, ...] = (
 )
 
 
-def _choose_sim_seats(
+def _choose_bot_seats(
     n: int,
     *,
     used_names: set[str] | None = None,
 ) -> list[tuple[str, str]]:
-    """Pick n sim personality IDs from the preset list (cycling if needed)."""
+    """Pick n bot personality IDs from the preset list (cycling if needed)."""
     presets = sim_presets()
     if not presets:
         return []
@@ -79,6 +79,9 @@ def _choose_sim_seats(
         preset = presets[i % len(presets)]
         seats.append((names[i], preset.id))
     return seats
+
+
+_choose_sim_seats = _choose_bot_seats
 
 
 async def _next_match_id(db: AsyncSession) -> str:
@@ -148,15 +151,15 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
     db.add(arena)
     await db.flush()
 
-    seats = _choose_sim_seats(PRACTICE_ARENA_SIM_COUNT)
+    seats = _choose_bot_seats(PRACTICE_ARENA_SIM_COUNT)
     try:
-        await add_sims_to_game(db, arena, seats)
+        await add_bots_to_game(db, arena, seats)
     except SimSeatingError as exc:
-        logger.exception("Failed to seat Sims in Practice Arena: %s", exc)
+        logger.exception("Failed to seat bots in Practice Arena: %s", exc)
         await db.rollback()
         return
 
-    logger.info("Created Practice Arena %s with %d Sim seats.", match_id, len(seats))
+    logger.info("Created Practice Arena %s with %d bot seats.", match_id, len(seats))
 
 
 async def ensure_auto_match(db: AsyncSession) -> None:
@@ -212,13 +215,13 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
     for match in due:
         active_players = (
             await db.execute(
-                select(Player.agent_id, Bot.kind)
-                .join(Bot, Bot.id == Player.bot_id)
+                select(Player.seat_name, Agent.kind)
+                .join(Agent, Agent.id == Player.agent_id)
                 .where(Player.match_id == match.id, Player.left_at.is_(None))
             )
         ).all()
         has_external_agent = any(
-            kind not in (BotKind.SIM, BotKind.SIM.value) for _, kind in active_players
+            kind not in (AgentKind.BOT, AgentKind.BOT.value) for _, kind in active_players
         )
         if not has_external_agent:
             match.state = GameState.CANCELLED
@@ -233,14 +236,14 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
         empty_slots = match.max_players - player_count
         if empty_slots > 0:
             n_sims = min(empty_slots, AUTO_MATCH_SIM_COUNT_MAX)
-            agent_ids = {agent_id for agent_id, _ in active_players}
-            seats = _choose_sim_seats(n_sims, used_names=agent_ids)
+            agent_ids = {seat_name for seat_name, _ in active_players}
+            seats = _choose_bot_seats(n_sims, used_names=agent_ids)
             if seats:
                 try:
-                    await add_sims_to_game(db, match, seats)
+                    await add_bots_to_game(db, match, seats)
                 except SimSeatingError as exc:
                     logger.exception(
-                        "Failed to seat Sims in auto-match %s: %s", match.id, exc
+                        "Failed to seat bots in auto-match %s: %s", match.id, exc
                     )
                     continue
 

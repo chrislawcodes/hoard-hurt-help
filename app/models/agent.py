@@ -5,8 +5,8 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.models.base import Base
 from app.models.enum_types import FlexibleEnumType
@@ -30,6 +30,10 @@ class Agent(Base):
             "user_id",
             "bot_profile_id",
             name="uq_agents_user_id_bot_profile_id",
+        ),
+        CheckConstraint(
+            "kind != 'bot' OR connection_id IS NULL",
+            name="ck_agents_bot_connection_null",
         ),
     )
 
@@ -89,3 +93,14 @@ class Agent(Base):
     bot_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bot_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     bot_fixture_pack: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    @validates("kind", "connection_id")
+    def _validate_bot_connection(
+        self, key: str, value: AgentKind | int | None
+    ) -> AgentKind | int | None:
+        """Bots never carry a connection; AI agents may be detached."""
+        kind = value if key == "kind" else self.kind
+        connection_id = value if key == "connection_id" else self.connection_id
+        if kind == AgentKind.BOT and connection_id is not None:
+            raise ValueError("bot agents cannot have a connection")
+        return value

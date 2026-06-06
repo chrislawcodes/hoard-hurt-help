@@ -1,4 +1,4 @@
-"""Shared Sims dataclasses."""
+"""Shared bot dataclasses."""
 
 from __future__ import annotations
 
@@ -118,3 +118,10 @@ class SimActionDecision:
     intent: str
     move: dict[str, str | None]
     thinking: str
+
+
+BotProfile = SimProfile
+BotContext = SimContext
+BotPlan = SimPlan
+BotTalkDecision = SimTalkDecision
+BotActionDecision = SimActionDecision

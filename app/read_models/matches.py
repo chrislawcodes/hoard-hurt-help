@@ -82,9 +82,9 @@ async def load_players(
     *,
     active_only: bool = False,
 ) -> list[Player]:
-    """Load players in stable agent-id order."""
+    """Load players in stable seat-name order."""
 
-    stmt = select(Player).where(Player.match_id == match_id).order_by(Player.agent_id)
+    stmt = select(Player).where(Player.match_id == match_id).order_by(Player.seat_name)
     if active_only:
         stmt = stmt.where(Player.left_at.is_(None))
     return list((await db.execute(stmt)).scalars().all())
@@ -100,7 +100,7 @@ async def load_scoreboard(
 
     return [
         ScoreboardRow(
-            agent_id=p.agent_id,
+            agent_id=p.seat_name,
             round_score=p.current_round_score,
             round_wins=p.total_round_wins,
         )
@@ -118,7 +118,7 @@ async def load_player_records(
 
     return [
         PlayerRecord(
-            agent_id=p.agent_id,
+            agent_id=p.seat_name,
             round_score=p.current_round_score,
             total_score=p.total_round_score,
             round_wins=p.total_round_wins,
@@ -217,7 +217,7 @@ async def load_match_timeline(
         if turn_messages:
             messages = [
                 TimelineMessage(
-                    agent_id=rows.players_by_id[message.player_id].agent_id,
+                    agent_id=rows.players_by_id[message.player_id].seat_name,
                     text=message.text,
                     thinking=message.thinking,
                     was_defaulted=message.was_defaulted,
@@ -229,7 +229,7 @@ async def load_match_timeline(
         else:
             messages = [
                 TimelineMessage(
-                    agent_id=rows.players_by_id[submission.player_id].agent_id,
+                    agent_id=rows.players_by_id[submission.player_id].seat_name,
                     text=submission.message,
                     thinking="",
                     was_defaulted=submission.was_defaulted,
@@ -251,9 +251,9 @@ async def load_match_timeline(
                 continue
             actions.append(
                 TimelineAction(
-                    agent_id=actor.agent_id,
+                    agent_id=actor.seat_name,
                     action=submission.action,
-                    target_id=target.agent_id if target else None,
+                    target_id=target.seat_name if target else None,
                     message=submission.message,
                     thinking=submission.thinking,
                     points_delta=submission.points_delta,

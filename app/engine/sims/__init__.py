@@ -11,11 +11,23 @@ from .presets import (
     resolve_pack,
     resolve_profile_choice,
 )
-from .runtime import build_sim_profile, choose_action_decision, choose_talk_decision
+from .runtime import (
+    build_bot_profile,
+    build_sim_profile,
+    choose_action_decision,
+    choose_bot_action_decision,
+    choose_bot_talk_decision,
+    choose_talk_decision,
+)
 from .signals import TalkSignal, extract_talk_signals
 from .strategies import choose_action_plan, choose_talk_plan, normalize_strategy_name
 from .trust import compute_trust_map
 from .types import (
+    BotActionDecision,
+    BotContext,
+    BotPlan,
+    BotProfile,
+    BotTalkDecision,
     SimActionDecision,
     SimContext,
     SimPlan,
@@ -25,6 +37,11 @@ from .types import (
 
 __all__ = [
     "SIM_PACKS",
+    "BotActionDecision",
+    "BotContext",
+    "BotPlan",
+    "BotProfile",
+    "BotTalkDecision",
     "SimPack",
     "SimPackEntry",
     "SimProfileChoice",
@@ -33,7 +50,10 @@ __all__ = [
     "SimPlan",
     "SimTalkDecision",
     "SimActionDecision",
+    "build_bot_profile",
     "TalkSignal",
+    "choose_bot_action_decision",
+    "choose_bot_talk_decision",
     "build_sim_profile",
     "choose_action_decision",
     "choose_action_plan",
