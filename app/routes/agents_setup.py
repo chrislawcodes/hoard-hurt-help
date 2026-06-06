@@ -20,7 +20,7 @@ from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
-from app.models.match import GameState, Match, MatchKind
+from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
 from app.routes.connections_setup import (
