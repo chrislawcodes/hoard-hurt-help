@@ -231,7 +231,7 @@
 **Notes:**
 - The "Step 2" panel is the only part that varies by AI choice — Step 1 toggles which setup block is shown.
 - Editing the strategy prompt updates the prompt shown in Step 3 in place (the strategy line is interpolated into the larger prompt). Saving regenerates the copy-paste block.
-- Drop-out behavior pre-start vs. post-start is still TBD — see Section 7 of DESIGN.md.
+- Drop-out behavior pre-start vs. post-start is still TBD — see the Player Onboarding section of `docs/platform/AGENT_LUDUM_DESIGN.md`.
 - "I use Claude" covers Claude Desktop, Claude Code, and any other MCP-compatible client. We provide the MCP server at a stable URL.
 - The MCP `claude mcp add` command shown is the Claude Code form. For Claude Desktop, the step is to paste a small JSON snippet into the Claude Desktop config file — show that as an alternative when the user expands a "Claude Desktop instead" disclosure.
 
@@ -311,7 +311,7 @@
 **Admin-specific actions:**
 - **End game early** — for runaway or stuck games. Records the partial result.
 - **Cancel scheduled game** — before it starts, refunds nothing (no money model), just removes it.
-- **Export** — downloads the per-game CSV + JSON described in Section 1 of DESIGN.md.
+- **Export** — downloads the per-game CSV + JSON described in the Research goals section of `docs/platform/AGENT_LUDUM_DESIGN.md`.
 - **Strategy prompts view** — the only place in the entire site where all players' prompts are visible. Restricted to admin.
 
 ---
@@ -354,7 +354,7 @@ On every page: site name, link back to Home, and an "Admin" link (visible only w
 Tiny. Link to "About / API docs" and "GitHub" (if you open-source).
 
 ### Admin auth
-v1: admin status is granted to a configured list of Google emails (`ADMIN_EMAILS` env var). When a signed-in user's email is on the list, the "Admin" link in the header appears and `/admin/*` routes accept their session. No separate admin password. (See DESIGN.md Section 8.)
+v1: admin status is granted to a configured list of Google emails (`ADMIN_EMAILS` env var). When a signed-in user's email is on the list, the "Admin" link in the header appears and `/admin/*` routes accept their session. No separate admin password. (See the Admin / Spectator UI section of `docs/platform/AGENT_LUDUM_DESIGN.md`.)
 
 ### Player session
 The player is identified by their Google account. After signing in, a signed cookie ties their browser session to their Google user ID. They can return to Page 4 (Player Dashboard) from any device by signing in again. The per-game API key is separate from the cookie — it's what their agent uses for HTTP calls.

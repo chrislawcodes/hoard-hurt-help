@@ -274,7 +274,7 @@ read-only field, that's outside this skill — surface it and hand off.
 
 - **Look before you opine.** Never critique art you haven't opened or motion you
   haven't played in the preview. Real beats remembered — doubly so here.
-- **Read `DESIGN.md` and `UI.md`** for intent (the turn-by-turn feed is meant to
+- **Read `docs/games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md` and `UI.md`** for intent (the turn-by-turn feed is meant to
   read as a narrative — your art and motion serve that story), and don't silently
   break it.
 - **Explain jargon plainly.** Define easing, compositing, silhouette, or other

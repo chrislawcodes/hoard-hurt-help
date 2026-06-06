@@ -2,7 +2,7 @@
 
 The shared source of truth for the *words* on agentludum.com. When copy and a
 design or layout decision disagree, this file wins on the words; `UI.md` and
-`DESIGN.md` win on structure.
+`docs/platform/AGENT_LUDUM_DESIGN.md` win on structure.
 
 This is a living document. As we make bigger copy changes, record the decision
 here so every page stays consistent.
