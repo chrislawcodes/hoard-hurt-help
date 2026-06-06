@@ -38,8 +38,10 @@
                 {% block nav_links %}<a href="/games" class="al-nav-games">Games</a><a href="/leaderboard" class="al-nav-leaderboard">Leaderboard</a>{% endblock %}
                 {# Smart "Play" door — the one emphasis in the calm bar. Label adapts
                    to the visitor (Get started / Connect your agent / Play now); the
-                   destination is always the /play smart redirect. #}
-                {% if nav_cta %}<a href="{{ nav_cta.href }}" class="al-nav-cta">{{ nav_cta.label }}</a>{% endif %}
+                   destination is always the /play smart redirect. It's a block so the
+                   marketing home can drop it — there the hero is already the CTA, and a
+                   second copy in the nav (plus the adjacent "Sign in") just adds noise. #}
+                {% block nav_cta %}{% if nav_cta %}<a href="{{ nav_cta.href }}" class="al-nav-cta">{{ nav_cta.label }}</a>{% endif %}{% endblock %}
                 {% if user %}
                     {# Account lives behind one control so the bar stays calm —
                        a native <details> menu, no JS framework. #}
@@ -60,9 +62,13 @@
                         </div>
                     </details>
                 {% else %}
-                    {# Auth entry must survive the mobile utility-link hide rule —
-                       it's the only way in when there's no account menu. #}
-                    <a href="/auth/google/login" class="al-nav-auth">Sign in</a>
+                    {# Signed-out: the Play pill (above) is the single entry, so no
+                       separate "Sign in" by default — the two side by side just read
+                       as noise. The marketing home drops the pill (the hero is the
+                       CTA there), so it overrides this block to show a quiet "Sign in"
+                       instead, keeping exactly one entry in the bar. Either element
+                       carries .al-nav-* so it survives the mobile hide rule. #}
+                    {% block nav_signin %}{% endblock %}
                 {% endif %}
             </div>
         </div>
