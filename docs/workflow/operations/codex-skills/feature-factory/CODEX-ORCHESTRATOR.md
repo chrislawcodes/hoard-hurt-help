@@ -34,7 +34,13 @@ In Codex Orchestrator mode, **you drive the workflow end-to-end**. You write art
 | Task | Model | Flag |
 |------|-------|------|
 | All Codex implementation and review tasks | `gpt-5.4-mini` | `-m gpt-5.4-mini` |
-| All Gemini review and research tasks | `gemini-2.5-pro` | `-m gemini-2.5-pro` |
+| Gemini reviews — routine | `gemini-3.1-flash-lite` | `-m gemini-3.1-flash-lite` |
+| Gemini reviews — sensitive checkpoints (`--sensitive`) | `gemini-3.1-pro-preview` | `-m gemini-3.1-pro-preview` |
+
+The runner sets the Gemini model automatically from `factory_review_specs.py`
+(`DEFAULT_GEMINI_MODEL` / `SENSITIVE_GEMINI_MODEL`); the flags above are for
+direct calls. Note Pro requires the `-preview` suffix — bare `gemini-3.1-pro`
+returns `ModelNotFoundError`.
 
 **Gemini launches must be staggered by 30 seconds.** The runner may overlap Gemini reviews,
 but it preserves that 30-second stagger. If you call Gemini directly outside the runner, do

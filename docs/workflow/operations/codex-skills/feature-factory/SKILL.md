@@ -418,5 +418,5 @@ pytest -q
 
 - Do not advance a slice or deliver a PR until preflight is green.
 - Fix the root cause — never silence errors with `# type: ignore` or `# noqa` (see `CLAUDE.md` → Python Standards).
-- Default Codex model for implementation/review: `gpt-5.4-mini`. Default Gemini model: `gemini-2.5-pro` (run Gemini calls serially / staggered).
+- Default Codex model for implementation/review: `gpt-5.4-mini`. Gemini reviews: `gemini-3.1-flash-lite` by default, `gemini-3.1-pro-preview` on `--sensitive` checkpoints (run Gemini calls serially / staggered).
 - The engine's own scripts under `docs/workflow/operations/codex-skills/` are excluded from `ruff` in `pyproject.toml`; they are vendored operational tooling with their own test suite.

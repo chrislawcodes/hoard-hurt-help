@@ -13,7 +13,13 @@ from factory_io import read_text
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-pro"
+# Routine reviews use Flash-Lite: Pro-derived reasoning at ~1/8th the cost,
+# fast, and proven adequate on spec/plan/tasks artifacts. Sensitive checkpoints
+# (the --sensitive flag) escalate to Pro for the deepest reasoning.
+# Both IDs verified callable via the gemini CLI on 2026-06-06; note Pro requires
+# the "-preview" suffix (bare "gemini-3.1-pro" returns ModelNotFoundError).
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
+SENSITIVE_GEMINI_MODEL = "gemini-3.1-pro-preview"
 DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
 
 SMALL_TASK_SET_THRESHOLD = 15
@@ -240,11 +246,15 @@ def required_reviews(
     if small_task_set and stage in ("tasks", "closeout") and not extra_gemini:
         return []
 
+    # Sensitive checkpoints escalate the Gemini reviewer to Pro for deeper
+    # reasoning; routine checkpoints use the cheaper Flash-Lite default.
+    gemini_model = SENSITIVE_GEMINI_MODEL if sensitive else DEFAULT_GEMINI_MODEL
+
     reviews: list[dict[str, str]] = []
     for reviewer, lens, model in (
         ("codex", codex_primary, DEFAULT_CODEX_MODEL),
         ("codex", codex_secondary, DEFAULT_CODEX_MODEL),
-        ("gemini", gemini_lens, DEFAULT_GEMINI_MODEL),
+        ("gemini", gemini_lens, gemini_model),
     ):
         if not lens:
             continue
@@ -261,7 +271,7 @@ def required_reviews(
         reviews.append({
             "reviewer": "gemini",
             "lens": candidate,
-            "model": DEFAULT_GEMINI_MODEL,
+            "model": gemini_model,
         })
         seen_gemini_lenses.add(candidate)
     return reviews
