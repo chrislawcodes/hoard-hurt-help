@@ -2,7 +2,7 @@
   "feature_slug": "015-connection-agent-split",
   "stage": "diff",
   "artifact_path": "docs/workflow/feature-runs/015-connection-agent-split/reviews/implementation.diff.patch",
-  "git_base_ref": "47faa1d",
+  "git_base_ref": "a86facebe809b2f99dcbd25236d0eb500248b641",
   "allowed_dirty_paths": [],
   "required_reviews": [],
   "max_artifact_chars": 50000,
