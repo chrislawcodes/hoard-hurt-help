@@ -108,6 +108,7 @@ from factory_mutating import (  # noqa: E402
 from factory_cmd_analyze_reviews import command_analyze_reviews  # noqa: E402
 from factory_cmd_quick import command_quick  # noqa: E402
 from factory_cmd_audit import command_audit  # noqa: E402
+from factory_cmd_autopilot import command_autopilot, DEFAULT_MAX_ITERATIONS as _AUTOPILOT_MAX_ITERATIONS  # noqa: E402
 from factory_stages import stage_manifest_state  # noqa: E402  (re-imported for invariant check)
 
 _MUTATING_CACHE: frozenset[str] | None = None
@@ -461,6 +462,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write report to PATH instead of stdout.",
     )
     audit_parser.set_defaults(func=command_audit)
+
+    autopilot_parser = subparsers.add_parser(
+        "autopilot",
+        help=(
+            "Auto-advance through mechanical steps and yield at decision points "
+            "(authoring, open findings, failures, delivery).  Resumable."
+        ),
+    )
+    autopilot_parser.add_argument("--slug", required=True, help="workflow slug")
+    autopilot_parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=_AUTOPILOT_MAX_ITERATIONS,
+        dest="max_iterations",
+        help=f"hard stop after this many loop iterations (default: {_AUTOPILOT_MAX_ITERATIONS})",
+    )
+    autopilot_parser.add_argument(
+        "--allow-deliver",
+        action="store_true",
+        dest="allow_deliver",
+        help="reserved for future use; delivery still stops for approval",
+    )
+    autopilot_parser.set_defaults(func=command_autopilot)
 
     return parser
 

@@ -53,6 +53,7 @@ EXPECTED_SUBCOMMANDS = {
     "analyze-reviews",
     "quick",
     "audit",
+    "autopilot",
 }
 
 EXPECTED_MUTATING = {
@@ -69,6 +70,7 @@ EXPECTED_MUTATING = {
     "closeout",
     "discover",
     "parallel",
+    "autopilot",
 }
 
 EXPECTED_READONLY = {"status", "doctor", "review-extract", "check-isolation", "analyze-reviews", "quick", "audit"}
@@ -106,6 +108,7 @@ class MutatingRegistryTests(unittest.TestCase):
             "closeout": RUN_FACTORY.command_closeout,
             "discover": RUN_FACTORY.command_discover,
             "parallel": RUN_FACTORY.command_parallel,
+            "autopilot": RUN_FACTORY.command_autopilot,
         }
         for name, handler in mutating_handlers.items():
             self.assertEqual(getattr(handler, "__ff_mutates_state__"), name)
