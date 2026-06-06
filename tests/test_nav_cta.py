@@ -162,7 +162,7 @@ async def test_play_signed_out_redirects_to_login(client):
 
 
 @pytest.mark.asyncio
-async def test_play_unconnected_agent_goes_to_agents_panel(client, reset_db):
+async def test_play_unconnected_agent_goes_to_lobby(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db)
         await make_bot(db, user, name="Atlas")  # never connected
@@ -172,7 +172,7 @@ async def test_play_unconnected_agent_goes_to_agents_panel(client, reset_db):
         "/play", cookies=_signed_in_cookies(user_id), follow_redirects=False
     )
     assert r.status_code == 302
-    assert r.headers["location"] == "/me/bots"
+    assert r.headers["location"] == "/games/hoard-hurt-help"
 
 
 @pytest.mark.asyncio

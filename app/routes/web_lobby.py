@@ -20,7 +20,6 @@ from app.models.bot import Bot, BotKind
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.read_models.leaderboard import load_leaderboard_sections
-from app.routes.nav_context import user_has_connected_agent
 from app.routes.web_support import (
     _TEST_NAME_PREFIX,
     _is_admin,
@@ -336,24 +335,15 @@ async def operator_join_page(request: Request, db: DbSession):
 
     if user is None:
         return RedirectResponse(
-            "/auth/google/login?next=/me/bots", status_code=status.HTTP_302_FOUND
+            "/auth/google/login?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
         )
 
     if not user.handle:
         return RedirectResponse(
-            "/me/handle?next=/me/bots", status_code=status.HTTP_302_FOUND
+            "/me/handle?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
         )
 
-    # A connected agent can play now → straight to the lobby to join. Otherwise
-    # (no agent yet, or one that has never connected) the real next step is the
-    # agents panel: create one, or paste its setup to connect it. This matches
-    # the nav CTA, which reads "Play now" only once an agent has connected.
-    if await user_has_connected_agent(db, user.id):
-        return RedirectResponse(
-            "/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
-        )
-
-    return RedirectResponse("/me/bots", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse("/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/play/{game}", response_class=HTMLResponse)
