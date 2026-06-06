@@ -533,6 +533,29 @@ async def test_enter_bot_into_game(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_join_blocks_bad_display_name(client, reset_db):
+    """The per-match display name is public (shown in the viewer), so a bad word
+    is rejected and never echoed back, and no player is created."""
+    user = await _seed_user(reset_db)
+    await _seed_game(reset_db)
+    bot_id, _ = await _seed_bot(reset_db, user)
+    r = await client.post(
+        "/games/hoard-hurt-help/matches/G_001/join",
+        data={"bot_id": bot_id, "display_name": "fuckwit"},
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+    assert "Pick a different one" in r.text
+    assert "fuckwit" not in r.text  # blocked name not reflected back
+    async with reset_db() as db:
+        players = (
+            await db.execute(select(Player).where(Player.match_id == "G_001"))
+        ).scalars().all()
+    assert players == []
+
+
+@pytest.mark.asyncio
 async def test_duplicate_bot_entry_blocked(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
