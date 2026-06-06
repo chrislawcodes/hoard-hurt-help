@@ -1,13 +1,13 @@
 # Codex Orchestrator Guide
 
-**TL;DR — In this repo (hoard-hurt-help), Claude is the default orchestrator (see `SKILL.md`). Codex orchestration described here is the FALLBACK** — use it only when Claude is unavailable (token exhaustion or a session ended mid-run).
+**TL;DR — This guide applies when Codex is the orchestrator: i.e. when the feature run is started from a Codex session (e.g. `codex exec`), or when Claude handed off mid-run. When the run is driven from a Claude session, Claude orchestrates instead — see `SKILL.md`.**
 
-When Codex is driving as the fallback, dispatch a Codex orchestrator session with:
+Start a Codex-orchestrated run with:
 ```bash
 codex exec -m gpt-5.4 -s workspace-write "$(cat docs/workflow/orchestrator-prompts/<task>.md)"
 ```
 
-Codex tokens are free for the operator, so Codex remains the implementation worker even when Claude orchestrates. This guide covers the case where Codex also *drives* the workflow because Claude is not available to.
+Codex tokens are free for the operator, so Codex is also the implementation worker even when Claude orchestrates. This guide covers the case where Codex *drives* the whole workflow — authoring artifacts and judging findings — not just implementing.
 
 ---
 

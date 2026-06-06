@@ -15,26 +15,32 @@ Trivial features — single-component UI tweaks, type-cast fixes, copy edits, on
 
 ## Choosing an Orchestrator
 
-**This repo (hoard-hurt-help) defaults to Claude as the orchestrator.** Chris drives feature work through Claude. Claude leads the workflow; Codex implements the code (Codex tokens are free for the operator) and Codex + Gemini run the independent adversarial reviews. Codex orchestration is the fallback only when Claude is unavailable.
+The orchestrator is **whichever agent the run is driven from** — it is set by execution context, not a fixed default. Both modes are first-class.
 
-| Situation | Orchestrator | Why |
-|-----------|--------------|-----|
-| Default — any new feature | **Claude** | Repo policy: Claude drives. Claude authors spec/plan/tasks, judges review findings, and runs delivery. Codex still implements (free tokens); Codex + Gemini still review (independent second pair of eyes). |
-| Claude unavailable (token exhaustion or session ended mid-run) | Codex (`gpt-5.4`) | Codex can drive the full workflow end-to-end as a fallback until Claude is back. See `CODEX-ORCHESTRATOR.md`. |
+| If the run is started / driven from… | Orchestrator | Behavior |
+|---|---|---|
+| A **Claude** session | **Claude** | Claude authors spec/plan/tasks, judges review findings, and runs delivery. Codex implements the code (free tokens). Codex + Gemini run the independent adversarial reviews. |
+| A **Codex** session (e.g. started via `codex exec`) | **Codex** | Codex authors artifacts, implements, and judges findings. Gemini reviews and researches. The human approves PR creation and post-mortem changes. See `CODEX-ORCHESTRATOR.md`. |
 
-### Default driver: Claude
+Mid-run handoff is allowed in both directions: Claude can hand off to Codex on token exhaustion or session end, and Codex can hand back. The handoff steps live in `CODEX-ORCHESTRATOR.md`.
 
-When a feature run starts here, **Claude follows the Claude Orchestrator column** in the phase table below: Claude runs the `run_factory.py` commands, authors the artifacts, dispatches Codex for implementation, and judges the review findings. There is no `codex exec` orchestrator dispatch by default — that pattern (and `docs/workflow/orchestrator-prompts/<task>.md`) applies only in the Codex-fallback mode documented in `CODEX-ORCHESTRATOR.md`.
+### Starting a Codex-orchestrated run
+
+```bash
+codex exec -m gpt-5.4 -s workspace-write "$(cat docs/workflow/orchestrator-prompts/<task>.md)"
+```
+
+Write the task prompt to `docs/workflow/orchestrator-prompts/<task>.md` first (avoids `/tmp` GC risk — see Background Dispatch Discipline). When the run is driven from Claude instead, Claude runs the `run_factory.py` commands directly and follows the Claude Orchestrator column below — no `codex exec` orchestrator dispatch is used.
 
 ---
 
 ## Orchestration Mode
 
-This skill runs in one of two modes depending on which agent is executing it:
+This skill runs in one of two modes, **decided by which agent is executing it** (not by a fixed default):
 
-**Claude Orchestrator** — Claude is available and leads the workflow. Claude authors artifacts, judges review findings, and drives delivery. Codex implements and attacks. Gemini reviews.
+**Claude Orchestrator** — the run is driven from a Claude session. Claude leads the workflow: authors artifacts, judges review findings, and drives delivery. Codex implements and attacks. Gemini reviews.
 
-**Codex Orchestrator** — Claude is unavailable (token exhaustion or session end). Codex drives the workflow: authors artifacts, implements, attacks, and judges findings. Gemini reviews and researches. The human approves PR creation and post mortem changes.
+**Codex Orchestrator** — the run is driven from a Codex session (started from Codex, or Claude handed off mid-run on token exhaustion / session end). Codex drives the workflow: authors artifacts, implements, attacks, and judges findings. Gemini reviews and researches. The human approves PR creation and post mortem changes.
 
 If you are Claude, follow Claude Orchestrator behavior throughout this skill.
 If you are Codex, follow Codex Orchestrator behavior throughout this skill.
