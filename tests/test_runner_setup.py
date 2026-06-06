@@ -36,17 +36,6 @@ def _cookie(user_id: int) -> str:
 
 
 @pytest.mark.asyncio
-async def test_runner_script_is_served() -> None:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        r = await c.get("/agentludum_bot.py")
-    assert r.status_code == 200
-    # It's the real runner file, not an HTML page.
-    assert "agentludum_bot" in r.text
-    assert "/api/agent/next-turn" in r.text
-
-
-@pytest.mark.asyncio
 async def test_agent_runner_scripts_are_served() -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
