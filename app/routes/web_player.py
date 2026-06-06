@@ -479,31 +479,6 @@ async def player_dashboard(
     )
 
 
-@router.post("/me/players/{player_id}/strategy")
-async def update_strategy(
-    player_id: Annotated[int, Path()],
-    db: DbSession,
-    user: Annotated[User, Depends(require_user)],
-    strategy_prompt: Annotated[str, Form()],
-):
-    player, game = await _load_owned_player_match_or_404(db, player_id, user.id)
-    if game.state in (GameState.ACTIVE, GameState.COMPLETED):
-        raise HTTPException(409, detail="Strategy locked after game starts.")
-    clean_strategy = strategy_prompt.strip()
-    if not clean_strategy:
-        raise HTTPException(status_code=400, detail="Strategy text is required.")
-    version = (
-        await db.execute(select(AgentVersion).where(AgentVersion.id == player.agent_version_id))
-    ).scalar_one_or_none()
-    if version is None:
-        raise HTTPException(status_code=404, detail="Agent version not found.")
-    version.strategy_text = clean_strategy
-    await db.commit()
-    return RedirectResponse(
-        url=f"/me/players/{player.id}?saved=1", status_code=status.HTTP_303_SEE_OTHER
-    )
-
-
 @router.post("/me/players/{player_id}/leave")
 async def web_leave(
     player_id: Annotated[int, Path()],

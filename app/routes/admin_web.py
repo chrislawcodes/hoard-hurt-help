@@ -234,22 +234,41 @@ async def admin_game_detail(
         (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )
     agents_by_id = {
-        agent.id: (agent, version)
-        for agent, version in (
+        agent.id: agent
+        for agent in (
             (
                 await db.execute(
-                    select(Agent, AgentVersion)
-                    .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-                    .where(Agent.id.in_([p.agent_id for p in players]))
+                    select(Agent).where(Agent.id.in_([p.agent_id for p in players]))
                 )
-            ).all()
+            )
+            .scalars()
+            .all()
         )
     } if players else {}
+    # Display the version each player ACTUALLY played (Player.agent_version_id),
+    # not the agent's current version — otherwise an admin auditing a finished
+    # match sees a strategy that may have been edited after the match.
+    version_ids = [p.agent_version_id for p in players if p.agent_version_id is not None]
+    versions_by_id = {
+        v.id: v
+        for v in (
+            (
+                await db.execute(
+                    select(AgentVersion).where(AgentVersion.id.in_(version_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+    } if version_ids else {}
     player_views = []
     for p in players:
-        agent_version = agents_by_id.get(p.agent_id)
-        agent = agent_version[0] if agent_version else None
-        version = agent_version[1] if agent_version else None
+        agent = agents_by_id.get(p.agent_id)
+        version = (
+            versions_by_id.get(p.agent_version_id)
+            if p.agent_version_id is not None
+            else None
+        )
         is_bot = agent is not None and agent.kind == AgentKind.BOT
         personality = (
             (agent.bot_strategy or "").replace("_", " ").title()
