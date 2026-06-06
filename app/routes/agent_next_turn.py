@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.deps import DbSession, require_bot
@@ -157,3 +158,18 @@ async def next_turn(
         preferred_provider=bot.provider.value if bot.provider else None,
         preferred_model=bot.model,
     )
+
+
+class _ReportPidRequest(BaseModel):
+    pid: int
+
+
+@router.post("/report-pid", status_code=204)
+async def report_pid(
+    body: _ReportPidRequest,
+    bot: Annotated[Bot, Depends(require_bot)],
+    db: DbSession,
+) -> None:
+    """Store the runner's OS process ID so the operator can kill a stuck process."""
+    bot.runner_pid = body.pid
+    await db.commit()

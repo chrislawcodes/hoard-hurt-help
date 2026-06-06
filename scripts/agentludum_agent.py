@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -430,7 +431,17 @@ def main() -> None:
     base = args.url.rstrip("/")
     headers = {"X-Agent-Key": args.key}
     sessions: dict[str, _GameSession] = {}
-    print(f"[agentludum-agent] connected to {base}; one chained session per game.")
+    pid = os.getpid()
+    try:
+        httpx.post(
+            f"{base}/api/agent/report-pid",
+            headers=headers,
+            json={"pid": pid},
+            timeout=10,
+        ).raise_for_status()
+    except Exception as exc:
+        print(f"[agentludum-agent] could not report PID {pid}: {exc}", file=sys.stderr)
+    print(f"[agentludum-agent] connected to {base}; PID {pid}; one chained session per game.")
 
     while True:
         try:

@@ -114,6 +114,10 @@ class Bot(Base):
     sim_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sim_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     sim_fixture_pack: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # OS process ID of the currently running agent runner. Reported by the runner
+    # at startup so the operator can kill a stuck process. Cleared when the bot
+    # disconnects (last_seen_at goes stale). NULL = runner not active or not reporting.
+    runner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
