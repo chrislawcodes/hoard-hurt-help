@@ -32,10 +32,14 @@ logger = logging.getLogger(__name__)
 PRACTICE_ARENA_NAME = "Practice Arena"
 PRACTICE_ARENA_MAX_PLAYERS = 10
 PRACTICE_ARENA_SIM_COUNT = 9
+PRACTICE_ARENA_TOTAL_ROUNDS = 5
+PRACTICE_ARENA_TURNS_PER_ROUND = 5
 
 AUTO_MATCH_INTERVAL_MINUTES = 30
 AUTO_MATCH_MAX_PLAYERS = 8
 AUTO_MATCH_SIM_COUNT_MAX = 7
+AUTO_MATCH_TOTAL_ROUNDS = 7
+AUTO_MATCH_TURNS_PER_ROUND = 7
 
 # Rotating names for auto-matches — one name per 30-min boundary slot (48/day),
 # cycling through the list.  Keyed deterministically by slot index so the same
@@ -137,6 +141,8 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         scheduled_start=far_future,
         min_players=1,
         max_players=PRACTICE_ARENA_MAX_PLAYERS,
+        total_rounds=PRACTICE_ARENA_TOTAL_ROUNDS,
+        turns_per_round=PRACTICE_ARENA_TURNS_PER_ROUND,
         match_kind=MatchKind.PRACTICE_ARENA.value,
     )
     db.add(arena)
@@ -178,6 +184,8 @@ async def ensure_auto_match(db: AsyncSession) -> None:
         scheduled_start=boundary,
         min_players=1,
         max_players=AUTO_MATCH_MAX_PLAYERS,
+        total_rounds=AUTO_MATCH_TOTAL_ROUNDS,
+        turns_per_round=AUTO_MATCH_TURNS_PER_ROUND,
         match_kind=MatchKind.AUTO_SCHEDULED.value,
     )
     db.add(auto)
