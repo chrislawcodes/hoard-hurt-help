@@ -63,6 +63,82 @@ def parse_p_annotation(line: str) -> list[str]:
     return parsed_paths
 
 
+# Path-like tokens in a task line: at least one directory segment plus a file
+# extension, e.g. ``app/games/x/agents_lifecycle.py`` or ``tests/test_y.py``.
+# Requiring a ``/`` keeps bare words from matching.
+_PATH_TOKEN_RE = re.compile(r"(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9_]+")
+
+
+def slice_declared_files(slug: str, slice_index: int) -> list[str]:
+    """Return repo-relative file paths declared by the tasks in one slice.
+
+    A "slice" is the block of task list items after the ``slice_index``-th
+    ``[CHECKPOINT]`` marker (slice 0 is the block before the first marker).
+    Unlike :func:`parse_parallel_task_groups`, this collects task lines
+    regardless of checkbox state (``[ ]`` or ``[x]``), so a *completed* slice's
+    declared files can be read back. Paths come from ``[P:]`` annotations plus
+    path-like tokens in the task text. Returns a sorted, de-duplicated list.
+    """
+    tasks_path = _stages.workflow_dir(slug) / "tasks.md"
+    if not tasks_path.exists():
+        return []
+
+    declared: set[str] = set()
+    markers_seen = 0
+    collecting = slice_index == 0
+
+    for line in tasks_path.read_text(encoding="utf-8").splitlines():
+        if _stages._CHECKPOINT_MARKER_RE.match(line):
+            if collecting:
+                break
+            markers_seen += 1
+            if markers_seen == slice_index:
+                collecting = True
+            continue
+        if not collecting:
+            continue
+        if not re.match(r"^\s*-\s+\[[ xX]\]\s+", line):
+            continue
+        for path in parse_p_annotation(line):
+            declared.add(path)
+        for match in _PATH_TOKEN_RE.findall(line):
+            cleaned = match
+            while cleaned.startswith("./"):
+                cleaned = cleaned[2:]
+            if cleaned:
+                declared.add(cleaned)
+
+    return sorted(declared)
+
+
+def prior_slice_unbuilt(slug: str, current_index: int) -> str | None:
+    """Return an error message if the slice before ``current_index`` looks unbuilt.
+
+    Guards against checkpoint-index drift (e.g. a `repair` that wrongly advanced
+    the index past a slice that was never implemented). If the prior slice
+    declares files and *none* of them exist on disk, the index has almost
+    certainly skipped an un-built slice — refuse to dispatch. Fails open
+    (returns None) when there is no prior slice or it declares no checkable
+    files, so legitimate runs are never blocked.
+    """
+    if current_index <= 0:
+        return None
+    declared = slice_declared_files(slug, current_index - 1)
+    if not declared:
+        return None
+    existing = [path for path in declared if (_stages.REPO_ROOT / path).exists()]
+    if existing:
+        return None
+    return (
+        f"prior slice (index {current_index - 1}) declares "
+        f"{len(declared)} file(s) — {', '.join(declared[:5])}"
+        f"{' …' if len(declared) > 5 else ''} — but none exist on disk. "
+        f"checkpoint_progress.index ({current_index}) appears to have drifted "
+        "past an un-built slice. Refusing to dispatch. Verify the prior slice "
+        "was implemented, or correct checkpoint_progress.index in state.json."
+    )
+
+
 def parse_parallel_task_groups(slug: str) -> list[dict]:
     tasks_path = _stages.workflow_dir(slug) / "tasks.md"
     if not tasks_path.exists():

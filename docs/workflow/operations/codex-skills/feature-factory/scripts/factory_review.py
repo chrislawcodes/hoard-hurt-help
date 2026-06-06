@@ -234,6 +234,9 @@ def repair_checkpoint_args(slug: str, stage: str, state: dict[str, object]) -> a
         "no_auto_context": False,
         "fast": False,
         "keep_intermediates": False,
+        # Repair re-points a stale diff to current HEAD; it must NOT advance the
+        # slice index (see _advance_checkpoint_progress repoint_only).
+        "repair": True,
     }
     return argparse.Namespace(**values)
 
@@ -362,8 +365,17 @@ def record_checkpoint_fallback(slug: str, stage: str, reason: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _advance_checkpoint_progress(slug: str, stage: str, pending_head_sha: str) -> None:
-    """After a successful diff checkpoint, advance index and record the HEAD SHA."""
+def _advance_checkpoint_progress(
+    slug: str, stage: str, pending_head_sha: str, *, repoint_only: bool = False
+) -> None:
+    """After a diff checkpoint, record the HEAD SHA — and advance the slice index.
+
+    ``repoint_only=True`` is the *repair* case: a stale diff is being re-pointed
+    to the current HEAD (e.g. after a rebase rewrote SHAs). That is NOT the same
+    event as a slice being completed and reconciled, so the slice index must
+    stay put — advancing it here would skip an un-built slice (the next
+    ``implement`` would dispatch the slice *after* the one that was never built).
+    """
     if stage != "diff":
         return
     marker_count, current_markers_sha = parse_checkpoint_markers(slug)
@@ -371,7 +383,7 @@ def _advance_checkpoint_progress(slug: str, stage: str, pending_head_sha: str) -
         return  # no markers — nothing to track
     progress = checkpoint_progress_state(slug)
     new_progress = {
-        "index": progress["index"] + 1,
+        "index": progress["index"] if repoint_only else progress["index"] + 1,
         "markers_sha": current_markers_sha,
         "last_diff_head_sha": pending_head_sha,
     }

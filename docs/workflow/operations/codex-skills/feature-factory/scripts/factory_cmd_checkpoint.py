@@ -580,7 +580,10 @@ def command_checkpoint(args: argparse.Namespace) -> int:
                 reverted = revert_protected_files()
                 if reverted:
                     print(f"reverted protected files: {', '.join(reverted)}", file=sys.stderr)
-                _advance_checkpoint_progress(args.slug, args.stage, pending_head_sha)
+                _advance_checkpoint_progress(
+                    args.slug, args.stage, pending_head_sha,
+                    repoint_only=getattr(args, "repair", False),
+                )
                 post_state = load_workflow_state(args.slug)
                 payload = _checkpoint_next_action_payload(args.slug, post_state, args.stage)
                 _persist_last_action_result(args.slug, payload)
@@ -611,7 +614,10 @@ def command_checkpoint(args: argparse.Namespace) -> int:
         if reverted:
             print(f"reverted protected files: {', '.join(reverted)}", file=sys.stderr)
         record_checkpoint_fallback(args.slug, args.stage, fallback_reason)
-        _advance_checkpoint_progress(args.slug, args.stage, pending_head_sha)
+        _advance_checkpoint_progress(
+            args.slug, args.stage, pending_head_sha,
+            repoint_only=getattr(args, "repair", False),
+        )
         heartbeat_set_activity("aggregating results")
         print(f"warning: fallback checkpoint path used for {args.stage} on {args.slug}: {fallback_reason}", file=sys.stderr)
         post_state = load_workflow_state(args.slug)
