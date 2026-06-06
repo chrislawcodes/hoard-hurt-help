@@ -15,6 +15,7 @@ from app.routes.bots_web_support import (
     archived_bot_name,
     get_owned_bot,
     validate_bot_name,
+    strip_archive_suffix,
 )
 
 router = APIRouter()
@@ -92,19 +93,9 @@ async def delete_bot(
         if bot.kind == BotKind.SIM:
             bot.sim_profile_id = None
             bot.sim_profile_name = None
-        stamped = archived_bot_name(bot.name, now)
-        clash = (
-            await db.execute(
-                select(Bot.id)
-                .where(
-                    Bot.user_id == bot.user_id,
-                    Bot.name == stamped,
-                    Bot.id != bot.id,
-                )
-                .limit(1)
-            )
-        ).first()
-        bot.name = archived_bot_name(bot.name, now, f" #{bot.id}") if clash else stamped
+        # Strip any old-style archived suffix before re-stamping, so a
+        # second delete on the same bot doesn't double-append.
+        bot.name = archived_bot_name(strip_archive_suffix(bot.name), bot.id)
     else:
         await db.delete(bot)
     await db.commit()

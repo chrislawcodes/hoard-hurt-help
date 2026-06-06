@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ bot.name }} — My Agents{% endblock %}
+{% block title %}{{ bot.name | strip_archive_suffix }} — My Agents{% endblock %}
 {% block content %}
 <a class="backlink" href="/me/bots">← My agents</a>
 <div class="page-head">
-    <h1>{{ bot.name }}</h1>
+    <h1>{{ bot.name | strip_archive_suffix }}{% if bot.archived_at %}<br><small style="font-size:0.65em; font-weight:400; color:var(--muted, #888);">archived {{ bot.archived_at.strftime('%m-%d-%Y') }}</small>{% endif %}</h1>
     <p class="sub">
         {% if bot.kind.value == 'sim' %}
             <span class="badge badge-ok">Sim</span>
