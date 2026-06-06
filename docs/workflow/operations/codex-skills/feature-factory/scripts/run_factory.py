@@ -250,6 +250,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     checkpoint_parser.add_argument("--fast", action="store_true",
         help="Fast path: skip prerequisites, run 1 Gemini + 1 Codex review. Requires --stage diff.")
+    checkpoint_parser.add_argument("--diff-review-threshold", type=int, default=None,
+        help="Changed-line count at/above which a diff stage gets one Gemini "
+             "regression-adversarial review (default 50). Lower to review smaller "
+             "slices; raise to review only large ones.")
     checkpoint_parser.set_defaults(func=command_checkpoint)
 
     reconcile_parser = subparsers.add_parser("reconcile")

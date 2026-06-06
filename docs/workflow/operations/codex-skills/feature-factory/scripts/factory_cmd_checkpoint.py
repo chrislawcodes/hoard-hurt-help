@@ -79,6 +79,8 @@ from factory_review_specs import (  # noqa: E402
     _strip_non_finding_markdown,
     _findings_scan_text,
     _SEVERITY_ORDER,
+    DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES,
+    count_changed_diff_lines,
 )
 
 from factory_emit import _emit_next_action  # noqa: E402
@@ -477,6 +479,16 @@ def command_checkpoint(args: argparse.Namespace) -> int:
                         )
                 except Exception:
                     pass  # count failed — fall back to full reviews
+        # Size the diff so substantial slices get one independent Gemini review.
+        # The artifact has already been written (or validated to exist) above.
+        diff_changed_lines: int | None = None
+        diff_review_threshold = (
+            getattr(args, "diff_review_threshold", None) or DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES
+        )
+        if args.stage == "diff" and artifact_path.exists():
+            diff_changed_lines = count_changed_diff_lines(
+                artifact_path.read_text(encoding="utf-8")
+            )
         reviews_arg = required_reviews(
             args.stage,
             policy["sensitive"],
@@ -485,6 +497,8 @@ def command_checkpoint(args: argparse.Namespace) -> int:
             policy["extra_gemini_lenses"],
             fast=fast,
             small_task_set=small_task_set,
+            diff_changed_lines=diff_changed_lines,
+            diff_review_threshold=diff_review_threshold,
         )
 
     manifest = checkpoint_manifest(

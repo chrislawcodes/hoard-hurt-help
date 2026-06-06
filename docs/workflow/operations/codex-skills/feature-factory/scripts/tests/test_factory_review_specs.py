@@ -277,6 +277,70 @@ class RequiredReviewSelectionTests(unittest.TestCase):
         self.assertEqual(FRS.required_reviews("diff", False, False, False, []), [])
         self.assertEqual(FRS.required_reviews("closeout", False, False, False, []), [])
 
+    def test_diff_with_no_size_info_keeps_no_default_review(self) -> None:
+        """Callers that don't size the diff get the historical empty behavior."""
+        self.assertEqual(
+            FRS.required_reviews("diff", False, False, False, [], diff_changed_lines=None),
+            [],
+        )
+
+    def test_small_diff_gets_no_default_review(self) -> None:
+        self.assertEqual(
+            FRS.required_reviews("diff", False, False, False, [], diff_changed_lines=10),
+            [],
+        )
+
+    def test_substantial_diff_gets_one_gemini_regression_review(self) -> None:
+        reviews = FRS.required_reviews("diff", False, False, False, [], diff_changed_lines=200)
+        self.assertEqual(
+            reviews,
+            [
+                {
+                    "reviewer": "gemini",
+                    "lens": "regression-adversarial",
+                    "model": FRS.DEFAULT_GEMINI_MODEL,
+                },
+            ],
+        )
+
+    def test_diff_review_triggers_exactly_at_threshold(self) -> None:
+        threshold = FRS.DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES
+        below = FRS.required_reviews(
+            "diff", False, False, False, [], diff_changed_lines=threshold - 1
+        )
+        at = FRS.required_reviews(
+            "diff", False, False, False, [], diff_changed_lines=threshold
+        )
+        self.assertEqual(below, [])
+        self.assertEqual([r["lens"] for r in at], ["regression-adversarial"])
+
+    def test_custom_diff_review_threshold_overrides_default(self) -> None:
+        # A 30-line diff is below the default 50 but above a custom 25.
+        self.assertEqual(
+            FRS.required_reviews(
+                "diff", False, False, False, [], diff_changed_lines=30
+            ),
+            [],
+        )
+        reviews = FRS.required_reviews(
+            "diff", False, False, False, [], diff_changed_lines=30, diff_review_threshold=25
+        )
+        self.assertEqual([r["lens"] for r in reviews], ["regression-adversarial"])
+
+    def test_sensitive_diff_review_uses_pro_model(self) -> None:
+        reviews = FRS.required_reviews(
+            "diff", True, False, False, [], diff_changed_lines=200
+        )
+        self.assertEqual(reviews[0]["model"], FRS.SENSITIVE_GEMINI_MODEL)
+
+    def test_extra_gemini_lens_not_duplicated_with_gated_diff_review(self) -> None:
+        # The size gate already adds regression-adversarial; an explicit
+        # --extra-gemini-lens for the same lens must not double it.
+        reviews = FRS.required_reviews(
+            "diff", False, False, False, ["regression-adversarial"], diff_changed_lines=200
+        )
+        self.assertEqual([r["lens"] for r in reviews], ["regression-adversarial"])
+
     def test_extra_gemini_lens_is_appended_on_a_no_default_stage(self) -> None:
         reviews = FRS.required_reviews("tasks", False, False, False, ["coverage-adversarial"])
         self.assertEqual(
@@ -289,6 +353,35 @@ class RequiredReviewSelectionTests(unittest.TestCase):
                 },
             ],
         )
+
+
+class CountChangedDiffLinesTests(unittest.TestCase):
+    """Tests for the count_changed_diff_lines helper used by the diff-review gate."""
+
+    def test_empty_diff_is_zero(self) -> None:
+        self.assertEqual(FRS.count_changed_diff_lines(""), 0)
+
+    def test_counts_added_and_removed_content_lines(self) -> None:
+        diff = (
+            "diff --git a/foo.py b/foo.py\n"
+            "--- a/foo.py\n"
+            "+++ b/foo.py\n"
+            "@@ -1,3 +1,4 @@\n"
+            " context line\n"
+            "-old line\n"
+            "+new line one\n"
+            "+new line two\n"
+        )
+        # 1 removed + 2 added = 3 changed; headers, hunk, and context excluded.
+        self.assertEqual(FRS.count_changed_diff_lines(diff), 3)
+
+    def test_file_headers_are_not_counted(self) -> None:
+        diff = "--- a/x\n+++ b/x\n"
+        self.assertEqual(FRS.count_changed_diff_lines(diff), 0)
+
+    def test_hunk_header_and_context_not_counted(self) -> None:
+        diff = "@@ -1 +1 @@\n unchanged\n"
+        self.assertEqual(FRS.count_changed_diff_lines(diff), 0)
 
 
 class ActionableFindingShapesManifestTests(unittest.TestCase):

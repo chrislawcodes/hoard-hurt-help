@@ -20,7 +20,7 @@ The orchestrator is **whichever agent the run is driven from** — it is set by 
 | If the run is started / driven from… | Orchestrator | Behavior |
 |---|---|---|
 | A **Claude** session | **Claude** | Claude authors spec/plan/tasks, judges review findings, and runs delivery. Codex implements the code (free tokens). Codex + Gemini run the independent adversarial reviews. |
-| A **Codex** session (e.g. started via `codex exec`) | **Codex** | Codex authors artifacts, implements, and judges findings. Gemini reviews and researches. The human approves PR creation and post-mortem changes. See `CODEX-ORCHESTRATOR.md`. |
+| A **Codex** session (e.g. started via `codex exec`) | **Codex** | Codex authors artifacts, implements, and judges findings. Codex + Gemini run the spec/plan adversarial reviews — but because Codex also authored those artifacts, the Codex lens here is **self-review**; Gemini is the independent lens (see Review Policy → "Reviewer independence"). Gemini also researches. The human approves PR creation and post-mortem changes. See `CODEX-ORCHESTRATOR.md`. |
 
 Mid-run handoff is allowed in both directions: Claude can hand off to Codex on token exhaustion or session end, and Codex can hand back. The handoff steps live in `CODEX-ORCHESTRATOR.md`.
 
@@ -40,7 +40,7 @@ This skill runs in one of two modes, **decided by which agent is executing it** 
 
 **Claude Orchestrator** — the run is driven from a Claude session. Claude leads the workflow: authors artifacts, judges review findings, and drives delivery. Codex implements and attacks. Gemini reviews.
 
-**Codex Orchestrator** — the run is driven from a Codex session (started from Codex, or Claude handed off mid-run on token exhaustion / session end). Codex drives the workflow: authors artifacts, implements, attacks, and judges findings. Gemini reviews and researches. The human approves PR creation and post mortem changes.
+**Codex Orchestrator** — the run is driven from a Codex session (started from Codex, or Claude handed off mid-run on token exhaustion / session end). Codex drives the workflow: authors artifacts, implements, attacks, and judges findings. Gemini reviews and researches. The human approves PR creation and post mortem changes. Because Codex authors *and* attacks the spec/plan here, its adversarial lens is self-review — see Review Policy → "Reviewer independence" for what stays independent.
 
 If you are Claude, follow Claude Orchestrator behavior throughout this skill.
 If you are Codex, follow Codex Orchestrator behavior throughout this skill.
@@ -98,7 +98,7 @@ Do not duplicate checkpoint manifest logic, review file validation, diff writing
 | Record parallel analysis | Look for safe parallel implementation opportunities in tasks.md. Annotate parallel tasks with `[P: file1, file2]`. Run `parallel --slug <slug> --note "..." [--found]`. If opportunities exist, add `[P:]` annotations first — the command validates they are conflict-free. | Claude | Codex |
 | Tasks checkpoint | Adversarial attack on tasks, execution-order review, reconcile findings into tasks | No default reviews | No default reviews |
 | Implementation slice | Implement one `[CHECKPOINT]`-bounded slice from `tasks.md`, run build and tests, commit | Codex | Codex |
-| Diff checkpoint | Adversarial attack on the slice diff only (not the full branch), correctness review, reconcile findings | No default reviews | No default reviews |
+| Diff checkpoint | Adversarial attack on the slice diff only (not the full branch), correctness review, reconcile findings | Gemini regression-adversarial for slices ≥ 50 changed lines; none for smaller slices (see "Size-gated diff review") | Same — Gemini for slices ≥ 50 changed lines |
 | *(repeat per slice)* | Implementation slice → Diff checkpoint repeats for each `[CHECKPOINT]` boundary in `tasks.md` | | |
 | Deliver | Push branch, create PR, watch CI, record delivery state in workflow. The `deliver` invocation is itself the consent — do not re-prompt before push or PR creation. The human still squash-merges. | Claude | Codex (stages, push, create PR) · Human (approves and squash-merges) |
 | CI failure | Extract errors, implement fix, re-run CI | Claude (reviews fix) · Codex (fixes) | Codex (fixes) · Human (approves) |
@@ -109,7 +109,7 @@ Do not duplicate checkpoint manifest logic, review file validation, diff writing
 | Update STATUS.md | Update `STATUS.md` to reflect what shipped. Required before workflow is marked done. | Claude | Codex |
 | Post mortem approval | Review proposed workflow changes and approve, reject, or defer each one | Human | Human |
 
-Bundle 2 reduced default reviews to spec and plan only. Reviews concentrate leverage at the design stages where mistakes are cheapest to fix. Tasks/diff/closeout failures are caught by failed implementations, CI, and operator review of the closeout artifact respectively. Operators can add an extra Gemini lens at any stage via `--extra-gemini-lens` (a corresponding `--extra-codex-lens` is not currently wired in the runner — add it as a follow-up if needed).
+Reviews concentrate leverage at the design stages (spec, plan) where mistakes are cheapest to fix, plus a size-gated independent review on the diff so a real logic bug can't slip to `main` through CI that only runs `ruff`/`mypy`/`pytest`. Tasks and closeout have no default review — tasks failures surface in failed implementation, closeout is documentation caught by operator review. Operators can add an extra Gemini lens at any stage via `--extra-gemini-lens` (a corresponding `--extra-codex-lens` is not currently wired in the runner — add it as a follow-up if needed).
 
 If the workflow already exists, resume from the earliest incomplete stage instead of starting over.
 
@@ -272,7 +272,18 @@ All reviews are adversarial — each one is looking for ways the artifact is wro
 
 Review rounds are tracked per stage and surfaced by `analyze-reviews` (it flags stages that needed 3+ rounds). There is no hard runner cap — reviewers should stay rigorous but converge, not assume the loop can keep refining forever.
 
-The checkpoint runner selects the specific lenses by stage. Bundle 2 keeps the default lenses on `spec` and `plan` only, and leaves `tasks`, `diff`, and `closeout` empty unless the operator explicitly opts in. Keep the Codex and Gemini lenses independent from each other when they are present.
+The checkpoint runner selects the specific lenses by stage. Bundle 2 keeps the default Codex+Gemini lenses on `spec` and `plan`, and leaves `tasks` and `closeout` empty unless the operator explicitly opts in. The `diff` stage gets **one independent Gemini review, but only for substantial slices** — see "Size-gated diff review" below. Keep the Codex and Gemini lenses independent from each other when they are present.
+
+### Size-gated diff review
+
+A diff slice that changes **≥ 50 lines** (added + removed) gets one default `gemini regression-adversarial` review at its diff checkpoint; smaller slices get none and rely on the Preflight Gate + CI. The reviewer is Gemini, not Codex, because **Codex always implements the slice** — a Codex diff lens would be reviewing its own code. This closes the gap where a real logic bug could reach `main`: CI here is only `ruff`/`mypy`/`pytest`, which cannot catch logic the tests do not exercise. Override the threshold per checkpoint with `checkpoint --slug <slug> --stage diff --diff-review-threshold <N>` (lower to review smaller slices, raise to review only the largest). Like spec/plan reviews, a diff-stage finding must be reconciled to a terminal status before the run advances.
+
+### Reviewer independence
+
+The runner picks lenses by **stage**, not by orchestrator, so the same lenses run in both modes. That has a consequence worth stating plainly:
+
+- **Claude mode** — Claude authors spec/plan; Codex and Gemini both review. Both reviewers are independent of the author, so "no agent reviews its own work" holds in full.
+- **Codex mode** — Codex authors spec/plan *and* runs the Codex adversarial lens on them. That lens is **self-review** and is not independent. The independent automated lens in Codex mode is **Gemini**; the human approving PR creation and post-mortem changes is the backstop. Treat the Codex lens there as a self-check, not as independent assurance — and prefer a Claude handoff or human spot-check on high-stakes Codex-driven runs.
 
 ## Codex Orchestrator: Escalation Protocol
 
