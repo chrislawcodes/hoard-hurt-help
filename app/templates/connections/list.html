@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Connections — Hoard-Hurt-Help{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h1>Connections</h1>
+    <p class="sub">Connect once, then reuse the same login across every agent you build.</p>
+</div>
+
+<form method="post" action="/me/connections" class="card form">
+    <label>
+        Provider
+        <select name="provider" required>
+            <option value="" selected disabled>Choose a provider</option>
+            {% for provider in provider_choices %}
+                <option value="{{ provider.value }}">{{ provider_labels[provider.value] }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label>
+        Nickname
+        <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="Defaults to the provider name">
+    </label>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Create connection</button>
+    </div>
+</form>
+
+{% if connections %}
+    <h2 style="margin-top:1.75rem;">Your connections</h2>
+    {% for row in connections %}
+    <article class="game-card">
+        <div class="game-card-info">
+            <h3><a href="/me/connections/{{ row.connection.id }}">{{ row.display_name }}</a></h3>
+            <p class="meta">
+                <span class="bot-health-live" hx-get="/me/connections/{{ row.connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
+                    {% include "connections/_health_badge.html" %}
+                </span>
+                {% if row.connection.runner_pid and row.health.state.value != 'paused' and row.health.state.value != 'disconnected' %}
+                    · PID {{ row.connection.runner_pid }}
+                {% endif %}
+                · {{ row.agents | length }} agent(s)
+            </p>
+        </div>
+        <div class="game-card-action">
+            <a class="btn btn-primary" href="/me/connections/{{ row.connection.id }}">Manage →</a>
+        </div>
+    </article>
+    {% endfor %}
+{% else %}
+    <p class="empty">No connections yet. Create one above.</p>
+{% endif %}
+{% endblock %}

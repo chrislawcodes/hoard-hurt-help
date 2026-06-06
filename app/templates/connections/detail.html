@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }} — Connections{% endblock %}
+{% block content %}
+<a class="backlink" href="/me/connections">← Connections</a>
+<div class="page-head">
+    <h1>{{ display_name }}</h1>
+    <p class="sub">
+        <span class="bot-health-live" hx-get="/me/connections/{{ connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
+            {% include "connections/_health_badge.html" %}
+        </span>
+        {% if connection.runner_pid and health.state.value != 'paused' and health.state.value != 'disconnected' %}
+            · PID {{ connection.runner_pid }}
+        {% endif %}
+    </p>
+</div>
+
+{% if fresh_key %}
+<div class="card" id="setup">
+    <h3 style="margin-top:0;">Connect your connection</h3>
+    <p class="hint" style="margin-top:0;">This setup message is shown once. Paste it into the runner so it can keep playing all of your agents' games.</p>
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Copy setup message</button>
+    <pre id="runner-msg">{{ runner_message }}</pre>
+    <p class="hint">If you lose this message, reissue a fresh one from the connection controls below.</p>
+</div>
+{% endif %}
+
+{% include "connections/_status.html" %}
+
+{% if health.needs_reconnect and not fresh_key %}
+    {% include "connections/_reconnect.html" %}
+{% endif %}
+
+<div class="card">
+    <h3 style="margin-top:0;">Agents this connection powers</h3>
+    {% if attached_agents %}
+        {% for row in attached_agents %}
+        <article class="game-card">
+            <div class="game-card-info">
+                <h3>{{ row.agent.name }}</h3>
+                <p class="meta">
+                    {{ row.agent.game }}
+                    {% if row.version %} · {{ row.version.model }} · v{{ row.version.version_no }}{% endif %}
+                </p>
+            </div>
+        </article>
+        {% endfor %}
+    {% else %}
+        <p class="empty">No agents are attached yet.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 style="margin-top:0;">Detached agents you can reattach</h3>
+    {% if detached_agents %}
+        {% for row in detached_agents %}
+        <article class="game-card">
+            <div class="game-card-info">
+                <h3>{{ row.agent.name }}</h3>
+                <p class="meta">
+                    {{ row.agent.game }} · {{ row.version.model }} · v{{ row.version.version_no }}
+                </p>
+            </div>
+            <div class="game-card-action">
+                <form method="post" action="/me/connections/{{ connection.id }}/reattach/{{ row.agent.id }}">
+                    <button type="submit" class="btn btn-primary">Reattach</button>
+                </form>
+            </div>
+        </article>
+        {% endfor %}
+    {% else %}
+        <p class="empty">No detached agents are waiting for this provider.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 style="margin-top:0;">Controls</h3>
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+        {% if connection.status.value == 'paused' %}
+            <form method="post" action="/me/connections/{{ connection.id }}/resume"><button type="submit">Resume</button></form>
+        {% else %}
+            <form method="post" action="/me/connections/{{ connection.id }}/pause"><button type="submit">Pause</button></form>
+        {% endif %}
+        <form method="post" action="/me/connections/{{ connection.id }}/reissue"><button type="submit">Reissue key</button></form>
+        <form method="post" action="/me/connections/{{ connection.id }}/revoke"><button type="submit" class="secondary">Revoke and reissue</button></form>
+        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this connection? Its agents will be detached, paused, and kept. Continue?');">
+            <button type="submit">Delete</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
