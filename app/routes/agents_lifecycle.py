@@ -47,7 +47,8 @@ async def _load_current_version(db: DbSession, agent: Agent) -> AgentVersion:
     return version
 
 
-async def _version_has_active_rated_match(db: DbSession, version_id: int) -> bool:
+async def _version_has_active_match(db: DbSession, version_id: int) -> bool:
+    """True if this version is seated in any active match (rated OR practice)."""
     row = (
         await db.execute(
             select(Player.id)
@@ -56,7 +57,23 @@ async def _version_has_active_rated_match(db: DbSession, version_id: int) -> boo
                 Player.agent_version_id == version_id,
                 Player.left_at.is_(None),
                 Match.state == GameState.ACTIVE,
-                Match.match_kind != MatchKind.PRACTICE_ARENA.value,
+            )
+            .limit(1)
+        )
+    ).first()
+    return row is not None
+
+
+async def _agent_has_active_match(db: DbSession, agent_id: int) -> bool:
+    """True if any seat of this agent is in an active match (rated OR practice)."""
+    row = (
+        await db.execute(
+            select(Player.id)
+            .join(Match, Match.id == Player.match_id)
+            .where(
+                Player.agent_id == agent_id,
+                Player.left_at.is_(None),
+                Match.state == GameState.ACTIVE,
             )
             .limit(1)
         )
@@ -114,9 +131,7 @@ async def _apply_version_edit(
     strategy_text: str | None = None,
 ) -> AgentVersion:
     current = await _load_current_version(db, agent)
-    if await _version_has_active_rated_match(db, current.id):
-        if current.frozen_at is None:
-            current.frozen_at = datetime.now(timezone.utc)
+    if await _version_has_active_match(db, current.id):
         raise HTTPException(status_code=409, detail="That version is mid-match and locked.")
     current_has_rated_history = await _version_has_rated_history(db, current.id)
     if not current_has_rated_history and current.frozen_at is None:
@@ -196,6 +211,11 @@ async def delete_agent(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
     agent = await _load_owned_agent(db, user, agent_id)
+    if await _agent_has_active_match(db, agent.id):
+        raise HTTPException(
+            status_code=409,
+            detail="That agent is in an active match — wait for it to finish before deleting.",
+        )
     has_history = (
         await db.execute(select(Player.id).where(Player.agent_id == agent.id).limit(1))
     ).first() is not None

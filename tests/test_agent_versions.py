@@ -21,7 +21,7 @@ from app.models import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
-from app.models.match import GameState, Match
+from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
 from app.routes.agents_lifecycle import router as agents_lifecycle_router
@@ -165,7 +165,9 @@ async def _make_version(
     return version
 
 
-async def _make_match(db: AsyncSession, match_id: str, *, state: GameState) -> Match:
+async def _make_match(
+    db: AsyncSession, match_id: str, *, state: GameState, match_kind: str = "manual"
+) -> Match:
     match = Match(
         id=match_id,
         name=f"Match {match_id}",
@@ -177,7 +179,7 @@ async def _make_match(db: AsyncSession, match_id: str, *, state: GameState) -> M
         else None,
         completed_at=datetime.now(timezone.utc) if state == GameState.COMPLETED else None,
         per_turn_deadline_seconds=60,
-        match_kind="manual",
+        match_kind=match_kind,
     )
     db.add(match)
     await db.flush()
@@ -413,3 +415,44 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
     assert resp.status_code == 200
     assert "At capacity" in resp.text
     assert "1 / 1 active matches" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_agent_in_active_practice_match_is_locked_against_delete_and_edit(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """An agent seated in ANY active match — including a practice-arena game — must
+    not be deletable or editable mid-match (CP2 review findings 1 & 2)."""
+    async with session_factory() as db:
+        user = await _make_user(db, handle="agent7", i=7)
+        connection, _ = await _make_connection(
+            db, user, provider=ConnectionProvider.CLAUDE
+        )
+        agent = await _make_agent(db, user, connection=connection, name="Locked")
+        version = await _make_version(db, agent)
+        match = await _make_match(
+            db,
+            "M_4000",
+            state=GameState.ACTIVE,
+            match_kind=MatchKind.PRACTICE_ARENA.value,
+        )
+        await _seat_player(
+            db,
+            match=match,
+            user=user,
+            agent=agent,
+            version=version,
+            seat_name=f"{user.handle}/Locked",
+        )
+        await db.commit()
+        agent_id = agent.id
+
+    cookies = _signed_in_cookies(user.id)
+    delete_resp = await client.post(f"/me/agents/{agent_id}/delete", cookies=cookies)
+    assert delete_resp.status_code == 409
+    edit_resp = await client.post(
+        f"/me/agents/{agent_id}/set-strategy",
+        data={"strategy_text": "A different plan."},
+        cookies=cookies,
+    )
+    assert edit_resp.status_code == 409
