@@ -89,7 +89,10 @@ architecture-doc decision) so the safety steps can't be quietly skipped.
 
 A run flows through these stages in order. It auto-advances stage to stage — the
 orchestrator reads the `→ next:` action after each runner command and keeps moving,
-stopping only when blocked, done, or explicitly told to stop.
+stopping only when blocked, done, or explicitly told to stop. The
+`autopilot` command automates this loop — it runs the mechanical steps (checkpoints,
+implement + preflight + diff) and stops at decision points (authoring, open review
+findings, delivery).
 
 ```
   Discovery
@@ -186,7 +189,7 @@ Reviews are the heart of FF's quality story.
 - **Why concentrate there?** The spec and plan are the cheapest places to catch bad assumptions. Tasks/diff/closeout mistakes are caught downstream by failed implementations, CI, and operator review of the closeout artifact.
 - **All reviews are adversarial.** Each reviewer looks for ways the artifact is wrong, incomplete, or risky — not for things to praise.
 - **Independent lenses.** Codex and Gemini reviews stay independent from each other so they don't collapse into one opinion.
-- **Bounded.** The judge panel has a runner-enforced 3-round cap; reviewers stay rigorous but can't refine forever.
+- **Convergent (and measured).** Review rounds are tracked per stage and surfaced by `analyze-reviews` (it flags any stage that needed 3+ rounds). Reviewers stay rigorous but are expected to converge — convergence is a discipline surfaced by telemetry, not a hard runner cap.
 - **Reconciliation is mandatory.** Every finding must reach a terminal status (`accepted` / `rejected` / `deferred`) before the stage advances.
 
 ---
@@ -297,7 +300,7 @@ FF records its own cost so runs can be compared over time:
 
 - **Per-command wall clock** and **per-call tokens** (Codex `gpt-*`, Gemini `gemini-*`) land in `state.json`.
 - **TTL crossings** flag when a command ran past the prompt-cache TTL (a likely uncached re-read next command).
-- `analyze-reviews` rolls these up per feature; weekly snapshots are auto-committed to `docs/workflow/analysis/`.
+- `analyze-reviews` rolls these up per feature on demand, writing a report under `docs/workflow/analysis/`. (No scheduled GitHub Action is wired up in this repo — there is no automatic weekly snapshot; run it manually.)
 - What FF can't see: Claude orchestrator session tokens (use `/cost` in Claude Code for those).
 
 ---
