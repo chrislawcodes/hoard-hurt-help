@@ -9,7 +9,7 @@ from starlette.responses import Response
 
 from app.config import settings
 from app.deps import DbSession, require_user, require_user_with_handle
-from app.engine.bot_activity import compute_bot_health, compute_onboarding_status
+from app.engine.connection_activity import compute_bot_health, compute_onboarding_status
 from app.engine.sims import pack_profile_choices, resolve_profile_choice
 from app.engine.sims.strategies import normalize_strategy_name
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_bot_key

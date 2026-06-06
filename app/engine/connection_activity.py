@@ -17,14 +17,19 @@ import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import broadcast
-from app.models.bot import Bot, BotStatus
+from app.models.connection import ConnectionStatus
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
+
+Bot = Any
+BotStatus = ConnectionStatus
 
 _PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
 
@@ -73,7 +78,7 @@ async def _has_moved(db: AsyncSession, bot_id: int) -> bool:
     stmt = (
         select(TurnSubmission.id)
         .join(Player, Player.id == TurnSubmission.player_id)
-        .where(Player.bot_id == bot_id, TurnSubmission.was_defaulted.is_(False))
+        .where(Player.agent_id == bot_id, TurnSubmission.was_defaulted.is_(False))
         .limit(1)
     )
     return (await db.execute(stmt)).first() is not None
@@ -102,6 +107,8 @@ async def mark_seen(
     changed = False
     if first:
         bot.first_connected_at = now
+        if getattr(bot, "status", None) == ConnectionStatus.PENDING:
+            bot.status = ConnectionStatus.ACTIVE
         changed = True
     if key_hash == bot.key_lookup and bot.prev_key_lookup is not None:
         bot.prev_key_lookup = None
@@ -129,7 +136,7 @@ async def mark_first_move(db: AsyncSession, bot_id: int) -> None:
     stmt = (
         select(TurnSubmission.id)
         .join(Player, Player.id == TurnSubmission.player_id)
-        .where(Player.bot_id == bot_id, TurnSubmission.was_defaulted.is_(False))
+        .where(Player.agent_id == bot_id, TurnSubmission.was_defaulted.is_(False))
         .limit(2)
     )
     real_submissions = (await db.execute(stmt)).all()
@@ -152,7 +159,7 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
             await db.execute(
                 select(Match)
                 .join(Player, Player.match_id == Match.id)
-                .where(Player.bot_id == bot.id, Player.left_at.is_(None))
+                .where(Player.agent_id == bot.id, Player.left_at.is_(None))
             )
         )
         .scalars()
@@ -278,7 +285,7 @@ async def _is_defaulting(
                 select(TurnSubmission.was_defaulted)
                 .join(Turn, Turn.id == TurnSubmission.turn_id)
                 .join(Player, Player.id == TurnSubmission.player_id)
-                .where(Player.bot_id == bot_id, Player.match_id == match_id)
+                .where(Player.agent_id == bot_id, Player.match_id == match_id)
                 .order_by(Turn.round.desc(), Turn.turn.desc())
                 .limit(threshold)
             )
@@ -337,7 +344,7 @@ async def compute_bot_health(
             await db.execute(
                 select(Match)
                 .join(Player, Player.match_id == Match.id)
-                .where(Player.bot_id == bot.id, Player.left_at.is_(None))
+                .where(Player.agent_id == bot.id, Player.left_at.is_(None))
             )
         )
         .scalars()

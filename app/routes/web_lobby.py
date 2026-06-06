@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import case, func, select
 
 from app.deps import DbSession, get_current_user
-from app.engine.bot_activity import compute_bot_health
+from app.engine.connection_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
 from app.games.base import GameError

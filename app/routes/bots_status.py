@@ -9,7 +9,7 @@ from starlette.responses import Response
 
 from app.broadcast import subscribe
 from app.deps import DbSession, require_user
-from app.engine.bot_activity import (
+from app.engine.connection_activity import (
     bot_channel,
     compute_bot_health,
     compute_onboarding_status,

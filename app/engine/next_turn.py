@@ -18,14 +18,19 @@ class TurnCandidate:
     round: int
     turn: int
     deadline: datetime
+    agent_id: int = 0
 
 
 def select_next_turn(candidates: Sequence[TurnCandidate]) -> TurnCandidate | None:
     """Return the most urgent candidate, or None when there are none.
 
     Most urgent = nearest deadline. Ties break deterministically by match_id,
-    then round, then turn, so the play loop is predictable and testable.
+    then round, then turn, then agent_id, so the play loop is predictable and
+    testable even when one connection fields multiple agents in the same match.
     """
     if not candidates:
         return None
-    return min(candidates, key=lambda c: (c.deadline, c.match_id, c.round, c.turn))
+    return min(
+        candidates,
+        key=lambda c: (c.deadline, c.match_id, c.round, c.turn, c.agent_id),
+    )
