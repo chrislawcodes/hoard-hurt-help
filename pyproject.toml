@@ -45,6 +45,10 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Vendored Feature Factory engine — operational tooling with its own test suite,
+# not part of the app. It manages its own sys.path imports (justified E402/noqa),
+# so it is excluded from the app lint pass.
+extend-exclude = ["docs/workflow/operations/codex-skills"]
 
 [tool.black]
 line-length = 100

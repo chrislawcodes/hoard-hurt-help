@@ -1,0 +1,1209 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 6,
+    "asked_count": 6,
+    "questions": [
+      {
+        "question": "Delivery path for this feature",
+        "recommendation": "Feature Factory",
+        "rationale": "Touches production-facing run state and completion state machine; benefits from adversarial-review gates.",
+        "updated_at": 1776984040
+      },
+      {
+        "question": "Counter replacement vs cache-and-correct",
+        "recommendation": "Cache the counters, sweep corrects drift",
+        "rationale": "Small blast radius; existing reads keep working; bug fix not refactor.",
+        "updated_at": 1776984051
+      },
+      {
+        "question": "Sweep autonomy level",
+        "recommendation": "Auto-complete happy path, flag anomalies for review",
+        "rationale": "Self-healing is the goal; don't hide weird data shapes.",
+        "updated_at": 1776984051
+      },
+      {
+        "question": "Migration posture",
+        "recommendation": "Dual-write + shadow-read for 24-48h then cut over",
+        "rationale": "Lowers risk of a bad derived query breaking every run's UI at deploy.",
+        "updated_at": 1776984051
+      },
+      {
+        "question": "Completion trigger model",
+        "recommendation": "Event-driven primary, sweep as safety net",
+        "rationale": "Keeps happy-path latency in seconds; sweep catches stragglers.",
+        "updated_at": 1776984051
+      },
+      {
+        "question": "Anomaly types to ship at launch",
+        "recommendation": "Ship five common anomalies; defer JOB_EXPIRED rate alerts and cost deviation",
+        "rationale": "Covers silent-partial-failure modes without expanding into provider-health territory.",
+        "updated_at": 1776984051
+      }
+    ],
+    "assumptions": [],
+    "summary": "Shift run state (progress counters, completion) from JSONB cached counters to derived reads off ProbeResult + Transcript tables, plus a periodic reconciliation sweep that auto-completes stuck runs and records anomalies. Root cause + motivation documented in docs/backend/paired-batch-run-flow.md.",
+    "updated_at": 1776984107,
+    "answers": {
+      "Anomaly set at launch": "Ship six types: (1) transcript with summarizedAt IS NULL on COMPLETED run; (2) ProbeResult count > scheduled total; (3) transcript without matching ProbeResult; (4) paired-batch asymmetry by jobChoiceBatchGroupId; (5) run stuck in SUMMARIZING beyond threshold; (6) per-model transcript shortfall within a run (Mistral-style model-specific failures).",
+      "Delivery path": "Feature Factory",
+      "Counter approach": "Option B: replace \u2014 drop Run.progress and Run.summarizeProgress counter writes entirely; derive from live counts on ProbeResult and Transcript at read time.",
+      "Sweep autonomy": "Option B: sweep auto-completes happy-path runs (flips SUMMARIZING -> COMPLETED atomically and triggers post-completion side effects); anomalies land in a new RunAnomaly table for human review.",
+      "Migration posture": "Option A: hard cutover \u2014 stop writing counters and start reading derived in the same PR; no dual-write/shadow-read phase.",
+      "Completion trigger": "Option B: event-driven primary (last handler to finish triggers maybeCompleteRun using derived counts), sweep acts as the safety net."
+    },
+    "non_goals": [
+      "maxBudgetUsd enforcement (not actively used in practice)",
+      "Provider idempotency keys (meta-fix #2 prerequisite \u2014 separate PR)",
+      "Provider health tracker / circuit breaker (meta-fix #2)",
+      "Retry-After header handling",
+      "Non-retryable transcript-shape fix at probe-scenario/handler.ts:214",
+      "UI polish beyond exposing RunAnomaly via GraphQL",
+      "Changes to pair grouping at launch time",
+      "JOB_EXPIRED rate alerting and cost-deviation anomalies (deferred)"
+    ],
+    "acceptance_criteria": [
+      "In-flight runs at deploy time continue to a correct terminal state (no double-completion, no lost data)",
+      "Run.progress and Run.summarizeProgress values shown in GraphQL match derived counts from ProbeResult + Transcript for all existing historical runs",
+      "No probe or summarize handler writes to Run.progress/Run.summarizeProgress JSONB counters after this change",
+      "Event-driven completion still flips happy-path runs SUMMARIZING -> COMPLETED within seconds of the last handler finishing",
+      "Reconciliation sweep runs on a periodic cadence and auto-completes a SUMMARIZING run that meets completion criteria but was missed by the event-driven path",
+      "Reconciliation sweep queues summarize jobs for Transcript rows with summarizedAt IS NULL on non-terminal runs (fixes stranded-transcript bug)",
+      "SUMMARIZING -> COMPLETED transition is a single-statement conditional UPDATE (no read-then-write race window)",
+      "RunAnomaly rows readable via GraphQL for all six anomaly types",
+      "Per-model transcript shortfall anomaly fires when a model in a run has >= N scheduled probes and materially lower success rate than peer models in the same run",
+      "Paired-batch asymmetry anomaly fires when sibling runs sharing jobChoiceBatchGroupId have materially different ProbeResult success counts"
+    ],
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": true,
+    "found": false,
+    "note": "Per-wave parallelism annotated within tasks.md; cross-wave parallelism unsafe due to checkpoint gates.",
+    "updated_at": 1776990079
+  },
+  "init_head_sha": "424c0605a8158acfe0b3912840a6c5b2da057c84",
+  "token_usage": [
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T22:57:40.114993Z",
+      "started_at": "2026-04-23T22:55:55.351904Z",
+      "ended_at": "2026-04-23T22:57:40.114993Z",
+      "duration_seconds": 104.762181,
+      "agent_id": null,
+      "artifact_sha_at_time": "9cb38e24b630cbf08eee89873f0ce8c6cc1a002be61e9b67171e3bfd7f41a581",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T22:59:22.581148Z",
+      "started_at": "2026-04-23T22:57:40.267100Z",
+      "ended_at": "2026-04-23T22:59:22.581148Z",
+      "duration_seconds": 102.313171,
+      "agent_id": null,
+      "artifact_sha_at_time": "9cb38e24b630cbf08eee89873f0ce8c6cc1a002be61e9b67171e3bfd7f41a581",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-2.5-pro",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:00:45.853211Z",
+      "started_at": "2026-04-23T22:59:22.748327Z",
+      "ended_at": "2026-04-23T23:00:45.853211Z",
+      "duration_seconds": 83.104173,
+      "agent_id": null,
+      "artifact_sha_at_time": "9cb38e24b630cbf08eee89873f0ce8c6cc1a002be61e9b67171e3bfd7f41a581",
+      "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:06:56.565467Z",
+      "started_at": "2026-04-23T23:04:41.912101Z",
+      "ended_at": "2026-04-23T23:06:56.565467Z",
+      "duration_seconds": 134.652277,
+      "agent_id": null,
+      "artifact_sha_at_time": "8cb2d0927637376291a03e3fb9cd99652f9d51322cdb482a76cfac284353abf9",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:09:31.776136Z",
+      "started_at": "2026-04-23T23:06:56.742338Z",
+      "ended_at": "2026-04-23T23:09:31.776136Z",
+      "duration_seconds": 155.03252,
+      "agent_id": null,
+      "artifact_sha_at_time": "8cb2d0927637376291a03e3fb9cd99652f9d51322cdb482a76cfac284353abf9",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-2.5-pro",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:11:09.170920Z",
+      "started_at": "2026-04-23T23:09:31.962309Z",
+      "ended_at": "2026-04-23T23:11:09.170920Z",
+      "duration_seconds": 97.207861,
+      "agent_id": null,
+      "artifact_sha_at_time": "8cb2d0927637376291a03e3fb9cd99652f9d51322cdb482a76cfac284353abf9",
+      "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:16:46.664172Z",
+      "started_at": "2026-04-23T23:15:05.003843Z",
+      "ended_at": "2026-04-23T23:16:46.664172Z",
+      "duration_seconds": 101.65998,
+      "agent_id": null,
+      "artifact_sha_at_time": "eaf894aba401ed706d0791df291fb7cc283da0ed7a5d1c7b7b67b57e977d729d",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:18:42.096978Z",
+      "started_at": "2026-04-23T23:16:46.806783Z",
+      "ended_at": "2026-04-23T23:18:42.096978Z",
+      "duration_seconds": 115.289265,
+      "agent_id": null,
+      "artifact_sha_at_time": "eaf894aba401ed706d0791df291fb7cc283da0ed7a5d1c7b7b67b57e977d729d",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-2.5-pro",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:19:53.630898Z",
+      "started_at": "2026-04-23T23:18:42.294455Z",
+      "ended_at": "2026-04-23T23:19:53.630898Z",
+      "duration_seconds": 71.335838,
+      "agent_id": null,
+      "artifact_sha_at_time": "eaf894aba401ed706d0791df291fb7cc283da0ed7a5d1c7b7b67b57e977d729d",
+      "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "spec",
+      "round": 3,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:23:57.546188Z",
+      "started_at": "2026-04-23T23:21:34.408863Z",
+      "ended_at": "2026-04-23T23:23:57.546188Z",
+      "duration_seconds": 143.136175,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 3,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:25:29.402553Z",
+      "started_at": "2026-04-23T23:23:57.711092Z",
+      "ended_at": "2026-04-23T23:25:29.402553Z",
+      "duration_seconds": 91.690675,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 3,
+      "activity_type": "adversarial_review",
+      "model": "gemini-2.5-pro",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:27:00.556737Z",
+      "started_at": "2026-04-23T23:25:29.539101Z",
+      "ended_at": "2026-04-23T23:27:00.556737Z",
+      "duration_seconds": 91.016913,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:27:42.705930Z",
+      "started_at": "2026-04-23T23:27:13.148016Z",
+      "ended_at": "2026-04-23T23:27:42.705930Z",
+      "duration_seconds": 29.557735,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:28:06.993540Z",
+      "started_at": "2026-04-23T23:27:42.707385Z",
+      "ended_at": "2026-04-23T23:28:06.993540Z",
+      "duration_seconds": 24.286,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:28:09.353175Z",
+      "started_at": "2026-04-23T23:27:13.147833Z",
+      "ended_at": "2026-04-23T23:28:09.353175Z",
+      "duration_seconds": 56.204801,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:28:29.933649Z",
+      "started_at": "2026-04-23T23:28:09.354100Z",
+      "ended_at": "2026-04-23T23:28:29.933649Z",
+      "duration_seconds": 20.579442,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "judge_panel",
+      "model": "claude-sonnet-4-6",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:29:23.406434Z",
+      "started_at": "2026-04-23T23:27:13.148103Z",
+      "ended_at": "2026-04-23T23:29:23.406434Z",
+      "duration_seconds": 130.257394,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Claude token counts found in stdout or stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "judge_panel",
+      "model": "claude-sonnet-4-6",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:31:02.665066Z",
+      "started_at": "2026-04-23T23:29:23.408033Z",
+      "ended_at": "2026-04-23T23:31:02.665066Z",
+      "duration_seconds": 99.256341,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Claude token counts found in stdout or stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:34:20.640476Z",
+      "started_at": "2026-04-23T23:33:54.215074Z",
+      "ended_at": "2026-04-23T23:34:20.640476Z",
+      "duration_seconds": 26.425252,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:34:26.109918Z",
+      "started_at": "2026-04-23T23:33:54.214772Z",
+      "ended_at": "2026-04-23T23:34:26.109918Z",
+      "duration_seconds": 31.894737,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:34:38.223019Z",
+      "started_at": "2026-04-23T23:34:20.641969Z",
+      "ended_at": "2026-04-23T23:34:38.223019Z",
+      "duration_seconds": 17.580947,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:34:54.829602Z",
+      "started_at": "2026-04-23T23:34:26.111273Z",
+      "ended_at": "2026-04-23T23:34:54.829602Z",
+      "duration_seconds": 28.718126,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "judge_panel",
+      "model": "claude-sonnet-4-6",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:36:54.231085Z",
+      "started_at": "2026-04-23T23:33:54.215028Z",
+      "ended_at": "2026-04-23T23:36:54.231085Z",
+      "duration_seconds": 180.014761,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Claude token counts found in stdout or stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "judge_panel",
+      "model": "claude-sonnet-4-6",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:37:14.115725Z",
+      "started_at": "2026-04-23T23:36:54.232324Z",
+      "ended_at": "2026-04-23T23:37:14.115725Z",
+      "duration_seconds": 19.883285,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Claude token counts found in stdout or stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 3,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:38:28.828603Z",
+      "started_at": "2026-04-23T23:38:07.695269Z",
+      "ended_at": "2026-04-23T23:38:28.828603Z",
+      "duration_seconds": 21.133018,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 3,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:38:36.608135Z",
+      "started_at": "2026-04-23T23:38:07.697163Z",
+      "ended_at": "2026-04-23T23:38:36.608135Z",
+      "duration_seconds": 28.910772,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 3,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:38:56.624306Z",
+      "started_at": "2026-04-23T23:38:36.609543Z",
+      "ended_at": "2026-04-23T23:38:56.624306Z",
+      "duration_seconds": 20.014637,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 3,
+      "activity_type": "judge_panel",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:39:14.565531Z",
+      "started_at": "2026-04-23T23:38:28.830181Z",
+      "ended_at": "2026-04-23T23:39:14.565531Z",
+      "duration_seconds": 45.735025,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 3,
+      "activity_type": "judge_panel",
+      "model": "claude-sonnet-4-6",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:40:05.797508Z",
+      "started_at": "2026-04-23T23:38:07.698548Z",
+      "ended_at": "2026-04-23T23:40:05.797508Z",
+      "duration_seconds": 118.098113,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Claude token counts found in stdout or stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 3,
+      "activity_type": "judge_panel",
+      "model": "claude-sonnet-4-6",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:41:39.575818Z",
+      "started_at": "2026-04-23T23:40:05.799000Z",
+      "ended_at": "2026-04-23T23:41:39.575818Z",
+      "duration_seconds": 93.776172,
+      "agent_id": null,
+      "artifact_sha_at_time": "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+      "parse_error": "no Claude token counts found in stdout or stderr"
+    },
+    {
+      "stage": "plan",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:58:20.192321Z",
+      "started_at": "2026-04-23T23:57:20.800853Z",
+      "ended_at": "2026-04-23T23:58:20.192321Z",
+      "duration_seconds": 59.390729,
+      "agent_id": null,
+      "artifact_sha_at_time": "70a3334afd7e8bc9903950f604eacd4648edb2b4809a6340c34e28619a79f9ef",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "plan",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-23T23:59:15.412069Z",
+      "started_at": "2026-04-23T23:58:20.338721Z",
+      "ended_at": "2026-04-23T23:59:15.412069Z",
+      "duration_seconds": 55.072867,
+      "agent_id": null,
+      "artifact_sha_at_time": "70a3334afd7e8bc9903950f604eacd4648edb2b4809a6340c34e28619a79f9ef",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "plan",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-2.5-pro",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-24T00:01:06.899481Z",
+      "started_at": "2026-04-23T23:59:15.575813Z",
+      "ended_at": "2026-04-24T00:01:06.899481Z",
+      "duration_seconds": 111.322777,
+      "agent_id": null,
+      "artifact_sha_at_time": "70a3334afd7e8bc9903950f604eacd4648edb2b4809a6340c34e28619a79f9ef",
+      "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "plan",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-24T00:10:55.078458Z",
+      "started_at": "2026-04-24T00:09:18.792372Z",
+      "ended_at": "2026-04-24T00:10:55.078458Z",
+      "duration_seconds": 96.285286,
+      "agent_id": null,
+      "artifact_sha_at_time": "3aff1bdb8a9ee5d3d9ebcdd14a4122637e5ebf14293ceda7debe9492a3d69714",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "plan",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-24T00:13:01.682637Z",
+      "started_at": "2026-04-24T00:10:55.259118Z",
+      "ended_at": "2026-04-24T00:13:01.682637Z",
+      "duration_seconds": 126.422539,
+      "agent_id": null,
+      "artifact_sha_at_time": "3aff1bdb8a9ee5d3d9ebcdd14a4122637e5ebf14293ceda7debe9492a3d69714",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "plan",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-2.5-pro",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-24T00:14:24.838598Z",
+      "started_at": "2026-04-24T00:13:01.842555Z",
+      "ended_at": "2026-04-24T00:14:24.838598Z",
+      "duration_seconds": 82.995361,
+      "agent_id": null,
+      "artifact_sha_at_time": "3aff1bdb8a9ee5d3d9ebcdd14a4122637e5ebf14293ceda7debe9492a3d69714",
+      "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "tasks",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-24T00:22:07.979181Z",
+      "started_at": "2026-04-24T00:21:24.926999Z",
+      "ended_at": "2026-04-24T00:22:07.979181Z",
+      "duration_seconds": 43.051757,
+      "agent_id": null,
+      "artifact_sha_at_time": "32129082d2a1ada79e77b2873e32c01e1b229fd8122f65ca42efe4c0472a8231",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "tasks",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-24T00:22:47.569204Z",
+      "started_at": "2026-04-24T00:22:08.173060Z",
+      "ended_at": "2026-04-24T00:22:47.569204Z",
+      "duration_seconds": 39.395761,
+      "agent_id": null,
+      "artifact_sha_at_time": "32129082d2a1ada79e77b2873e32c01e1b229fd8122f65ca42efe4c0472a8231",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "tasks",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-2.5-pro",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-24T00:23:59.222290Z",
+      "started_at": "2026-04-24T00:22:47.746510Z",
+      "ended_at": "2026-04-24T00:23:59.222290Z",
+      "duration_seconds": 71.475164,
+      "agent_id": null,
+      "artifact_sha_at_time": "32129082d2a1ada79e77b2873e32c01e1b229fd8122f65ca42efe4c0472a8231",
+      "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "tasks",
+      "round": 1,
+      "activity_type": "implementation",
+      "model": "gpt-5.4-mini",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-04-24T00:33:13.463840Z",
+      "started_at": "2026-04-24T00:24:44.902605Z",
+      "ended_at": "2026-04-24T00:33:13.463840Z",
+      "duration_seconds": 508.557051,
+      "agent_id": null,
+      "artifact_sha_at_time": "32129082d2a1ada79e77b2873e32c01e1b229fd8122f65ca42efe4c0472a8231",
+      "parse_error": "no Codex token block found in stderr"
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 3,
+      "judge_rounds": 3,
+      "judge_verdicts": [
+        [
+          {
+            "judge": "completeness",
+            "model": "gpt-5.4",
+            "verdict": "block",
+            "confidence": 4,
+            "reasoning": "spec.codex.edge-cases-adversarial.review#high-1 is not addressed: the late-transcript repair text only reruns triggerBasicAnalysis and does not name queueComputeTokenStats or deductActualProviderBalancesForRun. spec.codex.feasibility-adversarial.review#high-1 is addressed in Design -> Completion CAS, which explicitly says it replaces the read-then-write in progress.ts:140. spec.codex.feasibility-adversarial.review#high-2 is addressed in Reconciliation sweep scheduling and the recovery.ts scope note, which says recovery must route through maybeAdvanceRunStatus or be removed. spec.gemini.requirements-adversarial.review#high-1 is not addressed: the migration still uses decision_text LIKE 'Summary failed%' and there is no explicit acceptance of that brittleness. spec.gemini.requirements-adversarial.review#high-2 is addressed in Residual Risks, which names the probe_results(run_id, status) plan and says to add or confirm indexes if the plan is sequential. Because two HIGH findings lack a clear named mitigation or accepted limitation, the correct verdict is block.",
+            "evidence": [
+              {
+                "artifact": "SPEC",
+                "section": "Design -> Re-triggering analysis when a late transcript is summarized on a COMPLETED run",
+                "quote": "calls triggerBasicAnalysis(runId) to refresh analysis"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Design -> Completion CAS",
+                "quote": "Replaces the read-then-write in progress.ts:140"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Files in Scope -> cloud/apps/api/src/services/run/recovery.ts",
+                "quote": "must route through maybeAdvanceRunStatus or be removed"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Design -> Summarize failure accounting (MANDATORY \u2014 no option) / Migration and cutover",
+                "quote": "UPDATE transcripts SET summarize_failed_at = summarized_at, summarized_at = NULL WHERE decision_text LIKE 'Summary failed%'"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Residual Risks",
+                "quote": "confirm indexed plan on probe_results(run_id, status) and transcripts(run_id, summarized_at); add/confirm indexes if plan is sequential"
+              }
+            ],
+            "timestamp": "2026-04-23T12:00:00Z"
+          },
+          {
+            "judge": "restatement",
+            "model": "GPT-5",
+            "verdict": "block",
+            "confidence": 5,
+            "reasoning": "All latest-round findings are NEW, not restatements, because the record explicitly says there were no earlier findings and therefore no earlier orchestrator responses that could have substantively addressed any shared concern. The latest round surfaces multiple distinct failure modes that were not previously covered: missing reruns of completion side effects after late transcript repair; stale stalled-model metadata after CAS completion updates; possible progress-percentage divergence from deprecated counters; fragile migration logic keyed to error-message text; missing composite indexing for a critical query path; inconsistent handling of PAUSED runs in reconciliation; direct status writes in recovery that bypass the new completion guardrails; a summarize-failure livelock loop; and reliance on launch-time total counts as a single point of failure. Because 0% of the latest findings are restatements, the loop is still producing signal and should be blocked from proceeding.",
+            "evidence": [
+              {
+                "artifact": "earlier-rounds",
+                "section": "prior-findings",
+                "quote": "No prior findings yet."
+              },
+              {
+                "artifact": "spec.codex.edge-cases-adversarial.review.md",
+                "section": "high-1",
+                "quote": "The late-transcript repair path only reruns `triggerBasicAnalysis(runId)` for a `COMPLETED` run... the spec does not rerun those two side effects after a late transcript is summarized, a run can be published with stale token stats and stale balance accounting forever."
+              },
+              {
+                "artifact": "spec.codex.edge-cases-adversarial.review.md",
+                "section": "medium-2",
+                "quote": "The proposed CAS SQL drops the existing `stalled_models` reset... completed runs will retain stale stalled-model metadata and any downstream UI or alerting that reads it will be wrong."
+              },
+              {
+                "artifact": "spec.codex.edge-cases-adversarial.review.md",
+                "section": "low-3",
+                "quote": "`progress.ts` still exposes `calculatePercentComplete(progress)` from the deprecated JSONB counters. If any resolver or UI path keeps calling that helper after cutover, the new derived progress numbers and the displayed percentage will diverge."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "high-1",
+                "quote": "The proposed data backfill to populate the new `summarizeFailedAt` column relies on a `LIKE 'Summary failed%'` string match against `decisionText`. This is brittle."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "high-2",
+                "quote": "The provided `schema.prisma` shows separate indexes on `runId` and `status`, but lacks a composite index on `(runId, status)`."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "medium-3",
+                "quote": "several other parts of the design described in the spec omit `PAUSED`... a run that becomes stuck while `PAUSED` would not be picked up by the reconciliation sweep"
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "medium-4",
+                "quote": "`cloud/apps/api/src/services/run/recovery.ts` was missed in the initial scope... logic to directly update a run's status to `COMPLETED` ... bypasses the entire new system of derived-count checks and atomic CAS updates."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "medium-5",
+                "quote": "A transcript with `summarizeFailedAt` set would appear \"pending\" to the handler... creating a persistent, useless job-queueing loop and wasting resources."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "low-6",
+                "quote": "the completion logic remains vulnerable to this single point of failure."
+              }
+            ],
+            "timestamp": "2026-04-23T00:00:00-07:00"
+          },
+          {
+            "judge": "implementation-risk",
+            "model": "claude-sonnet-4-6",
+            "verdict": "block",
+            "confidence": 4,
+            "reasoning": "Three load-bearing ambiguities would cause an implementer to guess wrong or ship a silent bug. (1) The control flow of maybeAdvanceRunStatus is underspecified: 'if that succeeds, SUMMARIZING \u2192 COMPLETED' strongly implies the second CAS only runs when the first CAS flipped a row. An implementer following this literally writes the conditional form, meaning summarize handlers\u2014which are called when a run is already in SUMMARIZING\u2014would never trigger SUMMARIZING\u2192COMPLETED via this function, breaking event-driven completion for the entire summarize path. The 'if either changed a row' clause in the same sentence is contradictory and does not resolve the ambiguity. (2) The Edge Cases table instructs the implementer that 'PROBE_COUNT_OVERFLOW fires' for a progress.total mismatch, but the Anomaly Catalog section explicitly drops that type and replaces it with SCHEDULED_COUNT_MISMATCH. An implementer reading both sections would implement a dropped anomaly type for that case. (3) MODEL_TRANSCRIPT_SHORTFALL detection requires querying RunScenarioSelection for per-model scheduled counts, but no schema, field names, or file path is provided\u2014only the clue that it is 'already used by recovery/coverage logic,' leaving the implementer to discover the shape of this table from the existing codebase.",
+            "evidence": [
+              {
+                "artifact": "spec",
+                "section": "Event-driven trigger \u2014 unchanged call sites, new implementation",
+                "quote": "The new function runs both CAS UPDATEs in order (RUNNING \u2192 SUMMARIZING first; if that succeeds, SUMMARIZING \u2192 COMPLETED; if either changed a row, runs the appropriate side effects)."
+              },
+              {
+                "artifact": "spec",
+                "section": "Edge Cases",
+                "quote": "A run has `progress.total` mismatch \u2014 e.g., user started 200 probes but `progress.total` says 180 | Anomaly `PROBE_COUNT_OVERFLOW` fires if actuals exceed declared; the derived `progress.total` continues to show the declared value. Operator follow-up is manual."
+              },
+              {
+                "artifact": "spec",
+                "section": "Anomaly catalog \u2014 Catalog change during review",
+                "quote": "PROBE_COUNT_OVERFLOW was replaced with SCHEDULED_COUNT_MISMATCH during spec review because the ProbeResult unique constraint makes count > total impossible under the new data model. It is replaced by SCHEDULED_COUNT_MISMATCH, which detects the actual real-world problem \u2014 a wrong-valued `progress.total`."
+              },
+              {
+                "artifact": "spec",
+                "section": "Anomaly catalog \u2014 MODEL_TRANSCRIPT_SHORTFALL",
+                "quote": "The scheduled count per model comes from `RunScenarioSelection` rows for the run, not `Run.config.scenarioIds`. `RunScenarioSelection` is the canonical source and already used by recovery/coverage logic."
+              }
+            ],
+            "timestamp": "2026-04-23T00:00:00Z"
+          }
+        ],
+        [
+          {
+            "judge": "completeness",
+            "model": "gpt-5.4",
+            "verdict": "proceed",
+            "confidence": 4,
+            "reasoning": "spec.codex.edge-cases-adversarial.review#high-1 is addressed in SPEC under \"Re-triggering post-completion side effects when a late transcript is summarized on a COMPLETED run,\" which explicitly reruns triggerBasicAnalysis, queueComputeTokenStats, and deductActualProviderBalancesForRun after late summarization; this is specific enough to implement. spec.codex.feasibility-adversarial.review#high-1 is addressed in SPEC under the `cloud/apps/api/src/services/run/progress.ts` entry and the \"Completion CAS\" section, which remove the 5-second settle-timeout branch and replace the old flow with the named `maybeAdvanceRunStatus` CAS path; this is specific enough to implement. spec.codex.feasibility-adversarial.review#high-2 is addressed in SPEC under the `cloud/apps/api/src/services/run/recovery.ts` entry, which says the stuck-run path \"must route through maybeAdvanceRunStatus\" or be removed; this is specific enough to implement. spec.gemini.requirements-adversarial.review#high-1 is acknowledged as a limitation in \"Migration brittleness acceptance,\" where the LIKE-based backfill is explicitly accepted; this is specific enough because the exact backfill clause is named. spec.gemini.requirements-adversarial.review#high-2 is addressed in \"Composite indexes added to existing tables,\" which adds the ProbeResult(runId,status) composite index; this is specific enough to implement.",
+            "evidence": [
+              {
+                "artifact": "SPEC",
+                "section": "Re-triggering post-completion side effects when a late transcript is summarized on a COMPLETED run",
+                "quote": "calls all three side effects"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Files in Scope: `cloud/apps/api/src/services/run/progress.ts`",
+                "quote": "remove the 5s settle-timeout branch"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Files in Scope: `cloud/apps/api/src/services/run/recovery.ts`",
+                "quote": "must route through maybeAdvanceRunStatus"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Migration brittleness acceptance",
+                "quote": "We accept it"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Composite indexes added to existing tables",
+                "quote": "composite index is required"
+              }
+            ],
+            "timestamp": "2026-04-23T00:00:00-07:00"
+          },
+          {
+            "judge": "restatement",
+            "model": "gpt-5",
+            "verdict": "block",
+            "confidence": 5,
+            "reasoning": "All 11 latest findings are NEW because the record explicitly says \"No prior findings yet,\" so there are no earlier rounds that could make any latest finding a restatement. The latest round is still surfacing substantial new concerns, not cosmetic variations. New failure modes identified include: late-transcript repair missing token-stats and balance side effects; stale `stalled_models` metadata surviving terminal transitions; possible divergence between derived progress and displayed percentage; additional high-risk issues in `progress.ts`, `recovery.ts`, and `summarize-persistence.ts` that were not previously raised in any round; brittle backfill logic based on `decisionText LIKE 'Summary failed%'`; missing composite index on `(runId, status)` for critical-path queries; inconsistent `PAUSED` handling in reconciliation; unsafe direct `COMPLETED` writes in recovery logic; summarize-failure livelock due to re-queueing failed transcripts; and continued trust in launch-time `Run.progress.total` as a fragile denominator. Because 100% of the latest findings are new relative to the provided history, the loop is not saturated and should be blocked.",
+            "evidence": [
+              {
+                "artifact": "earlier-rounds",
+                "section": "prior findings",
+                "quote": "No prior findings yet."
+              },
+              {
+                "artifact": "spec.codex.edge-cases-adversarial.review.md",
+                "section": "high-1",
+                "quote": "The late-transcript repair path only reruns `triggerBasicAnalysis(runId)` for a `COMPLETED` run, but current completion logic also performs `queueComputeTokenStats(runId)` and `deductActualProviderBalancesForRun(runId)` on the winner path."
+              },
+              {
+                "artifact": "spec.codex.edge-cases-adversarial.review.md",
+                "section": "medium-2",
+                "quote": "The proposed CAS SQL drops the existing `stalled_models` reset."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "high-1",
+                "quote": "The proposed data backfill to populate the new `summarizeFailedAt` column relies on a `LIKE 'Summary failed%'` string match against `decisionText`."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "high-2",
+                "quote": "The provided `schema.prisma` shows separate indexes on `runId` and `status`, but lacks a composite index on `(runId, status)`."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "medium-4",
+                "quote": "This file contains logic to directly update a run's status to `COMPLETED` (`data: { status: 'COMPLETED' }`)."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "medium-5",
+                "quote": "A transcript with `summarizeFailedAt` set would appear \"pending\" to the handler... creating a persistent, useless job-queueing loop and wasting resources."
+              }
+            ],
+            "timestamp": "2026-04-23T00:00:00-07:00"
+          },
+          {
+            "judge": "implementation-risk",
+            "model": "claude-sonnet-4-5",
+            "verdict": "proceed-with-annotation",
+            "confidence": 3,
+            "reasoning": "The spec is unusually thorough and closes most ambiguities explicitly. Four real implementation snags remain: (1) The idempotency contract for deductActualProviderBalancesForRun is deferred to plan phase with no answer in the spec \u2014 an implementer writing the late-summarization re-trigger path cannot safely call this function without knowing whether it re-debits. (2) The reconciliation sweep's step-1 scope says scan {RUNNING, SUMMARIZING, PAUSED, COMPLETED} but step-3 says skip COMPLETED for status advancement \u2014 yet the sweep is described as being enqueued only for 'non-terminal runs' in the scheduling section, creating a contradiction about whether COMPLETED runs are scanned at all. (3) The RUNNING\u2192SUMMARIZING CAS compares against (progress->>'total')::int but the spec also says SCHEDULED_COUNT_MISMATCH auto-repairs progress.total during anomaly detection \u2014 the sequencing of 'repair total' vs 'run CAS' within a single sweep tick is unspecified. (4) resolveSummarizeJob() 'already done' check update is described but its current signature/location is not given, leaving the implementer to search for it.",
+            "evidence": [
+              {
+                "artifact": "spec",
+                "section": "Design \u2014 Re-triggering post-completion side effects when a late transcript is summarized on a COMPLETED run",
+                "quote": "Each must be idempotent on its own side \u2014 plan phase verifies this, with special attention to deductActualProviderBalancesForRun which debits a balance and must either check 'already deducted for this transcript' or operate on a delta basis rather than re-deducting the full run."
+              },
+              {
+                "artifact": "spec",
+                "section": "Design \u2014 Reconciliation sweep (handler steps 1-4)",
+                "quote": "Always run steps 2 (late-transcript rescue) and 4 (anomaly scan) for runs in {RUNNING, SUMMARIZING, PAUSED, COMPLETED}. Skip entirely only for {FAILED, CANCELLED} or soft-deleted runs. Step 3 (status advancement) runs for {RUNNING, SUMMARIZING, PAUSED} only."
+              },
+              {
+                "artifact": "spec",
+                "section": "Design \u2014 Reconciliation sweep scheduling",
+                "quote": "Enqueues singleton run_state_reconcile per non-terminal run per tick."
+              },
+              {
+                "artifact": "spec",
+                "section": "Anomaly catalog \u2014 SCHEDULED_COUNT_MISMATCH",
+                "quote": "Auto-repair: when this anomaly fires, the sweep also updates Run.progress.total to the canonical derived value so the CAS predicate is unblocked"
+              },
+              {
+                "artifact": "spec",
+                "section": "Files in Scope \u2014 summarize-transcript.ts",
+                "quote": "update resolveSummarizeJob() 'already done' check to treat a transcript as terminal when EITHER summarizedAt !== null OR summarizeFailedAt !== null (otherwise failure rows look pending forever and the sweep will re-queue them indefinitely \u2014 livelock)"
+              }
+            ],
+            "timestamp": "2026-04-23T00:00:00Z"
+          }
+        ],
+        [
+          {
+            "judge": "completeness",
+            "model": "gpt-5.4",
+            "verdict": "proceed",
+            "confidence": 4,
+            "reasoning": "spec.codex.edge-cases-adversarial.review#high-1 is addressed in SPEC Design under \"Re-triggering post-completion side effects when a late transcript is summarized on a COMPLETED run\"; it explicitly reruns triggerBasicAnalysis, queueComputeTokenStats, and deductActualProviderBalancesForRun after late summarization, which is specific enough to implement. spec.codex.feasibility-adversarial.review#high-1 is addressed by the SPEC \"Completion CAS\" / US-3 atomic compare-and-swap, which replaces read-then-write with a single conditional UPDATE and rowCount winner/loser semantics; specific enough to implement. spec.codex.feasibility-adversarial.review#high-2 is addressed in SPEC Files in Scope for cloud/apps/api/src/services/run/recovery.ts and the reconciliation-sweep design; it says recovery must route through maybeAdvanceRunStatus or be removed, so the direct status-update path is named and covered. spec.gemini.requirements-adversarial.review#high-1 is explicitly acknowledged as a limitation in SPEC \"Migration brittleness acceptance\" and the migration note; the LIKE-based backfill is accepted in writing, so this counts as addressed by name. spec.gemini.requirements-adversarial.review#high-2 is addressed in the SPEC schema additions with the ProbeResult composite index @@index([runId, status]); that is a named mitigation for the performance concern and is specific enough to implement.",
+            "evidence": [
+              {
+                "artifact": "SPEC",
+                "section": "Design / Re-triggering post-completion side effects",
+                "quote": "rerun **all three side effects**: `triggerBasicAnalysis(runId)`, `queueComputeTokenStats(runId)`, and `deductActualProviderBalancesForRun(runId)`"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "US-3 / Completion CAS (compare-and-swap)",
+                "quote": "Caller uses `rowCount === 1` as \"I won the race\"."
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Files in Scope / cloud/apps/api/src/services/run/recovery.ts",
+                "quote": "must route through `maybeAdvanceRunStatus` or be removed"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Design / Migration brittleness acceptance",
+                "quote": "This is a text-pattern match and is inherently brittle. We accept it"
+              },
+              {
+                "artifact": "SPEC",
+                "section": "Design / Composite indexes added to existing tables",
+                "quote": "`@@index([runId, status])`"
+              }
+            ],
+            "timestamp": "2026-04-23T00:00:00Z"
+          },
+          {
+            "judge": "restatement",
+            "model": "gpt-5",
+            "verdict": "block",
+            "confidence": 5,
+            "reasoning": "All latest-round findings are NEW because the record explicitly says there were no earlier rounds to restate: \"No prior findings yet.\" That means none of the latest findings can satisfy the restatement test, which requires an earlier finding plus an orchestrator response that substantively addressed it. The latest round surfaces multiple distinct failure modes not previously covered, including stale side effects after late transcript repair, stale stalled-model metadata after CAS completion, deprecated percent-complete drift risk, brittle backfill logic for summarize failures, missing composite indexing on a critical query path, inconsistent PAUSED-state reconciliation coverage, unsafe direct completion writes in recovery logic, a summarize-failure livelock loop, and reliance on launch-time totals as a single point of failure. Because 0% of the latest findings are restatements, the loop is still producing signal rather than noise, so the correct decision is to block.",
+            "evidence": [
+              {
+                "artifact": "earlier-rounds",
+                "section": "prior-findings",
+                "quote": "No prior findings yet."
+              },
+              {
+                "artifact": "spec.codex.edge-cases-adversarial.review.md",
+                "section": "high-1",
+                "quote": "The late-transcript repair path only reruns `triggerBasicAnalysis(runId)` for a `COMPLETED` run... the spec does not rerun those two side effects after a late transcript is summarized, a run can be published with stale token stats and stale balance accounting forever."
+              },
+              {
+                "artifact": "spec.codex.edge-cases-adversarial.review.md",
+                "section": "medium-2",
+                "quote": "The proposed CAS SQL drops the existing `stalled_models` reset... completed runs will retain stale stalled-model metadata and any downstream UI or alerting that reads it will be wrong."
+              },
+              {
+                "artifact": "spec.codex.edge-cases-adversarial.review.md",
+                "section": "low-3",
+                "quote": "`progress.ts` still exposes `calculatePercentComplete(progress)` from the deprecated JSONB counters. If any resolver or UI path keeps calling that helper after cutover, the new derived progress numbers and the displayed percentage will diverge."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "high-1",
+                "quote": "The proposed data backfill to populate the new `summarizeFailedAt` column relies on a `LIKE 'Summary failed%'` string match against `decisionText`. This is brittle."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "high-2",
+                "quote": "The provided `schema.prisma` shows separate indexes on `runId` and `status`, but lacks a composite index on `(runId, status)`."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "medium-3",
+                "quote": "Several other parts of the design described in the spec omit `PAUSED`... a run that becomes stuck while `PAUSED` would not be picked up by the reconciliation sweep."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "medium-4",
+                "quote": "This file contains logic to directly update a run's status to `COMPLETED` (`data: { status: 'COMPLETED' }`). This is a significant issue because it represents a backdoor that bypasses the entire new system of derived-count checks and atomic CAS updates."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "medium-5",
+                "quote": "A transcript with `summarizeFailedAt` set would appear \"pending\" to the handler... creating a persistent, useless job-queueing loop and wasting resources."
+              },
+              {
+                "artifact": "spec.gemini.requirements-adversarial.review.md",
+                "section": "low-6",
+                "quote": "The `RUNNING -> SUMMARIZING` completion logic correctly uses a derived count for `completed` and `failed` probes but continues to trust `Run.progress.total` as the authoritative denominator."
+              }
+            ],
+            "timestamp": "2026-04-23T00:00:00-07:00"
+          },
+          {
+            "judge": "implementation-risk",
+            "model": "claude-sonnet-4-5",
+            "verdict": "block",
+            "confidence": 4,
+            "reasoning": "Two load-bearing decisions are explicitly deferred to 'plan phase' but the plan's Tasks section is empty, leaving them unresolved. First: whether `deductActualProviderBalancesForRun` is safe to re-invoke on a COMPLETED run. The spec names this as a financial correctness risk and says 'plan phase verifies this', but no verification or resolution appears anywhere in the artifact chain. An implementer who calls this function again for a late transcript risks double-debiting user balances with no guidance on the correct fix (full-run re-deduction vs. delta vs. idempotency guard). Second: how the reconciliation sweep integrates with the scheduler. The spec gives two structurally different options \u2014 extend the existing `runRecoveryJob` activity logic or build a separate ticker \u2014 and explicitly says 'plan phase decides', but the plan Tasks section is empty. These two options produce materially different code in `scheduler.ts` and the worker registration layer; an implementer would have to guess. Two additional risks are real but lower severity: `maybeAdvanceRunStatus` is a service-layer helper that the spec says must enqueue PgBoss jobs, but the spec does not address how the queue client reaches the service layer (the existing `progress.ts` may not have a queue dependency, and adding one may conflict with project patterns). And the migration backfill relies on the assertion that 'all success paths write a non-null `decisionMetadata`' \u2014 this is stated but not evidenced in the artifacts; a single historical transcript that is a success but has NULL `decisionMetadata` would be silently corrupted by the UPDATE.",
+            "evidence": [
+              {
+                "artifact": "spec",
+                "section": "Design \u2014 Re-triggering post-completion side effects when a late transcript is summarized on a COMPLETED run",
+                "quote": "Each must be idempotent on its own side \u2014 plan phase verifies this, with special attention to `deductActualProviderBalancesForRun` which debits a balance and must either check 'already deducted for this transcript' or operate on a delta basis rather than re-deducting the full run."
+              },
+              {
+                "artifact": "plan",
+                "section": "Tasks",
+                "quote": "--- TASKS ---\n# Tasks"
+              },
+              {
+                "artifact": "spec",
+                "section": "Design \u2014 Reconciliation sweep scheduling",
+                "quote": "Plan phase decides whether this is a change to `scheduler.ts`'s existing activity logic, or a separate ticker dedicated to reconciliation."
+              },
+              {
+                "artifact": "spec",
+                "section": "Design \u2014 Summarize job fan-out at the RUNNING \u2192 SUMMARIZING transition",
+                "quote": "When the first CAS wins, the caller enqueues a `summarize_transcript` job (singleton on `transcriptId`) for every `Transcript` row belonging to the run with `summarizedAt IS NULL AND summarizeFailedAt IS NULL AND deletedAt IS NULL`. This replaces the old 5-second settle + `queueSummarizeJobs()` path"
+              },
+              {
+                "artifact": "spec",
+                "section": "Files in Scope \u2014 migration.sql",
+                "quote": "the failure-row backfill: `UPDATE transcripts SET summarize_failed_at = summarized_at, summarized_at = NULL WHERE decision_text LIKE 'Summary failed%' AND decision_metadata IS NULL AND summarize_failed_at IS NULL` \u2014 the combined `decision_text LIKE` + `decision_metadata IS NULL` guard distinguishes failure rows from unusual-but-valid summaries"
+              }
+            ],
+            "timestamp": "2026-04-23T12:00:00Z"
+          }
+        ]
+      ],
+      "annotations": [
+        {
+          "stage": "spec",
+          "round": 2,
+          "judge": "implementation-risk",
+          "confidence": 3,
+          "reasoning": "The spec is unusually thorough and closes most ambiguities explicitly. Four real implementation snags remain: (1) The idempotency contract for deductActualProviderBalancesForRun is deferred to plan phase with no answer in the spec \u2014 an implementer writing the late-summarization re-trigger path cannot safely call this function without knowing whether it re-debits. (2) The reconciliation sweep's step-1 scope says scan {RUNNING, SUMMARIZING, PAUSED, COMPLETED} but step-3 says skip COMPLETED for status advancement \u2014 yet the sweep is described as being enqueued only for 'non-terminal runs' in the scheduling section, creating a contradiction about whether COMPLETED runs are scanned at all. (3) The RUNNING\u2192SUMMARIZING CAS compares against (progress->>'total')::int but the spec also says SCHEDULED_COUNT_MISMATCH auto-repairs progress.total during anomaly detection \u2014 the sequencing of 'repair total' vs 'run CAS' within a single sweep tick is unspecified. (4) resolveSummarizeJob() 'already done' check update is described but its current signature/location is not given, leaving the implementer to search for it.",
+          "artifact_sha_at_time": "32613ca457104617746d439d696403206c0d704d3d3391d4cf3414a4c4dcd282"
+        }
+      ],
+      "unresolved_concerns": [
+        {
+          "stage": "spec",
+          "judge": "restatement",
+          "model": "gpt-5",
+          "confidence": 5,
+          "reasoning": "All latest-round findings are NEW because the record explicitly says there were no earlier rounds to restate: \"No prior findings yet.\" That means none of the latest findings can satisfy the restatement test, which requires an earlier finding plus an orchestrator response that substantively addressed it. The latest round surfaces multiple distinct failure modes not previously covered, including stale side effects after late transcript repair, stale stalled-model metadata after CAS completion, deprecated percent-complete drift risk, brittle backfill logic for summarize failures, missing composite indexing on a critical query path, inconsistent PAUSED-state reconciliation coverage, unsafe direct completion writes in recovery logic, a summarize-failure livelock loop, and reliance on launch-time totals as a single point of failure. Because 0% of the latest findings are restatements, the loop is still producing signal rather than noise, so the correct decision is to block.",
+          "round_raised": 3,
+          "also_raised_in_round": []
+        },
+        {
+          "stage": "spec",
+          "judge": "implementation-risk",
+          "model": "claude-sonnet-4-5",
+          "confidence": 4,
+          "reasoning": "Two load-bearing decisions are explicitly deferred to 'plan phase' but the plan's Tasks section is empty, leaving them unresolved. First: whether `deductActualProviderBalancesForRun` is safe to re-invoke on a COMPLETED run. The spec names this as a financial correctness risk and says 'plan phase verifies this', but no verification or resolution appears anywhere in the artifact chain. An implementer who calls this function again for a late transcript risks double-debiting user balances with no guidance on the correct fix (full-run re-deduction vs. delta vs. idempotency guard). Second: how the reconciliation sweep integrates with the scheduler. The spec gives two structurally different options \u2014 extend the existing `runRecoveryJob` activity logic or build a separate ticker \u2014 and explicitly says 'plan phase decides', but the plan Tasks section is empty. These two options produce materially different code in `scheduler.ts` and the worker registration layer; an implementer would have to guess. Two additional risks are real but lower severity: `maybeAdvanceRunStatus` is a service-layer helper that the spec says must enqueue PgBoss jobs, but the spec does not address how the queue client reaches the service layer (the existing `progress.ts` may not have a queue dependency, and adding one may conflict with project patterns). And the migration backfill relies on the assertion that 'all success paths write a non-null `decisionMetadata`' \u2014 this is stated but not evidenced in the artifacts; a single historical transcript that is a success but has NULL `decisionMetadata` would be silently corrupted by the UPDATE.",
+          "round_raised": 3,
+          "also_raised_in_round": []
+        }
+      ],
+      "adversarial_sha_history": [
+        "9cb38e24b630cbf08eee89873f0ce8c6cc1a002be61e9b67171e3bfd7f41a581",
+        "9cb38e24b630cbf08eee89873f0ce8c6cc1a002be61e9b67171e3bfd7f41a581",
+        "9cb38e24b630cbf08eee89873f0ce8c6cc1a002be61e9b67171e3bfd7f41a581",
+        "8cb2d0927637376291a03e3fb9cd99652f9d51322cdb482a76cfac284353abf9",
+        "eaf894aba401ed706d0791df291fb7cc283da0ed7a5d1c7b7b67b57e977d729d",
+        "23041c8d1b08e880ba8abb1fbf701cc6a51e9d309d6e71d419a7a43be3c17b2f",
+        "32613ca457104617746d439d696403206c0d704d3d3391d4cf3414a4c4dcd282"
+      ],
+      "initial_sha": "9cb38e24b630cbf08eee89873f0ce8c6cc1a002be61e9b67171e3bfd7f41a581",
+      "judge_next_action": "advance"
+    },
+    "plan": {
+      "adversarial_rounds": 2,
+      "judge_rounds": 0,
+      "judge_verdicts": [],
+      "annotations": [],
+      "unresolved_concerns": [],
+      "adversarial_sha_history": [
+        "70a3334afd7e8bc9903950f604eacd4648edb2b4809a6340c34e28619a79f9ef",
+        "3aff1bdb8a9ee5d3d9ebcdd14a4122637e5ebf14293ceda7debe9492a3d69714",
+        "98bde3c334b476f668b7d13b0db672c873fe3cbba1214ca3108e6a43c7eeb25a",
+        "6da747265f6061859ed54e5cd6a18050cfb411d95a83c6e84ebf1d2b021579ed"
+      ],
+      "initial_sha": "70a3334afd7e8bc9903950f604eacd4648edb2b4809a6340c34e28619a79f9ef"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "judge_rounds": 0,
+      "judge_verdicts": [],
+      "annotations": [],
+      "unresolved_concerns": [],
+      "adversarial_sha_history": [
+        "32129082d2a1ada79e77b2873e32c01e1b229fd8122f65ca42efe4c0472a8231"
+      ],
+      "initial_sha": "32129082d2a1ada79e77b2873e32c01e1b229fd8122f65ca42efe4c0472a8231"
+    }
+  },
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 3,
+  "last_action_result": {
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
+    "blockers": []
+  },
+  "spec_judge_rounds": 3,
+  "plan_adversarial_rounds": 2,
+  "tasks_adversarial_rounds": 1
+}
