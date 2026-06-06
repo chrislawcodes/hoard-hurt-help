@@ -36,6 +36,7 @@ from factory_git import (  # noqa: E402
     cherry_pick_commits,
 )
 
+from factory_runlock import acquire_run_lock, release_run_lock, run_lock_path  # noqa: E402
 from factory_stages import parse_parallel_task_groups  # noqa: E402
 
 from factory_emit import _emit_next_action  # noqa: E402
@@ -43,60 +44,16 @@ from factory_mutating import mutates_state  # noqa: E402
 
 
 def _implement_lock_path(slug: str) -> Path:
-    return workflow_dir(slug) / ".implement.lock"
+    return run_lock_path(slug, "implement")
 
 
 def _acquire_implement_lock(slug: str) -> tuple[int, str]:
-    """Open and exclusively flock the per-slug implement lockfile.
-
-    Returns (fd, "") on success.  The caller MUST hold fd open for the
-    entire dispatch and call _release_implement_lock(fd) in a finally
-    block — keeping fd open lets the OS auto-release the lock if the
-    process crashes, preventing stale locks.
-
-    Returns (-1, error_message) when the lock is already held by another
-    invocation (EAGAIN / EACCES).  The caller should print the message to
-    stderr and return 1 without dispatching Codex.
-    """
-    lock_path = _implement_lock_path(slug)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError as exc:
-        if exc.errno in (errno.EACCES, errno.EAGAIN):
-            try:
-                os.lseek(fd, 0, os.SEEK_SET)
-                raw = os.read(fd, 4096).decode("utf-8", errors="replace")
-                holder: dict = json.loads(raw) if raw.strip() else {}
-            except Exception:
-                holder = {}
-            os.close(fd)
-            pid = holder.get("pid", "unknown")
-            started = holder.get("started_at", "unknown")
-            return -1, (
-                f"[error] implement already running for slug {slug!r} "
-                f"(pid {pid}, started {started}). "
-                "Wait for it to finish, or kill it and retry."
-            )
-        os.close(fd)
-        raise
-    payload = json.dumps({
-        "pid": os.getpid(),
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "slug": slug,
-    }).encode("utf-8")
-    os.ftruncate(fd, 0)
-    os.lseek(fd, 0, os.SEEK_SET)
-    os.write(fd, payload)
-    return fd, ""
+    """Acquire the per-slug implement run lock (see factory_runlock)."""
+    return acquire_run_lock(slug, "implement", "implement")
 
 
 def _release_implement_lock(fd: int) -> None:
-    try:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-    finally:
-        os.close(fd)
+    release_run_lock(fd)
 
 
 def _codex_prompt_path(slug: str, i: int) -> Path:

@@ -39,6 +39,7 @@ from factory_git import (  # noqa: E402
     ensure_file,
     run,
     upstream_branch_name,
+    warn_if_primary_checkout,
 )
 
 from factory_stages import (  # noqa: E402
@@ -153,6 +154,7 @@ def command_init(args: argparse.Namespace) -> int:
             "init requires at least one --path argument to define the feature scope. "
             "Example: --path app/engine/my_feature"
         )
+    warn_if_primary_checkout()
     ensure_sync()
     root = workflow_dir(args.slug)
     reviews = reviews_dir(args.slug)

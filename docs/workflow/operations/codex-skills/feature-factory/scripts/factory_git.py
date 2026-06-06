@@ -114,6 +114,49 @@ def command_path(name: str) -> str | None:
     return shutil.which(name)
 
 
+def is_linked_worktree() -> bool:
+    """True if this checkout is a linked git worktree (not the primary one).
+
+    In a linked worktree ``git rev-parse --git-dir`` (…/.git/worktrees/<name>)
+    differs from ``--git-common-dir`` (…/.git); in the primary checkout they
+    resolve to the same path.
+    """
+    git_dir = git_output("rev-parse", "--git-dir")
+    common = git_output("rev-parse", "--git-common-dir")
+    if not git_dir or not common:
+        return False
+    return Path(git_dir).resolve() != Path(common).resolve()
+
+
+def warn_if_primary_checkout() -> None:
+    """Warn loudly when a run starts in the shared primary checkout.
+
+    The worst Feature Factory collisions come from two agent sessions sharing one
+    working directory — a branch gets switched mid-run, files are half-written,
+    commits land on the wrong branch. A dedicated worktree per agent prevents it.
+    Silence for genuine single-agent use with FF_ALLOW_PRIMARY_CHECKOUT=1.
+    """
+    if os.environ.get("FF_ALLOW_PRIMARY_CHECKOUT") == "1":
+        return
+    if is_linked_worktree():
+        return
+    repo_name = REPO_ROOT.name
+    branch = current_branch_name() or "<branch>"
+    print(
+        "\n".join([
+            "",
+            "⚠️  Feature Factory is running in the PRIMARY checkout, not a dedicated worktree.",
+            "   If another agent/session shares this directory, runs WILL collide:",
+            "   branch switches, half-written files, commits on the wrong branch.",
+            "   Recommended — give each agent its own worktree:",
+            f"     git worktree add ../{repo_name}--{branch} -b {branch} origin/main",
+            "   Single-agent use? Silence this: export FF_ALLOW_PRIMARY_CHECKOUT=1",
+            "",
+        ]),
+        file=sys.stderr,
+    )
+
+
 def ensure_sync() -> None:
     run([sys.executable, str(SYNC_SCRIPT), "--sync-if-needed"])
 
