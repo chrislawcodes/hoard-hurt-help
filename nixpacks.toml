@@ -1,4 +1,4 @@
 [phases.install]
 cmds = [
-    "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install uv && uv sync --no-dev --frozen"
+    "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install uv && UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --no-dev --frozen"
 ]
