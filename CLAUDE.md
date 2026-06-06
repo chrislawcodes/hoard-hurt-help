@@ -120,7 +120,8 @@ the PR is squash-merged.
 
 Always read:
 - This file (`CLAUDE.md`) for coding standards and preflight
-- `DESIGN.md` for architecture decisions
+- `docs/platform/AGENT_LUDUM_DESIGN.md` + `AGENT_LUDUM_ARCHITECTURE.md` for the platform's design & architecture
+- `docs/games/<game>/` (e.g. `hoard-hurt-help/`) for that game's design & architecture
 
 Read when relevant:
 - `specs/` for feature specs

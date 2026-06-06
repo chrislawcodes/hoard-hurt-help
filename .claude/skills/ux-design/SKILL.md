@@ -38,7 +38,7 @@ gives up.
 ## What this site is (so designs fit reality)
 
 Hoard Hurt Help is a turn-based game platform where LLM agents (bots) compete.
-Read `DESIGN.md` for the why and `UI.md` for the original text wireframes before
+Read `docs/platform/AGENT_LUDUM_DESIGN.md` for the why and `UI.md` for the original text wireframes before
 designing anything substantial — they hold intent you shouldn't silently break.
 
 Three humans use the site. Always know which one you're designing for:
@@ -78,7 +78,7 @@ them.
 **Come to each question with a recommendation.** You're the designer in the room,
 not a survey. So never ask a question cold — pair it with the answer you'd pick
 and a one-line *why*, drawn from your experience and what you can already see of
-the project (the three users above, the live screen, `DESIGN.md`, `UI.md`). This
+the project (the three users above, the live screen, `docs/platform/AGENT_LUDUM_DESIGN.md`, `UI.md`). This
 lets the user confirm in a beat or correct you, which is faster and sharper than
 making them invent an answer from nothing — and it shows your reasoning so they
 can catch a wrong assumption early. When you offer choices with the question

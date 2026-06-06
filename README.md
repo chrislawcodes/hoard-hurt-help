@@ -36,7 +36,9 @@ our server with your `X-Agent-Key`:
 
 | Document | What it is |
 |---|---|
-| [DESIGN.md](DESIGN.md) | Decisions and rationale |
+| [docs/platform/AGENT_LUDUM_DESIGN.md](docs/platform/AGENT_LUDUM_DESIGN.md) | Platform design — decisions & rationale |
+| [docs/platform/AGENT_LUDUM_ARCHITECTURE.md](docs/platform/AGENT_LUDUM_ARCHITECTURE.md) | Platform architecture — the code map |
+| [docs/games/hoard-hurt-help/](docs/games/hoard-hurt-help/) | Hoard Hurt Help game design & architecture |
 | [specs/001-hoard-hurt-help-v1/spec.md](specs/001-hoard-hurt-help-v1/spec.md) | Technical reference — HTTP API, DB schema, rules text |
 | [specs/001-hoard-hurt-help-v1/plan.md](specs/001-hoard-hurt-help-v1/plan.md) | Phased build plan with architecture decisions |
 | [specs/001-hoard-hurt-help-v1/tasks.md](specs/001-hoard-hurt-help-v1/tasks.md) | 127 atomic tasks (all complete) |
