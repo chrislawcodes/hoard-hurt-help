@@ -2,10 +2,14 @@
 """command_implement and command_parallel implementations."""
 import argparse
 import concurrent.futures
+import errno
+import fcntl
+import json
 import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -36,6 +40,63 @@ from factory_stages import parse_parallel_task_groups  # noqa: E402
 
 from factory_emit import _emit_next_action  # noqa: E402
 from factory_mutating import mutates_state  # noqa: E402
+
+
+def _implement_lock_path(slug: str) -> Path:
+    return workflow_dir(slug) / ".implement.lock"
+
+
+def _acquire_implement_lock(slug: str) -> tuple[int, str]:
+    """Open and exclusively flock the per-slug implement lockfile.
+
+    Returns (fd, "") on success.  The caller MUST hold fd open for the
+    entire dispatch and call _release_implement_lock(fd) in a finally
+    block — keeping fd open lets the OS auto-release the lock if the
+    process crashes, preventing stale locks.
+
+    Returns (-1, error_message) when the lock is already held by another
+    invocation (EAGAIN / EACCES).  The caller should print the message to
+    stderr and return 1 without dispatching Codex.
+    """
+    lock_path = _implement_lock_path(slug)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        if exc.errno in (errno.EACCES, errno.EAGAIN):
+            try:
+                os.lseek(fd, 0, os.SEEK_SET)
+                raw = os.read(fd, 4096).decode("utf-8", errors="replace")
+                holder: dict = json.loads(raw) if raw.strip() else {}
+            except Exception:
+                holder = {}
+            os.close(fd)
+            pid = holder.get("pid", "unknown")
+            started = holder.get("started_at", "unknown")
+            return -1, (
+                f"[error] implement already running for slug {slug!r} "
+                f"(pid {pid}, started {started}). "
+                "Wait for it to finish, or kill it and retry."
+            )
+        os.close(fd)
+        raise
+    payload = json.dumps({
+        "pid": os.getpid(),
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "slug": slug,
+    }).encode("utf-8")
+    os.ftruncate(fd, 0)
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, payload)
+    return fd, ""
+
+
+def _release_implement_lock(fd: int) -> None:
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def _codex_prompt_path(slug: str, i: int) -> Path:
@@ -97,7 +158,7 @@ def _build_codex_prompt(slug: str, i: int, tasks: list[str], file_scope: list[st
         "## File scope\n"
         f"{chr(10).join(map(str, file_scope)) if file_scope else '(no specific scope — implement all tasks)'}\n\n"
         "Implement the tasks above. Commit your changes when done.\n"
-        "DO NOT MODIFY: CLAUDE.md, AGENTS.md, MEMORY.md, DESIGN.md, or any file not in your file scope.\n"
+        "DO NOT MODIFY: CLAUDE.md, AGENTS.md, MEMORY.md, the docs/ design/architecture docs, or any file not in your file scope.\n"
     )
     prompt_path.write_text(prompt_text, encoding="utf-8")
     return prompt_text
@@ -303,19 +364,26 @@ def command_implement(args: argparse.Namespace) -> int:
         print("nothing to implement — all tasks complete or no tasks.md")
         return 0
 
-    with HeartbeatEmitter(args.slug, "implement"):
-        for group in groups:
-            heartbeat_set_activity("codex exec running")
-            if not group["parallel"]:
-                if group.get("overlap_warning"):
-                    print(f"[warn] {group['overlap_warning']} — running serially", file=sys.stderr)
-                rc = _run_serial(args.slug, group["tasks"])
-            else:
-                print(f"[implement] dispatching {len(group['tasks'])} parallel Codex workers...")
-                rc = _run_parallel(args.slug, group, max_workers=args.max_workers)
-            if rc != 0:
-                return rc
-    return 0
+    lock_fd, lock_err = _acquire_implement_lock(args.slug)
+    if lock_fd == -1:
+        print(lock_err, file=sys.stderr)
+        return 1
+    try:
+        with HeartbeatEmitter(args.slug, "implement"):
+            for group in groups:
+                heartbeat_set_activity("codex exec running")
+                if not group["parallel"]:
+                    if group.get("overlap_warning"):
+                        print(f"[warn] {group['overlap_warning']} — running serially", file=sys.stderr)
+                    rc = _run_serial(args.slug, group["tasks"])
+                else:
+                    print(f"[implement] dispatching {len(group['tasks'])} parallel Codex workers...")
+                    rc = _run_parallel(args.slug, group, max_workers=args.max_workers)
+                if rc != 0:
+                    return rc
+        return 0
+    finally:
+        _release_implement_lock(lock_fd)
 
 
 @mutates_state("parallel")
