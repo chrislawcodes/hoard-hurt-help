@@ -457,8 +457,8 @@
       li.innerHTML='<span class="rk">1</span>'
         +'<span class="nm"><span class="nm-name" title="'+id+'">'+id+'</span>'
         +(owner?'<span class="nm-owner">by @'+owner+'</span>':'')
-        +'<span class="nm-pts">0 pts this round</span></span>'
-        +'<span class="sc">0<span class="sc-unit">rounds</span></span>'
+        +'<span class="nm-pts">0 rounds won</span></span>'
+        +'<span class="sc">0<span class="sc-unit">pts</span></span>'
         +'<span class="track"><span class="bar"></span></span>';
       railEl.appendChild(li); railRowEl[id]=li;
     });
@@ -469,8 +469,8 @@
     if(!railEl) return;  // no standings component present
     // Rank by rounds won; break ties by the live in-round score so the rail
     // still reorders within a round before any wins are on the board.
-    var maxw=0;
-    AGENTS.forEach(function(id){ if(rWins[id]>maxw) maxw=rWins[id]; });
+    var maxw=0, maxS=0;
+    AGENTS.forEach(function(id){ if(rWins[id]>maxw) maxw=rWins[id]; if((rScore[id]||0)>maxS) maxS=rScore[id]; });
     var order=AGENTS.slice().sort(function(a,b){
       return (rWins[b]-rWins[a]) || (rScore[b]-rScore[a]) || (AGENTS.indexOf(a)-AGENTS.indexOf(b));
     });
@@ -479,11 +479,11 @@
       row.style.transform='translateY('+(i*RAIL_ROW_H)+'px)';
       row.querySelector('.rk').textContent=i+1;
       var winsVal=rWins[id]||0;
-      row.querySelector('.sc').firstChild.textContent=fmtWins(winsVal);
-      row.querySelector('.sc-unit').textContent=fmtWinsUnit(winsVal);
-      row.querySelector('.nm-pts').textContent=rScore[id]+' pts this round';
-      // Bars show rounds won (what decides the winner); empty until round 1 ends.
-      row.querySelector('.bar').style.width=(maxw>0?Math.max(0,Math.min(100,rWins[id]/maxw*100)):0)+'%';
+      row.querySelector('.sc').firstChild.textContent=rScore[id]||0;
+      row.querySelector('.sc-unit').textContent='pts';
+      row.querySelector('.nm-pts').textContent=fmtWins(winsVal)+' '+fmtWinsUnit(winsVal)+' won';
+      // Bar shows points this round so it animates live within each round.
+      row.querySelector('.bar').style.width=(maxS>0?Math.max(0,Math.min(100,(rScore[id]||0)/maxS*100)):0)+'%';
       row.classList.toggle('leader', i===0);
     });
   }
