@@ -1,14 +1,13 @@
 # Codex Orchestrator Guide
 
-**TL;DR — Codex (`gpt-5.4`) is the default orchestrator for Feature Factory runs.**
+**TL;DR — In this repo (hoard-hurt-help), Claude is the default orchestrator (see `SKILL.md`). Codex orchestration described here is the FALLBACK** — use it only when Claude is unavailable (token exhaustion or a session ended mid-run).
 
-Dispatch a Codex orchestrator session with:
+When Codex is driving as the fallback, dispatch a Codex orchestrator session with:
 ```bash
 codex exec -m gpt-5.4 -s workspace-write "$(cat docs/workflow/orchestrator-prompts/<task>.md)"
 ```
 
-Codex tokens are free for the operator. PR #768 proved the pattern works end-to-end.
-Use Claude only for hard architectural decisions, adversarial review of Codex PRs, or when Codex quota is exhausted.
+Codex tokens are free for the operator, so Codex remains the implementation worker even when Claude orchestrates. This guide covers the case where Codex also *drives* the workflow because Claude is not available to.
 
 ---
 

@@ -15,23 +15,16 @@ Trivial features — single-component UI tweaks, type-cast fixes, copy edits, on
 
 ## Choosing an Orchestrator
 
-Use this table to decide which agent drives the workflow for a given feature:
+**This repo (hoard-hurt-help) defaults to Claude as the orchestrator.** Chris drives feature work through Claude. Claude leads the workflow; Codex implements the code (Codex tokens are free for the operator) and Codex + Gemini run the independent adversarial reviews. Codex orchestration is the fallback only when Claude is unavailable.
 
-| Situation | Recommended Orchestrator | Why |
-|-----------|--------------------------|-----|
-| Default — any new feature | Codex (`gpt-5.4`) | Codex tokens are free for the operator; Claude tokens are paid. PR #768 demonstrated the Codex-orchestrator pattern works end-to-end (full spec → plan → tasks → implement → deliver). |
-| Hard architectural decision (schema changes, new job types, major tradeoff) | Claude | Claude is better at open-ended judgment calls and adversarial review of Codex PRs. |
-| Codex quota exhausted | Claude | Fall back to Claude when Codex hits usage limits; Claude can drive the full workflow until quota resets. |
+| Situation | Orchestrator | Why |
+|-----------|--------------|-----|
+| Default — any new feature | **Claude** | Repo policy: Claude drives. Claude authors spec/plan/tasks, judges review findings, and runs delivery. Codex still implements (free tokens); Codex + Gemini still review (independent second pair of eyes). |
+| Claude unavailable (token exhaustion or session ended mid-run) | Codex (`gpt-5.4`) | Codex can drive the full workflow end-to-end as a fallback until Claude is back. See `CODEX-ORCHESTRATOR.md`. |
 
-### Default dispatch pattern
+### Default driver: Claude
 
-```bash
-codex exec -m gpt-5.4 -s workspace-write "$(cat docs/workflow/orchestrator-prompts/<task>.md)"
-```
-
-Write the task prompt to `docs/workflow/orchestrator-prompts/<task>.md` before dispatching. This avoids `/tmp` GC risk (see Background Dispatch Discipline below).
-
-Use Claude for: hard architectural calls, adversarial review of Codex's PRs, and when Codex hits quota.
+When a feature run starts here, **Claude follows the Claude Orchestrator column** in the phase table below: Claude runs the `run_factory.py` commands, authors the artifacts, dispatches Codex for implementation, and judges the review findings. There is no `codex exec` orchestrator dispatch by default — that pattern (and `docs/workflow/orchestrator-prompts/<task>.md`) applies only in the Codex-fallback mode documented in `CODEX-ORCHESTRATOR.md`.
 
 ---
 
