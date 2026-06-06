@@ -61,3 +61,10 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = "authlib.*"
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+]
