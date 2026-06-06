@@ -23,6 +23,15 @@ SENSITIVE_GEMINI_MODEL = "gemini-3.1-pro-preview"
 DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
 
 SMALL_TASK_SET_THRESHOLD = 15
+
+# Default diff-review gate: a slice that changes at least this many lines gets
+# one independent Gemini regression-adversarial review. Codex is always the
+# implementer of the diff, so the diff reviewer is Gemini to keep the lens
+# independent of the author. Smaller diffs rely on preflight + CI; this exists
+# because CI here is only ruff/mypy/pytest and cannot catch logic the tests do
+# not exercise — the substantial slices are where such bugs hide. Operators
+# override per-call with `checkpoint --stage diff --diff-review-threshold N`.
+DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES = 50
 _AUTO_ACCEPT_NOTE = "No HIGH/MEDIUM/LOW/CRITICAL findings detected — auto-accepted"
 
 # Every pattern below is matched against text that has already been lowercased
@@ -193,6 +202,24 @@ def trim_detail(text: str, limit: int = 240) -> str:
     return stripped[: limit - 3] + "..."
 
 
+def count_changed_diff_lines(diff_text: str) -> int:
+    """Return the number of added/removed content lines in a unified diff.
+
+    Counts lines that start with a single ``+`` or ``-`` (added or removed
+    content) and skips the ``+++``/``---`` file headers. Hunk headers (``@@``)
+    and unchanged context lines do not count. Empty input returns 0. This is the
+    measure the diff-review gate uses to decide whether a slice is substantial
+    enough to warrant an independent review.
+    """
+    changed = 0
+    for line in diff_text.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+") or line.startswith("-"):
+            changed += 1
+    return changed
+
+
 def pick_secondary_lens(primary: str, default: str, candidates: list[str]) -> str:
     ordered = [*candidates, default]
     seen: set[str] = set()
@@ -213,6 +240,8 @@ def required_reviews(
     extra_gemini: list[str],
     fast: bool = False,
     small_task_set: bool = False,
+    diff_changed_lines: int | None = None,
+    diff_review_threshold: int = DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES,
 ) -> list[dict[str, str]]:
     if fast:
         return [
@@ -220,12 +249,12 @@ def required_reviews(
             {"reviewer": "gemini", "lens": "regression-adversarial", "model": DEFAULT_GEMINI_MODEL},
         ]
 
-    # Bundle 2: tasks, diff, and closeout stages have no default adversarial
-    # reviews. Reasoning: tasks is mostly a mechanical translation of plan
-    # (caught by failed implementation if wrong); diff is caught by CI;
-    # closeout is documentation. Spec and plan reviews carry the leverage.
-    # Operators can still pass --extra-codex-lens or --extra-gemini-lens to
-    # add reviews to any stage.
+    # Bundle 2: tasks and closeout stages have no default adversarial reviews
+    # (tasks is a mechanical translation of plan, caught by failed
+    # implementation; closeout is documentation). The diff stage gets a single
+    # independent Gemini review, but only for substantial slices — see the gate
+    # below. Spec and plan reviews carry the design-stage leverage. Operators
+    # can still pass --extra-gemini-lens to add reviews to any stage.
     gemini_lens = ""
     codex_primary = ""
     codex_secondary = ""
@@ -238,7 +267,16 @@ def required_reviews(
         gemini_lens = "testability-adversarial"
         codex_primary = "implementation-adversarial"
         codex_secondary = ""
-    elif stage in {"tasks", "diff", "closeout"}:
+    elif stage == "diff":
+        # Size-gated default: a slice changing >= threshold lines gets one
+        # Gemini regression-adversarial review. Gemini (not Codex) because Codex
+        # authored the diff, so a Codex lens here would be self-review. When the
+        # diff size is unknown (diff_changed_lines is None), keep the historical
+        # no-default-review behavior so callers that don't size the diff are
+        # unaffected.
+        if diff_changed_lines is not None and diff_changed_lines >= diff_review_threshold:
+            gemini_lens = "regression-adversarial"
+    elif stage in {"tasks", "closeout"}:
         pass
     else:
         raise ValueError(f"Unsupported stage: {stage}")

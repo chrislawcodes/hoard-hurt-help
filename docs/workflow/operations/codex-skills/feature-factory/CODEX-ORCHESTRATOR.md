@@ -25,7 +25,9 @@ You are in **Codex Orchestrator** mode when:
 - Claude has handed off mid-workflow via a `block` note in `state.json`
 - The workflow `status` shows a `blocked-state: active` with a reason that starts with "Claude session ended"
 
-In Codex Orchestrator mode, **you drive the workflow end-to-end**. You write artifacts, call the runner, call Gemini for reviews and research, judge findings where you can, and escalate to the human where you cannot.
+In Codex Orchestrator mode, **you drive the workflow end-to-end**. You write artifacts, call the runner, run the reviews (the runner launches both the Codex and Gemini lenses at spec/plan checkpoints), judge findings where you can, and escalate to the human where you cannot.
+
+**Reviewer independence in this mode.** Because you author the spec and plan *and* the runner runs the Codex adversarial lens on them, that Codex lens is **self-review** — not independent. Gemini is the independent automated lens, and the human approving PR creation and post-mortem changes is the backstop. Weight Gemini's findings and the human gate accordingly; treat the Codex lens as a self-check. See `SKILL.md` → Review Policy → "Reviewer independence".
 
 ---
 
@@ -70,7 +72,7 @@ python3 docs/workflow/operations/codex-skills/feature-factory/scripts/run_factor
 | **Record parallel analysis** | Look for safe parallel opportunities in tasks.md. Add `[P: file1, file2]` annotations if found. Record result. | `parallel --slug <slug> --note "..." [--found]` |
 | **Tasks checkpoint** | Generate adversarial reviews, judge findings | `checkpoint --slug <slug> --stage tasks` |
 | **Implementation** | Implement one slice, run build + tests, commit | `codex exec -s workspace-write "..."` |
-| **Diff checkpoint** | Generate adversarial reviews of the diff, judge findings | `checkpoint --slug <slug> --stage diff` |
+| **Diff checkpoint** | Generate adversarial review of the diff, judge findings. Slices ≥ 50 changed lines get one Gemini regression-adversarial review by default; smaller slices get none and rely on preflight + CI. Tune with `--diff-review-threshold <N>`. | `checkpoint --slug <slug> --stage diff` |
 | **Deliver** | Create PR, notify human it is ready to squash merge | See Section 8 below |
 | **Closeout** | Write closeout summary | Write to `docs/workflow/feature-runs/<slug>/closeout.md`, then checkpoint |
 | **Reconcile docs** | Dispatch a `codex exec` sub-session: compare the merged diff against `plan.md` and the up-front doc edits; update the scoped design/architecture docs if implementation drifted, else record "docs already accurate." Required before done. | `codex exec -m gpt-5.4-mini -s workspace-write "<doc-reconcile prompt>"` |

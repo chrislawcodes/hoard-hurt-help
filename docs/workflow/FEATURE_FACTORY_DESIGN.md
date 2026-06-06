@@ -171,8 +171,10 @@ and so the cheapest capable worker does each job.
 The orchestrator is **whichever agent the run is driven from** — not a fixed
 default. Both are first-class:
 
-- **Claude Orchestrator** — run driven from a Claude session. Claude leads; Codex implements; Codex + Gemini review.
-- **Codex Orchestrator** — run driven from a Codex session (or Claude handed off). Codex leads *and* implements; Gemini reviews; the human approves PR creation and post-mortem changes.
+- **Claude Orchestrator** — run driven from a Claude session. Claude leads; Codex implements; Codex + Gemini review. Every reviewer is independent of the author (Claude), so "no agent reviews its own work" holds in full.
+- **Codex Orchestrator** — run driven from a Codex session (or Claude handed off). Codex leads *and* implements; Codex + Gemini review; the human approves PR creation and post-mortem changes.
+
+**Honest caveat about Codex mode.** The checkpoint runner picks review lenses by *stage*, not by orchestrator, so the Codex adversarial lens runs on spec and plan in both modes. In Codex mode Codex also *authored* those artifacts, so that lens is effectively **self-review** and is not independent. In Codex mode the independent automated lens is **Gemini**, and the human approving PR creation and post-mortem changes is the backstop. So "no agent reviews its own work" is fully true in Claude mode and only partly true in Codex mode — treat the Codex lens there as a self-check, and lean on the Gemini lens and the human gate for genuine independence. The two modes are *not* equivalent on reviewer independence, which is why a handoff back to Claude (or a human spot-check) is worth more on a Codex-driven run.
 
 **Handoff** is allowed in both directions (e.g. Claude hands to Codex on token
 exhaustion). State and a handoff note travel through `state.json`, so the next
@@ -244,17 +246,29 @@ legitimate single-agent runs in the primary checkout). The *enforced* protection
 the per-slug run locks; worktree isolation remains operator practice, now surfaced
 at `init`.
 
-## 9. When to use FF vs. the Direct Path
+## 9. Three lanes: Direct Path, Quick, and full Feature Factory
 
-| Situation | Path |
-|---|---|
-| New game logic in `app/engine/`, schema/migration changes, multi-file or risky work | **Feature Factory** |
-| Copy edits, single-file tweaks, small bug fixes, additions under ~100 lines | **Direct Path** (implement → preflight → PR) |
+Most teams treat this as a binary — tiny work goes Direct, everything else goes
+full FF. That forces medium-sized changes into one of two wrong shapes: too much
+ceremony, or no independent review at all. There are **three lanes**, and the
+middle one (Quick) is where a lot of real work belongs.
 
-The test is simple: **would an independent adversarial review plausibly catch
-something?** If yes, the spec/plan overhead pays for itself. If no, FF is pure
-overhead and the Direct Path is correct. The `discover --complete` command will
-print a loud "SKIP FF ENTIRELY" block when it detects trivial work.
+| Lane | What it does | Use it when |
+|---|---|---|
+| **Direct Path** | Implement → Preflight → PR. No spec, plan, tasks, or review. | The change is trivial: copy edits, a single-file tweak, a small bug fix, additions under ~100 lines — and **no review would plausibly catch anything**. |
+| **Quick** | Skip spec/plan/tasks. Implement, then run **one diff review** (`quick` command: Codex correctness *or* Gemini quality) against `origin/main..HEAD`. The command exits 0 regardless of severity — **you** decide what to do with findings. | The change is real but bounded: touches one area, no schema/migration, no new external dependency, no game-rule/payoff change — but is big or fiddly enough that a second set of eyes on the *diff* is worth it. |
+| **Feature Factory** | Full pipeline: discovery → spec → plan → tasks → implement → diff → deliver → closeout, with adversarial checkpoints at spec and plan and a size-gated diff review. | The change is risky or architectural: new game logic in `app/engine/`, schema/migration changes, new job types or external dependencies, or work spanning many files where a bad assumption in the *design* would be expensive. |
+
+**Routing rule — by what the change touches, not by gut feel:**
+
+- Touches `app/engine/` game logic, a DB schema/migration, a new external dependency, or the game's payoff/rule design → **Feature Factory**. A wrong assumption here is expensive, and the spec/plan reviews are where it's cheapest to catch.
+- Touches one bounded area with no schema/dependency/rule change, but is more than a trivial tweak → **Quick**. You get an independent look at the diff without paying for spec/plan/tasks.
+- None of the above, and an independent review would plausibly catch nothing → **Direct Path**.
+
+Start a Quick run with `quick --slug <slug>` (after `init`), or force the lane on
+the runner with `discover --complete --force-path quick`. The `discover --complete`
+command also prints a loud "SKIP FF ENTIRELY" block when it detects genuinely
+trivial work, pointing you at the Direct Path.
 
 ---
 
