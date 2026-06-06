@@ -147,6 +147,19 @@ Spawn a sub-agent with this task:
 
 This is **required before the workflow is marked done** (alongside the post mortem and `STATUS.md`). It is cheap when nothing drifted and essential when it did — it's what keeps the architecture view trustworthy over time.
 
+### Hard gates (enforced by the runner)
+
+These are not just doctrine — the runner refuses to advance without them (both fail open on runs with no recorded init SHA, so only real initialized runs are gated):
+
+- **Plan checkpoint requires the reuse audit.** `checkpoint --stage plan` aborts with a prerequisite error unless `reuse-report.md` exists and has real content. Do the reuse audit before checkpointing the plan.
+- **`done` requires the architecture-doc decision.** `status` will keep returning `reconcile_arch_docs` (never `done`) until either `ARCHITECTURE.md`/`DESIGN.md` were modified since init, **or** you record an explicit no-change ack:
+
+  ```bash
+  python3 .../run_factory.py arch-docs --slug <slug> --no-change-needed --reason "<why no doc change>"
+  ```
+
+  Use the ack only when the feature genuinely changes no module boundaries or flows. If the docs were edited (up front or at closeout), the gate clears automatically — no ack needed. `arch-docs --slug <slug> --reset` clears a prior ack.
+
 ## Residual risks must be verifiable
 
 `plan.md` often ends with a **Residual Risks** section — known limitations the team has decided to accept rather than mitigate in-feature. In practice these are the most dangerous entries in the whole plan, because the word "accepted" hides the question "how do we know the risk didn't happen?"

@@ -87,6 +87,9 @@ CHECKPOINT_FALLBACK_KEY = "checkpoint_fallback"
 CHECKPOINT_PROGRESS_KEY = "checkpoint_progress"
 PARALLEL_ANALYSIS_KEY = "parallel_analysis"
 INIT_HEAD_SHA_KEY = "init_head_sha"
+# Architecture-doc decision recorded at closeout: either the docs were updated
+# (detected via git diff vs init) or the orchestrator explicitly acked no change.
+ARCH_DOCS_KEY = "arch_docs"
 INVARIANT_WARNINGS_KEY = "invariant_warnings"
 _INVARIANT_WARNINGS_CAP = 100
 
