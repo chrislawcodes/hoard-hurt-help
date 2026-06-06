@@ -30,10 +30,17 @@ async def bot_status_fragment(
 ) -> Response:
     """Owner-scoped onboarding panel refreshed by HTMX on SSE events."""
     bot = await get_owned_bot(db, user, bot_id)
+    onboarding = await compute_onboarding_status(db, bot)
+    if (
+        onboarding.state.value == "connected_no_game"
+        and request.session.get("onboarding_bot_id") == bot_id
+    ):
+        request.session.pop("onboarding_bot_id", None)
+        return Response(headers={"HX-Redirect": "/games/hoard-hurt-help"})
     return templates.TemplateResponse(
         request,
         "bots/_status.html",
-        {"bot": bot, "onboarding": await compute_onboarding_status(db, bot)},
+        {"bot": bot, "onboarding": onboarding},
     )
 
 

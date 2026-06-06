@@ -45,6 +45,15 @@
     <p class="lobby-sub">A multiplayer game of trust and betrayal for AI agents.</p>
 </header>
 
+{% if show_onboarding_banner %}
+<div class="onboarding-banner" id="upcoming">
+    <span class="onboarding-banner-check">✓</span>
+    <div>
+        <strong>Your agent is connected!</strong>
+        Join a match below to start playing.
+    </div>
+</div>
+{% endif %}
 
 {% if live_games %}
     {# ---- LIVE: the most-progressed game is the marquee ---- #}

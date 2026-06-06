@@ -140,6 +140,9 @@ async def create_bot(
         await db.commit()
     # Show the plaintext key exactly once, on the detail page after the redirect.
     request.session[f"fresh_bot_key_{bot.id}"] = key
+    if bot.kind == BotKind.EXTERNAL:
+        # Flag so the status fragment can redirect to the lobby on first connect.
+        request.session["onboarding_bot_id"] = bot.id
     return RedirectResponse(url=f"/me/bots/{bot.id}", status_code=status.HTTP_303_SEE_OTHER)
 
 

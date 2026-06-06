@@ -2,7 +2,7 @@
 
 import dataclasses
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from urllib.parse import urlencode
 from typing import Any
 from typing import Annotated
@@ -17,7 +17,7 @@ from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
 from app.games.base import GameError
 from app.models.bot import Bot, BotKind
-from app.models.match import Match, GameState, MatchKind
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.read_models.leaderboard import load_leaderboard_sections
 from app.routes.web_support import (
@@ -322,96 +322,39 @@ async def leaderboard_page(
     )
 
 
-@router.get("/play", response_class=HTMLResponse)
+@router.get("/play")
 async def operator_join_page(request: Request, db: DbSession):
-    """Operator-facing join hub: bot status, Practice Arena, next auto-match."""
+    """Smart redirect: sends each visitor to the right next step.
+
+    Not signed in → sign in (returning to bot setup).
+    No handle → pick a handle first (bot setup requires one).
+    No external bot → create one.
+    Has a bot → lobby where they can join a match.
+    """
     user = await get_current_user(request, db)
 
-    practice_arena: dict | None = None
-    next_auto_match: dict | None = None
-    bot_rows: list[dict] = []
-    my_entries: list[dict] = []
-
-    # Upcoming arena/auto-match cards — visible to all visitors.
-    pa_match = (
-        await db.execute(
-            select(Match).where(
-                Match.match_kind == MatchKind.PRACTICE_ARENA.value,
-                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
-            )
+    if user is None:
+        return RedirectResponse(
+            "/auth/google/login?next=/me/bots", status_code=status.HTTP_302_FOUND
         )
-    ).scalars().first()
-    if pa_match is not None:
-        practice_arena = {
-            "id": pa_match.id,
-            "name": pa_match.name,
-            "game": pa_match.game,
-            "player_count": await _player_count(db, pa_match.id),
-            "max_players": pa_match.max_players,
-            "state": pa_match.state,
-        }
 
-    am_match = (
-        await db.execute(
-            select(Match).where(
-                Match.match_kind == MatchKind.AUTO_SCHEDULED.value,
-                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
-                Match.scheduled_start >= datetime.now(timezone.utc),
-            ).order_by(Match.scheduled_start)
+    if not user.handle:
+        return RedirectResponse(
+            "/me/handle?next=/me/bots", status_code=status.HTTP_302_FOUND
         )
-    ).scalars().first()
-    if am_match is not None:
-        next_auto_match = {
-            "id": am_match.id,
-            "name": am_match.name,
-            "game": am_match.game,
-            "scheduled_start": am_match.scheduled_start,
-            "player_count": await _player_count(db, am_match.id),
-            "max_players": am_match.max_players,
-            "state": am_match.state,
-        }
 
-    if user is not None:
-        bots = (
-            await db.execute(
-                select(Bot)
-                .where(Bot.user_id == user.id, Bot.archived_at.is_(None), Bot.kind != BotKind.SIM)
-                .order_by(Bot.name)
-            )
-        ).scalars().all()
-        for bot in bots:
-            health = await compute_bot_health(db, bot)
-            bot_rows.append({"bot": bot, "health": health})
+    bot_count = await db.scalar(
+        select(func.count()).select_from(Bot).where(
+            Bot.user_id == user.id,
+            Bot.archived_at.is_(None),
+            Bot.kind != BotKind.SIM,
+        )
+    ) or 0
 
-        active_players = (
-            await db.execute(
-                select(Player, Match)
-                .join(Match, Player.match_id == Match.id)
-                .where(
-                    Player.user_id == user.id,
-                    Player.left_at.is_(None),
-                    Match.state.in_([GameState.ACTIVE, GameState.SCHEDULED, GameState.REGISTERING]),
-                )
-                .order_by(Match.scheduled_start)
-            )
-        ).all()
-        my_entries = [
-            {"player": p, "match": m}
-            for p, m in active_players
-        ]
+    if bot_count == 0:
+        return RedirectResponse("/me/bots", status_code=status.HTTP_302_FOUND)
 
-    return templates.TemplateResponse(
-        request,
-        "play.html",
-        {
-            "user": user,
-            "is_admin": _is_admin(user),
-            "practice_arena": practice_arena,
-            "next_auto_match": next_auto_match,
-            "bots": bot_rows,
-            "my_entries": my_entries,
-        },
-    )
+    return RedirectResponse("/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/play/{game}", response_class=HTMLResponse)
@@ -477,6 +420,37 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     )
     recent_games = finished_views["recent"]
     sims_only_games = finished_views["sims_only"]
+
+    # Onboarding banner: shown when the user has a warm bot but hasn't joined a
+    # match yet. Disappears naturally once they're in a game.
+    show_onboarding_banner = False
+    if user is not None:
+        user_bots = (
+            await db.execute(
+                select(Bot).where(
+                    Bot.user_id == user.id,
+                    Bot.archived_at.is_(None),
+                    Bot.kind != BotKind.SIM,
+                )
+            )
+        ).scalars().all()
+        has_warm_bot = False
+        for b in user_bots:
+            health = await compute_bot_health(db, b)
+            if health.state.value in ("live", "ready"):
+                has_warm_bot = True
+                break
+        if has_warm_bot:
+            active_entry_count = await db.scalar(
+                select(func.count()).select_from(Player)
+                .join(Match, Player.match_id == Match.id)
+                .where(
+                    Player.user_id == user.id,
+                    Player.left_at.is_(None),
+                    Match.state.in_([GameState.ACTIVE, GameState.SCHEDULED, GameState.REGISTERING]),
+                )
+            ) or 0
+            show_onboarding_banner = active_entry_count == 0
     cancelled_games = finished_views["cancelled"]
 
     def _toggle_url(section: str, key: str, show_all: bool) -> str:
@@ -520,6 +494,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "show_cancelled_all": show_cancelled_all,
             "rc_game_id": rc_game_id,
             "rc_data": rc_data,
+            "show_onboarding_banner": show_onboarding_banner,
             # Tint the lobby's content with this game's scheme; the shared chrome
             # (defined outside <main>) is untouched. See GameModule.theme().
             "game_theme": module.theme(),
