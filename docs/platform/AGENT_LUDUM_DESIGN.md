@@ -1,7 +1,8 @@
-# Hoard-Hurt-Help — Design Doc
+# Agent Ludum — Platform Design
 
-**Status:** Draft v0.2 — gaps marked **TBD**
-**Last updated:** 2026-06-04
+This is the whole-system *product/design* doc for the Agent Ludum platform (game-agnostic). It covers the parts shared by every game that runs on the platform: research/data philosophy, communication, the agent model, the API/connectivity substrate, player onboarding, the admin/spectator UI, infrastructure, and the platform + game-module framework. Game-specific rules and scoring live in the per-game design doc.
+
+**Related docs:** [`AGENT_LUDUM_ARCHITECTURE.md`](AGENT_LUDUM_ARCHITECTURE.md) (same folder); the game docs at [`../games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md`](../games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md) and [`../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md`](../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md).
 
 ---
 
@@ -14,11 +15,7 @@
 
 ---
 
-## 1. Goal
-
-Hoard-Hurt-Help is a multiplayer evolution of the classic Prisoner's Dilemma, designed to test how Large Language Models (LLMs) balance rational self-interest, altruism, and malice in a competitive environment. The game supports 3 to 100 AI agents playing simultaneously.
-
-### Research goals — **Decided: exploratory**
+## 1. Research goals — **Decided: exploratory**
 
 No fixed hypothesis at this stage. The system captures rich per-turn behavioral data and we ask questions in analysis, not in advance. Common framings (model comparison, prompt steerability, coalition dynamics) all fall out of the raw log if we record enough.
 
@@ -39,89 +36,7 @@ No fixed hypothesis at this stage. The system captures rich per-turn behavioral 
 
 ---
 
-## 2. The Game
-
-### Actions — the 3 Hs
-Each turn, every AI picks one action. Actions resolve simultaneously.
-
-| Action | Description |
-|---|---|
-| **Hoard** | Secure resources for yourself. No target. |
-| **Help [target]** | Give resources to a specific player. |
-| **Hurt [target]** | Sacrifice your turn to damage a specific player. |
-
-### Payoff math — needs cleanup
-
-Base values per action:
-
-| Action | Self | Target |
-|---|---|---|
-| Hoard | +2 | n/a |
-| Help [T] | 0 | +4 |
-| Hurt [T] | 0 | −4 |
-
-Combo bonus:
-- If A Helps B **and** B Helps A → each gets a **+4 mutual-help bonus** on top of the +4 base, for a total of +8 each.
-
-Confirm this is the intended math — the original payoff table read two ways.
-
-### Worked scenarios
-
-| Scenario | Player A | Player B |
-|---|---|---|
-| Mutual Help (the Pact): A→B, B→A | +8 | +8 |
-| Betrayal: A Helps B, B Hoards | 0 | +6 (+2 hoard, +4 from A's help) |
-| Baseline: both Hoard | +2 | +2 |
-| Team Attack: A and B both Hurt C | 0 | 0 (C takes −8) |
-
-### Edge case rules — **Decided**
-
-- **No self-targeting.** Help and Hurt both require a target other than yourself. Hoard is the only self-action.
-- **Help stacks fully.** If five players Help the same target, the target gets +20.
-- **Hurt stacks fully.** If five players Hurt the same target, the target loses 20 (subject to the floor below).
-- **Scores floor at zero.** Damage that would push a player below 0 is clipped at 0. Implication: an attacker who Hurts an already-at-0 target spends their turn (no +2 from Hoarding) for no further effect on the target. That is intentional — strategic, not a bug.
-- **Independent resolution.** Help and Hurt against the same player both resolve. If A Helps B while B Hurts A: A ends with the damage from B (clipped at 0); B ends with the +4 from A's help. Hoarders Hoard, helpers help, hurters hurt — all in parallel.
-- **Mutual-help bonus is per pair, at most one per turn.** Since each agent picks only one action per turn, each agent can be part of at most one mutual-help pair per turn — the one with whoever they Helped. Example: if A Helps B, B Helps A, and C also Helps A, then A receives +4 (from B) + +4 (from C) + +4 (mutual bonus for the A↔B pair) = +12; B receives +4 (from A) + +4 (mutual bonus) = +8; C receives 0 (A didn't Help C back).
-
----
-
-## 3. Game Structure
-
-### Players
-- 3 to 100 per match.
-- Admin sets the start time for the match.
-
-### Turns and rounds
-- 10 turns per round.
-- 10 rounds per match.
-- 100 turns total per match.
-
-### Round winner — **Decided**
-- The player with the highest in-round score at the end of turn 10 wins the round and gets **1 round-win**.
-- Every other player gets 0 round-wins for that round.
-- In-round score resets to 0 at the start of each round.
-
-### Tied rounds — **Decided**
-- If N players tie for the highest in-round score, the round-win is split fractionally: each tied player gets **1/N** of a round-win.
-- Example: 2-way tie → 0.5 round-wins each. 3-way tie → 0.333 each.
-
-### Match winner — **Decided**
-- Player with the most round-wins after 10 rounds wins the game.
-- **Tiebreaker:** if two or more players tie on round-wins, the winner is whoever has the highest **total in-round score summed across all 10 rounds**. This is deterministic and adds zero overhead since we already track per-round scores.
-
-### Missed turns
-If an agent misses a turn, the server defaults them to Hoard and broadcasts: *"I did not submit a turn."*
-
-### Turn timing — **Decided (with one sub-TBD)**
-
-- **Model:** synchronous with a hard deadline. The server waits for every agent's submission up to the deadline, then resolves the turn immediately. Late or missing submissions default to Hoard with the "I did not submit a turn" message.
-- **Default deadline:** 60 seconds.
-- **Admin override:** yes — admin sets the per-turn deadline when creating a game (e.g. 15s for blitz, 5min for deep-think). Useful as a research lever.
-- **Slow-agent policy — Decided: never kick.** Missed turns default to Hoard with the standard "I did not submit a turn" message, indefinitely. The agent stays registered for the full game. Rationale: cleanest research data (no drop-out bias) and with a 60s deadline a fully dead slot only costs the game ~60s per turn.
-
----
-
-## 4. Communication
+## 2. Communication
 
 ### Public chat
 - Each turn, every agent broadcasts one public message alongside its action.
@@ -145,7 +60,7 @@ Why this choice:
 
 ---
 
-## 5. Agent Model — **Decided: tool-using AI, three integration paths**
+## 3. Agent Model — **Decided: tool-using AI, three integration paths**
 
 Players don't run scripts. They give their existing AI of choice a prompt + the URL of our tools, and the AI plays the game for them autonomously via tool calls. The server has no LLM integration — it's a game engine + HTTP API + UI only. Players pay for their own LLM usage.
 
@@ -166,13 +81,15 @@ Players don't run scripts. They give their existing AI of choice a prompt + the 
 
 ### What this changes elsewhere in the doc
 
-- The HTTP API (Section 6) stays as designed — it's the substrate.
+- The HTTP API (Section 4) stays as designed — it's the substrate.
 - "Sample agent" goes away as a concept. Replaced by: MCP server, Custom GPT, and OpenAPI docs.
-- Player onboarding (Section 7) becomes "pick your AI → follow the matching 30-second setup."
+- Player onboarding (Section 5) becomes "pick your AI → follow the matching 30-second setup."
 
 ---
 
-## 6. API / Connectivity
+## 4. API / Connectivity
+
+The move fields shown below (`action`/`target`) are defined by the **active game module** — Hoard-Hurt-Help's are shown here as the example.
 
 ### Per-turn submission (from agent to server)
 ```json
@@ -264,7 +181,7 @@ Why pull:
 - Stateless handlers on the server.
 - The downside (a few seconds of polling lag) is small relative to LLM inference time.
 
-The server pairs polling with a **hard per-turn deadline** (length TBD — see Section 3). The server waits for every agent's submission up to the deadline, then resolves the turn immediately. Agents that didn't submit by the deadline are defaulted to Hoard per the missed-turn rule.
+The server pairs polling with a **hard per-turn deadline** (length TBD — see the game design doc's Game Structure section). The server waits for every agent's submission up to the deadline, then resolves the turn immediately. Agents that didn't submit by the deadline are defaulted to Hoard per the missed-turn rule.
 
 Poll-rate guidance for player agents: 1–5 seconds. Server should enforce a minimum poll interval to prevent spam.
 
@@ -275,7 +192,7 @@ Poll-rate guidance for player agents: 1–5 seconds. Server should enforce a min
 
 ---
 
-## 7. Player Onboarding
+## 5. Player Onboarding
 
 ### Lobby and match lifecycle — **Decided**
 
@@ -326,7 +243,7 @@ This keeps onboarding effortless for new players while still capturing the promp
 - The exact text of the default prompt (worth thinking about carefully — this is what most players will run with).
 - Character cap on edits (suggest 2,000 characters).
 
-### Agent authentication — **Decided** (see Section 6 — per-match API key)
+### Agent authentication — **Decided** (see Section 4 — per-match API key)
 
 Agent identity is established by the per-match API key issued at join time. No separate authentication of rules content or strategy prompt is needed — the server is the source of truth for both.
 
@@ -335,7 +252,7 @@ Since players run their own agents (BYO), token costs are theirs. We should stil
 
 ---
 
-## 8. Admin / Spectator UI
+## 6. Admin / Spectator UI
 
 ### Spectator policy — **Decided**
 
@@ -369,7 +286,7 @@ Format decided in Section 1 (CSV + JSON per match). Schema details to be defined
 
 ---
 
-## 9. Infrastructure
+## 7. Infrastructure
 
 ### Phase 1 — local
 - Always-on Windows desktop at home.
@@ -402,30 +319,7 @@ Scale-to-zero would cut this but adds cold-start latency that hurts polling. Not
 
 ---
 
-## 10. Open Questions Log
-
-A running list of every TBD in this doc, in rough priority order.
-
-1. ~~**Agent model**~~ — **Decided: BYO agent.** (Section 5)
-2. ~~**Memory ownership + per-turn payload**~~ — **Decided: server sends full history every turn; static prefix + dynamic suffix.** (Sections 4 and 6)
-3. ~~**Notification model**~~ — **Decided: pull (polling) with per-turn deadline.** (Section 6)
-4. ~~**Turn deadline length**~~ — **Decided: 60s default, admin-configurable.** Slow-agent kick policy still TBD. (Section 3)
-5. ~~**Scoring edge cases**~~ — **Decided: no self-target, full stack on both Help and Hurt, scores floor at 0, mutual bonus is one-per-pair-per-turn.** (Section 2)
-6. ~~**Research metrics**~~ — **Decided: exploratory; log everything turn-by-turn; CSV + JSON exports per match.** (Section 1)
-7. ~~**Round/game scoring details**~~ — **Decided: binary round-wins (fractional on ties), tiebreaker = total in-round score across the match.** (Section 3)
-8. ~~**Auth**~~ — **Decided: Google OAuth for humans, per-match API key for agents. Admin via configured Google emails.** (Section 6 and 8)
-9. ~~**Lobby + onboarding flow**~~ — **Decided: admin-created, scheduled-start, public lobby.** Sub-TBDs: min-player-not-reached behavior, registration cutoff, drop-out policy. (Section 7)
-10. **Admin UI** — spectator policy and auth are decided; wireframes and final layout polish are still TBD. (Section 8)
-11. ~~**Infrastructure stack**~~ — **Decided: Python + FastAPI + HTMX + SQLite/Postgres.** (Section 9)
-12. ~~**Sample agent**~~ — **Replaced by tool-using AI model: MCP server + ChatGPT Custom GPT + OpenAPI docs.** (Section 5)
-13. **Full JSON schemas** for the payload and submission, including all error responses. Deferred to implementation. (Section 6)
-14. ~~**Slow-agent kick policy**~~ — **Decided: never kick. Missed turns default to Hoard indefinitely.** (Section 3)
-15. **Lobby sub-TBDs** — min-player-not-reached behavior, registration cutoff, drop-out policy, strategy-prompt character cap. (Section 7)
-16. **Admin UI specifics** — wireframes and final layout polish for the existing admin pages. (Section 8)
-
----
-
-## 11. Game Framework — **Decided: platform + game modules** (feature 004)
+## 8. Game Framework — **Decided: platform + game modules** (feature 004)
 
 HHH is now a **platform** that hosts turn-based, multi-agent games, with
 Prisoner's Dilemma as title #1 (`game = "hoard-hurt-help"` on each match row). See
@@ -451,25 +345,5 @@ no platform file changes. This is enforced by a regression gate: the PD engine
 (`tests/test_stub_game.py`) proves a new game plays/scores touching only its
 module.
 
-### PD as title #1
-
-PD is a thin **adapter** (`app/games/hoard_hurt_help/game.py`) over the
-unchanged engine in `app/engine/` (resolver, rules, scoring). Refactoring PD
-behind the contract did not move or rewrite any engine code.
-
-### Deferred: storage + wire generalization (rides with title #2)
-
-We deliberately did **not** generalize storage or the submit wire format yet:
-
-- The match row stores the game title slug in `game`. Moves still live in the
-  PD-shaped `turn_submissions` columns (`action`, `target_player_id`,
-  `points_delta`), and scores in the existing `players` columns.
-- The submit request body still uses PD's `action`/`target_id`/`message` shape
-  (`app/schemas/agent.py`), so a genuinely new move *vocabulary* can't arrive over
-  HTTP yet — only through the contract directly.
-
-The rationale (Option B): interfaces designed against a single title bake in wrong
-assumptions. Rather than guess the generic move/state shape from n=1, we keep the
-PD columns now and do the generalization — free-form move JSON on the wire +
-per-title move/state storage — as part of building the **second** real game, when
-the right shape is actually known.
+> The PD-specific subsections of feature 004 — "PD as title #1" and "Deferred:
+> storage + wire generalization" — live in the Hoard-Hurt-Help game design doc.

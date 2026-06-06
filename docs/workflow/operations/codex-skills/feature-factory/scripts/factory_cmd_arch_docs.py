@@ -2,7 +2,7 @@
 """command_arch_docs implementation.
 
 Records the architecture-doc decision for a run. The `done` gate
-(`arch_docs_resolved`) is satisfied when ARCHITECTURE.md/DESIGN.md were modified
+(`arch_docs_resolved`) is satisfied when any scoped design/architecture doc was modified
 since init, OR when the orchestrator explicitly acks "no architecture change
 needed" here. This command is only needed for the no-change case; if the docs
 were actually edited, the git-diff check resolves the gate on its own.
@@ -31,7 +31,7 @@ def command_arch_docs(args: argparse.Namespace) -> int:
     if not args.reset and not args.no_change_needed:
         raise SystemExit(
             "arch-docs requires --no-change-needed (with --reason) to ack that "
-            "this feature needs no ARCHITECTURE.md/DESIGN.md change, or --reset "
+            "this feature needs no design/architecture doc change, or --reset "
             "to clear a prior ack. If the docs DID change, just edit them — the "
             "done gate detects the change automatically."
         )

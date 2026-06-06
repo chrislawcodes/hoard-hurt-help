@@ -268,7 +268,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     arch_docs_parser.add_argument("--slug", required=True)
     arch_docs_parser.add_argument("--no-change-needed", action="store_true",
-                                  help="ack that this feature needs no ARCHITECTURE.md/DESIGN.md change")
+                                  help="ack that this feature needs no design/architecture doc change")
     arch_docs_parser.add_argument("--reason", help="why no doc change is needed (required with --no-change-needed)")
     arch_docs_parser.add_argument("--reset", action="store_true", help="clear a prior no-change ack")
     arch_docs_parser.set_defaults(func=command_arch_docs)

@@ -67,7 +67,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "repair_closeout_checkpoint": "re-run closeout checkpoint",
     "write_postmortem": "write postmortem.md",
     "update_status_md": "update STATUS.md",
-    "reconcile_arch_docs": "update ARCHITECTURE.md/DESIGN.md (or ack no change via `arch-docs --no-change-needed`)",
+    "reconcile_arch_docs": "update the scoped design/architecture docs under docs/ (or ack no change via `arch-docs --no-change-needed`)",
     "done": "workflow complete",
 }
 
@@ -427,14 +427,26 @@ def reuse_report_meaningful(slug: str) -> bool:
     return len(non_heading) >= 40
 
 
+# The whole-system living docs the architecture gate watches, by scope. Platform
+# features touch the platform docs; a game feature touches that game's docs.
+# (PR2 makes the gate pick the relevant subset by feature scope; for now the gate
+# is satisfied when ANY of them changed since init, or a no-change ack is recorded.)
+SYSTEM_DOC_PATHS = (
+    "docs/platform/AGENT_LUDUM_DESIGN.md",
+    "docs/platform/AGENT_LUDUM_ARCHITECTURE.md",
+    "docs/games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md",
+    "docs/games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md",
+)
+
+
 def arch_docs_resolved(slug: str) -> bool:
     """Return True if the architecture-doc obligation is satisfied for this run.
 
-    Satisfied when either ARCHITECTURE.md or DESIGN.md was modified since init,
-    or the orchestrator explicitly acked "no architecture change needed" via the
-    `arch-docs` command. Fails open (returns True) when no init SHA is recorded,
-    so test fixtures and runs predating the gate are never blocked — mirrors
-    status_md_changed_since_init.
+    Satisfied when any of the whole-system design/architecture docs
+    (SYSTEM_DOC_PATHS) was modified since init, or the orchestrator explicitly
+    acked "no architecture change needed" via the `arch-docs` command. Fails open
+    (returns True) when no init SHA is recorded, so test fixtures and runs
+    predating the gate are never blocked — mirrors status_md_changed_since_init.
     """
     state = load_workflow_state(slug)
     if state.get(ARCH_DOCS_KEY, {}).get("no_change_acked"):
@@ -443,8 +455,7 @@ def arch_docs_resolved(slug: str) -> bool:
     if not init_sha:
         return True  # can't verify — don't block
     result = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "diff", "--quiet", init_sha, "--",
-         "ARCHITECTURE.md", "DESIGN.md"],
+        ["git", "-C", str(REPO_ROOT), "diff", "--quiet", init_sha, "--", *SYSTEM_DOC_PATHS],
         capture_output=True,
     )
     # 0: no diff (docs untouched and not acked → not resolved); non-zero: diff or
