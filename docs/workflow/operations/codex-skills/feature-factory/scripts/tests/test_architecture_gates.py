@@ -133,5 +133,37 @@ class NextActionArchGateTests(unittest.TestCase):
         self.assertEqual(self._drive_to_end(arch_resolved=True), "done")
 
 
+class ScopedDocPathsTests(unittest.TestCase):
+    """scoped_doc_paths maps a feature's scope.json to the relevant docs.
+
+    Relies on the real repo docs (docs/platform/, docs/games/hoard-hurt-help/)
+    existing under REPO_ROOT, which they do after the platform/game split.
+    """
+    def _paths(self, scope_paths):
+        with mock.patch.object(FACTORY_STAGES, "load_scope_manifest",
+                               return_value={"paths": scope_paths}):
+            return FACTORY_STAGES.scoped_doc_paths("slug")
+
+    def test_platform_scope_returns_platform_docs_only(self):
+        paths = self._paths(["app/engine", "app/routes"])
+        self.assertTrue(paths, "expected platform docs")
+        self.assertTrue(all(p.startswith("docs/platform/") for p in paths), paths)
+
+    def test_game_scope_returns_that_games_docs_only(self):
+        paths = self._paths(["app/games/hoard_hurt_help"])
+        self.assertTrue(paths, "expected game docs")
+        self.assertTrue(all(p.startswith("docs/games/hoard-hurt-help/") for p in paths), paths)
+        self.assertFalse(any(p.startswith("docs/platform/") for p in paths), paths)
+
+    def test_mixed_scope_returns_both(self):
+        paths = self._paths(["app/engine", "app/games/hoard_hurt_help"])
+        self.assertTrue(any(p.startswith("docs/platform/") for p in paths), paths)
+        self.assertTrue(any(p.startswith("docs/games/hoard-hurt-help/") for p in paths), paths)
+
+    def test_empty_scope_defaults_to_platform(self):
+        paths = self._paths([])
+        self.assertTrue(any(p.startswith("docs/platform/") for p in paths), paths)
+
+
 if __name__ == "__main__":
     unittest.main()

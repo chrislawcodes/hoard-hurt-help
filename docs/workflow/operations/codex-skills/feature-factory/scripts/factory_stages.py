@@ -26,6 +26,7 @@ from factory_state import (  # noqa: E402
     default_artifact_path,
     load_workflow_state,
     load_checkpoint_manifest,
+    load_scope_manifest,
     parse_review_frontmatter,
 )
 from factory_io import read_text  # noqa: E402
@@ -427,10 +428,12 @@ def reuse_report_meaningful(slug: str) -> bool:
     return len(non_heading) >= 40
 
 
-# The whole-system living docs the architecture gate watches, by scope. Platform
-# features touch the platform docs; a game feature touches that game's docs.
-# (PR2 makes the gate pick the relevant subset by feature scope; for now the gate
-# is satisfied when ANY of them changed since init, or a no-change ack is recorded.)
+# Where the whole-system living docs live. Platform docs apply to every feature;
+# a game's docs apply when the feature touches that game's module.
+PLATFORM_DOCS_DIR = "docs/platform"
+GAMES_DOCS_DIR = "docs/games"
+# Fallback set used only when no docs can be resolved from scope (keeps the gate
+# functioning even on an unusual layout).
 SYSTEM_DOC_PATHS = (
     "docs/platform/AGENT_LUDUM_DESIGN.md",
     "docs/platform/AGENT_LUDUM_ARCHITECTURE.md",
@@ -439,11 +442,51 @@ SYSTEM_DOC_PATHS = (
 )
 
 
+def _game_slug_from_scope_path(path: str) -> str | None:
+    """Return the game module slug if a scope path is under app/games/<slug>/."""
+    parts = path.strip("/").split("/")
+    if len(parts) >= 3 and parts[0] == "app" and parts[1] == "games":
+        return parts[2]
+    return None
+
+
+def _docs_in(rel_dir: str) -> list[str]:
+    """Repo-relative .md paths in a docs folder (empty if the folder is absent)."""
+    folder = REPO_ROOT / rel_dir
+    if not folder.is_dir():
+        return []
+    return [str(md.relative_to(REPO_ROOT)) for md in sorted(folder.glob("*.md"))]
+
+
+def scoped_doc_paths(slug: str) -> list[str]:
+    """The design/architecture docs relevant to THIS feature's scope.
+
+    Read from the feature's scope.json: any path under ``app/games/<game>/`` pulls
+    in that game's docs (``docs/games/<game>/``, module underscores → hyphens);
+    any other in-scope path pulls in the platform docs (``docs/platform/``). With
+    no scope recorded, defaults to the platform docs. Falls back to the full
+    SYSTEM_DOC_PATHS set only if nothing resolves on disk.
+    """
+    paths = load_scope_manifest(slug).get("paths", []) or []
+    docs: list[str] = []
+    touches_platform = not paths  # empty scope → treat as platform
+    for p in paths:
+        game = _game_slug_from_scope_path(p)
+        if game:
+            docs.extend(_docs_in(f"{GAMES_DOCS_DIR}/{game.replace('_', '-')}"))
+        else:
+            touches_platform = True
+    if touches_platform:
+        docs.extend(_docs_in(PLATFORM_DOCS_DIR))
+    deduped = sorted(set(docs))
+    return deduped or list(SYSTEM_DOC_PATHS)
+
+
 def arch_docs_resolved(slug: str) -> bool:
     """Return True if the architecture-doc obligation is satisfied for this run.
 
-    Satisfied when any of the whole-system design/architecture docs
-    (SYSTEM_DOC_PATHS) was modified since init, or the orchestrator explicitly
+    Satisfied when any design/architecture doc **in this feature's scope**
+    (``scoped_doc_paths``) was modified since init, or the orchestrator explicitly
     acked "no architecture change needed" via the `arch-docs` command. Fails open
     (returns True) when no init SHA is recorded, so test fixtures and runs
     predating the gate are never blocked — mirrors status_md_changed_since_init.
@@ -455,7 +498,7 @@ def arch_docs_resolved(slug: str) -> bool:
     if not init_sha:
         return True  # can't verify — don't block
     result = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "diff", "--quiet", init_sha, "--", *SYSTEM_DOC_PATHS],
+        ["git", "-C", str(REPO_ROOT), "diff", "--quiet", init_sha, "--", *scoped_doc_paths(slug)],
         capture_output=True,
     )
     # 0: no diff (docs untouched and not acked → not resolved); non-zero: diff or

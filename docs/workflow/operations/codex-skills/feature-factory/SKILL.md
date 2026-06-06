@@ -90,10 +90,10 @@ Do not duplicate checkpoint manifest logic, review file validation, diff writing
 | Discovery | Ask clarifying questions one at a time, record assumptions, determine if spec is stable enough to proceed | Claude | Codex |
 | Write spec | Research real file paths in codebase, author `spec.md` with scope boundaries and acceptance criteria | Claude (research) · Codex (file paths) | Gemini (research) · Codex (authors) |
 | Spec checkpoint | Adversarial attack on spec, semantic review, reconcile findings into spec | Codex (1 adversarial review: `feasibility`) · Gemini (1 adversarial review: `requirements`) · Claude (reconciles) | Codex (1 adversarial review: `feasibility`) · Gemini (1 adversarial review: `requirements`) · Codex (reconciles, escalates blockers to human) |
-| Reuse audit (no-duplication) | **Sub-agent** scans the codebase (guided by the scoped architecture doc) for existing modules/functions that overlap what the feature needs. Writes `reuse-report.md` — each overlap → `reuse` / `extend` / `justified-new`. The plan MUST address every entry. See "Architecture awareness" below. | Claude (spawns a Task sub-agent) | Codex (`codex exec` read-only sub-session) |
+| Design · Reuse audit (no-duplication) | **Sub-agent** scans the codebase (guided by the scoped architecture doc) for existing modules/functions that overlap what the feature needs. Writes `reuse-report.md` — each overlap → `reuse` / `extend` / `justified-new`. The plan MUST address every entry. See "Architecture awareness" below. | Claude (spawns a Task sub-agent) | Codex (`codex exec` read-only sub-session) |
+| Design · Update the scoped design/architecture docs | **Sub-agent** edits the scoped architecture doc (modules/flows this feature adds or changes) and the scoped design doc (only if a game/design decision changes) to the **target state**, consistent with the reuse decisions — this is the design, authored before the build plan. Edits ship on the feature branch with the code. See "Architecture awareness" below. | Claude (spawns a sub-agent) | Codex (`codex exec` workspace-write sub-session) |
 | Write plan | Author `plan.md` with architecture decisions, wave breakdown, and risk callouts, incorporating the reuse-audit decisions. Each residual risk MUST have a `verification:` sentence naming a concrete pre-merge check (e.g., "run circumplexAnalysis against a production model ID", "inspect a failing fixture", "grep the migration output for N rows"). Unverified residual risks block plan approval — see "Residual risks must be verifiable" below. | Claude | Codex |
-| Update design & architecture docs (up front) | **Sub-agent** edits the scoped architecture doc (modules/flows this feature adds or changes) and the scoped design doc (only if a game/design decision changes) to the planned target state, consistent with the reuse decisions. Edits ship on the feature branch with the code. See "Architecture awareness" below. | Claude (spawns a sub-agent) | Codex (`codex exec` workspace-write sub-session) |
-| Plan checkpoint | Adversarial attack on the plan **plus the up-front the scoped design/architecture docs edits and `reuse-report.md`**, architecture review, reconcile findings into plan. Pass the docs and report into the review so Codex reviews them too: `--context docs/platform/AGENT_LUDUM_ARCHITECTURE.md --context docs/games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md --context docs/workflow/feature-runs/<slug>/reuse-report.md`. | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Claude (reconciles) | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Codex (reconciles, escalates blockers to human) |
+| Plan checkpoint | Adversarial attack on the plan **plus the scoped design/architecture doc edits and `reuse-report.md`**, architecture review, reconcile findings into plan. Pass the docs and report into the review so Codex reviews them too: `--context docs/platform/AGENT_LUDUM_ARCHITECTURE.md --context docs/games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md --context docs/workflow/feature-runs/<slug>/reuse-report.md`. | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Claude (reconciles) | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Codex (reconciles, escalates blockers to human) |
 | Write tasks | Author `tasks.md` with executable slices, checkpoint boundaries (`[CHECKPOINT]`), estimated diff size per slice, dependencies, and verification steps. No slice should exceed ~300 lines changed. | Claude | Codex |
 | Record parallel analysis | Look for safe parallel implementation opportunities in tasks.md. Annotate parallel tasks with `[P: file1, file2]`. Run `parallel --slug <slug> --note "..." [--found]`. If opportunities exist, add `[P:]` annotations first — the command validates they are conflict-free. | Claude | Codex |
 | Tasks checkpoint | Adversarial attack on tasks, execution-order review, reconcile findings into tasks | No default reviews | No default reviews |
@@ -121,9 +121,11 @@ Use `doctor` before or during a workflow when the local tooling or GitHub wiring
 
 Two goals run through every feature: **don't rebuild what already exists**, and **keep the scoped design/architecture docs an accurate, current view of the system**. The orchestrator delivers both with a **sub-agent** — when Claude orchestrates, spawn a Task sub-agent (the Agent tool); when Codex orchestrates, dispatch a `codex exec` sub-session. Read-only scans can run read-only; doc edits need workspace-write.
 
-These steps are part of the **plan** and **closeout** stages — not optional polish. the scoped architecture doc is the canonical map of subsystems and their modules; the reuse audit reads it, and the doc updates keep it true.
+The flow is **Spec → Design → Plan**: after the spec is checkpointed, the **Design stage** (reuse audit + updating the scoped design/architecture docs to the target state) happens *before* the build plan. The plan is then the route to build the design you settled. These are not optional polish — they are gated (see "Hard gates" below).
 
-### 1. Reuse audit (plan stage, before authoring the plan)
+**Scope-awareness.** The runner resolves *which* docs are in play from the feature's `scope.json` (`scoped_doc_paths`): work under `app/games/<game>/` maps to that game's docs in `docs/games/<game>/`; any other in-scope path maps to the platform docs in `docs/platform/`. So a platform feature designs against the Agent Ludum docs, a game feature against that game's docs, and a feature spanning both touches both. The reuse audit reads the scoped architecture doc, the doc update edits the scoped docs, and the `done` gate checks the scoped docs.
+
+### 1. Reuse audit (Design stage — first, before the plan)
 
 Spawn a code-aware sub-agent with this task:
 
@@ -131,7 +133,7 @@ Spawn a code-aware sub-agent with this task:
 
 The plan MUST address every row: reuse the named module, extend it, or carry the written justification for building new. The plan checkpoint reviews `reuse-report.md` (passed via `--context`), so an unaddressed real duplication is a finding Codex/Gemini will raise.
 
-### 2. Update design & architecture docs up front (plan stage, after the plan)
+### 2. Update the scoped design/architecture docs (Design stage — before the build plan)
 
 Spawn a sub-agent (workspace-write) with this task:
 
@@ -143,7 +145,7 @@ These edits live on the feature branch and ship with the code, so by merge time 
 
 Spawn a sub-agent with this task:
 
-> Compare what actually shipped (the merged diff for this feature) against `plan.md` and the up-front the scoped design/architecture docs edits. If implementation diverged mid-flight in any way that makes those docs wrong (different module boundaries, renamed/relocated code, a flow that changed), update the docs to match what shipped. If the docs are already accurate, state "docs already accurate — no further change."
+> Compare what actually shipped (the merged diff for this feature) against `plan.md` and the up-front scoped design/architecture doc edits. If implementation diverged mid-flight in any way that makes those docs wrong (different module boundaries, renamed/relocated code, a flow that changed), update the docs to match what shipped. If the docs are already accurate, state "docs already accurate — no further change."
 
 This is **required before the workflow is marked done** (alongside the post mortem and `STATUS.md`). It is cheap when nothing drifted and essential when it did — it's what keeps the architecture view trustworthy over time.
 
@@ -152,7 +154,7 @@ This is **required before the workflow is marked done** (alongside the post mort
 These are not just doctrine — the runner refuses to advance without them (both fail open on runs with no recorded init SHA, so only real initialized runs are gated):
 
 - **Plan checkpoint requires the reuse audit.** `checkpoint --stage plan` aborts with a prerequisite error unless `reuse-report.md` exists and has real content. Do the reuse audit before checkpointing the plan.
-- **`done` requires the architecture-doc decision.** `status` will keep returning `reconcile_arch_docs` (never `done`) until either the scoped design/architecture docs were modified since init, **or** you record an explicit no-change ack:
+- **`done` requires the architecture-doc decision.** `status` will keep returning `reconcile_arch_docs` (never `done`) until a design/architecture doc **in this feature's scope** was modified since init, **or** you record an explicit no-change ack:
 
   ```bash
   python3 .../run_factory.py arch-docs --slug <slug> --no-change-needed --reason "<why no doc change>"
