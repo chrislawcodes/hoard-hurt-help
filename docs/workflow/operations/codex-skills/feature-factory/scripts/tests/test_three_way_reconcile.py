@@ -143,6 +143,10 @@ class ThreeWayReconcileTests(unittest.TestCase):
         self.assertIn('resolution_status: "open"', review_content)
 
     def test_pre_check_plan_read_only(self) -> None:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            # Root bypasses file permission bits, so a 0o444 plan is still
+            # writable and the pre-check cannot trigger. CI runs as non-root.
+            self.skipTest("root ignores read-only permission bits")
         os.chmod(self.plan_path, 0o444)
         try:
             rc = self._reconcile("accepted", "x")

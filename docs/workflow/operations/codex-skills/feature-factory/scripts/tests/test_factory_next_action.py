@@ -127,5 +127,29 @@ class FactoryNextActionBannerRenameTests(unittest.TestCase):
         self.assertEqual(action, "run_closeout_checkpoint")
 
 
+class NextActionLabelCoverageTests(unittest.TestCase):
+    """Regression: NEXT_ACTION_LABELS must label the run_*_checkpoint actions.
+
+    factory_emit does ``NEXT_ACTION_LABELS.get(action, action)``, so a missing
+    key silently prints the raw action id (e.g. 'run_plan_checkpoint') instead
+    of a readable label. The labels dict had drifted to stale
+    'repair_*_checkpoint' keys while recommended_next_action returns 'run_*'.
+    """
+
+    CHECKPOINT_ACTIONS = (
+        "run_spec_checkpoint",
+        "run_plan_checkpoint",
+        "run_tasks_checkpoint",
+        "run_diff_checkpoint",
+        "run_closeout_checkpoint",
+    )
+
+    def test_checkpoint_actions_have_readable_labels(self) -> None:
+        labels = FACTORY_STAGES.NEXT_ACTION_LABELS
+        for action in self.CHECKPOINT_ACTIONS:
+            self.assertIn(action, labels, f"{action} missing from NEXT_ACTION_LABELS")
+            self.assertNotEqual(labels[action], action, f"{action} label is the raw key")
+
+
 if __name__ == "__main__":
     unittest.main()
