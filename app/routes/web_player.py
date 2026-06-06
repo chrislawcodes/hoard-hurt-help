@@ -72,23 +72,6 @@ async def guide(name: Annotated[str, Path()], request: Request, db: DbSession):
     )
 
 
-_RUNNER_PATH = FsPath("scripts/agentludum_bot.py")
-
-
-@router.get("/agentludum_bot.py", include_in_schema=False)
-async def runner_script() -> FileResponse:
-    """Serve the bot runner so the one-line `curl` in the setup message fetches it.
-
-    Single source of truth: this streams the repo's scripts/agentludum_bot.py, so
-    the downloaded runner always matches this server's version.
-    """
-    if not _RUNNER_PATH.is_file():
-        raise HTTPException(404)
-    return FileResponse(
-        _RUNNER_PATH, media_type="text/x-python", filename="agentludum_bot.py"
-    )
-
-
 # Chained-session agent runner. ONE script now drives every CLI provider — it
 # reads the bot's configured provider from the server and calls the matching CLI
 # (claude/codex/gemini). The old per-provider filenames are kept as aliases so an
