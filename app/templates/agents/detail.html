@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ agent.name }} — Agents{% endblock %}
+{% block content %}
+<a class="backlink" href="/me/agents">← Agents</a>
+<div class="page-head">
+    <h1>{{ agent.name }}</h1>
+    <p class="sub">
+        <span class="agent-health-live" hx-get="/me/agents/{{ agent.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
+            {% include "agents/_status.html" %}
+        </span>
+        {% if connection %}
+            · {{ connection.nickname or provider_label }}
+            {% if connection.runner_pid %} · PID {{ connection.runner_pid }}{% endif %}
+        {% endif %}
+    </p>
+</div>
+
+<form method="post" action="/me/agents/{{ agent.id }}/rename" class="form" style="display:flex; gap:0.5rem; align-items:center; max-width:420px; margin:0.5rem 0 1.25rem;">
+    <input type="text" name="name" value="{{ agent.name }}" maxlength="120" required aria-label="Agent name">
+    <button type="submit" class="secondary">Rename</button>
+</form>
+
+{% if health.needs_reconnect %}
+<div class="card">
+    <h3 style="margin-top:0;">Needs connection</h3>
+    <p class="hint" style="margin-top:0;">This agent is paused until you attach it to a matching connection.</p>
+    {% if candidate_connections %}
+        <div style="display:grid; gap:0.75rem;">
+            {% for candidate in candidate_connections %}
+            <form method="post" action="/me/connections/{{ candidate.id }}/reattach/{{ agent.id }}">
+                <button type="submit" class="btn btn-primary">Reattach to {{ candidate.nickname or candidate.provider.value }}</button>
+            </form>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="empty">No matching connections are available yet.</p>
+        <a class="btn btn-primary" href="/me/connections">Go to connections →</a>
+    {% endif %}
+</div>
+{% elif health.state.value == 'paused' %}
+<div class="card">
+    <h3 style="margin-top:0;">Paused</h3>
+    <p class="hint" style="margin-top:0;">Resume this agent when you want it to play again.</p>
+    <form method="post" action="/me/agents/{{ agent.id }}/resume">
+        <button type="submit">Resume</button>
+    </form>
+</div>
+{% endif %}
+
+{% if join_blocked %}
+<div class="card">
+    <h3 style="margin-top:0;">At capacity</h3>
+    <p class="hint" style="margin-top:0;">This connection is already running its maximum number of active matches.</p>
+    <p class="meta">{{ active_match_count }} / {{ connection.max_concurrent_games }} active matches</p>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3 style="margin-top:0;">Version</h3>
+    {% if version %}
+    <p class="meta">Current: v{{ version.version_no }} · {{ version.model }} · {{ version.created_at | localdt }}</p>
+    <form method="post" action="/me/agents/{{ agent.id }}/set-model" class="form" style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap; margin-top:0.75rem;">
+        <label>
+            Model
+            {% if provider_models %}
+            <select name="model" required>
+                {% for candidate in provider_models %}
+                <option value="{{ candidate }}" {% if candidate == version.model %}selected{% endif %}>{{ candidate }}</option>
+                {% endfor %}
+            </select>
+            {% else %}
+            <input type="text" name="model" value="{{ version.model }}" required>
+            {% endif %}
+        </label>
+        <button type="submit" class="secondary">Save model</button>
+    </form>
+    <form method="post" action="/me/agents/{{ agent.id }}/set-strategy" class="form" style="margin-top:0.9rem;">
+        <label>
+            Strategy
+            <textarea name="strategy_text" rows="10" maxlength="2000" required>{{ version.strategy_text }}</textarea>
+        </label>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save strategy</button>
+        </div>
+    </form>
+    {% else %}
+    <p class="empty">No version yet.</p>
+    {% endif %}
+</div>
+
+{% include "agents/_versions.html" %}
+
+<div class="card">
+    <h3 style="margin-top:0;">Controls</h3>
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+        {% if agent.status.value == 'paused' and not health.needs_reconnect and connection %}
+            <form method="post" action="/me/agents/{{ agent.id }}/resume"><button type="submit">Resume</button></form>
+        {% else %}
+            <form method="post" action="/me/agents/{{ agent.id }}/pause"><button type="submit">Pause</button></form>
+        {% endif %}
+        <form method="post" action="/me/agents/{{ agent.id }}/delete" onsubmit="return confirm('Delete this agent? History is kept if it has played matches. Continue?');">
+            <button type="submit">Delete</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

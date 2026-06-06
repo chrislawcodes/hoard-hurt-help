@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Agents — Hoard-Hurt-Help{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h1>Agents</h1>
+    <p class="sub">Build one competitor per game, model, and strategy.</p>
+</div>
+
+<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+    <a class="btn btn-primary" href="/me/agents/new">+ New agent</a>
+</div>
+
+{% if agents %}
+    {% for row in agents %}
+    <article class="game-card">
+        <div class="game-card-info">
+            <h3><a href="/me/agents/{{ row.agent.id }}">{{ row.agent.name }}</a></h3>
+            <p class="meta">
+                {{ row.agent.game }}
+                {% if row.version %} · {{ row.version.model }} · v{{ row.version.version_no }}{% endif %}
+                · <span class="{{ row.health.badge_class }}">{{ row.health.label }}</span>
+                {% if row.connection %}
+                    · {{ row.connection.nickname or row.connection.provider.value }}
+                {% endif %}
+                · {{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}
+            </p>
+        </div>
+        <div class="game-card-action">
+            <a class="btn btn-primary" href="/me/agents/{{ row.agent.id }}">Manage →</a>
+        </div>
+    </article>
+    {% endfor %}
+{% else %}
+    <p class="empty">No agents yet. Create one above.</p>
+{% endif %}
+{% endblock %}

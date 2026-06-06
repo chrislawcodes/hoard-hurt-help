@@ -1,0 +1,480 @@
+"""Agent list, creation, and detail routes."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import func, select
+from starlette.responses import Response
+
+from app.config import PROVIDER_MODELS
+from app.deps import DbSession, require_user_with_handle
+from app.engine.connection_health import ConnectionHealth, compute_connection_health
+from app.engine.pending_connection_gc import gc_pending_connections
+from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
+from app.games import get as get_game_module, known_types
+from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent_version import AgentVersion
+from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.match import GameState, Match, MatchKind
+from app.models.player import Player
+from app.models.user import User
+from app.routes.connections_setup import (
+    _issue_connection_key,
+    _load_resumeable_pending_connection,
+    _provider_label,
+    _runner_setup_message,
+)
+from app.templating import templates
+
+router = APIRouter()
+
+_DEFAULT_GAME = known_types()[0] if known_types() else "hoard-hurt-help"
+
+
+@dataclass(frozen=True)
+class AgentRow:
+    agent: Agent
+    version: AgentVersion | None
+    connection: Connection | None
+    health: object
+    match_count: int
+
+
+@dataclass(frozen=True)
+class VersionRow:
+    version: AgentVersion
+    rank: int
+    match_count: int
+    last_played_at: datetime | None
+    frozen: bool
+
+
+async def _load_owned_connection(
+    db: DbSession, user: User, connection_id: int
+) -> Connection:
+    connection = (
+        await db.execute(
+            select(Connection).where(
+                Connection.id == connection_id,
+                Connection.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if connection is None:
+        raise HTTPException(status_code=404, detail="Connection not found.")
+    return connection
+
+
+async def _load_user_connections(db: DbSession, user_id: int) -> list[Connection]:
+    rows = (
+        await db.execute(
+            select(Connection).where(Connection.user_id == user_id).order_by(
+                Connection.created_at.desc(), Connection.id.desc()
+            )
+        )
+    )
+    return list(rows.scalars().all())
+
+
+async def _load_user_agents(db: DbSession, user_id: int) -> list[tuple[Agent, AgentVersion | None, Connection | None]]:
+    rows = (
+        await db.execute(
+            select(Agent, AgentVersion, Connection)
+            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+            .join(Connection, Connection.id == Agent.connection_id, isouter=True)
+            .where(
+                Agent.user_id == user_id,
+                Agent.kind == AgentKind.AI,
+                Agent.archived_at.is_(None),
+            )
+            .order_by(Agent.created_at.desc(), Agent.id.desc())
+        )
+    ).all()
+    return [(agent, version, connection) for agent, version, connection in rows]
+
+
+async def _count_agent_matches(db: DbSession, agent_id: int) -> int:
+    count = await db.scalar(
+        select(func.count()).select_from(Player).where(Player.agent_id == agent_id)
+    )
+    return int(count or 0)
+
+
+async def _count_active_matches_for_connection(db: DbSession, connection_id: int) -> int:
+    count = await db.scalar(
+        select(func.count(func.distinct(Match.id)))
+        .select_from(Agent)
+        .join(Player, Player.agent_id == Agent.id)
+        .join(Match, Match.id == Player.match_id)
+        .where(
+            Agent.connection_id == connection_id,
+            Agent.kind == AgentKind.AI,
+            Agent.status == AgentStatus.ACTIVE,
+            Agent.archived_at.is_(None),
+            Player.left_at.is_(None),
+            Match.state == GameState.ACTIVE,
+        )
+    )
+    return int(count or 0)
+
+
+async def _version_rows(db: DbSession, agent_id: int) -> list[VersionRow]:
+    rows = (
+        await db.execute(
+            select(
+                AgentVersion,
+                func.count(Player.id).label("match_count"),
+                func.max(Match.completed_at).label("last_played_at"),
+            )
+            .join(Player, Player.agent_version_id == AgentVersion.id, isouter=True)
+            .join(Match, Match.id == Player.match_id, isouter=True)
+            .where(AgentVersion.agent_id == agent_id)
+            .group_by(AgentVersion.id)
+            .order_by(AgentVersion.version_no.desc(), AgentVersion.id.desc())
+        )
+    ).all()
+    ranked = sorted(
+        [
+            (
+                version,
+                int(match_count or 0),
+                last_played_at,
+            )
+            for version, match_count, last_played_at in rows
+        ],
+        key=lambda item: (-item[1], -item[0].version_no, item[0].created_at),
+    )
+    out: list[VersionRow] = []
+    for index, (version, match_count, last_played_at) in enumerate(ranked, start=1):
+        out.append(
+            VersionRow(
+                version=version,
+                rank=index,
+                match_count=match_count,
+                last_played_at=last_played_at,
+                frozen=version.frozen_at is not None,
+            )
+        )
+    return sorted(out, key=lambda row: row.version.version_no)
+
+
+async def _build_agent_detail_context(
+    db: DbSession,
+    request: Request,
+    user: User,
+    agent: Agent,
+) -> dict[str, object]:
+    connection: Connection | None = None
+    if agent.connection_id is not None:
+        connection = (
+            await db.execute(
+                select(Connection).where(
+                    Connection.id == agent.connection_id,
+                    Connection.user_id == user.id,
+                )
+            )
+        ).scalar_one_or_none()
+    health: object = None
+    if connection is not None:
+        health = await compute_connection_health(db, connection)
+    elif agent.status == AgentStatus.PAUSED:
+        health = {
+            "state": ConnectionHealth.PAUSED,
+            "label": "Needs connection",
+            "badge_class": "badge-alert",
+            "pulse": False,
+            "needs_reconnect": True,
+            "never_connected": True,
+            "last_connected_at": None,
+            "last_connected_human": None,
+            "match_id": None,
+            "game_name": None,
+            "agent_count": 0,
+        }
+    else:
+        health = {
+            "state": ConnectionHealth.DISCONNECTED,
+            "label": "Disconnected",
+            "badge_class": "badge-alert",
+            "pulse": False,
+            "needs_reconnect": True,
+            "never_connected": True,
+            "last_connected_at": None,
+            "last_connected_human": None,
+            "match_id": None,
+            "game_name": None,
+            "agent_count": 0,
+        }
+    version = (
+        await db.execute(
+            select(AgentVersion).where(AgentVersion.id == agent.current_version_id)
+        )
+    ).scalar_one_or_none()
+    versions = await _version_rows(db, agent.id)
+    allowed_models = PROVIDER_MODELS.get(connection.provider.value, []) if connection else []
+    candidate_connections: list[Connection] = []
+    if agent.connection_id is not None and connection is not None:
+        candidate_connections = [
+            item
+            for item in await _load_user_connections(db, user.id)
+            if item.provider == connection.provider and item.status != ConnectionStatus.PENDING
+        ]
+    elif version is not None:
+        candidate_connections = [
+            item
+            for item in await _load_user_connections(db, user.id)
+            if version.model in PROVIDER_MODELS.get(item.provider.value, [])
+        ]
+    active_matches = (
+        await db.execute(
+            select(Match.id)
+            .join(Player, Player.match_id == Match.id)
+            .where(
+                Player.agent_id == agent.id,
+                Player.left_at.is_(None),
+                Match.state == GameState.ACTIVE,
+            )
+            .limit(1)
+        )
+    ).first() is not None
+    active_match_count = (
+        await _count_active_matches_for_connection(db, connection.id)
+        if connection is not None
+        else 0
+    )
+    return {
+        "user": user,
+        "agent": agent,
+        "connection": connection,
+        "version": version,
+        "versions": versions,
+        "health": health,
+        "provider_label": _provider_label(connection.provider) if connection else None,
+        "provider_models": allowed_models,
+        "candidate_connections": candidate_connections,
+        "active_matches": active_matches,
+        "active_match_count": active_match_count,
+        "join_blocked": connection is not None and active_match_count >= connection.max_concurrent_games,
+        "match_count": await _count_agent_matches(db, agent.id),
+    }
+
+
+@router.get("", response_class=HTMLResponse)
+async def list_agents(
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> Response:
+    agents = await _load_user_agents(db, user.id)
+    rows: list[AgentRow] = []
+    for agent, version, connection in agents:
+        health = (
+            await compute_connection_health(db, connection)
+            if connection is not None
+            else {
+                "state": ConnectionHealth.PAUSED,
+                "label": "Needs connection",
+                "badge_class": "badge-alert",
+                "pulse": False,
+                "needs_reconnect": True,
+                "never_connected": True,
+                "last_connected_at": None,
+                "last_connected_human": None,
+                "match_id": None,
+                "game_name": None,
+                "agent_count": 0,
+            }
+        )
+        rows.append(
+            AgentRow(
+                agent=agent,
+                version=version,
+                connection=connection,
+                health=health,
+                match_count=await _count_agent_matches(db, agent.id),
+            )
+        )
+    return templates.TemplateResponse(
+        request,
+        "agents/list.html",
+        {
+            "user": user,
+            "agents": rows,
+        },
+    )
+
+
+@router.get("/new", response_class=HTMLResponse)
+async def new_agent_form(
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    connection_id: int | None = None,
+) -> Response:
+    await gc_pending_connections(db)
+    connections = await _load_user_connections(db, user.id)
+    selected_connection = None
+    fresh_key = None
+    if connection_id is not None:
+        selected_connection = await _load_owned_connection(db, user, connection_id)
+        fresh_key = request.session.pop(
+            f"fresh_connection_key_{selected_connection.id}", None
+        )
+    elif connections:
+        selected_connection = next(
+            (connection for connection in connections if connection.status == ConnectionStatus.ACTIVE),
+            connections[0],
+        )
+    if selected_connection is not None:
+        fresh_key = fresh_key or request.session.pop(
+            f"fresh_connection_key_{selected_connection.id}", None
+        )
+    context: dict[str, object] = {
+        "user": user,
+        "connections": connections,
+        "selected_connection": selected_connection,
+        "fresh_key": fresh_key,
+        "runner_message": (
+            _runner_setup_message(selected_connection, fresh_key)
+            if selected_connection is not None and fresh_key
+            else None
+        ),
+        "provider_models": (
+            PROVIDER_MODELS.get(selected_connection.provider.value, [])
+            if selected_connection is not None
+            else []
+        ),
+        "provider_label": (
+            _provider_label(selected_connection.provider)
+            if selected_connection is not None
+            else None
+        ),
+        "default_game": _DEFAULT_GAME,
+        "default_strategy": get_game_module(_DEFAULT_GAME).default_strategy(),
+    }
+    return templates.TemplateResponse(request, "agents/new.html", context)
+
+
+@router.post("/new")
+async def create_agent_or_connection(
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    connection_id: Annotated[int | None, Form()] = None,
+    provider: Annotated[str | None, Form()] = None,
+    nickname: Annotated[str | None, Form()] = None,
+    name: Annotated[str | None, Form()] = None,
+    model: Annotated[str | None, Form()] = None,
+    strategy_text: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    if connection_id is not None and name is None:
+        return RedirectResponse(
+            url=f"/me/agents/new?connection_id={connection_id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    if name is not None and connection_id is not None:
+        connection = await _load_owned_connection(db, user, connection_id)
+        if connection.status != ConnectionStatus.ACTIVE:
+            raise HTTPException(status_code=409, detail="Connection must be active first.")
+        clean_name = name.strip()
+        if not clean_name:
+            raise HTTPException(status_code=400, detail="Agent name is required.")
+        existing = (
+            await db.execute(
+                select(Agent).where(
+                    Agent.user_id == user.id,
+                    Agent.name == clean_name,
+                    Agent.archived_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="You already have an agent with that name.")
+        clean_model = (model or "").strip()
+        allowed = PROVIDER_MODELS.get(connection.provider.value, [])
+        if allowed and clean_model not in allowed:
+            raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
+        if not clean_model:
+            raise HTTPException(status_code=400, detail="Model is required.")
+        version_text = (strategy_text or "").strip() or get_game_module(_DEFAULT_GAME).default_strategy()
+        agent = Agent(
+            user_id=user.id,
+            connection_id=connection.id,
+            kind=AgentKind.AI,
+            name=clean_name,
+            game=_DEFAULT_GAME,
+            status=AgentStatus.ACTIVE,
+        )
+        db.add(agent)
+        await db.flush()
+        version = AgentVersion(
+            agent_id=agent.id,
+            version_no=1,
+            model=clean_model,
+            strategy_text=version_text,
+        )
+        db.add(version)
+        await db.flush()
+        agent.current_version_id = version.id
+        await db.commit()
+        return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+    if connection_id is None:
+        if provider is None:
+            raise HTTPException(status_code=400, detail="Pick a provider or choose a connection.")
+        try:
+            provider_choice = ConnectionProvider(provider.strip().lower())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Unknown provider.") from exc
+        key = generate_connection_key()
+        pending_connection = await _load_resumeable_pending_connection(db, user.id, provider_choice)
+        if pending_connection is None:
+            pending_connection = Connection(
+                user_id=user.id,
+                nickname=(nickname.strip() if nickname and nickname.strip() else None),
+                provider=provider_choice,
+                key_lookup=bot_key_lookup(key),
+                key_hint=bot_key_hint(key),
+                status=ConnectionStatus.PENDING,
+            )
+            db.add(pending_connection)
+            await db.flush()
+        elif nickname and nickname.strip():
+            pending_connection.nickname = nickname.strip()
+            key = _issue_connection_key(pending_connection, keep_old_overlap=True)
+        await db.commit()
+        request.session[f"fresh_connection_key_{pending_connection.id}"] = key
+        return RedirectResponse(
+            url=f"/me/agents/new?connection_id={pending_connection.id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    raise HTTPException(status_code=400, detail="Agent name is required.")
+
+
+@router.get("/{agent_id}", response_class=HTMLResponse)
+async def agent_detail(
+    agent_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> Response:
+    agent = (
+        await db.execute(
+            select(Agent).where(
+                Agent.id == agent_id,
+                Agent.user_id == user.id,
+                Agent.kind == AgentKind.AI,
+                Agent.archived_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found.")
+    context = await _build_agent_detail_context(db, request, user, agent)
+    return templates.TemplateResponse(request, "agents/detail.html", context)

@@ -24,6 +24,9 @@ from app.request_logging import install_request_logging
 from app.routes import (
     agent_api,
     agent_next_turn,
+    agents_lifecycle,
+    agents_setup,
+    agents_status,
     connections_credentials,
     connections_lifecycle,
     connections_setup,
@@ -125,6 +128,9 @@ def create_app() -> FastAPI:
     app.include_router(agent_api.router, prefix="/api/matches/{match_id}")
     app.include_router(agent_api.router, prefix="/api/games/{match_id}")
     app.include_router(agent_next_turn.router)
+    app.include_router(agents_setup.router, prefix="/me/agents")
+    app.include_router(agents_status.router, prefix="/me/agents")
+    app.include_router(agents_lifecycle.router, prefix="/me/agents")
     app.include_router(connections_setup.router, prefix="/me/connections")
     app.include_router(connections_credentials.router, prefix="/me/connections")
     app.include_router(connections_lifecycle.router, prefix="/me/connections")
