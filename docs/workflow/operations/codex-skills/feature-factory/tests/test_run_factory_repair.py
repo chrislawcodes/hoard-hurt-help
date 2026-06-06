@@ -189,7 +189,7 @@ class RepairDecisionTests(unittest.TestCase):
             stages,
             True,
         )
-        self.assertEqual(action, "repair_plan_checkpoint")
+        self.assertEqual(action, "run_plan_checkpoint")
 
     def test_blank_spec_still_looks_like_authoring_not_repair(self) -> None:
         stages = {
@@ -432,7 +432,7 @@ class RepairDecisionTests(unittest.TestCase):
                 stages,
                 True,
             )
-        self.assertEqual(action, "repair_diff_checkpoint")
+        self.assertEqual(action, "run_diff_checkpoint")
 
     def test_preferred_diff_base_ref_uses_last_reviewed_head_for_resumed_slice(self) -> None:
         with patch.object(
@@ -1207,7 +1207,7 @@ class RepairDecisionTests(unittest.TestCase):
     def test_command_discover_non_goal_appends_deduplicated(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "state.json"
-            args = self._discover_args(non_goal="Avoid broad scope")
+            args = self._discover_args(non_goal=["Avoid broad scope"])
             with patch.object(MODULE, "ensure_sync"), patch.object(
                 FACTORY_STATE, "factory_state_path", return_value=state_path
             ):
@@ -1222,7 +1222,7 @@ class RepairDecisionTests(unittest.TestCase):
     def test_command_discover_acceptance_criteria_appends_deduplicated(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "state.json"
-            args = self._discover_args(acceptance_criteria="Clear owner for each decision")
+            args = self._discover_args(acceptance_criteria=["Clear owner for each decision"])
             with patch.object(MODULE, "ensure_sync"), patch.object(
                 FACTORY_STATE, "factory_state_path", return_value=state_path
             ):
@@ -1320,43 +1320,11 @@ class RepairDecisionTests(unittest.TestCase):
         self.assertNotIn("stale inventory entry", composed)
         self.assertIn("refreshed inventory entry", composed)
 
-    def test_command_closeout_uses_active_review_chain_only(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            workflow_root = temp_root / "workflow"
-            workflow_root.mkdir(parents=True, exist_ok=True)
-            for stage in ("spec", "plan", "tasks", "diff"):
-                (workflow_root / f"{stage}.checkpoint.json").write_text("{}", encoding="utf-8")
-            manifest_path = workflow_root / "closeout.checkpoint.json"
-            review_path = workflow_root / "reviews" / "diff.gemini.review.md"
-            review_path.parent.mkdir(parents=True, exist_ok=True)
-            review_path.write_text("---\nresolution_status: \"deferred\"\nresolution_note: \"deferred\"\n---\n", encoding="utf-8")
-
-            def checkpoint_manifest_path(_slug: str, stage: str) -> Path:
-                return workflow_root / f"{stage}.checkpoint.json"
-
-            args = SimpleNamespace(slug="feature-workflow-discovery-shaping")
-            with patch.object(CMD_DELIVER_MODULE, "ensure_sync"), patch.object(
-                CMD_DELIVER_MODULE, "workflow_dir", return_value=workflow_root
-            ), patch.object(
-                CMD_DELIVER_MODULE, "checkpoint_manifest_path", side_effect=checkpoint_manifest_path
-            ), patch.object(
-                CMD_DELIVER_MODULE, "load_workflow_state", return_value={"delivery": {}, "dirty_overrides": {}, "checkpoint_fallback": {}}
-            ), patch.object(
-                CMD_DELIVER_MODULE, "gather_all_review_paths", return_value=[review_path]
-            ) as gather_mock, patch.object(
-                CMD_DELIVER_MODULE,
-                "refresh_delivery_snapshot",
-                return_value={"pr_number": 1, "pr_url": "https://example.com/pr/1", "checks_summary": "pass"},
-            ), patch.object(
-                FACTORY_GIT, "run", return_value=None
-            ), patch.object(
-                CMD_CHECKPOINT_MODULE, "command_checkpoint", return_value=0
-            ):
-                args.fallback = False
-                MODULE.command_closeout(args)
-
-        gather_mock.assert_called_once_with("feature-workflow-discovery-shaping", include_closeout=False)
+    # NOTE: the former test_command_closeout_uses_active_review_chain_only was
+    # removed — it asserted closeout called the deliver module's
+    # gather_all_review_paths, but closeout is now a standalone command
+    # (command_standalone_closeout) that scans reviews via _scan_reviews. Current
+    # closeout behavior is covered by tests/test_factory_cmd_closeout.py.
 
     def test_record_checkpoint_fallback_persists_state(self) -> None:
         captured: dict[str, object] = {}
@@ -1809,8 +1777,10 @@ class DefaultCodexModelTests(unittest.TestCase):
         self.assertEqual(MODULE.DEFAULT_CODEX_MODEL, "gpt-5.4-mini")
 
     def test_required_reviews_codex_entry_uses_constant(self) -> None:
+        # Bundle 2: diff/tasks/closeout have no default codex review; plan still
+        # carries a Codex lens, so test the model constant there.
         reviews = MODULE.required_reviews(
-            "diff",
+            "plan",
             sensitive=False,
             large_structural=False,
             performance_sensitive=False,
@@ -1825,7 +1795,8 @@ class DefaultCodexModelTests(unittest.TestCase):
                 f"codex entry model should be DEFAULT_CODEX_MODEL, got {entry.get('model')!r}",
             )
 
-    def test_required_reviews_tasks_small_task_set_skips_gemini(self) -> None:
+    def test_required_reviews_tasks_small_task_set_has_no_default_reviews(self) -> None:
+        # Bundle 2: the tasks stage has no default reviews regardless of size.
         reviews = MODULE.required_reviews(
             "tasks",
             sensitive=False,
@@ -1834,13 +1805,10 @@ class DefaultCodexModelTests(unittest.TestCase):
             extra_gemini=[],
             small_task_set=True,
         )
-        gemini_entries = [r for r in reviews if r.get("reviewer") == "gemini"]
-        codex_entries = [r for r in reviews if r.get("reviewer") == "codex"]
-        self.assertEqual(gemini_entries, [], "small task set should skip all Gemini reviews")
-        self.assertEqual(len(codex_entries), 1, "small task set should keep one Codex review")
-        self.assertEqual(codex_entries[0].get("lens"), "execution-adversarial")
+        self.assertEqual(reviews, [])
 
-    def test_required_reviews_tasks_large_task_set_includes_gemini(self) -> None:
+    def test_required_reviews_tasks_large_task_set_has_no_default_reviews(self) -> None:
+        # Bundle 2: tasks has no default Codex or Gemini review.
         reviews = MODULE.required_reviews(
             "tasks",
             sensitive=False,
@@ -1849,10 +1817,7 @@ class DefaultCodexModelTests(unittest.TestCase):
             extra_gemini=[],
             small_task_set=False,
         )
-        gemini_entries = [r for r in reviews if r.get("reviewer") == "gemini"]
-        codex_entries = [r for r in reviews if r.get("reviewer") == "codex"]
-        self.assertEqual(len(gemini_entries), 1, "full task set should include one Gemini review")
-        self.assertEqual(len(codex_entries), 2, "full task set should include two Codex reviews")
+        self.assertEqual(reviews, [])
 
     def test_required_reviews_tasks_small_task_set_sensitive_still_skips_gemini(self) -> None:
         # sensitive flag adds risk-adversarial as an extra Gemini candidate, but
@@ -1868,7 +1833,8 @@ class DefaultCodexModelTests(unittest.TestCase):
         gemini_entries = [r for r in reviews if r.get("reviewer") == "gemini"]
         self.assertEqual(gemini_entries, [], "small_task_set should skip Gemini even when sensitive=True")
 
-    def test_required_reviews_closeout_small_task_set_skips_gemini(self) -> None:
+    def test_required_reviews_closeout_small_task_set_has_no_default_reviews(self) -> None:
+        # Bundle 2: the closeout stage has no default reviews regardless of size.
         reviews = MODULE.required_reviews(
             "closeout",
             sensitive=False,
@@ -1877,13 +1843,10 @@ class DefaultCodexModelTests(unittest.TestCase):
             extra_gemini=[],
             small_task_set=True,
         )
-        gemini_entries = [r for r in reviews if r.get("reviewer") == "gemini"]
-        codex_entries = [r for r in reviews if r.get("reviewer") == "codex"]
-        self.assertEqual(gemini_entries, [], "small task set should skip all Gemini closeout reviews")
-        self.assertEqual(len(codex_entries), 1)
-        self.assertEqual(codex_entries[0].get("lens"), "fidelity-adversarial")
+        self.assertEqual(reviews, [])
 
-    def test_required_reviews_closeout_large_task_set_includes_gemini(self) -> None:
+    def test_required_reviews_closeout_large_task_set_has_no_default_reviews(self) -> None:
+        # Bundle 2: closeout has no default Codex or Gemini review.
         reviews = MODULE.required_reviews(
             "closeout",
             sensitive=False,
@@ -1892,10 +1855,7 @@ class DefaultCodexModelTests(unittest.TestCase):
             extra_gemini=[],
             small_task_set=False,
         )
-        gemini_entries = [r for r in reviews if r.get("reviewer") == "gemini"]
-        codex_entries = [r for r in reviews if r.get("reviewer") == "codex"]
-        self.assertEqual(len(gemini_entries), 1, "full closeout should include one Gemini review")
-        self.assertEqual(len(codex_entries), 2, "full closeout should include two Codex reviews")
+        self.assertEqual(reviews, [])
 
 
 class _CapturedBaseRef(Exception):
