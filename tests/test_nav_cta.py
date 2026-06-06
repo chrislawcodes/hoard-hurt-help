@@ -118,10 +118,22 @@ async def test_cta_sim_only_is_connect(reset_db):
 
 @pytest.mark.asyncio
 async def test_nav_renders_get_started_when_signed_out(client):
+    # Interior page: the pill is the single entry — no separate "Sign in" beside it.
     r = await client.get("/games")
     assert r.status_code == 200
     assert 'class="al-nav-cta"' in r.text
     assert "Get started" in r.text
+    assert "al-nav-auth" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_home_drops_pill_keeps_signin_when_signed_out(client):
+    # Marketing home: the hero is the CTA, so the nav pill is dropped; the bar
+    # offers the quiet "Sign in" instead — exactly one entry, no double button.
+    r = await client.get("/")
+    assert r.status_code == 200
+    assert "al-nav-cta" not in r.text
+    assert "al-nav-auth" in r.text  # the quiet "Sign in"
 
 
 @pytest.mark.asyncio

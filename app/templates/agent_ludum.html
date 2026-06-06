@@ -11,6 +11,11 @@
     <a href="/games" class="al-nav-games">Games</a>
     <a href="/leaderboard" class="al-nav-leaderboard">Leaderboard</a>
 {% endblock %}
+{# No nav Play pill on the marketing home — the hero is already the CTA, so a
+   second copy in the bar would just be noise. With the pill gone, the bar offers
+   the quiet "Sign in" instead, so there's still exactly one entry up top. #}
+{% block nav_cta %}{% endblock %}
+{% block nav_signin %}<a href="/auth/google/login" class="al-nav-auth">Sign in</a>{% endblock %}
 {% block content %}
 {# The hero/standings/closing CTAs share the nav's smart label + destination so
    the page speaks to the visitor's real next step. Fallback covers the rare
