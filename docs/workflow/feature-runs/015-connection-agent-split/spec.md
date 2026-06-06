@@ -1,3 +1,22 @@
+# Feature 015 — Connection / Agent Split (Feature Factory pick-up run)
+
+**This FF run covers the REMAINING work (slices 3–5).** Slices 0–2 are already
+implemented, adversarially reviewed, and committed on this branch:
+- Slice 0 — models + schema (Bot → Connection + Agent + AgentVersion; migration 0023).
+- Slice 1 — connection auth (X-Connection-Key) + (agent_id, match_id) turn resolution + agent_turn_token.
+- Slice 2 — sims → kind=bot agents; leaderboard ai/bot.
+
+Remaining (this run): Slice 3 management UI (/me/connections + /me/agents,
+/me/agents/new, versioning, connection_health, max_concurrent, detach/reattach,
+pending-connection, templates split, migrate web_* routes); Slice 4 runner →
+agentludum_connector.py + MCP X-Connection-Key + drop MCP-direct path; Slice 5
+rename sweep + full preflight green.
+
+The full reviewed design (spec/plan/data-model/contracts/wireframes/review-log)
+lives in `specs/015-connection-agent-split/`. The sections below are that spec.
+
+---
+
 # Feature 015 — Connection / Agent Split (and "Sim" → "Bot" rename)
 
 **Status:** Draft

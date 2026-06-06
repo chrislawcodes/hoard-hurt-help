@@ -1,0 +1,171 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [],
+    "summary": "Pick-up run for the REMAINING work of the connection/agent split (feature 015). Slices 0-2 (model split Bot->Connection+Agent+AgentVersion, connection auth + (agent_id,match_id) turn resolution + agent_turn_token, sims->kind=bot agents + leaderboard) are ALREADY implemented, reviewed, and committed on this branch. This run covers slices 3-5: (3) restructure bots_* routes into /me/connections + /me/agents (connections_setup/credentials/lifecycle, agents_setup/lifecycle/status), a dedicated /me/agents/new create page, agent versioning (create/edit, freeze-on-play), connection_health, max_concurrent enforcement at join, detach-on-connection-delete + reattach, pending-connection flow, templates split connections/+agents/, and migrate web_player/web_viewer/web_support/admin_web/nav_context/auth; (4) rename runner scripts/agentludum_agent.py -> agentludum_connector.py + mcp_server X-Connection-Key naming + drop the MCP-direct connect path; (5) rename sweep (no Bot class, no /me/bots, never 'bot' for a user's player) + full preflight green (ruff + mypy app/ mcp_server/ + pytest -q). Full reviewed design in specs/015-connection-agent-split/.",
+    "updated_at": 1780755824,
+    "answers": {},
+    "non_goals": [
+      "Slices 0-2 (model+schema, connection auth/turn-resolution, bots-as-agents) \u2014 already implemented and committed; do not redo.",
+      "Any multi-game / game #2 work beyond not hard-coding hoard-hurt-help."
+    ],
+    "acceptance_criteria": [
+      "App imports cleanly; full preflight green (ruff + mypy app/ mcp_server/ + pytest -q), no suppressions.",
+      "/me/connections and /me/agents exist as separate pages; /me/agents/new is a dedicated create page; no /me/bots route and no Bot model class remain.",
+      "Deleting a connection detaches (not deletes) its agents; an agent's model/strategy edit forks a new AgentVersion; max_concurrent_games enforced at join.",
+      "Runner is agentludum_connector.py using sk_conn_ + X-Connection-Key; MCP-direct connect path removed; no user-facing copy calls a user's AI player a 'bot'."
+    ],
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "7086e307a8848a871e03364ed5793c048ca12b7e",
+  "token_usage": [
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 32306,
+      "prompt_cap": 250000,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-06-06T14:26:13.920178Z",
+      "started_at": "2026-06-06T14:24:13.913906Z",
+      "ended_at": "2026-06-06T14:26:13.920178Z",
+      "duration_seconds": 120.005869,
+      "agent_id": null,
+      "artifact_sha_at_time": "27679c2f59f5b7de23c4396eb546838fe2b9bbbbd628138d6f0b7db2a38cd360",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 32191,
+      "prompt_cap": 250000,
+      "input_tokens": 20026,
+      "output_tokens": 687,
+      "cost_usd_estimate": 0.006037,
+      "timestamp": "2026-06-06T14:26:24.639398Z",
+      "started_at": "2026-06-06T14:26:14.056648Z",
+      "ended_at": "2026-06-06T14:26:24.639398Z",
+      "duration_seconds": 10.582617,
+      "agent_id": null,
+      "artifact_sha_at_time": "27679c2f59f5b7de23c4396eb546838fe2b9bbbbd628138d6f0b7db2a38cd360"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 32855,
+      "prompt_cap": 250000,
+      "input_tokens": 21796,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.021796,
+      "timestamp": "2026-06-06T14:30:31.850144Z",
+      "started_at": "2026-06-06T14:29:14.194912Z",
+      "ended_at": "2026-06-06T14:30:31.850144Z",
+      "duration_seconds": 77.654876,
+      "agent_id": null,
+      "artifact_sha_at_time": "f21ad7d4176aed3f4e70525985f0dde16dd7604c8f212fc7942db82ed5e4c597"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 32740,
+      "prompt_cap": 250000,
+      "input_tokens": 20888,
+      "output_tokens": 926,
+      "cost_usd_estimate": 0.006611,
+      "timestamp": "2026-06-06T14:30:43.319820Z",
+      "started_at": "2026-06-06T14:30:31.993761Z",
+      "ended_at": "2026-06-06T14:30:43.319820Z",
+      "duration_seconds": 11.325918,
+      "agent_id": null,
+      "artifact_sha_at_time": "f21ad7d4176aed3f4e70525985f0dde16dd7604c8f212fc7942db82ed5e4c597"
+    }
+  ],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-06T14:26:24Z",
+      "wall_seconds": 130.995,
+      "input_bytes_read": 52979,
+      "output_bytes_written": 14775,
+      "files_read": 7,
+      "files_written": 5,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-06T14:30:43Z",
+      "wall_seconds": 89.727,
+      "input_bytes_read": 137719,
+      "output_bytes_written": 22209,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "27679c2f59f5b7de23c4396eb546838fe2b9bbbbd628138d6f0b7db2a38cd360",
+        "f21ad7d4176aed3f4e70525985f0dde16dd7604c8f212fc7942db82ed5e4c597"
+      ],
+      "initial_sha": "27679c2f59f5b7de23c4396eb546838fe2b9bbbbd628138d6f0b7db2a38cd360"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 1,
+  "last_action_result": {
+    "next": "author_plan",
+    "reason": "spec checkpoint completed",
+    "blockers": []
+  }
+}

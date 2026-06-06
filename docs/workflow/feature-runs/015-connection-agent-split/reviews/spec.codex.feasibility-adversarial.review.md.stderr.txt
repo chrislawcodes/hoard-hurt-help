@@ -1,3 +1,46 @@
+Reading additional input from stdin...
+OpenAI Codex v0.137.0
+--------
+workdir: /Users/chrislaw/hoard-hurt-help--015-connection-agent-split
+model: gpt-5.4-mini
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e9d56-8aee-7ef2-b0b6-81d3fc07d6e0
+--------
+user
+Review this spec artifact using a feasibility-adversarial lens.
+Stay scoped to that lens.
+Approach the artifact adversarially: look for hidden flaws, omitted cases, and weak assumptions before giving credit.
+No code context files were provided. Flag any finding that depends on an assumption about the existing codebase as [UNVERIFIED] and limit it to MEDIUM severity or lower.
+The full review artifact text is included below in this prompt.
+Return markdown using exactly these sections:
+## Findings
+## Residual Risks
+Keep the response concrete and ordered by severity.
+
+Artifact: spec.md
+# Feature 015 — Connection / Agent Split (Feature Factory pick-up run)
+
+**This FF run covers the REMAINING work (slices 3–5).** Slices 0–2 are already
+implemented, adversarially reviewed, and committed on this branch:
+- Slice 0 — models + schema (Bot → Connection + Agent + AgentVersion; migration 0023).
+- Slice 1 — connection auth (X-Connection-Key) + (agent_id, match_id) turn resolution + agent_turn_token.
+- Slice 2 — sims → kind=bot agents; leaderboard ai/bot.
+
+Remaining (this run): Slice 3 management UI (/me/connections + /me/agents,
+/me/agents/new, versioning, connection_health, max_concurrent, detach/reattach,
+pending-connection, templates split, migrate web_* routes); Slice 4 runner →
+agentludum_connector.py + MCP X-Connection-Key + drop MCP-direct path; Slice 5
+rename sweep + full preflight green.
+
+The full reviewed design (spec/plan/data-model/contracts/wireframes/review-log)
+lives in `specs/015-connection-agent-split/`. The sections below are that spec.
+
+---
+
 # Feature 015 — Connection / Agent Split (and "Sim" → "Bot" rename)
 
 **Status:** Draft
@@ -319,3 +362,25 @@ These UI requirements are normative:
 
 **Result: PASS** (no constitutional conflicts; one high-care implementation area flagged for the plan).
 ```
+
+
+Return only markdown with exactly these sections:
+## Findings
+## Residual Risks
+Do not include any other sections.
+codex
+I’m reviewing this as a spec, not the implementation, and I’m looking for places where the requirements can break in practice or contradict each other. I’ll keep the feedback scoped to feasibility and hidden failure modes, and I’ll flag anything that depends on the unseen codebase as `[UNVERIFIED]`.
+codex
+## Findings
+- **High:** `FR-003` and `FR-029` contradict each other. `FR-003` says `kind = ai` MUST have a Connection, but `FR-029` says deleting a connection detaches its agents and they become "needs a connection" while still being AI agents. The spec needs an explicit third state or an exception to the invariant, otherwise the detach flow is impossible by its own rules.
+- **High:** The spec has two competing sources of truth for an agent’s model/strategy. `FR-002` says Agent carries `model` and `strategy`, while `FR-010`, `FR-011`, and the Key Entities section say the live playing definition lives on `AgentVersion` and Agent is identity only. Without a single authoritative source, versioning, rating, and leaderboard rendering will drift.
+- **High:** The first-time agent flow is incomplete because it never specifies how `strategy` is chosen. The spec defines an Agent as `name + game + model + strategy`, but User Story 1 and `FR-028` only collect provider, name, and model. Unless there is a documented default strategy, the "New agent" flow cannot produce a valid agent.
+- **Medium:** Connection key reissue has an open-ended overlap window. The old key stays valid "until the new one connects," but the spec gives no expiry or fallback if the new runner never arrives. That means a reissue can fail to actually retire the old credential.
+- **Medium:** Deleting a connection that is actively powering matches does not define the match outcome. The spec says the agents are detached and paused, but it never says whether their current matches are forfeited, left hanging, or frozen. That is a state-management hole that can strand live games.
+
+## Residual Risks
+- The multi-agent routing path remains high-risk even if the spec is corrected, because one connection can own multiple agents in the same match. It needs tight tests for `(agent_id, match_id)` token scoping and stale-token rejection.
+- Version freeze timing is still delicate. Freezing on first rated seating is reasonable, but cancellations, abandoned starts, and unrated-to-rated transitions need explicit coverage so a version does not freeze too early or too late.
+- Detach/reattach and reissue/revoke behavior should be exercised end-to-end, because these state transitions combine runner health, key lifecycle, and agent availability in ways that are easy to get subtly wrong.
+tokens used
+21,796
