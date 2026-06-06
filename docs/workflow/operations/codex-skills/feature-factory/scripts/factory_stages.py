@@ -16,6 +16,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from factory_state import (  # noqa: E402
     REPO_ROOT,
+    ARCH_DOCS_KEY,
     CHECKPOINT_PROGRESS_KEY,
     INIT_HEAD_SHA_KEY,
     read_json_file,
@@ -66,6 +67,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "repair_closeout_checkpoint": "re-run closeout checkpoint",
     "write_postmortem": "write postmortem.md",
     "update_status_md": "update STATUS.md",
+    "reconcile_arch_docs": "update ARCHITECTURE.md/DESIGN.md (or ack no change via `arch-docs --no-change-needed`)",
     "done": "workflow complete",
 }
 
@@ -369,6 +371,18 @@ def prerequisite_failure(slug: str, stage: str) -> str | None:
             return f"{stage} checkpoint requires completed {prereq} checkpoint first"
         if not prereq_state["healthy"]:
             return f"{stage} checkpoint requires a healthy {prereq} checkpoint first"
+    # Hard gate: the plan checkpoint requires the reuse audit (no-duplication
+    # check) to have produced reuse-report.md. Fails open on runs with no init
+    # SHA (test fixtures / pre-gate runs) so only real initialized runs enforce.
+    if stage == "plan":
+        init_sha = load_workflow_state(slug).get(INIT_HEAD_SHA_KEY, "")
+        if init_sha and not reuse_report_meaningful(slug):
+            return (
+                "plan checkpoint requires the reuse audit first — write "
+                f"{workflow_dir(slug).name}/reuse-report.md mapping the feature's "
+                "needs to existing modules (reuse / extend / justified-new). "
+                "See 'Architecture awareness' in SKILL.md."
+            )
     return None
 
 
@@ -390,6 +404,51 @@ def status_md_changed_since_init(slug: str) -> bool:
     # returncode 0: no diff; 1: diff exists; 128: git error
     # Treat both "diff exists" and "error" as changed so workflow is never
     # blocked by a broken or missing SHA.
+    return result.returncode != 0
+
+
+def reuse_report_meaningful(slug: str) -> bool:
+    """Return True if a non-trivial reuse-report.md exists for this run.
+
+    The reuse audit (plan stage) must produce this before the plan checkpoint;
+    a stub or empty file does not count.
+    """
+    path = workflow_dir(slug) / "reuse-report.md"
+    if not path.exists():
+        return False
+    try:
+        body = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    # Strip a lone "# ..." heading the same way stub artifacts are detected.
+    non_heading = "\n".join(
+        line for line in body.splitlines() if not line.lstrip().startswith("#")
+    ).strip()
+    return len(non_heading) >= 40
+
+
+def arch_docs_resolved(slug: str) -> bool:
+    """Return True if the architecture-doc obligation is satisfied for this run.
+
+    Satisfied when either ARCHITECTURE.md or DESIGN.md was modified since init,
+    or the orchestrator explicitly acked "no architecture change needed" via the
+    `arch-docs` command. Fails open (returns True) when no init SHA is recorded,
+    so test fixtures and runs predating the gate are never blocked — mirrors
+    status_md_changed_since_init.
+    """
+    state = load_workflow_state(slug)
+    if state.get(ARCH_DOCS_KEY, {}).get("no_change_acked"):
+        return True
+    init_sha = state.get(INIT_HEAD_SHA_KEY, "")
+    if not init_sha:
+        return True  # can't verify — don't block
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "diff", "--quiet", init_sha, "--",
+         "ARCHITECTURE.md", "DESIGN.md"],
+        capture_output=True,
+    )
+    # 0: no diff (docs untouched and not acked → not resolved); non-zero: diff or
+    # git error → treat as changed so a broken SHA never hard-blocks the workflow.
     return result.returncode != 0
 
 

@@ -96,6 +96,7 @@ from factory_cmd_closeout import command_standalone_closeout  # noqa: E402
 command_closeout = command_standalone_closeout
 from check_workflow_isolation import command_check_workflow_isolation  # noqa: E402
 from factory_cmd_block import command_block  # noqa: E402
+from factory_cmd_arch_docs import command_arch_docs  # noqa: E402
 from factory_cmd_implement import command_implement, command_parallel, _run_serial, _run_parallel  # noqa: E402
 from factory_cmd_status import command_status, command_repair, command_doctor  # noqa: E402
 from factory_invariants import run_invariant_checks, set_json_mode  # noqa: E402
@@ -260,6 +261,17 @@ def build_parser() -> argparse.ArgumentParser:
     block_parser.add_argument("--reason")
     block_parser.add_argument("--clear", action="store_true")
     block_parser.set_defaults(func=command_block)
+
+    arch_docs_parser = subparsers.add_parser(
+        "arch-docs",
+        help="record the architecture-doc decision (ack no change needed, or reset the ack)",
+    )
+    arch_docs_parser.add_argument("--slug", required=True)
+    arch_docs_parser.add_argument("--no-change-needed", action="store_true",
+                                  help="ack that this feature needs no ARCHITECTURE.md/DESIGN.md change")
+    arch_docs_parser.add_argument("--reason", help="why no doc change is needed (required with --no-change-needed)")
+    arch_docs_parser.add_argument("--reset", action="store_true", help="clear a prior no-change ack")
+    arch_docs_parser.set_defaults(func=command_arch_docs)
 
     advance_parser = subparsers.add_parser("advance")
     advance_parser.add_argument("--slug", required=True)

@@ -18,6 +18,7 @@ from factory_state import (  # noqa: E402
 )
 
 from factory_stages import (  # noqa: E402
+    arch_docs_resolved,
     diff_review_budget_state,
     later_progress_exists,
     status_md_changed_since_init,
@@ -90,4 +91,6 @@ def recommended_next_action(
         return "write_postmortem"
     if not status_md_changed_since_init(slug):
         return "update_status_md"
+    if not arch_docs_resolved(slug):
+        return "reconcile_arch_docs"
     return "done"

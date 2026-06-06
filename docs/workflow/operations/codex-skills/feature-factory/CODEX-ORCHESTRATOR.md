@@ -74,6 +74,9 @@ python3 docs/workflow/operations/codex-skills/feature-factory/scripts/run_factor
 | **Deliver** | Create PR, notify human it is ready to squash merge | See Section 8 below |
 | **Closeout** | Write closeout summary | Write to `docs/workflow/feature-runs/<slug>/closeout.md`, then checkpoint |
 | **Reconcile docs** | Dispatch a `codex exec` sub-session: compare the merged diff against `plan.md` and the up-front doc edits; update `ARCHITECTURE.md`/`DESIGN.md` if implementation drifted, else record "docs already accurate." Required before done. | `codex exec -m gpt-5.4-mini -s workspace-write "<doc-reconcile prompt>"` |
+| **Ack no doc change** | Only if the feature genuinely changes no modules/flows: record the no-change ack so the `done` gate clears (otherwise edit the docs and the gate clears on its own). | `arch-docs --slug <slug> --no-change-needed --reason "<why>"` |
+
+**Hard gates:** `checkpoint --stage plan` refuses to run without `reuse-report.md`, and `status` will not return `done` until `ARCHITECTURE.md`/`DESIGN.md` changed since init or a no-change ack is recorded.
 | **Closeout checkpoint** | Final adversarial review | `checkpoint --slug <slug> --stage closeout` |
 | **Write postmortem** | Write `postmortem.md` — what went well, what didn't, proposed workflow changes. Required before done. | Write to `docs/workflow/feature-runs/<slug>/postmortem.md` |
 | **Update STATUS.md** | Update `STATUS.md` to reflect what shipped. Required before done. | Edit `STATUS.md` in repo root |
