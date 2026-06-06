@@ -37,10 +37,10 @@
   "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
-    "reviewed": false,
+    "reviewed": true,
     "found": false,
-    "note": "",
-    "updated_at": 0
+    "note": "Slices CP1-CP5 are sequential: CP2 (agents) reuses CP1 (connections) provider/connect components; CP3 retires bots_* and migrates web routes that CP1/CP2 replace; CP4 (runner/mcp) depends on the CP1-3 payload/route shape; CP5 is the final sweep+preflight. No safe cross-slice parallelism (shared router registration + import graph). Within a slice, route vs template files are disjoint but dispatched together per checkpoint.",
+    "updated_at": 1780756652
   },
   "init_head_sha": "7086e307a8848a871e03364ed5793c048ca12b7e",
   "token_usage": [
@@ -116,6 +116,43 @@
       "duration_seconds": 11.325918,
       "agent_id": null,
       "artifact_sha_at_time": "f21ad7d4176aed3f4e70525985f0dde16dd7604c8f212fc7942db82ed5e4c597"
+    },
+    {
+      "stage": "plan",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "implementation-adversarial",
+      "prompt_chars": 67148,
+      "prompt_cap": 250000,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-06-06T14:34:05.597207Z",
+      "started_at": "2026-06-06T14:32:05.582975Z",
+      "ended_at": "2026-06-06T14:34:05.597207Z",
+      "duration_seconds": 120.0138,
+      "agent_id": null,
+      "artifact_sha_at_time": "99d734d76db917cdec402bbe49783a1228502d9ece704d99dfbc4835d6ed4003",
+      "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "plan",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "testability-adversarial",
+      "prompt_chars": 67029,
+      "prompt_cap": 250000,
+      "input_tokens": 30134,
+      "output_tokens": 769,
+      "cost_usd_estimate": 0.008687,
+      "timestamp": "2026-06-06T14:34:16.833423Z",
+      "started_at": "2026-06-06T14:34:05.773485Z",
+      "ended_at": "2026-06-06T14:34:16.833423Z",
+      "duration_seconds": 11.059828,
+      "agent_id": null,
+      "artifact_sha_at_time": "99d734d76db917cdec402bbe49783a1228502d9ece704d99dfbc4835d6ed4003"
     }
   ],
   "command_telemetry": [
@@ -142,6 +179,78 @@
       "files_written": 5,
       "subprocess_invocations": 18,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-06T14:34:16Z",
+      "wall_seconds": 131.555,
+      "input_bytes_read": 85695,
+      "output_bytes_written": 30027,
+      "files_read": 8,
+      "files_written": 5,
+      "subprocess_invocations": 8,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-06T14:35:34Z",
+      "wall_seconds": 0.077,
+      "input_bytes_read": 0,
+      "output_bytes_written": 0,
+      "files_read": 0,
+      "files_written": 0,
+      "subprocess_invocations": 8,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-06T14:35:34Z",
+      "wall_seconds": 0.074,
+      "input_bytes_read": 0,
+      "output_bytes_written": 0,
+      "files_read": 0,
+      "files_written": 0,
+      "subprocess_invocations": 8,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-06T14:35:58Z",
+      "wall_seconds": 0.331,
+      "input_bytes_read": 59640,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-06T14:35:59Z",
+      "wall_seconds": 0.331,
+      "input_bytes_read": 60361,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-06T14:37:33Z",
+      "wall_seconds": 0.616,
+      "input_bytes_read": 209060,
+      "output_bytes_written": 42304,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -153,6 +262,22 @@
         "f21ad7d4176aed3f4e70525985f0dde16dd7604c8f212fc7942db82ed5e4c597"
       ],
       "initial_sha": "27679c2f59f5b7de23c4396eb546838fe2b9bbbbd628138d6f0b7db2a38cd360"
+    },
+    "plan": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "99d734d76db917cdec402bbe49783a1228502d9ece704d99dfbc4835d6ed4003"
+      ],
+      "initial_sha": "99d734d76db917cdec402bbe49783a1228502d9ece704d99dfbc4835d6ed4003"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "8db1f108e7105aec263f7abdb7c073eedad094d788988dcace626ade69601981"
+      ],
+      "initial_sha": "8db1f108e7105aec263f7abdb7c073eedad094d788988dcace626ade69601981"
     }
   },
   "invariant_warnings": [],
@@ -164,8 +289,10 @@
   },
   "spec_adversarial_rounds": 1,
   "last_action_result": {
-    "next": "author_plan",
-    "reason": "spec checkpoint completed",
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
     "blockers": []
-  }
+  },
+  "plan_adversarial_rounds": 0,
+  "tasks_adversarial_rounds": 1
 }
