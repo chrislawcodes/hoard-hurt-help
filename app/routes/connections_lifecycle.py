@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
@@ -83,20 +83,16 @@ async def delete_connection(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
     connection = await _load_owned_connection(db, user, connection_id)
-    agents = (
-        (
-            await db.execute(
-                select(Agent).where(Agent.connection_id == connection.id)
-            )
+    # Detach (never delete) this connection's AI agents in one atomic statement
+    # scoped to the owned connection: they survive, paused, reattachable (FR-029).
+    await db.execute(
+        update(Agent)
+        .where(
+            Agent.connection_id == connection.id,
+            Agent.kind == AgentKind.AI,
         )
-        .scalars()
-        .all()
+        .values(connection_id=None, status=AgentStatus.PAUSED)
     )
-    for agent in agents:
-        if agent.kind != AgentKind.AI:
-            continue
-        agent.connection_id = None
-        agent.status = AgentStatus.PAUSED
     await db.delete(connection)
     await db.commit()
     return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
@@ -120,8 +116,12 @@ async def reattach_agent(
     if agent.status != AgentStatus.PAUSED:
         raise HTTPException(status_code=409, detail="That agent is not waiting for a connection.")
     model = await _agent_current_model(db, agent.id)
+    if model is None:
+        raise HTTPException(status_code=400, detail="That agent has no model set.")
     allowed_models = PROVIDER_MODELS.get(connection.provider.value, [])
-    if model is None or model not in allowed_models:
+    # Empty allowed_models (hermes/openclaw) means "any model" — skip the
+    # membership check rather than rejecting every reattach against an empty list.
+    if allowed_models and model not in allowed_models:
         raise HTTPException(
             status_code=400,
             detail="That agent's model is not valid for this connection provider.",
