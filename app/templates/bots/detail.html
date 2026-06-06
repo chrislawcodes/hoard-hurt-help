@@ -14,6 +14,7 @@
         {% else %}
             <span class="bot-health-live" hx-get="/me/bots/{{ bot.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">{% include "bots/_health_badge.html" %}</span>
             · connection code ends …{{ bot.key_hint }}
+            {% if bot.runner_pid %} · PID: {{ bot.runner_pid }}{% endif %}
         {% endif %}
     </p>
 </div>
