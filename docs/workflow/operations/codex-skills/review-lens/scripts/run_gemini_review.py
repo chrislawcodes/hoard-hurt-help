@@ -635,7 +635,7 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--artifact-label")
     parser.add_argument("--context", action="append", default=[])
-    parser.add_argument("--model", default=os.environ.get("GEMINI_REVIEW_MODEL") or "gemini-2.5-pro")
+    parser.add_argument("--model", default=os.environ.get("GEMINI_REVIEW_MODEL") or "gemini-3.1-flash-lite")
     parser.add_argument("--workspace-dir")
     parser.add_argument("--git-base-ref", default=os.environ.get("REVIEW_BASE_REF"))
     parser.add_argument("--timeout-seconds", type=int, default=90)
