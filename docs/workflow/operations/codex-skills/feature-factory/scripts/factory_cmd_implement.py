@@ -37,7 +37,8 @@ from factory_git import (  # noqa: E402
 )
 
 from factory_runlock import acquire_run_lock, release_run_lock, run_lock_path  # noqa: E402
-from factory_stages import parse_parallel_task_groups  # noqa: E402
+from factory_stages import checkpoint_progress_state, parse_parallel_task_groups  # noqa: E402
+from factory_parallel import prior_slice_unbuilt  # noqa: E402
 
 from factory_emit import _emit_next_action  # noqa: E402
 from factory_mutating import mutates_state  # noqa: E402
@@ -320,6 +321,15 @@ def command_implement(args: argparse.Namespace) -> int:
     if not groups:
         print("nothing to implement — all tasks complete or no tasks.md")
         return 0
+
+    # Guard against checkpoint-index drift: never dispatch a slice when the
+    # prior slice was never built (e.g. a repair that wrongly advanced the index).
+    drift_error = prior_slice_unbuilt(
+        args.slug, checkpoint_progress_state(args.slug)["index"]
+    )
+    if drift_error:
+        print(f"[error] {drift_error}", file=sys.stderr)
+        return 1
 
     lock_fd, lock_err = _acquire_implement_lock(args.slug)
     if lock_fd == -1:
