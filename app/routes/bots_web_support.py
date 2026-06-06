@@ -63,6 +63,8 @@ async def bot_game_rows(db: DbSession, bot: Bot) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for p in players:
         g = (await db.execute(select(Match).where(Match.id == p.match_id))).scalar_one()
+        if g.state == GameState.CANCELLED:
+            continue
         out.append(
             {
                 "match_id": g.id,
