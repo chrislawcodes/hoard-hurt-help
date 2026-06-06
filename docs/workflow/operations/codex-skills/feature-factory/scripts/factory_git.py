@@ -24,7 +24,6 @@ PROTECTED_FILES = [
     "CLAUDE.md",
     "AGENTS.md",
     "MEMORY.md",
-    "DESIGN.md",
     ".gitignore",
 ]
 
