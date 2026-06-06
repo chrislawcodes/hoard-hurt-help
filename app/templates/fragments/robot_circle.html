@@ -138,12 +138,26 @@
    center. There is no name inside — the bubble wears the speaker's own colour as
    its border, and only that bot is lit + pulsing, so it reads as theirs. It is
    sized to hold ~200 chars (5 lines), so it may overlap idle seats; positionSay()
-   in JS shoves it away from the speaker so that one bot is always left clear. */
+   in JS shoves it away from the speaker so that one bot is always left clear, and
+   aims the tail (.rc-saytail) from the bubble's edge straight at that speaker. */
 .rc-saybubble{position:absolute;left:50%;top:50%;z-index:6;pointer-events:none;text-align:center;
   width:max-content;max-width:380px;padding:12px 17px;border-radius:15px;
   background:var(--surface,#fff);border:2px solid var(--c,var(--line,#e2e6ea));box-shadow:0 8px 24px rgba(20,20,40,.16);
   opacity:0;transform:translate(-50%,-50%) scale(.96);transition:opacity .2s ease,transform .2s ease}
 .rc-saybubble.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+/* A speech-bubble tail that points from the bubble's edge straight at the talking
+   bot, so it is never ambiguous who is speaking even when the bubble is offset
+   across the ring. positionSay() sets --tx/--ty (the edge point, relative to the
+   bubble centre) and --ta (the angle toward the speaker). Two stacked triangles
+   give it the bubble's own surface fill with the speaker-colour border on its
+   slanted sides; the base tucks a few px into the body so the join is seamless. */
+.rc-saytail{position:absolute;left:calc(50% + var(--tx,0px));top:calc(50% + var(--ty,0px));
+  width:0;height:0;transform:rotate(var(--ta,0deg));transform-origin:0 0}
+.rc-saytail::before,.rc-saytail::after{content:"";position:absolute;width:0;height:0;
+  border-top:9px solid transparent;border-bottom:9px solid transparent}
+.rc-saytail::before{top:-9px;left:0;border-left:13px solid var(--c,var(--line,#e2e6ea))}
+.rc-saytail::after{top:-7px;left:-4px;border-top-width:7px;border-bottom-width:7px;
+  border-left:13px solid var(--surface,#fff)}
 /* line-clamp is sized so the bubble holds ~200 chars before it ever cuts: at
    380px wide / 15px font that is ~46 chars a line, and 5 lines clears 200. */
 .rc-say-text{font-size:15px;line-height:1.4;font-weight:500;color:var(--ink,#1a1d21);
@@ -310,6 +324,7 @@
           <div class="rc-progress" id="rc-progress"></div>
           <div class="rc-saybubble" id="rc-say">
             <div class="rc-say-text" id="rc-say-text"></div>
+            <div class="rc-saytail" id="rc-saytail"></div>
           </div>
         </div>
         <div class="rc-caption" id="rc-caption"><span class="rc-badge">—</span> Press play to watch the turns.</div>
@@ -388,6 +403,7 @@
   var railEl=document.getElementById('rc-rail');
   var sayEl=document.getElementById('rc-say');
   var sayTextEl=document.getElementById('rc-say-text');
+  var sayTailEl=document.getElementById('rc-saytail');
   var sayGeo={cx:0,cy:0}, saySpeaker=null;
 
   if(!TURNS.length){
@@ -658,6 +674,15 @@
     var bx=Math.min(Math.max(cx-off*ux,hw+m), w-hw-m);
     var by=Math.min(Math.max(cy-off*uy,hh+m), h-hh-m);
     sayEl.style.left=bx+'px'; sayEl.style.top=by+'px';
+    // Aim the tail from the bubble's edge at the speaker. Re-derive the direction
+    // from the bubble's *final* (clamped) centre, then find where that ray leaves
+    // the bubble's rectangle so the tail sits flush on the nearest edge.
+    var tdx=(+bot.dataset.x)-bx, tdy=(+bot.dataset.y)-by;
+    var ta=Math.atan2(tdy,tdx), ca=Math.cos(ta), sa=Math.sin(ta);
+    var scale=1/Math.max(Math.abs(ca)/hw, Math.abs(sa)/hh);
+    sayTailEl.style.setProperty('--tx',(ca*scale).toFixed(1)+'px');
+    sayTailEl.style.setProperty('--ty',(sa*scale).toFixed(1)+'px');
+    sayTailEl.style.setProperty('--ta',(ta*180/Math.PI).toFixed(1)+'deg');
   }
   function sayHide(){ sayEl.classList.remove('show'); }   // fade out before the action phase
   function sayReset(){
