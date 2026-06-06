@@ -162,6 +162,19 @@ These are not just doctrine — the runner refuses to advance without them (both
 
   Use the ack only when the feature genuinely changes no module boundaries or flows. If the docs were edited (up front or at closeout), the gate clears automatically — no ack needed. `arch-docs --slug <slug> --reset` clears a prior ack.
 
+## Concurrency & isolation
+
+The worst Feature Factory failures come from two sessions colliding. There are two layers of protection:
+
+- **Per-slug run locks (enforced):** `implement` and `autopilot` each take an exclusive per-slug lock (`factory_runlock`, flock-based, auto-released on crash). A second concurrent run of either — for the same slug — exits with an "already running" error instead of clobbering files or state. State writes go through `update_workflow_state` (locked read-modify-write) on a single-writer-per-slug assumption that these run locks uphold.
+- **Worktree-per-agent (the real fix for multi-agent):** the run locks do **not** protect two agent sessions that share one *git checkout* — that causes branch switches and half-written files mid-run. Give each agent its own worktree:
+
+  ```bash
+  git worktree add ../<repo>--<branch> -b <branch> origin/main
+  ```
+
+  `init` warns when you're running in the primary checkout (silence single-agent use with `FF_ALLOW_PRIMARY_CHECKOUT=1`). When done, `git worktree remove --force <path>` + `git branch -D <branch>`.
+
 ## Residual risks must be verifiable
 
 `plan.md` often ends with a **Residual Risks** section — known limitations the team has decided to accept rather than mitigate in-feature. In practice these are the most dangerous entries in the whole plan, because the word "accepted" hides the question "how do we know the risk didn't happen?"

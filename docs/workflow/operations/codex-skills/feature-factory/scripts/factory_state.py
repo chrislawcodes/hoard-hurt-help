@@ -470,6 +470,17 @@ def load_workflow_state(slug: str) -> dict:
 
 
 def save_workflow_state(slug: str, state: dict) -> Path:
+    """Write the full workflow state atomically (temp + os.replace).
+
+    NOTE — single-writer assumption: this is a full overwrite and does NOT take
+    the state lock, so a concurrent ``update_workflow_state`` (locked read-
+    modify-write) could be lost. That is safe today because Feature Factory
+    assumes one mutator per slug at a time — enforced at the run level by the
+    per-slug ``implement`` / ``autopilot`` locks (``factory_runlock``) and, for
+    cross-agent safety, by running each agent in its own git worktree. For
+    incremental field updates prefer ``update_workflow_state`` (which IS lock-
+    guarded); reserve this for full-state writes.
+    """
     path = factory_state_path(slug)
     atomic_json_write(path, state)
     return path

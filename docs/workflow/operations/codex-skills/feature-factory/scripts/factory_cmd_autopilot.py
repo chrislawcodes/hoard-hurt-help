@@ -36,6 +36,7 @@ from factory_next_action import recommended_next_action  # noqa: E402
 from factory_cmd_checkpoint import command_checkpoint  # noqa: E402
 from factory_cmd_implement import command_implement  # noqa: E402
 from factory_mutating import mutates_state  # noqa: E402
+from factory_runlock import acquire_run_lock, release_run_lock  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -188,155 +189,163 @@ def command_autopilot(args: argparse.Namespace) -> int:
 
     actions_taken: list[dict[str, Any]] = []
 
-    def _stop(stop_next_action: str, reason: str, details: dict[str, Any] | None = None) -> int:
-        payload: dict[str, Any] = {
-            "stop_reason": reason,
-            "next_action": stop_next_action,
-            "slug": slug,
-            "actions_taken": actions_taken,
-            "details": details or {},
-        }
-        print(json.dumps(payload, indent=2))
-        return 0
+    lock_fd, lock_err = acquire_run_lock(slug, "autopilot", "autopilot")
+    if lock_fd == -1:
+        print(lock_err, file=sys.stderr)
+        return 1
+    try:
 
-    def _run_checkpoint(
-        stage: str, *, use_existing_artifact: bool
-    ) -> tuple[int, list[dict[str, Any]]]:
-        cp_args = _build_checkpoint_args(
-            slug, stage, use_existing_artifact=use_existing_artifact
-        )
-        rc = command_checkpoint(cp_args)
-        if rc != 0:
-            return rc, []
-        return rc, _open_reviews_for_stage(slug, stage)
+        def _stop(stop_next_action: str, reason: str, details: dict[str, Any] | None = None) -> int:
+            payload: dict[str, Any] = {
+                "stop_reason": reason,
+                "next_action": stop_next_action,
+                "slug": slug,
+                "actions_taken": actions_taken,
+                "details": details or {},
+            }
+            print(json.dumps(payload, indent=2))
+            return 0
 
-    for _iteration in range(max_iterations):
-        next_action = _current_next_action(slug)
-
-        # ── Terminal ──────────────────────────────────────────────────────
-        if next_action == "done":
-            return _stop(next_action, "done")
-
-        # ── Blocked ───────────────────────────────────────────────────────
-        if next_action == "mark_blocked":
-            state = load_workflow_state(slug)
-            blocked = state.get(BLOCKED_KEY, {})
-            block_reason = str(blocked.get("reason", "")).strip()
-            return _stop(next_action, "blocked", {"reason": block_reason})
-
-        # ── Reconcile — orchestrator must judge findings ───────────────────
-        if next_action == "reconcile_reviews":
-            return _stop(next_action, "needs_reconcile")
-
-        # ── Deliver — orchestrator must approve ───────────────────────────
-        if next_action == "deliver":
-            return _stop(next_action, "awaiting_delivery_approval")
-
-        # ── Authoring — orchestrator must write an artifact ───────────────
-        if next_action in _AUTHORING_NEXT_ACTIONS:
-            return _stop(next_action, "needs_authoring", {"action": next_action})
-
-        # ── Mechanical: run/repair an existing-artifact checkpoint ─────────
-        if next_action in _CHECKPOINT_NEXT_ACTIONS:
-            stage = _CHECKPOINT_NEXT_ACTIONS[next_action]
-            _emit_progress(f"running {stage} checkpoint (use-existing-artifact)...")
-            rc, open_reviews = _run_checkpoint(stage, use_existing_artifact=True)
-            actions_taken.append(
-                {
-                    "cmd": f"checkpoint --stage {stage} --use-existing-artifact",
-                    "rc": rc,
-                    "summary": f"{stage} checkpoint",
-                }
+        def _run_checkpoint(
+            stage: str, *, use_existing_artifact: bool
+        ) -> tuple[int, list[dict[str, Any]]]:
+            cp_args = _build_checkpoint_args(
+                slug, stage, use_existing_artifact=use_existing_artifact
             )
+            rc = command_checkpoint(cp_args)
             if rc != 0:
-                _emit_progress(f"{stage} checkpoint reviewer failed (rc={rc})")
-                return _stop(next_action, "review_runner_failed", {"stage": stage, "rc": rc})
-            if open_reviews:
-                _emit_progress(
-                    f"{stage} checkpoint has {len(open_reviews)} open finding(s) — needs reconcile"
-                )
-                return _stop(
-                    "reconcile_reviews",
-                    "needs_reconcile",
-                    {"stage": stage, "open_reviews": open_reviews},
-                )
-            _emit_progress(f"ran {stage} checkpoint → healthy")
-            continue
+                return rc, []
+            return rc, _open_reviews_for_stage(slug, stage)
 
-        # ── Mechanical: implement next slice ──────────────────────────────
-        if next_action == "dispatch_next_slice_to_codex":
-            # Step 1: dispatch Codex for this slice
-            _emit_progress("dispatching implement (next slice)...")
-            impl_rc = command_implement(_build_implement_args(slug))
-            actions_taken.append(
-                {
-                    "cmd": f"implement --slug {slug}",
-                    "rc": impl_rc,
-                    "summary": "implement slice",
-                }
-            )
-            if impl_rc != 0:
-                _emit_progress(f"implement failed (rc={impl_rc})")
-                return _stop(next_action, "implement_failed", {"rc": impl_rc})
+        for _iteration in range(max_iterations):
+            next_action = _current_next_action(slug)
 
-            # Step 2: preflight gate
-            _emit_progress("running preflight gate (ruff + mypy + pytest)...")
-            preflight_rc, preflight_output = _run_preflight(REPO_ROOT)
-            actions_taken.append(
-                {
-                    "cmd": "ruff check . && mypy app/ mcp_server/ && pytest -q",
-                    "rc": preflight_rc,
-                    "summary": "preflight gate",
-                }
-            )
-            if preflight_rc != 0:
-                _emit_progress("preflight gate failed")
-                return _stop(
-                    next_action,
-                    "preflight_failed",
-                    {"rc": preflight_rc, "output": preflight_output},
-                )
+            # ── Terminal ──────────────────────────────────────────────────────
+            if next_action == "done":
+                return _stop(next_action, "done")
 
-            # Step 3: diff checkpoint for the new slice (regenerate diff)
-            _emit_progress("running diff checkpoint for new slice...")
-            diff_rc, diff_open_reviews = _run_checkpoint(
-                "diff", use_existing_artifact=False
-            )
-            actions_taken.append(
-                {
-                    "cmd": "checkpoint --stage diff",
-                    "rc": diff_rc,
-                    "summary": "diff checkpoint (post-implement)",
-                }
-            )
-            if diff_rc != 0:
-                _emit_progress(f"diff checkpoint reviewer failed (rc={diff_rc})")
-                return _stop(
-                    "run_diff_checkpoint",
-                    "review_runner_failed",
-                    {"stage": "diff", "rc": diff_rc},
-                )
-            if diff_open_reviews:
-                _emit_progress(
-                    f"diff checkpoint has {len(diff_open_reviews)} open finding(s) — needs reconcile"
-                )
-                return _stop(
-                    "reconcile_reviews",
-                    "needs_reconcile",
-                    {"stage": "diff", "open_reviews": diff_open_reviews},
-                )
-            _emit_progress("implement + diff checkpoint → clean, continuing...")
-            continue
+            # ── Blocked ───────────────────────────────────────────────────────
+            if next_action == "mark_blocked":
+                state = load_workflow_state(slug)
+                blocked = state.get(BLOCKED_KEY, {})
+                block_reason = str(blocked.get("reason", "")).strip()
+                return _stop(next_action, "blocked", {"reason": block_reason})
 
-        # ── Unknown — surface it rather than silently ignoring ────────────
-        _emit_progress(f"unrecognised next_action: {next_action!r}")
-        return _stop(next_action, "unknown_action", {"action": next_action})
+            # ── Reconcile — orchestrator must judge findings ───────────────────
+            if next_action == "reconcile_reviews":
+                return _stop(next_action, "needs_reconcile")
 
-    # Exhausted the iteration budget
-    final_action = _current_next_action(slug)
-    _emit_progress(f"max_iterations ({max_iterations}) reached; stopping")
-    return _stop(
-        final_action,
-        "max_iterations",
-        {"max_iterations": max_iterations},
-    )
+            # ── Deliver — orchestrator must approve ───────────────────────────
+            if next_action == "deliver":
+                return _stop(next_action, "awaiting_delivery_approval")
+
+            # ── Authoring — orchestrator must write an artifact ───────────────
+            if next_action in _AUTHORING_NEXT_ACTIONS:
+                return _stop(next_action, "needs_authoring", {"action": next_action})
+
+            # ── Mechanical: run/repair an existing-artifact checkpoint ─────────
+            if next_action in _CHECKPOINT_NEXT_ACTIONS:
+                stage = _CHECKPOINT_NEXT_ACTIONS[next_action]
+                _emit_progress(f"running {stage} checkpoint (use-existing-artifact)...")
+                rc, open_reviews = _run_checkpoint(stage, use_existing_artifact=True)
+                actions_taken.append(
+                    {
+                        "cmd": f"checkpoint --stage {stage} --use-existing-artifact",
+                        "rc": rc,
+                        "summary": f"{stage} checkpoint",
+                    }
+                )
+                if rc != 0:
+                    _emit_progress(f"{stage} checkpoint reviewer failed (rc={rc})")
+                    return _stop(next_action, "review_runner_failed", {"stage": stage, "rc": rc})
+                if open_reviews:
+                    _emit_progress(
+                        f"{stage} checkpoint has {len(open_reviews)} open finding(s) — needs reconcile"
+                    )
+                    return _stop(
+                        "reconcile_reviews",
+                        "needs_reconcile",
+                        {"stage": stage, "open_reviews": open_reviews},
+                    )
+                _emit_progress(f"ran {stage} checkpoint → healthy")
+                continue
+
+            # ── Mechanical: implement next slice ──────────────────────────────
+            if next_action == "dispatch_next_slice_to_codex":
+                # Step 1: dispatch Codex for this slice
+                _emit_progress("dispatching implement (next slice)...")
+                impl_rc = command_implement(_build_implement_args(slug))
+                actions_taken.append(
+                    {
+                        "cmd": f"implement --slug {slug}",
+                        "rc": impl_rc,
+                        "summary": "implement slice",
+                    }
+                )
+                if impl_rc != 0:
+                    _emit_progress(f"implement failed (rc={impl_rc})")
+                    return _stop(next_action, "implement_failed", {"rc": impl_rc})
+
+                # Step 2: preflight gate
+                _emit_progress("running preflight gate (ruff + mypy + pytest)...")
+                preflight_rc, preflight_output = _run_preflight(REPO_ROOT)
+                actions_taken.append(
+                    {
+                        "cmd": "ruff check . && mypy app/ mcp_server/ && pytest -q",
+                        "rc": preflight_rc,
+                        "summary": "preflight gate",
+                    }
+                )
+                if preflight_rc != 0:
+                    _emit_progress("preflight gate failed")
+                    return _stop(
+                        next_action,
+                        "preflight_failed",
+                        {"rc": preflight_rc, "output": preflight_output},
+                    )
+
+                # Step 3: diff checkpoint for the new slice (regenerate diff)
+                _emit_progress("running diff checkpoint for new slice...")
+                diff_rc, diff_open_reviews = _run_checkpoint(
+                    "diff", use_existing_artifact=False
+                )
+                actions_taken.append(
+                    {
+                        "cmd": "checkpoint --stage diff",
+                        "rc": diff_rc,
+                        "summary": "diff checkpoint (post-implement)",
+                    }
+                )
+                if diff_rc != 0:
+                    _emit_progress(f"diff checkpoint reviewer failed (rc={diff_rc})")
+                    return _stop(
+                        "run_diff_checkpoint",
+                        "review_runner_failed",
+                        {"stage": "diff", "rc": diff_rc},
+                    )
+                if diff_open_reviews:
+                    _emit_progress(
+                        f"diff checkpoint has {len(diff_open_reviews)} open finding(s) — needs reconcile"
+                    )
+                    return _stop(
+                        "reconcile_reviews",
+                        "needs_reconcile",
+                        {"stage": "diff", "open_reviews": diff_open_reviews},
+                    )
+                _emit_progress("implement + diff checkpoint → clean, continuing...")
+                continue
+
+            # ── Unknown — surface it rather than silently ignoring ────────────
+            _emit_progress(f"unrecognised next_action: {next_action!r}")
+            return _stop(next_action, "unknown_action", {"action": next_action})
+
+        # Exhausted the iteration budget
+        final_action = _current_next_action(slug)
+        _emit_progress(f"max_iterations ({max_iterations}) reached; stopping")
+        return _stop(
+            final_action,
+            "max_iterations",
+            {"max_iterations": max_iterations},
+        )
+    finally:
+        release_run_lock(lock_fd)
