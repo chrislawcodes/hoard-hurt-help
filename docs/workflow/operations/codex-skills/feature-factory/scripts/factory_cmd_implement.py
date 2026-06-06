@@ -115,8 +115,11 @@ def _build_codex_prompt(slug: str, i: int, tasks: list[str], file_scope: list[st
         f"{chr(10).join(map(str, tasks))}\n\n"
         "## File scope\n"
         f"{chr(10).join(map(str, file_scope)) if file_scope else '(no specific scope — implement all tasks)'}\n\n"
-        "Implement the tasks above. Commit your changes when done.\n"
-        "DO NOT MODIFY: CLAUDE.md, AGENTS.md, MEMORY.md, the docs/ design/architecture docs, or any file not in your file scope.\n"
+        "Implement ONLY the tasks listed above for this slice. Do not implement "
+        "tasks from other slices and do not work ahead. Commit your changes when done.\n"
+        "DO NOT MODIFY: CLAUDE.md, AGENTS.md, MEMORY.md, the docs/ design/architecture docs, "
+        "or any file outside this slice's declared scope. The spec/plan above are "
+        "context only — they describe the whole feature, not your slice; build just the tasks listed.\n"
     )
     prompt_path.write_text(prompt_text, encoding="utf-8")
     return prompt_text

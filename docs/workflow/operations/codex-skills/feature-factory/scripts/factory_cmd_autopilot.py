@@ -29,6 +29,7 @@ from factory_state import (  # noqa: E402
 )
 from factory_stages import (  # noqa: E402
     CHECKPOINT_STAGES,
+    diff_review_budget_state,
     reconciliation_state,
     stage_manifest_state,
 )
@@ -212,7 +213,15 @@ def command_autopilot(args: argparse.Namespace) -> int:
             cp_args = _build_checkpoint_args(
                 slug, stage, use_existing_artifact=use_existing_artifact
             )
-            rc = command_checkpoint(cp_args)
+            try:
+                rc = command_checkpoint(cp_args)
+            except SystemExit as exc:
+                # command_checkpoint raises SystemExit on guard failures (e.g. a
+                # stale diff artifact after a rebase). Surface it as a non-zero
+                # rc so autopilot yields a structured stop instead of crashing
+                # and dead-ending the run.
+                _emit_progress(f"{stage} checkpoint aborted: {exc}")
+                return 1, []
             if rc != 0:
                 return rc, []
             return rc, _open_reviews_for_stage(slug, stage)
@@ -246,11 +255,21 @@ def command_autopilot(args: argparse.Namespace) -> int:
             # ── Mechanical: run/repair an existing-artifact checkpoint ─────────
             if next_action in _CHECKPOINT_NEXT_ACTIONS:
                 stage = _CHECKPOINT_NEXT_ACTIONS[next_action]
-                _emit_progress(f"running {stage} checkpoint (use-existing-artifact)...")
-                rc, open_reviews = _run_checkpoint(stage, use_existing_artifact=True)
+                use_existing = True
+                if stage == "diff" and diff_review_budget_state(slug).get("head_mismatch"):
+                    # The diff is stale (e.g. a rebase rewrote HEAD). Reusing the
+                    # existing artifact would hard-fail the freshness guard and
+                    # dead-end the run; regenerate at current HEAD instead.
+                    use_existing = False
+                _emit_progress(
+                    f"running {stage} checkpoint "
+                    f"({'use-existing-artifact' if use_existing else 'regenerating stale diff'})..."
+                )
+                rc, open_reviews = _run_checkpoint(stage, use_existing_artifact=use_existing)
                 actions_taken.append(
                     {
-                        "cmd": f"checkpoint --stage {stage} --use-existing-artifact",
+                        "cmd": f"checkpoint --stage {stage}"
+                        + (" --use-existing-artifact" if use_existing else ""),
                         "rc": rc,
                         "summary": f"{stage} checkpoint",
                     }

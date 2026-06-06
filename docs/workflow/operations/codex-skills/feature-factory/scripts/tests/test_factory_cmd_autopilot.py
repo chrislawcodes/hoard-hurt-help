@@ -482,5 +482,66 @@ class StructuredOutputTests(unittest.TestCase):
         self.assertEqual(action["rc"], 0)
 
 
+class StaleDiffRebaseTests(unittest.TestCase):
+    """Bug 3: a stale diff (rebase rewrote HEAD) must regenerate, not dead-end."""
+
+    def test_stale_diff_regenerates_instead_of_use_existing(self) -> None:
+        side_effects = ["run_diff_checkpoint", "done"]
+        mock_cp = MagicMock(return_value=0)
+        with patch.object(AUTOPILOT, "_current_next_action", side_effect=side_effects):
+            with patch.object(
+                AUTOPILOT, "diff_review_budget_state", return_value={"head_mismatch": True}
+            ):
+                with patch.object(AUTOPILOT, "command_checkpoint", mock_cp):
+                    with patch.object(AUTOPILOT, "_open_reviews_for_stage", return_value=[]):
+                        rc, result = _run_autopilot(_args())
+        self.assertEqual(rc, 0)
+        cp_args = mock_cp.call_args.args[0]
+        self.assertEqual(cp_args.stage, "diff")
+        self.assertFalse(
+            cp_args.use_existing_artifact,
+            "a stale diff must be regenerated, not reused on --use-existing-artifact",
+        )
+
+    def test_fresh_diff_still_uses_existing_artifact(self) -> None:
+        side_effects = ["run_diff_checkpoint", "done"]
+        mock_cp = MagicMock(return_value=0)
+        with patch.object(AUTOPILOT, "_current_next_action", side_effect=side_effects):
+            with patch.object(
+                AUTOPILOT, "diff_review_budget_state", return_value={"head_mismatch": False}
+            ):
+                with patch.object(AUTOPILOT, "command_checkpoint", mock_cp):
+                    with patch.object(AUTOPILOT, "_open_reviews_for_stage", return_value=[]):
+                        rc, result = _run_autopilot(_args())
+        cp_args = mock_cp.call_args.args[0]
+        self.assertTrue(cp_args.use_existing_artifact)
+
+    def test_checkpoint_systemexit_yields_stop_not_crash(self) -> None:
+        with patch.object(AUTOPILOT, "_current_next_action", return_value="run_diff_checkpoint"):
+            with patch.object(
+                AUTOPILOT, "diff_review_budget_state", return_value={"head_mismatch": False}
+            ):
+                with patch.object(
+                    AUTOPILOT, "command_checkpoint", side_effect=SystemExit("stale artifact")
+                ):
+                    rc, result = _run_autopilot(_args())
+        self.assertEqual(rc, 0)
+        self.assertEqual(result["stop_reason"], "review_runner_failed")
+
+
+class ImplementPromptScopeFenceTests(unittest.TestCase):
+    """Bug 5: the implement prompt must fence Codex to the current slice only."""
+
+    def test_prompt_fences_to_current_slice(self) -> None:
+        prompt = FACTORY_CMD_IMPLEMENT._build_codex_prompt(
+            "scope-fence-test", 0, ["T1 do a thing"], []
+        )
+        # clean up the /tmp prompt file the builder writes as a side effect
+        FACTORY_CMD_IMPLEMENT._codex_prompt_path("scope-fence-test", 0).unlink(missing_ok=True)
+        self.assertIn("ONLY the tasks listed above", prompt)
+        self.assertIn("do not work ahead", prompt)
+        self.assertIn("context only", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()
