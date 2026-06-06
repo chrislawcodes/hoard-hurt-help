@@ -1,0 +1,27 @@
+{
+  "_schema_note": "Use input_usd_per_1k_tokens and output_usd_per_1k_tokens for cost estimates. Placeholder prices must be replaced with actual vendor pricing before relying on telemetry.",
+  "gpt-5.4-mini": {
+    "input_usd_per_1k_tokens": 0.001,
+    "output_usd_per_1k_tokens": 0.002,
+    "last_updated_iso8601": "2026-04-19T00:00:00Z",
+    "placeholder": true
+  },
+  "gpt-5.4": {
+    "input_usd_per_1k_tokens": 0.005,
+    "output_usd_per_1k_tokens": 0.015,
+    "last_updated_iso8601": "2026-04-19T00:00:00Z",
+    "placeholder": true
+  },
+  "claude-sonnet-4-6": {
+    "input_usd_per_1k_tokens": 0.003,
+    "output_usd_per_1k_tokens": 0.015,
+    "last_updated_iso8601": "2026-04-19T00:00:00Z",
+    "placeholder": true
+  },
+  "gemini-2.5-pro": {
+    "input_usd_per_1k_tokens": 0.00125,
+    "output_usd_per_1k_tokens": 0.005,
+    "last_updated_iso8601": "2026-04-19T00:00:00Z",
+    "placeholder": true
+  }
+}
