@@ -18,6 +18,7 @@ Pre-launch: **no data to preserve.** Tests build the schema from models (`Base.m
 |---|---|---|---|
 | `id` | int | PK | |
 | `user_id` | int | FK→users.id, NOT NULL, index | Owner. |
+| `nickname` | str(60)? | nullable | Optional user label to tell two same-provider logins apart ("Work"). Display falls back to the provider name. |
 | `provider` | `ConnectionProvider` | NOT NULL | claude / gemini / openai / hermes / openclaw. Fixed at connect time. |
 | `key_lookup` | str(64) | NOT NULL, unique, index | sha256 of the current key (`sk_conn_<hex>`). |
 | `prev_key_lookup` | str(64) | nullable, index | sha256 of the previous key during graceful reissue. |

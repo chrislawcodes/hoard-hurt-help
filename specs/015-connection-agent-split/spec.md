@@ -199,6 +199,30 @@ As Chris, I want the codebase and copy to stop calling a user's AI player a "bot
 
 ---
 
+## UI & Runner Surface
+
+Full text wireframes for every screen: **[wireframes.md](./wireframes.md)** (authoritative for layout + copy). Highlights:
+
+- **Navigation** gains two entries — **Connections** and **Agents** — replacing the single "My agents". Preset **Bots** (scripted opponents, formerly "Sims") are a labelled group, never under Connections.
+- **`/me/connections`** lists logins; each is shown as **provider + optional nickname**, with metadata **`● Live · PID <pid> · key …<hint>`** — the **PID shows only while the runner is live** (it's the process to kill; it changes on restart), and the key-hint is the stable fingerprint. A `pending` connection that never connects shows a "waiting to connect" state and is GC'd after 24h.
+- **Connection detail** holds the **runner setup message** (see runner copy below); reissue/revoke/pause/delete. The MCP-direct "Advanced" section is **removed**.
+- **`/me/agents`** lists competitors (name · game · model · current version · health). **"+ New agent"** is the combined flow (folds in connection-create when there is none).
+- **Agent detail** is state-driven (one next action) and adds a **Versions panel**: each version numbered + timestamped, with its model, strategy, and per-version rank; old versions retained.
+- **Leaderboard** rows are agents at their latest rated version (model shown); the "Sims" filter becomes **"Bots"**.
+- **Game viewer** shows in-match identity as **`handle/agent-name`** (+ model), replacing the old per-match "Alice_42" labels.
+
+### Runner download + setup prompt (the rename's user-visible effect)
+
+- The download is unchanged in form — one Python file via `curl … /runners/agentludum_agent.py`.
+- The **key changes to `sk_conn_<hex>`** (a connection key) and the runner sends header **`X-Connection-Key`**.
+- The pasted prompt reframes from per-bot to **per-connection** ("keep this running so it plays **all my agents'** games"), one session per match, only thinking on a turn.
+- The second, **MCP-direct paste path is deleted** — the runner is the only connect method.
+
+These UI requirements are normative:
+- **FR-025**: A connection MUST be displayed as provider (+ optional user nickname) with metadata `● Live · PID <pid> · key …<hint>`; the **PID is shown only while the runner is live**; the key-hint is always shown as the stable identifier.
+- **FR-026**: The connection setup message MUST use the `sk_conn_` key, the `X-Connection-Key` header, and per-connection wording ("plays all my agents' games"). The MCP-direct connect copy MUST NOT appear.
+- **FR-027**: The agent detail page MUST show a Versions panel — each version's number, creation timestamp, model, strategy, and rank — with older versions retained and viewable.
+
 ## Edge Cases
 
 - **Delete a connection that still powers agents** → block with a clear message, or require the agents be deleted/detached first (decision: block-and-explain; the user must remove its agents first). AI agents cannot be left "powered by nothing."
