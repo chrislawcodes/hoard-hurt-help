@@ -202,12 +202,12 @@ Write `docs/workflow/feature-runs/<slug>-comparison.md`:
 Append a new experiment entry to `experiments.md` in the repo root. Follow the
 format of the existing entries exactly.
 
-1. Determine the next experiment number (count existing `## Experiment N` headings + 1).
-2. Insert the new entry newest-first: above the most recent existing `## Experiment N` entry. If there are no entries yet, it becomes the first one (below the header and any "prior evidence" section).
-3. Use this template:
+1. Determine the next experiment number (count existing `## Experiment N` headings + 1). Experiments 1–6 are ValueRank prior data — **do not edit or renumber them**; new local experiments continue the sequence (7, 8, …).
+2. Insert the new entry newest-first: above the current top entry (the highest-numbered one).
+3. Tag the entry with the repo it ran in (`hoard-hurt-help`) in the heading, so it is never confused with the ValueRank baseline. Use this template:
 
 ```markdown
-## Experiment N — `<slug>` (<date YYYY-MM-DD>)
+## Experiment N — `<slug>` (hoard-hurt-help, <date YYYY-MM-DD>)
 
 **Feature:** <one sentence description>
 
@@ -230,9 +230,9 @@ format of the existing entries exactly.
 ```
 
 4. Update the **Running Tally** table at the bottom of `experiments.md`:
-   - Add a row for the new experiment.
-   - Update the **Pattern** sentence (data point count).
-   - Update the **Recommendation** bullets if the new result changes the guidance.
+   - Add a row for the new experiment, including the `Repo` column (`hoard-hurt-help`).
+   - Update the **Pattern** sentence (data point count) — and note how many points are local vs ValueRank.
+   - Update the **Recommendation** bullets if local data changes the guidance. Call out explicitly when local results agree with or contradict the ValueRank baseline.
 
 ---
 
