@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine.sim_presets import sim_preset_by_id
 from app.games import known_types
 from app.models.bot import Bot, BotKind
+from app.routes.bots_web_support import strip_archive_suffix
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
@@ -42,6 +43,8 @@ class LeaderboardRow:
     last_played_at: datetime | None
     is_sim: bool
     provisional: bool
+    is_archived: bool
+    archived_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,8 @@ class _Participant:
     display_name: str
     owner_handle: str | None
     is_sim: bool
+    is_archived: bool
+    archived_at: datetime | None
     round_wins: float
     total_score: int
     last_played_at: datetime
@@ -85,6 +90,8 @@ class _CompetitorState:
     match_count: int = 0
     last_played_at: datetime | None = None
     is_sim: bool = False
+    is_archived: bool = False
+    archived_at: datetime | None = None
     display_name: str = ""
     owner_handle: str | None = None
 
@@ -139,6 +146,8 @@ def _merge_same_key_participants(participants: list[_Participant]) -> list[_Part
                     display_name=group[0].display_name,
                     owner_handle=group[0].owner_handle,
                     is_sim=group[0].is_sim,
+                    is_archived=group[0].is_archived,
+                    archived_at=group[0].archived_at,
                     round_wins=avg_wins,
                     total_score=avg_score,
                     last_played_at=latest,
@@ -235,9 +244,11 @@ async def load_leaderboard_sections(
                 *bundle.participants,
                 _Participant(
                     competitor_key=_competitor_key(bot),
-                    display_name=_sim_display_name(bot) if bot.kind == BotKind.SIM else bot.name,
+                    display_name=_sim_display_name(bot) if bot.kind == BotKind.SIM else strip_archive_suffix(bot.name),
                     owner_handle=None if bot.kind == BotKind.SIM else user.handle,
                     is_sim=bot.kind == BotKind.SIM,
+                    is_archived=bot.archived_at is not None,
+                    archived_at=bot.archived_at,
                     round_wins=float(player.total_round_wins),
                     total_score=player.total_round_score,
                     last_played_at=match.completed_at or match.started_at or match.scheduled_start,
@@ -349,6 +360,8 @@ async def load_leaderboard_sections(
                         match_count=0,
                         last_played_at=None,
                         is_sim=participant.is_sim,
+                        is_archived=participant.is_archived,
+                        archived_at=participant.archived_at,
                         display_name=participant.display_name,
                         owner_handle=participant.owner_handle,
                     )
@@ -359,6 +372,8 @@ async def load_leaderboard_sections(
                     participant.last_played_at,
                 )
                 state.is_sim = participant.is_sim
+                state.is_archived = participant.is_archived
+                state.archived_at = participant.archived_at
                 state.display_name = participant.display_name
                 state.owner_handle = participant.owner_handle
                 states[participant.competitor_key] = state
@@ -387,6 +402,8 @@ async def load_leaderboard_sections(
                     last_played_at=state.last_played_at,
                     is_sim=state.is_sim,
                     provisional=state.match_count < 5,
+                    is_archived=state.is_archived,
+                    archived_at=state.archived_at,
                 )
             )
 

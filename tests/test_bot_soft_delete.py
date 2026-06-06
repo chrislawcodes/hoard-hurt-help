@@ -209,7 +209,7 @@ async def test_archiving_frees_name_for_reuse(client, reset_db):
     # The archived copy is renamed so the live name "Atlas" is free again.
     archived = await _get_bot(reset_db, bot_id)
     assert archived is not None
-    assert archived.name.startswith("Atlas (archived ")
+    assert archived.name.startswith("Atlas #")
     assert len(archived.name) <= 120
 
     # Creating a fresh "Atlas" now succeeds instead of 409-ing on the name.
@@ -236,8 +236,7 @@ async def test_archived_name_fits_120_char_column(client, reset_db):
     archived = await _get_bot(reset_db, bot_id)
     assert archived is not None
     assert len(archived.name) <= 120
-    assert archived.name.endswith(")")
-    assert "(archived " in archived.name
+    assert " #" in archived.name
 
 
 @pytest.mark.asyncio

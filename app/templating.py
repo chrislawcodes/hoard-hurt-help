@@ -10,6 +10,8 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.requests import Request
 
+from app.routes.bots_web_support import strip_archive_suffix
+
 
 def _nav_cta_context(request: Request) -> dict[str, object]:
     """Expose the smart Play CTA to every page.
@@ -64,6 +66,7 @@ def localdt(value: object) -> Markup:
 
 
 templates.env.filters["localdt"] = localdt
+templates.env.filters["strip_archive_suffix"] = strip_archive_suffix
 
 
 def reltime(value: object) -> str:

@@ -1,7 +1,6 @@
 """Bot-specific support for the self-serve web routes."""
 
 import re
-from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException
@@ -21,6 +20,12 @@ _BOT_NAME_RE = re.compile(r"^[a-zA-Z0-9 _-]{1,120}$")
 _BOT_NAME_ERROR = "Bot name must be 1–120 letters, numbers, spaces, _ or -."
 # Generic — never echoes the offending word back.
 _BOT_NAME_BLOCKED_ERROR = "That name isn't allowed. Pick a different one."
+
+# Strips the archived suffix from stored names for display — matches both
+# the old "(archived YYYY-MM-DD HH:MM [#id])" pattern and the newer "#id" suffix.
+_ARCHIVE_SUFFIX_RE = re.compile(
+    r"\s+\(archived\s[^)]+\)(?:\s*#\d+)?$|\s+#\d+$"
+)
 
 
 async def get_owned_bot(db: DbSession, user: User, bot_id: int) -> Bot:
@@ -43,10 +48,19 @@ def validate_bot_name(name: str) -> str:
     return name
 
 
-def archived_bot_name(base: str, archived_at: datetime, extra: str = "") -> str:
-    """Return a renamed-on-archive label that still fits the name column."""
-    suffix = f" (archived {archived_at:%Y-%m-%d %H:%M}{extra})"
+def archived_bot_name(base: str, bot_id: int) -> str:
+    """Return a renamed-on-archive label that still fits the name column.
+
+    Uses #{bot_id} as a compact, unique suffix — # is not allowed in
+    user-set names, so this never clashes with a live bot.
+    """
+    suffix = f" #{bot_id}"
     return f"{base[: 120 - len(suffix)]}{suffix}"
+
+
+def strip_archive_suffix(name: str) -> str:
+    """Remove the archived suffix added by archived_bot_name for display."""
+    return _ARCHIVE_SUFFIX_RE.sub("", name)
 
 
 async def bot_game_rows(db: DbSession, bot: Bot) -> list[dict[str, Any]]:

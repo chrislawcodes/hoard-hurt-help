@@ -67,8 +67,8 @@
                         <span class="lb-tag lb-tag-provisional">Provisional</span>
                         {% endif %}
                     </span>
-                    {% if row.owner_handle %}
-                    <span class="lb-owner mono">by @{{ row.owner_handle }}</span>
+                    {% if row.is_archived or row.owner_handle %}
+                    <span class="lb-owner mono">{% if row.is_archived %}archived {% if row.archived_at %}{{ row.archived_at.strftime('%m-%d-%Y') }}{% endif %}{% if row.owner_handle %} · {% endif %}{% endif %}{% if row.owner_handle %}by @{{ row.owner_handle }}{% endif %}</span>
                     {% endif %}
                 </span>
                 <span class="lb-num">{{ "%.0f" | format(row.rating) }}</span>
