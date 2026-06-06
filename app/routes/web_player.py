@@ -311,7 +311,7 @@ async def join_submit(
         .scalars()
         .all()
     )
-    seat_name = _seat_name(user.handle or user.name, selected_agent.name, existing_seats)
+    seat_name = _seat_name(user.handle or user.name or "", selected_agent.name, existing_seats)
     model_label = (
         f"{connection.provider.value}/{version.model}" if version.model else connection.provider.value
     )

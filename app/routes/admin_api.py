@@ -13,8 +13,8 @@ from sqlalchemy import select
 from app.deps import DbSession, require_admin
 from app.engine.tokens import generate_match_id
 from app.models.match import Match, GameState
+from app.models.agent_version import AgentVersion
 from app.models.player import Player
-from app.models.strategy_prompt import StrategyPrompt
 from app.models.user import User
 from app.read_models.matches import load_match_timeline
 from app.schemas.admin import CancelResponse, CreateGameRequest, GameRecord
@@ -135,21 +135,20 @@ async def export_json(
     )
     players_payload = []
     for p in players:
-        prompt = (
-            await db.execute(
-                select(StrategyPrompt)
-                .where(StrategyPrompt.player_id == p.id)
-                .order_by(StrategyPrompt.created_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+        version = None
+        if p.agent_version_id is not None:
+            version = (
+                await db.execute(
+                    select(AgentVersion).where(AgentVersion.id == p.agent_version_id)
+                )
+            ).scalar_one_or_none()
         players_payload.append(
             {
                 "agent_id": p.agent_id,
                 "model_self_report": p.model_self_report,
                 "total_round_wins": p.total_round_wins,
                 "total_round_score": p.total_round_score,
-                "strategy_prompt": prompt.prompt_text if prompt else None,
+                "strategy_prompt": version.strategy_text if version else None,
             }
         )
     rows = await _gather_export_rows(db, match_id)

@@ -153,7 +153,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         # play-by-play "lead change" beat.
         if t.round != inround_round:
             inround_round = t.round
-            inround = {p.agent_id: 0 for p in players}
+            inround = {p.seat_name: 0 for p in players}
         for a in actions:
             if a["action"] == "HOARD":
                 inround[a["agent_id"]] = inround.get(a["agent_id"], 0) + 2

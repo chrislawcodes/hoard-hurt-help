@@ -105,7 +105,7 @@ async def public_state(
         current_turn=g.current_turn,
         per_turn_deadline_seconds=g.per_turn_deadline_seconds,
         agents=[
-            SpectatorAgent(agent_id=p.agent_id, model_self_report=p.model_self_report)
+            SpectatorAgent(agent_id=p.seat_name, model_self_report=p.model_self_report)
             for p in players
         ],
         scoreboard=await load_scoreboard(db, match_id),
