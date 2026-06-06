@@ -88,7 +88,7 @@ async def google_callback(request: Request, db: DbSession):
             )
         ) or 0
         if bot_count == 0:
-            next_url = "/me/bots/new"
+            next_url = "/me/bots"
     return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
