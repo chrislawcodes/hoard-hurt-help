@@ -204,7 +204,7 @@ As Chris, I want the codebase and copy to stop calling a user's AI player a "bot
 Full text wireframes for every screen: **[wireframes.md](./wireframes.md)** (authoritative for layout + copy). Highlights:
 
 - **Navigation** gains two entries — **Connections** and **Agents** — replacing the single "My agents". Preset **Bots** (scripted opponents, formerly "Sims") are a labelled group, never under Connections.
-- **`/me/connections`** lists logins; each is shown as **provider + optional nickname**, with metadata **`● Live · PID <pid> · key …<hint>`** — the **PID shows only while the runner is live** (it's the process to kill; it changes on restart), and the key-hint is the stable fingerprint. A `pending` connection that never connects shows a "waiting to connect" state and is GC'd after 24h.
+- **`/me/connections`** lists logins; each is titled by its **nickname** (optional, **defaults to the provider name**), with metadata **`● <health> · PID <pid>`** — the **PID shows only while the runner is live** (the process to kill). **No key fingerprint is shown** (it's noise). A `pending` connection that never connects shows a "waiting to connect" state and is GC'd after 24h.
 - **Connection detail** holds the **runner setup message** (see runner copy below); reissue/revoke/pause/delete. The MCP-direct "Advanced" section is **removed**.
 - **`/me/agents`** lists competitors (name · game · model · current version · health). **"+ New agent"** is the combined flow (folds in connection-create when there is none).
 - **Agent detail** is state-driven (one next action) and adds a **Versions panel**: each version numbered + timestamped, with its model, strategy, and per-version rank; old versions retained.
@@ -213,19 +213,23 @@ Full text wireframes for every screen: **[wireframes.md](./wireframes.md)** (aut
 
 ### Runner download + setup prompt (the rename's user-visible effect)
 
-- The download is unchanged in form — one Python file via `curl … /runners/agentludum_agent.py`.
+- The download is unchanged in form — one Python file via `curl … /runners/agentludum_connector.py` (renamed from `agentludum_agent.py`, since "agent" is no longer the right word for the runner).
 - The **key changes to `sk_conn_<hex>`** (a connection key) and the runner sends header **`X-Connection-Key`**.
 - The pasted prompt reframes from per-bot to **per-connection** ("keep this running so it plays **all my agents'** games"), one session per match, only thinking on a turn.
 - The second, **MCP-direct paste path is deleted** — the runner is the only connect method.
 
 These UI requirements are normative:
-- **FR-025**: A connection MUST be displayed as provider (+ optional user nickname) with metadata `● Live · PID <pid> · key …<hint>`; the **PID is shown only while the runner is live**; the key-hint is always shown as the stable identifier.
-- **FR-026**: The connection setup message MUST use the `sk_conn_` key, the `X-Connection-Key` header, and per-connection wording ("plays all my agents' games"). The MCP-direct connect copy MUST NOT appear.
+- **FR-025**: A connection MUST be displayed by its **nickname** (user-editable, optional, **defaulting to the provider name**) with metadata `● <health> · PID <pid>`; the **PID is shown only while the runner is live**. The key fingerprint MUST NOT be shown (it is noise).
+- **FR-026**: The runner file MUST be named **`agentludum_connector.py`** (served at `/runners/agentludum_connector.py`). The connection setup message MUST use that file, the `sk_conn_` key, the `X-Connection-Key` header, and per-connection wording ("plays all my agents' games"). The MCP-direct connect copy MUST NOT appear.
 - **FR-027**: The agent detail page MUST show a Versions panel — each version's number, creation timestamp, model, strategy, and rank — with older versions retained and viewable.
+- **FR-028**: Creating an agent MUST happen on a **dedicated page** (`/me/agents/new`), not inline on the agents list.
+- **FR-029**: Deleting a connection MUST **detach** (not delete) its agents: each retains its name, versions, standings, and match history, enters a "needs a connection" state (paused, cannot join matches), and MUST be reattachable to another connection of the **same provider** to resume. The delete confirmation MUST warn that its agents will detach and be paused (their history kept). An agent in "needs a connection" state MUST surface a clear reattach action.
 
 ## Edge Cases
 
-- **Delete a connection that still powers agents** → block with a clear message, or require the agents be deleted/detached first (decision: block-and-explain; the user must remove its agents first). AI agents cannot be left "powered by nothing."
+- **Delete a connection that still powers agents** → **detach, don't destroy** (FR-029): its agents are kept (name, versions, standing, history) and move to a "needs a connection" state (paused); the user reattaches them to another same-provider connection to resume. The delete confirm warns about this. *(Revised from block-and-explain — an agent must survive a connection going away.)*
+- **A connection "goes bad"** → leaked key: revoke & reissue (connection survives, agents keep playing). Dead runner: restart it. Provider login broken: fix the CLI login; the runner resumes. Only an explicit delete detaches agents. So the answer to "can they put it back and keep their agents?" is **yes**.
+- **Reattach across providers** → an agent's current version pins a model; reattach is only offered to connections whose provider matches that model. To run the agent on a different provider, create a new version with a model from that provider.
 - **Provider change on a connection** → the connection's provider is effectively fixed by the login; changing it would invalidate every agent's model. Treat provider as set at connect time; to use another provider, make another connection. (No in-place provider switch in this cut.)
 - **Agent's model not valid for the connection's provider** → reject at save; only offer models for the connection's provider.
 - **Same connection, two agents in the same single match** → allowed; the play API disambiguates by `(agent_id, match_id)` + the agent-scoped token (FR-021), so moves never cross. NOT collapsed by `match_id`.
@@ -300,7 +304,7 @@ These UI requirements are normative:
 - **Provider on connection; (model + strategy) on a versioned agent** — an agent is an identity; each (model + strategy) it runs is a version with its own rating. Changing model or strategy makes a new version (once the current one has played), so a rank always names a fixed (model + strategy). *(Revised after review — resolves the earlier "different strategy = different agent" contradiction.)*
 - **MCP-direct connect path is dropped**, not reworked.
 - **"Bot" repurposed** from the old "Sim" concept; the standing "never say bot" rule is replaced by "agent = user's AI player; bot = scripted opponent."
-- **Delete-connection rule:** block while it still powers agents (user removes agents first). Chosen over cascade-delete to avoid surprise loss of competitors/standings.
+- **Delete-connection rule:** **detach** its agents (keep them, "needs connection", reattachable to a same-provider connection) — *not* block, *not* cascade-delete. An agent must survive its connection going away (FR-029).
 
 ---
 

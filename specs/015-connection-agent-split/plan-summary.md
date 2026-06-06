@@ -21,7 +21,7 @@
 | `app/routes/web_player.py` / `web_lobby.py` / `admin_web.py` / `web_viewer.py` / `nav_context.py` / `auth.py` | modify | agent/connection references; two nav entries |
 | `app/read_models/leaderboard.py` | modify | row = Agent; label model; ai/bot views |
 | `mcp_server/server.py` | modify | header/key naming (tools proxy same agent API) |
-| `scripts/agentludum_agent.py` | modify | key by connection; carry each agent's model per session |
+| `scripts/agentludum_agent.py` → `agentludum_connector.py` | rename+modify | key by connection; carry each agent's model per session |
 | `app/templates/connections/*` + `agents/*` | create | split from `bots/`; combined create flow; drop MCP-direct path |
 | `app/templates/bots/*` | delete | old templates |
 | `migrations/versions/0023_connection_agent_split.py` | create | destructive reshape (pre-launch) |

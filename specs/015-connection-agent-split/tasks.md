@@ -82,11 +82,11 @@
 - [ ] T019b [P: app/engine/connection_health.py] [US6] Compute live/stalled/ready from the connection across its agents (heartbeat, `stall_threshold`, paused) — replaces single-agent `bot_activity` health. (FR-024)
 - [ ] T019c [app/engine/pending_connection_gc.py or existing scheduler] [US1] Garbage-collect `pending` connections older than 24h. (FR-024)
 - [ ] T020 [P: app/routes/connections_credentials.py] [US6] reissue/revoke key (graceful overlap), report runner health.
-- [ ] T021 [P: app/routes/connections_lifecycle.py] [US6] pause/resume/delete a connection; **block delete while it powers agents** (clear message).
+- [ ] T021 [P: app/routes/connections_lifecycle.py] [US6] pause/resume/delete a connection; **delete DETACHES its agents** (keep name/versions/standing/history; set them to "needs connection" + paused) with a warning confirm; add **reattach** an agent to a same-provider connection. (FR-029)
 - [ ] T022 [P: app/templates/connections/list.html, app/templates/connections/detail.html, app/templates/connections/_health_badge.html, app/templates/connections/_reconnect.html] [US6] Connection templates (from `bots/` split); drop the MCP-direct "Advanced" section.
 
 ### Agents (US1, US5, US7)
-- [ ] T023 [P: app/routes/agents_setup.py] [US1] `/me/agents` list + **combined create flow** (no connection → provider→connect→name+model inline; has connection → pick-connection→name+model+strategy → creates agent + version 1) + detail (with version history). Model choice validated against `PROVIDER_MODELS` (FR-023).
+- [ ] T023 [P: app/routes/agents_setup.py] [US1] `/me/agents` list (clean, just a `[+ New agent]` button) + **dedicated create page `/me/agents/new`** (FR-028): combined flow (use existing connection OR connect a new AI inline → name → model → strategy → creates agent + version 1) + agent detail (with version history). Model validated against `PROVIDER_MODELS` (FR-023).
 - [ ] T024 [P: app/routes/agents_lifecycle.py] [US5] rename/pause/delete agent; edit model/strategy → **update the current version if unfrozen, else fork version N+1**; block edit while the version is mid-match; freeze a version when it first plays a rated match. (FR-010/011)
 - [ ] T025 [P: app/routes/agents_status.py] [US1] agent onboarding/status fragments (from `bots_status`).
 - [ ] T026 [P: app/templates/agents/list.html, app/templates/agents/detail.html, app/templates/agents/_status.html] [US1] Agent templates: combined create flow, state-driven detail, **version history + per-version rank**.
@@ -103,7 +103,7 @@
 
 **Goal**: The runner keys by connection and drives each agent's model; MCP naming updated; MCP-direct path gone.
 
-- [ ] T031 [scripts/agentludum_agent.py] Key by connection (`--key sk_conn_…`); read `agent_id`/`agent_name`/`model` from each next-turn payload; keep one session per (agent, match) with that agent's model.
+- [ ] T031 [scripts/agentludum_agent.py → scripts/agentludum_connector.py] **Rename** the runner file (served at `/runners/agentludum_connector.py`); key by connection (`--key sk_conn_…`, `X-Connection-Key`); read `agent_id`/`agent_name`/`model` from each next-turn payload; keep one session per (agent, match) with that agent's model.
 - [ ] T032 [P: mcp_server/server.py] Header/key naming (`X-Connection-Key`); tools proxy the same agent API (no MCP-direct connect path lives here to remove).
 - [ ] T033 [P: tests/test_runner_payload.py] Test the runner's per-agent model/session selection against a mocked next-turn payload (mock the model CLIs per constitution — no live calls).
 

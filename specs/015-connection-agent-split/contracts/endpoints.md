@@ -69,14 +69,16 @@ Wherever the game protocol, spectator viewer, or history previously exposed a pl
 |---|---|---|
 | `GET /me/bots` | `GET /me/agents` | list user's agents |
 | `GET /me/bots` (create form) | `GET /me/connections` | list user's connections |
-| `POST /me/bots` | `POST /me/agents` | create agent (combined flow: makes a connection inline if none) |
+| `POST /me/bots` | `GET /me/agents/new` + `POST /me/agents` | create agent on its **own page** (combined flow: connect a new AI inline if none) |
 | — | `POST /me/connections` | create a connection (pick provider → setup message) |
 | `GET /me/bots/{id}` | `GET /me/agents/{id}` | agent detail |
 | — | `GET /me/connections/{id}` | connection detail (runner status, agents it powers) |
 | `POST /me/bots/{id}/rename` | `POST /me/agents/{id}/rename` | |
 | `POST /me/bots/{id}/set-model` | `POST /me/agents/{id}/set-model` | model is per-agent (constrained to connection provider) |
 | `POST /me/bots/{id}/pause`/`resume` | `POST /me/agents/{id}/pause`/`resume` AND `POST /me/connections/{id}/pause`/`resume` | agent-level and connection-level |
-| `POST /me/bots/{id}/delete` | `POST /me/agents/{id}/delete` AND `POST /me/connections/{id}/delete` | deleting a connection that still powers agents ⇒ blocked w/ message |
+| `POST /me/bots/{id}/delete` | `POST /me/agents/{id}/delete` AND `POST /me/connections/{id}/delete` | deleting a connection **detaches** its agents (kept, "needs connection") — warn, don't block |
+| — | `POST /me/agents/{id}/attach` | attach/reattach an agent to a same-provider connection (FR-029) |
+| runner download | `GET /runners/agentludum_connector.py` | renamed from `agentludum_agent.py` |
 | `POST /me/bots/{id}/reissue`/`revoke` | `POST /me/connections/{id}/reissue`/`revoke` | keys belong to connections |
 | `GET /me/bots/{id}/status`/`stream`/`health-badge` | `GET /me/agents/{id}/status` + `GET /me/connections/{id}/health-badge`/`stream` | onboarding vs login health |
 | strategy edit (`/me/players/{id}/strategy`) | `POST /me/agents/{id}/strategy` | strategy on the agent; blocked while in an active match; snapshot at match start |

@@ -103,7 +103,7 @@ app/routes/
   agent_api.py             MODIFY  — resolve player via (connection→agent) ; submit/turn/state/leave
   connections_setup.py     CREATE  — /me/connections list + create + detail (from bots_setup split)
   connections_credentials.py CREATE — reissue/revoke/runner status (from bots_credentials)
-  connections_lifecycle.py CREATE  — pause/resume/delete a connection (block delete if it powers agents)
+  connections_lifecycle.py CREATE  — pause/resume/delete a connection (delete DETACHES its agents, keeps them) + reattach an agent to a connection
   agents_setup.py          CREATE  — /me/agents list + combined create flow + detail
   agents_lifecycle.py      CREATE  — rename/pause/delete an agent, set model/strategy
   agents_status.py         CREATE  — agent onboarding/health fragments (from bots_status)
@@ -117,7 +117,7 @@ app/routes/
 
 app/read_models/leaderboard.py  MODIFY — a row = an Agent; label model; ai vs bot views
 mcp_server/server.py            MODIFY — header/key naming; tools proxy the same agent API (no MCP-direct path to remove here)
-scripts/agentludum_agent.py     MODIFY — key by connection; carry each agent's model per session
+scripts/agentludum_agent.py → agentludum_connector.py  RENAME+MODIFY — key by connection; carry each agent's model per session (served at /runners/agentludum_connector.py)
 
 app/templates/
   connections/  CREATE  — list/detail/_health_badge/_reconnect

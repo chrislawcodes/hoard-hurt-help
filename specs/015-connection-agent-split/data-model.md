@@ -58,7 +58,7 @@ Pre-launch: **no data to preserve.** Tests build the schema from models (`Base.m
 | **Bot config** (kind=bot only) | | | Former `sim_*` fields; a bot is single-version so these stay on the agent. |
 | `bot_profile_id`/`bot_profile_name`/`bot_strategy`/`bot_truthfulness`/`bot_trust_model`/`bot_seed`/`bot_version`/`bot_fixture_pack` | (as before) | nullable | (was `sim_*`) |
 
-**Constraints**: `UNIQUE(user_id, name)`; `UNIQUE(user_id, bot_profile_id)`. Invariant (app + CHECK): `kind=ai ⇒ connection_id NOT NULL`; `kind=bot ⇒ connection_id NULL`.
+**Constraints**: `UNIQUE(user_id, name)`; `UNIQUE(user_id, bot_profile_id)`. Invariant: `kind=bot ⇒ connection_id NULL` (always). `kind=ai` normally has a connection, but `connection_id` is **nullable** so an AI agent can be **detached** (its connection was deleted) — a detached agent is paused, shows "needs a connection," and cannot join matches until reattached to a same-provider connection (FR-029). It keeps all its versions/standings while detached.
 
 ---
 

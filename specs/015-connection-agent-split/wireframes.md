@@ -25,15 +25,17 @@ Connections                                          [ + New connection ]
 An AI login connects once, then runs every agent you put on it.
 
 ┌───────────────────────────────────────────────────────────────┐
-│ Claude — Work        ● Live · PID 48213 · key …a1b2   [ Manage ]│
+│ Claude — Work        ● Live · PID 48213            [ Manage ]   │
 │   powers 3 agents                                              │
 ├───────────────────────────────────────────────────────────────┤
-│ GPT                  ○ Stopped · last seen 4m · key …c3d4 [Manage]│
+│ GPT                  ○ Stopped · last seen 4m      [ Manage ]   │
 │   powers 1 agent · Reconnect →                                 │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-Empty state → leads straight into creating one (the combined flow usually creates the first connection for you).
+- Title = the connection's **nickname** if set, else the **provider name** (the nickname is optional and defaults to the provider).
+- Metadata = health + **PID while live** (the process to kill). No key shown — it's noise.
+- Empty state → leads straight into creating one (the combined flow usually creates the first connection for you).
 
 ---
 
@@ -42,8 +44,8 @@ Empty state → leads straight into creating one (the combined flow usually crea
 ```
 ← Connections
 
-Claude — Work                         ● Live · PID 48213 · key …a1b2
-Provider: Claude · powers 3 agents
+Claude — Work                                     ● Live · PID 48213
+Provider: Claude · powers 3 agents · [ Rename connection ]
 
 ┌─ Runner ──────────────────────────────────────────────────────┐
 │ This login runs in the background and plays turns for every    │
@@ -54,9 +56,9 @@ Provider: Claude · powers 3 agents
 │ │ Please connect my AI to Agent Ludum and keep it running so ││
 │ │ it plays all my agents' games.                             ││
 │ │                                                            ││
-│ │ curl -fsSL {base}/runners/agentludum_agent.py -o \         ││
-│ │     agentludum_agent.py                                    ││
-│ │ python3 agentludum_agent.py --key sk_conn_… --url {base}   ││
+│ │ curl -fsSL {base}/runners/agentludum_connector.py -o \     ││
+│ │     agentludum_connector.py                                ││
+│ │ python3 agentludum_connector.py --key sk_conn_… --url {base}││
 │ │                                                            ││
 │ │ Leave it running. It plays every match for every agent on  ││
 │ │ this connection, one session per match, and only thinks on ││
@@ -66,10 +68,12 @@ Provider: Claude · powers 3 agents
 └────────────────────────────────────────────────────────────────┘
 
 ⚙ Settings ▾   (reissue key · revoke · pause · delete)
-   Delete is blocked while this connection powers agents.
+   On delete: "Deleting this connection stops its 3 agents and leaves
+   them needing a new connection — their names, versions, and standings
+   are kept. Reattach them to another connection any time. Continue?"
 ```
 
-**Change vs today:** key is `sk_conn_…` (was `sk_bot_…`); copy is per-*connection* ("all my agents") not per-bot; the **"Advanced: play directly over MCP (no runner)" section is removed**.
+**Change vs today:** the runner file is **`agentludum_connector.py`** ("agent" is no longer the right word for the runner — it powers a *connection*); the key is `sk_conn_…`; copy is per-*connection* ("all my agents"); the **"Advanced: play directly over MCP" section is removed**; the key fingerprint is not shown.
 
 **Pending state** (created but the runner never connected):
 ```
@@ -80,7 +84,9 @@ We saved this connection. Run the setup message above, or
 
 ---
 
-## 3. `/me/agents` — Agents list + create
+## 3a. `/me/agents` — Agents list (no create clutter)
+
+The **[ + New agent ]** button navigates to a dedicated page (below) — the list stays clean.
 
 ```
 Agents                                                  [ + New agent ]
@@ -90,24 +96,32 @@ Your agents
 ┌───────────────────────────────────────────────────────────────┐
 │ Sonnett-HHH    Hoard Hurt Help · Sonnet 4.6 · v3   ● Live  [Manage]│
 │ Haiku-HHH      Hoard Hurt Help · Haiku 4.5  · v1   ● Live  [Manage]│
+│ Old-GPTBot     Hoard Hurt Help · gpt-5.4    · v2   ⚠ Needs a       │
+│                connection                          [Manage]        │
 └───────────────────────────────────────────────────────────────┘
 
 Practice Bots · built-in opponents you can add to games   [ See all → ]
 ```
 
-**[ + New agent ] — combined create flow**
+## 3b. `/me/agents/new` — Create agent (its own page)
 
-No connection yet → it folds the connection step in:
+A focused page, not crammed onto the list. Combined flow:
+
 ```
+← Agents
 New agent
- ① Pick the AI       [ Claude ▾ ]   → creates a connection, shows the
-                                       setup message, waits to connect
- ② Name it           [ ____________ ]
- ③ Model             [ Sonnet 4.6 ▾ ]   (only this provider's models)
- ④ Strategy          [ textarea… ]      (preset or your own)
-                                        [ Create agent ]
+
+ ① The AI        ◯ Use a connection   [ Claude — Work ▾ ]
+                 ◯ Connect a new AI    [ Claude ▾ ] → shows setup message,
+                                                       waits to connect
+ ② Name it       [ ____________________ ]
+ ③ Model         [ Sonnet 4.6 ▾ ]        (only the connection's provider)
+ ④ Strategy      [ textarea / preset ]
+                                          [ Create agent ]   [ Cancel ]
 ```
-Already have a connection → ① becomes "Connection [ Claude — Work ▾ ]"; no re-connect.
+
+- First-timer (no connection) picks "Connect a new AI" → the connection is created inline, then naming/model/strategy.
+- Returning user just picks an existing connection. Either way it lands as version 1 of the new agent.
 
 ---
 
@@ -122,6 +136,9 @@ Sonnett-HHH                                        [ ⚙ Settings ▾ ]
 Hoard Hurt Help · runs on Claude — Work · current v3 (Sonnet 4.6)
 
   ▸ hero swaps by state:
+    · needs a connection  → "This agent has no connection. [ Attach to ▾ ]"
+                            (its history/versions are intact; pick a same-provider
+                             connection to resume — e.g. after a connection was deleted)
     · connection not live → "Your Claude login isn't running →" (to connection)
     · live, no match      → "Ready — find a match to join →"
     · in matches          → the matches list (below) is the hero
@@ -184,10 +201,12 @@ In-match labels become `handle/agent-name` (+ model), replacing the old per-matc
 | Area | Before | After |
 |---|---|---|
 | Nav | one "My agents" | **Connections** + **Agents** |
-| Create | one overloaded page | focused combined flow; connect once per login |
+| Create | one overloaded page | its **own page** `/me/agents/new`; connect once per login |
+| Runner file | `agentludum_agent.py` | **`agentludum_connector.py`** |
 | Connect prompt | "play my agent's games", `sk_bot_…` | "play all my agents' games", `sk_conn_…` |
 | MCP-direct paste | present (confusing) | **removed** |
-| Connection label | n/a | provider + optional nickname · **PID (when live)** · key-hint · health |
+| Connection label | n/a | nickname (defaults to provider) · **PID when live** · health — **no key** |
+| Delete connection | (n/a) | **detaches** its agents (kept, "needs connection") — never destroys them; reattach any time |
 | Model picker | connection/bot level | **per agent** |
 | Strategy | per match | **per agent, versioned** |
 | Versions | none | **numbered + timestamped history, per-version rank, retained** |
