@@ -323,24 +323,36 @@ def upgrade() -> None:
         )
 
     # Reattach the dependent FKs to the new players table.
+    # Nullable columns: clear stale refs so PostgreSQL's validation scan passes.
+    op.execute(sa.text("UPDATE matches SET winner_player_id = NULL"))
+    op.execute(sa.text("UPDATE turn_submissions SET target_player_id = NULL"))
     with op.batch_alter_table("matches") as batch_op:
         batch_op.create_foreign_key(
             "fk_games_winner_player_id_players", "players", ["winner_player_id"], ["id"]
         )
     with op.batch_alter_table("turn_submissions") as batch_op:
         batch_op.create_foreign_key(
-            "fk_turn_submissions_player_id_players", "players", ["player_id"], ["id"]
-        )
-        batch_op.create_foreign_key(
             "fk_turn_submissions_target_player_id_players",
             "players",
             ["target_player_id"],
             ["id"],
         )
-    with op.batch_alter_table("turn_messages") as batch_op:
-        batch_op.create_foreign_key(
-            "fk_turn_messages_player_id_players", "players", ["player_id"], ["id"]
+    # player_id is NOT NULL on both tables — use NOT VALID to skip the integrity
+    # scan on rows that pre-date this migration (old bot-based player IDs are gone).
+    op.execute(
+        sa.text(
+            "ALTER TABLE turn_submissions"
+            " ADD CONSTRAINT fk_turn_submissions_player_id_players"
+            " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
         )
+    )
+    op.execute(
+        sa.text(
+            "ALTER TABLE turn_messages"
+            " ADD CONSTRAINT fk_turn_messages_player_id_players"
+            " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+        )
+    )
 
 
 def downgrade() -> None:
@@ -386,21 +398,30 @@ def downgrade() -> None:
     _create_old_strategy_prompts_table()
 
     # Reattach the dependent FKs to the restored players table.
+    op.execute(sa.text("UPDATE matches SET winner_player_id = NULL"))
+    op.execute(sa.text("UPDATE turn_submissions SET target_player_id = NULL"))
     with op.batch_alter_table("matches") as batch_op:
         batch_op.create_foreign_key(
             "fk_games_winner_player_id_players", "players", ["winner_player_id"], ["id"]
         )
     with op.batch_alter_table("turn_submissions") as batch_op:
         batch_op.create_foreign_key(
-            "fk_turn_submissions_player_id_players", "players", ["player_id"], ["id"]
-        )
-        batch_op.create_foreign_key(
             "fk_turn_submissions_target_player_id_players",
             "players",
             ["target_player_id"],
             ["id"],
         )
-    with op.batch_alter_table("turn_messages") as batch_op:
-        batch_op.create_foreign_key(
-            "fk_turn_messages_player_id_players", "players", ["player_id"], ["id"]
+    op.execute(
+        sa.text(
+            "ALTER TABLE turn_submissions"
+            " ADD CONSTRAINT fk_turn_submissions_player_id_players"
+            " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
         )
+    )
+    op.execute(
+        sa.text(
+            "ALTER TABLE turn_messages"
+            " ADD CONSTRAINT fk_turn_messages_player_id_players"
+            " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+        )
+    )
