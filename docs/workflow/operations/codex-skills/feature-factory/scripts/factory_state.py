@@ -220,6 +220,7 @@ def default_discovery_state() -> dict:
         "answers": {},
         "non_goals": [],
         "acceptance_criteria": [],
+        "checklist": {"goal": "", "audience": "", "constraints": ""},
         "unresolved": [],
     }
 

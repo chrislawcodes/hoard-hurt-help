@@ -87,7 +87,7 @@ Do not duplicate checkpoint manifest logic, review file validation, diff writing
 
 | Phase | Task | Claude Orchestrator | Codex Orchestrator |
 |---|---|---|---|
-| Discovery | Ask clarifying questions one at a time, record assumptions, determine if spec is stable enough to proceed | Claude | Codex |
+| Discovery | Ask clarifying questions one at a time, record assumptions, and fill the **required discovery checklist** (goal, audience, success criteria, non-goals, constraints/risks) — `discover --complete` is gated on it for real runs. | Claude | Codex |
 | Write spec | Research real file paths in codebase, author `spec.md` with scope boundaries and acceptance criteria | Claude (research) · Codex (file paths) | Gemini (research) · Codex (authors) |
 | Spec checkpoint | Adversarial attack on spec, semantic review, reconcile findings into spec | Codex (1 adversarial review: `feasibility`) · Gemini (1 adversarial review: `requirements`) · Claude (reconciles) | Codex (1 adversarial review: `feasibility`) · Gemini (1 adversarial review: `requirements`) · Codex (reconciles, escalates blockers to human) |
 | Design · Reuse audit (no-duplication) | **Sub-agent** scans the codebase (guided by the scoped architecture doc) for existing modules/functions that overlap what the feature needs. Writes `reuse-report.md` — each overlap → `reuse` / `extend` / `justified-new`. The plan MUST address every entry. See "Architecture awareness" below. | Claude (spawns a Task sub-agent) | Codex (`codex exec` read-only sub-session) |

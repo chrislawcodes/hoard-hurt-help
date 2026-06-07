@@ -139,7 +139,7 @@ shape; the SKILL.md is the contract.
 
 | Stage | What it produces | Why it exists |
 |---|---|---|
-| **Discovery** | Resolved questions or stated assumptions | Stop bad requirements from entering the spec |
+| **Discovery** | Resolved questions/assumptions + a **required checklist** (goal, audience, success criteria, non-goals, constraints/risks) | Stop bad requirements from entering the spec — and force the basics to be answered every run, not left to the agent's discretion |
 | **Spec** | `spec.md` (scope, acceptance criteria) | A reviewable statement of *what* and *why* |
 | **Spec checkpoint** | Reconciled review findings | Attack the spec before any design work |
 | **Design — reuse audit** | `reuse-report.md` (reuse / extend / justified-new per capability) | Don't rebuild existing functionality |
