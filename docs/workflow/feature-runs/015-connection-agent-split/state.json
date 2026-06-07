@@ -393,7 +393,7 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 4,
+    "index": 5,
     "markers_sha": "5ce9062252414454507d9049868105dc810dd46b7d589e27c4f5f10c6dc29826",
     "last_diff_head_sha": "512dbd48ee3d44a62fd36be505450b9dc2e1a079"
   },
