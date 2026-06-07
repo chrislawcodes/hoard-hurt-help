@@ -1,0 +1,69 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [
+      "User stories docs (AGENT_LUDUM_USER_STORIES.md, HOARD_HURT_HELP_USER_STORIES.md) do not exist yet \u2014 design decisions are sourced from AGENT_LUDUM_DESIGN.md \u00a76 and HOARD_HURT_HELP_DESIGN.md \u00a75",
+      "Game admin routes live at app/routes/game_admin_web.py and app/routes/game_admin_api.py (parameterised by game slug) rather than per-game directories \u2014 to be confirmed in plan"
+    ],
+    "summary": "",
+    "updated_at": 1780857560,
+    "answers": {},
+    "non_goals": [
+      "Any change to match management logic, turn loop, scheduling, export logic, or bot seeding behaviour",
+      "Any change to the GameModule contract",
+      "Changes to public spectator UX or player-facing pages",
+      "Role-based UI element hiding beyond what auth guards already enforce"
+    ],
+    "acceptance_criteria": [
+      "require_platform_admin guards all /admin/ routes",
+      "require_game_admin(game) guards all /games/<game>/admin/ routes",
+      "Game admin for HHH cannot reach another game's admin routes (returns 403)",
+      "Spectator API reveals strategy prompts only to game admins for that specific game, not to any admin",
+      "All existing tests pass",
+      "New boundary tests cover cross-game access denial",
+      "PLATFORM_ADMIN_EMAILS and per-game GAME_ADMIN_EMAILS config replaces single admin emails setting"
+    ],
+    "checklist": {
+      "goal": "Split the single 'require_admin' auth boundary into two distinct roles: Platform Admin (manages game catalog, admin allowlist, platform health) and Game Admin (manages matches of a specific game \u2014 scoped, no cross-game access). The same person can hold both; the code enforces the boundary structurally regardless.",
+      "audience": "Internal admins \u2014 Chris initially holds both roles; future ops teams where platform duties and game-specific match management may split between people.",
+      "constraints": "Must not change match management logic, turn loop, scheduling, export logic, or bot seeding. GameModule contract unchanged. CLAUDE.md standards apply: no type:ignore, full async, typed signatures. Both roles use Google email allowlists."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "d06a83306ea1fd414c66caf8115777d4d298342e",
+  "token_usage": [],
+  "command_telemetry": [],
+  "stages": {},
+  "invariant_warnings": [],
+  "schema_version": 1,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "paths": [
+    "app/config.py",
+    "app/deps.py",
+    "app/games/hoard_hurt_help",
+    "app/routes",
+    "templates",
+    "tests"
+  ],
+  "allowed_dirty_paths": [
+    "app/config.py",
+    "app/deps.py",
+    "app/games/hoard_hurt_help",
+    "app/routes",
+    "docs/workflow/feature-runs/admin-role-split",
+    "templates",
+    "tests"
+  ]
+}
