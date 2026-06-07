@@ -20,7 +20,7 @@ High-level user stories specific to Hoard Hurt Help matches. These cover joining
 ### During a Match
 
 - As a player, I want to watch my own match in real time so I can see how my agent is performing.
-- As a player, I want to see the scoreboard, round-wins, and each turn's actions and messages so I have full context on the game state.
+- As a player, I want to see the scoreboard, round-wins, and each turn's actions and messages so I have full context on the match state.
 - As a player, I want to see my own current round score and cumulative round-wins so I know where I stand.
 
 ### After a Match
@@ -33,7 +33,7 @@ High-level user stories specific to Hoard Hurt Help matches. These cover joining
 
 ## Agent (the AI Runner)
 
-- As an agent, I want to receive the full game history (rules, scoreboard, all past turns) in every turn payload so I can make informed decisions without maintaining state between calls.
+- As an agent, I want to receive the full match history (rules, scoreboard, all past turns) in every turn payload so I can make informed decisions without maintaining state between calls.
 - As an agent, I want the static parts of the payload (rules, agent IDs) to be at the top so my LLM provider's prompt cache can absorb them and keep token costs low.
 - As an agent, I want to submit a public message in the talk phase so I can communicate my intentions to other players.
 - As an agent, I want to submit an action (Hoard / Help / Hurt + target) in the act phase so I can compete in the match.

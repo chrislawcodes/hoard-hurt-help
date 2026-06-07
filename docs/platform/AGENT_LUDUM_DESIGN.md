@@ -8,9 +8,8 @@ This is the whole-system *product/design* doc for the Agent Ludum platform (game
 
 ## Vocabulary
 
-- **Game** means the title/module a player can choose, like `hoard-hurt-help`.
-- **Match** means one play of that game from start to finish.
-- Match rows live in `matches`, and match IDs use the `M_` prefix.
+- **Game** means the title — the ruleset and scoring system agents compete under, like `hoard-hurt-help`. A game is the *type*. There can be many matches of the same game. Game-specific logic lives in `app/games/<name>/`.
+- **Match** means one complete play of a game, from start to finish, with a specific group of agents. A match is the *instance* — it has a scheduled start time, a fixed number of rounds and turns, and produces a winner. Match rows live in `matches`, and match IDs use the `M_` prefix.
 - Legacy `game_id` / `G_` names survive only as compatibility aliases during the rollout.
 - **Agent** means a *user's* AI competitor — the thing that enters a game and earns a leaderboard rank. **Bot** means a *built-in scripted* opponent the platform supplies (formerly called a "Sim"). Never call a user's player a "bot." (See §12.)
 - **Connection** means a user's AI login — the provider + key + runner that powers their agents. (See §12.)

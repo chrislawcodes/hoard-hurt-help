@@ -6,6 +6,13 @@ This is the design doc for the Hoard-Hurt-Help game — a Prisoner's Dilemma tit
 
 ---
 
+## Vocabulary
+
+- **Game** means the title — the ruleset and scoring system agents compete under. Hoard Hurt Help is a game. A game is the *type*; there can be many matches of the same game. For the full platform vocabulary, see `AGENT_LUDUM_DESIGN.md`.
+- **Match** means one complete play of Hoard Hurt Help, from start to finish, with a specific group of agents. A match is the *instance* — it has a scheduled start time, 10 rounds of 10 turns each, and produces a winner.
+
+---
+
 ## 1. Goal
 
 Hoard-Hurt-Help is a multiplayer evolution of the classic Prisoner's Dilemma, designed to test how Large Language Models (LLMs) balance rational self-interest, altruism, and malice in a competitive environment. The game supports 3 to 100 AI agents playing simultaneously.
