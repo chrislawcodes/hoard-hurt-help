@@ -47,7 +47,19 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "AGENTS.md",
+      "MOBILE_UX_ISSUES.md",
+      "_wireframe_nav_smart_cta.png",
+      "_wireframe_nav_smart_cta.svg",
+      "agentludum_agent_codex.py",
+      "scripts",
+      "specs/009-game-match-vocabulary"
+    ],
+    "used": true,
+    "updated_at": 1780860332
+  },
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -276,6 +288,24 @@
       "agent_id": null,
       "artifact_sha_at_time": "3f475ac9097cf8344ac479e58b9f231aa4571b98690d7640162877bf49b2b55c",
       "parse_error": "no Codex token block found in stderr"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 10431,
+      "prompt_cap": 250000,
+      "input_tokens": 15234,
+      "output_tokens": 567,
+      "cost_usd_estimate": 0.004659,
+      "timestamp": "2026-06-07T19:25:41.361157Z",
+      "started_at": "2026-06-07T19:25:32.563224Z",
+      "ended_at": "2026-06-07T19:25:41.361157Z",
+      "duration_seconds": 8.797847,
+      "agent_id": null,
+      "artifact_sha_at_time": "c3921e442485f5a92d1a44e9b2239f8cccc116a384fc759808fb9f21f0718413"
     }
   ],
   "command_telemetry": [
@@ -566,6 +596,138 @@
       "files_written": 2,
       "subprocess_invocations": 12,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:19:27Z",
+      "wall_seconds": 0.127,
+      "input_bytes_read": 72178,
+      "output_bytes_written": 42168,
+      "files_read": 4,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:19:34Z",
+      "wall_seconds": 0.129,
+      "input_bytes_read": 73120,
+      "output_bytes_written": 42796,
+      "files_read": 4,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:19:38Z",
+      "wall_seconds": 0.129,
+      "input_bytes_read": 74062,
+      "output_bytes_written": 43424,
+      "files_read": 4,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:19:47Z",
+      "wall_seconds": 0.13,
+      "input_bytes_read": 75004,
+      "output_bytes_written": 44052,
+      "files_read": 4,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:19:52Z",
+      "wall_seconds": 0.133,
+      "input_bytes_read": 75943,
+      "output_bytes_written": 44678,
+      "files_read": 4,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:22:09Z",
+      "wall_seconds": 0.131,
+      "input_bytes_read": 76885,
+      "output_bytes_written": 45306,
+      "files_read": 4,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:25:06Z",
+      "wall_seconds": 0.129,
+      "input_bytes_read": 77827,
+      "output_bytes_written": 45934,
+      "files_read": 4,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:25:41Z",
+      "wall_seconds": 9.229,
+      "input_bytes_read": 174719,
+      "output_bytes_written": 119443,
+      "files_read": 8,
+      "files_written": 6,
+      "subprocess_invocations": 14,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-07T19:26:45Z",
+      "wall_seconds": 0.436,
+      "input_bytes_read": 64137,
+      "output_bytes_written": 0,
+      "files_read": 8,
+      "files_written": 0,
+      "subprocess_invocations": 34,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:26:53Z",
+      "wall_seconds": 0.144,
+      "input_bytes_read": 87579,
+      "output_bytes_written": 50318,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-07T19:28:01Z",
+      "wall_seconds": 0.197,
+      "input_bytes_read": 88521,
+      "output_bytes_written": 50946,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -605,6 +767,14 @@
         "ecea8c4dc37a1302cb9117dd306d6911fbf515b2bbbe1880e9868fa253d9a3cf"
       ],
       "initial_sha": "ecea8c4dc37a1302cb9117dd306d6911fbf515b2bbbe1880e9868fa253d9a3cf"
+    },
+    "diff": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "c3921e442485f5a92d1a44e9b2239f8cccc116a384fc759808fb9f21f0718413"
+      ],
+      "initial_sha": "c3921e442485f5a92d1a44e9b2239f8cccc116a384fc759808fb9f21f0718413"
     }
   },
   "invariant_warnings": [],
@@ -629,5 +799,6 @@
       "head_sha": "e9c316bb0db5f017c9ae0dc55f2af8bcbe7f576a"
     }
   ],
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 0
 }

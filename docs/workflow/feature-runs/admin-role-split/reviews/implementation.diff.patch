@@ -1,0 +1,249 @@
+diff --git a/app/config.py b/app/config.py
+index f310029..4e52700 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -4,11 +4,15 @@ Single source of truth for runtime config. Other modules import
+ `settings` from here; nothing else should touch `os.environ`.
+ """
+ 
++import logging
++import os
+ from functools import lru_cache
+ 
+-from pydantic import Field, field_validator
++from pydantic import Field, PrivateAttr, field_validator, model_validator
+ from pydantic_settings import BaseSettings, SettingsConfigDict
+ 
++_log = logging.getLogger(__name__)
++
+ 
+ class Settings(BaseSettings):
+     """Runtime configuration."""
+@@ -39,9 +43,32 @@ class Settings(BaseSettings):
+     # HTTPS; leave false for local http dev.
+     cookie_secure: bool = Field(default=False)
+ 
+-    # Comma-separated list of emails with admin powers.
++    # --- Admin role split ---
++    # Platform admin: game catalog, user handles, incidents.
++    platform_admin_emails: str = Field(default="")
++    # Game admin: per-game match creation, strategy prompts, export.
++    # Set GAME_ADMIN_EMAILS__HOARD_HURT_HELP=alice@example.com for each game.
++    # (Populated at construction time via _collect_game_admin_emails below.)
++
++    # Compatibility: legacy single-role admin list. Kept as fallback while
++    # PLATFORM_ADMIN_EMAILS / GAME_ADMIN_EMAILS__* are being rolled out.
++    # Remove this field once all prod env vars are updated.
+     admin_emails: str = Field(default="")
+ 
++    # Internal storage populated by _collect_game_admin_emails validator; not an env var.
++    _game_admin_emails_raw: dict[str, str] = PrivateAttr(default_factory=dict)
++
++    @model_validator(mode="after")
++    def _collect_game_admin_emails(self) -> "Settings":
++        """Scan os.environ for GAME_ADMIN_EMAILS__* and populate _game_admin_emails_raw."""
++        prefix = "GAME_ADMIN_EMAILS__"
++        result: dict[str, str] = {}
++        for k, v in os.environ.items():
++            if k.upper().startswith(prefix):
++                result[k[len(prefix):].upper()] = v  # e.g. "HOARD_HURT_HELP" → value
++        self._game_admin_emails_raw = result
++        return self
++
+     @field_validator("database_url")
+     @classmethod
+     def _force_async_driver(cls, v: str) -> str:
+@@ -64,9 +91,48 @@ class Settings(BaseSettings):
+ 
+     @property
+     def admin_emails_set(self) -> set[str]:
+-        """Normalized lowercased set of admin emails."""
++        """Normalized lowercased set of admin emails (legacy; prefer platform_admin_emails_set)."""
+         return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
+ 
++    @property
++    def platform_admin_emails_set(self) -> set[str]:
++        """Platform admins. Falls back to admin_emails during compat window."""
++        raw = self.platform_admin_emails or self.admin_emails
++        if not raw:
++            return set()
++        if self.platform_admin_emails == "" and self.admin_emails:
++            _log.warning(
++                "ADMIN_EMAILS fallback active — set PLATFORM_ADMIN_EMAILS to remove"
++            )
++        return {e.strip().lower() for e in raw.split(",") if e.strip()}
++
++    def game_admin_emails_for(self, game: str) -> set[str]:
++        """Return the game-admin email set for a slug like 'hoard-hurt-help'.
++
++        Normalizes slug → uppercase with underscores to look up the env var suffix.
++        Falls back to admin_emails during the compat window.
++        """
++        key = game.upper().replace("-", "_")
++        raw = self._game_admin_emails_raw.get(key, "")
++        if not raw and self.admin_emails:
++            _log.warning(
++                "ADMIN_EMAILS fallback active for game %s — set GAME_ADMIN_EMAILS__%s",
++                game,
++                key,
++            )
++            raw = self.admin_emails
++        if not raw:
++            return set()
++        return {e.strip().lower() for e in raw.split(",") if e.strip()}
++
++    @property
++    def all_game_admin_emails_set(self) -> set[str]:
++        """Union of all game-admin emails across every configured game."""
++        result: set[str] = set()
++        for raw in self._game_admin_emails_raw.values():
++            result.update(e.strip().lower() for e in raw.split(",") if e.strip())
++        return result
++
+ 
+ @lru_cache
+ def get_settings() -> Settings:
+diff --git a/app/deps.py b/app/deps.py
+index 1b27965..e2998da 100644
+--- a/app/deps.py
++++ b/app/deps.py
+@@ -81,6 +81,44 @@ async def require_admin(request: Request, db: DbSession) -> User:
+     return user
+ 
+ 
++async def require_platform_admin(request: Request, db: DbSession) -> User:
++    """Require the user to be in PLATFORM_ADMIN_EMAILS (or legacy ADMIN_EMAILS)."""
++    user = await require_user(request, db)
++    if user.email.lower() not in settings.platform_admin_emails_set:
++        raise HTTPException(
++            status_code=status.HTTP_403_FORBIDDEN,
++            detail={
++                "error": {
++                    "code": "NOT_PLATFORM_ADMIN",
++                    "message": "Platform admin access required.",
++                    "details": {},
++                }
++            },
++        )
++    return user
++
++
++async def require_game_admin(
++    game: Annotated[str, Path()],
++    request: Request,
++    db: DbSession,
++) -> User:
++    """Require the user to be a game admin for the {game} path parameter."""
++    user = await require_user(request, db)
++    if user.email.lower() not in settings.game_admin_emails_for(game):
++        raise HTTPException(
++            status_code=status.HTTP_403_FORBIDDEN,
++            detail={
++                "error": {
++                    "code": "NOT_GAME_ADMIN",
++                    "message": f"Game admin access required for {game}.",
++                    "details": {},
++                }
++            },
++        )
++    return user
++
++
+ def _parse_agent_turn_token(agent_turn_token: str) -> tuple[str, int, str]:
+     """Decode `turn_token:agent_id:match_id`."""
+     try:
+diff --git a/tests/test_config_admin.py b/tests/test_config_admin.py
+new file mode 100644
+index 0000000..af9c2c0
+--- /dev/null
++++ b/tests/test_config_admin.py
+@@ -0,0 +1,89 @@
++"""Tests for the admin role split settings (platform_admin_emails, game_admin_emails_for)."""
++
++import pytest
++
++from app.config import Settings
++
++
++def _make_settings(**kwargs: str) -> Settings:
++    """Build a fresh Settings with model_construct (bypasses env file + validator)."""
++    return Settings.model_construct(**kwargs)
++
++
++def _fresh(**env_overrides: str) -> Settings:
++    """Build Settings() from scratch in a clean env (clears ADMIN_EMAILS etc.)."""
++    # Handled via monkeypatch in test; call as Settings() after patching.
++    return Settings()
++
++
++class TestPlatformAdminEmailsSet:
++    def test_empty_by_default(self) -> None:
++        s = _make_settings()
++        assert s.platform_admin_emails_set == set()
++
++    def test_single_email(self) -> None:
++        s = _make_settings(platform_admin_emails="alice@example.com")
++        assert s.platform_admin_emails_set == {"alice@example.com"}
++
++    def test_multiple_emails(self) -> None:
++        s = _make_settings(platform_admin_emails="alice@example.com, BOB@EXAMPLE.COM")
++        assert s.platform_admin_emails_set == {"alice@example.com", "bob@example.com"}
++
++    def test_falls_back_to_admin_emails(self) -> None:
++        s = _make_settings(admin_emails="legacy@example.com")
++        assert s.platform_admin_emails_set == {"legacy@example.com"}
++
++    def test_platform_takes_precedence_over_admin_emails(self) -> None:
++        s = _make_settings(
++            platform_admin_emails="new@example.com",
++            admin_emails="old@example.com",
++        )
++        assert s.platform_admin_emails_set == {"new@example.com"}
++
++
++class TestGameAdminEmailsFor:
++    def test_empty_when_no_env_vars(self) -> None:
++        s = _make_settings()
++        assert s.game_admin_emails_for("hoard-hurt-help") == set()
++
++    def test_slug_normalization(self, monkeypatch: pytest.MonkeyPatch) -> None:
++        monkeypatch.delenv("ADMIN_EMAILS", raising=False)
++        monkeypatch.setenv("GAME_ADMIN_EMAILS__HOARD_HURT_HELP", "gamer@example.com")
++        s = Settings()
++        assert s.game_admin_emails_for("hoard-hurt-help") == {"gamer@example.com"}
++
++    def test_multiple_emails_comma_separated(
++        self, monkeypatch: pytest.MonkeyPatch
++    ) -> None:
++        monkeypatch.delenv("ADMIN_EMAILS", raising=False)
++        monkeypatch.setenv(
++            "GAME_ADMIN_EMAILS__HOARD_HURT_HELP", "alice@x.com,  bob@x.com"
++        )
++        s = Settings()
++        assert s.game_admin_emails_for("hoard-hurt-help") == {"alice@x.com", "bob@x.com"}
++
++    def test_unknown_game_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
++        # Explicitly blank ADMIN_EMAILS so the .env file fallback doesn't fire.
++        monkeypatch.setenv("ADMIN_EMAILS", "")
++        monkeypatch.setenv("GAME_ADMIN_EMAILS__HOARD_HURT_HELP", "admin@x.com")
++        s = Settings()
++        assert s.game_admin_emails_for("unknown-game") == set()
++
++    def test_falls_back_to_admin_emails(self) -> None:
++        # model_construct bypasses env-file and validator; set admin_emails manually.
++        s = _make_settings(admin_emails="legacy@example.com")
++        assert s.game_admin_emails_for("hoard-hurt-help") == {"legacy@example.com"}
++
++
++class TestAllGameAdminEmailsSet:
++    def test_empty_when_no_game_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
++        monkeypatch.delenv("GAME_ADMIN_EMAILS__HOARD_HURT_HELP", raising=False)
++        monkeypatch.delenv("GAME_ADMIN_EMAILS__OTHER_GAME", raising=False)
++        s = Settings()
++        assert s.all_game_admin_emails_set == set()
++
++    def test_union_across_games(self, monkeypatch: pytest.MonkeyPatch) -> None:
++        monkeypatch.setenv("GAME_ADMIN_EMAILS__HOARD_HURT_HELP", "alice@x.com")
++        monkeypatch.setenv("GAME_ADMIN_EMAILS__OTHER_GAME", "bob@x.com")
++        s = Settings()
++        assert {"alice@x.com", "bob@x.com"}.issubset(s.all_game_admin_emails_set)
