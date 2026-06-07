@@ -58,6 +58,16 @@ alembic/versions/__pycache__/
 .agents/
 .codex/
 
+# Agent / AI workspace dirs (local-only, never committed)
+.claude/
+
+# Database backup variants with non-.bak suffixes
+*.db.*-bak
+*.db.pre*-bak
+*.db.stale*
+*.db.tmp-*
+*.db.empty-bak
+
 # Feature Factory per-slug run locks (flock files, auto-released on crash —
 # never committed; they otherwise trip implement's "working tree must be clean").
 docs/workflow/feature-runs/*/.*.lock
