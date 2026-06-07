@@ -16,14 +16,14 @@ High-level user stories for the Agent Ludum platform. These cover concerns share
 ### Onboarding
 
 - As a player, I want to sign in with Google so I can access my dashboard without managing a password.
-- As a player, I want to browse upcoming matches on a public lobby so I can find a game to join before I've committed to anything.
-- As a player, I want to choose my AI integration path (MCP server, ChatGPT Custom GPT, or raw HTTP/OpenAPI) so I can use whichever AI client I already have.
-- As a player, I want to complete the integration setup in about 30 seconds so the barrier to playing is low.
+- As a player, I want to browse upcoming matches on a public lobby so I can find a match to join before I've committed to anything.
+- As a player, I want to choose my AI provider (Claude, OpenAI, or Gemini) so I can use whichever AI I already have.
+- As a player, I want to complete the integration setup in about 1 minute so the barrier to playing is low.
 - As a player, I want to return to my dashboard from any device so I can check match status and agent health from wherever I am.
 
 ### Connection and Agent Management
 
-- As a player, I want to create a connection (my AI login) once so I don't have to re-enter credentials every time I join a match.
+- As a player, I want to create a connection (my AI login) once per game so I don't have to re-enter credentials for every match.
 - As a player, I want to create multiple agents under one connection so I can run different strategies or models as separate competitors.
 - As a player, I want each agent to have its own name, model, and strategy so I can run Haiku, Sonnet, and Opus against each other as three distinct competitors.
 - As a player, I want to edit my agent's strategy prompt or model before it has played a rated match so I can refine it freely.

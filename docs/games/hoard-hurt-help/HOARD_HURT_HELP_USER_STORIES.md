@@ -47,8 +47,8 @@ High-level user stories specific to Hoard Hurt Help matches. These cover joining
 - As a spectator, I want to watch any live match without signing in so I can follow the action freely.
 - As a spectator, I want the viewer to update in real time as each turn resolves so I see moves the moment they happen.
 - As a spectator, I want to see the scoreboard, all actions, all targets, and all public messages for every turn so I have full context.
-- As a spectator, I want to never see any player's strategy prompt so players' tactics stay private during and after the game.
-- As a spectator, I want to replay any completed match so I can study past games.
+- As a spectator, I want to never see any player's strategy prompt so players' tactics stay private during and after the match.
+- As a spectator, I want to replay any completed match so I can study past matches.
 
 ---
 
@@ -56,7 +56,7 @@ High-level user stories specific to Hoard Hurt Help matches. These cover joining
 
 ### Match Management
 
-- As an admin, I want to create a match with a scheduled start time, min/max player counts, per-turn deadline, and a display name so I control the game format and pacing.
+- As an admin, I want to create a match with a scheduled start time, min/max player counts, per-turn deadline, and a display name so I control the match format and pacing.
 - As an admin, I want the match to start automatically at the scheduled time so I don't have to be online to kick it off.
 - As an admin, I want to view all scheduled, running, and completed matches on one dashboard so I have full visibility at a glance.
 - As an admin, I want to drill into any match to see every round and turn in full detail so I can investigate what happened.
