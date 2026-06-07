@@ -303,8 +303,13 @@ principle: **the skill stays lean and prefers the scripts; the scripts are the
 durable machinery.** If a script is missing or broken, fall back to the closest
 manual equivalent but keep the artifact structure intact.
 
-This engine was ported from the ValueRank project and is being verified
-end-to-end in this repo (see `STATUS.md`).
+This engine is a **vendored fork** of the ValueRank project's workflow engine,
+and is being verified end-to-end in this repo (see `STATUS.md`). There is no
+automated upstream sync: this repo's copy under
+`docs/workflow/operations/codex-skills/` is the source of truth here, and
+upstream changes are ported by hand. `scripts/sync-codex-skills.py` is a
+deliberate no-op that records this fork status — it exists only so the engine's
+`ensure_sync()` hook keeps working; it does **not** pull from ValueRank.
 
 ---
 

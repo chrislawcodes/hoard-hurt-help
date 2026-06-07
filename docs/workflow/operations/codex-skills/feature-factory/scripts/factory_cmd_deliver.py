@@ -281,6 +281,17 @@ def command_deliver(args: argparse.Namespace) -> int:
     if not recon_ok:
         raise SystemExit(f"deliver requires terminal reconciliation first: {trim_detail(recon_detail)}")
 
+    # Pre-deliver hygiene: a leftover merge-conflict marker is a mechanical
+    # failure that should never reach CI. Block before the branch is pushed.
+    from factory_deliver import find_conflict_markers
+    conflicted = find_conflict_markers()
+    if conflicted:
+        listed = ", ".join(conflicted[:10]) + (" …" if len(conflicted) > 10 else "")
+        raise SystemExit(
+            f"deliver blocked: {len(conflicted)} changed file(s) contain unresolved git "
+            f"conflict markers: {listed}. Resolve the conflicts and commit before delivering."
+        )
+
     branch = current_branch_name()
     if not branch:
         raise SystemExit("deliver requires a named branch; detached HEAD is not supported")
