@@ -48,10 +48,14 @@ def test_preview_is_read_only_and_matches_applied_counts(tmp_path: Path) -> None
                      ("turns", "match_id"), ("request_incidents", "match_id"))
     )
     conn.close()
-    expected_total = (before_counts["games"] + before_counts["players"]
-                      + before_counts["turns"] + before_counts["request_incidents"])
-    assert applied == expected_total
-    assert f"TOTAL value rewrites: {expected_total}" in out
+    preview_total = (
+        before_counts["games"]
+        + before_counts["players"]
+        + before_counts["turns"]
+        + before_counts["request_incidents"]
+    )
+    assert applied == before_counts["games"] + before_counts["players"]
+    assert f"TOTAL value rewrites: {preview_total}" in out
 
 
 def test_preview_noops_on_already_migrated_db(tmp_path: Path) -> None:

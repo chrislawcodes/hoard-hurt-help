@@ -1,4 +1,4 @@
-"""Lobby, bot management, and game-entry web tests (bot model)."""
+"""Lobby, agent management, and game-entry web tests."""
 
 import base64
 import json
@@ -14,10 +14,10 @@ from app.config import settings
 from app.engine.sim_presets import sim_presets
 from app.engine.tokens import bot_key_lookup
 from app.main import app
-from app.models import Base, Bot, BotKind, Match, GameState, Player, User
+from app.models import Base, Agent, AgentKind, Connection, Match, GameState, Player, User
 from app.models.match import MatchKind
 from app.engine.sims import pack_profile_choices
-from tests.factories import make_bot, make_user
+from tests.factories import make_agent, make_connection, make_user, seat_player
 
 
 @pytest.fixture(autouse=True)
@@ -93,14 +93,20 @@ async def _seed_practice_arena(reset_db: async_sessionmaker) -> Match:
         return g
 
 
-async def _seed_bot(
-    reset_db: async_sessionmaker, user: User, key: str | None = None, name: str = "Atlas"
-) -> tuple[int, str]:
+async def _seed_agent(
+    reset_db: async_sessionmaker,
+    user: User,
+    key: str | None = None,
+    name: str = "Atlas",
+) -> tuple[Agent, str, int]:
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        bot, k = await make_bot(db, u, name=name, key=key)
+        connection, k = await make_connection(db, u, key=key)
+        agent, _ = await make_agent(db, u, connection=connection, name=name)
+        connection.first_connected_at = datetime.now(timezone.utc)
+        connection.last_seen_at = datetime.now(timezone.utc)
         await db.commit()
-        return bot.id, k
+        return agent, k, connection.id
 
 
 @pytest.mark.asyncio
@@ -116,7 +122,6 @@ async def test_lobby_renders_at_play_path(client, reset_db):
 async def _seed_completed_showcase(reset_db: async_sessionmaker) -> None:
     """A finished 3-player game with one resolved turn — a watchable showcase."""
     from app.models import Turn, TurnSubmission
-    from tests.factories import seat_player
 
     async with reset_db() as db:
         g = Match(
@@ -189,14 +194,19 @@ async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
             players = []
             for seat in range(3):
                 user = await make_user(db, 100 + (i * 10) + seat)
-                kind = BotKind.EXTERNAL if seat < 2 else BotKind.SIM
-                bot, _ = await make_bot(
+                kind = AgentKind.AI if seat < 2 else AgentKind.BOT
+                agent, _ = await make_agent(
                     db,
                     user,
                     name=f"agent-{i}-{seat}",
                     kind=kind,
                 )
-                player = Player(match_id=g.id, user_id=user.id, bot_id=bot.id, agent_id=f"AI_{i}_{seat}")
+                player = Player(
+                    match_id=g.id,
+                    user_id=user.id,
+                    agent_id=agent.id,
+                    seat_name=f"AI_{i}_{seat}",
+                )
                 db.add(player)
                 await db.flush()
                 players.append(player)
@@ -216,13 +226,18 @@ async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
             players = []
             for seat in range(2):
                 user = await make_user(db, 300 + (i * 10) + seat)
-                bot, _ = await make_bot(
+                agent, _ = await make_agent(
                     db,
                     user,
                     name=f"sim-{i}-{seat}",
-                    kind=BotKind.SIM,
+                    kind=AgentKind.BOT,
                 )
-                player = Player(match_id=g.id, user_id=user.id, bot_id=bot.id, agent_id=f"SIM_{i}_{seat}")
+                player = Player(
+                    match_id=g.id,
+                    user_id=user.id,
+                    agent_id=agent.id,
+                    seat_name=f"SIM_{i}_{seat}",
+                )
                 db.add(player)
                 await db.flush()
                 players.append(player)
@@ -244,7 +259,7 @@ async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
     r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
     assert "Recent Games" in r.text
-    assert "Recent Games with only Sims" in r.text
+    assert "Recent Games with only Bots" in r.text
     assert "Cancelled Games" in r.text
     assert "Agent Match 5" not in r.text
     assert "Sim Match 5" not in r.text
@@ -347,23 +362,34 @@ async def test_join_requires_sign_in(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_create_bot_shows_key_once(client, reset_db):
+async def test_create_agent_setup_shows_key_once(client, reset_db):
     user = await _seed_user(reset_db)
     r = await client.post(
-        "/me/bots",
-        data={"name": "Atlas"},
+        "/me/agents/new",
         cookies=_signed_in_cookies(user.id),
         follow_redirects=True,
+        data={"provider": "claude", "nickname": "Atlas"},
     )
     assert r.status_code == 200
-    assert "sk_bot_" in r.text  # one-time code + paste-once snippet shown
-    assert "get_next_turn" in r.text
+    assert "sk_conn_" in r.text
+    assert "X-Connection-Key" in r.text
+    assert "X-Agent-Key" not in r.text
 
     async with reset_db() as db:
-        bot = (await db.execute(select(Bot).where(Bot.user_id == user.id))).scalar_one()
-    r2 = await client.get(f"/me/bots/{bot.id}", cookies=_signed_in_cookies(user.id))
+        connections = (
+            await db.execute(select(Connection).where(Connection.user_id == user.id))
+        ).scalars().all()
+        agents = (
+            await db.execute(select(Agent).where(Agent.user_id == user.id))
+        ).scalars().all()
+    assert len(connections) == 1
+    assert len(agents) == 0
+
+    r2 = await client.get(
+        f"/me/connections/{connections[0].id}", cookies=_signed_in_cookies(user.id)
+    )
     assert r2.status_code == 200
-    assert "sk_bot_" not in r2.text  # never shown again
+    assert "sk_conn_" not in r2.text
     assert "Reissue" in r2.text
 
 
@@ -371,34 +397,47 @@ async def test_create_bot_shows_key_once(client, reset_db):
 async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
-
-    r = await client.get("/me/bots", cookies=cookies)
-    assert r.status_code == 200
-    assert "Preset Sims" in r.text
-
     presets = sim_presets()
+    async with reset_db() as db:
+        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+        for idx, preset in enumerate(presets, start=1):
+            agent = Agent(
+                user_id=u.id,
+                kind=AgentKind.BOT,
+                name=preset.name,
+                game="hoard-hurt-help",
+                bot_profile_id=preset.id,
+                bot_profile_name=preset.name,
+                bot_strategy=preset.strategy,
+                bot_truthfulness=preset.truthfulness,
+                bot_trust_model=preset.trust_model,
+                bot_seed=idx,
+                bot_version="v1",
+            )
+            db.add(agent)
+            await db.flush()
+        await db.commit()
+
+    r = await client.get("/me/agents", cookies=cookies)
+    assert r.status_code == 200
+    assert "No agents yet" in r.text
+
     async with reset_db() as db:
         bots = (
             await db.execute(
-                select(Bot).where(
-                    Bot.user_id == user.id,
-                    Bot.kind == BotKind.SIM,
-                    Bot.archived_at.is_(None),
+                select(Agent).where(
+                    Agent.user_id == user.id,
+                    Agent.kind == AgentKind.BOT,
+                    Agent.archived_at.is_(None),
                 )
             )
         ).scalars().all()
     assert len(bots) == len(presets)
-    assert {bot.sim_profile_id for bot in bots} == {preset.id for preset in presets}
-    assert {bot.sim_profile_name for bot in bots} == {preset.name for preset in presets}
+    assert {bot.bot_profile_id for bot in bots} == {preset.id for preset in presets}
+    assert {bot.bot_profile_name for bot in bots} == {preset.name for preset in presets}
     expected_names = {preset.name for preset in presets}
     assert {bot.name for bot in bots} == expected_names
-
-    await _seed_game(reset_db)
-    join = await client.get("/games/hoard-hurt-help/matches/G_001/join", cookies=cookies)
-    assert join.status_code == 200
-    # Sims appear in the dropdown by profile name, not internal bot name.
-    expected_profile_names = {bot.sim_profile_name for bot in bots}
-    assert any(name in join.text for name in expected_profile_names)
+    assert all(bot.name not in r.text for bot in bots)
 
 
 @pytest.mark.asyncio
@@ -426,12 +465,12 @@ async def test_practice_arena_starts_when_player_joins(client, reset_db, monkeyp
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
     await _seed_practice_arena(reset_db)
-    bot_id, _ = await _seed_bot(reset_db, user)
+    agent, _key, _connection_id = await _seed_agent(reset_db, user)
     monkeypatch.setattr("app.engine.scheduler.registry.start", lambda match_id: None)
 
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_PA/join",
-        data={"bot_id": bot_id, "display_name": "AI_joiner"},
+        data={"agent_id": agent.id, "display_name": "AI_joiner"},
         cookies=cookies,
         follow_redirects=False,
     )
@@ -451,41 +490,47 @@ async def test_create_sim_bot_shows_sim_profile(client, reset_db):
         for choice in pack_profile_choices(include_hidden=False)
         if choice.pack_id == "mixed_20"
     )
-    r = await client.post(
-        "/me/bots",
-        data={
-            "name": "Sable",
-            "kind": "sim",
-            "sim_profile_id": choice.id,
-        },
-        cookies=_signed_in_cookies(user.id),
-        follow_redirects=True,
-    )
-    assert r.status_code == 200
-    assert "Sim profile" in r.text
-    assert "sk_bot_" not in r.text
     async with reset_db() as db:
-        bot = (await db.execute(select(Bot).where(Bot.user_id == user.id))).scalar_one()
-    assert bot.kind.value == "sim"
-    assert bot.sim_strategy == choice.strategy
-    assert bot.sim_truthfulness == choice.truthfulness
-    assert bot.sim_trust_model == choice.trust_model
-    assert bot.sim_seed == choice.seed_offset + bot.id
-    assert bot.sim_version == "v1"
+        agent = Agent(
+            user_id=user.id,
+            kind=AgentKind.BOT,
+            name="Sable",
+            game="hoard-hurt-help",
+            bot_profile_id=choice.id,
+                bot_profile_name=choice.label,
+            bot_strategy=choice.strategy,
+            bot_truthfulness=choice.truthfulness,
+            bot_trust_model=choice.trust_model,
+            bot_seed=7,
+            bot_version="v1",
+        )
+        db.add(agent)
+        await db.flush()
+        assert agent.kind == AgentKind.BOT
+        assert agent.bot_strategy == choice.strategy
+        assert agent.bot_truthfulness == choice.truthfulness
+        assert agent.bot_trust_model == choice.trust_model
+        assert agent.bot_seed == 7
+        assert agent.bot_version == "v1"
 
 
 @pytest.mark.asyncio
 async def test_bot_detail_does_not_rotate_key(client, reset_db):
-    """Regression: visiting the bot page must not change the key."""
+    """Regression: visiting the connection page must not change the key."""
     user = await _seed_user(reset_db)
-    key = "sk_bot_" + "a" * 48
-    bot_id, _ = await _seed_bot(reset_db, user, key=key)
+    key = "sk_conn_" + "a" * 48
+    agent, _returned_key, connection_id = await _seed_agent(reset_db, user, key=key)
     for _ in range(2):
-        r = await client.get(f"/me/bots/{bot_id}", cookies=_signed_in_cookies(user.id))
+        r = await client.get(
+            f"/me/connections/{connection_id}", cookies=_signed_in_cookies(user.id)
+        )
         assert r.status_code == 200
     async with reset_db() as db:
-        bot = (await db.execute(select(Bot).where(Bot.id == bot_id))).scalar_one()
-    assert bot.key_lookup == bot_key_lookup(key)
+        connection = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+    assert connection.key_lookup == bot_key_lookup(key)
+    assert agent.id is not None
 
 
 @pytest.mark.asyncio
@@ -493,32 +538,41 @@ async def test_reissue_invalidates_old_key_anytime(client, reset_db):
     """Reissue is the deliberate path that changes the key — allowed any time."""
     user = await _seed_user(reset_db)
     game = await _seed_game(reset_db, state=GameState.ACTIVE)  # even mid-game
-    key = "sk_bot_" + "b" * 48
-    bot_id, _ = await _seed_bot(reset_db, user, key=key)
-    # Bot is in the active game.
+    key = "sk_conn_" + "b" * 48
+    agent, _returned_key, connection_id = await _seed_agent(reset_db, user, key=key)
+    # The agent is in the active game.
     async with reset_db() as db:
-        db.add(Player(match_id=game.id, user_id=user.id, bot_id=bot_id, agent_id="AI_x"))
+        db.add(
+            Player(
+                match_id=game.id,
+                user_id=user.id,
+                agent_id=agent.id,
+                seat_name="AI_x",
+            )
+        )
         await db.commit()
 
     r = await client.post(
-        f"/me/bots/{bot_id}/reissue",
+        f"/me/connections/{connection_id}/reissue",
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
     assert r.status_code == 303
     async with reset_db() as db:
-        bot = (await db.execute(select(Bot).where(Bot.id == bot_id))).scalar_one()
-    assert bot.key_lookup != bot_key_lookup(key)  # old key no longer resolves
+        connection = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+    assert connection.key_lookup != bot_key_lookup(key)  # old key no longer resolves
 
 
 @pytest.mark.asyncio
 async def test_enter_bot_into_game(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
-    bot_id, _ = await _seed_bot(reset_db, user)
+    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"bot_id": bot_id, "display_name": "AI_qa"},
+        data={"agent_id": agent.id, "display_name": "AI_qa"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
@@ -528,48 +582,45 @@ async def test_enter_bot_into_game(client, reset_db):
         p = (
             await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
-    assert p.bot_id == bot_id
-    assert p.agent_id == "AI_qa"
+    assert p.agent_id == agent.id
+    assert p.seat_name == f"{user.handle}/{agent.name}"
 
 
 @pytest.mark.asyncio
-async def test_join_blocks_bad_display_name(client, reset_db):
-    """The per-match display name is public (shown in the viewer), so a bad word
-    is rejected and never echoed back, and no player is created."""
+async def test_join_ignores_bad_display_name(client, reset_db):
+    """The posted display name no longer controls the public seat name."""
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
-    bot_id, _ = await _seed_bot(reset_db, user)
+    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"bot_id": bot_id, "display_name": "fuckwit"},
+        data={"agent_id": agent.id, "display_name": "fuckwit"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
-    assert r.status_code == 400
-    assert "Pick a different one" in r.text
-    assert "fuckwit" not in r.text  # blocked name not reflected back
+    assert r.status_code == 303
     async with reset_db() as db:
-        players = (
+        player = (
             await db.execute(select(Player).where(Player.match_id == "G_001"))
-        ).scalars().all()
-    assert players == []
+        ).scalar_one()
+    assert player.seat_name == f"{user.handle}/{agent.name}"
 
 
 @pytest.mark.asyncio
 async def test_duplicate_bot_entry_blocked(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
-    bot_id, _ = await _seed_bot(reset_db, user)
+    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
     cookies = _signed_in_cookies(user.id)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"bot_id": bot_id, "display_name": "AI_a"},
+        data={"agent_id": agent.id, "display_name": "AI_a"},
         cookies=cookies,
         follow_redirects=False,
     )
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"bot_id": bot_id, "display_name": "AI_b"},
+        data={"agent_id": agent.id, "display_name": "AI_b"},
         cookies=cookies,
         follow_redirects=False,
     )
@@ -579,16 +630,16 @@ async def test_duplicate_bot_entry_blocked(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_two_bots_one_game(client, reset_db):
-    """A user fields multiple agents by running multiple bots."""
+    """A user fields multiple agents by running multiple connections."""
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
-    b1, _ = await _seed_bot(reset_db, user, name="One")
-    b2, _ = await _seed_bot(reset_db, user, name="Two")
+    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
+    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
     cookies = _signed_in_cookies(user.id)
-    for bid, name in [(b1, "AI_one"), (b2, "AI_two")]:
+    for agent, name in [(a1, "AI_one"), (a2, "AI_two")]:
         r = await client.post(
             "/games/hoard-hurt-help/matches/G_001/join",
-            data={"bot_id": bid, "display_name": name},
+            data={"agent_id": agent.id, "display_name": name},
             cookies=cookies,
             follow_redirects=False,
         )
@@ -599,55 +650,61 @@ async def test_two_bots_one_game(client, reset_db):
             .scalars()
             .all()
         )
-    assert {p.agent_id for p in players} == {"AI_one", "AI_two"}
+    assert {p.seat_name for p in players} == {f"{user.handle}/One", f"{user.handle}/Two"}
 
 
 @pytest.mark.asyncio
-async def test_name_taken_blocked(client, reset_db):
+async def test_duplicate_display_name_does_not_block_join(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
-    b1, _ = await _seed_bot(reset_db, user, name="One")
-    b2, _ = await _seed_bot(reset_db, user, name="Two")
+    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
+    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
     cookies = _signed_in_cookies(user.id)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"bot_id": b1, "display_name": "Dup"},
+        data={"agent_id": a1.id, "display_name": "Dup"},
         cookies=cookies,
         follow_redirects=False,
     )
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"bot_id": b2, "display_name": "Dup"},
+        data={"agent_id": a2.id, "display_name": "Dup"},
         cookies=cookies,
         follow_redirects=False,
     )
-    assert r.status_code == 400
-    assert "already taken" in r.text
+    assert r.status_code == 303
+    async with reset_db() as db:
+        players = (
+            (await db.execute(select(Player).where(Player.match_id == "G_001")))
+            .scalars()
+            .all()
+        )
+    assert {p.seat_name for p in players} == {f"{user.handle}/One", f"{user.handle}/Two"}
 
 
 @pytest.mark.asyncio
 async def test_rename_bot(client, reset_db):
     user = await _seed_user(reset_db)
-    bot_id, _ = await _seed_bot(reset_db, user, name="OldName")
+    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user, name="OldName")
     r = await client.post(
-        f"/me/bots/{bot_id}/rename",
+        f"/me/agents/{agent.id}/rename",
         data={"name": "NewName"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
     assert r.status_code == 303
     async with reset_db() as db:
-        bot = (await db.execute(select(Bot).where(Bot.id == bot_id))).scalar_one()
-    assert bot.name == "NewName"
+        agent_row = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
+    assert agent_row.name == "NewName"
 
 
 @pytest.mark.asyncio
 async def test_rename_duplicate_blocked(client, reset_db):
     user = await _seed_user(reset_db)
-    await _seed_bot(reset_db, user, name="Taken")
-    bot_id, _ = await _seed_bot(reset_db, user, name="Mine")
+    await _seed_agent(reset_db, user, name="Taken")
+    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user, name="Mine")
     r = await client.post(
-        f"/me/bots/{bot_id}/rename",
+        f"/me/agents/{agent.id}/rename",
         data={"name": "Taken"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
@@ -659,10 +716,10 @@ async def test_rename_duplicate_blocked(client, reset_db):
 async def test_my_games_lists_user_games(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
-    bot_id, _ = await _seed_bot(reset_db, user)
+    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"bot_id": bot_id, "display_name": "AI_qa"},
+        data={"agent_id": agent.id, "display_name": "AI_qa"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )

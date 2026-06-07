@@ -87,17 +87,17 @@ class _FakeClient:
 
 @pytest.mark.asyncio
 async def test_get_turn_forwards_connection_key(monkeypatch):
-    """get_turn pulls X-Agent-Key off the connection and forwards it upstream."""
+    """get_turn pulls X-Connection-Key off the connection and forwards it upstream."""
     from mcp_server import server
 
     cap: dict = {}
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap))
-    ctx = _FakeCtx({"X-Agent-Key": "sk_game_abc123"})
+    ctx = _FakeCtx({"X-Connection-Key": "sk_game_abc123"})
 
     await server.get_turn(match_id="G_0001", ctx=ctx)
 
     assert cap["url"] == "/api/matches/G_0001/turn"
-    assert cap["headers"]["X-Agent-Key"] == "sk_game_abc123"
+    assert cap["headers"]["X-Connection-Key"] == "sk_game_abc123"
 
 
 @pytest.mark.asyncio
@@ -106,7 +106,7 @@ async def test_submit_action_forwards_connection_key(monkeypatch):
 
     cap: dict = {}
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap))
-    ctx = _FakeCtx({"X-Agent-Key": "sk_game_abc123"})
+    ctx = _FakeCtx({"X-Connection-Key": "sk_game_abc123"})
 
     await server.submit_action(
         match_id="G_0001",
@@ -117,7 +117,7 @@ async def test_submit_action_forwards_connection_key(monkeypatch):
         ctx=ctx,
     )
 
-    assert cap["headers"]["X-Agent-Key"] == "sk_game_abc123"
+    assert cap["headers"]["X-Connection-Key"] == "sk_game_abc123"
     assert cap["body"]["action"] == "HOARD"
 
 
@@ -127,7 +127,7 @@ async def test_missing_connection_key_raises(monkeypatch):
     from mcp_server import server
 
     monkeypatch.setattr(server, "_client", lambda: _FakeClient({}))
-    with pytest.raises(RuntimeError, match="X-Agent-Key"):
+    with pytest.raises(RuntimeError, match="X-Connection-Key"):
         await server.get_turn(match_id="G_0001", ctx=_FakeCtx({}))
 
 
@@ -148,16 +148,16 @@ def test_mcp_mounted_on_fastapi():
 
 @pytest.mark.asyncio
 async def test_pull_tools_forward_connection_key(monkeypatch):
-    """Each pull tool reads X-Agent-Key off the connection and hits the right URL."""
+    """Each pull tool reads X-Connection-Key off the connection and hits the right URL."""
     from mcp_server import server
 
-    ctx = _FakeCtx({"X-Agent-Key": "sk_game_abc123"})
+    ctx = _FakeCtx({"X-Connection-Key": "sk_game_abc123"})
 
     cap1: dict = {}
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap1))
     await server.get_opponent_history(match_id="G_0001", opponent_id="AI_2", ctx=ctx)
     assert cap1["url"] == "/api/matches/G_0001/history/opponents/AI_2"
-    assert cap1["headers"]["X-Agent-Key"] == "sk_game_abc123"
+    assert cap1["headers"]["X-Connection-Key"] == "sk_game_abc123"
 
     cap2: dict = {}
     monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap2))

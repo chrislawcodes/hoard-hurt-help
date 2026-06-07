@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.main import app
 from app.models import Base, GameState, Match, Player
 from app.routes.viewer_presentation import _build_rc_data
-from tests.factories import make_bot, make_user
+from tests.factories import make_agent, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -50,8 +50,8 @@ async def test_viewer_shows_winner_owner_and_rail_data(reset_db, client):
     async with reset_db() as db:
         ua = await make_user(db, 1)  # handle "agent1"
         ub = await make_user(db, 2)  # handle "agent2"
-        bot_a, _ = await make_bot(db, ua, name="AliceBot")
-        bot_b, _ = await make_bot(db, ub, name="BobBot")
+        bot_a, _ = await make_agent(db, ua, name="AliceBot")
+        bot_b, _ = await make_agent(db, ub, name="BobBot")
         match = Match(
             id="M_v1",
             name="Viewer Match",
@@ -62,8 +62,8 @@ async def test_viewer_shows_winner_owner_and_rail_data(reset_db, client):
         )
         db.add(match)
         await db.flush()
-        pa = Player(match_id=match.id, user_id=ua.id, bot_id=bot_a.id, agent_id="Napoleon")
-        pb = Player(match_id=match.id, user_id=ub.id, bot_id=bot_b.id, agent_id="Wellington")
+        pa = Player(match_id=match.id, user_id=ua.id, agent_id=bot_a.id, seat_name="Napoleon")
+        pb = Player(match_id=match.id, user_id=ub.id, agent_id=bot_b.id, seat_name="Wellington")
         db.add_all([pa, pb])
         await db.flush()
         match.winner_player_id = pa.id

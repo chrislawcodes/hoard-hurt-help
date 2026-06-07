@@ -2,7 +2,7 @@
 
 import base64
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.config import settings
 from app.games import get as get_game_module
 from app.main import app
-from app.models import Base, Match, GameState, Player, StrategyPrompt
-from tests.factories import make_bot, make_user
+from app.models import Base, Agent
+from app.models.agent_version import AgentVersion
+from tests.factories import make_connection, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -46,46 +47,30 @@ def _signed_in_cookies(user_id: int) -> dict:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
-async def _seed_game_user_bot(
+async def _seed_game_user_agent(
     reset_db: async_sessionmaker,
 ) -> tuple[int, int]:
-    """Create a REGISTERING game + a signed-in user with one bot. Returns (user_id, bot_id)."""
+    """Create a signed-in user with one active connection."""
     async with reset_db() as db:
         user = await make_user(db)
         await db.flush()
-        bot, _ = await make_bot(db, user, name="Atlas")
-        bot.last_seen_at = datetime.now(timezone.utc)
-        db.add(
-            Match(
-                id="G_001",
-                name="Test Match",
-                state=GameState.REGISTERING,
-                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-                per_turn_deadline_seconds=60,
-            )
-        )
+        connection, _ = await make_connection(db, user)
+        connection.first_connected_at = datetime.now(timezone.utc)
+        connection.last_seen_at = datetime.now(timezone.utc)
         await db.commit()
-        return user.id, bot.id
+        return user.id, connection.id
 
 
-async def _latest_strategy(reset_db: async_sessionmaker, agent_id: str) -> str:
+async def _latest_strategy(reset_db: async_sessionmaker, agent_id: int) -> str:
     async with reset_db() as db:
-        player = (
-            await db.execute(
-                select(Player).where(
-                    Player.match_id == "G_001", Player.agent_id == agent_id
-                )
-            )
-        ).scalar_one()
         prompt = (
             await db.execute(
-                select(StrategyPrompt)
-                .where(StrategyPrompt.player_id == player.id)
-                .order_by(StrategyPrompt.created_at.desc())
-                .limit(1)
+                select(AgentVersion.strategy_text)
+                .where(AgentVersion.agent_id == agent_id)
+                .order_by(AgentVersion.version_no.desc())
             )
         ).scalar_one()
-        return prompt.prompt_text
+        return prompt
 
 
 def test_pd_module_exposes_presets_and_default() -> None:
@@ -99,51 +84,66 @@ def test_pd_module_exposes_presets_and_default() -> None:
 
 @pytest.mark.asyncio
 async def test_join_with_custom_strategy_seeds_it(client, reset_db) -> None:
-    user_id, bot_id = await _seed_game_user_bot(reset_db)
+    user_id, connection_id = await _seed_game_user_agent(reset_db)
     r = await client.post(
-        "/games/hoard-hurt-help/matches/G_001/join",
+        "/me/agents/new",
         data={
-            "bot_id": bot_id,
-            "display_name": "AI_qa",
-            "strategy_prompt": "CUSTOM: always cooperate.",
+            "connection_id": connection_id,
+            "name": "Atlas",
+            "model": "claude-haiku-4-5",
+            "strategy_text": "CUSTOM: always cooperate.",
         },
         cookies=_signed_in_cookies(user_id),
-        follow_redirects=False,
     )
     assert r.status_code == 303, r.text
-    assert await _latest_strategy(reset_db, "AI_qa") == "CUSTOM: always cooperate."
+    async with reset_db() as db:
+        agent_id = (
+            await db.execute(
+                select(Agent.id).where(Agent.user_id == user_id, Agent.name == "Atlas")
+            )
+        ).scalar_one()
+    assert await _latest_strategy(reset_db, agent_id) == "CUSTOM: always cooperate."
 
 
 @pytest.mark.asyncio
 async def test_join_without_strategy_uses_module_default(client, reset_db) -> None:
-    user_id, bot_id = await _seed_game_user_bot(reset_db)
+    user_id, connection_id = await _seed_game_user_agent(reset_db)
     r = await client.post(
-        "/games/hoard-hurt-help/matches/G_001/join",
-        data={"bot_id": bot_id, "display_name": "AI_def"},
+        "/me/agents/new",
+        data={
+            "connection_id": connection_id,
+            "name": "Atlas",
+            "model": "claude-haiku-4-5",
+        },
         cookies=_signed_in_cookies(user_id),
-        follow_redirects=False,
     )
     assert r.status_code == 303, r.text
-    seeded = await _latest_strategy(reset_db, "AI_def")
+    async with reset_db() as db:
+        agent_id = (
+            await db.execute(
+                select(Agent.id).where(Agent.user_id == user_id, Agent.name == "Atlas")
+            )
+        ).scalar_one()
+    seeded = await _latest_strategy(reset_db, agent_id)
     assert seeded == get_game_module("hoard-hurt-help").default_strategy()
 
 
 @pytest.mark.asyncio
 async def test_join_form_offers_presets(client, reset_db) -> None:
-    user_id, bot_id = await _seed_game_user_bot(reset_db)
+    user_id, connection_id = await _seed_game_user_agent(reset_db)
     r = await client.get(
-        "/games/hoard-hurt-help/matches/G_001/join", cookies=_signed_in_cookies(user_id)
+        f"/me/agents/new?connection_id={connection_id}",
+        cookies=_signed_in_cookies(user_id),
     )
     assert r.status_code == 200
-    # The preset picker + write-your-own textarea are present.
-    assert 'id="preset-picker"' in r.text
-    assert 'name="strategy_prompt"' in r.text
-    assert "Tit-for-Tat" in r.text
+    # The agent setup form includes the strategy textarea and default prompt.
+    assert 'name="strategy_text"' in r.text
+    assert get_game_module("hoard-hurt-help").default_strategy().strip()[:20] in r.text
 
 
 @pytest.mark.asyncio
 async def test_strategy_profiles_route_removed(client, reset_db) -> None:
-    user_id, _ = await _seed_game_user_bot(reset_db)
+    user_id, _ = await _seed_game_user_agent(reset_db)
     r = await client.get(
         "/me/strategy-profiles", cookies=_signed_in_cookies(user_id)
     )

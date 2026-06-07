@@ -57,7 +57,7 @@ async def _seed_match_with_player(
 @pytest.mark.asyncio
 async def test_agent_state_accepts_canonical_and_legacy_prefixes(client, reset_db):
     match_id, agent_key = await _seed_match_with_player(reset_db)
-    headers = {"X-Agent-Key": agent_key}
+    headers = {"X-Connection-Key": agent_key}
 
     canonical = await client.get(f"/api/matches/{match_id}/state", headers=headers)
     legacy = await client.get(f"/api/games/{match_id}/state", headers=headers)

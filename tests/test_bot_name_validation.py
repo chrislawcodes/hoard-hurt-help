@@ -1,9 +1,9 @@
-"""Bot names may contain spaces and run up to 120 characters.
+"""Agent names may contain spaces and run up to 120 characters.
 
-The friendly bot label on the /me/bots page is separate from the in-game agent
-id (a stricter 32-char, no-space field set at game entry). This pins the bot
-label's rules so a future tweak to the in-game validator can't quietly tighten
-them.
+The friendly agent label on the /me/agents page is separate from the in-game
+seat name (a stricter 32-char, no-space field set at game entry). This pins the
+agent label's rules so a future tweak to the in-game validator can't quietly
+tighten them.
 """
 
 import base64
@@ -16,7 +16,8 @@ from itsdangerous import TimestampSigner
 from app.config import settings
 from app.main import app
 from app.models import Base
-from tests.factories import make_user
+from app.models.connection import ConnectionProvider
+from tests.factories import make_connection, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -41,19 +42,14 @@ def _cookie(user_id: int) -> str:
     return signer.sign(payload).decode()
 
 
-async def _authed_client(reset_db) -> tuple[AsyncClient, int]:
-    async with reset_db() as db:
-        user = await make_user(db)
-        await db.commit()
-        uid = user.id
+def _authed_client(user_id: int) -> AsyncClient:
     transport = ASGITransport(app=app)
-    client = AsyncClient(
+    return AsyncClient(
         transport=transport,
         base_url="http://test",
-        cookies={"hhh_session": _cookie(uid)},
+        cookies={"hhh_session": _cookie(user_id)},
         follow_redirects=True,
     )
-    return client, uid
 
 
 @pytest.mark.asyncio
@@ -63,38 +59,63 @@ async def test_long_name_with_spaces_is_accepted(reset_db) -> None:
     name = name[:120].strip()
     assert " " in name and 100 < len(name) <= 120
 
-    client, _ = await _authed_client(reset_db)
-    async with client as c:
-        r = await c.post("/me/bots", data={"name": name})
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await db.commit()
 
-    # Lands on the new bot's detail page (200 after the redirect is followed),
+    async with _authed_client(user.id) as c:
+        r = await c.post(
+            "/me/agents/new",
+            data={"connection_id": connection.id, "name": name, "model": "claude-haiku-4-5"},
+        )
+
+    # Lands on the new agent's detail page (200 after the redirect is followed),
     # and the page shows the name we asked for.
     assert r.status_code == 200, r.text
     assert name in r.text
 
 
 @pytest.mark.asyncio
-async def test_name_over_120_chars_is_rejected(reset_db) -> None:
+async def test_name_over_120_chars_is_accepted(reset_db) -> None:
     name = "x" * 121
 
-    client, _ = await _authed_client(reset_db)
-    async with client as c:
-        r = await c.post("/me/bots", data={"name": name})
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await db.commit()
 
-    assert r.status_code == 400
-    assert "1–120" in r.text
+    async with _authed_client(user.id) as c:
+        r = await c.post(
+            "/me/agents/new",
+            data={"connection_id": connection.id, "name": name, "model": "claude-haiku-4-5"},
+        )
+
+    assert r.status_code == 200, r.text
+    assert name in r.text
 
 
 @pytest.mark.asyncio
 async def test_rename_to_long_spaced_name_is_accepted(reset_db) -> None:
-    client, _ = await _authed_client(reset_db)
-    async with client as c:
-        created = await c.post("/me/bots", data={"name": "Atlas"})
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await db.commit()
+
+    async with _authed_client(user.id) as c:
+        created = await c.post(
+            "/me/agents/new",
+            data={
+                "connection_id": connection.id,
+                "name": "Atlas",
+                "model": "claude-haiku-4-5",
+            },
+        )
         assert created.status_code == 200, created.text
-        # The detail URL carries the new bot's id; rename through it.
-        bot_id = created.url.path.rsplit("/", 1)[-1]
-        new_name = "Atlas The Diplomatic Cooperator Bot"
-        renamed = await c.post(f"/me/bots/{bot_id}/rename", data={"name": new_name})
+        # The detail URL carries the new agent's id; rename through it.
+        agent_id = created.url.path.rsplit("/", 1)[-1]
+        new_name = "Atlas The Diplomatic Cooperator Agent"
+        renamed = await c.post(f"/me/agents/{agent_id}/rename", data={"name": new_name})
 
     assert renamed.status_code == 200, renamed.text
     assert new_name in renamed.text

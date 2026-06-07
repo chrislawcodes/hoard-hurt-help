@@ -41,6 +41,7 @@ async def test_submit_masks_bad_words_in_public_text(reset_db, client):
 
     resp = await client.post(
         f"/api/games/{game.id}/submit",
+        params={"agent_turn_token": f"{open_turn.turn_token}:{players[0].agent_id}:{game.id}"},
         json={
             "turn_token": "open-token",
             "action": "HOARD",
@@ -48,7 +49,7 @@ async def test_submit_masks_bad_words_in_public_text(reset_db, client):
             "message": "take that you shit",
             "thinking": "i will shit on them",
         },
-        headers={"X-Agent-Key": players[0]._test_key},
+        headers={"X-Connection-Key": players[0]._test_key},
     )
     assert resp.status_code == 202
 

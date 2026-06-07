@@ -11,7 +11,7 @@ from app import db as app_db
 from app.engine import scheduler
 from app.engine.resolver import finalize_talk_phase
 from app.models import Base, Match, GameState, Player, Turn, TurnMessage, User
-from tests.factories import make_bot
+from tests.factories import make_agent
 
 
 @pytest.fixture(autouse=True)
@@ -77,12 +77,12 @@ async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Match, list
         u = User(google_sub=f"sub-{i}", email=f"u{i}@test.com", name=f"u{i}")
         db.add(u)
         await db.flush()
-        bot, _ = await make_bot(db, u, name=f"AI_{i}")
+        agent, _ = await make_agent(db, u, name=f"AI_{i}")
         p = Player(
             match_id=game.id,
             user_id=u.id,
-            bot_id=bot.id,
-            agent_id=f"AI_{i}",
+            agent_id=agent.id,
+            seat_name=f"AI_{i}",
         )
         db.add(p)
         await db.flush()

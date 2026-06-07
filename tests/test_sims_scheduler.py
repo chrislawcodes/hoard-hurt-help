@@ -11,16 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import db as app_db
 from app.engine import scheduler
-from app.models import Base, BotKind, Match, GameState, Player, Turn, TurnMessage, TurnSubmission, User
-from tests.factories import make_bot
+from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSubmission, User
+from app.models.agent import AgentKind, AgentStatus
+from tests.factories import make_agent
 
 
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
+async def reset_db(monkeypatch, tmp_path):
     from app.db import make_engine
     from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
 
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
+    test_engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'sims_scheduler.db'}")
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -73,11 +74,12 @@ async def _seed_sim_game(db: AsyncSession) -> tuple[Match, list[Player]]:
         user = User(google_sub=f"sub-{i}", email=f"sim{i}@test.com", name=f"sim{i}")
         db.add(user)
         await db.flush()
-        bot, _key = await make_bot(
+        agent, _key = await make_agent(
             db,
             user,
             name=f"bot-{agent_id}",
-            kind=BotKind.SIM,
+            kind=AgentKind.BOT,
+            status=AgentStatus.ACTIVE,
             sim_strategy=strategy,
             sim_truthfulness=truthfulness,
             sim_trust_model=trust_model,
@@ -87,8 +89,8 @@ async def _seed_sim_game(db: AsyncSession) -> tuple[Match, list[Player]]:
         player = Player(
             match_id=game.id,
             user_id=user.id,
-            bot_id=bot.id,
-            agent_id=agent_id,
+            agent_id=agent.id,
+            seat_name=agent_id,
         )
         db.add(player)
         await db.flush()

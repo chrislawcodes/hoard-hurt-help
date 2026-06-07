@@ -7,7 +7,6 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
@@ -15,9 +14,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.main import app
+from app.identity import word_filter
 from app.models import Base, GameState, Match, Player, User
-from app.routes.bots_web_support import validate_bot_name
-from tests.factories import make_bot, make_user
+from tests.factories import make_agent, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -53,16 +52,13 @@ def _cookies(user_id: int) -> dict:
 # --- agent-name screening ----------------------------------------------------
 
 
-def test_validate_bot_name_accepts_clean_name() -> None:
-    assert validate_bot_name("Coalition Seeker") == "Coalition Seeker"
+def test_validate_agent_name_accepts_clean_name() -> None:
+    assert word_filter.contains_blocked("Coalition Seeker") is False
 
 
-def test_validate_bot_name_rejects_blocked_without_echo() -> None:
+def test_validate_agent_name_rejects_blocked_without_echo() -> None:
     bad = "shitbot"
-    with pytest.raises(HTTPException) as exc:
-        validate_bot_name(bad)
-    assert exc.value.status_code == 400
-    assert bad not in str(exc.value.detail)
+    assert word_filter.contains_blocked(bad) is True
 
 
 # --- admin handle reset ------------------------------------------------------
@@ -76,7 +72,7 @@ async def test_admin_reset_clears_handle_and_keeps_history(reset_db, client):
         target.handle = "rudeword"
         target.handle_key = "rudeword"
         target.handle_changed_at = datetime.now(timezone.utc)
-        bot, _ = await make_bot(db, target, name="TargetBot")
+        agent, _ = await make_agent(db, target, name="TargetBot")
         match = Match(
             id="M_s1",
             name="Played Match",
@@ -87,7 +83,7 @@ async def test_admin_reset_clears_handle_and_keeps_history(reset_db, client):
         )
         db.add(match)
         await db.flush()
-        db.add(Player(match_id=match.id, user_id=target.id, bot_id=bot.id, agent_id="A"))
+        db.add(Player(match_id=match.id, user_id=target.id, agent_id=agent.id, seat_name="A"))
         await db.commit()
         admin_id, target_id = admin.id, target.id
 

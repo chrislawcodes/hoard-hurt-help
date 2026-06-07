@@ -69,10 +69,10 @@ async def test_ensure_creates_practice_arena_when_none_exists(db_session):
             )
         )
         assert sim_count == PRACTICE_ARENA_SIM_COUNT
-        agent_ids = (
+        seat_names = (
             (
                 await db.execute(
-                    select(Player.agent_id)
+                    select(Player.seat_name)
                     .where(Player.match_id == arena.id, Player.left_at.is_(None))
                     .order_by(Player.id)
                 )
@@ -80,7 +80,7 @@ async def test_ensure_creates_practice_arena_when_none_exists(db_session):
             .scalars()
             .all()
         )
-        assert agent_ids == list(HISTORICAL_SIM_NAME_POOL[:PRACTICE_ARENA_SIM_COUNT])
+        assert seat_names == list(HISTORICAL_SIM_NAME_POOL[:PRACTICE_ARENA_SIM_COUNT])
 
 
 async def test_ensure_practice_arena_idempotent(db_session):
@@ -202,10 +202,10 @@ async def test_fill_and_start_auto_matches_fills_sims(db_session):
         )
         expected_count = 1 + min(AUTO_MATCH_MAX_PLAYERS - 1, AUTO_MATCH_SIM_COUNT_MAX)
         assert player_count == expected_count
-        agent_ids = set(
+        seat_names = set(
             (
                 await db.execute(
-                    select(Player.agent_id).where(
+                    select(Player.seat_name).where(
                         Player.match_id == match_id, Player.left_at.is_(None)
                     )
                 )
@@ -213,7 +213,7 @@ async def test_fill_and_start_auto_matches_fills_sims(db_session):
             .scalars()
             .all()
         )
-        assert agent_ids == {"Human1", *HISTORICAL_SIM_NAME_POOL[: player_count - 1]}
+        assert seat_names == {"Human1", *HISTORICAL_SIM_NAME_POOL[: player_count - 1]}
 
 
 async def test_fill_and_start_auto_matches_zero_humans_cancels(db_session):

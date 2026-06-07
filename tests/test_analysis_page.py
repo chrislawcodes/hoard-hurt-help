@@ -53,8 +53,8 @@ async def _seed_game_with_history(reset_db) -> None:
         await db.flush()
         pids = {}
         for i in range(3):
-            bot, _ = await make_bot(db, u, name=f"AI_{i}")
-            p = Player(match_id="G_001", user_id=u.id, bot_id=bot.id, agent_id=f"AI_{i}")
+            agent, _ = await make_bot(db, u, name=f"AI_{i}")
+            p = Player(match_id="G_001", user_id=u.id, agent_id=agent.id, seat_name=f"AI_{i}")
             if i == 1:
                 p.total_round_wins = 1.0
             db.add(p)

@@ -11,8 +11,8 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.main import app
-from app.models import Base, Match, GameState, Player, StrategyPrompt, Turn, TurnSubmission, User
-from tests.factories import make_bot
+from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
+from tests.factories import make_agent
 
 
 @pytest.fixture(autouse=True)
@@ -208,11 +208,19 @@ async def test_admin_delete_game_removes_everything(client, reset_db):
         )
         db.add(g)
         await db.flush()
-        bot, _ = await make_bot(db, u, name="AI_0")
-        p = Player(match_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="AI_0")
+        agent, version = await make_agent(db, u, name="AI_0")
+        p = Player(
+            match_id="G_001",
+            user_id=u.id,
+            agent_id=agent.id,
+            seat_name="AI_0",
+            agent_version_id=version.id if version is not None else None,
+            model_self_report=version.model if version is not None else None,
+        )
         db.add(p)
         await db.flush()
-        db.add(StrategyPrompt(player_id=p.id, prompt_text="plan", is_default=False))
+        if version is not None:
+            version.strategy_text = "plan"
         await db.commit()
 
     r = await client.post(
@@ -268,12 +276,14 @@ async def test_export_csv_shape(client, reset_db):
         )
         db.add(g)
         await db.flush()
-        bot, _ = await make_bot(db, u, name="AI_0")
+        agent, version = await make_agent(db, u, name="AI_0")
         p = Player(
             match_id="G_001",
             user_id=u.id,
-            bot_id=bot.id,
-            agent_id="AI_0",
+            agent_id=agent.id,
+            seat_name="AI_0",
+            agent_version_id=version.id if version is not None else None,
+            model_self_report=version.model if version is not None else None,
         )
         db.add(p)
         await db.flush()
@@ -327,13 +337,19 @@ async def test_export_json_includes_strategy_prompts(client, reset_db):
         )
         db.add(g)
         await db.flush()
-        bot, _ = await make_bot(db, u, name="AI_0")
-        p = Player(match_id="G_001", user_id=u.id, bot_id=bot.id, agent_id="AI_0")
+        agent, version = await make_agent(db, u, name="AI_0")
+        p = Player(
+            match_id="G_001",
+            user_id=u.id,
+            agent_id=agent.id,
+            seat_name="AI_0",
+            agent_version_id=version.id if version is not None else None,
+            model_self_report=version.model if version is not None else None,
+        )
         db.add(p)
         await db.flush()
-        db.add(
-            StrategyPrompt(player_id=p.id, prompt_text="secret strategy", is_default=False)
-        )
+        if version is not None:
+            version.strategy_text = "secret strategy"
         await db.commit()
 
     r = await client.get(
