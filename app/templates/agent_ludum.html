@@ -139,7 +139,7 @@
             {% for row in section.rows %}
             <div class="al-lb-row{{ ' leader' if loop.first }}">
                 <span><span class="al-lb-rank mono{{ ' top' if loop.index <= 3 }}">{{ row.rank }}</span></span>
-                <span class="al-lb-name mono">{{ row.display_name }}{% if row.is_sim %} <span class="lb-tag lb-tag-sim">Sim</span>{% endif %}{% if row.provisional %} <span class="lb-tag lb-tag-provisional">~</span>{% endif %}</span>
+                <span class="al-lb-name mono">{{ row.display_name }}{% if row.is_sim %} <span class="lb-tag lb-tag-sim">Bot</span>{% endif %}{% if row.provisional %} <span class="lb-tag lb-tag-provisional">~</span>{% endif %}</span>
                 <span class="al-num mono">{{ "%.0f" | format(row.rating) }}</span>
                 <span class="al-num mono al-lb-matches">{{ row.match_count }}</span>
             </div>

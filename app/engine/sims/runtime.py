@@ -1,11 +1,11 @@
-"""High-level orchestration for deterministic Sims."""
+"""High-level orchestration for deterministic bots."""
 
 from __future__ import annotations
 
 import hashlib
 from typing import Sequence
 
-from app.models.bot import Bot, BotKind
+from app.models.agent import Agent, AgentKind
 from app.schemas.agent import ScoreboardRow
 
 from .phrases import render_phrase
@@ -15,28 +15,28 @@ from .trust import compute_trust_map
 from .types import SimActionDecision, SimContext, SimPlan, SimProfile, SimTalkDecision
 
 
-def build_sim_profile(bot: Bot) -> SimProfile:
-    if bot.kind != BotKind.SIM:
-        raise ValueError("bot is not a Sim")
+def build_bot_profile(agent: Agent) -> SimProfile:
+    if agent.kind != AgentKind.BOT:
+        raise ValueError("agent is not a bot")
     if (
-        bot.sim_strategy is None
-        or bot.sim_truthfulness is None
-        or bot.sim_trust_model is None
-        or bot.sim_seed is None
-        or bot.sim_version is None
+        agent.bot_strategy is None
+        or agent.bot_truthfulness is None
+        or agent.bot_trust_model is None
+        or agent.bot_seed is None
+        or agent.bot_version is None
     ):
-        raise ValueError("sim bot is missing required Sim fields")
+        raise ValueError("bot agent is missing required bot fields")
     return SimProfile(
-        strategy=normalize_strategy_name(bot.sim_strategy),
-        truthfulness=bot.sim_truthfulness,
-        trust_model=bot.sim_trust_model,
-        seed=bot.sim_seed,
-        version=bot.sim_version,
-        fixture_pack=bot.sim_fixture_pack,
+        strategy=normalize_strategy_name(agent.bot_strategy),
+        truthfulness=agent.bot_truthfulness,
+        trust_model=agent.bot_trust_model,
+        seed=agent.bot_seed,
+        version=agent.bot_version,
+        fixture_pack=agent.bot_fixture_pack,
     )
 
 
-def choose_talk_decision(context: SimContext, profile: SimProfile) -> SimTalkDecision:
+def choose_bot_talk_decision(context: SimContext, profile: SimProfile) -> SimTalkDecision:
     trust_map = compute_trust_map(
         your_agent_id=context.your_agent_id,
         all_agent_ids=context.all_agent_ids,
@@ -61,7 +61,7 @@ def choose_talk_decision(context: SimContext, profile: SimProfile) -> SimTalkDec
     )
 
 
-def choose_action_decision(context: SimContext, profile: SimProfile) -> SimActionDecision:
+def choose_bot_action_decision(context: SimContext, profile: SimProfile) -> SimActionDecision:
     leader_id = _leader_id(context.scoreboard)
     signals = extract_talk_signals(
         context.current_talk_messages, all_agent_ids=context.all_agent_ids, leader_id=leader_id
@@ -201,3 +201,8 @@ def _seed_int(*parts: object) -> int:
     )
     digest = hashlib.sha256(payload.encode()).hexdigest()
     return int(digest[:16], 16)
+
+
+build_sim_profile = build_bot_profile
+choose_talk_decision = choose_bot_talk_decision
+choose_action_decision = choose_bot_action_decision

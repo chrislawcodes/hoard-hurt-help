@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.main import app
 from app.models import Base, GameState, Match, Player
-from app.models.bot import BotKind
-from tests.factories import make_bot, make_user
+from app.models.agent import AgentKind
+from tests.factories import make_agent, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +68,7 @@ async def _seed_leaderboard_match(
     match_id: str,
     name: str,
     scheduled_start: datetime,
-    seat_specs: list[tuple[int, str, BotKind, str | None, float, int]],
+    seat_specs: list[tuple[int, str, AgentKind, str | None, float, int]],
 ) -> None:
     async with reset_db() as db:
         match = Match(
@@ -84,16 +84,16 @@ async def _seed_leaderboard_match(
         await db.flush()
 
         winners: list[Player] = []
-        for user_index, agent_id, kind, sim_profile_name, round_wins, total_score in seat_specs:
+        for user_index, seat_name, kind, sim_profile_name, round_wins, total_score in seat_specs:
             user = await make_user(db, user_index)
-            bot, _ = await make_bot(
+            agent, _ = await make_agent(
                 db,
                 user,
-                name=sim_profile_name or f"bot-{agent_id}",
+                name=sim_profile_name or f"agent-{seat_name}",
                 kind=kind,
-                sim_profile_name=sim_profile_name if kind == BotKind.SIM else None,
+                sim_profile_name=sim_profile_name if kind == AgentKind.BOT else None,
             )
-            player = Player(match_id=match.id, user_id=user.id, bot_id=bot.id, agent_id=agent_id)
+            player = Player(match_id=match.id, user_id=user.id, agent_id=agent.id, seat_name=seat_name)
             db.add(player)
             await db.flush()
             player.total_round_wins = round_wins
@@ -112,9 +112,9 @@ async def _seed_leaderboard_data(reset_db: async_sessionmaker) -> None:
         name="June ranking",
         scheduled_start=datetime(2026, 6, 4, 12, tzinfo=timezone.utc),
         seat_specs=[
-            (1, "Alpha", BotKind.EXTERNAL, None, 3.0, 120),
-            (2, "Beta", BotKind.EXTERNAL, None, 2.0, 100),
-            (3, "Gamma", BotKind.SIM, "Random Sim", 1.0, 90),
+            (1, "Alpha", AgentKind.AI, None, 3.0, 120),
+            (2, "Beta", AgentKind.AI, None, 2.0, 100),
+            (3, "Gamma", AgentKind.BOT, "Random Sim", 1.0, 90),
         ],
     )
     await _seed_leaderboard_match(
@@ -123,8 +123,8 @@ async def _seed_leaderboard_data(reset_db: async_sessionmaker) -> None:
         name="Pre-cutoff ranking",
         scheduled_start=datetime(2026, 6, 2, 12, tzinfo=timezone.utc),
         seat_specs=[
-            (10, "Old One", BotKind.EXTERNAL, None, 4.0, 200),
-            (11, "Old Two", BotKind.EXTERNAL, None, 1.0, 10),
+            (10, "Old One", AgentKind.AI, None, 4.0, 200),
+            (11, "Old Two", AgentKind.AI, None, 1.0, 10),
         ],
     )
 
@@ -171,7 +171,7 @@ async def test_global_leaderboard_renders_rankings(client, reset_db):
     assert "Scoped to this game." not in r.text
     assert "This section is where" not in r.text
     assert "First-place bonus" in r.text
-    assert "Hide sim games" in r.text
+    assert "Hide bot games" in r.text
 
 
 @pytest.mark.asyncio

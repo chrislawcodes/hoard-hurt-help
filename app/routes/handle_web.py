@@ -26,7 +26,7 @@ from app.templating import templates
 
 router = APIRouter()
 
-_DEFAULT_NEXT = "/me/bots"
+_DEFAULT_NEXT = "/me/agents"
 
 
 def _safe_next(raw: str | None) -> str:

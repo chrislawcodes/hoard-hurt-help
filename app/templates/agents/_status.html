@@ -1,0 +1,9 @@
+{% if health %}
+<span class="{{ health.badge_class }}{% if health.pulse %} badge-pulse{% endif %}">{{ health.label }}</span>
+{% endif %}
+{% if version %}
+· v{{ version.version_no }} · {{ version.model }}
+{% endif %}
+{% if connection %}
+· {{ connection.nickname or provider_label }}
+{% endif %}

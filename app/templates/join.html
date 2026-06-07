@@ -11,53 +11,23 @@
     {% endif %}
 </div>
 
-{% if connected_agents or sims %}
+{% set ready_agents = agents | selectattr('ready') | list %}
+
+{% if ready_agents %}
 <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" id="join-form">
     <div class="card form">
         <label>
             Play as agent
-            <select name="bot_id" required>
-                {% if connected_agents and sims %}
-                <optgroup label="Agents">
-                    {% for b in connected_agents %}
-                    <option value="{{ b.id }}">{{ b.name }}{% if b.status.value == 'paused' %} (paused){% endif %}</option>
-                    {% endfor %}
-                </optgroup>
-                <optgroup label="Sims">
-                    {% for b in sims %}
-                    <option value="{{ b.id }}">{{ b.sim_profile_name or b.name }}</option>
-                    {% endfor %}
-                </optgroup>
-                {% else %}
-                    {% for b in connected_agents %}
-                    <option value="{{ b.id }}">{{ b.name }}{% if b.status.value == 'paused' %} (paused){% endif %}</option>
-                    {% endfor %}
-                    {% for b in sims %}
-                    <option value="{{ b.id }}">{{ b.sim_profile_name or b.name }}</option>
-                    {% endfor %}
-                {% endif %}
-            </select>
-            <small>Manage agents and connection codes under <a href="/me/bots">My Agents</a>.</small>
-        </label>
-        <label>
-            In-game agent name
-            <input type="text" name="display_name" value="{{ default_display_name }}" maxlength="32" required autocomplete="off">
-            <small>Your name in this match. Change it if you like — letters, numbers, underscores only.</small>
-        </label>
-        <label>
-            Strategy
-            <select id="preset-picker" aria-label="Pick a preset strategy">
-                <option value="">Write my own</option>
-                {% for p in presets %}
-                <option value="{{ p.id }}" title="{{ p.description }}"{% if p.id == default_preset_id %} selected{% endif %}>{{ p.name }}</option>
+            <select name="agent_id" required>
+                {% for row in ready_agents %}
+                <option value="{{ row.agent.id }}">
+                    {{ row.agent.name }} · {{ row.version.model }} · {{ row.connection.nickname or row.connection.provider.value }}
+                </option>
                 {% endfor %}
             </select>
-            <small>Pick a ready-made strategy or write your own below. You can fine-tune it until the game starts.</small>
+            <small>Your in-match identity will be <strong>{{ user.handle }}/agent-name</strong>, and the game will use the agent's current version.</small>
         </label>
-        <label>
-            Strategy prompt
-            <textarea name="strategy_prompt" id="strategy-prompt" rows="8" maxlength="2000" required>{{ strategy_prompt }}</textarea>
-        </label>
+        <p class="hint">Manage agents and connection logins under <a href="/me/agents">Agents</a> and <a href="/me/connections">Connections</a>.</p>
         {% if error %}<p class="error">{{ error }}</p>{% endif %}
     </div>
     <div class="form-actions">
@@ -65,28 +35,16 @@
         <a class="btn btn-ghost" href="/games/{{ game.game }}">Cancel</a>
     </div>
 </form>
-<p class="meta">Nothing to copy here — once your agent is connected, it finds and plays this match on its own.</p>
-<script>
-    const PRESETS = {{ presets | tojson }};
-    (function () {
-        const picker = document.getElementById('preset-picker');
-        const box = document.getElementById('strategy-prompt');
-        if (!picker || !box) return;
-        picker.addEventListener('change', function () {
-            const p = PRESETS.find(function (x) { return x.id === picker.value; });
-            if (p) box.value = p.prompt;
-        });
-    })();
-</script>
-{% elif any_bots %}
+<p class="meta">Nothing to copy here. Once your connection is live, it takes this match with the agent's current version.</p>
+{% elif agents %}
 <div class="card form">
-    <p>Your agents are not connected right now. Start your agent runner and come back once it's live.</p>
-    <a class="btn btn-ghost" href="/me/bots">Check agent status →</a>
+    <p>Your agents are not connected right now. Start the runner for one of these connections and come back once it's live.</p>
+    <a class="btn btn-ghost" href="/me/connections">Check connections →</a>
 </div>
 {% else %}
 <div class="card form">
-    <p>You don't have an agent yet. Create one — you'll get a connection code to paste into your AI <strong>once</strong> — then come back and enter it here.</p>
-    <a class="btn btn-primary" href="/me/bots">Create an agent →</a>
+    <p>You don't have an agent yet. Create one, connect it once, and then come back here to enter the game.</p>
+    <a class="btn btn-primary" href="/me/agents/new">Create an agent →</a>
 </div>
 {% endif %}
 {% endblock %}

@@ -75,7 +75,7 @@ async def test_poll_invalid_key(client, reset_db):
     await _seed_game(reset_db, state=GameState.ACTIVE)
     r = await client.get(
         "/api/games/G_001/turn",
-        headers={"X-Agent-Key": "sk_game_bogus"},
+        headers={"X-Connection-Key": "sk_game_bogus"},
     )
     assert r.status_code == 401
     assert r.json()["detail"]["error"]["code"] == "INVALID_KEY"
@@ -87,7 +87,7 @@ async def test_poll_game_not_started(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.REGISTERING, n_players=1)
     r = await client.get(
         "/api/games/G_001/turn",
-        headers={"X-Agent-Key": players[0]._test_key},
+        headers={"X-Connection-Key": players[0]._test_key},
     )
     assert r.status_code == 200
     body = r.json()
@@ -105,7 +105,7 @@ async def test_poll_not_started_near_start_polls_faster(client, reset_db):
     )
     r = await client.get(
         "/api/games/G_001/turn",
-        headers={"X-Agent-Key": players[0]._test_key},
+        headers={"X-Connection-Key": players[0]._test_key},
     )
     assert r.status_code == 200
     body = r.json()
@@ -119,7 +119,7 @@ async def test_poll_active_no_open_turn_cadence(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=1)
     r = await client.get(
         "/api/games/G_001/turn",
-        headers={"X-Agent-Key": players[0]._test_key},
+        headers={"X-Connection-Key": players[0]._test_key},
     )
     assert r.status_code == 200
     body = r.json()
@@ -157,7 +157,7 @@ async def test_poll_your_turn_then_submit(client, reset_db):
         await db.refresh(t)
         turn_token = t.turn_token
 
-    r = await client.get("/api/games/G_001/turn", headers={"X-Agent-Key": key})
+    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "your_turn"
@@ -169,11 +169,13 @@ async def test_poll_your_turn_then_submit(client, reset_db):
     assert isinstance(body["scoreboard"], list)
     assert "rules" in body["static"]
     turn_token = body["current"]["turn_token"]
+    agent_turn_token = f"{turn_token}:{p0.agent_id}:G_001"
 
     # Submit Hoard.
     r2 = await client.post(
         "/api/games/G_001/submit",
-        headers={"X-Agent-Key": key},
+        params={"agent_turn_token": agent_turn_token},
+        headers={"X-Connection-Key": key},
         json={"turn_token": turn_token, "action": "HOARD", "target_id": None, "message": "hi"},
     )
     assert r2.status_code == 202, r2.text
@@ -181,7 +183,8 @@ async def test_poll_your_turn_then_submit(client, reset_db):
     # Idempotent re-submit returns same status.
     r3 = await client.post(
         "/api/games/G_001/submit",
-        headers={"X-Agent-Key": key},
+        params={"agent_turn_token": agent_turn_token},
+        headers={"X-Connection-Key": key},
         json={"turn_token": turn_token, "action": "HOARD", "target_id": None, "message": "hi"},
     )
     assert r3.status_code == 202
@@ -215,11 +218,12 @@ async def test_submit_invalid_target(client, reset_db):
     # Self-target HELP.
     r = await client.post(
         "/api/games/G_001/submit",
-        headers={"X-Agent-Key": key},
+        params={"agent_turn_token": f"{turn_token}:{p0.agent_id}:G_001"},
+        headers={"X-Connection-Key": key},
         json={
             "turn_token": turn_token,
             "action": "HELP",
-            "target_id": p0.agent_id,
+            "target_id": p0.seat_name,
             "message": "",
         },
     )
@@ -232,10 +236,10 @@ async def test_rate_limit(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=1)
     key = players[0]._test_key
     # First poll OK.
-    r1 = await client.get("/api/games/G_001/turn", headers={"X-Agent-Key": key})
+    r1 = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
     assert r1.status_code == 200
     # Immediate second poll → 429.
-    r2 = await client.get("/api/games/G_001/turn", headers={"X-Agent-Key": key})
+    r2 = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
     assert r2.status_code == 429
     assert r2.json()["detail"]["error"]["code"] == "RATE_LIMITED"
 
@@ -294,21 +298,22 @@ async def test_pull_opponent_history(client, reset_db):
         ],
     )
     r = await client.get(
-        "/api/games/G_001/history/opponents/AI_1", headers={"X-Agent-Key": p0._test_key}
+        f"/api/games/G_001/history/opponents/{p1.seat_name}",
+        headers={"X-Connection-Key": p0._test_key},
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["opponent_id"] == "AI_1"
+    assert body["opponent_id"] == p1.seat_name
     assert len(body["turns"]) == 1
     actors = {a["agent_id"] for a in body["turns"][0]["actions"]}
-    assert actors == {"AI_0", "AI_1"}  # AI_2's hoard is not part of this pair
+    assert actors == {p0.seat_name, p1.seat_name}  # AI_2's hoard is not part of this pair
 
 
 @pytest.mark.asyncio
 async def test_pull_opponent_history_unknown(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
     r = await client.get(
-        "/api/games/G_001/history/opponents/NOPE", headers={"X-Agent-Key": players[0]._test_key}
+        "/api/games/G_001/history/opponents/NOPE", headers={"X-Connection-Key": players[0]._test_key}
     )
     assert r.status_code == 400
     assert r.json()["detail"]["error"]["code"] == "INVALID_TARGET"
@@ -321,7 +326,7 @@ async def test_pull_chat_since_cursor(client, reset_db):
     await _seed_resolved_turn(reset_db, "G_001", 1, 1, [(p0.id, "HOARD", None, "turn one", 2, 2)])
     await _seed_resolved_turn(reset_db, "G_001", 1, 2, [(p1.id, "HOARD", None, "turn two", 2, 2)])
     r = await client.get(
-        "/api/games/G_001/chat", params={"since": "1.1"}, headers={"X-Agent-Key": p0._test_key}
+        "/api/games/G_001/chat", params={"since": "1.1"}, headers={"X-Connection-Key": p0._test_key}
     )
     assert r.status_code == 200, r.text
     msgs = r.json()["messages"]
@@ -340,7 +345,7 @@ async def test_pull_turn_detail(client, reset_db):
         1,
         [(p0.id, "HOARD", None, "a", 2, 2), (p1.id, "HELP", p0.id, "b", 0, 0)],
     )
-    r = await client.get("/api/games/G_001/turns/1/1", headers={"X-Agent-Key": p0._test_key})
+    r = await client.get("/api/games/G_001/turns/1/1", headers={"X-Connection-Key": p0._test_key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["round"] == 1 and body["turn"] == 1
@@ -350,7 +355,7 @@ async def test_pull_turn_detail(client, reset_db):
 @pytest.mark.asyncio
 async def test_pull_turn_detail_missing(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
-    r = await client.get("/api/games/G_001/turns/9/9", headers={"X-Agent-Key": players[0]._test_key})
+    r = await client.get("/api/games/G_001/turns/9/9", headers={"X-Connection-Key": players[0]._test_key})
     assert r.status_code == 404
     assert r.json()["detail"]["error"]["code"] == "NOT_FOUND"
 
@@ -363,9 +368,9 @@ async def test_pull_standings(client, reset_db):
     async with reset_db() as db:
         ps = (await db.execute(select(Player).where(Player.match_id == "G_001"))).scalars().all()
         for p in ps:
-            p.current_round_score = {"AI_0": 5, "AI_1": 9, "AI_2": 1}[p.agent_id]
+            p.current_round_score = {"AI_0": 5, "AI_1": 9, "AI_2": 1}[p.seat_name]
         await db.commit()
-    r = await client.get("/api/games/G_001/standings", headers={"X-Agent-Key": players[0]._test_key})
+    r = await client.get("/api/games/G_001/standings", headers={"X-Connection-Key": players[0]._test_key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["rows"][0]["agent_id"] == "AI_1"  # highest round score → rank 1
@@ -376,9 +381,9 @@ async def test_pull_standings(client, reset_db):
 async def test_pull_rate_limited(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
     key = players[0]._test_key
-    r1 = await client.get("/api/games/G_001/standings", headers={"X-Agent-Key": key})
+    r1 = await client.get("/api/games/G_001/standings", headers={"X-Connection-Key": key})
     assert r1.status_code == 200
-    r2 = await client.get("/api/games/G_001/standings", headers={"X-Agent-Key": key})
+    r2 = await client.get("/api/games/G_001/standings", headers={"X-Connection-Key": key})
     assert r2.status_code == 429
     assert r2.json()["detail"]["error"]["code"] == "RATE_LIMITED"
 
@@ -418,7 +423,7 @@ async def test_directed_message_appears_next_turn(client, reset_db):
         )
         await db.commit()
 
-    r = await client.get("/api/games/G_001/turn", headers={"X-Agent-Key": p0._test_key})
+    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": p0._test_key})
     assert r.status_code == 200, r.text
     body = r.json()
     # Turn 1 is in the raw history the bot reads itself — AI_1's hurt-with-message

@@ -73,7 +73,7 @@ async def test_standings_band_shows_real_agents(client, reset_db):
         for i, (agent, score) in enumerate(
             [("Claudius", 22), ("Sonnet_Sue", 17), ("GPT_Greg", 9)]
         ):
-            p = await seat_player(db, "G_done", agent_id=agent, i=i)
+            p = await seat_player(db, "G_done", agent, i=i)
             p.current_round_score = score
         await db.commit()
 

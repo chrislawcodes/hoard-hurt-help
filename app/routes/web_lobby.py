@@ -12,11 +12,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import case, func, select
 
 from app.deps import DbSession, get_current_user
-from app.engine.bot_activity import compute_bot_health
+from app.engine.connection_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
 from app.games.base import GameError
-from app.models.bot import Bot, BotKind
+from app.models.agent import Agent, AgentKind
+from app.models.connection import Connection
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.read_models.leaderboard import load_leaderboard_sections
@@ -101,15 +102,15 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
             Player.match_id.label("match_id"),
             func.count(Player.id).label("player_count"),
             func.coalesce(
-                func.sum(case((Bot.kind == BotKind.SIM, 1), else_=0)),
+                func.sum(case((Agent.kind == AgentKind.BOT, 1), else_=0)),
                 0,
-            ).label("sim_count"),
+            ).label("bot_count"),
             func.coalesce(
-                func.sum(case((Bot.kind != BotKind.SIM, 1), else_=0)),
+                func.sum(case((Agent.kind != AgentKind.BOT, 1), else_=0)),
                 0,
             ).label("agent_count"),
         )
-        .join(Bot, Bot.id == Player.bot_id)
+        .join(Agent, Agent.id == Player.agent_id)
         .group_by(Player.match_id)
         .subquery()
     )
@@ -118,7 +119,7 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
             select(
                 Match,
                 func.coalesce(player_counts.c.player_count, 0),
-                func.coalesce(player_counts.c.sim_count, 0),
+                func.coalesce(player_counts.c.bot_count, 0),
                 func.coalesce(player_counts.c.agent_count, 0),
             )
             .outerjoin(player_counts, player_counts.c.match_id == Match.id)
@@ -137,7 +138,7 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
         winner_names = {
             player_id: agent_id
             for player_id, agent_id in (
-                await db.execute(select(Player.id, Player.agent_id).where(Player.id.in_(winner_ids)))
+                await db.execute(select(Player.id, Player.seat_name).where(Player.id.in_(winner_ids)))
             ).all()
         }
 
@@ -145,7 +146,7 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
     recent: list[dict[str, Any]] = []
     sims_only: list[dict[str, Any]] = []
     cancelled: list[dict[str, Any]] = []
-    for match, player_count, sim_count, agent_count in rows:
+    for match, player_count, bot_count, agent_count in rows:
         if str(match.name).strip().lower().startswith(_TEST_NAME_PREFIX):
             continue
         timestamp = _lobby_timestamp(match)
@@ -155,7 +156,7 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
             "name": match.name,
             "state": match.state,
             "player_count": int(player_count),
-            "sim_count": int(sim_count),
+            "bot_count": int(bot_count),
             "agent_count": int(agent_count),
             "timestamp": timestamp,
             "timestamp_label": "Completed" if match.state == GameState.COMPLETED else "Cancelled",
@@ -410,26 +411,28 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     recent_games = finished_views["recent"]
     sims_only_games = finished_views["sims_only"]
 
-    # Onboarding banner: shown when the user has a warm bot but hasn't joined a
+    # Onboarding banner: shown when the user has a warm agent but hasn't joined a
     # match yet. Disappears naturally once they're in a game.
     show_onboarding_banner = False
     if user is not None:
-        user_bots = (
+        user_connections = (
             await db.execute(
-                select(Bot).where(
-                    Bot.user_id == user.id,
-                    Bot.archived_at.is_(None),
-                    Bot.kind != BotKind.SIM,
+                select(Connection).distinct()
+                .join(Agent, Agent.connection_id == Connection.id)
+                .where(
+                    Agent.user_id == user.id,
+                    Agent.archived_at.is_(None),
+                    Agent.kind == AgentKind.AI,
                 )
             )
         ).scalars().all()
-        has_warm_bot = False
-        for b in user_bots:
-            health = await compute_bot_health(db, b)
+        has_warm_agent = False
+        for connection in user_connections:
+            health = await compute_bot_health(db, connection)
             if health.state.value in ("live", "ready"):
-                has_warm_bot = True
+                has_warm_agent = True
                 break
-        if has_warm_bot:
+        if has_warm_agent:
             active_entry_count = await db.scalar(
                 select(func.count()).select_from(Player)
                 .join(Match, Player.match_id == Match.id)

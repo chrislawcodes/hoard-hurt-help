@@ -18,15 +18,15 @@
         <span class="lb-control-label">Included</span>
         <div class="view-switch">
             <a class="view-btn" href="{{ included_agents_url }}" aria-pressed="{{ 'true' if included == 'agents' else 'false' }}">Agents</a>
-            <a class="view-btn" href="{{ included_sims_url }}" aria-pressed="{{ 'true' if included == 'sims' else 'false' }}">Sims</a>
-            <a class="view-btn" href="{{ included_all_url }}" aria-pressed="{{ 'true' if included == 'all' else 'false' }}">Agents + Sims</a>
+            <a class="view-btn" href="{{ included_sims_url }}" aria-pressed="{{ 'true' if included == 'sims' or included == 'bot' else 'false' }}">Bots</a>
+            <a class="view-btn" href="{{ included_all_url }}" aria-pressed="{{ 'true' if included == 'all' else 'false' }}">Agents + Bots</a>
         </div>
     </div>
     <div class="lb-control">
-        <span class="lb-control-label">Sim games</span>
+        <span class="lb-control-label">Bot games</span>
         <div class="view-switch">
             <a class="view-btn" href="{{ sim_games_show_url }}" aria-pressed="{{ 'true' if not hide_sim_games else 'false' }}">Show all</a>
-            <a class="view-btn" href="{{ sim_games_hide_url }}" aria-pressed="{{ 'true' if hide_sim_games else 'false' }}">Hide sim games</a>
+            <a class="view-btn" href="{{ sim_games_hide_url }}" aria-pressed="{{ 'true' if hide_sim_games else 'false' }}">Hide bot games</a>
         </div>
     </div>
 </div>
@@ -41,8 +41,8 @@
             </div>
             <div class="section-head-actions">
                 <span class="count">{{ section.rows | length }} competitors</span>
-                {% if section.has_sims %}
-                <span class="lb-tag lb-tag-sim">Has Sims</span>
+                {% if section.has_bots %}
+                <span class="lb-tag lb-tag-sim">Has Bots</span>
                 {% endif %}
             </div>
         </div>
@@ -60,8 +60,8 @@
                 <span class="lb-name">
                     <span class="lb-name-main">
                         {{ row.display_name }}
-                        {% if row.is_sim %}
-                        <span class="lb-tag lb-tag-sim">Sim</span>
+                        {% if row.is_bot %}
+                        <span class="lb-tag lb-tag-sim">Bot</span>
                         {% endif %}
                         {% if row.provisional %}
                         <span class="lb-tag lb-tag-provisional">Provisional</span>
@@ -82,7 +82,7 @@
 {% else %}
 <div class="card lb-empty">
     <p class="empty">No ranked competitors yet for this filter.</p>
-    <p class="lb-empty-note">Try a different rating mode or include Sims to reveal more sections.</p>
+    <p class="lb-empty-note">Try a different rating mode or include bots to reveal more sections.</p>
 </div>
 {% endif %}
 {% endblock %}

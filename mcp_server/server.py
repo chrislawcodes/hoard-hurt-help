@@ -5,7 +5,7 @@ Hosted at /mcp on the same FastAPI app. Three tools:
 - submit_action(match_id, action, target_id, message, turn_token): submit
 - get_game_state(match_id): public snapshot
 
-Auth: the player sets the `X-Agent-Key` header on the MCP connection itself
+Auth: the connection sets the `X-Connection-Key` header on the MCP connection itself
 (Hermes `config.yaml` `headers:`, `claude mcp add --header`, etc.). The
 authenticated tools read that header off each request's context, so the key
 stays in the client config and never has to appear in the chat prompt.
@@ -26,7 +26,7 @@ from app.config import settings
 # transport_security: FastMCP's host defaults to 127.0.0.1, which makes it
 # auto-enable localhost-only DNS-rebinding protection. Served on a public
 # domain behind Railway's TLS proxy that rejects every real request with
-# 421 "Invalid Host header". We authenticate each tool call with X-Agent-Key
+# 421 "Invalid Host header". We authenticate each tool call with X-Connection-Key
 # and clients connect by hostname (incl. future custom domains), so disable the
 # Host/Origin check rather than pin an allow-list. (Content-Type is still validated.)
 mcp_app = FastMCP(
@@ -44,8 +44,8 @@ def _client() -> httpx.AsyncClient:
     )
 
 
-def _headers(agent_key: str) -> dict[str, str]:
-    return {"X-Agent-Key": agent_key, "Content-Type": "application/json"}
+def _headers(connection_key: str) -> dict[str, str]:
+    return {"X-Connection-Key": connection_key, "Content-Type": "application/json"}
 
 
 def _resolve_match_id(match_id: str | None, game_id: str | None) -> str:
@@ -57,20 +57,20 @@ def _resolve_match_id(match_id: str | None, game_id: str | None) -> str:
     return resolved
 
 
-def _agent_key_from_ctx(ctx: Context) -> str:
-    """Pull the per-game key off the MCP connection's HTTP headers.
+def _connection_key_from_ctx(ctx: Context) -> str:
+    """Pull the per-connection key off the MCP connection's HTTP headers.
 
     For the streamable-HTTP transport the SDK sets `request_context.request`
-    to the Starlette request for each tool-call POST, so the `X-Agent-Key`
+    to the Starlette request for each tool-call POST, so the `X-Connection-Key`
     header the client was configured with rides along on every call.
     """
     request = getattr(ctx.request_context, "request", None)
-    key = request.headers.get("x-agent-key") if request is not None else None
+    key = request.headers.get("x-connection-key") if request is not None else None
     if not key:
         raise RuntimeError(
-            "Missing X-Agent-Key. Set your bot's stable key as a header on the MCP "
-            "connection — e.g. Hermes config.yaml `headers: {X-Agent-Key: sk_bot_...}` "
-            'or claude mcp add hoardhurthelp <url> --header "X-Agent-Key: sk_bot_...".'
+            "Missing X-Connection-Key. Set your connection's stable key as a header on the MCP "
+            "connection — e.g. Hermes config.yaml `headers: {X-Connection-Key: sk_conn_...}` "
+            'or claude mcp add hoardhurthelp <url> --header "X-Connection-Key: sk_conn_...".'
         )
     return key
 
@@ -84,7 +84,7 @@ async def get_turn(
 ) -> dict[str, Any]:
     """Poll for the current turn.
 
-    Your key is read from the connection's X-Agent-Key header — do not ask the
+    Your key is read from the connection's X-Connection-Key header — do not ask the
     user for it and do not pass it as an argument.
 
     Args:
@@ -108,7 +108,7 @@ async def get_turn(
     if ctx is None:
         raise ValueError("ctx is required")
     resolved_match_id = _resolve_match_id(match_id, game_id)
-    agent_key = _agent_key_from_ctx(ctx)
+    agent_key = _connection_key_from_ctx(ctx)
     async with _client() as c:
         r = await c.get(
             f"/api/matches/{resolved_match_id}/turn", headers=_headers(agent_key)
@@ -121,7 +121,7 @@ async def get_next_turn(ctx: Context) -> dict[str, Any]:
     """Get your most urgent pending turn across ALL your games. This is the loop.
 
     You connect once; this finds what needs you next without you tracking game
-    ids. Call it repeatedly. Your key rides on the connection's X-Agent-Key
+    ids. Call it repeatedly. Your key rides on the connection's X-Connection-Key
     header — do not pass it as an argument.
 
     Returns one of:
@@ -138,7 +138,7 @@ async def get_next_turn(ctx: Context) -> dict[str, Any]:
     You may be in several games at once; this always hands back the one whose
     deadline is soonest. Loop until your games are over.
     """
-    agent_key = _agent_key_from_ctx(ctx)
+    agent_key = _connection_key_from_ctx(ctx)
     async with _client() as c:
         r = await c.get("/api/agent/next-turn", headers=_headers(agent_key))
         return _unwrap(r)
@@ -157,7 +157,7 @@ async def submit_action(
 ) -> dict[str, Any]:
     """Submit your action for the current turn.
 
-    Your key is read from the connection's X-Agent-Key header — do not ask the
+    Your key is read from the connection's X-Connection-Key header — do not ask the
     user for it and do not pass it as an argument.
 
     Args:
@@ -176,7 +176,7 @@ async def submit_action(
     if ctx is None:
         raise ValueError("ctx is required")
     resolved_match_id = _resolve_match_id(match_id, game_id)
-    agent_key = _agent_key_from_ctx(ctx)
+    agent_key = _connection_key_from_ctx(ctx)
     body = {
         "turn_token": turn_token,
         "action": action,
@@ -225,7 +225,7 @@ async def get_opponent_history(
     """Pull the full move history between you and one opponent (grouped by turn).
 
     Use when the summary's short opponent list isn't enough and you want to study a
-    specific rival deeply. Your key rides on the connection's X-Agent-Key header.
+    specific rival deeply. Your key rides on the connection's X-Connection-Key header.
 
     Args:
         match_id: The game identifier.
@@ -234,7 +234,7 @@ async def get_opponent_history(
     if ctx is None:
         raise ValueError("ctx is required")
     resolved_match_id = _resolve_match_id(match_id, game_id)
-    agent_key = _agent_key_from_ctx(ctx)
+    agent_key = _connection_key_from_ctx(ctx)
     async with _client() as c:
         r = await c.get(
             f"/api/matches/{resolved_match_id}/history/opponents/{opponent_id}",
@@ -254,7 +254,7 @@ async def get_chat(
     """Pull the full public chat transcript (every agent's messages).
 
     The summary only includes messages aimed at you plus a few recent broadcasts;
-    use this to read the whole conversation. Your key rides on the X-Agent-Key header.
+    use this to read the whole conversation. Your key rides on the X-Connection-Key header.
 
     Args:
         match_id: The game identifier.
@@ -263,7 +263,7 @@ async def get_chat(
     if ctx is None:
         raise ValueError("ctx is required")
     resolved_match_id = _resolve_match_id(match_id, game_id)
-    agent_key = _agent_key_from_ctx(ctx)
+    agent_key = _connection_key_from_ctx(ctx)
     params = {"since": since} if since else None
     async with _client() as c:
         r = await c.get(
@@ -285,7 +285,7 @@ async def get_turn_detail(
 ) -> dict[str, Any]:
     """Pull one resolved turn in full — every player's action, message, and points.
 
-    Your key rides on the connection's X-Agent-Key header.
+    Your key rides on the connection's X-Connection-Key header.
 
     Args:
         match_id: The game identifier.
@@ -295,7 +295,7 @@ async def get_turn_detail(
     if ctx is None:
         raise ValueError("ctx is required")
     resolved_match_id = _resolve_match_id(match_id, game_id)
-    agent_key = _agent_key_from_ctx(ctx)
+    agent_key = _connection_key_from_ctx(ctx)
     async with _client() as c:
         r = await c.get(
             f"/api/matches/{resolved_match_id}/turns/{round}/{turn}",
@@ -314,7 +314,7 @@ async def get_standings(
     """Pull the full standings — every active player ranked by round score.
 
     The summary only shows the leaders and your nearest rivals; use this for the
-    whole board. Your key rides on the connection's X-Agent-Key header.
+    whole board. Your key rides on the connection's X-Connection-Key header.
 
     Args:
         match_id: The game identifier.
@@ -322,7 +322,7 @@ async def get_standings(
     if ctx is None:
         raise ValueError("ctx is required")
     resolved_match_id = _resolve_match_id(match_id, game_id)
-    agent_key = _agent_key_from_ctx(ctx)
+    agent_key = _connection_key_from_ctx(ctx)
     async with _client() as c:
         r = await c.get(
             f"/api/matches/{resolved_match_id}/standings", headers=_headers(agent_key)

@@ -1,6 +1,5 @@
 """Guide, runner download, join, and player dashboard web routes."""
 
-import random
 import re
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -12,19 +11,18 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, stat
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy import case, func, select
 
-from app.config import settings
+from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
 from app.engine.scheduler import start_game
 from app.games import get as get_game_module
-from app.identity import word_filter
-from app.models.bot import Bot, BotKind
+from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent_version import AgentVersion
+from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
-from app.models.strategy_prompt import StrategyPrompt
 from app.models.user import User
 from app.request_logging import set_request_trace_context
 from app.routes.web_support import (
-    _GENERAL_NAMES,
     _game_theme,
     _is_admin,
     _load_match_or_404,
@@ -42,13 +40,30 @@ _GUIDE_NAME = re.compile(r"^[a-z0-9-]+$")
 _BOT_LIVE_WINDOW = timedelta(seconds=90)
 
 
-def _is_warm(bot: Bot) -> bool:
-    """True if this bot's runner contacted the server in the last 90 seconds."""
-    ls = bot.last_seen_at
+def _is_warm(connection: Connection) -> bool:
+    """True if this connection's runner contacted the server in the last 90 seconds."""
+    ls = connection.last_seen_at
     if ls is None:
         return False
     aware = ls if ls.tzinfo is not None else ls.replace(tzinfo=timezone.utc)
     return datetime.now(timezone.utc) - aware <= _BOT_LIVE_WINDOW
+
+
+def _seat_name(handle: str, agent_name: str, existing: set[str]) -> str:
+    """Derive a public seat name and keep it unique within the match."""
+    base = f"{handle}/{agent_name}"
+    if len(base) > 40:
+        keep = max(1, 40 - len(handle) - 1)
+        base = f"{handle}/{agent_name[:keep]}"
+    if base not in existing:
+        return base
+    for index in range(2, 100):
+        suffix = f" #{index}"
+        max_base = 40 - len(suffix)
+        candidate = base[:max_base] + suffix if len(base) > max_base else f"{base}{suffix}"
+        if candidate not in existing:
+            return candidate
+    raise HTTPException(status_code=409, detail="Could not allocate a unique seat name.")
 
 
 @router.get("/guide/{name}", response_class=HTMLResponse)
@@ -72,13 +87,14 @@ async def guide(name: Annotated[str, Path()], request: Request, db: DbSession):
     )
 
 
-# Chained-session agent runner. ONE script now drives every CLI provider — it
-# reads the bot's configured provider from the server and calls the matching CLI
-# (claude/codex/gemini). The old per-provider filenames are kept as aliases so an
-# older setup message still fetches a working runner; they all serve the same file.
+# Chained-session connection runner. ONE script now drives every CLI provider
+# for a connection. The old runner name is kept as an alias so older setup
+# messages still fetch a working file, but the canonical filename is the new
+# connector path.
 # Allowlisted by exact filename below.
-_UNIFIED_RUNNER = FsPath("scripts/agentludum_agent.py")
+_UNIFIED_RUNNER = FsPath("scripts/agentludum_connector.py")
 _AGENT_RUNNERS: dict[str, FsPath] = {
+    "agentludum_connector.py": _UNIFIED_RUNNER,
     "agentludum_agent.py": _UNIFIED_RUNNER,
     "agentludum_agent_codex.py": _UNIFIED_RUNNER,
     "agentludum_agent_gemini.py": _UNIFIED_RUNNER,
@@ -118,6 +134,39 @@ async def legacy_join_submit_redirect(
     )
 
 
+async def _load_user_agents(
+    db: DbSession, user_id: int
+) -> list[tuple[Agent, AgentVersion | None, Connection | None]]:
+    rows = (
+        await db.execute(
+            select(Agent, AgentVersion, Connection)
+            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+            .join(Connection, Connection.id == Agent.connection_id, isouter=True)
+            .where(Agent.user_id == user_id, Agent.archived_at.is_(None))
+            .order_by(Agent.created_at.desc(), Agent.id.desc())
+        )
+    ).all()
+    return [(agent, version, connection) for agent, version, connection in rows]
+
+
+async def _active_match_count_for_connection(db: DbSession, connection_id: int) -> int:
+    result = await db.scalar(
+        select(func.count(func.distinct(Match.id)))
+        .select_from(Agent)
+        .join(Player, Player.agent_id == Agent.id)
+        .join(Match, Match.id == Player.match_id)
+        .where(
+            Agent.connection_id == connection_id,
+            Agent.kind == AgentKind.AI,
+            Agent.status == AgentStatus.ACTIVE,
+            Agent.archived_at.is_(None),
+            Player.left_at.is_(None),
+            Match.state == GameState.ACTIVE,
+        )
+    )
+    return int(result or 0)
+
+
 @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
 async def join_form(
     game: Annotated[str, Path()],
@@ -144,29 +193,25 @@ async def join_form(
     if redirect := _redirect_if_game_slug_mismatch(match, game, "/join"):
         return redirect
 
-    # Entry is "pick one of your bots" — no per-game key is issued. The bot's
-    # stable key was shown once when it was created (see /me/bots). Archived
-    # (deleted) bots are excluded — they can't enter games.
-    all_bots = (
-        (
-            await db.execute(
-                select(Bot)
-                .where(Bot.user_id == user.id, Bot.archived_at.is_(None))
-                .order_by(Bot.name)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    # Only show external agents that are currently connected; sims are always ready.
-    connected_agents = [b for b in all_bots if b.kind == BotKind.EXTERNAL and _is_warm(b)]
-    sims = [b for b in all_bots if b.kind == BotKind.SIM]
-
-    module = get_game_module(match.game)
-    presets = [asdict(p) for p in module.strategy_presets()]
-    default_preset_id = presets[0]["id"] if presets else ""
-    strategy_prompt = presets[0]["prompt"] if presets else module.default_strategy()
-    default_display_name = random.choice(_GENERAL_NAMES)
+    agents = await _load_user_agents(db, user.id)
+    joinable_agents = [
+        {
+            "agent": agent,
+            "version": version,
+            "connection": connection,
+            "provider_label": connection.provider.value if connection else None,
+            "model_label": f"{connection.provider.value}/{version.model}" if connection and version else None,
+            "ready": (
+                agent.kind == AgentKind.AI
+                and connection is not None
+                and connection.status == ConnectionStatus.ACTIVE
+                and _is_warm(connection)
+                and version is not None
+            ),
+        }
+        for agent, version, connection in agents
+        if agent.kind == AgentKind.AI
+    ]
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -176,13 +221,8 @@ async def join_form(
             "game": match,
             "game_theme": _game_theme(match),
             "player_count": await _player_count(db, match.id),
-            "connected_agents": connected_agents,
-            "sims": sims,
-            "any_bots": bool(all_bots),
-            "presets": presets,
-            "default_preset_id": default_preset_id,
-            "strategy_prompt": strategy_prompt,
-            "default_display_name": default_display_name,
+            "agents": joinable_agents,
+            "any_agents": bool(joinable_agents),
             "base_url": settings.base_url,
             "error": None,
         },
@@ -196,13 +236,20 @@ async def join_submit(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
-    bot_id: Annotated[int, Form()],
-    display_name: Annotated[str, Form()],
-    strategy_prompt: Annotated[str, Form()] = "",
+    agent_id: Annotated[int | None, Form()] = None,
+    bot_id: Annotated[int | None, Form()] = None,
+    display_name: Annotated[str | None, Form()] = None,
+    strategy_prompt: Annotated[str | None, Form()] = None,
 ):
-    """Enter one of the user's bots into a game. No credential is issued."""
+    """Enter one of the user's agents into a game."""
+    selected_agent_id = agent_id if agent_id is not None else bot_id
+    if selected_agent_id is None:
+        raise HTTPException(status_code=400, detail="Choose an agent.")
     set_request_trace_context(
-        request, match_id=match_id, stage="join_submit", bot_id=bot_id, display_name=display_name
+        request,
+        match_id=match_id,
+        stage="join_submit",
+        agent_id=selected_agent_id,
     )
     match = await _load_match_or_404(db, match_id)
     if redirect := _redirect_if_game_slug_mismatch(
@@ -215,116 +262,69 @@ async def join_submit(
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Match not open for registration.")
 
-    bot = (
+    agent = (
         await db.execute(
-            select(Bot).where(
-                Bot.id == bot_id,
-                Bot.user_id == user.id,
-                Bot.archived_at.is_(None),
+            select(Agent, AgentVersion, Connection)
+            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+            .join(Connection, Connection.id == Agent.connection_id, isouter=True)
+            .where(
+                Agent.id == selected_agent_id,
+                Agent.user_id == user.id,
+                Agent.kind == AgentKind.AI,
+                Agent.archived_at.is_(None),
             )
         )
-    ).scalar_one_or_none()
-    if bot is None:
-        raise HTTPException(404, detail="Bot not found.")
-
-    # Validate entry: name shape, no bad words, one player per (bot, game),
-    # unique name, capacity. The display name is shown publicly in the live
-    # viewer, so it runs through the same shared word filter as handles and
-    # agent names — rejected (not masked), and never echoed back on rejection.
-    name_ok = bool(re.fullmatch(r"[a-zA-Z0-9_]{1,32}", display_name))
-    name_blocked = word_filter.contains_blocked(display_name)
+    ).one_or_none()
+    if agent is None:
+        raise HTTPException(404, detail="Agent not found.")
+    selected_agent, version, connection = agent
+    if version is None:
+        raise HTTPException(status_code=409, detail="That agent has no current version.")
+    if connection is None or connection.status != ConnectionStatus.ACTIVE or not _is_warm(connection):
+        raise HTTPException(status_code=409, detail="That connection is not live yet.")
+    allowed_models = PROVIDER_MODELS.get(connection.provider.value, [])
+    if allowed_models and version.model not in allowed_models:
+        raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
+    active_match_count = await _active_match_count_for_connection(db, connection.id)
+    if active_match_count >= connection.max_concurrent_games:
+        raise HTTPException(
+            status_code=409,
+            detail="That connection is already running its maximum number of active matches.",
+        )
     already_in = (
         await db.execute(
-            select(Player).where(
-                Player.bot_id == bot.id,
+            select(Player.id).where(
+                Player.agent_id == selected_agent.id,
                 Player.match_id == match.id,
                 Player.left_at.is_(None),
             )
         )
-    ).scalar_one_or_none()
-    name_taken = (
-        await db.execute(
-            select(Player).where(
-                Player.match_id == match.id,
-                Player.agent_id == display_name,
-                Player.left_at.is_(None),
+    ).first()
+    if already_in is not None:
+        raise HTTPException(status_code=409, detail="That agent is already in this game.")
+
+    existing_seats = set(
+        (
+            await db.execute(
+                select(Player.seat_name).where(Player.match_id == match.id)
             )
         )
-    ).scalar_one_or_none()
-    count = await _player_count(db, match.id)
-
-    error: str | None = None
-    code = status.HTTP_400_BAD_REQUEST
-    if not name_ok:
-        error = "Name must be 1–32 letters, numbers, or underscores."
-    elif name_blocked:
-        error = "That name isn't allowed. Pick a different one."
-    elif already_in is not None:
-        error, code = "That bot is already in this game.", status.HTTP_409_CONFLICT
-    elif name_taken is not None:
-        error = "That display name is already taken in this game."
-    elif count >= match.max_players:
-        error, code = "Match is full.", status.HTTP_409_CONFLICT
-    if error is not None:
-        all_bots_err = (
-            (
-                await db.execute(
-                    select(Bot)
-                    .where(Bot.user_id == user.id, Bot.archived_at.is_(None))
-                    .order_by(Bot.name)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        presets = [asdict(p) for p in get_game_module(match.game).strategy_presets()]
-        return templates.TemplateResponse(
-            request,
-            "join.html",
-            {
-                "user": user,
-                "is_admin": _is_admin(user),
-                "game": match,
-                "game_theme": _game_theme(match),
-                "player_count": count,
-                "connected_agents": [b for b in all_bots_err if b.kind == BotKind.EXTERNAL],
-                "sims": [b for b in all_bots_err if b.kind == BotKind.SIM],
-                "any_bots": bool(all_bots_err),
-                "presets": presets,
-                "default_preset_id": presets[0]["id"] if presets else "",
-                "strategy_prompt": strategy_prompt,
-                # Don't echo a blocked name back into the field.
-                "default_display_name": "" if name_blocked else display_name,
-                "base_url": settings.base_url,
-                "error": error,
-            },
-            status_code=code,
-        )
-
-    if bot.provider:
-        _model_label = bot.provider.value + (f"/{bot.model}" if bot.model else "")
-    else:
-        _model_label = None
+        .scalars()
+        .all()
+    )
+    seat_name = _seat_name(user.handle or user.name or "", selected_agent.name, existing_seats)
+    model_label = (
+        f"{connection.provider.value}/{version.model}" if version.model else connection.provider.value
+    )
     player = Player(
         match_id=match.id,
-        user_id=bot.user_id,
-        bot_id=bot.id,
-        agent_id=display_name,
-        model_self_report=_model_label,
+        user_id=user.id,
+        agent_id=selected_agent.id,
+        agent_version_id=version.id,
+        seat_name=seat_name,
+        model_self_report=model_label,
     )
     db.add(player)
-    await db.flush()
-    # Seed the player's per-game strategy from what they submitted at entry (a
-    # preset they picked or text they wrote); blank falls back to the game's
-    # default. Copy-at-entry: later edits on the player page don't rewrite this.
-    seed = strategy_prompt.strip() or get_game_module(match.game).default_strategy()
-    db.add(
-        StrategyPrompt(
-            player_id=player.id,
-            prompt_text=seed,
-            is_default=False,
-        )
-    )
     await db.commit()
 
     if match.match_kind == MatchKind.PRACTICE_ARENA.value:
@@ -359,9 +359,9 @@ async def my_matches(
         select(
             Player.match_id,
             func.count(Player.id).label("total"),
-            func.sum(case((Bot.kind == BotKind.SIM, 1), else_=0)).label("sim_count"),
+            func.sum(case((Agent.kind == AgentKind.BOT, 1), else_=0)).label("bot_count"),
         )
-        .join(Bot, Bot.id == Player.bot_id)
+        .join(Agent, Agent.id == Player.agent_id)
         .where(Player.match_id.in_(match_ids))
         .group_by(Player.match_id)
     )).all()
@@ -377,20 +377,20 @@ async def my_matches(
 
         row = counts_by_match.get(p.match_id)
         total = int(row.total or 0) if row else 0
-        sim_count = int(row.sim_count or 0) if row else 0
-        agent_count = total - sim_count
+        bot_count = int(row.bot_count or 0) if row else 0
+        agent_count = total - bot_count
         parts: list[str] = []
         if agent_count:
             parts.append(f"{agent_count} {'agent' if agent_count == 1 else 'agents'}")
-        if sim_count:
-            parts.append(f"{sim_count} {'sim' if sim_count == 1 else 'sims'}")
+        if bot_count:
+            parts.append(f"{bot_count} {'bot' if bot_count == 1 else 'bots'}")
         players_label = ", ".join(parts) if parts else "0 players"
 
         entry = {
             "id": g.id,
             "name": g.name,
             "state": g.state,
-            "agent_id": p.agent_id,
+            "agent_id": p.seat_name,
             "watch_url": f"/games/{g.game}/matches/{g.id}",
             "players_label": players_label,
         }
@@ -425,25 +425,32 @@ async def player_dashboard(
         db,
         player_id,
         user.id,
-        missing_detail="Bot slot not found.",
+        missing_detail="Agent slot not found.",
     )
     presets = [asdict(p) for p in get_game_module(game.game).strategy_presets()]
 
-    latest_prompt = (
+    agent = (
         await db.execute(
-            select(StrategyPrompt)
-            .where(StrategyPrompt.player_id == player.id)
-            .order_by(StrategyPrompt.created_at.desc())
-            .limit(1)
+            select(Agent, AgentVersion, Connection)
+            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+            .join(Connection, Connection.id == Agent.connection_id, isouter=True)
+            .where(Agent.id == player.agent_id)
         )
-    ).scalar_one_or_none()
+    ).one_or_none()
+    current_agent: Agent | None = None
+    current_version: AgentVersion | None = None
+    current_connection: Connection | None = None
+    if agent is not None:
+        current_agent, current_version, current_connection = agent
 
-    # The agent key is shown exactly once, right after it is issued — on join or
-    # on an explicit re-issue (see reissue_agent_key). We only ever store the
-    # argon2 hash, so we cannot show the key again on later visits. Crucially, we
-    # do NOT regenerate the key on a plain dashboard visit: doing so silently
-    # invalidated the key a bot was already configured with.
-    fresh_key = request.session.pop(f"fresh_key_{player.id}", None)
+    # The connection key is shown exactly once, right after it is issued — on
+    # connect or on an explicit re-issue. We only ever store the argon2 hash, so
+    # we cannot show the key again on later visits.
+    fresh_key = (
+        request.session.pop(f"fresh_connection_key_{current_connection.id}", None)
+        if current_connection is not None
+        else None
+    )
 
     selected_ai = request.session.pop(f"ai_type_{player.id}", None)
     pre_game = game.state in (GameState.SCHEDULED, GameState.REGISTERING)
@@ -457,44 +464,19 @@ async def player_dashboard(
             "game": game,
             "game_theme": _game_theme(game),
             "player": player,
+            "agent": current_agent,
+            "version": current_version,
+            "connection": current_connection,
             "agent_key": fresh_key,
-            "strategy": latest_prompt.prompt_text if latest_prompt else "",
+            "strategy": current_version.strategy_text if current_version else "",
             "base_url": settings.base_url,
             "selected_ai": selected_ai,
             "presets": presets,
             "just_saved": saved,
-            "can_edit_strategy": game.state != GameState.ACTIVE
-            and game.state != GameState.COMPLETED,
+            "can_edit_strategy": False,
             "can_leave": pre_game,
             "pre_game": pre_game,
         },
-    )
-
-
-# Key reissue moved to the bot level (POST /me/bots/{bot_id}/reissue) and is
-# allowed at any time — see app/routes/bots_web.py. There is no per-player key.
-
-
-@router.post("/me/players/{player_id}/strategy")
-async def update_strategy(
-    player_id: Annotated[int, Path()],
-    db: DbSession,
-    user: Annotated[User, Depends(require_user)],
-    strategy_prompt: Annotated[str, Form()],
-):
-    player, game = await _load_owned_player_match_or_404(db, player_id, user.id)
-    if game.state in (GameState.ACTIVE, GameState.COMPLETED):
-        raise HTTPException(409, detail="Strategy locked after game starts.")
-    db.add(
-        StrategyPrompt(
-            player_id=player.id,
-            prompt_text=strategy_prompt,
-            is_default=False,
-        )
-    )
-    await db.commit()
-    return RedirectResponse(
-        url=f"/me/players/{player.id}?saved=1", status_code=status.HTTP_303_SEE_OTHER
     )
 
 

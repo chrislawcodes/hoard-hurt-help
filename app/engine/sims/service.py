@@ -1,4 +1,4 @@
-"""DB-facing helpers for running Sims inside live games."""
+"""DB-facing helpers for running bots inside live games."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.sims.runtime import (
-    build_sim_profile,
-    choose_action_decision,
-    choose_talk_decision,
+    build_bot_profile,
+    choose_bot_action_decision,
+    choose_bot_talk_decision,
 )
 from app.engine.sims.types import SimContext
-from app.models.bot import Bot, BotKind, BotStatus
+from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.match import Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
@@ -34,21 +34,21 @@ async def auto_submit_sim_phase(
     *,
     phase: Phase,
 ) -> int:
-    """Submit every eligible Sim move for the current phase.
+    """Submit every eligible bot move for the current phase.
 
-    Returns the number of Sims that successfully posted a talk message or action.
+    Returns the number of bots that successfully posted a talk message or action.
     """
     active_players = await _load_active_players_with_bots(db, game.id)
     if not active_players:
         return 0
 
-    all_agent_ids = [player.agent_id for player, _ in active_players]
-    sim_players = [
-        (player, bot)
-        for player, bot in active_players
-        if bot.kind == BotKind.SIM and bot.status == BotStatus.ACTIVE
+    all_agent_ids = [player.seat_name for player, _ in active_players]
+    bot_players = [
+        (player, agent)
+        for player, agent in active_players
+        if agent.kind == AgentKind.BOT and agent.status == AgentStatus.ACTIVE
     ]
-    if not sim_players:
+    if not bot_players:
         return 0
 
     history = await load_action_records(db, game.id)
@@ -58,11 +58,11 @@ async def auto_submit_sim_phase(
     )
 
     posted = 0
-    for player, bot in sim_players:
+    for player, agent in bot_players:
         try:
-            profile = build_sim_profile(bot)
+            profile = build_bot_profile(agent)
         except ValueError:
-            logger.warning("Skipping malformed Sim bot %s", bot.id)
+            logger.warning("Skipping malformed bot %s", agent.id)
             continue
 
         context = SimContext(
@@ -71,7 +71,7 @@ async def auto_submit_sim_phase(
             round=turn.round,
             turn=turn.turn,
             phase=phase,
-            your_agent_id=player.agent_id,
+            your_agent_id=player.seat_name,
             all_agent_ids=all_agent_ids,
             history=history,
             scoreboard=scoreboard,
@@ -79,7 +79,7 @@ async def auto_submit_sim_phase(
         )
 
         if phase == "talk":
-            talk_decision = choose_talk_decision(context, profile)
+            talk_decision = choose_bot_talk_decision(context, profile)
             existing_message = await _existing_message(db, turn.id, player.id)
             await module.record_message(
                 db,
@@ -90,10 +90,10 @@ async def auto_submit_sim_phase(
                 existing=existing_message,
             )
         else:
-            action_decision = choose_action_decision(context, profile)
+            action_decision = choose_bot_action_decision(context, profile)
             move = action_decision.move
             module.validate_move(
-                move, your_agent_id=player.agent_id, all_agent_ids=all_agent_ids
+                move, your_agent_id=player.seat_name, all_agent_ids=all_agent_ids
             )
             existing_submission = await _existing_submission(db, turn.id, player.id)
             await module.record_submission(
@@ -111,22 +111,22 @@ async def auto_submit_sim_phase(
 
 async def _load_active_players_with_bots(
     db: AsyncSession, match_id: str
-) -> list[tuple[Player, Bot]]:
+) -> list[tuple[Player, Agent]]:
     rows = (
         (
             await db.execute(
-                select(Player, Bot)
-                .join(Bot, Bot.id == Player.bot_id)
+                select(Player, Agent)
+                .join(Agent, Agent.id == Player.agent_id)
                 .where(
                     Player.match_id == match_id,
                     Player.left_at.is_(None),
                 )
-                .order_by(Player.agent_id)
+                .order_by(Player.seat_name)
             )
         )
         .all()
     )
-    return [(player, bot) for player, bot in rows]
+    return [(player, agent) for player, agent in rows]
 
 
 async def _load_current_talk_messages(
@@ -135,15 +135,15 @@ async def _load_current_talk_messages(
     rows = (
         (
             await db.execute(
-                select(TurnMessage, Player.agent_id)
+                select(TurnMessage, Player.seat_name)
                 .join(Player, Player.id == TurnMessage.player_id)
                 .where(TurnMessage.turn_id == turn_id, TurnMessage.was_defaulted.is_(False))
-                .order_by(Player.agent_id)
+                .order_by(Player.seat_name)
             )
         )
         .all()
     )
-    return [TalkMessage(agent_id=agent_id, message=msg.text) for msg, agent_id in rows]
+    return [TalkMessage(agent_id=seat_name, message=msg.text) for msg, seat_name in rows]
 
 
 async def _existing_message(
@@ -170,3 +170,6 @@ async def _existing_submission(
             )
         )
     ).scalar_one_or_none()
+
+
+auto_submit_bot_phase = auto_submit_sim_phase

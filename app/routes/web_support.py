@@ -9,7 +9,7 @@ from app.config import settings
 from app.engine.match_id_rewrite import match_id_candidates
 from app.games import get as get_game_module
 from app.games.base import GameError, GameTheme
-from app.models.bot import Bot, BotKind
+from app.models.agent import Agent, AgentKind
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User
@@ -33,8 +33,8 @@ async def _agent_count(db, match_id: str) -> int:
     result = await db.scalar(
         select(func.count())
         .select_from(Player)
-        .join(Bot, Bot.id == Player.bot_id)
-        .where(Player.match_id == match_id, Bot.kind != BotKind.SIM)
+        .join(Agent, Agent.id == Player.agent_id)
+        .where(Player.match_id == match_id, Agent.kind != AgentKind.BOT)
     )
     return int(result or 0)
 
@@ -182,7 +182,7 @@ async def _top_standings(db, match_id: str, limit: int = 3) -> list[dict]:
     rows = sorted(
         (
             {
-                "agent_id": p.agent_id,
+                "agent_id": p.seat_name,
                 "round_score": p.current_round_score,
                 "round_wins": p.total_round_wins,
             }

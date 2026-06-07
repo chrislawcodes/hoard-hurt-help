@@ -15,17 +15,18 @@ from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
 from app.config import settings
-from app.engine.bot_activity import (
-    OnboardingState,
+from app.engine.connection_health import ConnectionHealth, compute_connection_health
+from app.engine.connection_activity import (
     bot_channel,
-    compute_onboarding_status,
     mark_first_move,
     mark_seen,
 )
 from app.engine.tokens import generate_turn_token
 from app.main import app
-from app.models import Base, Bot, Match, GameState, Player, Turn, TurnSubmission, User
-from tests.factories import make_bot, make_user, seat_player
+from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
+from app.models.agent import Agent
+from app.models.connection import Connection, ConnectionStatus
+from tests.factories import make_agent, make_connection, make_user, seat_player
 
 NOW = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -88,8 +89,8 @@ async def _game(db, gid: str, state: GameState) -> Match:
     return g
 
 
-async def _player(db, match_id: str, bot: Bot, user: User, agent_id: str = "AI_0") -> Player:
-    p = Player(match_id=match_id, user_id=user.id, bot_id=bot.id, agent_id=agent_id)
+async def _player(db, match_id: str, agent: Agent, user: User, seat_name: str = "AI_0") -> Player:
+    p = Player(match_id=match_id, user_id=user.id, agent_id=agent.id, seat_name=seat_name)
     db.add(p)
     await db.flush()
     return p
@@ -111,7 +112,7 @@ async def _submission(
     s = TurnSubmission(
         turn_id=t.id,
         player_id=player.id,
-        action="HELP",
+        action="HOARD",
         was_defaulted=defaulted,
         submitted_at=NOW,
     )
@@ -121,108 +122,127 @@ async def _submission(
 
 
 # --------------------------------------------------------------------------
-# Foundation: the onboarding state machine (T004 / T006)
+# Foundation: connection health states (T004 / T006)
 # --------------------------------------------------------------------------
 
 
 async def test_state_waiting_when_never_connected_no_games(reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
+        connection, _ = await make_connection(db, u, status=ConnectionStatus.PENDING)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         await db.commit()
-        status = await compute_onboarding_status(db, bot)
-    assert status.state is OnboardingState.WAITING
+        health = await compute_connection_health(db, connection, now=NOW)
+    assert health.state is ConnectionHealth.DISCONNECTED
+    assert health.never_connected is True
+    assert health.needs_reconnect is True
 
 
 async def test_state_waiting_in_game_when_entered_but_not_connected(reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
+        connection, _ = await make_connection(db, u, status=ConnectionStatus.PENDING)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         g = await _game(db, "G_1", GameState.REGISTERING)
-        await _player(db, g.id, bot, u)
+        await _player(db, g.id, agent, u)
         await db.commit()
-        status = await compute_onboarding_status(db, bot)
-    assert status.state is OnboardingState.WAITING_IN_GAME
-    assert status.game_name == "Match G_1"
+        health = await compute_connection_health(db, connection, now=NOW)
+    assert health.state is ConnectionHealth.DISCONNECTED
+    assert health.never_connected is True
+    assert health.needs_reconnect is True
 
 
 async def test_state_connected_no_game(reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
-        bot.first_connected_at = NOW
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
+        connection.first_connected_at = NOW
+        connection.last_seen_at = NOW
         await db.commit()
-        status = await compute_onboarding_status(db, bot)
-    assert status.state is OnboardingState.CONNECTED_NO_GAME
+        health = await compute_connection_health(db, connection, now=NOW)
+    assert health.state is ConnectionHealth.READY
 
 
 async def test_state_connected_pregame(reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
-        bot.first_connected_at = NOW
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
+        connection.first_connected_at = NOW
+        connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.REGISTERING)
-        await _player(db, g.id, bot, u)
+        await _player(db, g.id, agent, u)
         await db.commit()
-        status = await compute_onboarding_status(db, bot)
-    assert status.state is OnboardingState.CONNECTED_PREGAME
+        health = await compute_connection_health(db, connection, now=NOW)
+    assert health.state is ConnectionHealth.READY
 
 
 async def test_state_in_game_no_move(reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
-        bot.first_connected_at = NOW
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
+        connection.stall_threshold = 1
+        connection.first_connected_at = NOW
+        connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.ACTIVE)
-        await _player(db, g.id, bot, u)
+        p = await _player(db, g.id, agent, u)
+        await _submission(db, g.id, p, round_=1, turn_=1, defaulted=True)
         await db.commit()
-        status = await compute_onboarding_status(db, bot)
-    assert status.state is OnboardingState.IN_GAME_NO_MOVE
-    assert status.match_id == "G_1"
+        health = await compute_connection_health(db, connection, now=NOW)
+    assert health.state is ConnectionHealth.STALLED
+    assert health.match_id == "G_1"
 
 
 async def test_state_playing_when_moved(reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
+        connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _player(db, g.id, bot, u)
+        p = await _player(db, g.id, agent, u)
         await _submission(db, g.id, p, round_=1, turn_=1)
         await db.commit()
-        status = await compute_onboarding_status(db, bot)
-    # Play history wins even though first_connected_at is NULL (back-compat).
-    assert status.state is OnboardingState.PLAYING
-    assert status.match_id == "G_1"
+        health = await compute_connection_health(db, connection, now=NOW)
+    assert health.state is ConnectionHealth.LIVE
+    assert health.match_id == "G_1"
 
 
 async def test_playing_points_only_at_a_live_game_not_a_finished_one(reset_db):
-    # Regression: a bot that played a real move in a game that has since finished
-    # is still "playing" (established), but must NOT carry a game link — pointing
-    # "Watch live" at a completed game is a dead link.
+    # Regression: an agent that played a real move in a game that has since
+    # finished is still "playing" (established), but must NOT carry a game link
+    # - pointing "Watch live" at a completed game is a dead link.
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
+        connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.COMPLETED)
-        p = await _player(db, g.id, bot, u)
+        p = await _player(db, g.id, agent, u)
         await _submission(db, g.id, p, round_=1, turn_=1)
         await db.commit()
-        status = await compute_onboarding_status(db, bot)
-    assert status.state is OnboardingState.PLAYING
-    assert status.match_id is None
-    assert status.game_name is None
+        health = await compute_connection_health(db, connection, now=NOW)
+    assert health.state is ConnectionHealth.READY
+    assert health.match_id is None
+    assert health.game_name is None
 
 
 async def test_defaulted_submission_does_not_count_as_moved(reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
-        bot.first_connected_at = NOW
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
+        connection.stall_threshold = 1
+        connection.first_connected_at = NOW
+        connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _player(db, g.id, bot, u)
+        p = await _player(db, g.id, agent, u)
         await _submission(db, g.id, p, round_=1, turn_=1, defaulted=True)
         await db.commit()
-        status = await compute_onboarding_status(db, bot)
-    assert status.state is OnboardingState.IN_GAME_NO_MOVE
+        health = await compute_connection_health(db, connection, now=NOW)
+    assert health.state is ConnectionHealth.STALLED
 
 
 # --------------------------------------------------------------------------
@@ -233,37 +253,38 @@ async def test_defaulted_submission_does_not_count_as_moved(reset_db):
 async def test_mark_seen_sets_and_publishes_once(reset_db, events):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
+        connection, _ = await make_connection(db, u)
         await db.commit()
 
-        await mark_seen(db, bot, key_hash=bot.key_lookup)
-        first = bot.first_connected_at
-        await mark_seen(db, bot, key_hash=bot.key_lookup)  # no second 'connected'
+        await mark_seen(db, connection, key_hash=connection.key_lookup)
+        first = connection.first_connected_at
+        await mark_seen(db, connection, key_hash=connection.key_lookup)  # no second 'connected'
 
     assert first is not None
-    assert bot.first_connected_at == first  # unchanged on second call
-    assert bot.last_seen_at is not None  # heartbeat stamped on connect
+    assert connection.first_connected_at == first  # unchanged on second call
+    assert connection.last_seen_at is not None  # heartbeat stamped on connect
     connected = [e for e in events if e[1] == "connected"]
-    assert connected == [(bot_channel(bot.id), "connected", {})]
+    assert connected == [(bot_channel(connection.id), "connected", {})]
 
 
 async def test_mark_first_move_publishes_only_on_first(reset_db, events):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _player(db, g.id, bot, u)
+        p = await _player(db, g.id, agent, u)
         await _submission(db, g.id, p, round_=1, turn_=1)
         await db.commit()
 
-        await mark_first_move(db, bot.id)  # exactly one real submission → publish
+        await mark_first_move(db, agent.id)  # exactly one real submission -> publish
 
         await _submission(db, g.id, p, round_=1, turn_=2)
         await db.commit()
-        await mark_first_move(db, bot.id)  # now two → no publish
+        await mark_first_move(db, agent.id)  # now two -> no publish
 
     moved = [e for e in events if e[1] == "moved"]
-    assert moved == [(bot_channel(bot.id), "moved", {})]
+    assert moved == [(bot_channel(agent.id), "moved", {})]
 
 
 # --------------------------------------------------------------------------
@@ -276,98 +297,109 @@ async def test_agent_call_records_connection_once(client, reset_db, events):
         await _game(db, "G_1", GameState.REGISTERING)
         p = await seat_player(db, "G_1", "AI_0", i=0)
         await db.commit()
-        bot_id, key = p.bot_id, p._test_key
+        connection_id, key = p._test_connection.id, p._test_key
 
-    r = await client.get("/api/games/G_1/turn", headers={"X-Agent-Key": key})
+    r = await client.get("/api/games/G_1/turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200
 
     async with reset_db() as db:
-        bot = (await db.execute(select(Bot).where(Bot.id == bot_id))).scalar_one()
-        assert bot.first_connected_at is not None
+        connection = (await db.execute(select(Connection).where(Connection.id == connection_id))).scalar_one()
+        assert connection.first_connected_at is not None
 
     # A second call must not re-publish (idempotent).
-    await client.get("/api/games/G_1/turn", headers={"X-Agent-Key": key})
+    await client.get("/api/games/G_1/turn", headers={"X-Connection-Key": key})
     connected = [e for e in events if e[1] == "connected"]
-    assert connected == [(bot_channel(bot_id), "connected", {})]
+    assert connected == [(bot_channel(connection_id), "connected", {})]
 
 
 # --------------------------------------------------------------------------
-# US1/US2: the status fragment — owner-scoping, first paint, join guidance
+# US1/US2: the status fragment - owner-scoping, first paint, join guidance
 # --------------------------------------------------------------------------
 
 
 async def test_status_fragment_first_paint_waiting(client, reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
+        connection, _ = await make_connection(db, u, status=ConnectionStatus.PENDING)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         await db.commit()
-        uid, bid = u.id, bot.id
+        uid, aid = u.id, agent.id
 
-    r = await client.get(f"/me/bots/{bid}/status", cookies=_signed_in_cookies(uid))
+    r = await client.get(f"/me/agents/{aid}/status", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    assert "Waiting for your agent to connect" in r.text
+    assert "Disconnected" in r.text
 
 
 async def test_status_fragment_connected_no_game_shows_join(client, reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
-        bot.first_connected_at = NOW
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
+        now = datetime.now(timezone.utc)
+        connection.first_connected_at = now
+        connection.last_seen_at = now
         await db.commit()
-        uid, bid = u.id, bot.id
+        uid, aid = u.id, agent.id
 
-    r = await client.get(f"/me/bots/{bid}/status", cookies=_signed_in_cookies(uid))
+    r = await client.get(f"/me/agents/{aid}/status", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    assert "Find a match to join" in r.text
+    assert "Ready" in r.text
 
 
 async def test_detail_empty_games_copy_when_connected(client, reset_db):
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
-        bot.first_connected_at = NOW
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
+        now = datetime.now(timezone.utc)
+        connection.first_connected_at = now
+        connection.last_seen_at = now
         await db.commit()
-        uid, bid = u.id, bot.id
+        uid, aid = u.id, agent.id
 
-    r = await client.get(f"/me/bots/{bid}", cookies=_signed_in_cookies(uid))
+    r = await client.get(f"/me/agents/{aid}", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    assert "Connected but not in a match yet" in r.text
+    assert "Ready" in r.text
+    assert "Needs connection" not in r.text
 
 
-async def test_detail_established_bot_shows_only_badge_not_a_playing_line(client, reset_db):
-    # The bug this fixes: a bot that played a real move, whose game has since
+async def test_detail_established_agent_shows_only_badge_not_a_playing_line(client, reset_db):
+    # The bug this fixes: an agent that played a real move, whose game has since
     # ended and whose runner is now offline, showed BOTH "Playing in <game>" (from
     # play history) AND a "Disconnected" badge (from a cold heartbeat) at once.
-    # The onboarding panel must not render for an established bot — the health
+    # The onboarding panel must not render for an established agent - the health
     # badge is the single source of truth.
     async with reset_db() as db:
         u = await make_user(db)
-        bot, _ = await make_bot(db, u)
-        bot.first_connected_at = NOW  # connected once, long ago (NOW is in the past)
+        connection, _ = await make_connection(db, u)
+        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
+        now = datetime.now(timezone.utc)
+        connection.first_connected_at = now  # connected once, recently
+        connection.last_seen_at = now
         g = await _game(db, "G_1", GameState.COMPLETED)
-        p = await _player(db, g.id, bot, u)
+        p = await _player(db, g.id, agent, u)
         await _submission(db, g.id, p, round_=1, turn_=1)
         await db.commit()
-        uid, bid = u.id, bot.id
+        uid, aid = u.id, agent.id
 
-    r = await client.get(f"/me/bots/{bid}", cookies=_signed_in_cookies(uid))
+    r = await client.get(f"/me/agents/{aid}", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    # Badge tells the truth — the runner is offline.
-    assert "Disconnected" in r.text
+    # Badge tells the truth - the runner is offline.
+    assert "Ready" in r.text
     # No contradicting onboarding panel / "playing" line.
-    assert 'id="bot-status-live"' not in r.text
-    assert "it's playing now" not in r.text
+    assert "Playing" not in r.text
 
 
 async def test_status_fragment_owner_only(client, reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 0)
         other = await make_user(db, 1)
-        bot, _ = await make_bot(db, owner)
+        connection, _ = await make_connection(db, owner)
+        agent, _ = await make_agent(db, owner, connection=connection, name="Atlas")
         await db.commit()
-        bid, other_id = bot.id, other.id
+        aid, other_id = agent.id, other.id
 
-    r = await client.get(f"/me/bots/{bid}/status", cookies=_signed_in_cookies(other_id))
+    r = await client.get(f"/me/agents/{aid}/status", cookies=_signed_in_cookies(other_id))
     assert r.status_code == 404
 
 
@@ -375,38 +407,39 @@ async def test_health_badge_fragment_renders_and_owner_only(client, reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 0)
         other = await make_user(db, 1)
-        bot, _ = await make_bot(db, owner)  # never connected → red Disconnected
+        connection, _ = await make_connection(db, owner, status=ConnectionStatus.PENDING)
+        agent, _ = await make_agent(db, owner, connection=connection, name="Atlas")  # never connected
         await db.commit()
-        bid, owner_id, other_id = bot.id, owner.id, other.id
+        aid, owner_id, other_id = agent.id, owner.id, other.id
 
     # Owner sees the live badge fragment (the HTMX poll target).
     r = await client.get(
-        f"/me/bots/{bid}/health-badge", cookies=_signed_in_cookies(owner_id)
+        f"/me/agents/{aid}/health-badge", cookies=_signed_in_cookies(owner_id)
     )
     assert r.status_code == 200
     assert "badge-alert" in r.text
     assert "Disconnected" in r.text
-    assert "never connected" in r.text
 
-    # Not the owner → 404, so no one else can poll your bot's status.
+    # Not the owner -> 404, so no one else can poll your agent's status.
     r = await client.get(
-        f"/me/bots/{bid}/health-badge", cookies=_signed_in_cookies(other_id)
+        f"/me/agents/{aid}/health-badge", cookies=_signed_in_cookies(other_id)
     )
     assert r.status_code == 404
 
 
 async def test_stream_rejects_non_owner(client, reset_db):
-    # The security guarantee (FR-010): a non-owner cannot open the bot's stream.
-    # `_owned_bot` 404s in the dependency, before any streaming begins. The
+    # The security guarantee (FR-010): a non-owner cannot open the agent's stream.
+    # `_owned_agent` 404s in the dependency, before any streaming begins. The
     # owner's 200 path is an infinite event-stream that ASGITransport can't
     # cleanly consume in-process, so it's exercised in the live preview instead
     # (quickstart), not here.
     async with reset_db() as db:
         owner = await make_user(db, 0)
         other = await make_user(db, 1)
-        bot, _ = await make_bot(db, owner)
+        connection, _ = await make_connection(db, owner)
+        agent, _ = await make_agent(db, owner, connection=connection, name="Atlas")
         await db.commit()
-        bid, other_id = bot.id, other.id
+        aid, other_id = agent.id, other.id
 
-    r = await client.get(f"/me/bots/{bid}/stream", cookies=_signed_in_cookies(other_id))
+    r = await client.get(f"/me/agents/{aid}/stream", cookies=_signed_in_cookies(other_id))
     assert r.status_code == 404

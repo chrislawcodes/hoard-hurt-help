@@ -9,7 +9,7 @@ from app.auth.google import oauth
 from app.auth.session import clear_session, set_session_user
 from app.config import settings
 from app.deps import DbSession
-from app.models.bot import Bot, BotKind
+from app.models.agent import Agent, AgentKind
 from app.models.user import User
 from app.schemas.auth import GoogleUserInfo
 
@@ -80,15 +80,15 @@ async def google_callback(request: Request, db: DbSession):
 
     next_url = request.session.pop("next_after_login", "/") or "/"
     if next_url == "/":
-        bot_count = await db.scalar(
-            select(func.count()).select_from(Bot).where(
-                Bot.user_id == user.id,
-                Bot.archived_at.is_(None),
-                Bot.kind != BotKind.SIM,
+        agent_count = await db.scalar(
+            select(func.count()).select_from(Agent).where(
+                Agent.user_id == user.id,
+                Agent.archived_at.is_(None),
+                Agent.kind == AgentKind.AI,
             )
         ) or 0
-        if bot_count == 0:
-            next_url = "/games/hoard-hurt-help"
+        if agent_count == 0:
+            next_url = "/me/agents"
     return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
 
 

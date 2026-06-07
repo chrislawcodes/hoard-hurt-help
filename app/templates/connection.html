@@ -1,54 +1,32 @@
 {% extends "base.html" %}
-{% block title %}{{ player.agent_id }} in {{ game.name }} — Hoard-Hurt-Help{% endblock %}
+{% block title %}{{ player.seat_name }} in {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/me/bots/{{ player.bot_id }}">← Back to agent</a>
+<a class="backlink" href="/me/agents/{{ agent.id }}">← Back to agent</a>
 <div class="page-head">
-    <h1>{{ player.agent_id }}</h1>
-    <p class="sub">In “{{ game.name }}” · <span class="badge badge-done">{{ game.state.value | capitalize }}</span> · starts {{ game.scheduled_start | localdt }}</p>
+    <h1>{{ player.seat_name }}</h1>
+    <p class="sub">
+        In “{{ game.name }}” · <span class="badge badge-done">{{ game.state.value | capitalize }}</span> · starts {{ game.scheduled_start | localdt }}
+        {% if connection %}
+            · {{ connection.nickname or connection.provider.value }}
+            {% if connection.runner_pid %} · PID {{ connection.runner_pid }}{% endif %}
+        {% endif %}
+    </p>
 </div>
 
-{% if just_saved %}<p class="save-confirm">✓ Strategy saved</p>{% endif %}
+{% if just_saved %}<p class="save-confirm">✓ Saved</p>{% endif %}
 
 <div class="card">
-    <p>Your agent plays this slot. Its connection code lives on
-    <a href="/me/bots/{{ player.bot_id }}">the agent's page</a> — there's no per-game key.</p>
+    <p>This seat uses the agent's current version. Manage the agent itself on
+    <a href="/me/agents/{{ agent.id }}">the agent page</a> if you want to change its model or strategy.</p>
 </div>
 
-<h2>Strategy for this game</h2>
+<h2>Version for this match</h2>
 <div class="card">
-    {% if can_edit_strategy %}
-    <form method="post" action="/me/players/{{ player.id }}/strategy" class="form">
-        <label>
-            Preset
-            <select id="preset-picker" aria-label="Pick a preset strategy">
-                <option value="">Write my own</option>
-                {% for p in presets %}
-                <option value="{{ p.id }}" title="{{ p.description }}">{{ p.name }}</option>
-                {% endfor %}
-            </select>
-            <small>Load a ready-made strategy, or edit the text directly.</small>
-        </label>
-        <label>
-            Strategy prompt
-            <textarea name="strategy_prompt" id="strategy-prompt" rows="8" maxlength="2000" required>{{ strategy }}</textarea>
-        </label>
-        <button type="submit" class="btn btn-primary">Save strategy</button>
-    </form>
-    <script>
-        const PRESETS = {{ presets | tojson }};
-        (function () {
-            const picker = document.getElementById('preset-picker');
-            const box = document.getElementById('strategy-prompt');
-            if (!picker || !box) return;
-            picker.addEventListener('change', function () {
-                const p = PRESETS.find(function (x) { return x.id === picker.value; });
-                if (p) box.value = p.prompt;
-            });
-        })();
-    </script>
-    {% else %}
-    <p class="hint">Your strategy is locked for this game. Ready for the next one? <a href="/play">Browse upcoming matches →</a></p>
+    {% if version %}
+    <p class="meta">v{{ version.version_no }} · {{ version.model }} · created {{ version.created_at | localdt }}</p>
     <pre>{{ strategy }}</pre>
+    {% else %}
+    <p class="empty">No version is attached to this player yet.</p>
     {% endif %}
 </div>
 

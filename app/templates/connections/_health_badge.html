@@ -1,0 +1,6 @@
+{# Connection operational-health badge. #}
+{% if connection.status.value == 'pending' and health.never_connected %}
+<span class="badge badge-soon"><span class="dot dot-still"></span>Waiting to connect</span><span class="bot-health-meta"> · waiting to connect</span>
+{% else %}
+<span class="badge {{ health.badge_class }}">{% if health.pulse %}<span class="dot"></span>{% elif health.state.value == 'ready' %}<span class="dot dot-still"></span>{% endif %}{{ health.label }}</span><span class="bot-health-meta">{% if health.never_connected %} · never connected{% else %} · last connected <time class="localtime-secs" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_at.strftime('%H:%M:%S UTC') }}</time>{% endif %}</span>
+{% endif %}

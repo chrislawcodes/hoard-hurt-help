@@ -203,31 +203,31 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
     endpoints = [
         (
             f"/api/games/{game.id}/turn",
-            {"headers": {"X-Agent-Key": players[0]._test_key}},
+            {"headers": {"X-Connection-Key": players[0]._test_key}},
         ),
         (
             "/api/agent/next-turn",
-            {"headers": {"X-Agent-Key": players[0]._test_key}},
+            {"headers": {"X-Connection-Key": players[0]._test_key}},
         ),
         (
             f"/api/games/{game.id}/state",
-            {"headers": {"X-Agent-Key": players[0]._test_key}},
+            {"headers": {"X-Connection-Key": players[0]._test_key}},
         ),
         (
             f"/api/games/{game.id}/chat",
-            {"headers": {"X-Agent-Key": players[0]._test_key}},
+            {"headers": {"X-Connection-Key": players[0]._test_key}},
         ),
         (
-            f"/api/games/{game.id}/history/opponents/{players[1].agent_id}",
-            {"headers": {"X-Agent-Key": players[0]._test_key}},
+            f"/api/games/{game.id}/history/opponents/{players[1].seat_name}",
+            {"headers": {"X-Connection-Key": players[0]._test_key}},
         ),
         (
             f"/api/games/{game.id}/turns/1/1",
-            {"headers": {"X-Agent-Key": players[0]._test_key}},
+            {"headers": {"X-Connection-Key": players[0]._test_key}},
         ),
         (
             f"/api/games/{game.id}/standings",
-            {"headers": {"X-Agent-Key": players[0]._test_key}},
+            {"headers": {"X-Connection-Key": players[0]._test_key}},
         ),
         (f"/api/spectator/games/{game.id}/state", {}),
     ]
@@ -253,8 +253,8 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
     assert turn_payload["current"]["phase"] == "act"
     assert turn_payload["current"]["turn_token"] == open_turn.turn_token
     assert turn_payload["current"]["talk_messages"] == [
-        {"agent_id": players[0].agent_id, "message": "open public talk a"},
-        {"agent_id": players[1].agent_id, "message": "open public talk b"},
+        {"agent_id": players[0].seat_name, "message": "open public talk a"},
+        {"agent_id": players[1].seat_name, "message": "open public talk b"},
     ]
 
 
@@ -294,17 +294,17 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
             },
             "STALE_TURN_TOKEN",
         ),
-        (
-            "/api/games/{match_id}/submit",
-            "post",
-            lambda turn_token, thinking, players: {
-                "turn_token": turn_token,
-                "action": "HELP",
-                "target_id": players[1].agent_id,
-                "message": "deadline passed",
-                "thinking": thinking,
-            },
-            "DEADLINE_PASSED",
+            (
+                "/api/games/{match_id}/submit",
+                "post",
+                lambda turn_token, thinking, players: {
+                    "turn_token": turn_token,
+                    "action": "HELP",
+                    "target_id": players[1].seat_name,
+                    "message": "deadline passed",
+                    "thinking": thinking,
+                },
+                "DEADLINE_PASSED",
         ),
     ],
 )
@@ -343,7 +343,8 @@ async def test_error_envelopes_do_not_echo_thinking(
 
     response = await getattr(client, method_name)(
         request_path.format(match_id=game.id),
-        headers={"X-Agent-Key": players[0]._test_key},
+        params={"agent_turn_token": f"{open_turn.turn_token}:{players[0].agent_id}:{game.id}"},
+        headers={"X-Connection-Key": players[0]._test_key},
         json=body_factory(token, secret, players),
     )
     assert response.status_code in {409, 410}, response.text

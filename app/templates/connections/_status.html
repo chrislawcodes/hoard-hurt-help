@@ -1,0 +1,24 @@
+<div id="connection-status" class="card" hx-get="/me/connections/{{ connection.id }}/status" hx-trigger="every 5s" hx-swap="outerHTML">
+    <h3 style="margin-top:0;">Connection status</h3>
+    <p class="hint" style="margin-top:0;">
+        {% if connection.status.value == 'pending' and health.never_connected %}
+            Waiting for the runner to connect. Paste the setup message above, then keep the runner running.
+        {% elif health.state.value == 'paused' %}
+            This connection is paused.
+        {% elif health.state.value == 'stalled' %}
+            The runner is connected, but turns are stalling.
+        {% elif health.state.value == 'live' %}
+            The runner is connected and playing.
+        {% elif health.state.value == 'ready' %}
+            The runner is connected and idle, ready for the next turn.
+        {% else %}
+            Waiting for the runner to connect.
+        {% endif %}
+    </p>
+    <p class="meta">
+        <span class="bot-health-live" hx-get="/me/connections/{{ connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
+            {% include "connections/_health_badge.html" %}
+        </span>
+        {% if agent_count %} · {{ agent_count }} attached agent(s){% endif %}
+    </p>
+</div>

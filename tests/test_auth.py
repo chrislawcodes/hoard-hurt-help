@@ -67,19 +67,19 @@ def test_oauth_module_imports():
 
 @pytest.mark.asyncio
 async def test_zero_bot_user_redirect_destination(db):
-    """A signed-in user with no bots should be redirected to /me/bots/new."""
+    """A signed-in user with no agents should be redirected to /me/agents."""
     from sqlalchemy import func
-    from app.models.bot import Bot, BotKind
+    from app.models.agent import Agent, AgentKind
 
     user = User(google_sub="sub-zero", email="zero@example.com", name="Zero")
     db.add(user)
     await db.commit()
 
     bot_count = await db.scalar(
-        select(func.count()).select_from(Bot).where(
-            Bot.user_id == user.id,
-            Bot.archived_at.is_(None),
-            Bot.kind != BotKind.SIM,
+        select(func.count()).select_from(Agent).where(
+            Agent.user_id == user.id,
+            Agent.archived_at.is_(None),
+            Agent.kind == AgentKind.AI,
         )
     ) or 0
     assert bot_count == 0  # confirms the redirect condition would trigger
@@ -87,31 +87,29 @@ async def test_zero_bot_user_redirect_destination(db):
 
 @pytest.mark.asyncio
 async def test_existing_bot_user_no_redirect_override(db):
-    """A signed-in user with an existing bot should NOT be redirected to /me/bots/new."""
+    """A signed-in user with an existing agent should NOT be redirected to /me/agents."""
     from sqlalchemy import func
-    from app.models.bot import Bot, BotKind
+    from app.models.agent import Agent, AgentKind
 
     user = User(google_sub="sub-hasbot", email="hasbot@example.com", name="HasBot")
     db.add(user)
     await db.flush()
-    bot = Bot(
+    bot = Agent(
         user_id=user.id,
-        name="mybot",
-        key_lookup="lk",
-        key_hint="h",
-        kind=BotKind.EXTERNAL,
-        status="active",
-        max_concurrent_games=3,
-        stall_threshold=3,
+        name="myagent",
+        connection_id=None,
+        kind=AgentKind.AI,
+        game="hoard-hurt-help",
+        status="paused",
     )
     db.add(bot)
     await db.commit()
 
     bot_count = await db.scalar(
-        select(func.count()).select_from(Bot).where(
-            Bot.user_id == user.id,
-            Bot.archived_at.is_(None),
-            Bot.kind != BotKind.SIM,
+        select(func.count()).select_from(Agent).where(
+            Agent.user_id == user.id,
+            Agent.archived_at.is_(None),
+            Agent.kind == AgentKind.AI,
         )
     ) or 0
     assert bot_count == 1  # confirms the redirect condition would NOT trigger

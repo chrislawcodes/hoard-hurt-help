@@ -41,12 +41,12 @@ async def _setup_game(db, n_players: int = 4) -> tuple[Match, list[Player]]:
         u = User(google_sub=f"sub-{i}", email=f"u{i}@e2e.com")
         db.add(u)
         await db.flush()
-        bot, _ = await make_bot(db, u, name=f"AI_{i}")
+        agent, _ = await make_bot(db, u, name=f"AI_{i}")
         p = Player(
             match_id=game.id,
             user_id=u.id,
-            bot_id=bot.id,
-            agent_id=f"AI_{i}",
+            agent_id=agent.id,
+            seat_name=f"AI_{i}",
         )
         db.add(p)
         await db.flush()
@@ -135,8 +135,8 @@ async def test_full_game_runs_to_completion(db):
         select(Player).where(Player.match_id == game.id, Player.total_round_wins > 0)
     )
     winner_rows = winners.scalars().all()
-    winner_agent_ids = {p.agent_id for p in winner_rows}
-    assert winner_agent_ids == {"AI_1", "AI_2"}, f"unexpected winners: {winner_agent_ids}"
+    winner_seat_names = {p.seat_name for p in winner_rows}
+    assert winner_seat_names == {"AI_1", "AI_2"}, f"unexpected winners: {winner_seat_names}"
 
 
 @pytest.mark.asyncio

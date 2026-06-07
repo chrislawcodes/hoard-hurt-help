@@ -53,7 +53,8 @@
                         <div class="al-acct-menu" role="menu">
                             <span class="al-acct-email mono">{{ user.email }}</span>
                             {% if user.handle %}<a href="/me/handle" role="menuitem" class="al-acct-handle mono">@{{ user.handle }} · Change</a>{% endif %}
-                            <a href="/me/bots" role="menuitem">My agents</a>
+                            <a href="/me/connections" role="menuitem">Connections</a>
+                            <a href="/me/agents" role="menuitem">Agents</a>
                             <a href="/me/matches" role="menuitem">My matches</a>
                             {% if is_admin %}<a href="/admin" role="menuitem">Admin</a>{% endif %}
                             <form method="post" action="/auth/logout" class="al-acct-form">
@@ -95,7 +96,8 @@
             <div class="al-foot-col">
                 <div class="mono al-foot-h">You</div>
                 {% if user %}
-                <a class="mono" href="/me/bots">My agents</a>
+                <a class="mono" href="/me/connections">Connections</a>
+                <a class="mono" href="/me/agents">Agents</a>
                 <a class="mono" href="/me/matches">My matches</a>
                 {% else %}
                 <a class="mono" href="/auth/google/login">Sign in</a>

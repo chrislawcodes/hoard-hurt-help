@@ -16,9 +16,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.main import app
-from app.models import Base, Bot, BotKind
+from app.models import Base
+from app.models.agent import AgentKind
+from app.models.connection import Connection
 from app.routes.nav_context import compute_nav_cta
-from tests.factories import make_bot, make_user
+from tests.factories import make_agent, make_bot, make_connection, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -52,11 +54,11 @@ def _signed_in_cookies(user_id: int) -> dict:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
-async def _connect(reset_db: async_sessionmaker, bot_id: int) -> None:
-    """Mark an agent as having connected at least once."""
+async def _connect(reset_db: async_sessionmaker, connection_id: int) -> None:
+    """Mark a connection as having connected at least once."""
     async with reset_db() as db:
-        bot = (await db.execute(select(Bot).where(Bot.id == bot_id))).scalar_one()
-        bot.first_connected_at = datetime.now(timezone.utc)
+        connection = (await db.execute(select(Connection).where(Connection.id == connection_id))).scalar_one()
+        connection.first_connected_at = datetime.now(timezone.utc)
         await db.commit()
 
 
@@ -84,7 +86,7 @@ async def test_cta_no_agent_is_connect(reset_db):
 async def test_cta_unconnected_agent_is_connect(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
-        await make_bot(db, user, name="Atlas")  # first_connected_at stays NULL
+        await make_agent(db, user, name="Atlas")  # first_connected_at stays NULL
         await db.commit()
         cta = await compute_nav_cta(db, user)
     assert cta.label == "Connect your agent"
@@ -94,8 +96,9 @@ async def test_cta_unconnected_agent_is_connect(reset_db):
 async def test_cta_connected_agent_is_play_now(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
-        bot, _ = await make_bot(db, user, name="Atlas")
-        bot.first_connected_at = datetime.now(timezone.utc)
+        connection, _ = await make_connection(db, user)
+        await make_agent(db, user, connection=connection, name="Atlas")
+        connection.first_connected_at = datetime.now(timezone.utc)
         await db.commit()
         cta = await compute_nav_cta(db, user)
     assert cta.label == "Play now"
@@ -106,8 +109,7 @@ async def test_cta_sim_only_is_connect(reset_db):
     # A connected Sim doesn't count — Sims aren't the visitor's own external agent.
     async with reset_db() as db:
         user = await make_user(db)
-        bot, _ = await make_bot(db, user, name="Sable", kind=BotKind.SIM)
-        bot.first_connected_at = datetime.now(timezone.utc)
+        await make_agent(db, user, name="Sable", kind=AgentKind.BOT, connection=None)
         await db.commit()
         cta = await compute_nav_cta(db, user)
     assert cta.label == "Connect your agent"
@@ -140,10 +142,11 @@ async def test_home_drops_pill_keeps_signin_when_signed_out(client):
 async def test_nav_renders_play_now_for_connected_user(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db)
-        bot, _ = await make_bot(db, user, name="Atlas")
+        connection, _ = await make_connection(db, user)
+        await make_agent(db, user, connection=connection, name="Atlas")
         await db.commit()
-        user_id, bot_id = user.id, bot.id
-    await _connect(reset_db, bot_id)
+        user_id, connection_id = user.id, connection.id
+    await _connect(reset_db, connection_id)
 
     r = await client.get("/games", cookies=_signed_in_cookies(user_id))
     assert r.status_code == 200
@@ -179,10 +182,11 @@ async def test_play_unconnected_agent_goes_to_lobby(client, reset_db):
 async def test_play_connected_agent_goes_to_lobby(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db)
-        bot, _ = await make_bot(db, user, name="Atlas")
+        connection, _ = await make_connection(db, user)
+        await make_agent(db, user, connection=connection, name="Atlas")
         await db.commit()
-        user_id, bot_id = user.id, bot.id
-    await _connect(reset_db, bot_id)
+        user_id, connection_id = user.id, connection.id
+    await _connect(reset_db, connection_id)
 
     r = await client.get(
         "/play", cookies=_signed_in_cookies(user_id), follow_redirects=False

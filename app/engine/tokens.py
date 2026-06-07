@@ -15,6 +15,11 @@ def generate_bot_key() -> str:
     return "sk_bot_" + secrets.token_hex(24)
 
 
+def generate_connection_key() -> str:
+    """Issue a stable per-connection credential. Format: sk_conn_<48 hex>."""
+    return "sk_conn_" + secrets.token_hex(24)
+
+
 def bot_key_lookup(key: str) -> str:
     """Indexed lookup handle for a bot key: sha256 hex. Store this; never the key."""
     return hashlib.sha256(key.encode()).hexdigest()

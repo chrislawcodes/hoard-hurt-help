@@ -1,4 +1,4 @@
-"""The bot setup screen leads with the runner, and the runner script is served."""
+"""The agent setup screen leads with the runner, and the runner script is served."""
 
 import base64
 import json
@@ -67,19 +67,18 @@ async def test_setup_screen_leads_with_runner(reset_db) -> None:
         cookies={"hhh_session": _cookie(uid)},
         follow_redirects=True,
     ) as c:
-        # Creating a bot lands on its detail page with the one-time setup message.
-        r = await c.post("/me/bots", data={"name": "Atlas"})
+        # Creating a connection lands on the setup page with the one-time runner message.
+        r = await c.post("/me/agents/new", data={"provider": "claude", "nickname": "Atlas"})
     assert r.status_code == 200, r.text
     body = r.text
-    # The chained-session agent runner is the primary path; a brand-new bot
-    # (no provider set yet) defaults to the Claude runner.
+    # The chained-session setup is the primary path; the page now hands back
+    # the connection runner, not the removed bot runner.
     assert "curl -fsSL" in body
-    assert "/runners/agentludum_agent.py" in body
-    # New framing: the bot plays as a chained agent on the user's own subscription.
-    assert "remembers who helped and who betrayed" in body
-    assert "subscription" in body
-    # Tells the operator how to stop the bot.
-    assert "Ctrl-C" in body
-    # The MCP self-loop is demoted to a collapsed "Advanced" section.
-    assert "Advanced:" in body
-    assert "claude mcp add" in body
+    assert "/runners/agentludum_connector.py" in body
+    assert "This connection uses the Claude login I already have." in body
+    assert "X-Connection-Key" in body
+    # Tells the operator how to stop the agent.
+    assert "Keep one session per match" in body
+    # The page now keeps the runner instructions in the connection setup card.
+    assert "Connect your connection" in body
+    assert "Waiting for the runner" in body

@@ -8,9 +8,8 @@ from sqlalchemy import select, text
 
 from app.db import make_engine
 from app.engine.sim_presets import HISTORICAL_SIM_NAME_POOL
-from app.models import Base, BotKind, Match, GameState
-from app.models.bot import Bot
-from tests.factories import make_bot, make_user
+from app.models import Agent, AgentKind, Base, Match, GameState
+from tests.factories import make_agent, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -54,30 +53,24 @@ async def test_game_defaults_to_twenty_player_cap(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_make_bot_defaults_to_external_and_keeps_sim_fields_empty(reset_db):
+async def test_make_agent_defaults_to_ai_and_keeps_sim_fields_empty(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
-        bot, _ = await make_bot(db, user, name="Atlas")
+        agent, _ = await make_agent(db, user, name="Atlas")
         await db.flush()
 
-        assert bot.kind is BotKind.EXTERNAL
-        assert bot.sim_strategy is None
-        assert bot.sim_truthfulness is None
-        assert bot.sim_trust_model is None
-        assert bot.sim_seed is None
-        assert bot.sim_version is None
-        assert bot.sim_fixture_pack is None
+        assert agent.kind is AgentKind.AI
 
 
 @pytest.mark.asyncio
-async def test_make_bot_can_persist_sim_traits(reset_db):
+async def test_make_agent_can_persist_sim_traits(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
-        bot, _ = await make_bot(
+        agent, _ = await make_agent(
             db,
             user,
             name="SimAtlas",
-            kind=BotKind.SIM,
+            kind=AgentKind.BOT,
             sim_strategy="grudger",
             sim_truthfulness=80,
             sim_trust_model="bitter",
@@ -87,39 +80,39 @@ async def test_make_bot_can_persist_sim_traits(reset_db):
         )
         await db.flush()
 
-        assert bot.kind is BotKind.SIM
-        assert bot.sim_strategy == "grudger"
-        assert bot.sim_truthfulness == 80
-        assert bot.sim_trust_model == "bitter"
-        assert bot.sim_seed == 42
-        assert bot.sim_version == "v1"
-        assert bot.sim_fixture_pack == "fixture-a"
+        assert agent.kind is AgentKind.BOT
+        assert agent.bot_strategy == "grudger"
+        assert agent.bot_truthfulness == 80
+        assert agent.bot_trust_model == "bitter"
+        assert agent.bot_seed == 42
+        assert agent.bot_version == "v1"
+        assert agent.bot_fixture_pack == "fixture-a"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stored_kind", ["external", "EXTERNAL"])
-async def test_bot_kind_loads_legacy_storage_values(reset_db, stored_kind):
+@pytest.mark.parametrize("stored_kind", ["bot", "BOT"])
+async def test_agent_kind_loads_legacy_storage_values(reset_db, stored_kind):
     async with reset_db() as db:
         user = await make_user(db)
-        bot, _ = await make_bot(db, user, name="Atlas")
+        agent, _ = await make_agent(db, user, name="Atlas")
         await db.execute(
-            text("UPDATE bots SET kind = :kind WHERE id = :bot_id"),
-            {"kind": stored_kind, "bot_id": bot.id},
+            text("UPDATE agents SET kind = :kind WHERE id = :agent_id"),
+            {"kind": stored_kind, "agent_id": agent.id},
         )
         await db.commit()
 
     async with reset_db() as db:
-        loaded = (await db.execute(select(Bot).where(Bot.id == bot.id))).scalar_one()
-        assert loaded.kind is BotKind.EXTERNAL
+        loaded = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
+        assert loaded.kind is AgentKind.BOT
 
 
 @pytest.mark.asyncio
-async def test_make_bot_persists_lowercase_enum_value(reset_db):
+async def test_make_agent_persists_lowercase_enum_value(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
-        bot, _ = await make_bot(db, user, name="Atlas")
+        agent, _ = await make_agent(db, user, name="Atlas")
         stored_kind = (
-            await db.execute(text("SELECT kind FROM bots WHERE id = :bot_id"), {"bot_id": bot.id})
+            await db.execute(text("SELECT kind FROM agents WHERE id = :agent_id"), {"agent_id": agent.id})
         ).scalar_one()
 
-    assert stored_kind == "external"
+    assert stored_kind == "ai"

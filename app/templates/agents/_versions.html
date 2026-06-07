@@ -1,0 +1,20 @@
+{% if versions %}
+<div class="card">
+    <h3 style="margin-top:0;">Versions</h3>
+    {% for row in versions %}
+    <article class="game-card">
+        <div class="game-card-info">
+            <h4 style="margin:0;">v{{ row.version.version_no }}{% if row.version.id == version.id %} <span class="badge badge-ok">Current</span>{% endif %}</h4>
+            <p class="meta">
+                Created {{ row.version.created_at | localdt }}
+                {% if row.version.frozen_at %} · Frozen {{ row.version.frozen_at | localdt }}{% endif %}
+                · Rank {{ row.rank }}
+                · {{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}
+            </p>
+            <p>{{ row.version.model }}</p>
+            <pre style="white-space:pre-wrap; margin:0;">{{ row.version.strategy_text }}</pre>
+        </div>
+    </article>
+    {% endfor %}
+</div>
+{% endif %}

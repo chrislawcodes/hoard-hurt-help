@@ -12,13 +12,12 @@ from app.models import (
     Match,
     GameState,
     Player,
-    StrategyPrompt,
     Turn,
     TurnMessage,
     TurnSubmission,
     User,
 )
-from tests.factories import make_bot
+from tests.factories import make_agent
 
 
 @pytest.fixture(autouse=True)
@@ -58,22 +57,19 @@ async def _seed(reset_db, state=GameState.ACTIVE):
         )
         db.add(g)
         await db.flush()
-        bot, _ = await make_bot(db, u, name="AI_0")
+        agent, version = await make_agent(db, u, name="AI_0")
+        if version is not None:
+            version.strategy_text = "SECRET STRATEGY DO NOT LEAK"
         p = Player(
             match_id="G_001",
             user_id=u.id,
-            bot_id=bot.id,
-            agent_id="AI_0",
+            agent_id=agent.id,
+            seat_name="AI_0",
+            agent_version_id=version.id if version is not None else None,
+            model_self_report=version.model if version is not None else None,
         )
         db.add(p)
         await db.flush()
-        db.add(
-            StrategyPrompt(
-                player_id=p.id,
-                prompt_text="SECRET STRATEGY DO NOT LEAK",
-                is_default=False,
-            )
-        )
         await db.commit()
 
 
@@ -267,9 +263,14 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
         u2 = User(google_sub="u2", email="u2@t.com")
         db.add(u2)
         await db.flush()
-        bot2, _ = await make_bot(db, u2, name="AI_1")
+        bot2, version2 = await make_agent(db, u2, name="AI_1")
         target = Player(
-            match_id="G_001", user_id=u2.id, bot_id=bot2.id, agent_id="AI_1"
+            match_id="G_001",
+            user_id=u2.id,
+            agent_id=bot2.id,
+            seat_name="AI_1",
+            agent_version_id=version2.id if version2 is not None else None,
+            model_self_report=version2.model if version2 is not None else None,
         )
         db.add(target)
         await db.flush()

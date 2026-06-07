@@ -134,7 +134,8 @@ async def test_message_talk_phase_is_idempotent_and_act_phase_rejects(client, re
 
     r1 = await client.post(
         f"/api/games/{game.id}/message",
-        headers={"X-Agent-Key": key},
+        params={"agent_turn_token": f"{turn.turn_token}:{players[0].agent_id}:{game.id}"},
+        headers={"X-Connection-Key": key},
         json={
             "turn_token": turn.turn_token,
             "message": "public alpha",
@@ -154,7 +155,8 @@ async def test_message_talk_phase_is_idempotent_and_act_phase_rejects(client, re
 
     r2 = await client.post(
         f"/api/games/{game.id}/message",
-        headers={"X-Agent-Key": key},
+        params={"agent_turn_token": f"{turn.turn_token}:{players[0].agent_id}:{game.id}"},
+        headers={"X-Connection-Key": key},
         json={
             "turn_token": turn.turn_token,
             "message": "public beta",
@@ -174,7 +176,8 @@ async def test_message_talk_phase_is_idempotent_and_act_phase_rejects(client, re
 
     r3 = await client.post(
         f"/api/games/{game.id}/message",
-        headers={"X-Agent-Key": key},
+        params={"agent_turn_token": f"{turn.turn_token}:{players[0].agent_id}:{game.id}"},
+        headers={"X-Connection-Key": key},
         json={
             "turn_token": turn.turn_token,
             "message": "should fail",
@@ -193,7 +196,8 @@ async def test_submit_talk_phase_rejects_then_act_phase_stores_thinking(client, 
 
     r1 = await client.post(
         f"/api/games/{game.id}/submit",
-        headers={"X-Agent-Key": key},
+        params={"agent_turn_token": f"{turn.turn_token}:{players[0].agent_id}:{game.id}"},
+        headers={"X-Connection-Key": key},
         json={
             "turn_token": turn.turn_token,
             "action": "HOARD",
@@ -214,11 +218,12 @@ async def test_submit_talk_phase_rejects_then_act_phase_stores_thinking(client, 
 
     r2 = await client.post(
         f"/api/games/{game.id}/submit",
-        headers={"X-Agent-Key": key},
+        params={"agent_turn_token": f"{act_token}:{players[0].agent_id}:{game.id}"},
+        headers={"X-Connection-Key": key},
         json={
             "turn_token": act_token,
             "action": "HELP",
-            "target_id": players[1].agent_id,
+            "target_id": players[1].seat_name,
             "message": "legacy action message",
             "thinking": "secret-act-2",
         },
@@ -242,7 +247,7 @@ async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db
     key = players[0]._test_key
 
     talk_turn = await _open_turn(reset_db, game.id, phase="talk")
-    r1 = await client.get(f"/api/games/{game.id}/turn", headers={"X-Agent-Key": key})
+    r1 = await client.get(f"/api/games/{game.id}/turn", headers={"X-Connection-Key": key})
     assert r1.status_code == 200, r1.text
     body1 = r1.json()
     assert body1["status"] == "your_turn"
@@ -283,7 +288,7 @@ async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db
         await db.commit()
 
     r2 = await client.get(
-        f"/api/games/{game.id}/turn", headers={"X-Agent-Key": players[1]._test_key}
+        f"/api/games/{game.id}/turn", headers={"X-Connection-Key": players[1]._test_key}
     )
     assert r2.status_code == 200, r2.text
     body2 = r2.json()
@@ -291,19 +296,19 @@ async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db
     assert body2["current"]["phase"] == "act"
     assert body2["current"]["turn_token"] == act_turn.turn_token
     assert body2["current"]["talk_messages"] == [
-        {"agent_id": players[0].agent_id, "message": "public from a"},
-        {"agent_id": players[1].agent_id, "message": "public from b"},
+        {"agent_id": players[0].seat_name, "message": "public from a"},
+        {"agent_id": players[1].seat_name, "message": "public from b"},
     ]
 
-    r3 = await client.get("/api/agent/next-turn", headers={"X-Agent-Key": key})
+    r3 = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r3.status_code == 200, r3.text
     body3 = r3.json()
     assert body3["status"] == "your_turn"
     assert body3["match_id"] == game.id
     assert body3["current"]["phase"] == "act"
     assert body3["current"]["talk_messages"] == [
-        {"agent_id": players[0].agent_id, "message": "public from a"},
-        {"agent_id": players[1].agent_id, "message": "public from b"},
+        {"agent_id": players[0].seat_name, "message": "public from a"},
+        {"agent_id": players[1].seat_name, "message": "public from b"},
     ]
 
 
@@ -392,19 +397,19 @@ async def test_agent_endpoints_do_not_leak_thinking(client, reset_db):
         await db.commit()
 
     endpoints = [
-        (f"/api/games/{game.id}/turn", "GET", {"headers": {"X-Agent-Key": key}}),
+        (f"/api/games/{game.id}/turn", "GET", {"headers": {"X-Connection-Key": key}}),
         (
             "/api/agent/next-turn",
             "GET",
-            {"headers": {"X-Agent-Key": key}},
+            {"headers": {"X-Connection-Key": key}},
         ),
-        (f"/api/games/{game.id}/chat", "GET", {"headers": {"X-Agent-Key": key}}),
+        (f"/api/games/{game.id}/chat", "GET", {"headers": {"X-Connection-Key": key}}),
         (
-            f"/api/games/{game.id}/history/opponents/{players[1].agent_id}",
+            f"/api/games/{game.id}/history/opponents/{players[1].seat_name}",
             "GET",
-            {"headers": {"X-Agent-Key": key}},
+            {"headers": {"X-Connection-Key": key}},
         ),
-        (f"/api/games/{game.id}/turns/1/1", "GET", {"headers": {"X-Agent-Key": key}}),
+        (f"/api/games/{game.id}/turns/1/1", "GET", {"headers": {"X-Connection-Key": key}}),
     ]
     secrets = [
         "resolved-think-a",
