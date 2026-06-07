@@ -35,17 +35,17 @@ game-admin-only user → 403.
 
 **Est diff**: ~180 lines changed
 
-- [ ] T003 [P: app/routes/web_support.py] Rename `_is_admin(user)` → `_is_any_admin(user)` (checks `platform_admin_emails_set OR all_game_admin_emails_set`). Add `_is_game_admin(user, game)`. Keep same function signature shape.
+- [X] T003 [P: app/routes/web_support.py] Rename `_is_admin(user)` → `_is_any_admin(user)` (checks `platform_admin_emails_set OR all_game_admin_emails_set`). Add `_is_game_admin(user, game)`. Keep same function signature shape.
 
-- [ ] T004 [P: app/routes/web_lobby.py] Replace `from app.routes.web_support import _is_admin` with `_is_any_admin`; rename all `_is_admin(` calls to `_is_any_admin(`. Template variable name `is_admin` stays the same.
+- [X] T004 [P: app/routes/web_lobby.py] Replace `from app.routes.web_support import _is_admin` with `_is_any_admin`; rename all `_is_admin(` calls to `_is_any_admin(`. Template variable name `is_admin` stays the same.
 
-- [ ] T005 [P: app/routes/web_player.py] Same `_is_admin` → `_is_any_admin` rename.
+- [X] T005 [P: app/routes/web_player.py] Same `_is_admin` → `_is_any_admin` rename.
 
-- [ ] T006 [P: app/routes/web_analysis.py] Same `_is_admin` → `_is_any_admin` rename.
+- [X] T006 [P: app/routes/web_analysis.py] Same `_is_admin` → `_is_any_admin` rename.
 
-- [ ] T007 [P: app/routes/handle_web.py] Same `_is_admin` → `_is_any_admin` rename.
+- [X] T007 [P: app/routes/handle_web.py] Same `_is_admin` → `_is_any_admin` rename.
 
-- [ ] T008 [US1] Strip `admin_web.py` to platform-only routes. Remove route functions: `create_game_form`, `create_game_submit`, `admin_game_detail`, `_render_add_sims`, `add_sims_form`, `add_sims_submit`, `admin_start_game`, `admin_delete_game`, `admin_prompts`. Change all remaining `require_admin` → `require_platform_admin`. Update import: `from app.deps import DbSession, require_platform_admin`. Remove unused imports.
+- [X] T008 [US1] Strip `admin_web.py` to platform-only routes. Remove route functions: `create_game_form`, `create_game_submit`, `admin_game_detail`, `_render_add_sims`, `add_sims_form`, `add_sims_submit`, `admin_start_game`, `admin_delete_game`, `admin_prompts`. Change all remaining `require_admin` → `require_platform_admin`. Update import: `from app.deps import DbSession, require_platform_admin`. Remove unused imports.
 
 **[CHECKPOINT]**: Platform admin — `pytest -q` passes; `ruff check .` clean; `mypy app/` clean.
 
@@ -61,7 +61,7 @@ Hit same URL as platform-admin-only user → 403.
 
 **Est diff**: ~370 lines changed (new files, template copies)
 
-- [ ] T009 [US2] Create `app/templates/game_admin/` directory. Copy and rename templates:
+- [X] T009 [US2] Create `app/templates/game_admin/` directory. Copy and rename templates:
   `admin/create_game.html` → `game_admin/create_match.html`;
   `admin/game_detail.html` → `game_admin/match_detail.html`;
   `admin/add_sims.html` → `game_admin/add_bots.html`;
@@ -70,7 +70,7 @@ Hit same URL as platform-admin-only user → 403.
   Update internal URLs in migrated templates: all `/admin/matches/...` → `/games/{{ game }}/admin/matches/...`.
   Run `grep -rn '"/admin/' app/templates/ app/static/` — fix any found hardcoded `/admin/` paths in `base.html` or JS.
 
-- [ ] T010 [US2] Create `app/routes/game_admin_web.py`. Router prefix `/games/{game}/admin`. Routes:
+- [X] T010 [US2] Create `app/routes/game_admin_web.py`. Router prefix `/games/{game}/admin`. Routes:
   `GET /` → `game_admin_dashboard` → `game_admin/dashboard.html`;
   `GET /matches/new` + `POST /matches/new` → create match → `game_admin/create_match.html`;
   `GET /matches/{match_id}` → match detail → `game_admin/match_detail.html`;
@@ -80,7 +80,7 @@ Hit same URL as platform-admin-only user → 403.
   `GET /prompts` → prompts page → `game_admin/prompts.html`.
   All handlers: `user: Annotated[User, Depends(require_game_admin)]`. Each match-loading handler verifies `match.game == game` → 404 if mismatched. Logic migrated verbatim from `admin_web.py` route bodies.
 
-- [ ] T011 [P: app/routes/game_admin_api.py] Create `app/routes/game_admin_api.py`. Router prefix `/api/game-admin/{game}`. Routes:
+- [X] T011 [P: app/routes/game_admin_api.py] Create `app/routes/game_admin_api.py`. Router prefix `/api/game-admin/{game}`. Routes:
   `POST /matches` → create match;
   `POST /matches/{match_id}/cancel` → cancel;
   `GET /matches/{match_id}/export.csv` → CSV export;
@@ -100,21 +100,21 @@ viewer uses `is_game_admin` for strategy prompt gating; boundary tests pass.
 
 **Est diff**: ~160 lines changed
 
-- [ ] T012 [US3] Update `app/main.py`: import and register inside `create_app()`:
+- [X] T012 [US3] Update `app/main.py`: import and register inside `create_app()`:
   `admin_web.router`, `game_admin_web.router`, `game_admin_api.router`,
   `auth.router`, `handle_web.router`, `web.router` (with `nav_context.populate_nav_cta`), `spectator_api.router`.
 
-- [ ] T013 [US3] Update `tests/conftest.py`: remove explicit `include_router` calls for routers now in `create_app()`. Remove corresponding imports. Verify no double-registration: `pytest -q` must not print `AssertionError: Ambiguous route`.
+- [X] T013 [US3] Update `tests/conftest.py`: remove explicit `include_router` calls for routers now in `create_app()`. Remove corresponding imports. Verify no double-registration: `pytest -q` must not print `AssertionError: Ambiguous route`.
 
-- [ ] T014 [US3] Delete `app/routes/admin_api.py` (all routes moved to `game_admin_api.py`).
+- [X] T014 [US3] Delete `app/routes/admin_api.py` (all routes moved to `game_admin_api.py`).
 
-- [ ] T015 [US3] Remove `require_admin` from `app/deps.py`. Verify: `grep -rn "require_admin" app/` → zero results.
+- [X] T015 [US3] Remove `require_admin` from `app/deps.py`. Verify: `grep -rn "require_admin" app/` → zero results.
 
-- [ ] T016 [P: app/routes/web_viewer.py] [US3] Replace `_is_admin(user)` with `_is_game_admin(user, match.game)`. Update import. Change template context key from `"is_admin"` to `"is_game_admin"`. Update `app/templates/` viewer template: replace `is_admin` with `is_game_admin` for strategy_text gating only.
+- [X] T016 [P: app/routes/web_viewer.py] [US3] Replace `_is_admin(user)` with `_is_game_admin(user, match.game)`. Update import. Change template context key from `"is_admin"` to `"is_game_admin"`. Update `app/templates/` viewer template: replace `is_admin` with `is_game_admin` for strategy_text gating only.
 
-- [ ] T017 [P: app/templates/admin/] [US3] Delete game-scoped templates from `app/templates/admin/`: `create_game.html`, `game_detail.html`, `add_sims.html`, `prompts.html`.
+- [X] T017 [P: app/templates/admin/] [US3] Delete game-scoped templates from `app/templates/admin/`: `create_game.html`, `game_detail.html`, `add_sims.html`, `prompts.html`.
 
-- [ ] T018 [US3] Add boundary tests in `tests/test_admin.py`:
+- [X] T018 [US3] Add boundary tests in `tests/test_admin.py`:
   `test_game_admin_only_cannot_access_platform_admin` — 403 on GET /admin/;
   `test_platform_admin_only_cannot_access_game_admin` — 403 on GET /games/hoard-hurt-help/admin/;
   `test_game_admin_wrong_game_cannot_access` — 403 on GET /games/other-game/admin/;
@@ -122,7 +122,7 @@ viewer uses `is_game_admin` for strategy prompt gating; boundary tests pass.
   `test_agent_api_not_shadowed` — agent poll route still reachable.
   Update `tests/test_admin_add_sims.py`: route URL `/admin/matches/{id}/sims` → `/games/hoard-hurt-help/admin/matches/{id}/bots`.
 
-- [ ] T019 [US3] Final verification: `grep -rn "require_admin\|_is_admin" app/` → zero results. Run full preflight: `ruff check . && mypy app/ mcp_server/ && pytest -q`.
+- [X] T019 [US3] Final verification: `grep -rn "require_admin\|_is_admin" app/` → zero results. Run full preflight: `ruff check . && mypy app/ mcp_server/ && pytest -q`.
 
 **[CHECKPOINT]**: All boundary tests pass; grep returns zero; preflight green.
 

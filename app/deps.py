@@ -65,22 +65,6 @@ async def require_user_with_handle(request: Request, db: DbSession) -> User:
     return user
 
 
-async def require_admin(request: Request, db: DbSession) -> User:
-    user = await require_user(request, db)
-    if user.email.lower() not in settings.admin_emails_set:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "NOT_ADMIN",
-                    "message": "Admin access required.",
-                    "details": {},
-                }
-            },
-        )
-    return user
-
-
 async def require_platform_admin(request: Request, db: DbSession) -> User:
     """Require the user to be in PLATFORM_ADMIN_EMAILS (or legacy ADMIN_EMAILS)."""
     user = await require_user(request, db)

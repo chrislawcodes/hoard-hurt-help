@@ -1,6 +1,6 @@
 {
   "repo_root": ".",
-  "git_head_sha": "7fdb604b0acf77371a6956a8766906e98445cc2b",
+  "git_head_sha": "abf4a2935e23b02e459633322bcbc8e8c2286efd",
   "git_base_ref": "origin/claude/awesome-bohr-fBDnG",
   "git_base_sha": "e9c316bb0db5f017c9ae0dc55f2af8bcbe7f576a",
   "paths": [
@@ -17,6 +17,7 @@
     "_wireframe_nav_smart_cta.png",
     "_wireframe_nav_smart_cta.svg",
     "agentludum_agent_codex.py",
+    "docs/workflow/operations",
     "scripts",
     "specs/009-game-match-vocabulary"
   ],

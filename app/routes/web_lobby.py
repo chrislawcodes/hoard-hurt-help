@@ -23,7 +23,7 @@ from app.models.player import Player
 from app.read_models.leaderboard import load_leaderboard_sections
 from app.routes.web_support import (
     _TEST_NAME_PREFIX,
-    _is_admin,
+    _is_any_admin,
     _is_showcase,
     _load_match_or_404,
     _agent_count,
@@ -244,7 +244,7 @@ async def home(request: Request, db: DbSession):
         "agent_ludum.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "rc_data": rc_data,
             "rc_game_id": rc_game_id,
             "rc_game_type": rc_game_type,
@@ -264,7 +264,7 @@ async def games_catalog(request: Request, db: DbSession):
         "games.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "game_theme": module.theme(),
             "featured_game_slug": "hoard-hurt-help",
         },
@@ -295,7 +295,7 @@ async def leaderboard_page(
         "leaderboard.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "sections": sections,
             "rating_mode": rating_mode,
             "included": included_mode,
@@ -462,7 +462,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
         "home.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "live_games": live,
             "upcoming_games": upcoming,
             "recent_games": recent_games[:5] if not show_recent_all else recent_games,
@@ -518,7 +518,7 @@ async def game_upcoming(request: Request, db: DbSession, game: Annotated[str, Pa
         request,
         "fragments/lobby_upcoming.html",
         {
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "upcoming_games": await _upcoming_views(db),
             "game_theme": module.theme(),
         },

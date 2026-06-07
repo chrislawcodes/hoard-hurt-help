@@ -12,7 +12,7 @@ from app.models.match import Match, GameState
 from app.read_models.matches import load_action_records, load_player_records
 from app.routes.web_support import (
     _game_theme,
-    _is_admin,
+    _is_any_admin,
     _load_match_or_404,
     _redirect_if_game_slug_mismatch,
     _redirect_to_match,
@@ -57,7 +57,7 @@ async def game_analysis(
         "analysis_season.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "game": g,
             "game_theme": _game_theme(g),
             "overview": overview,
@@ -105,7 +105,7 @@ async def game_analysis_round(
         "analysis_round.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "game": g,
             "game_theme": _game_theme(g),
             "detail": detail,

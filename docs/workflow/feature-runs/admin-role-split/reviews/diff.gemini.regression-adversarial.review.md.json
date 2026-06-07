@@ -53,5 +53,7 @@
       "totalLinesAdded": 0,
       "totalLinesRemoved": 0
     }
-  }
+  },
+  "artifact_sha256": "c3921e442485f5a92d1a44e9b2239f8cccc116a384fc759808fb9f21f0718413",
+  "git_head_sha": "abf4a29eba26e4bf8e3d7c5db91e7c67e3da2aee"
 }
