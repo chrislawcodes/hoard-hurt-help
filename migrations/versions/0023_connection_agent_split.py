@@ -293,6 +293,18 @@ def _create_old_strategy_prompts_table() -> None:
 
 
 def upgrade() -> None:
+    # matches, turn_submissions, turn_messages all have FKs into players.
+    # Drop them first so we can drop and replace the players table.
+    with op.batch_alter_table("matches") as batch_op:
+        batch_op.drop_constraint("fk_games_winner_player_id_players", type_="foreignkey")
+    with op.batch_alter_table("turn_submissions") as batch_op:
+        batch_op.drop_constraint("fk_turn_submissions_player_id_players", type_="foreignkey")
+        batch_op.drop_constraint(
+            "fk_turn_submissions_target_player_id_players", type_="foreignkey"
+        )
+    with op.batch_alter_table("turn_messages") as batch_op:
+        batch_op.drop_constraint("fk_turn_messages_player_id_players", type_="foreignkey")
+
     op.drop_table("strategy_prompts")
     op.drop_table("players")
     op.drop_table("bots")
@@ -310,6 +322,26 @@ def upgrade() -> None:
             ["id"],
         )
 
+    # Reattach the dependent FKs to the new players table.
+    with op.batch_alter_table("matches") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_games_winner_player_id_players", "players", ["winner_player_id"], ["id"]
+        )
+    with op.batch_alter_table("turn_submissions") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_turn_submissions_player_id_players", "players", ["player_id"], ["id"]
+        )
+        batch_op.create_foreign_key(
+            "fk_turn_submissions_target_player_id_players",
+            "players",
+            ["target_player_id"],
+            ["id"],
+        )
+    with op.batch_alter_table("turn_messages") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_turn_messages_player_id_players", "players", ["player_id"], ["id"]
+        )
+
 
 def downgrade() -> None:
     with op.batch_alter_table("agents") as batch_op:
@@ -317,6 +349,17 @@ def downgrade() -> None:
             "fk_agents_current_version_id_agent_versions",
             type_="foreignkey",
         )
+
+    # Drop FKs from dependent tables before dropping the new players table.
+    with op.batch_alter_table("matches") as batch_op:
+        batch_op.drop_constraint("fk_games_winner_player_id_players", type_="foreignkey")
+    with op.batch_alter_table("turn_submissions") as batch_op:
+        batch_op.drop_constraint("fk_turn_submissions_player_id_players", type_="foreignkey")
+        batch_op.drop_constraint(
+            "fk_turn_submissions_target_player_id_players", type_="foreignkey"
+        )
+    with op.batch_alter_table("turn_messages") as batch_op:
+        batch_op.drop_constraint("fk_turn_messages_player_id_players", type_="foreignkey")
 
     op.drop_index("ix_players_agent_version_id", table_name="players")
     op.drop_index("ix_players_agent_id", table_name="players")
@@ -341,3 +384,23 @@ def downgrade() -> None:
     _create_old_bots_table()
     _create_old_players_table()
     _create_old_strategy_prompts_table()
+
+    # Reattach the dependent FKs to the restored players table.
+    with op.batch_alter_table("matches") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_games_winner_player_id_players", "players", ["winner_player_id"], ["id"]
+        )
+    with op.batch_alter_table("turn_submissions") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_turn_submissions_player_id_players", "players", ["player_id"], ["id"]
+        )
+        batch_op.create_foreign_key(
+            "fk_turn_submissions_target_player_id_players",
+            "players",
+            ["target_player_id"],
+            ["id"],
+        )
+    with op.batch_alter_table("turn_messages") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_turn_messages_player_id_players", "players", ["player_id"], ["id"]
+        )
