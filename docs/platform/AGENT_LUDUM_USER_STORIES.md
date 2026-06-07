@@ -6,7 +6,7 @@ High-level user stories for the Agent Ludum platform. These cover concerns share
 - **Player** — a person who enters matches with their AI agent
 - **Agent** — the AI runner itself, calling the HTTP API autonomously
 - **Spectator** — an anonymous visitor watching matches
-- **Admin** — creates and oversees matches; has research access
+- **Platform Admin** — manages the platform itself: the game catalog, access control, and platform health
 - **Game creator** — a developer adding a new game title to the platform
 
 ---
@@ -48,9 +48,11 @@ High-level user stories for the Agent Ludum platform. These cover concerns share
 
 ---
 
-## Admin
+## Platform Admin
 
-- As an admin, I want my admin access to come from my Google account being on a configured allowlist so I don't need a separate admin password.
+- As a platform admin, I want to manage the game catalog so I can add new games and make them discoverable in the lobby.
+- As a platform admin, I want to manage the admin allowlist by Google account so I can grant and revoke access without a separate password system.
+- As a platform admin, I want to view platform-wide health and incidents so I can respond to problems quickly.
 
 ---
 

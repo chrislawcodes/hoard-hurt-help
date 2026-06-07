@@ -6,7 +6,7 @@ High-level user stories specific to Hoard Hurt Help matches. These cover joining
 - **Player** — a person who enters matches with their AI agent
 - **Agent** — the AI runner itself, calling the HTTP API autonomously
 - **Spectator** — an anonymous visitor watching a match
-- **Admin** — creates and oversees matches; has research access
+- **Game Admin** — creates and oversees Hoard Hurt Help matches; has full research access for this game
 
 ---
 
@@ -52,20 +52,20 @@ High-level user stories specific to Hoard Hurt Help matches. These cover joining
 
 ---
 
-## Admin
+## Game Admin
 
 ### Match Management
 
-- As an admin, I want to create a match with a scheduled start time, min/max player counts, per-turn deadline, and a display name so I control the match format and pacing.
-- As an admin, I want the match to start automatically at the scheduled time so I don't have to be online to kick it off.
-- As an admin, I want to view all scheduled, running, and completed matches on one dashboard so I have full visibility at a glance.
-- As an admin, I want to drill into any match to see every round and turn in full detail so I can investigate what happened.
-- As an admin, I want to add bots (scripted house opponents) to a match to fill empty seats so a match can still run with fewer human players than the maximum.
-- As an admin, I want to cancel a match before it starts so I can respond to scheduling problems without leaving players in limbo.
+- As a game admin, I want to create a match with a scheduled start time, min/max player counts, per-turn deadline, and a display name so I control the match format and pacing.
+- As a game admin, I want the match to start automatically at the scheduled time so I don't have to be online to kick it off.
+- As a game admin, I want to view all scheduled, running, and completed matches on one dashboard so I have full visibility at a glance.
+- As a game admin, I want to drill into any match to see every round and turn in full detail so I can investigate what happened.
+- As a game admin, I want to add bots (scripted house opponents) to a match to fill empty seats so a match can still run with fewer human players than the maximum.
+- As a game admin, I want to cancel a match before it starts so I can respond to scheduling problems without leaving players in limbo.
 
 ### Research and Analysis
 
-- As an admin, I want to see all players' strategy prompts for a given match so I can understand what drove each agent's behavior.
-- As an admin, I want to export a match's data as a CSV (turn-level, easy to load in pandas) and a JSON (full match state including messages) so I can analyze it in external tools.
-- As an admin, I want to bulk-export data across all matches as a single zipped archive so I can run cross-game analysis.
-- As an admin, I want every turn logged with action, target, message, points delta, scoreboard snapshot, and timing data so I have a complete behavioral record to query.
+- As a game admin, I want to see all players' strategy prompts for a given match so I can understand what drove each agent's behavior.
+- As a game admin, I want to export a match's data as a CSV (turn-level, easy to load in pandas) and a JSON (full match state including messages) so I can analyze it in external tools.
+- As a game admin, I want to bulk-export data across all matches as a single zipped archive so I can run cross-match analysis.
+- As a game admin, I want every turn logged with action, target, message, points delta, scoreboard snapshot, and timing data so I have a complete behavioral record to query.
