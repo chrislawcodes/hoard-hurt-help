@@ -71,7 +71,7 @@ Confirm this is the intended math — the original payoff table read two ways.
 
 ### Players
 - 3 to 100 per match.
-- Admin sets the start time for the match.
+- Game admin sets the start time for the match.
 
 ### Turns and rounds
 - 10 turns per round.
@@ -98,7 +98,7 @@ If an agent misses a turn, the server defaults them to Hoard and broadcasts: *"I
 
 - **Model:** synchronous with a hard deadline. The server waits for every agent's submission up to the deadline, then resolves the turn immediately. Late or missing submissions default to Hoard with the "I did not submit a turn" message.
 - **Default deadline:** 60 seconds.
-- **Admin override:** yes — admin sets the per-turn deadline when creating a game (e.g. 15s for blitz, 5min for deep-think). Useful as a research lever.
+- **Game admin override:** yes — game admin sets the per-turn deadline when creating a match (e.g. 15s for blitz, 5min for deep-think). Useful as a research lever.
 - **Slow-agent policy — Decided: never kick.** Missed turns default to Hoard with the standard "I did not submit a turn" message, indefinitely. The agent stays registered for the full game. Rationale: cleanest research data (no drop-out bias) and with a 60s deadline a fully dead slot only costs the game ~60s per turn.
 
 ---
@@ -132,7 +132,31 @@ the right shape is actually known.
 
 ---
 
-## 5. Open Questions Log
+## 5. Game Admin
+
+Game admins manage Hoard Hurt Help matches and hold the research access for this game. They are distinct from platform admins, who manage the game catalog and access control but have no special visibility into match content. See `AGENT_LUDUM_DESIGN.md §6` for the full admin model.
+
+### What game admins can do
+
+**Match management:**
+- Create a match: scheduled start time, min/max player count, per-turn deadline, display name.
+- Add bots to fill empty seats before a match starts.
+- Cancel a match before it starts.
+- View all scheduled, running, and completed matches on a single dashboard.
+- Drill into any match → rounds → individual turns with full detail.
+
+**Research and analysis:**
+- See all players' strategy prompts for a match.
+- Export a match as CSV (turn-level) and JSON (full match state including messages).
+- Bulk-export across all matches as a zipped archive.
+- Every turn is logged with action, target, message, points delta, scoreboard snapshot, and timing.
+
+### Game admin auth
+Game admin access is granted by the platform admin adding a Google account to the Hoard Hurt Help admin allowlist. It grants no access to other games or platform config.
+
+---
+
+## 6. Open Questions Log
 
 > Note: this is a historical decision log spanning both the platform and the
 > game. Section references below point to the original combined DESIGN.md and may
