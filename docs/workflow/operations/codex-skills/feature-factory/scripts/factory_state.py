@@ -433,6 +433,18 @@ def load_scope_manifest(slug: str) -> dict:
 def save_scope_manifest(slug: str, paths: list[str]) -> Path:
     safe_slug = validated_slug(slug)
     normalized_paths = {normalized_repo_path(path, "scope path").rstrip("/") for path in paths if path.strip()}
+    # Surface bad scope paths at generation time, not at checkpoint time. A typo
+    # like "templates" instead of "app/templates" otherwise only fails much later
+    # in write_canonical_diff's validate_scope_paths. Warn (do not fail): a new
+    # feature may legitimately scope a path that does not exist yet.
+    missing = sorted(p for p in normalized_paths if not (REPO_ROOT / p).exists())
+    if missing:
+        print(
+            "warning: scope.json references path(s) that do not exist yet: "
+            f"{', '.join(missing)}. Confirm these are intentional (new files) and "
+            "not typos (e.g. 'templates' vs 'app/templates') before the diff checkpoint.",
+            file=sys.stderr,
+        )
     manifest = {
         "paths": sorted(normalized_paths),
         "allowed_dirty_paths": sorted(
