@@ -50,6 +50,14 @@ alembic/versions/__pycache__/
 *.bak
 *.tmp
 
+# Local SQLite backups (timestamped; *.bak above does not match these)
+*.db.bak-*
+
+# Agent / CLI runtime scratch (Codex CLI, agent harnesses) — never committed.
+# These trip the Feature Factory's dirty-path check if not ignored.
+.agents/
+.codex/
+
 # Feature Factory per-slug run locks (flock files, auto-released on crash —
 # never committed; they otherwise trip implement's "working tree must be clean").
 docs/workflow/feature-runs/*/.*.lock

@@ -25,6 +25,13 @@ python3 $RUN status --slug <slug>            # confirm plan stage is checkpointe
 
 Author `docs/workflow/feature-runs/<slug>/tasks.md` with executable slices and `[CHECKPOINT]` markers at slice boundaries (no slice over ~300 changed lines). Record the parallel-safety analysis, then checkpoint:
 
+### Slicing rules (each checkpoint must be passable)
+
+Every `[CHECKPOINT]` runs the Preflight Gate (`ruff`, `mypy`, `pytest -q`). A phase boundary that cannot pass its own gate is a planning bug, not an implementation problem. Before you write the slices:
+
+- **Every phase must leave the tree green.** Do not split a change from the work that keeps preflight passing across a checkpoint. If a slice removes or replaces a tested route/function, the matching test updates (and any replacement code the tests need) belong in the **same** phase — never "the tests get fixed next phase." If green at phase N genuinely depends on phase N+1, they are one phase.
+- **Enumerate every call site for a rename/signature change.** When a slice renames or changes the signature of a symbol, run `grep -rn "<symbol>" app/ mcp_server/` first and list *every* file the grep returns as an explicit edit in the task. A site missed here only surfaces as a `mypy`/`pytest` failure at the checkpoint. Re-grep after planning to confirm no file outside the task list still references the old symbol.
+
 ```bash
 python3 $RUN parallel   --slug <slug> --note "..." [--found]
 python3 $RUN checkpoint --slug <slug> --stage tasks
