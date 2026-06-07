@@ -77,9 +77,12 @@ When Claude's tokens are exhausted mid-workflow:
 
 Use these scripts as the workflow backbone:
 
-- `scripts/sync-codex-skills.py`
 - `docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py`
 - `docs/workflow/operations/codex-skills/review-lens/scripts/*.py`
+
+`scripts/sync-codex-skills.py` is **not** a backbone script — the engine is a
+vendored fork of ValueRank with no automated sync, and this no-op exists only so
+the `ensure_sync()` hook keeps working (see `FEATURE_FACTORY_DESIGN.md` §11).
 
 Do not duplicate checkpoint manifest logic, review file validation, diff writing, or reconciliation logic in the skill itself unless the scripts are broken.
 

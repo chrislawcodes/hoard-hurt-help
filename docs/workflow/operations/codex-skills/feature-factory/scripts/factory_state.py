@@ -288,9 +288,20 @@ def _default_stage_state(state: dict | None = None, stage: str | None = None) ->
 
 
 @contextmanager
-def with_locked_state(slug: str):
-    """Lock state.json, yield the loaded state, and persist mutations on exit."""
-    path = factory_state_path(slug)
+def _state_file_lock(path: Path):
+    """Hold the exclusive advisory lock on the state file, retrying with backoff.
+
+    Both the locked read-modify-write (``with_locked_state``) and the full
+    overwrite (``save_workflow_state``) acquire this same lock, so a background
+    writer — notably the heartbeat thread, which runs concurrently inside the
+    same process as the command that spawned it — can never interleave its write
+    with a full-state overwrite and silently drop a field.
+
+    Callers must NOT nest this (or ``with_locked_state``/``save_workflow_state``)
+    inside another hold for the same slug in the same process: flock entries are
+    per open file description, so a second acquire would block on itself and time
+    out. The existing callers each load → mutate → write without nesting.
+    """
     if not path.exists():
         atomic_json_write(path, _default_workflow_state())
 
@@ -312,14 +323,22 @@ def with_locked_state(slug: str):
                 continue
 
             try:
-                state = load_workflow_state(slug)
-                yield state
-                atomic_json_write(path, state)
+                yield
             finally:
                 fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
             return
 
     raise TimeoutError(f"Timed out acquiring exclusive lock for {path} after 10 retries") from last_error
+
+
+@contextmanager
+def with_locked_state(slug: str):
+    """Lock state.json, yield the loaded state, and persist mutations on exit."""
+    path = factory_state_path(slug)
+    with _state_file_lock(path):
+        state = load_workflow_state(slug)
+        yield state
+        atomic_json_write(path, state)
 
 
 def migrate_discovery_state(d: dict) -> dict:
@@ -483,19 +502,21 @@ def load_workflow_state(slug: str) -> dict:
 
 
 def save_workflow_state(slug: str, state: dict) -> Path:
-    """Write the full workflow state atomically (temp + os.replace).
+    """Write the full workflow state atomically under the exclusive state lock.
 
-    NOTE — single-writer assumption: this is a full overwrite and does NOT take
-    the state lock, so a concurrent ``update_workflow_state`` (locked read-
-    modify-write) could be lost. That is safe today because Feature Factory
-    assumes one mutator per slug at a time — enforced at the run level by the
-    per-slug ``implement`` / ``autopilot`` locks (``factory_runlock``) and, for
-    cross-agent safety, by running each agent in its own git worktree. For
-    incremental field updates prefer ``update_workflow_state`` (which IS lock-
-    guarded); reserve this for full-state writes.
+    This is a full overwrite of whatever the caller loaded, so it does NOT merge
+    concurrent field updates (read-modify-write TOCTOU) — Feature Factory still
+    assumes one *logical* mutator per slug, enforced by the per-slug ``implement``
+    / ``autopilot`` run locks (``factory_runlock``) and worktree-per-agent. What
+    the lock DOES guarantee is that this overwrite can't land in the middle of
+    another writer's locked read-modify-write. That matters because the heartbeat
+    thread runs concurrently in the same process; without the lock a heartbeat
+    write could clobber a real field (or vice versa). For incremental updates
+    prefer ``update_workflow_state``; reserve this for full-state writes.
     """
     path = factory_state_path(slug)
-    atomic_json_write(path, state)
+    with _state_file_lock(path):
+        atomic_json_write(path, state)
     return path
 
 

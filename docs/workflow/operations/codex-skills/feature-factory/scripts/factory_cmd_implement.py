@@ -32,8 +32,10 @@ from factory_git import (  # noqa: E402
     create_worktree,
     remove_all_worktrees,
     get_new_commits,
+    get_changed_files,
     stage_and_commit_if_dirty,
     cherry_pick_commits,
+    PROTECTED_FILES,
 )
 
 from factory_runlock import acquire_run_lock, release_run_lock, run_lock_path  # noqa: E402
@@ -158,6 +160,28 @@ def _run_serial(slug: str, tasks: list[str]) -> int:
     return rc
 
 
+def _detect_parallel_file_overlap(files_by_task: dict[int, set[str]]) -> str | None:
+    """Return a message if two parallel workers changed the same file.
+
+    [P:] annotations are validated for disjoint file scopes at declaration time,
+    but a Codex worker can still write outside its declared scope at runtime. Two
+    workers touching one file breaks the disjoint-write assumption the parallel
+    path relies on, so detect it before cherry-picking and fail loudly instead of
+    producing a confusing mid-cherry-pick conflict. Protected files (reverted
+    after every worker anyway) are excluded.
+    """
+    protected = set(PROTECTED_FILES)
+    owner: dict[str, int] = {}
+    for i in sorted(files_by_task):
+        for path in files_by_task[i]:
+            if path in protected:
+                continue
+            if path in owner and owner[path] != i:
+                return f"{path} (written by tasks {owner[path]} and {i})"
+            owner[path] = i
+    return None
+
+
 def _run_parallel(slug: str, group: dict, max_workers: int = 4) -> int:
     status = subprocess.run(
         ["git", "-C", str(REPO_ROOT), "status", "--porcelain"],
@@ -260,11 +284,13 @@ def _run_parallel(slug: str, group: dict, max_workers: int = 4) -> int:
             print(failure_message, file=sys.stderr)
             return 1
 
+        files_by_task: dict[int, set[str]] = {}
         try:
             for i in range(len(tasks)):
                 worktree_path = worktree_paths[i]
                 stage_and_commit_if_dirty(worktree_path, f"task {i}: auto-commit")
                 commits_by_task[i] = get_new_commits(worktree_path, base_sha)
+                files_by_task[i] = set(get_changed_files(worktree_path, base_sha))
         except Exception as exc:
             reset_result = subprocess.run(
                 ["git", "-C", str(REPO_ROOT), "reset", "--hard", base_sha],
@@ -277,6 +303,29 @@ def _run_parallel(slug: str, group: dict, max_workers: int = 4) -> int:
                     file=sys.stderr,
                 )
             print(f"[error] failed to collect commits from worker worktrees: {exc}", file=sys.stderr)
+            return 1
+
+        # Runtime [P:] safety: parallel workers must write disjoint file sets.
+        # Detect a violation here rather than letting it surface as a confusing
+        # cherry-pick conflict (or, worse, silently merge two unrelated edits).
+        overlap = _detect_parallel_file_overlap(files_by_task)
+        if overlap:
+            reset_result = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "reset", "--hard", base_sha],
+                capture_output=True,
+                text=True,
+            )
+            if reset_result.returncode != 0:
+                print(
+                    f"[warn] failed to reset repository to {base_sha[:12]}: {reset_result.stderr.strip() or reset_result.stdout.strip() or 'git reset failed'}",
+                    file=sys.stderr,
+                )
+            print(
+                f"[error] parallel workers wrote overlapping files: {overlap} — the [P:] "
+                "file scopes were not disjoint at runtime. Fix the [P:] annotations in "
+                "tasks.md or run these tasks serially.",
+                file=sys.stderr,
+            )
             return 1
 
         all_commits = [c for i in sorted(commits_by_task) for c in commits_by_task[i]]

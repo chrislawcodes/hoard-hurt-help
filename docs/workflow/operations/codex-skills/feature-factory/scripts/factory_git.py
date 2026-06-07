@@ -264,6 +264,28 @@ def get_new_commits(worktree_path: Path, base_sha: str, run_fn=subprocess.run) -
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
+def get_changed_files(worktree_path: Path, base_sha: str, run_fn=subprocess.run) -> list[str]:
+    """Return repo-relative paths changed in a worktree since base_sha.
+
+    Used to validate at runtime that parallel Codex workers actually wrote
+    disjoint file sets — the assumption [P:] annotations declare but which is
+    only checked at declaration time otherwise.
+    """
+    try:
+        result = run_fn(
+            ["git", "-C", str(worktree_path), "diff", "--name-only", f"{base_sha}..HEAD"],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"failed to list changed files in {worktree_path} since {base_sha}: "
+            f"{exc.stderr or exc.stdout or exc}"
+        ) from exc
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
 def stage_and_commit_if_dirty(worktree_path: Path, message: str, run_fn=subprocess.run) -> str | None:
     try:
         status = run_fn(

@@ -1,0 +1,44 @@
+name: FF Analyze Reviews
+
+# Rolls up Feature Factory cost/telemetry (wall clock, Codex/Gemini tokens, TTL
+# crossings, review rounds) across all feature runs and publishes the report as a
+# build artifact. The telemetry is recorded by the engine on every run but was
+# never surfaced — this closes that gap without pushing to main (branch
+# protection: all changes to main go through a PR).
+#
+# Cadence: weekly, plus on-demand via the Actions "Run workflow" button.
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"  # Mondays 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Roll up review performance
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so per-run git lookups resolve
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run analyze-reviews
+        run: |
+          python3 docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py \
+            analyze-reviews
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ff-review-performance
+          path: docs/workflow/analysis/review-performance-*.md
+          if-no-files-found: warn
+          retention-days: 90

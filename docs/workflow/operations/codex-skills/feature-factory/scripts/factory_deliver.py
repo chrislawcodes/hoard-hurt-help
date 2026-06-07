@@ -2,6 +2,7 @@
 """GitHub CLI interaction, delivery records, and closeout text generation."""
 import json
 import os
+import re
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -72,6 +73,57 @@ def _resolve_branch_base() -> str | None:
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
     return None
+
+
+# ---------------------------------------------------------------------------
+# Pre-deliver hygiene: unresolved git conflict markers
+# ---------------------------------------------------------------------------
+
+# The empty-tree SHA — used as a fallback base when no branch base can be
+# resolved (detached HEAD, no origin), so the whole tree is treated as changed
+# and still gets scanned rather than silently skipping the gate.
+_EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+# A genuine conflict always carries the angle-bracket markers. We do NOT match a
+# bare ``=======`` separator on its own: it collides with reStructuredText and
+# Markdown section underlines, and the angle-bracket markers are sufficient.
+_CONFLICT_MARKER_RE = re.compile(r"^(?:<<<<<<< |>>>>>>> |\|\|\|\|\|\|\| )", re.MULTILINE)
+
+
+def find_conflict_markers() -> list[str]:
+    """Return repo-relative paths of branch-changed files with git conflict markers.
+
+    Scans only files changed since the merge-base with the default branch, so
+    unrelated pre-existing content elsewhere is never flagged. Binary or
+    unreadable files are skipped. Never raises — a scan failure returns ``[]``
+    rather than blocking a legitimate delivery.
+    """
+    base = _resolve_branch_base() or _EMPTY_TREE_SHA
+    cmd = [
+        "git", "-C", str(REPO_ROOT), "diff",
+        "--name-only", "--diff-filter=ACMR", base, "HEAD",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return []
+    if result.returncode != 0:
+        return []
+    flagged: list[str] = []
+    for rel in result.stdout.splitlines():
+        rel = rel.strip()
+        if not rel:
+            continue
+        target = REPO_ROOT / rel
+        if not target.is_file():
+            continue
+        try:
+            text = target.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue  # binary or unreadable — not a text conflict
+        if _CONFLICT_MARKER_RE.search(text):
+            flagged.append(rel)
+    return sorted(flagged)
 
 
 def _added_code_lines(branch_base: str) -> int | None:

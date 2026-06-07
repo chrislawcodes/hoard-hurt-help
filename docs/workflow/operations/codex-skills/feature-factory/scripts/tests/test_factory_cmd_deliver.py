@@ -135,6 +135,10 @@ class FactoryDeliverTests(unittest.TestCase):
             patch.object(DELIVER, "git_output", return_value="head-sha"),
             patch.object(DELIVER, "commits_behind_upstream", return_value=0),
             patch.object(factory_deliver, "check_implementation_rule", return_value=("ok", "")),
+            # The pre-deliver conflict-marker gate runs real git plumbing; it is
+            # covered by test_conflict_marker_gate.py. Neutralize it here so these
+            # tests exercise the rest of the deliver path.
+            patch.object(factory_deliver, "find_conflict_markers", return_value=[]),
         ]
 
     def _run_deliver(
