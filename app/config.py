@@ -4,10 +4,14 @@ Single source of truth for runtime config. Other modules import
 `settings` from here; nothing else should touch `os.environ`.
 """
 
+import logging
+import os
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_log = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -39,8 +43,31 @@ class Settings(BaseSettings):
     # HTTPS; leave false for local http dev.
     cookie_secure: bool = Field(default=False)
 
-    # Comma-separated list of emails with admin powers.
+    # --- Admin role split ---
+    # Platform admin: game catalog, user handles, incidents.
+    platform_admin_emails: str = Field(default="")
+    # Game admin: per-game match creation, strategy prompts, export.
+    # Set GAME_ADMIN_EMAILS__HOARD_HURT_HELP=alice@example.com for each game.
+    # (Populated at construction time via _collect_game_admin_emails below.)
+
+    # Compatibility: legacy single-role admin list. Kept as fallback while
+    # PLATFORM_ADMIN_EMAILS / GAME_ADMIN_EMAILS__* are being rolled out.
+    # Remove this field once all prod env vars are updated.
     admin_emails: str = Field(default="")
+
+    # Internal storage populated by _collect_game_admin_emails validator; not an env var.
+    _game_admin_emails_raw: dict[str, str] = PrivateAttr(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _collect_game_admin_emails(self) -> "Settings":
+        """Scan os.environ for GAME_ADMIN_EMAILS__* and populate _game_admin_emails_raw."""
+        prefix = "GAME_ADMIN_EMAILS__"
+        result: dict[str, str] = {}
+        for k, v in os.environ.items():
+            if k.upper().startswith(prefix):
+                result[k[len(prefix):].upper()] = v  # e.g. "HOARD_HURT_HELP" → value
+        self._game_admin_emails_raw = result
+        return self
 
     @field_validator("database_url")
     @classmethod
@@ -64,8 +91,47 @@ class Settings(BaseSettings):
 
     @property
     def admin_emails_set(self) -> set[str]:
-        """Normalized lowercased set of admin emails."""
+        """Normalized lowercased set of admin emails (legacy; prefer platform_admin_emails_set)."""
         return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
+
+    @property
+    def platform_admin_emails_set(self) -> set[str]:
+        """Platform admins. Falls back to admin_emails during compat window."""
+        raw = self.platform_admin_emails or self.admin_emails
+        if not raw:
+            return set()
+        if self.platform_admin_emails == "" and self.admin_emails:
+            _log.warning(
+                "ADMIN_EMAILS fallback active — set PLATFORM_ADMIN_EMAILS to remove"
+            )
+        return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+    def game_admin_emails_for(self, game: str) -> set[str]:
+        """Return the game-admin email set for a slug like 'hoard-hurt-help'.
+
+        Normalizes slug → uppercase with underscores to look up the env var suffix.
+        Falls back to admin_emails during the compat window.
+        """
+        key = game.upper().replace("-", "_")
+        raw = self._game_admin_emails_raw.get(key, "")
+        if not raw and self.admin_emails:
+            _log.warning(
+                "ADMIN_EMAILS fallback active for game %s — set GAME_ADMIN_EMAILS__%s",
+                game,
+                key,
+            )
+            raw = self.admin_emails
+        if not raw:
+            return set()
+        return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+    @property
+    def all_game_admin_emails_set(self) -> set[str]:
+        """Union of all game-admin emails across every configured game."""
+        result: set[str] = set()
+        for raw in self._game_admin_emails_raw.values():
+            result.update(e.strip().lower() for e in raw.split(",") if e.strip())
+        return result
 
 
 @lru_cache
