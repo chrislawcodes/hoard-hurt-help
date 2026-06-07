@@ -321,6 +321,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Add a string to acceptance_criteria[]. Repeat the flag to append multiple values. "
              "If --clear-acceptance-criteria is also set, the clear applies BEFORE these appends in the same invocation. "
              "Empty/whitespace-only values are rejected.")
+    discover_parser.add_argument("--goal",
+        help="Discovery checklist: the goal — what this feature accomplishes and why")
+    discover_parser.add_argument("--audience",
+        help="Discovery checklist: who the feature is for (users/audience)")
+    discover_parser.add_argument("--constraints",
+        help="Discovery checklist: key constraints, dependencies, or risks")
     discover_parser.add_argument("--clear-non-goals", action="store_true",
         help="Empty discovery.non_goals[] BEFORE any --non-goal appends in the same invocation.")
     discover_parser.add_argument("--clear-acceptance-criteria", action="store_true",

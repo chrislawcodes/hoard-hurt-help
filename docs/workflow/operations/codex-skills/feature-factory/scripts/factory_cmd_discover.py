@@ -26,6 +26,26 @@ from factory_mutating import mutates_state  # noqa: E402
 from factory_size_estimate import estimate_size  # noqa: E402
 
 
+CHECKLIST_ITEMS = ("goal", "audience", "success criteria", "non-goals", "constraints/risks")
+
+
+def _missing_checklist_items(discovery: dict) -> list[str]:
+    """Return the required discovery-checklist items that are not yet filled."""
+    checklist = discovery.get("checklist", {}) or {}
+    missing = []
+    if not str(checklist.get("goal", "")).strip():
+        missing.append("goal")
+    if not str(checklist.get("audience", "")).strip():
+        missing.append("audience")
+    if not (discovery.get("acceptance_criteria") or []):
+        missing.append("success criteria (--acceptance-criteria)")
+    if not (discovery.get("non_goals") or []):
+        missing.append("non-goals (--non-goal)")
+    if not str(checklist.get("constraints", "")).strip():
+        missing.append("constraints/risks (--constraints)")
+    return missing
+
+
 @mutates_state("discover")
 def command_discover(args: argparse.Namespace) -> int:
     ensure_sync()
@@ -50,6 +70,9 @@ def command_discover(args: argparse.Namespace) -> int:
             getattr(args, "clear_non_goals", False),
             getattr(args, "clear_acceptance_criteria", False),
             getattr(args, "answer", None) is not None,
+            getattr(args, "goal", None) is not None,
+            getattr(args, "audience", None) is not None,
+            getattr(args, "constraints", None) is not None,
         ]
     ):
         raise SystemExit("discover --clear cannot be combined with other discovery updates")
@@ -76,6 +99,9 @@ def command_discover(args: argparse.Namespace) -> int:
             getattr(args, "clear_non_goals", False),
             getattr(args, "clear_acceptance_criteria", False),
             getattr(args, "answer", None) is not None,
+            getattr(args, "goal", None) is not None,
+            getattr(args, "audience", None) is not None,
+            getattr(args, "constraints", None) is not None,
         ]
     ):
         raise SystemExit("discover requires at least one update, or use --clear to reset discovery state")
@@ -205,6 +231,18 @@ def command_discover(args: argparse.Namespace) -> int:
             ac = discovery.setdefault("acceptance_criteria", [])
             if stripped not in ac:
                 ac.append(stripped)
+        checklist = discovery.setdefault("checklist", {"goal": "", "audience": "", "constraints": ""})
+        if not isinstance(checklist, dict):
+            checklist = {"goal": "", "audience": "", "constraints": ""}
+            discovery["checklist"] = checklist
+        for _field in ("goal", "audience", "constraints"):
+            _val = getattr(args, _field, None)
+            if _val is not None:
+                _stripped = str(_val).strip()
+                if not _stripped:
+                    raise SystemExit(f"discover --{_field} cannot be empty or whitespace-only")
+                checklist[_field] = _stripped
+                discovery["required"] = True
         blocking = blocking_unresolved_items(discovery)
         if args.complete:
             if blocking:
@@ -222,6 +260,16 @@ def command_discover(args: argparse.Namespace) -> int:
                     "discover cannot mark discovery complete before the planned questions are recorded; "
                     "use --force-complete if you intentionally want to override the count"
                 )
+            if discovery.get("required") and not force_complete:
+                missing = _missing_checklist_items(discovery)
+                if missing:
+                    raise SystemExit(
+                        "discover cannot mark discovery complete — the discovery checklist is "
+                        "incomplete. Provide: " + ", ".join(missing) + ". "
+                        "Required every run: goal (--goal), audience (--audience), success "
+                        "criteria (--acceptance-criteria), non-goals (--non-goal), constraints/"
+                        "risks (--constraints). Use --force-complete only for trivial / skip-FF features."
+                    )
             discovery["complete"] = True
         elif (
             args.required
@@ -235,6 +283,9 @@ def command_discover(args: argparse.Namespace) -> int:
             or getattr(args, "defer", None) is not None
             or getattr(args, "non_goal", None) is not None
             or getattr(args, "acceptance_criteria", None) is not None
+            or getattr(args, "goal", None) is not None
+            or getattr(args, "audience", None) is not None
+            or getattr(args, "constraints", None) is not None
         ):
             discovery["complete"] = False
         if force_complete:
