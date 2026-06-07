@@ -337,22 +337,34 @@ def upgrade() -> None:
             ["target_player_id"],
             ["id"],
         )
-    # player_id is NOT NULL on both tables — use NOT VALID to skip the integrity
-    # scan on rows that pre-date this migration (old bot-based player IDs are gone).
-    op.execute(
-        sa.text(
-            "ALTER TABLE turn_submissions"
-            " ADD CONSTRAINT fk_turn_submissions_player_id_players"
-            " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+    # player_id is NOT NULL on both tables. On PostgreSQL (prod) add the FK as
+    # NOT VALID to skip the integrity scan over rows that pre-date this migration.
+    # SQLite (dev/test) cannot ADD CONSTRAINT / NOT VALID, so rebuild via batch
+    # mode — the fresh dev/test DB has no stale rows to validate.
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute(
+            sa.text(
+                "ALTER TABLE turn_submissions"
+                " ADD CONSTRAINT fk_turn_submissions_player_id_players"
+                " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+            )
         )
-    )
-    op.execute(
-        sa.text(
-            "ALTER TABLE turn_messages"
-            " ADD CONSTRAINT fk_turn_messages_player_id_players"
-            " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+        op.execute(
+            sa.text(
+                "ALTER TABLE turn_messages"
+                " ADD CONSTRAINT fk_turn_messages_player_id_players"
+                " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+            )
         )
-    )
+    else:
+        with op.batch_alter_table("turn_submissions") as batch_op:
+            batch_op.create_foreign_key(
+                "fk_turn_submissions_player_id_players", "players", ["player_id"], ["id"]
+            )
+        with op.batch_alter_table("turn_messages") as batch_op:
+            batch_op.create_foreign_key(
+                "fk_turn_messages_player_id_players", "players", ["player_id"], ["id"]
+            )
 
 
 def downgrade() -> None:
@@ -411,17 +423,31 @@ def downgrade() -> None:
             ["target_player_id"],
             ["id"],
         )
-    op.execute(
-        sa.text(
-            "ALTER TABLE turn_submissions"
-            " ADD CONSTRAINT fk_turn_submissions_player_id_players"
-            " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+    # player_id is NOT NULL on both tables. On PostgreSQL (prod) add the FK as
+    # NOT VALID to skip the integrity scan over rows that pre-date this migration.
+    # SQLite (dev/test) cannot ADD CONSTRAINT / NOT VALID, so rebuild via batch
+    # mode — the fresh dev/test DB has no stale rows to validate.
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute(
+            sa.text(
+                "ALTER TABLE turn_submissions"
+                " ADD CONSTRAINT fk_turn_submissions_player_id_players"
+                " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+            )
         )
-    )
-    op.execute(
-        sa.text(
-            "ALTER TABLE turn_messages"
-            " ADD CONSTRAINT fk_turn_messages_player_id_players"
-            " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+        op.execute(
+            sa.text(
+                "ALTER TABLE turn_messages"
+                " ADD CONSTRAINT fk_turn_messages_player_id_players"
+                " FOREIGN KEY (player_id) REFERENCES players (id) NOT VALID"
+            )
         )
-    )
+    else:
+        with op.batch_alter_table("turn_submissions") as batch_op:
+            batch_op.create_foreign_key(
+                "fk_turn_submissions_player_id_players", "players", ["player_id"], ["id"]
+            )
+        with op.batch_alter_table("turn_messages") as batch_op:
+            batch_op.create_foreign_key(
+                "fk_turn_messages_player_id_players", "players", ["player_id"], ["id"]
+            )
