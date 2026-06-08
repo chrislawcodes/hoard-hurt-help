@@ -1,7 +1,7 @@
-"""Smart "Play" CTA: label adapts to the visitor's funnel state.
+"""Smart CTA: label adapts to the visitor's funnel state.
 
 Covers both the pure resolver (`compute_nav_cta`) and the rendered nav, plus the
-`/play` smart redirect that the CTA points at.
+`/play` smart redirect used by the "Get started" and "Play now" states.
 """
 
 import base64
@@ -79,7 +79,8 @@ async def test_cta_no_agent_is_connect(reset_db):
         user = await make_user(db)
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Connect your agent"
+    assert cta.label == "Connect your AI"
+    assert cta.href == "/me/connections"
 
 
 @pytest.mark.asyncio
@@ -89,7 +90,8 @@ async def test_cta_unconnected_agent_is_connect(reset_db):
         await make_agent(db, user, name="Atlas")  # first_connected_at stays NULL
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Connect your agent"
+    assert cta.label == "Connect your AI"
+    assert cta.href == "/me/connections"
 
 
 @pytest.mark.asyncio
@@ -112,7 +114,8 @@ async def test_cta_sim_only_is_connect(reset_db):
         await make_agent(db, user, name="Sable", kind=AgentKind.BOT, connection=None)
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Connect your agent"
+    assert cta.label == "Connect your AI"
+    assert cta.href == "/me/connections"
 
 
 # ── rendered nav ────────────────────────────────────────────────────────────
@@ -152,6 +155,20 @@ async def test_nav_renders_play_now_for_connected_user(client, reset_db):
     assert r.status_code == 200
     assert "Play now" in r.text
     assert "Get started" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_nav_renders_connect_your_ai_for_user_without_agent(client, reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        await db.commit()
+        user_id = user.id
+
+    r = await client.get("/games", cookies=_signed_in_cookies(user_id))
+    assert r.status_code == 200
+    assert "Connect your AI" in r.text
+    assert 'href="/me/connections"' in r.text
+    assert "Play now" not in r.text
 
 
 # ── /play smart redirect ────────────────────────────────────────────────────
