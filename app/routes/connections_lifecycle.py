@@ -14,6 +14,7 @@ from app.deps import DbSession, require_user_with_handle
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionStatus
+from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 
 from app.routes.connections_setup import _load_owned_connection
@@ -92,6 +93,11 @@ async def delete_connection(
             Agent.kind == AgentKind.AI,
         )
         .values(connection_id=None, status=AgentStatus.PAUSED)
+    )
+    await db.execute(
+        update(ConnectionSetup)
+        .where(ConnectionSetup.connection_id == connection.id)
+        .values(connection_id=None)
     )
     await db.delete(connection)
     await db.commit()

@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
     <h1>Connections</h1>
-    <p class="sub">Connect once, then reuse the same login across every agent you build.</p>
+    <p class="sub">Start a provider setup once, then reuse the same login across every agent you build.</p>
 </div>
 
 <form method="post" action="/me/connections" class="card form">
@@ -21,9 +21,26 @@
         <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="Defaults to the provider name">
     </label>
     <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Create connection</button>
+        <button type="submit" class="btn btn-primary">Start setup</button>
     </div>
 </form>
+
+{% if pending_setups %}
+    <h2 style="margin-top:1.75rem;">Connection setups in progress</h2>
+    {% for setup in pending_setups %}
+    <article class="game-card">
+        <div class="game-card-info">
+            <h3><a href="/me/connections/setup/{{ setup.id }}">{{ setup.nickname or provider_labels[setup.provider.value] }}</a></h3>
+            <p class="meta">
+                Waiting for the first authenticated connection · {{ provider_labels[setup.provider.value] }}
+            </p>
+        </div>
+        <div class="game-card-action">
+            <a class="btn btn-primary" href="/me/connections/setup/{{ setup.id }}">Open setup →</a>
+        </div>
+    </article>
+    {% endfor %}
+{% endif %}
 
 {% if connections %}
     <h2 style="margin-top:1.75rem;">Your connections</h2>

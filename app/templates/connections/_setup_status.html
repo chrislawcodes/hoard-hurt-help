@@ -1,0 +1,12 @@
+<div id="connection-setup-status" class="card" hx-get="/me/connections/setup/{{ setup.id }}/status" hx-trigger="every 5s" hx-swap="outerHTML">
+    <h3 style="margin-top:0;">Setup status</h3>
+    {% if connection is not none %}
+        <p class="hint" style="margin-top:0;">Connection created. You can safely leave this page.</p>
+        <p class="meta">
+            <a class="btn btn-primary" href="/me/connections/{{ connection.id }}">Open connection page →</a>
+        </p>
+    {% else %}
+        <p class="hint" style="margin-top:0;">Waiting for the AI provider to talk to the server. The connection will be created then.</p>
+        <p class="meta">Keep the runner running until this changes to connected.</p>
+    {% endif %}
+</div>

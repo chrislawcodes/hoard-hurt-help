@@ -97,7 +97,7 @@ async def mark_seen(
         ``first_connected_at``, set it and announce ``connected`` (once; later
         calls are no-ops here).
       * **Key cutover** — if the call used the CURRENT key while a previous key is
-        still live from a graceful reissue, clear ``prev_key_lookup`` so the old
+        still live from a graceful rotation, clear ``prev_key_lookup`` so the old
         key stops working now that the new one is in use.
       * **Heartbeat** — refresh ``last_seen_at`` (throttled), the signal the
         health badge reads to tell "alive now" from "connected once".

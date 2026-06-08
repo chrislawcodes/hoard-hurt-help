@@ -4,6 +4,7 @@ from app.models.base import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -15,6 +16,7 @@ __all__ = [
     "Connection",
     "ConnectionProvider",
     "ConnectionStatus",
+    "ConnectionSetup",
     "Agent",
     "AgentKind",
     "AgentStatus",

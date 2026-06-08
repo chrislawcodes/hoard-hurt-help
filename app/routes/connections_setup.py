@@ -18,6 +18,7 @@ from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 from app.templating import templates
 
@@ -47,8 +48,7 @@ def _connection_display_name(connection: Connection) -> str:
     return connection.nickname or _provider_label(connection.provider)
 
 
-def _runner_setup_message(connection: Connection, key: str) -> str:
-    provider_label = _provider_label(connection.provider)
+def _runner_setup_message(provider_label: str, key: str) -> str:
     return (
         "Please set up my AI connection in the background and keep it running.\n\n"
         "Run these commands:\n"
@@ -58,7 +58,7 @@ def _runner_setup_message(connection: Connection, key: str) -> str:
         "Use the X-Connection-Key header with that key when the runner talks to the server.\n\n"
         "Keep this running so it plays all my agents' games. Keep one session per match, "
         "and only think when it is that agent's turn.\n\n"
-        "If the server says the key is invalid, stop and tell me. I can reissue it from the connection page."
+        "If the server says the key is invalid, stop and tell me. I can rotate it from the connection page."
     )
 
 
@@ -142,6 +142,48 @@ async def _load_resumeable_pending_connection(
     ).scalar_one_or_none()
 
 
+async def _load_pending_setups(db: DbSession, user_id: int) -> list[ConnectionSetup]:
+    rows = (
+        (
+            await db.execute(
+                select(ConnectionSetup)
+                .where(
+                    ConnectionSetup.user_id == user_id,
+                    ConnectionSetup.completed_at.is_(None),
+                )
+                .order_by(ConnectionSetup.created_at.desc(), ConnectionSetup.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+async def _load_resumeable_pending_setup(
+    db: DbSession, user_id: int, provider: ConnectionProvider
+) -> ConnectionSetup | None:
+    """Return the newest pending setup for this provider, if one exists."""
+    return (
+        await db.execute(
+            select(ConnectionSetup)
+            .where(
+                ConnectionSetup.user_id == user_id,
+                ConnectionSetup.provider == provider,
+                ConnectionSetup.completed_at.is_(None),
+            )
+            .order_by(ConnectionSetup.created_at.desc(), ConnectionSetup.id.desc())
+        )
+    ).scalar_one_or_none()
+
+
+def _issue_setup_key(setup: ConnectionSetup) -> str:
+    key = generate_connection_key()
+    setup.key_lookup = bot_key_lookup(key)
+    setup.key_hint = bot_key_hint(key)
+    return key
+
+
 def _issue_connection_key(connection: Connection, *, keep_old_overlap: bool) -> str:
     key = generate_connection_key()
     if keep_old_overlap and connection.prev_key_lookup is None:
@@ -171,6 +213,7 @@ async def list_connections(
         .scalars()
         .all()
     )
+    pending_setups = await _load_pending_setups(db, user.id)
     rows = []
     for connection in connections:
         health = await compute_connection_health(db, connection)
@@ -188,6 +231,7 @@ async def list_connections(
         {
             "user": user,
             "connections": rows,
+            "pending_setups": pending_setups,
             "provider_choices": list(ConnectionProvider),
             "provider_labels": _PROVIDER_LABELS,
         },
@@ -207,26 +251,93 @@ async def create_connection(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Unknown provider.") from exc
 
-    key = generate_connection_key()
-    connection = await _load_resumeable_pending_connection(db, user.id, provider_choice)
-    if connection is None:
-        connection = Connection(
+    setup = await _load_resumeable_pending_setup(db, user.id, provider_choice)
+    if setup is None:
+        key = generate_connection_key()
+        setup = ConnectionSetup(
             user_id=user.id,
             nickname=(nickname.strip() if nickname and nickname.strip() else None),
             provider=provider_choice,
             key_lookup=bot_key_lookup(key),
             key_hint=bot_key_hint(key),
-            status=ConnectionStatus.PENDING,
         )
-        db.add(connection)
+        db.add(setup)
         await db.flush()
-    elif nickname and nickname.strip():
-        connection.nickname = nickname.strip()
-        key = _issue_connection_key(connection, keep_old_overlap=True)
+    else:
+        if nickname and nickname.strip():
+            setup.nickname = nickname.strip()
+        key = _issue_setup_key(setup)
     await db.commit()
-    request.session[f"fresh_connection_key_{connection.id}"] = key
+    request.session[f"fresh_connection_key_setup_{setup.id}"] = key
     return RedirectResponse(
-        url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
+        url=f"/me/connections/setup/{setup.id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+async def _load_owned_connection_setup(
+    db: DbSession, user: User, setup_id: int
+) -> ConnectionSetup:
+    setup = (
+        await db.execute(
+            select(ConnectionSetup).where(
+                ConnectionSetup.id == setup_id,
+                ConnectionSetup.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if setup is None:
+        raise HTTPException(status_code=404, detail="Connection setup not found.")
+    return setup
+
+
+@router.get("/setup/{setup_id}", response_class=HTMLResponse)
+async def connection_setup_detail(
+    setup_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> Response:
+    setup = await _load_owned_connection_setup(db, user, setup_id)
+    fresh_key = request.session.get(f"fresh_connection_key_setup_{setup.id}")
+    connection = None
+    if setup.connection_id is not None:
+        connection = await _load_owned_connection(db, user, setup.connection_id)
+    return templates.TemplateResponse(
+        request,
+        "connections/setup.html",
+        {
+            "user": user,
+            "setup": setup,
+            "connection": connection,
+            "provider_label": _provider_label(setup.provider),
+            "fresh_key": fresh_key,
+            "runner_message": (
+                _runner_setup_message(_provider_label(setup.provider), fresh_key)
+                if fresh_key
+                else None
+            ),
+        },
+    )
+
+
+@router.get("/setup/{setup_id}/status", response_class=HTMLResponse)
+async def connection_setup_status_fragment(
+    setup_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> Response:
+    setup = await _load_owned_connection_setup(db, user, setup_id)
+    connection = None
+    if setup.connection_id is not None:
+        connection = await _load_owned_connection(db, user, setup.connection_id)
+    return templates.TemplateResponse(
+        request,
+        "connections/_setup_status.html",
+        {
+            "setup": setup,
+            "connection": connection,
+        },
     )
 
 
@@ -242,6 +353,10 @@ async def connection_detail(
     health = await compute_connection_health(db, connection)
     attached_agents = await _load_attached_agents(db, connection.id)
     detached_agents = await _load_detached_agents(db, user.id, connection.provider)
+    if fresh_key is not None:
+        runner_message = _runner_setup_message(_provider_label(connection.provider), fresh_key)
+    else:
+        runner_message = None
     return templates.TemplateResponse(
         request,
         "connections/detail.html",
@@ -251,9 +366,7 @@ async def connection_detail(
             "display_name": _connection_display_name(connection),
             "health": health,
             "fresh_key": fresh_key,
-            "runner_message": (
-                _runner_setup_message(connection, fresh_key) if fresh_key else None
-            ),
+            "runner_message": runner_message,
             "attached_agents": attached_agents,
             "detached_agents": detached_agents,
             "provider_label": _provider_label(connection.provider),
