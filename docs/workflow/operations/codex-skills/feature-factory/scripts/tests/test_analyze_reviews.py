@@ -77,6 +77,7 @@ class AnalyzeReviewsTests(unittest.TestCase):
         lens: str,
         stage: str,
         status: str,
+        body: str = "# Review\n",
     ) -> None:
         reviews_dir = self.runs_root / slug / "reviews"
         reviews_dir.mkdir(parents=True, exist_ok=True)
@@ -87,7 +88,7 @@ class AnalyzeReviewsTests(unittest.TestCase):
             f'stage: "{stage}"\n'
             f'resolution_status: "{status}"\n'
             "---\n"
-            "# Review\n",
+            + body,
             encoding="utf-8",
         )
 
@@ -355,6 +356,155 @@ class AnalyzeReviewsTests(unittest.TestCase):
         self.assertIn("Note on Claude token measurement", report)
         self.assertIn("ttl_crossings", report)
         self.assertIn("/cost", report)
+
+
+    def test_review_finding_yield_by_stage_and_lens(self) -> None:
+        """Sections 3b/3c parse both reviewer finding formats and roll up yield."""
+        self._write_state("rev", [])
+        # Codex style: severity bolded at the start of each bullet.
+        self._write_review(
+            "rev",
+            "spec.codex.feasibility-adversarial.review.md",
+            reviewer="codex",
+            lens="feasibility-adversarial",
+            stage="spec",
+            status="accepted",
+            body=(
+                "# Review\n\n"
+                "## Findings\n\n"
+                "- **High:** something bad\n"
+                "- **Medium:** another thing\n"
+                "- **High:** third thing\n\n"
+                "## Residual Risks\n\n"
+                "- not a finding\n"
+            ),
+        )
+        # Gemini style: numbered list with severity in brackets, anywhere in line.
+        self._write_review(
+            "rev",
+            "spec.gemini.testability-adversarial.review.md",
+            reviewer="gemini",
+            lens="testability-adversarial",
+            stage="spec",
+            status="deferred",
+            body=(
+                "# Review\n\n"
+                "## Findings\n\n"
+                "1.  **Race Condition [HIGH]:** desc\n"
+                "2.  **Minor Naming [LOW]:** desc\n\n"
+                "## Residual Risks\n"
+            ),
+        )
+
+        rc, _, stderr, report = self._run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(stderr, "")
+
+        # Headline totals: 2 reviews, 5 findings (high=3, medium=1, low=1).
+        self.assertIn("- Review files scanned for findings: 2", report)
+        self.assertIn(
+            "- Findings parsed from reviews: 5 (critical=0, high=3, medium=1, low=1, other=0)",
+            report,
+        )
+        self.assertIn(
+            "- Review resolutions: accepted=1, deferred=1, other=0", report
+        )
+
+        # Stage rollup combines both reviews under "spec".
+        self.assertIn("## 3b. Review Finding Yield by Stage", report)
+        self.assertIn("| spec | 2 | 5 | 0 | 3 | 1 | 1 | 0 | 2.5 | 1 | 1 |", report)
+
+        # Lens rollup splits by lens.
+        self.assertIn("## 3c. Review Finding Yield by Lens", report)
+        self.assertIn(
+            "| feasibility-adversarial | 1 | 3 | 0 | 2 | 1 | 0 | 0 | 3.0 | 1 | 0 |",
+            report,
+        )
+        self.assertIn(
+            "| testability-adversarial | 1 | 2 | 0 | 1 | 0 | 1 | 0 | 2.0 | 0 | 1 |",
+            report,
+        )
+
+    def test_review_finding_yield_handles_unlabeled_and_timeout(self) -> None:
+        """Unlabeled findings count as 'other'; sections with no list items count zero."""
+        self._write_state("rev2", [])
+        self._write_review(
+            "rev2",
+            "plan.codex.implementation-adversarial.review.md",
+            reviewer="codex",
+            lens="implementation-adversarial",
+            stage="plan",
+            status="accepted",
+            body=(
+                "# Review\n\n"
+                "## Findings\n\n"
+                "- A finding with no explicit severity marker\n\n"
+                "## Residual Risks\n"
+            ),
+        )
+        self._write_review(
+            "rev2",
+            "plan.gemini.requirements-adversarial.review.md",
+            reviewer="gemini",
+            lens="requirements-adversarial",
+            stage="plan",
+            status="accepted",
+            body=(
+                "# Review\n\n"
+                "## Findings\n\n"
+                "Codex review timed out.\n\n"
+                "## Residual Risks\n"
+            ),
+        )
+
+        rc, _, stderr, report = self._run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(stderr, "")
+        # One unlabeled finding across two reviews, no severity-tagged findings.
+        self.assertIn(
+            "- Findings parsed from reviews: 1 (critical=0, high=0, medium=0, low=0, other=1)",
+            report,
+        )
+        self.assertIn("| plan | 2 | 1 | 0 | 0 | 0 | 0 | 1 | 0.5 | 2 | 0 |", report)
+
+    def test_review_finding_yield_parses_severity_label_format(self) -> None:
+        """The `(Severity: HIGH)` label format is bucketed, not dropped to 'other'."""
+        self._write_state("rev3", [])
+        self._write_review(
+            "rev3",
+            "spec.gemini.requirements-adversarial.review.md",
+            reviewer="gemini",
+            lens="requirements-adversarial",
+            stage="spec",
+            status="accepted",
+            body=(
+                "# Review\n\n"
+                "## Findings\n\n"
+                "1.  **Ambiguous Workflow (Severity: HIGH)**\n"
+                "    Detail line that continues the finding.\n"
+                "2.  **Versioning Inconsistency (Severity: MEDIUM)**\n"
+                "    More detail.\n"
+                "3.  **Pending GC Risk (Severity: LOW)**\n\n"
+                "## Residual Risks\n"
+            ),
+        )
+
+        rc, _, stderr, report = self._run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn(
+            "- Findings parsed from reviews: 3 (critical=0, high=1, medium=1, low=1, other=0)",
+            report,
+        )
+        self.assertIn("| spec | 1 | 3 | 0 | 1 | 1 | 1 | 0 | 3.0 | 1 | 0 |", report)
+
+    def test_review_yield_empty_when_no_reviews(self) -> None:
+        self._write_state("alpha", [])
+        _, _, _, report = self._run()
+        self.assertIn("## 3b. Review Finding Yield by Stage", report)
+        self.assertIn("## 3c. Review Finding Yield by Lens", report)
+        self.assertIn("No review findings recorded yet.", report)
+        self.assertIn("- Review files scanned for findings: 0", report)
 
 
 if __name__ == "__main__":
