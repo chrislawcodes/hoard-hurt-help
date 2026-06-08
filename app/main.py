@@ -11,7 +11,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.applications import Starlette
@@ -22,15 +22,23 @@ from app.db_bootstrap import prepare_database_for_upgrade
 from app.engine.scheduler import registry as scheduler_registry
 from app.request_logging import install_request_logging
 from app.routes import (
+    admin_api,
+    admin_web,
     agent_api,
     agent_next_turn,
     agents_lifecycle,
     agents_setup,
     agents_status,
+    auth as auth_routes,
     connections_credentials,
     connections_lifecycle,
     connections_setup,
+    handle_web,
+    spectator_api,
+    sse as sse_routes,
+    web as web_routes,
 )
+from app.routes.nav_context import populate_nav_cta
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,6 +133,7 @@ def create_app() -> FastAPI:
     install_request_logging(app)
 
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    app.include_router(auth_routes.router)
     app.include_router(agent_api.router, prefix="/api/matches/{match_id}")
     app.include_router(agent_api.router, prefix="/api/games/{match_id}")
     app.include_router(agent_next_turn.router)
@@ -134,6 +143,15 @@ def create_app() -> FastAPI:
     app.include_router(connections_setup.router, prefix="/me/connections")
     app.include_router(connections_credentials.router, prefix="/me/connections")
     app.include_router(connections_lifecycle.router, prefix="/me/connections")
+    # Human-page routers resolve the smart Play CTA (nav + hero) per request.
+    # API/agent/SSE routers are left out — they render no nav.
+    page_deps = [Depends(populate_nav_cta)]
+    app.include_router(web_routes.router, dependencies=page_deps)
+    app.include_router(handle_web.router, dependencies=page_deps)
+    app.include_router(admin_web.router, dependencies=page_deps)
+    app.include_router(admin_api.router)
+    app.include_router(sse_routes.router)
+    app.include_router(spectator_api.router)
 
     if mcp_asgi_app is not None:
         app.mount("/mcp", mcp_asgi_app, name="mcp")
