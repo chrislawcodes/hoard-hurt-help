@@ -58,14 +58,14 @@ async def user_has_connected_agent(db: AsyncSession, user_id: int) -> bool:
     return bool(await db.scalar(stmt))
 
 
-async def user_has_connection(db: AsyncSession, user_id: int) -> bool:
-    """True if the user owns at least one connection, even before any agent exists."""
+async def user_connection_count(db: AsyncSession, user_id: int) -> int:
+    """Number of connections the user owns."""
     stmt = (
         select(func.count())
         .select_from(Connection)
         .where(Connection.user_id == user_id)
     )
-    return bool(await db.scalar(stmt))
+    return (await db.scalar(stmt)) or 0
 
 
 async def compute_nav_cta(db: AsyncSession, user: User | None) -> NavCta:
@@ -74,19 +74,22 @@ async def compute_nav_cta(db: AsyncSession, user: User | None) -> NavCta:
         return NavCta(label="Get started", href="/play")
     if await user_has_connected_agent(db, user.id):
         return NavCta(label="Play now", href="/play")
-    if await user_has_connection(db, user.id):
+    if await user_connection_count(db, user.id) > 0:
         return NavCta(label="Create an Agent", href="/me/agents/new")
     return NavCta(label="Connect your AI", href="/me/connections")
 
 
 async def populate_nav_cta(request: Request, db: DbSession) -> None:
-    """Router dependency: stash the Play CTA on ``request.state`` for templates.
+    """Router dependency: stash the Play CTA and connection count on ``request.state``.
 
     Skipped for HTMX fragment requests — those swap inner fragments that never
-    contain the nav, so resolving the CTA (and its agent query) would be wasted
+    contain the nav, so resolving the CTA (and its DB queries) would be wasted
     work on every poll.
     """
     if request.headers.get("HX-Request"):
         return
     user = await get_current_user(request, db)
     request.state.nav_cta = await compute_nav_cta(db, user)
+    request.state.connection_count = (
+        await user_connection_count(db, user.id) if user else 0
+    )

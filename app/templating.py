@@ -28,7 +28,10 @@ def _nav_cta_context(request: Request) -> dict[str, object]:
     routers; absent on API/fragment responses (where the nav isn't rendered),
     in which case the template simply omits the button.
     """
-    return {"nav_cta": getattr(request.state, "nav_cta", None)}
+    return {
+        "nav_cta": getattr(request.state, "nav_cta", None),
+        "connection_count": getattr(request.state, "connection_count", 0),
+    }
 
 
 templates = Jinja2Templates(
