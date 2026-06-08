@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
@@ -113,6 +114,82 @@ def _truncate(text: str, limit: int) -> str:
     return f"{text[: max(limit - 3, 0)].rstrip()}..."
 
 
+# Findings parsing. Reviewers report severity in three shapes:
+#   - Codex style:    "- **High:** ..."           (severity bolded at the start)
+#   - Gemini bracket: "1. **Title [HIGH]:** ..."   (severity in brackets, anywhere)
+#   - Gemini labeled: "1. **Title (Severity: HIGH)**" (a "Severity: X" label)
+# We canonicalize the vocabulary to four buckets plus "other" for findings that
+# carry no recognizable severity marker.
+_SEVERITY_ALIASES = {
+    "critical": "critical",
+    "blocker": "critical",
+    "high": "high",
+    "medium": "medium",
+    "moderate": "medium",
+    "low": "low",
+    "minor": "low",
+    "nit": "low",
+}
+_SEVERITY_ORDER = ("critical", "high", "medium", "low", "other")
+_FINDINGS_HEADER = re.compile(r"^#{2,}\s+findings\b", re.IGNORECASE)
+_SECTION_HEADER = re.compile(r"^#{2,}\s+")
+_FINDING_ITEM = re.compile(r"^(?:[-*+]\s+|\d+[.)]\s+)")
+_SEVERITY_TOKEN = re.compile(
+    r"(?:\*\*\s*|\[\s*|\bseverity\b\s*[:=]?\s*\(?\s*)"
+    r"(critical|blocker|high|medium|moderate|low|minor|nit)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_findings_section(body: str) -> list[str]:
+    """Return the lines under a `## Findings` heading, up to the next heading."""
+    collecting = False
+    section: list[str] = []
+    for line in body.splitlines():
+        if _FINDINGS_HEADER.match(line):
+            collecting = True
+            continue
+        if collecting and _SECTION_HEADER.match(line):
+            break
+        if collecting:
+            section.append(line)
+    return section
+
+
+def _classify_finding_severity(item_text: str) -> str:
+    match = _SEVERITY_TOKEN.search(item_text)
+    if not match:
+        return "other"
+    return _SEVERITY_ALIASES.get(match.group(1).lower(), "other")
+
+
+def _count_findings(body: str) -> Counter:
+    """Count findings in the body's `## Findings` section, bucketed by severity.
+
+    Each top-level list item (a line that starts with a bullet or number, no
+    leading indent) is one finding. Indented or unmarked continuation lines are
+    folded into the current finding so multi-line findings count once. Sections
+    with no list items (e.g. "Codex review timed out.") yield zero findings.
+    """
+    counts: Counter = Counter()
+    current: list[str] | None = None
+
+    def _flush() -> None:
+        nonlocal current
+        if current is not None:
+            counts[_classify_finding_severity(" ".join(current))] += 1
+            current = None
+
+    for line in _extract_findings_section(body):
+        if _FINDING_ITEM.match(line):
+            _flush()
+            current = [line]
+        elif current is not None and line.strip():
+            current.append(line)
+    _flush()
+    return counts
+
+
 def _percentile(values: list[float], percentile: float) -> float:
     if not values:
         return 0.0
@@ -183,9 +260,15 @@ def _scan_review_metadata(
     slug_dir: Path,
     state_blob: dict[str, object],
     data_quality: dict[str, object],
-) -> tuple[set[tuple[str, int, str]], dict[tuple[str, str, str], list[str]], int]:
+) -> tuple[
+    set[tuple[str, int, str]],
+    dict[tuple[str, str, str], list[str]],
+    int,
+    list[dict[str, object]],
+]:
     deferred_keys: set[tuple[str, int, str]] = set()
     lens_candidates: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    effectiveness_records: list[dict[str, object]] = []
     judge_cap_count = 0
 
     stages = state_blob.get("stages", {})
@@ -199,17 +282,33 @@ def _scan_review_metadata(
 
     reviews_dir = slug_dir / "reviews"
     if not reviews_dir.exists():
-        return deferred_keys, lens_candidates, judge_cap_count
+        return deferred_keys, lens_candidates, judge_cap_count, effectiveness_records
 
     deferred_inference_failures = _coerce_int(data_quality.get("deferred_inference_failures")) or 0
     malformed_review_files = _coerce_int(data_quality.get("malformed_review_files")) or 0
 
     for review_path in sorted(reviews_dir.glob("*.review.md")):
         try:
-            metadata, _ = factory_state.parse_review_frontmatter(review_path)
+            metadata, body = factory_state.parse_review_frontmatter(review_path)
         except Exception:
             malformed_review_files += 1
             continue
+
+        # Effectiveness record: what this review caught and what happened to it.
+        # Recorded for every parseable review, independent of the lens-attribution
+        # logic below, so a missing stage/lens still rolls up under "unknown".
+        severity = _count_findings(body)
+        effectiveness_records.append(
+            {
+                "slug": slug_dir.name,
+                "stage": str(metadata.get("stage", "") or "").strip() or "unknown",
+                "lens": str(metadata.get("lens", "") or "").strip() or "unknown",
+                "reviewer": str(metadata.get("reviewer", "") or "").strip().lower() or "unknown",
+                "resolution_status": str(metadata.get("resolution_status", "") or "").strip().lower() or "unknown",
+                "severity": severity,
+                "findings_total": int(sum(severity.values())),
+            }
+        )
 
         stage = str(metadata.get("stage", "") or "").strip()
         reviewer = str(metadata.get("reviewer", "") or "").strip().lower()
@@ -249,12 +348,15 @@ def _scan_review_metadata(
 
     data_quality["deferred_inference_failures"] = deferred_inference_failures
     data_quality["malformed_review_files"] = malformed_review_files
-    return deferred_keys, lens_candidates, judge_cap_count
+    return deferred_keys, lens_candidates, judge_cap_count, effectiveness_records
 
 
-def _load_records(top_n: int) -> tuple[list[dict[str, object]], dict[str, object]]:
+def _load_records(
+    top_n: int,
+) -> tuple[list[dict[str, object]], dict[str, object], list[dict[str, object]]]:
     del top_n  # caller owns output shaping; keep signature stable for tests
     records: list[dict[str, object]] = []
+    effectiveness_records: list[dict[str, object]] = []
     data_quality: dict[str, object] = {
         "dropped_fields": Counter(),
         "partial_fields": Counter(),
@@ -288,7 +390,10 @@ def _load_records(top_n: int) -> tuple[list[dict[str, object]], dict[str, object
             cast_missing.append(slug)
             continue
 
-        deferred_keys, lens_candidates, judge_cap_count = _scan_review_metadata(state_path.parent, raw_state, data_quality)
+        deferred_keys, lens_candidates, judge_cap_count, slug_effectiveness = _scan_review_metadata(
+            state_path.parent, raw_state, data_quality
+        )
+        effectiveness_records.extend(slug_effectiveness)
 
         for raw_record in token_usage:
             data_quality["records_seen"] = int(data_quality["records_seen"]) + 1
@@ -378,7 +483,7 @@ def _load_records(top_n: int) -> tuple[list[dict[str, object]], dict[str, object
             }
             records.append(record)
 
-    return records, data_quality
+    return records, data_quality, effectiveness_records
 
 
 def _summarize_grouped(records: list[dict[str, object]], group_keys: tuple[str, ...]) -> list[list[object]]:
@@ -717,11 +822,101 @@ def _lens_rows(records: list[dict[str, object]]) -> list[list[object]]:
     return rows[:20]
 
 
-def _render_report(records: list[dict[str, object]], data_quality: dict[str, object], top_n: int) -> str:
+def _effectiveness_summary(
+    effectiveness_records: list[dict[str, object]],
+) -> tuple[int, int, Counter, Counter]:
+    """Totals across all reviews: review count, finding count, severity, resolution."""
+    severity_totals: Counter = Counter()
+    resolution_totals: Counter = Counter()
+    total_findings = 0
+    for record in effectiveness_records:
+        severity = record.get("severity")
+        if isinstance(severity, Counter):
+            severity_totals.update(severity)
+        total_findings += int(record.get("findings_total", 0) or 0)
+        resolution_totals[str(record.get("resolution_status", "unknown"))] += 1
+    return len(effectiveness_records), total_findings, severity_totals, resolution_totals
+
+
+_EFFECTIVENESS_TAIL_HEADERS = [
+    "reviews",
+    "findings",
+    "critical",
+    "high",
+    "medium",
+    "low",
+    "other",
+    "findings_per_review",
+    "accepted",
+    "deferred",
+]
+
+
+def _effectiveness_rows(
+    effectiveness_records: list[dict[str, object]], group_key: str
+) -> list[list[object]]:
+    grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for record in effectiveness_records:
+        grouped[str(record.get(group_key, "unknown"))].append(record)
+
+    rows: list[list[object]] = []
+    for key, items in grouped.items():
+        severity: Counter = Counter()
+        findings = 0
+        accepted = 0
+        deferred = 0
+        for item in items:
+            item_severity = item.get("severity")
+            if isinstance(item_severity, Counter):
+                severity.update(item_severity)
+            findings += int(item.get("findings_total", 0) or 0)
+            status = str(item.get("resolution_status", "unknown"))
+            if status == "accepted":
+                accepted += 1
+            elif status == "deferred":
+                deferred += 1
+        reviews = len(items)
+        per_review = f"{(findings / reviews):.1f}" if reviews else "0.0"
+        rows.append(
+            [
+                key,
+                reviews,
+                findings,
+                severity.get("critical", 0),
+                severity.get("high", 0),
+                severity.get("medium", 0),
+                severity.get("low", 0),
+                severity.get("other", 0),
+                per_review,
+                accepted,
+                deferred,
+            ]
+        )
+    rows.sort(key=lambda row: (int(row[2]), int(row[1])), reverse=True)
+    return rows
+
+
+def _render_report(
+    records: list[dict[str, object]],
+    data_quality: dict[str, object],
+    top_n: int,
+    effectiveness_records: list[dict[str, object]],
+) -> str:
     total_duration = sum(float(record["duration_seconds"]) for record in records)
     total_cost = sum(float(record["cost_usd_estimate"]) for record in records)
     total_parse_errors = sum(1 for record in records if record.get("parse_error"))
     artifact_records = _artifact_size_records()
+    (
+        reviews_scanned,
+        findings_total,
+        severity_totals,
+        resolution_totals,
+    ) = _effectiveness_summary(effectiveness_records)
+    resolution_other = sum(
+        count
+        for status, count in resolution_totals.items()
+        if status not in ("accepted", "deferred")
+    )
     timestamps = [record["timestamp"] for record in records if isinstance(record.get("timestamp"), datetime)]
     date_range = "unknown"
     if timestamps:
@@ -741,6 +936,19 @@ def _render_report(records: list[dict[str, object]], data_quality: dict[str, obj
         f"- Calls with token parse errors: {total_parse_errors} ({_format_percent(total_parse_errors, len(records))})",
         f"- Date range covered: {date_range}",
         f"- Distinct slugs: {len({str(record['slug']) for record in records})}",
+        f"- Review files scanned for findings: {reviews_scanned}",
+        (
+            f"- Findings parsed from reviews: {findings_total} "
+            f"(critical={severity_totals.get('critical', 0)}, "
+            f"high={severity_totals.get('high', 0)}, "
+            f"medium={severity_totals.get('medium', 0)}, "
+            f"low={severity_totals.get('low', 0)}, "
+            f"other={severity_totals.get('other', 0)})"
+        ),
+        (
+            f"- Review resolutions: accepted={resolution_totals.get('accepted', 0)}, "
+            f"deferred={resolution_totals.get('deferred', 0)}, other={resolution_other}"
+        ),
         "",
         "## 2. Per (model x activity_type) Summary",
         "",
@@ -802,6 +1010,37 @@ def _render_report(records: list[dict[str, object]], data_quality: dict[str, obj
         )
     else:
         lines.append("No unambiguous lens attributions found.")
+
+    stage_effectiveness_rows = _effectiveness_rows(effectiveness_records, "stage")
+    lines.extend(["", "## 3b. Review Finding Yield by Stage", ""])
+    if stage_effectiveness_rows:
+        lines.extend(
+            _markdown_table(["stage"] + _EFFECTIVENESS_TAIL_HEADERS, stage_effectiveness_rows)
+        )
+    else:
+        lines.append("No review findings recorded yet.")
+
+    lens_effectiveness_rows = _effectiveness_rows(effectiveness_records, "lens")
+    lines.extend(["", "## 3c. Review Finding Yield by Lens", ""])
+    if lens_effectiveness_rows:
+        lines.extend(
+            _markdown_table(["lens"] + _EFFECTIVENESS_TAIL_HEADERS, lens_effectiveness_rows)
+        )
+    else:
+        lines.append("No review findings recorded yet.")
+    lines.extend(
+        [
+            "",
+            "**Note on finding yield.** Finding counts come from parsing each review's "
+            "`## Findings` section; severity is read from `**High:**`-, `[HIGH]`-, or "
+            "`(Severity: HIGH)`-style markers and bucketed to critical/high/medium/low, with "
+            "unlabeled findings counted "
+            "as `other`. The `accepted`/`deferred` columns count whole review files by their "
+            "`resolution_status` frontmatter — that status is per-review, not per-finding, so a "
+            "deferred review may still contain findings that were partly addressed.",
+            "",
+        ]
+    )
 
     lines.extend(["", f"## 4. Top {top_n} Slowest Individual Calls", ""])
     slowest_rows = _top_slowest_rows(records, top_n)
@@ -966,6 +1205,7 @@ def _render_report(records: list[dict[str, object]], data_quality: dict[str, obj
             f"- Malformed review files skipped during deferred-round scan: {int(data_quality['malformed_review_files'])}",
             f"- Deferred-round inference failures: {int(data_quality['deferred_inference_failures'])}",
             f"- Records without unambiguous lens attribution: {int(data_quality['unattributed_lens_records'])}",
+            f"- Review files scanned for finding yield: {reviews_scanned}",
             f"- Estimated USD cost is a lower bound because {total_parse_errors} calls had parse errors and null costs were treated as $0.",
             "- Lens attribution is best-effort only. Current token_usage records do not reliably carry a per-call lens id across repeated rounds.",
         ]
@@ -978,8 +1218,8 @@ def command_analyze_reviews(args: argparse.Namespace) -> int:
     top_n = int(getattr(args, "top_n", 20) or 20)
     output_path = _resolve_output_path(getattr(args, "out", None))
 
-    records, data_quality = _load_records(top_n)
-    report = _render_report(records, data_quality, top_n)
+    records, data_quality, effectiveness_records = _load_records(top_n)
+    report = _render_report(records, data_quality, top_n, effectiveness_records)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")
     print(str(output_path))
