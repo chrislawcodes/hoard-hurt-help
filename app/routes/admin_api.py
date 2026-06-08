@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
-from app.deps import DbSession, require_admin
+from app.deps import DbSession, require_platform_admin
 from app.engine.tokens import generate_match_id
 from app.models.match import Match, GameState
 from app.models.agent_version import AgentVersion
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 async def create_game(
     body: CreateGameRequest,
     db: DbSession,
-    _: Annotated[User, Depends(require_admin)],
+    _: Annotated[User, Depends(require_platform_admin)],
 ) -> GameRecord:
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
@@ -70,7 +70,7 @@ async def create_game(
 async def cancel_game(
     match_id: Annotated[str, Path()],
     db: DbSession,
-    _: Annotated[User, Depends(require_admin)],
+    _: Annotated[User, Depends(require_platform_admin)],
 ) -> CancelResponse:
     g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
@@ -105,7 +105,7 @@ _EXPORT_COLUMNS = [
 async def export_csv(
     match_id: Annotated[str, Path()],
     db: DbSession,
-    _: Annotated[User, Depends(require_admin)],
+    _: Annotated[User, Depends(require_platform_admin)],
 ):
     rows = await _gather_export_rows(db, match_id)
     out = io.StringIO()
@@ -125,7 +125,7 @@ async def export_csv(
 async def export_json(
     match_id: Annotated[str, Path()],
     db: DbSession,
-    _: Annotated[User, Depends(require_admin)],
+    _: Annotated[User, Depends(require_platform_admin)],
 ):
     g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
