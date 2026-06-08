@@ -332,49 +332,44 @@ async def new_agent_form(
 ) -> Response:
     await gc_pending_connections(db)
     connections = await _load_user_connections(db, user.id)
-    selected_connection = None
+    active_connections = [
+        connection for connection in connections if connection.status == ConnectionStatus.ACTIVE
+    ]
+    selected_provider_override: str | None = None
     if connection_id is not None:
         candidate = await _load_owned_connection(db, user, connection_id)
         if candidate.status == ConnectionStatus.ACTIVE:
-            selected_connection = candidate
-    elif connections:
-        selected_connection = next(
-            (
-                connection
-                for connection in connections
-                if connection.status == ConnectionStatus.ACTIVE
-            ),
-            None,
-        )
-    provider_choices = list(ConnectionProvider)
+            selected_provider_override = candidate.provider.value
+    provider_choices = [
+        provider
+        for provider in ConnectionProvider
+        if any(connection.provider == provider for connection in active_connections)
+    ]
     provider_labels = {p.value: _provider_label(p) for p in provider_choices}
-    active_connection_counts = {
-        p.value: sum(
-            1
-            for connection in connections
-            if connection.provider == p and connection.status == ConnectionStatus.ACTIVE
-        )
-        for p in provider_choices
-    }
     selected_provider = (
         provider.strip().lower()
         if provider and provider.strip()
         else (
-            selected_connection.provider.value
-            if selected_connection is not None
-            else next(
-                (connection.provider.value for connection in connections if connection.status == ConnectionStatus.ACTIVE),
-                connections[0].provider.value if connections else ConnectionProvider.CLAUDE.value,
-            )
+            selected_provider_override
+            if selected_provider_override is not None
+            else (provider_choices[0].value if provider_choices else None)
         )
     )
     if selected_provider not in provider_labels:
-        selected_provider = ConnectionProvider.CLAUDE.value
-    selected_provider_models = PROVIDER_MODELS.get(selected_provider, [])
+        selected_provider = provider_choices[0].value if provider_choices else None
+    selected_provider_models = PROVIDER_MODELS.get(selected_provider, []) if selected_provider else []
+    strategy_presets = [
+        {
+            "id": preset.id,
+            "name": preset.name,
+            "description": preset.description,
+            "prompt": preset.prompt,
+        }
+        for preset in get_game_module(_DEFAULT_GAME).strategy_presets()
+    ]
     context: dict[str, object] = {
         "user": user,
         "connections": connections,
-        "selected_connection": selected_connection,
         "provider_choices": provider_choices,
         "provider_labels": provider_labels,
         "selected_provider": selected_provider,
@@ -382,23 +377,15 @@ async def new_agent_form(
         "provider_models_map": {
             p.value: PROVIDER_MODELS.get(p.value, []) for p in provider_choices
         },
-        "active_connection_counts": active_connection_counts,
-        "provider_label": (
-            _provider_label(selected_connection.provider)
-            if selected_connection is not None
-            else None
-        ),
         "default_game": _DEFAULT_GAME,
         "default_strategy": get_game_module(_DEFAULT_GAME).default_strategy(),
-        "strategy_presets": [
-            {
-                "id": preset.id,
-                "name": preset.name,
-                "description": preset.description,
-                "prompt": preset.prompt,
-            }
-            for preset in get_game_module(_DEFAULT_GAME).strategy_presets()
-        ],
+        "strategy_presets": strategy_presets,
+        "selected_strategy_preset": strategy_presets[0]["id"] if strategy_presets else "",
+        "selected_strategy_text": (
+            strategy_presets[0]["prompt"]
+            if strategy_presets
+            else get_game_module(_DEFAULT_GAME).default_strategy()
+        ),
     }
     return templates.TemplateResponse(request, "agents/new.html", context)
 
@@ -415,8 +402,6 @@ async def create_agent_or_connection(
     strategy_text: Annotated[str | None, Form()] = None,
     strategy_preset: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
-    if connection_id is not None and name is None:
-        return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
     if name is not None:
         clean_name = name.strip()
         if not clean_name:
@@ -491,9 +476,6 @@ async def create_agent_or_connection(
         agent.current_version_id = version.id
         await db.commit()
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-
-    if provider is not None or nickname is not None:
-        return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
 
     raise HTTPException(status_code=400, detail="Agent name is required.")
 

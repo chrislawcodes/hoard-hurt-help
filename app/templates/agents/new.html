@@ -4,59 +4,64 @@
 <a class="backlink" href="/me/agents">← Agents</a>
 <div class="page-head">
     <h1>New agent</h1>
-    <p class="sub">Pick a provider, model, and strategy. Connections stay on the Connections page.</p>
+    <p class="sub">Pick a provider, model, and strategy.</p>
 </div>
 
-{% if selected_connection and selected_connection.status.value == 'active' %}
-<div class="card" style="margin-bottom:1.25rem;">
+{% if provider_choices %}
+<div class="card agent-setup-card">
     <h3 style="margin-top:0;">Create the agent</h3>
-    <p class="hint" style="margin-top:0;">
-        We will use your newest active connection for the provider you choose.
-    </p>
-    <form method="post" action="/me/agents/new" class="form" style="display:grid; gap:0.9rem;">
-        <label>
-            AI provider
-            <select name="provider" id="agent-provider" required>
-                {% for provider in provider_choices %}
-                <option value="{{ provider.value }}" {% if provider.value == selected_provider %}selected{% endif %}>
-                    {{ provider_labels[provider.value] }}
-                </option>
-                {% endfor %}
-            </select>
-        </label>
-        <p class="hint" id="provider-note" style="margin-top:-0.35rem;">
-            {% if active_connection_counts[selected_provider] %}
-            Using your newest active {{ provider_labels[selected_provider] }} connection.
-            {% else %}
-            You do not have an active {{ provider_labels[selected_provider] }} connection yet.
-            Create one on the Connections page first.
-            {% endif %}
-        </p>
-        <label>
-            Model
-            <select name="model" id="agent-model" required>
-                {% for candidate in provider_models %}
-                <option value="{{ candidate }}">{{ candidate }}</option>
-                {% endfor %}
-            </select>
-        </label>
+    <form method="post" action="/me/agents/new" class="form agent-setup-form">
+        <div class="agent-setup-grid">
+            <label>
+                AI provider
+                <select name="provider" id="agent-provider" required>
+                    {% for provider in provider_choices %}
+                    <option value="{{ provider.value }}" {% if provider.value == selected_provider %}selected{% endif %}>
+                        {{ provider_labels[provider.value] }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                Model
+                <select name="model" id="agent-model" required>
+                    {% for candidate in provider_models %}
+                    <option value="{{ candidate }}">{{ candidate }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
         <label>
             Agent name
             <input type="text" name="name" maxlength="120" required autocomplete="off" placeholder="Alpha">
         </label>
-        <label>
-            Strategy preset
-            <select id="strategy-preset" name="strategy_preset">
-                <option value="">Write my own</option>
+        <div>
+            <div class="field-label">Strategy preset</div>
+            <div class="preset-picker" role="radiogroup" aria-label="Strategy presets">
                 {% for preset in strategy_presets %}
-                <option value="{{ preset.id }}" title="{{ preset.description }}">{{ preset.name }}</option>
+                <button
+                    type="button"
+                    class="preset-btn {% if preset.id == selected_strategy_preset %}active{% endif %}"
+                    data-preset-id="{{ preset.id }}"
+                    aria-pressed="{% if preset.id == selected_strategy_preset %}true{% else %}false{% endif %}"
+                >
+                    {{ preset.name }}
+                </button>
                 {% endfor %}
-            </select>
-            <small>Pick a preset to swap in its default text, or leave this blank and edit the strategy box directly.</small>
-        </label>
+                <button
+                    type="button"
+                    class="preset-btn{% if selected_strategy_preset == 'custom' %} active{% endif %}"
+                    data-preset-id="custom"
+                    aria-pressed="{% if selected_strategy_preset == 'custom' %}true{% else %}false{% endif %}"
+                >
+                    Custom
+                </button>
+            </div>
+            <small class="hint">Choose a chip or switch to Custom to edit the text yourself.</small>
+        </div>
         <label>
             Strategy
-            <textarea id="strategy-text" name="strategy_text" rows="10" maxlength="2000" required>{{ default_strategy }}</textarea>
+            <textarea id="strategy-text" name="strategy_text" rows="8" maxlength="2000" required>{{ selected_strategy_text }}</textarea>
         </label>
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Create agent</button>
@@ -80,11 +85,30 @@
     const defaultStrategy = {{ default_strategy | tojson }};
     const providerSelect = document.getElementById('agent-provider');
     const modelSelect = document.getElementById('agent-model');
-    const presetSelect = document.getElementById('strategy-preset');
     const strategyBox = document.getElementById('strategy-text');
-    const providerNote = document.getElementById('provider-note');
-    const providerLabels = {{ provider_labels | tojson }};
-    const activeCounts = {{ active_connection_counts | tojson }};
+    const presetButtons = Array.from(document.querySelectorAll('[data-preset-id]'));
+    let activePresetId = {{ selected_strategy_preset | tojson }};
+
+    function setActivePreset(presetId) {
+        activePresetId = presetId;
+        presetButtons.forEach(function (button) {
+            const isActive = button.dataset.presetId === presetId;
+            button.classList.toggle('active', isActive);
+            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    }
+
+    function applyPreset(presetId) {
+        const preset = presetId === 'custom'
+            ? null
+            : presets.find(function (item) {
+                return item.id === presetId;
+            });
+        strategyBox.value = preset ? preset.prompt : defaultStrategy;
+        setActivePreset(presetId);
+        strategyBox.focus();
+        strategyBox.setSelectionRange(strategyBox.value.length, strategyBox.value.length);
+    }
 
     function updateModelOptions() {
         if (!providerSelect || !modelSelect) return;
@@ -109,36 +133,28 @@
         });
     }
 
-    function updateProviderNote() {
-        if (!providerSelect || !providerNote) return;
-        const provider = providerSelect.value;
-        const label = providerLabels[provider] || provider;
-        const count = activeCounts[provider] || 0;
-        providerNote.textContent = count
-            ? `Using your newest active ${label} connection.`
-            : `You do not have an active ${label} connection yet. Create one on the Connections page first.`;
-    }
-
-    function applyPreset() {
-        if (!presetSelect || !strategyBox) return;
-        const preset = presets.find(function (item) {
-            return item.id === presetSelect.value;
-        });
-        strategyBox.value = preset ? preset.prompt : defaultStrategy;
-    }
-
     if (providerSelect) {
-        providerSelect.addEventListener('change', function () {
-            updateModelOptions();
-            updateProviderNote();
-        });
+        providerSelect.addEventListener('change', updateModelOptions);
     }
-    if (presetSelect) {
-        presetSelect.addEventListener('change', applyPreset);
+    presetButtons.forEach(function (button) {
+        button.addEventListener('click', function () {
+            applyPreset(button.dataset.presetId || 'custom');
+        });
+    });
+    if (strategyBox) {
+        strategyBox.addEventListener('input', function () {
+            if (activePresetId === 'custom') return;
+            const preset = presets.find(function (item) {
+                return item.id === activePresetId;
+            });
+            if (!preset || strategyBox.value !== preset.prompt) {
+                setActivePreset('custom');
+            }
+        });
     }
 
     updateModelOptions();
-    updateProviderNote();
+    setActivePreset(activePresetId || 'custom');
 })();
 </script>
 
