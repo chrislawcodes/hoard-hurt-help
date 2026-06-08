@@ -340,7 +340,9 @@ async def new_agent_form(
         "selected_connection": selected_connection,
         "fresh_key": fresh_key,
         "runner_message": (
-            _runner_setup_message(selected_connection, fresh_key)
+            _runner_setup_message(
+                _provider_label(selected_connection.provider), fresh_key
+            )
             if selected_connection is not None and fresh_key
             else None
         ),

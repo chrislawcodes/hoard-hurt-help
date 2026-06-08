@@ -1,8 +1,8 @@
 """Tests for graceful key rotation.
 
-Reissue is non-destructive: the previous key keeps authenticating until the new
-one is first used, then it's retired — so reconnecting never knocks a running agent
-offline. Revoke is the immediate-cutoff path for a leaked key.
+Rotate is non-destructive: the previous key keeps authenticating until the new
+one is first used, then it's retired — so reconnecting never knocks a running
+agent offline.
 """
 
 import base64
@@ -87,7 +87,7 @@ async def test_graceful_overlap_old_key_works_until_new_used(client, reset_db):
     key_a = generate_connection_key()
     key_b = generate_connection_key()
     connection_id = await _bot_in_active_game(reset_db, key_a)
-    # Simulate a graceful reissue: current = B, previous = A (both valid).
+    # Simulate a graceful rotation: current = B, previous = A (both valid).
     async with reset_db() as db:
         connection = (await db.execute(select(Connection).where(Connection.id == connection_id))).scalar_one()
         connection.key_lookup = bot_key_lookup(key_b)
@@ -113,7 +113,7 @@ async def test_graceful_overlap_old_key_works_until_new_used(client, reset_db):
         assert connection.prev_key_lookup is None  # retired after the new key was used
 
 
-async def test_reissue_route_is_graceful_and_double_safe(client, reset_db):
+async def test_rotate_route_is_graceful_and_double_safe(client, reset_db):
     key_a = generate_connection_key()
     a_hash = bot_key_lookup(key_a)
     async with reset_db() as db:
@@ -124,8 +124,8 @@ async def test_reissue_route_is_graceful_and_double_safe(client, reset_db):
         connection_id, user_id = connection.id, u.id
     cookies = _signed_in_cookies(user_id)
 
-    # First reissue: the original key becomes the still-valid previous key.
-    r = await client.post(f"/me/connections/{connection_id}/reissue", cookies=cookies)
+    # First rotate: the original key becomes the still-valid previous key.
+    r = await client.post(f"/me/connections/{connection_id}/rotate", cookies=cookies)
     assert r.status_code in (302, 303)
     async with reset_db() as db:
         connection = (await db.execute(select(Connection).where(Connection.id == connection_id))).scalar_one()
@@ -133,10 +133,10 @@ async def test_reissue_route_is_graceful_and_double_safe(client, reset_db):
         assert connection.key_lookup != a_hash
         after_first = connection.key_lookup
 
-    # Second reissue before the new key is used: prev MUST stay the original
+    # Second rotate before the new key is used: prev MUST stay the original
     # (still-valid) key, not the unused pending one — so a running bot on the
-    # original key is never orphaned by a double reissue.
-    r = await client.post(f"/me/connections/{connection_id}/reissue", cookies=cookies)
+    # original key is never orphaned by a double rotation.
+    r = await client.post(f"/me/connections/{connection_id}/rotate", cookies=cookies)
     assert r.status_code in (302, 303)
     async with reset_db() as db:
         connection = (await db.execute(select(Connection).where(Connection.id == connection_id))).scalar_one()
@@ -144,21 +144,20 @@ async def test_reissue_route_is_graceful_and_double_safe(client, reset_db):
         assert connection.key_lookup not in (a_hash, after_first)
 
 
-async def test_revoke_route_kills_old_keys_immediately(client, reset_db):
+async def test_rotate_route_issues_fresh_key_without_cutoff(client, reset_db):
     key_a = generate_connection_key()
     a_hash = bot_key_lookup(key_a)
     async with reset_db() as db:
         u = await make_user(db)
         connection, _ = await make_connection(db, u, key=key_a)
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
-        connection.prev_key_lookup = bot_key_lookup("sk_conn_lingering")  # a grace key
         await db.commit()
         connection_id, user_id = connection.id, u.id
     cookies = _signed_in_cookies(user_id)
 
-    r = await client.post(f"/me/connections/{connection_id}/revoke", cookies=cookies)
+    r = await client.post(f"/me/connections/{connection_id}/rotate", cookies=cookies)
     assert r.status_code in (302, 303)
     async with reset_db() as db:
         connection = (await db.execute(select(Connection).where(Connection.id == connection_id))).scalar_one()
-        assert connection.prev_key_lookup is None  # grace key cut off immediately
-        assert connection.key_lookup != a_hash  # a fresh current key was issued
+        assert connection.prev_key_lookup == a_hash
+        assert connection.key_lookup != a_hash

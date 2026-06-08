@@ -22,6 +22,7 @@ from app.models import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_setup import ConnectionSetup
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
@@ -119,6 +120,27 @@ async def _make_connection(
     db.add(connection)
     await db.flush()
     return connection, plain_key
+
+
+async def _make_connection_setup(
+    db: AsyncSession,
+    user: User,
+    *,
+    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
+    key: str | None = None,
+    nickname: str | None = None,
+) -> tuple[ConnectionSetup, str]:
+    plain_key = key or generate_connection_key()
+    setup = ConnectionSetup(
+        user_id=user.id,
+        provider=provider,
+        nickname=nickname,
+        key_lookup=bot_key_lookup(plain_key),
+        key_hint=plain_key[-4:],
+    )
+    db.add(setup)
+    await db.flush()
+    return setup, plain_key
 
 
 async def _make_agent(
@@ -223,7 +245,9 @@ async def _make_turn(
 
 
 @pytest.mark.asyncio
-async def test_create_connection_shows_connection_runner_setup(client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]) -> None:
+async def test_create_connection_shows_setup_page_before_connect(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
     async with session_factory() as db:
         user = await _make_user(db)
         await db.commit()
@@ -235,22 +259,29 @@ async def test_create_connection_shows_connection_runner_setup(client: AsyncClie
         follow_redirects=True,
     )
     assert resp.status_code == 200
+    assert "Setup AI Provider Connection" in resp.text
+    assert "This connection is not established" in resp.text
+    assert "The connection will be created when the AI provider talks to the server." in resp.text
+    assert "Copy setup message" in resp.text
     assert "agentludum_connector.py" in resp.text
     assert "X-Connection-Key" in resp.text
-    assert "plays all my agents" in resp.text
-    assert "one session per match" in resp.text
     assert "X-Agent-Key" not in resp.text
     assert "mcp" not in resp.text.lower()
 
     async with session_factory() as db:
+        setup = (
+            await db.execute(select(ConnectionSetup).where(ConnectionSetup.user_id == user.id))
+        ).scalar_one()
+        assert setup.completed_at is None
+        assert setup.connection_id is None
         connection = (
             await db.execute(select(Connection).where(Connection.user_id == user.id))
-        ).scalar_one()
-        assert connection.status is ConnectionStatus.PENDING
+        ).scalar_one_or_none()
+        assert connection is None
 
 
 @pytest.mark.asyncio
-async def test_create_connection_reuses_existing_pending_connection(
+async def test_create_connection_reuses_existing_pending_setup(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
@@ -281,21 +312,80 @@ async def test_create_connection_reuses_existing_pending_connection(
     second_key = second_match.group(1)
 
     async with session_factory() as db:
-        connections = (
+        setups = (
             await db.execute(
-                select(Connection).where(Connection.user_id == user.id).order_by(Connection.id)
+                select(ConnectionSetup).where(ConnectionSetup.user_id == user.id).order_by(ConnectionSetup.id)
             )
         ).scalars().all()
-        assert len(connections) == 1
-        connection = connections[0]
-        assert connection.nickname == "My Claude (again)"
-        assert connection.status is ConnectionStatus.PENDING
-        assert connection.prev_key_lookup == bot_key_lookup(first_key)
-        assert connection.key_lookup == bot_key_lookup(second_key)
+        assert len(setups) == 1
+        setup = setups[0]
+        assert setup.nickname == "My Claude (again)"
+        assert setup.completed_at is None
+        assert setup.connection_id is None
+        assert setup.key_lookup == bot_key_lookup(second_key)
+        assert setup.key_lookup != bot_key_lookup(first_key)
 
 
 @pytest.mark.asyncio
-async def test_reissue_overlap_keeps_old_key_until_new_key_used(
+async def test_first_authenticated_call_creates_real_connection_from_setup(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with session_factory() as db:
+        user = await _make_user(db)
+        setup, plain_key = await _make_connection_setup(
+            db,
+            user,
+            provider=ConnectionProvider.CLAUDE,
+            nickname="My Claude",
+        )
+        await db.commit()
+
+    resp = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": plain_key})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "waiting"
+
+    banner = await client.get(
+        f"/me/connections/setup/{setup.id}/status",
+        cookies=_signed_in_cookies(user.id),
+    )
+    assert banner.status_code == 200
+    assert "Connection created. You can safely leave this page." in banner.text
+
+    async with session_factory() as db:
+        setup_row = (
+            await db.execute(select(ConnectionSetup).where(ConnectionSetup.id == setup.id))
+        ).scalar_one()
+        connection_id = setup_row.connection_id
+        assert connection_id is not None
+        connection = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+        assert connection.user_id == user.id
+        assert connection.nickname == "My Claude"
+        assert connection.provider is ConnectionProvider.CLAUDE
+        assert connection.first_connected_at is not None
+        assert connection.status is ConnectionStatus.ACTIVE
+
+    delete_resp = await client.post(
+        f"/me/connections/{connection_id}/delete",
+        cookies=_signed_in_cookies(user.id),
+    )
+    assert delete_resp.status_code == 303
+
+    async with session_factory() as db:
+        setup_row = (
+            await db.execute(select(ConnectionSetup).where(ConnectionSetup.id == setup.id))
+        ).scalar_one()
+        assert setup_row.connection_id is None
+        assert setup_row.completed_at is not None
+        connection = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one_or_none()
+        assert connection is None
+
+
+@pytest.mark.asyncio
+async def test_rotate_overlap_keeps_old_key_until_new_key_used(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
@@ -303,13 +393,13 @@ async def test_reissue_overlap_keeps_old_key_until_new_key_used(
         connection, old_key = await _make_connection(db, user)
         await db.commit()
 
-    reissued = await client.post(
-        f"/me/connections/{connection.id}/reissue",
+    rotated = await client.post(
+        f"/me/connections/{connection.id}/rotate",
         cookies=_signed_in_cookies(user.id),
         follow_redirects=True,
     )
-    assert reissued.status_code == 200
-    match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", reissued.text)
+    assert rotated.status_code == 200
+    match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", rotated.text)
     assert match is not None
     new_key = match.group(1)
 
@@ -402,20 +492,18 @@ async def test_delete_detaches_agents_and_reattachs_same_provider_connection(
 async def test_pending_connections_gc_after_24h(session_factory: async_sessionmaker[AsyncSession]) -> None:
     async with session_factory() as db:
         user = await _make_user(db)
-        stale = Connection(
+        stale = ConnectionSetup(
             user_id=user.id,
             provider=ConnectionProvider.CLAUDE,
             key_lookup="lookup-stale",
             key_hint="stale",
-            status=ConnectionStatus.PENDING,
             created_at=NOW - timedelta(hours=25),
         )
-        fresh = Connection(
+        fresh = ConnectionSetup(
             user_id=user.id,
             provider=ConnectionProvider.CLAUDE,
             key_lookup="lookup-fresh",
             key_hint="fresh",
-            status=ConnectionStatus.PENDING,
             created_at=NOW - timedelta(hours=1),
         )
         db.add_all([stale, fresh])
@@ -425,9 +513,9 @@ async def test_pending_connections_gc_after_24h(session_factory: async_sessionma
         assert removed == 1
 
         remaining = (
-            await db.execute(select(Connection).order_by(Connection.created_at))
+            await db.execute(select(ConnectionSetup).order_by(ConnectionSetup.created_at))
         ).scalars().all()
-        assert [connection.id for connection in remaining] == [fresh.id]
+        assert [setup.id for setup in remaining] == [fresh.id]
 
 
 @pytest.mark.asyncio

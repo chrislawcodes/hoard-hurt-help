@@ -424,7 +424,7 @@ async def test_create_agent_setup_shows_key_once(client, reset_db):
     )
     assert r2.status_code == 200
     assert "sk_conn_" not in r2.text
-    assert "Reissue" in r2.text
+    assert "Rotate Key" in r2.text
 
 
 @pytest.mark.asyncio
@@ -568,8 +568,8 @@ async def test_bot_detail_does_not_rotate_key(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_reissue_invalidates_old_key_anytime(client, reset_db):
-    """Reissue is the deliberate path that changes the key — allowed any time."""
+async def test_rotate_invalidates_old_key_anytime(client, reset_db):
+    """Rotate is the deliberate path that changes the key — allowed any time."""
     user = await _seed_user(reset_db)
     game = await _seed_game(reset_db, state=GameState.ACTIVE)  # even mid-game
     key = "sk_conn_" + "b" * 48
@@ -587,7 +587,7 @@ async def test_reissue_invalidates_old_key_anytime(client, reset_db):
         await db.commit()
 
     r = await client.post(
-        f"/me/connections/{connection_id}/reissue",
+        f"/me/connections/{connection_id}/rotate",
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )

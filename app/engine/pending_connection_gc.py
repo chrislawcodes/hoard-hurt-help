@@ -1,4 +1,4 @@
-"""Garbage collection for abandoned pending connections."""
+"""Garbage collection for abandoned pending connection setups."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.connection import Connection, ConnectionStatus
+from app.models.connection_setup import ConnectionSetup
 
 _PENDING_MAX_AGE = timedelta(hours=24)
 
@@ -17,10 +18,16 @@ _PENDING_MAX_AGE = timedelta(hours=24)
 async def gc_pending_connections(
     db: AsyncSession, *, now: datetime | None = None
 ) -> int:
-    """Delete pending connections that never connected within 24 hours."""
+    """Delete stale pending setup drafts and legacy pending connections."""
     now = now or datetime.now(timezone.utc)
     cutoff = now - _PENDING_MAX_AGE
-    result = await db.execute(
+    setup_result = await db.execute(
+        delete(ConnectionSetup).where(
+            ConnectionSetup.completed_at.is_(None),
+            ConnectionSetup.created_at < cutoff,
+        )
+    )
+    connection_result = await db.execute(
         delete(Connection).where(
             Connection.status == ConnectionStatus.PENDING,
             Connection.first_connected_at.is_(None),
@@ -28,4 +35,6 @@ async def gc_pending_connections(
         )
     )
     await db.commit()
-    return cast(CursorResult, result).rowcount or 0
+    return (cast(CursorResult, setup_result).rowcount or 0) + (
+        cast(CursorResult, connection_result).rowcount or 0
+    )

@@ -6,13 +6,13 @@
         {% elif health.state.value == 'paused' %}
             This connection is paused.
         {% elif health.state.value == 'stalled' %}
-            The runner is connected, but turns are stalling.
+            The runner is connected, but turns are stalling. Use Rotate Key below if it needs a fresh setup message.
         {% elif health.state.value == 'live' %}
             The runner is connected and playing.
         {% elif health.state.value == 'ready' %}
             The runner is connected and idle, ready for the next turn.
         {% else %}
-            Waiting for the runner to connect.
+            Waiting for the runner to connect. Use Rotate Key below if the setup message needs to be refreshed.
         {% endif %}
     </p>
     <p class="meta">

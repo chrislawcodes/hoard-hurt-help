@@ -15,6 +15,7 @@ from app.db import make_engine
 from app.engine.tokens import bot_key_lookup
 from app.models import Base
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 from app.routes.agent_next_turn import router as agent_next_turn_router
 
@@ -101,6 +102,27 @@ async def make_connection(
     return connection, plain_key
 
 
+async def make_connection_setup(
+    db: AsyncSession,
+    user: User,
+    *,
+    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
+    nickname: str | None = None,
+    key: str | None = None,
+) -> tuple[ConnectionSetup, str]:
+    plain_key = key or f"sk_conn_{secrets.token_hex(24)}"
+    setup = ConnectionSetup(
+        user_id=user.id,
+        provider=provider,
+        nickname=nickname,
+        key_lookup=bot_key_lookup(plain_key),
+        key_hint=plain_key[-4:],
+    )
+    db.add(setup)
+    await db.flush()
+    return setup, plain_key
+
+
 @pytest.mark.asyncio
 async def test_valid_key_resolves_connection_and_marks_seen(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
@@ -133,6 +155,39 @@ async def test_valid_key_resolves_connection_and_marks_seen(
 
 
 @pytest.mark.asyncio
+async def test_first_key_use_creates_connection_from_setup(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with session_factory() as db:
+        user = await make_user(db)
+        setup, key = await make_connection_setup(
+            db,
+            user,
+            provider=ConnectionProvider.CLAUDE,
+            nickname="My Claude",
+        )
+        await db.commit()
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200
+    assert r.json()["status"] == "waiting"
+
+    async with session_factory() as db:
+        stored_setup = (
+            await db.execute(select(ConnectionSetup).where(ConnectionSetup.id == setup.id))
+        ).scalar_one()
+        assert stored_setup.connection_id is not None
+        assert stored_setup.completed_at is not None
+        connection = (
+            await db.execute(select(Connection).where(Connection.id == stored_setup.connection_id))
+        ).scalar_one()
+        assert connection.user_id == user.id
+        assert connection.nickname == "My Claude"
+        assert connection.first_connected_at is not None
+        assert connection.status is ConnectionStatus.ACTIVE
+
+
+@pytest.mark.asyncio
 async def test_missing_and_invalid_key_reject(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -162,7 +217,7 @@ async def test_paused_connection_rejected(
 
 
 @pytest.mark.asyncio
-async def test_graceful_reissue_overlap_is_retired_on_new_key_use(
+async def test_graceful_rotation_overlap_is_retired_on_new_key_use(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     connection, old_key = await _seed_connection(session_factory)

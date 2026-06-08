@@ -2,6 +2,7 @@
 
 import logging
 from typing import Annotated
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 from fastapi import Depends, Header, HTTPException, Path, Query, Request, status
@@ -16,6 +17,7 @@ from app.engine.match_id_rewrite import match_id_candidates
 from app.engine.tokens import bot_key_lookup
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection, ConnectionStatus
+from app.models.connection_setup import ConnectionSetup
 from app.models.player import Player
 from app.models.user import User
 
@@ -175,19 +177,40 @@ async def require_connection(
         )
     ).scalar_one_or_none()
     if connection is None:
-        logger.warning(
-            "agent auth failed: no connection for key prefix %s", x_connection_key[:11]
+        setup = (
+            await db.execute(
+                select(ConnectionSetup).where(
+                    ConnectionSetup.key_lookup == key_hash,
+                    ConnectionSetup.completed_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if setup is None:
+            logger.warning(
+                "agent auth failed: no connection for key prefix %s", x_connection_key[:11]
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": {
+                        "code": "INVALID_KEY",
+                        "message": "Invalid X-Connection-Key.",
+                        "details": {},
+                    }
+                },
+            )
+        connection = Connection(
+            user_id=setup.user_id,
+            nickname=setup.nickname,
+            provider=setup.provider,
+            key_lookup=setup.key_lookup,
+            key_hint=setup.key_hint,
+            status=ConnectionStatus.PENDING,
         )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "error": {
-                    "code": "INVALID_KEY",
-                    "message": "Invalid X-Connection-Key.",
-                    "details": {},
-                }
-            },
-        )
+        db.add(connection)
+        await db.flush()
+        setup.connection_id = connection.id
+        setup.completed_at = datetime.now(timezone.utc)
     if connection.status == ConnectionStatus.PAUSED:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

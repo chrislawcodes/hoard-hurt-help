@@ -1,4 +1,4 @@
-"""Connection key reissue and revoke actions."""
+"""Connection key rotation actions."""
 
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ def _issue_new_key(connection: Connection, *, keep_old_overlap: bool) -> str:
     return key
 
 
-@router.post("/{connection_id}/reissue")
-async def reissue_key(
+@router.post("/{connection_id}/rotate")
+async def rotate_key(
     connection_id: Annotated[int, Path()],
     request: Request,
     db: DbSession,
@@ -37,22 +37,6 @@ async def reissue_key(
 ) -> RedirectResponse:
     connection = await _load_owned_connection(db, user, connection_id)
     key = _issue_new_key(connection, keep_old_overlap=True)
-    await db.commit()
-    request.session[f"fresh_connection_key_{connection.id}"] = key
-    return RedirectResponse(
-        url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
-    )
-
-
-@router.post("/{connection_id}/revoke")
-async def revoke_and_reissue(
-    connection_id: Annotated[int, Path()],
-    request: Request,
-    db: DbSession,
-    user: Annotated[User, Depends(require_user_with_handle)],
-) -> RedirectResponse:
-    connection = await _load_owned_connection(db, user, connection_id)
-    key = _issue_new_key(connection, keep_old_overlap=False)
     await db.commit()
     request.session[f"fresh_connection_key_{connection.id}"] = key
     return RedirectResponse(
