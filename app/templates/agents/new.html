@@ -4,112 +4,142 @@
 <a class="backlink" href="/me/agents">← Agents</a>
 <div class="page-head">
     <h1>New agent</h1>
-    <p class="sub">Create a competitor, with a connection if you need one.</p>
+    <p class="sub">Pick a provider, model, and strategy. Connections stay on the Connections page.</p>
 </div>
 
-{% if selected_connection and fresh_key %}
-<div class="card" id="setup">
-    <h3 style="margin-top:0;">Connect your connection</h3>
-    <p class="hint" style="margin-top:0;">Paste this into the runner. Once it connects, you can finish the agent below.</p>
-    <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Copy setup message</button>
-    <pre id="runner-msg">{{ runner_message }}</pre>
-</div>
-{% endif %}
-
+{% if selected_connection and selected_connection.status.value == 'active' %}
 <div class="card" style="margin-bottom:1.25rem;">
-    <h3 style="margin-top:0;">Choose a connection</h3>
-    {% if connections %}
-    <form method="post" action="/me/agents/new" class="form" style="display:grid; gap:0.75rem;">
+    <h3 style="margin-top:0;">Create the agent</h3>
+    <p class="hint" style="margin-top:0;">
+        We will use your newest active connection for the provider you choose.
+    </p>
+    <form method="post" action="/me/agents/new" class="form" style="display:grid; gap:0.9rem;">
         <label>
-            Existing connection
-            <select name="connection_id">
-                <option value="">Create a new connection</option>
-                {% for connection in connections %}
-                <option value="{{ connection.id }}" {% if selected_connection and selected_connection.id == connection.id %}selected{% endif %}>
-                    {{ connection.nickname or connection.provider.value }} · {{ connection.status.value }}
+            AI provider
+            <select name="provider" id="agent-provider" required>
+                {% for provider in provider_choices %}
+                <option value="{{ provider.value }}" {% if provider.value == selected_provider %}selected{% endif %}>
+                    {{ provider_labels[provider.value] }}
                 </option>
                 {% endfor %}
             </select>
         </label>
+        <p class="hint" id="provider-note" style="margin-top:-0.35rem;">
+            {% if active_connection_counts[selected_provider] %}
+            Using your newest active {{ provider_labels[selected_provider] }} connection.
+            {% else %}
+            You do not have an active {{ provider_labels[selected_provider] }} connection yet.
+            Create one on the Connections page first.
+            {% endif %}
+        </p>
         <label>
-            Provider for a new connection
-            <select name="provider">
-                <option value="" selected disabled>Choose a provider</option>
-                {% for provider in ['claude', 'gemini', 'openai', 'hermes', 'openclaw'] %}
-                <option value="{{ provider }}">{{ provider | title }}</option>
+            Model
+            <select name="model" id="agent-model" required>
+                {% for candidate in provider_models %}
+                <option value="{{ candidate }}">{{ candidate }}</option>
                 {% endfor %}
             </select>
         </label>
-        <label>
-            Connection nickname
-            <input type="text" name="nickname" maxlength="60" placeholder="Defaults to provider name">
-        </label>
-        <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Continue</button>
-        </div>
-    </form>
-    {% else %}
-    <form method="post" action="/me/agents/new" class="form" style="display:grid; gap:0.75rem;">
-        <label>
-            Provider
-            <select name="provider" required>
-                <option value="" selected disabled>Choose a provider</option>
-                {% for provider in ['claude', 'gemini', 'openai', 'hermes', 'openclaw'] %}
-                <option value="{{ provider }}">{{ provider | title }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        <label>
-            Connection nickname
-            <input type="text" name="nickname" maxlength="60" placeholder="Defaults to provider name">
-        </label>
-        <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Create connection</button>
-        </div>
-    </form>
-    {% endif %}
-</div>
-
-{% if selected_connection and selected_connection.status.value == 'active' %}
-<div class="card">
-    <h3 style="margin-top:0;">Create the agent</h3>
-    <p class="hint" style="margin-top:0;">
-        Connection: <strong>{{ selected_connection.nickname or provider_label }}</strong>
-        {% if selected_connection.runner_pid %} · PID {{ selected_connection.runner_pid }}{% endif %}
-    </p>
-    <form method="post" action="/me/agents/new" class="form" style="display:grid; gap:0.9rem;">
-        <input type="hidden" name="connection_id" value="{{ selected_connection.id }}">
         <label>
             Agent name
             <input type="text" name="name" maxlength="120" required autocomplete="off" placeholder="Alpha">
         </label>
         <label>
-            Model
-            {% if provider_models %}
-            <select name="model" required>
-                {% for candidate in provider_models %}
-                <option value="{{ candidate }}">{{ candidate }}</option>
+            Strategy preset
+            <select id="strategy-preset" name="strategy_preset">
+                <option value="">Write my own</option>
+                {% for preset in strategy_presets %}
+                <option value="{{ preset.id }}" title="{{ preset.description }}">{{ preset.name }}</option>
                 {% endfor %}
             </select>
-            {% else %}
-            <input type="text" name="model" required placeholder="Enter a model">
-            {% endif %}
+            <small>Pick a preset to swap in its default text, or leave this blank and edit the strategy box directly.</small>
         </label>
         <label>
             Strategy
-            <textarea name="strategy_text" rows="10" maxlength="2000" required>{{ default_strategy }}</textarea>
+            <textarea id="strategy-text" name="strategy_text" rows="10" maxlength="2000" required>{{ default_strategy }}</textarea>
         </label>
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Create agent</button>
         </div>
     </form>
 </div>
-{% elif selected_connection %}
+{% else %}
 <div class="card">
-    <h3 style="margin-top:0;">Waiting for the runner</h3>
-    <p class="hint" style="margin-top:0;">This connection is not live yet. Start the runner with the setup message above.</p>
-    <p class="meta">{{ selected_connection.provider.value }} · {{ selected_connection.status.value }}</p>
+    <h3 style="margin-top:0;">No connection yet</h3>
+    <p class="hint" style="margin-top:0;">
+        To create an agent, first set up a connection on the Connections page.
+    </p>
+    <a class="btn btn-primary" href="/me/connections">Go to Connections →</a>
 </div>
 {% endif %}
+
+<script>
+(function () {
+    const providerModels = {{ provider_models_map | tojson }};
+    const presets = {{ strategy_presets | tojson }};
+    const defaultStrategy = {{ default_strategy | tojson }};
+    const providerSelect = document.getElementById('agent-provider');
+    const modelSelect = document.getElementById('agent-model');
+    const presetSelect = document.getElementById('strategy-preset');
+    const strategyBox = document.getElementById('strategy-text');
+    const providerNote = document.getElementById('provider-note');
+    const providerLabels = {{ provider_labels | tojson }};
+    const activeCounts = {{ active_connection_counts | tojson }};
+
+    function updateModelOptions() {
+        if (!providerSelect || !modelSelect) return;
+        const models = providerModels[providerSelect.value] || [];
+        const previous = modelSelect.value;
+        modelSelect.innerHTML = '';
+        if (!models.length) {
+            const fallback = document.createElement('option');
+            fallback.value = '';
+            fallback.textContent = 'Enter a model';
+            modelSelect.appendChild(fallback);
+            return;
+        }
+        models.forEach(function (model) {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            if (model === previous || (!previous && model === models[0])) {
+                option.selected = true;
+            }
+            modelSelect.appendChild(option);
+        });
+    }
+
+    function updateProviderNote() {
+        if (!providerSelect || !providerNote) return;
+        const provider = providerSelect.value;
+        const label = providerLabels[provider] || provider;
+        const count = activeCounts[provider] || 0;
+        providerNote.textContent = count
+            ? `Using your newest active ${label} connection.`
+            : `You do not have an active ${label} connection yet. Create one on the Connections page first.`;
+    }
+
+    function applyPreset() {
+        if (!presetSelect || !strategyBox) return;
+        const preset = presets.find(function (item) {
+            return item.id === presetSelect.value;
+        });
+        strategyBox.value = preset ? preset.prompt : defaultStrategy;
+    }
+
+    if (providerSelect) {
+        providerSelect.addEventListener('change', function () {
+            updateModelOptions();
+            updateProviderNote();
+        });
+    }
+    if (presetSelect) {
+        presetSelect.addEventListener('change', applyPreset);
+    }
+
+    updateModelOptions();
+    updateProviderNote();
+})();
+</script>
 
 {% endblock %}

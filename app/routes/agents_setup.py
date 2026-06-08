@@ -15,7 +15,6 @@ from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
 from app.engine.connection_health import ConnectionHealth, compute_connection_health
 from app.engine.pending_connection_gc import gc_pending_connections
-from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -24,10 +23,7 @@ from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
 from app.routes.connections_setup import (
-    _issue_connection_key,
-    _load_resumeable_pending_connection,
     _provider_label,
-    _runner_setup_message,
 )
 from app.templating import templates
 
@@ -68,6 +64,23 @@ async def _load_owned_connection(
     if connection is None:
         raise HTTPException(status_code=404, detail="Connection not found.")
     return connection
+
+
+async def _load_active_connection_for_provider(
+    db: DbSession, user_id: int, provider: ConnectionProvider
+) -> Connection | None:
+    rows = (
+        await db.execute(
+            select(Connection)
+            .where(
+                Connection.user_id == user_id,
+                Connection.provider == provider,
+                Connection.status == ConnectionStatus.ACTIVE,
+            )
+            .order_by(Connection.created_at.desc(), Connection.id.desc())
+        )
+    ).scalars()
+    return rows.first()
 
 
 async def _load_user_connections(db: DbSession, user_id: int) -> list[Connection]:
@@ -315,42 +328,61 @@ async def new_agent_form(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     connection_id: int | None = None,
+    provider: str | None = None,
 ) -> Response:
     await gc_pending_connections(db)
     connections = await _load_user_connections(db, user.id)
     selected_connection = None
-    fresh_key = None
     if connection_id is not None:
-        selected_connection = await _load_owned_connection(db, user, connection_id)
-        fresh_key = request.session.pop(
-            f"fresh_connection_key_{selected_connection.id}", None
-        )
+        candidate = await _load_owned_connection(db, user, connection_id)
+        if candidate.status == ConnectionStatus.ACTIVE:
+            selected_connection = candidate
     elif connections:
         selected_connection = next(
-            (connection for connection in connections if connection.status == ConnectionStatus.ACTIVE),
-            connections[0],
+            (
+                connection
+                for connection in connections
+                if connection.status == ConnectionStatus.ACTIVE
+            ),
+            None,
         )
-    if selected_connection is not None:
-        fresh_key = fresh_key or request.session.pop(
-            f"fresh_connection_key_{selected_connection.id}", None
+    provider_choices = list(ConnectionProvider)
+    provider_labels = {p.value: _provider_label(p) for p in provider_choices}
+    active_connection_counts = {
+        p.value: sum(
+            1
+            for connection in connections
+            if connection.provider == p and connection.status == ConnectionStatus.ACTIVE
         )
+        for p in provider_choices
+    }
+    selected_provider = (
+        provider.strip().lower()
+        if provider and provider.strip()
+        else (
+            selected_connection.provider.value
+            if selected_connection is not None
+            else next(
+                (connection.provider.value for connection in connections if connection.status == ConnectionStatus.ACTIVE),
+                connections[0].provider.value if connections else ConnectionProvider.CLAUDE.value,
+            )
+        )
+    )
+    if selected_provider not in provider_labels:
+        selected_provider = ConnectionProvider.CLAUDE.value
+    selected_provider_models = PROVIDER_MODELS.get(selected_provider, [])
     context: dict[str, object] = {
         "user": user,
         "connections": connections,
         "selected_connection": selected_connection,
-        "fresh_key": fresh_key,
-        "runner_message": (
-            _runner_setup_message(
-                _provider_label(selected_connection.provider), fresh_key
-            )
-            if selected_connection is not None and fresh_key
-            else None
-        ),
-        "provider_models": (
-            PROVIDER_MODELS.get(selected_connection.provider.value, [])
-            if selected_connection is not None
-            else []
-        ),
+        "provider_choices": provider_choices,
+        "provider_labels": provider_labels,
+        "selected_provider": selected_provider,
+        "provider_models": selected_provider_models,
+        "provider_models_map": {
+            p.value: PROVIDER_MODELS.get(p.value, []) for p in provider_choices
+        },
+        "active_connection_counts": active_connection_counts,
         "provider_label": (
             _provider_label(selected_connection.provider)
             if selected_connection is not None
@@ -358,13 +390,21 @@ async def new_agent_form(
         ),
         "default_game": _DEFAULT_GAME,
         "default_strategy": get_game_module(_DEFAULT_GAME).default_strategy(),
+        "strategy_presets": [
+            {
+                "id": preset.id,
+                "name": preset.name,
+                "description": preset.description,
+                "prompt": preset.prompt,
+            }
+            for preset in get_game_module(_DEFAULT_GAME).strategy_presets()
+        ],
     }
     return templates.TemplateResponse(request, "agents/new.html", context)
 
 
 @router.post("/new")
 async def create_agent_or_connection(
-    request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     connection_id: Annotated[int | None, Form()] = None,
@@ -373,16 +413,11 @@ async def create_agent_or_connection(
     name: Annotated[str | None, Form()] = None,
     model: Annotated[str | None, Form()] = None,
     strategy_text: Annotated[str | None, Form()] = None,
+    strategy_preset: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
     if connection_id is not None and name is None:
-        return RedirectResponse(
-            url=f"/me/agents/new?connection_id={connection_id}",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-    if name is not None and connection_id is not None:
-        connection = await _load_owned_connection(db, user, connection_id)
-        if connection.status != ConnectionStatus.ACTIVE:
-            raise HTTPException(status_code=409, detail="Connection must be active first.")
+        return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
+    if name is not None:
         clean_name = name.strip()
         if not clean_name:
             raise HTTPException(status_code=400, detail="Agent name is required.")
@@ -397,13 +432,44 @@ async def create_agent_or_connection(
         ).scalar_one_or_none()
         if existing is not None:
             raise HTTPException(status_code=409, detail="You already have an agent with that name.")
+
+        connection: Connection | None = None
+        if connection_id is not None:
+            connection = await _load_owned_connection(db, user, connection_id)
+            if connection.status != ConnectionStatus.ACTIVE:
+                raise HTTPException(status_code=409, detail="Connection must be active first.")
+        else:
+            if provider is None:
+                raise HTTPException(status_code=400, detail="Pick a provider or choose a connection.")
+            try:
+                provider_choice = ConnectionProvider(provider.strip().lower())
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Unknown provider.") from exc
+            connection = await _load_active_connection_for_provider(db, user.id, provider_choice)
+            if connection is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Create an active connection for that provider first.",
+                )
+
         clean_model = (model or "").strip()
         allowed = PROVIDER_MODELS.get(connection.provider.value, [])
         if allowed and clean_model not in allowed:
             raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
         if not clean_model:
             raise HTTPException(status_code=400, detail="Model is required.")
-        version_text = (strategy_text or "").strip() or get_game_module(_DEFAULT_GAME).default_strategy()
+        clean_strategy = (strategy_text or "").strip()
+        if not clean_strategy and strategy_preset:
+            preset = next(
+                (
+                    item
+                    for item in get_game_module(_DEFAULT_GAME).strategy_presets()
+                    if item.id == strategy_preset
+                ),
+                None,
+            )
+            clean_strategy = preset.prompt if preset is not None else ""
+        version_text = clean_strategy or get_game_module(_DEFAULT_GAME).default_strategy()
         agent = Agent(
             user_id=user.id,
             connection_id=connection.id,
@@ -426,35 +492,8 @@ async def create_agent_or_connection(
         await db.commit()
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
 
-    if connection_id is None:
-        if provider is None:
-            raise HTTPException(status_code=400, detail="Pick a provider or choose a connection.")
-        try:
-            provider_choice = ConnectionProvider(provider.strip().lower())
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Unknown provider.") from exc
-        key = generate_connection_key()
-        pending_connection = await _load_resumeable_pending_connection(db, user.id, provider_choice)
-        if pending_connection is None:
-            pending_connection = Connection(
-                user_id=user.id,
-                nickname=(nickname.strip() if nickname and nickname.strip() else None),
-                provider=provider_choice,
-                key_lookup=bot_key_lookup(key),
-                key_hint=bot_key_hint(key),
-                status=ConnectionStatus.PENDING,
-            )
-            db.add(pending_connection)
-            await db.flush()
-        elif nickname and nickname.strip():
-            pending_connection.nickname = nickname.strip()
-            key = _issue_connection_key(pending_connection, keep_old_overlap=True)
-        await db.commit()
-        request.session[f"fresh_connection_key_{pending_connection.id}"] = key
-        return RedirectResponse(
-            url=f"/me/agents/new?connection_id={pending_connection.id}",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
+    if provider is not None or nickname is not None:
+        return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
 
     raise HTTPException(status_code=400, detail="Agent name is required.")
 

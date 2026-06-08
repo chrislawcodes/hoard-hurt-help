@@ -129,6 +129,34 @@ async def test_join_without_strategy_uses_module_default(client, reset_db) -> No
 
 
 @pytest.mark.asyncio
+async def test_join_with_preset_strategy_seeds_preset_prompt(client, reset_db) -> None:
+    user_id, connection_id = await _seed_game_user_agent(reset_db)
+    r = await client.post(
+        "/me/agents/new",
+        data={
+            "connection_id": connection_id,
+            "name": "Atlas",
+            "model": "claude-haiku-4-5",
+            "strategy_preset": "tit_for_tat",
+        },
+        cookies=_signed_in_cookies(user_id),
+    )
+    assert r.status_code == 303, r.text
+    async with reset_db() as db:
+        agent_id = (
+            await db.execute(
+                select(Agent.id).where(Agent.user_id == user_id, Agent.name == "Atlas")
+            )
+        ).scalar_one()
+    expected = next(
+        preset.prompt
+        for preset in get_game_module("hoard-hurt-help").strategy_presets()
+        if preset.id == "tit_for_tat"
+    )
+    assert await _latest_strategy(reset_db, agent_id) == expected
+
+
+@pytest.mark.asyncio
 async def test_join_form_offers_presets(client, reset_db) -> None:
     user_id, connection_id = await _seed_game_user_agent(reset_db)
     r = await client.get(
@@ -136,9 +164,28 @@ async def test_join_form_offers_presets(client, reset_db) -> None:
         cookies=_signed_in_cookies(user_id),
     )
     assert r.status_code == 200
-    # The agent setup form includes the strategy textarea and default prompt.
+    # The agent setup form includes provider/model selectors and the strategy picker.
+    assert 'name="provider"' in r.text
+    assert 'name="model"' in r.text
+    assert 'name="strategy_preset"' in r.text
     assert 'name="strategy_text"' in r.text
     assert get_game_module("hoard-hurt-help").default_strategy().strip()[:20] in r.text
+    assert "Tit-for-Tat" in r.text
+
+
+@pytest.mark.asyncio
+async def test_join_page_without_active_connection_points_to_connections(
+    client, reset_db
+) -> None:
+    async with reset_db() as db:
+        user = await make_user(db)
+        await db.commit()
+
+    r = await client.get("/me/agents/new", cookies=_signed_in_cookies(user.id))
+    assert r.status_code == 200
+    assert "No connection yet" in r.text
+    assert 'href="/me/connections"' in r.text
+    assert 'name="strategy_preset"' not in r.text
 
 
 @pytest.mark.asyncio

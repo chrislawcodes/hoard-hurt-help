@@ -21,6 +21,7 @@ from app.models import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_setup import ConnectionSetup
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
@@ -209,7 +210,7 @@ async def _seat_player(
 
 
 @pytest.mark.asyncio
-async def test_new_agent_route_reuses_pending_connection(
+async def test_create_connection_reuses_existing_pending_setup(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
@@ -218,7 +219,7 @@ async def test_new_agent_route_reuses_pending_connection(
 
     cookies = _signed_in_cookies(user.id)
     first = await client.post(
-        "/me/agents/new",
+        "/me/connections",
         cookies=cookies,
         data={"provider": "claude", "nickname": "My Claude"},
         follow_redirects=True,
@@ -231,7 +232,7 @@ async def test_new_agent_route_reuses_pending_connection(
     first_key = first_match.group(1)
 
     second = await client.post(
-        "/me/agents/new",
+        "/me/connections",
         cookies=cookies,
         data={"provider": "claude", "nickname": "My Claude 2"},
         follow_redirects=True,
@@ -243,16 +244,20 @@ async def test_new_agent_route_reuses_pending_connection(
     assert second_key != first_key
 
     async with session_factory() as db:
-        connections = (
+        setups = (
             await db.execute(
-                select(Connection).where(Connection.user_id == user.id).order_by(Connection.id)
+                select(ConnectionSetup)
+                .where(ConnectionSetup.user_id == user.id)
+                .order_by(ConnectionSetup.id)
             )
         ).scalars().all()
-        assert len(connections) == 1
-        connection = connections[0]
-        assert connection.nickname == "My Claude 2"
-        assert connection.status is ConnectionStatus.PENDING
-        assert connection.prev_key_lookup == bot_key_lookup(first_key)
+        assert len(setups) == 1
+        setup = setups[0]
+        assert setup.nickname == "My Claude 2"
+        assert setup.completed_at is None
+        assert setup.connection_id is None
+        assert setup.key_lookup == bot_key_lookup(second_key)
+        assert setup.key_lookup != bot_key_lookup(first_key)
 
 
 @pytest.mark.asyncio

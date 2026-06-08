@@ -14,7 +14,7 @@ from app.config import settings
 from app.engine.sim_presets import sim_presets
 from app.engine.tokens import bot_key_lookup
 from app.main import app
-from app.models import Base, Agent, AgentKind, Connection, Match, GameState, Player, User
+from app.models import Base, Agent, AgentKind, Connection, ConnectionSetup, Match, GameState, Player, User
 from app.models.match import MatchKind
 from app.engine.sims import pack_profile_choices
 from tests.factories import make_agent, make_connection, make_user, seat_player
@@ -399,7 +399,7 @@ async def test_join_requires_sign_in(client, reset_db):
 async def test_create_agent_setup_shows_key_once(client, reset_db):
     user = await _seed_user(reset_db)
     r = await client.post(
-        "/me/agents/new",
+        "/me/connections",
         cookies=_signed_in_cookies(user.id),
         follow_redirects=True,
         data={"provider": "claude", "nickname": "Atlas"},
@@ -410,21 +410,16 @@ async def test_create_agent_setup_shows_key_once(client, reset_db):
     assert "X-Agent-Key" not in r.text
 
     async with reset_db() as db:
-        connections = (
-            await db.execute(select(Connection).where(Connection.user_id == user.id))
+        setups = (
+            await db.execute(
+                select(ConnectionSetup).where(ConnectionSetup.user_id == user.id)
+            )
         ).scalars().all()
         agents = (
             await db.execute(select(Agent).where(Agent.user_id == user.id))
         ).scalars().all()
-    assert len(connections) == 1
+    assert len(setups) == 1
     assert len(agents) == 0
-
-    r2 = await client.get(
-        f"/me/connections/{connections[0].id}", cookies=_signed_in_cookies(user.id)
-    )
-    assert r2.status_code == 200
-    assert "sk_conn_" not in r2.text
-    assert "Rotate Key" in r2.text
 
 
 @pytest.mark.asyncio
