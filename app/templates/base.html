@@ -53,12 +53,14 @@
                             <span class="al-acct-caret" aria-hidden="true">▾</span>
                         </summary>
                         <div class="al-acct-menu" role="menu">
-                            <span class="al-acct-email mono">{{ user.email }}</span>
-                            {% if user.handle %}<a href="/me/handle" role="menuitem" class="al-acct-handle mono">@{{ user.handle }} · Change</a>{% endif %}
+                            <div class="al-acct-header">
+                                <span class="al-acct-ident mono">{% if user.handle %}@{{ user.handle }}{% else %}{{ user.email }}{% endif %}</span>
+                                <span class="al-acct-conn">{{ connection_count }} connection{{ 's' if connection_count != 1 else '' }}</span>
+                            </div>
                             <a href="/me/connections" role="menuitem">Connections</a>
                             <a href="/me/agents" role="menuitem">Agents</a>
                             <a href="/me/matches" role="menuitem">My matches</a>
-                            {% if is_admin %}<a href="/admin" role="menuitem">Admin</a>{% endif %}
+                            {% if is_admin %}<a href="/admin" role="menuitem">Platform admin</a>{% endif %}
                             <form method="post" action="/auth/logout" class="al-acct-form">
                                 <button type="submit" class="al-acct-signout">Sign out</button>
                             </form>
