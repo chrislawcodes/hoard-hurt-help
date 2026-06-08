@@ -32,7 +32,7 @@ from app.routes.web_support import (
     _top_standings,
     _upcoming_views,
 )
-from app.routes.viewer_presentation import _build_rc_data
+from app.routes.viewer_presentation import _build_rc_data, sample_replay_data
 from app.routes.web_viewer import _game_view_context
 from app.templating import templates
 
@@ -50,20 +50,22 @@ async def _showcase_replay_data(
 ) -> tuple[str | None, str]:
     """Robot-circle replay of the most-recent completed showcase game.
 
-    Returns ``(match_id, rc_data_json)``. ``match_id`` is None and the JSON is ""
-    when no finished showcase game exists. Shared by the platform front page and
-    the Hoard·Hurt·Help lobby so both replay the same latest game the same way.
+    Returns ``(match_id, rc_data_json)``. When no finished showcase game exists
+    (or building its data fails), ``match_id`` is None and the JSON is a bundled
+    sample replay so the animation always plays instead of a dead placeholder.
+    Shared by the platform front page and the Hoard·Hurt·Help lobby so both
+    replay the same latest game the same way.
     """
     match_id = next((v["id"] for v in completed_views if _is_showcase(v)), None)
     if not match_id:
-        return None, ""
+        return None, sample_replay_data()
     try:
         match = await _load_match_or_404(db, match_id)
         ctx = await _game_view_context(request, db, match)
         return match_id, _build_rc_data(ctx["scoreboard"], ctx["history"])
     except Exception:
         logger.exception("Failed to build robot-circle replay data for %s", match_id)
-        return match_id, ""
+        return None, sample_replay_data()
 
 
 def _lobby_timestamp(match: Match) -> datetime:
