@@ -15,6 +15,7 @@ from app.games import get as get_game_module
 from app.main import app
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
+from app.models.connection import ConnectionProvider, ConnectionStatus
 from tests.factories import make_connection, make_user
 
 
@@ -157,20 +158,38 @@ async def test_join_with_preset_strategy_seeds_preset_prompt(client, reset_db) -
 
 
 @pytest.mark.asyncio
-async def test_join_form_offers_presets(client, reset_db) -> None:
-    user_id, connection_id = await _seed_game_user_agent(reset_db)
+async def test_join_form_only_lists_connected_providers_and_uses_chips(
+    client, reset_db
+) -> None:
+    async with reset_db() as db:
+        user = await make_user(db)
+        await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await make_connection(
+            db,
+            user,
+            provider=ConnectionProvider.OPENAI,
+            status=ConnectionStatus.PAUSED,
+        )
+        await db.commit()
+
     r = await client.get(
-        f"/me/agents/new?connection_id={connection_id}",
-        cookies=_signed_in_cookies(user_id),
+        "/me/agents/new?provider=openai",
+        cookies=_signed_in_cookies(user.id),
     )
     assert r.status_code == 200
-    # The agent setup form includes provider/model selectors and the strategy picker.
+    # Only connected providers should appear.
     assert 'name="provider"' in r.text
+    assert 'value="claude"' in r.text
+    assert 'value="openai"' not in r.text
     assert 'name="model"' in r.text
-    assert 'name="strategy_preset"' in r.text
+    assert 'name="strategy_preset"' not in r.text
     assert 'name="strategy_text"' in r.text
-    assert get_game_module("hoard-hurt-help").default_strategy().strip()[:20] in r.text
-    assert "Tit-for-Tat" in r.text
+    assert "Using your newest active" not in r.text
+    assert 'data-preset-id="tit_for_tat"' in r.text
+    assert 'data-preset-id="custom"' in r.text
+    assert r.text.index('data-preset-id="tit_for_tat"') < r.text.index('data-preset-id="custom"')
+    tit_snippet = r.text[r.text.index('data-preset-id="tit_for_tat"') : r.text.index('data-preset-id="tit_for_tat"') + 220]
+    assert 'aria-pressed="true"' in tit_snippet
 
 
 @pytest.mark.asyncio
@@ -186,6 +205,27 @@ async def test_join_page_without_active_connection_points_to_connections(
     assert "No connection yet" in r.text
     assert 'href="/me/connections"' in r.text
     assert 'name="strategy_preset"' not in r.text
+
+
+@pytest.mark.asyncio
+async def test_join_with_disconnected_provider_is_rejected(client, reset_db) -> None:
+    async with reset_db() as db:
+        user = await make_user(db)
+        await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await db.commit()
+
+    r = await client.post(
+        "/me/agents/new",
+        data={
+            "name": "Atlas",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "strategy_text": "CUSTOM: always cooperate.",
+        },
+        cookies=_signed_in_cookies(user.id),
+    )
+    assert r.status_code == 409, r.text
+    assert "active connection for that provider" in r.text
 
 
 @pytest.mark.asyncio

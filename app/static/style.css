@@ -106,6 +106,14 @@ h3 { font-size: 1rem; margin: 1.25rem 0 0.5rem; }
 a { color: var(--accent); }
 small, .hint { color: var(--ink-soft); font-size: 0.85rem; }
 .hint { display: block; margin: 0.25rem 0 0; }
+.field-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 0.35rem;
+}
 
 .warning-box {
     background: var(--bad-bg);
@@ -172,10 +180,26 @@ button:hover, .cta:hover { background: var(--accent-hover); }
 button.secondary, .cta.secondary { background: transparent; color: var(--accent); border: 1.5px solid var(--line-bold); }
 
 .save-confirm { color: #16a34a; font-weight: 600; margin-bottom: 0.75rem; }
-.preset-picker { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
-.preset-btn { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; padding: 0.35rem 0.75rem; border-radius: 20px; }
+.agent-setup-card { max-width: 42rem; padding: 1rem 1.1rem 1.15rem; }
+.agent-setup-form { display: grid; gap: 0.8rem; }
+.agent-setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
+.agent-setup-form label { display: grid; gap: 0.35rem; margin-bottom: 0; }
+.agent-setup-form input,
+.agent-setup-form select,
+.agent-setup-form textarea {
+    padding: 0.5rem 0.7rem;
+}
+.agent-setup-form textarea { min-height: 7rem; }
+.agent-setup-form .form-actions { margin-top: 0.15rem; justify-content: flex-end; }
+.preset-picker { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.35rem; }
+.preset-btn { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; padding: 0.28rem 0.65rem; border-radius: 999px; font-size: 0.88rem; }
 .preset-btn:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
-.preset-btn.active { background: #16a34a; color: #fff; border-color: #16a34a; }
+.preset-btn.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+@media (max-width: 720px) {
+    .agent-setup-grid { grid-template-columns: 1fr; }
+    .agent-setup-card { padding: 0.9rem 0.9rem 1rem; }
+}
 
 /* Messages */
 .error {
