@@ -4,7 +4,8 @@ One control, one destination — `/play`, which smart-redirects each visitor to
 their real next step — but the label adapts to where they are in the funnel:
 
 * not signed in              -> "Get started"
-* signed in, no usable agent -> "Connect your AI"
+* signed in, no connection   -> "Connect your AI"
+* signed in, connection only -> "Create an Agent"
 * signed in, agent connected -> "Play now"
 
 The label depends on the visitor's agent state, which is a DB read, so it can't
@@ -57,12 +58,24 @@ async def user_has_connected_agent(db: AsyncSession, user_id: int) -> bool:
     return bool(await db.scalar(stmt))
 
 
+async def user_has_connection(db: AsyncSession, user_id: int) -> bool:
+    """True if the user owns at least one connection, even before any agent exists."""
+    stmt = (
+        select(func.count())
+        .select_from(Connection)
+        .where(Connection.user_id == user_id)
+    )
+    return bool(await db.scalar(stmt))
+
+
 async def compute_nav_cta(db: AsyncSession, user: User | None) -> NavCta:
     """Resolve the Play CTA for this visitor."""
     if user is None:
         return NavCta(label="Get started", href="/play")
     if await user_has_connected_agent(db, user.id):
         return NavCta(label="Play now", href="/play")
+    if await user_has_connection(db, user.id):
+        return NavCta(label="Create an Agent", href="/me/agents/new")
     return NavCta(label="Connect your AI", href="/me/connections")
 
 

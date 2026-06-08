@@ -84,14 +84,26 @@ async def test_cta_no_agent_is_connect(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_cta_unconnected_agent_is_connect(reset_db):
+async def test_cta_connection_no_agent_is_create_agent(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
+        await make_connection(db, user)
+        await db.commit()
+        cta = await compute_nav_cta(db, user)
+    assert cta.label == "Create an Agent"
+    assert cta.href == "/me/agents/new"
+
+
+@pytest.mark.asyncio
+async def test_cta_unconnected_agent_is_create_agent(reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        await make_connection(db, user)
         await make_agent(db, user, name="Atlas")  # first_connected_at stays NULL
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Connect your AI"
-    assert cta.href == "/me/connections"
+    assert cta.label == "Create an Agent"
+    assert cta.href == "/me/agents/new"
 
 
 @pytest.mark.asyncio
@@ -169,6 +181,21 @@ async def test_nav_renders_connect_your_ai_for_user_without_agent(client, reset_
     assert "Connect your AI" in r.text
     assert 'href="/me/connections"' in r.text
     assert "Play now" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_nav_renders_create_an_agent_for_user_with_connection_no_agent(client, reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        await make_connection(db, user)
+        await db.commit()
+        user_id = user.id
+
+    r = await client.get("/games", cookies=_signed_in_cookies(user_id))
+    assert r.status_code == 200
+    assert "Create an Agent" in r.text
+    assert 'href="/me/agents/new"' in r.text
+    assert "Connect your AI" not in r.text
 
 
 # ── /play smart redirect ────────────────────────────────────────────────────
