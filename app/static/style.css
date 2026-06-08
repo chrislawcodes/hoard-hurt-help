@@ -1049,16 +1049,24 @@ button.danger:hover,
 .al-acct-header {
     padding: 4px 8px 10px;
     border-bottom: 1px solid var(--line); margin-bottom: 4px;
-    display: flex; flex-direction: column; gap: 2px;
 }
 .al-acct-ident { font-size: 13px; font-weight: 700; color: var(--ink); word-break: break-all; }
-.al-acct-conn { font-size: 11px; color: var(--ink-soft); }
 .al-acct-menu a, .al-acct-signout {
-    display: block; text-align: left; width: 100%;
+    display: flex; align-items: center; justify-content: space-between;
+    text-align: left; width: 100%;
     font: inherit; font-size: 13.5px; font-weight: 700; color: var(--ink);
     background: none; border: none; cursor: pointer;
     padding: 8px; border-radius: 8px; text-decoration: none;
 }
+.al-acct-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 400; color: var(--ink-soft);
+}
+.al-acct-dot {
+    width: 7px; height: 7px; border-radius: 999px;
+    background: var(--ink-soft); flex-shrink: 0;
+}
+.al-acct-badge-live .al-acct-dot { background: #4ade80; }
 .al-acct-menu a:hover, .al-acct-signout:hover { background: var(--bg-2); }
 .al-acct-form { margin: 4px 0 0; padding: 4px 0 0; border-top: 1px solid var(--line); }
 .al-acct-signout { color: var(--hurt); }
