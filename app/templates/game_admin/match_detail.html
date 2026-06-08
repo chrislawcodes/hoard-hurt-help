@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ match.name }} — {{ game_slug }} Admin{% endblock %}
+{% block content %}
+<a class="backlink" href="/games/{{ game_slug }}/admin">← {{ game_slug }} Admin</a>
+<div class="page-head">
+    <h1>{{ match.name }}</h1>
+    <p class="sub">State: {{ match.state.value }} · Round {{ match.current_round }} / {{ match.total_rounds }} · Turn {{ match.current_turn }} / {{ match.turns_per_round }}</p>
+</div>
+
+{% if added %}
+<p class="notice-ok" role="status">Added {{ added }} Bot{{ '' if added == 1 else 's' }}.</p>
+{% endif %}
+
+{% if can_add_bots %}
+<div class="admin-actions">
+    <a class="btn btn-primary" href="/games/{{ game_slug }}/admin/matches/{{ match.id }}/bots">+ Add Bots</a>
+</div>
+{% endif %}
+
+{% if match.state.value == "registering" %}
+<form method="post" action="/games/{{ game_slug }}/admin/matches/{{ match.id }}/start">
+    <button type="submit">▶ Start now</button>
+    <span class="hint">Starts immediately, overriding the scheduled time. Needs the players already joined.</span>
+</form>
+{% endif %}
+
+<h2>Players + strategy prompts</h2>
+<table>
+    <tr><th>Agent</th><th>Type</th><th>Round wins</th><th>Total score</th><th>Strategy prompt</th></tr>
+    {% for p in players %}
+    <tr>
+        <td>{{ p.agent_id }}</td>
+        <td>{% if p.is_bot %}<span class="tag tag-sim">Bot</span> {{ p.personality }}{% else %}<span class="muted">External</span>{% endif %}</td>
+        <td>{{ p.total_round_wins }}</td>
+        <td>{{ p.total_round_score }}</td>
+        <td><details><summary>view</summary><pre>{{ p.strategy }}</pre></details></td>
+    </tr>
+    {% endfor %}
+</table>
+
+<p>
+    <a href="/games/{{ game_slug }}/matches/{{ match.id }}">Spectator view →</a>
+    · <a href="/api/game-admin/{{ game_slug }}/matches/{{ match.id }}/export.csv">Export CSV</a>
+    · <a href="/api/game-admin/{{ game_slug }}/matches/{{ match.id }}/export.json">Export JSON</a>
+</p>
+{% endblock %}

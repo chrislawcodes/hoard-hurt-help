@@ -44,8 +44,15 @@ async def _seated_player_count(db, match_id: str) -> int:
     return await count_players(db, match_id)
 
 
-def _is_admin(user: User | None) -> bool:
-    return user is not None and user.email.lower() in settings.admin_emails_set
+def _is_any_admin(user: User | None) -> bool:
+    if user is None:
+        return False
+    email = user.email.lower()
+    return email in settings.platform_admin_emails_set or email in settings.all_game_admin_emails_set
+
+
+def _is_game_admin(user: User | None, game: str) -> bool:
+    return user is not None and user.email.lower() in settings.game_admin_emails_for(game)
 
 
 async def _upcoming_views(db) -> list[dict]:

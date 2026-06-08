@@ -22,7 +22,8 @@ from app.routes.viewer_presentation import (
 )
 from app.routes.web_support import (
     _game_theme,
-    _is_admin,
+    _is_any_admin,
+    _is_game_admin,
     _load_match_or_404,
     _redirect_if_game_slug_mismatch,
     _redirect_to_match,
@@ -203,7 +204,8 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
 
     return {
         "user": user,
-        "is_admin": _is_admin(user),
+        "is_admin": _is_any_admin(user),
+        "is_game_admin": _is_game_admin(user, g.game),
         "game": g,
         "game_theme": _game_theme(g),
         "scoreboard": scoreboard,

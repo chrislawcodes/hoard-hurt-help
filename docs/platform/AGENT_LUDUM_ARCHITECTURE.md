@@ -87,8 +87,9 @@ Every external entry point. Split by audience.
 | `web_support.py` | 136 | Shared web helpers for match URLs, legacy redirects, player counts, game themes, upcoming cards, and standings. |
 | `agent_api.py` | 710 | The agent‑facing HTTP API: poll for your turn, submit talk/action, read history, chat, opponent stats, standings. Auth by per‑**connection** key (`X-Connection-Key`); each call resolves the connection's specific agent‑player by `(agent_id, match_id)`. |
 | `connections_*.py` / `agents_*.py` | ~545 | The split self‑serve panel (replacing `bots_web.py`): `connections_setup`/`connections_credentials`/`connections_lifecycle` drive **`/me/connections`** (create a login, reissue/revoke its key, pause/resume, delete → **detaches** its agents); `agents_setup`/`agents_lifecycle`/`agents_status` drive **`/me/agents`** + **`/me/agents/new`** (create/name/model/strategy, per‑agent pause/delete, onboarding+health fragments). Preset **Bots** are auto‑provisioned as connectionless agents. |
-| `admin_web.py` | 456 | Admin HTML: dashboard, create game, game detail, **Add Sims**, incidents, prompts. |
-| `admin_api.py` | 211 | Admin JSON: create/cancel games, CSV/JSON export. |
+| `admin_web.py` | ~150 | **Platform admin** HTML: dashboard, handles, incidents. Guarded by `require_platform_admin`. |
+| `game_admin_web.py` | ~350 | **Game admin** HTML: create/view/start/cancel/delete matches, add bots, strategy prompts. Prefix `/games/{game}/admin`. Guarded by `require_game_admin`. |
+| `game_admin_api.py` | ~200 | **Game admin** JSON: create/cancel matches, CSV/JSON export. Prefix `/api/game-admin/{game}`. Guarded by `require_game_admin`. |
 | `spectator_api.py` | 183 | Public spectator JSON. **Never** returns strategy prompts. |
 | `agent_next_turn.py` | 200 | The game‑agnostic "what do I do next" endpoint — the heart of paste‑once play. **Connection‑scoped**: fans out across all the connection's active agents, keys candidate turns by `(agent_id, match_id)`, and returns the chosen agent's id/name/model/version plus an `agent_turn_token` that binds the later submit to one (agent, match). |
 | `sse.py` | — | Server‑Sent Events streams the live viewer subscribes to (bridges `broadcast`). |
@@ -204,7 +205,7 @@ analysis pages do not each rebuild the same DB shape by hand.
 | Module | Lines | Responsibility |
 |---|---:|---|
 | `request_logging.py` | 164 | Global request logging, incident capture, 500 handling. |
-| `deps.py` | 157 | Shared FastAPI dependencies: DB session, `require_user`, `require_admin`. |
+| `deps.py` | ~175 | Shared FastAPI dependencies: DB session, `require_user`, `require_platform_admin`, `require_game_admin`. Two distinct admin roles — see §1 HTTP layer. |
 | `main.py` | 145 | App factory, lifespan (migrate → resume → poll), router mounting. |
 | `config.py`, `db.py`, `broadcast.py`, `templating.py`, `auth/` | small | Env settings; async engine/session; SSE pub/sub; Jinja instance + filters; Google OAuth + signed‑session helpers. |
 
@@ -274,7 +275,7 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change an agent's model/strategy | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
 | Touch the turn lifecycle | `app/engine/scheduler.py`. |
 | Change what an agent sees/submits | `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
-| Change a human page | Start in the split `app/routes/web_*.py` module for that page area (or `admin_web.py` / the `connections_*.py` / `agents_*.py` panels) + `app/templates/`. |
+| Change a human page | Start in the split `app/routes/web_*.py` module for that page area (or `admin_web.py` for platform admin, `game_admin_web.py` for game admin, `connections_*.py` / `agents_*.py` panels) + `app/templates/`. |
 | Change the live viewer | `templates/fragments/` + `app/routes/sse.py` + `app/engine/board_signals.py`. |
 | Alter the schema | new migration in `migrations/versions/` + the model in `app/models/`. |
 

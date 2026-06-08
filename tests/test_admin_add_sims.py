@@ -91,9 +91,9 @@ def _roster(*pairs: tuple[str, str]) -> dict[str, list[str]]:
 async def test_form_renders_with_personalities(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
-    r = await client.get("/admin/games/G_001/sims", cookies=_cookies(admin.id))
+    r = await client.get("/games/hoard-hurt-help/admin/matches/G_001/bots", cookies=_cookies(admin.id))
     assert r.status_code == 200
-    assert "Add Sims" in r.text
+    assert "Add Bots" in r.text
     assert "Grudger" in r.text
     assert "Fill remaining seats" in r.text
 
@@ -103,11 +103,11 @@ async def test_non_admin_blocked(client, reset_db):
     user = await _seed_user(reset_db, "regular@test.com")
     await _seed_game(reset_db)
     r = await client.get(
-        "/admin/games/G_001/sims", cookies=_cookies(user.id), follow_redirects=False
+        "/games/hoard-hurt-help/admin/matches/G_001/bots", cookies=_cookies(user.id), follow_redirects=False
     )
     assert r.status_code == 403
     r2 = await client.post(
-        "/admin/games/G_001/sims",
+        "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(("Zeus", "grudger")),
         cookies=_cookies(user.id),
         follow_redirects=False,
@@ -120,7 +120,7 @@ async def test_seats_sims_as_players(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
     r = await client.post(
-        "/admin/games/G_001/sims",
+        "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(
             ("Sun Tzu", "grudger"),
             ("Hera", "grudger"),
@@ -130,7 +130,7 @@ async def test_seats_sims_as_players(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == "/admin/matches/G_001?added=3"
+    assert r.headers["location"] == "/games/hoard-hurt-help/admin/matches/G_001?added=3"
 
     async with reset_db() as db:
         players = (
@@ -181,7 +181,7 @@ async def test_rejects_over_cap(client, reset_db):
         await db.commit()
 
     r = await client.post(
-        "/admin/games/G_001/sims",
+        "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(("Zeus", "grudger"), ("Hera", "diplomat"), ("Ares", "opportunist")),
         cookies=_cookies(admin.id),
         follow_redirects=False,
@@ -208,7 +208,7 @@ async def test_rejects_duplicate_name(client, reset_db):
         await db.commit()
 
     r = await client.post(
-        "/admin/games/G_001/sims",
+        "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(("Zeus", "grudger")),
         cookies=_cookies(admin.id),
         follow_redirects=False,
@@ -222,7 +222,7 @@ async def test_rejects_invalid_name(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
     r = await client.post(
-        "/admin/games/G_001/sims",
+        "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(("Bad_Name", "grudger")),
         cookies=_cookies(admin.id),
         follow_redirects=False,
@@ -236,7 +236,7 @@ async def test_rejects_empty_roster(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
     r = await client.post(
-        "/admin/games/G_001/sims",
+        "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data={},
         cookies=_cookies(admin.id),
         follow_redirects=False,
@@ -250,11 +250,11 @@ async def test_cannot_add_after_start(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db, state=GameState.ACTIVE)
     # The form explains it's closed.
-    form = await client.get("/admin/games/G_001/sims", cookies=_cookies(admin.id))
-    assert "before a game starts" in form.text
+    form = await client.get("/games/hoard-hurt-help/admin/matches/G_001/bots", cookies=_cookies(admin.id))
+    assert "before a match starts" in form.text
     # And the POST refuses to seat.
     r = await client.post(
-        "/admin/games/G_001/sims",
+        "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(("Zeus", "grudger")),
         cookies=_cookies(admin.id),
         follow_redirects=False,
@@ -272,13 +272,13 @@ async def test_detail_labels_sims_and_shows_banner(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
     await client.post(
-        "/admin/games/G_001/sims",
+        "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(("Zeus", "grudger")),
         cookies=_cookies(admin.id),
         follow_redirects=False,
     )
-    r = await client.get("/admin/games/G_001?added=1", cookies=_cookies(admin.id))
+    r = await client.get("/games/hoard-hurt-help/admin/matches/G_001?added=1", cookies=_cookies(admin.id))
     assert r.status_code == 200
-    assert "Added 1 Sim." in r.text
+    assert "Added 1 Bot." in r.text
     assert "Zeus" in r.text
     assert "Grudger" in r.text  # personality column

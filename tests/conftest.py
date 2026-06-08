@@ -11,7 +11,6 @@ from collections.abc import AsyncIterator
 import secrets
 
 import pytest
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.db import make_engine
@@ -19,25 +18,6 @@ from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.user import User
-from app.routes.admin_api import router as admin_api_router
-from app.routes.admin_web import router as admin_web_router
-from app.routes.auth import router as auth_router
-from app.routes.handle_web import router as handle_web_router
-from app.routes.nav_context import populate_nav_cta
-from app.routes.spectator_api import router as spectator_api_router
-from app.routes.web import router as web_router
-
-# The production app mounts only the API/runner routes. The legacy web tests
-# still exercise the browser surface, so mount the missing routers once for the
-# shared test app.
-from app.main import app as test_app
-
-test_app.include_router(auth_router)
-test_app.include_router(handle_web_router)
-test_app.include_router(web_router, dependencies=[Depends(populate_nav_cta)])
-test_app.include_router(spectator_api_router)
-test_app.include_router(admin_web_router)
-test_app.include_router(admin_api_router)
 
 
 @pytest.fixture(scope="session")

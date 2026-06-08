@@ -37,10 +37,11 @@
                    links (How it works) right alongside it. #}
                 {% block nav_links %}<a href="/games" class="al-nav-games">Games</a><a href="/leaderboard" class="al-nav-leaderboard">Leaderboard</a>{% endblock %}
                 {# Smart "Play" door — the one emphasis in the calm bar. Label adapts
-                   to the visitor (Get started / Connect your agent / Play now); the
-                   destination is always the /play smart redirect. It's a block so the
-                   marketing home can drop it — there the hero is already the CTA, and a
-                   second copy in the nav (plus the adjacent "Sign in") just adds noise. #}
+                   to the visitor (Get started / Connect your AI / Play now); the
+                   destination is either the connections setup or the /play smart
+                   redirect. It's a block so the marketing home can drop it — there the
+                   hero is already the CTA, and a second copy in the nav (plus the
+                   adjacent "Sign in") just adds noise. #}
                 {% block nav_cta %}{% if nav_cta %}<a href="{{ nav_cta.href }}" class="al-nav-cta">{{ nav_cta.label }}</a>{% endif %}{% endblock %}
                 {% if user %}
                     {# Account lives behind one control so the bar stays calm —

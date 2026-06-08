@@ -1,4 +1,4 @@
-"""Admin JSON API: create/cancel games, export data."""
+"""Game-admin JSON API — per-game match management (create/cancel/export)."""
 
 import csv
 import io
@@ -10,32 +10,39 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
-from app.deps import DbSession, require_platform_admin
+from app.deps import DbSession, require_game_admin
 from app.engine.tokens import generate_match_id
-from app.models.match import Match, GameState
 from app.models.agent_version import AgentVersion
+from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User
 from app.read_models.matches import load_match_timeline
 from app.schemas.admin import CancelResponse, CreateGameRequest, GameRecord
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(prefix="/api/game-admin/{game}", tags=["game-admin"])
+
+
+async def _load_game_match_or_404(db, game: str, match_id: str) -> Match:
+    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
+    if g is None or g.game != game:
+        raise HTTPException(404)
+    return g
 
 
 @router.post("/matches", response_model=GameRecord, status_code=status.HTTP_201_CREATED)
-@router.post("/games", response_model=GameRecord, status_code=status.HTTP_201_CREATED)
 async def create_game(
+    game: Annotated[str, Path()],
     body: CreateGameRequest,
     db: DbSession,
-    _: Annotated[User, Depends(require_platform_admin)],
+    _: Annotated[User, Depends(require_game_admin)],
 ) -> GameRecord:
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
-    # Allocate the next M_NNNN id.
     existing_ids = (await db.execute(select(Match.id))).scalars().all()
     n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
     g = Match(
         id=generate_match_id(n),
+        game=game,
         name=body.name,
         state=GameState.REGISTERING,
         scheduled_start=body.scheduled_start,
@@ -66,15 +73,13 @@ async def create_game(
 
 
 @router.post("/matches/{match_id}/cancel", response_model=CancelResponse)
-@router.post("/games/{match_id}/cancel", response_model=CancelResponse)
 async def cancel_game(
+    game: Annotated[str, Path()],
     match_id: Annotated[str, Path()],
     db: DbSession,
-    _: Annotated[User, Depends(require_platform_admin)],
+    _: Annotated[User, Depends(require_game_admin)],
 ) -> CancelResponse:
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
+    g = await _load_game_match_or_404(db, game, match_id)
     if g.state == GameState.ACTIVE:
         raise HTTPException(409, detail="Match already started.")
     if g.state in (GameState.COMPLETED, GameState.CANCELLED):
@@ -101,12 +106,13 @@ _EXPORT_COLUMNS = [
 
 
 @router.get("/matches/{match_id}/export.csv")
-@router.get("/games/{match_id}/export.csv")
 async def export_csv(
+    game: Annotated[str, Path()],
     match_id: Annotated[str, Path()],
     db: DbSession,
-    _: Annotated[User, Depends(require_platform_admin)],
+    _: Annotated[User, Depends(require_game_admin)],
 ):
+    await _load_game_match_or_404(db, game, match_id)
     rows = await _gather_export_rows(db, match_id)
     out = io.StringIO()
     w = csv.writer(out)
@@ -121,15 +127,13 @@ async def export_csv(
 
 
 @router.get("/matches/{match_id}/export.json")
-@router.get("/games/{match_id}/export.json")
 async def export_json(
+    game: Annotated[str, Path()],
     match_id: Annotated[str, Path()],
     db: DbSession,
-    _: Annotated[User, Depends(require_platform_admin)],
+    _: Annotated[User, Depends(require_game_admin)],
 ):
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
+    g = await _load_game_match_or_404(db, game, match_id)
     players = (
         (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
     )

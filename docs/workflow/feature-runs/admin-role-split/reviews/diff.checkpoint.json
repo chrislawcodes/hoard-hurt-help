@@ -1,0 +1,28 @@
+{
+  "feature_slug": "admin-role-split",
+  "stage": "diff",
+  "artifact_path": "docs/workflow/feature-runs/admin-role-split/reviews/implementation.diff.patch",
+  "git_base_ref": "origin/claude/awesome-bohr-fBDnG",
+  "allowed_dirty_paths": [
+    "AGENTS.md",
+    "MOBILE_UX_ISSUES.md",
+    "_wireframe_nav_smart_cta.png",
+    "_wireframe_nav_smart_cta.svg",
+    "agentludum_agent_codex.py",
+    "scripts",
+    "specs/009-game-match-vocabulary"
+  ],
+  "required_reviews": [
+    {
+      "reviewer": "gemini",
+      "lens": "regression-adversarial",
+      "stage": "diff",
+      "path": "docs/workflow/feature-runs/admin-role-split/reviews/diff.gemini.regression-adversarial.review.md",
+      "context_paths": [],
+      "model": "gemini-3.1-flash-lite"
+    }
+  ],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

@@ -24,7 +24,7 @@ from app.models.user import User
 from app.request_logging import set_request_trace_context
 from app.routes.web_support import (
     _game_theme,
-    _is_admin,
+    _is_any_admin,
     _load_match_or_404,
     _load_owned_player_match_or_404,
     _player_count,
@@ -80,7 +80,7 @@ async def guide(name: Annotated[str, Path()], request: Request, db: DbSession):
         "guide.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "title": name.replace("-", " ").title(),
             "body": path.read_text(encoding="utf-8"),
         },
@@ -217,7 +217,7 @@ async def join_form(
         "join.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "game": match,
             "game_theme": _game_theme(match),
             "player_count": await _player_count(db, match.id),
@@ -347,7 +347,7 @@ async def my_matches(
     match_ids = [p.match_id for p in players]
     if not match_ids:
         return templates.TemplateResponse(
-            request, "my_matches.html", {"user": user, "is_admin": _is_admin(user), "game_sections": []}
+            request, "my_matches.html", {"user": user, "is_admin": _is_any_admin(user), "game_sections": []}
         )
 
     matches = {
@@ -404,7 +404,7 @@ async def my_matches(
     return templates.TemplateResponse(
         request,
         "my_matches.html",
-        {"user": user, "is_admin": _is_admin(user), "game_sections": list(sections_map.values())},
+        {"user": user, "is_admin": _is_any_admin(user), "game_sections": list(sections_map.values())},
     )
 
 
@@ -460,7 +460,7 @@ async def player_dashboard(
         "connection.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "game": game,
             "game_theme": _game_theme(game),
             "player": player,

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Game Admin — {{ game_slug }}{% endblock %}
+{% block content %}
+<div class="page-head page-head-row">
+    <div><h1>{{ game_slug }} admin</h1></div>
+    <a class="btn btn-primary" href="/games/{{ game_slug }}/admin/matches/new">+ New match</a>
+</div>
+
+{% if active_games %}
+<h2>Active</h2>
+<table>
+    <tr><th>Name</th><th>State</th><th>Round</th><th>Players</th><th></th></tr>
+    {% for g in active_games %}
+    <tr>
+        <td><a href="/games/{{ game_slug }}/admin/matches/{{ g.id }}">{{ g.name }}</a></td>
+        <td>{{ g.state.value }}</td>
+        <td>{{ g.current_round }} / {{ g.total_rounds }}</td>
+        <td>{{ g.player_count }}</td>
+        <td><a href="/games/{{ game.game }}/matches/{{ g.id }}">watch</a></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+
+{% if scheduled_games %}
+<h2>Scheduled / Registering</h2>
+<table>
+    <tr><th>Name</th><th>State</th><th>Start</th><th>Players</th><th></th></tr>
+    {% for g in scheduled_games %}
+    <tr>
+        <td><a href="/games/{{ game_slug }}/admin/matches/{{ g.id }}">{{ g.name }}</a></td>
+        <td>{{ g.state.value }}</td>
+        <td>{{ g.scheduled_start }}</td>
+        <td>{{ g.player_count }}</td>
+        <td></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+
+{% if completed_games %}
+<h2>Completed</h2>
+<table>
+    <tr><th>Name</th><th>Players</th><th></th></tr>
+    {% for g in completed_games %}
+    <tr>
+        <td><a href="/games/{{ game_slug }}/admin/matches/{{ g.id }}">{{ g.name }}</a></td>
+        <td>{{ g.player_count }}</td>
+        <td><a href="/games/{{ game_slug }}/matches/{{ g.id }}">watch</a></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+
+{% if not active_games and not scheduled_games and not completed_games %}
+<p class="empty">No matches yet. <a href="/games/{{ game_slug }}/admin/matches/new">Create one</a>.</p>
+{% endif %}
+
+<p class="hint"><a href="/games/{{ game_slug }}/admin/prompts">View all strategy prompts →</a></p>
+{% endblock %}

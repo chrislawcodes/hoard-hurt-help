@@ -7,8 +7,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
-from sqlalchemy import select
-
 from app.config import settings
 from app.main import app
 from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
@@ -75,7 +73,7 @@ async def test_admin_creates_game_via_api(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
-        "/api/admin/games",
+        "/api/game-admin/hoard-hurt-help/matches",
         json={
             "name": "QA",
             "scheduled_start": when,
@@ -96,7 +94,7 @@ async def test_admin_api_rejects_games_over_twenty_players(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
-        "/api/admin/games",
+        "/api/game-admin/hoard-hurt-help/matches",
         json={
             "name": "Too Big",
             "scheduled_start": when,
@@ -117,7 +115,7 @@ async def test_create_game_via_web_form(client, reset_db):
         "%Y-%m-%dT%H:%M:00.000Z"
     )
     r = await client.post(
-        "/admin/games/new",
+        "/games/hoard-hurt-help/admin/matches/new",
         data={
             "name": "Web Night",
             "scheduled_start": future,
@@ -138,7 +136,7 @@ async def test_web_form_rejects_games_over_twenty_players(client, reset_db):
         "%Y-%m-%dT%H:%M:00.000Z"
     )
     r = await client.post(
-        "/admin/games/new",
+        "/games/hoard-hurt-help/admin/matches/new",
         data={
             "name": "Too Big",
             "scheduled_start": future,
@@ -160,7 +158,7 @@ async def test_web_form_rejects_past_time(client, reset_db):
         "%Y-%m-%dT%H:%M:00.000Z"
     )
     r = await client.post(
-        "/admin/games/new",
+        "/games/hoard-hurt-help/admin/matches/new",
         data={
             "name": "Past",
             "scheduled_start": past,
@@ -188,77 +186,10 @@ async def test_admin_cancel_pre_start(client, reset_db):
         db.add(g)
         await db.commit()
     r = await client.post(
-        "/api/admin/games/G_001/cancel", cookies=_cookies(admin.id)
+        "/api/game-admin/hoard-hurt-help/matches/G_001/cancel",
+        cookies=_cookies(admin.id),
     )
     assert r.status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_admin_delete_game_removes_everything(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
-    async with reset_db() as db:
-        u = User(google_sub="pu", email="pu@test.com")
-        db.add(u)
-        await db.flush()
-        g = Match(
-            id="G_001",
-            name="Doomed",
-            state=GameState.REGISTERING,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-        )
-        db.add(g)
-        await db.flush()
-        agent, version = await make_agent(db, u, name="AI_0")
-        p = Player(
-            match_id="G_001",
-            user_id=u.id,
-            agent_id=agent.id,
-            seat_name="AI_0",
-            agent_version_id=version.id if version is not None else None,
-            model_self_report=version.model if version is not None else None,
-        )
-        db.add(p)
-        await db.flush()
-        if version is not None:
-            version.strategy_text = "plan"
-        await db.commit()
-
-    r = await client.post(
-        "/admin/games/G_001/delete",
-        data={"next": "/admin"},
-        cookies=_cookies(admin.id),
-        follow_redirects=False,
-    )
-    assert r.status_code == 303
-
-    async with reset_db() as db:
-        gone = (await db.execute(select(Match).where(Match.id == "G_001"))).scalar_one_or_none()
-        players = (
-            (await db.execute(select(Player).where(Player.match_id == "G_001"))).scalars().all()
-        )
-    assert gone is None
-    assert players == []
-
-
-@pytest.mark.asyncio
-async def test_non_admin_cannot_delete(client, reset_db):
-    user = await _seed_user(reset_db, "regular@test.com")
-    async with reset_db() as db:
-        g = Match(
-            id="G_001",
-            name="t",
-            state=GameState.REGISTERING,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-        )
-        db.add(g)
-        await db.commit()
-    r = await client.post(
-        "/admin/games/G_001/delete",
-        data={"next": "/admin"},
-        cookies=_cookies(user.id),
-        follow_redirects=False,
-    )
-    assert r.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -312,7 +243,7 @@ async def test_export_csv_shape(client, reset_db):
         await db.commit()
 
     r = await client.get(
-        "/api/admin/games/G_001/export.csv", cookies=_cookies(admin.id)
+        "/api/game-admin/hoard-hurt-help/matches/G_001/export.csv", cookies=_cookies(admin.id)
     )
     assert r.status_code == 200
     text = r.text
@@ -353,8 +284,68 @@ async def test_export_json_includes_strategy_prompts(client, reset_db):
         await db.commit()
 
     r = await client.get(
-        "/api/admin/games/G_001/export.json", cookies=_cookies(admin.id)
+        "/api/game-admin/hoard-hurt-help/matches/G_001/export.json", cookies=_cookies(admin.id)
     )
     assert r.status_code == 200
     payload = r.json()
     assert payload["players"][0]["strategy_prompt"] == "secret strategy"
+
+
+# --- Role boundary tests ---
+
+
+@pytest.mark.asyncio
+async def test_game_admin_only_cannot_access_platform_admin(client, reset_db, monkeypatch):
+    """A user who is only a game admin cannot reach the platform admin dashboard."""
+    monkeypatch.setattr(settings, "platform_admin_emails", "platformonly@test.com")
+    monkeypatch.setattr(settings, "admin_emails", "")
+    monkeypatch.setattr(settings, "_game_admin_emails_raw", {"HOARD_HURT_HELP": "gameonly@test.com"})
+    gameonly = await _seed_user(reset_db, "gameonly@test.com")
+    r = await client.get("/admin", cookies=_cookies(gameonly.id), follow_redirects=False)
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_only_cannot_access_game_admin(client, reset_db, monkeypatch):
+    """A user who is only a platform admin cannot reach the game admin dashboard."""
+    monkeypatch.setattr(settings, "platform_admin_emails", "platformonly@test.com")
+    monkeypatch.setattr(settings, "admin_emails", "")
+    monkeypatch.setattr(settings, "_game_admin_emails_raw", {"HOARD_HURT_HELP": "gameonly@test.com"})
+    platformonly = await _seed_user(reset_db, "platformonly@test.com")
+    r = await client.get(
+        "/games/hoard-hurt-help/admin/", cookies=_cookies(platformonly.id), follow_redirects=False
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_game_admin_wrong_game_cannot_access(client, reset_db, monkeypatch):
+    """A game admin for game X cannot reach the admin dashboard for game Y."""
+    monkeypatch.setattr(settings, "admin_emails", "")
+    monkeypatch.setattr(settings, "_game_admin_emails_raw", {"HOARD_HURT_HELP": "gameonly@test.com"})
+    gameonly = await _seed_user(reset_db, "gameonly@test.com")
+    r = await client.get(
+        "/games/other-game/admin/", cookies=_cookies(gameonly.id), follow_redirects=False
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_game_admin_api_accessible(client, reset_db):
+    """A game admin can create a match via the game-admin API."""
+    admin = await _seed_user(reset_db, "admin@test.com")
+    when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    r = await client.post(
+        "/api/game-admin/hoard-hurt-help/matches",
+        json={"name": "Boundary", "scheduled_start": when, "min_players": 6, "max_players": 10, "per_turn_deadline_seconds": 30},
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_agent_api_not_shadowed(client, reset_db):
+    """The game/{match_id} agent API route is not shadowed by the game-admin router."""
+    # A non-existent match returns 404 from the agent API, not a routing error.
+    r = await client.get("/api/games/NOSUCHID/state")
+    assert r.status_code in (401, 404, 422)  # any non-405 proves the route is reachable

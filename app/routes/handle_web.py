@@ -21,7 +21,7 @@ from app.identity import handle as handle_mod
 from app.identity import word_filter
 from app.identity.handle import HandleError
 from app.models.user import User
-from app.routes.web_support import _is_admin
+from app.routes.web_support import _is_any_admin
 from app.templating import templates
 
 router = APIRouter()
@@ -67,7 +67,7 @@ def _render(
         "handle.html",
         {
             "user": user,
-            "is_admin": _is_admin(user),
+            "is_admin": _is_any_admin(user),
             "value": value,
             "next_url": next_url,
             "changing": changing,

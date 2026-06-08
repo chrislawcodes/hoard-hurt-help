@@ -1,0 +1,27 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "abf4a2935e23b02e459633322bcbc8e8c2286efd",
+  "git_base_ref": "origin/claude/awesome-bohr-fBDnG",
+  "git_base_sha": "e9c316bb0db5f017c9ae0dc55f2af8bcbe7f576a",
+  "paths": [
+    "app/config.py",
+    "app/deps.py",
+    "app/games/hoard_hurt_help",
+    "app/routes",
+    "app/templates",
+    "tests"
+  ],
+  "allowed_dirty_paths": [
+    "AGENTS.md",
+    "MOBILE_UX_ISSUES.md",
+    "_wireframe_nav_smart_cta.png",
+    "_wireframe_nav_smart_cta.svg",
+    "agentludum_agent_codex.py",
+    "docs/workflow/operations",
+    "scripts",
+    "specs/009-game-match-vocabulary"
+  ],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/admin-role-split/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}
