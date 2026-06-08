@@ -1,9 +1,32 @@
 """Presentation helpers for the match viewer and replay data."""
 
+from __future__ import annotations
+
 import json
+from functools import lru_cache
+from pathlib import Path
 
 from app.games import get as get_game_module
 from app.games.base import GameError
+
+# A real, recorded match (G_0016) bundled in the same robot-circle JSON format
+# `_build_rc_data` emits. It seeds the homepage/lobby replay so the animation
+# always plays, even before a live showcase game exists.
+_SAMPLE_REPLAY_PATH = Path(__file__).resolve().parent.parent / "static" / "_rc-g0016-payload.json"
+
+
+@lru_cache(maxsize=1)
+def sample_replay_data() -> str:
+    """Robot-circle replay JSON for the bundled sample match.
+
+    Used as the homepage/lobby fallback so the animated replay is never a dead
+    placeholder. Marked ``sample`` so callers (and any future UI) can tell it
+    apart from a real, just-played game. Read once, then cached.
+    """
+    payload = json.loads(_SAMPLE_REPLAY_PATH.read_text(encoding="utf-8"))
+    payload["sample"] = True
+    payload.setdefault("owners", {})
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _move_effect_for(game_type: str, action: str) -> tuple[int, int | None]:

@@ -177,6 +177,40 @@ async def test_lobby_shows_robot_replay_of_latest_game(client, reset_db):
     assert "AI_0" in r.text  # agents from the finished game are in the replay data
 
 
+def test_sample_replay_data_is_valid_rc_json() -> None:
+    # The bundled fallback parses as rc_data the viewer can render: agents, turns,
+    # and a sample flag so it can be told apart from a real game.
+    from app.routes.viewer_presentation import sample_replay_data
+
+    data = json.loads(sample_replay_data())
+    assert data["sample"] is True
+    assert data["agents"]  # at least one agent
+    assert data["turns"]  # at least one resolved turn
+    assert "owners" in data  # rail byline map present (may be empty)
+
+
+@pytest.mark.asyncio
+async def test_homepage_falls_back_to_sample_replay(client, reset_db):
+    # With no showcase game in the DB, the agent-ludum homepage still shows the
+    # animated replay (seeded from the bundled sample) — not a dead placeholder.
+    r = await client.get("/")
+    assert r.status_code == 200
+    assert 'id="rc-data"' in r.text  # the robot-circle data island is present
+    assert '"sample": true' in r.text  # it's the bundled sample
+    assert "al-rc-ph" not in r.text  # the static placeholder is NOT shown
+
+
+@pytest.mark.asyncio
+async def test_quiet_lobby_falls_back_to_sample_replay(client, reset_db):
+    # No live and no finished showcase game: the quiet lobby plays the sample
+    # replay instead of the "No game running" empty state.
+    r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 200
+    assert 'id="rc-data"' in r.text
+    assert '"sample": true' in r.text
+    assert "No game running right now" not in r.text
+
+
 @pytest.mark.asyncio
 async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
     base = datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc)
