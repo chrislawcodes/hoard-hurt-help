@@ -281,6 +281,23 @@ async def test_create_connection_shows_setup_page_before_connect(
 
 
 @pytest.mark.asyncio
+async def test_connections_list_renders_existing_connection(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user, nickname="My Claude")
+        await db.commit()
+
+    resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
+    assert resp.status_code == 200
+    assert "Your connections" in resp.text
+    assert "My Claude" in resp.text
+    assert "Manage →" in resp.text
+    assert "Disconnected" in resp.text
+
+
+@pytest.mark.asyncio
 async def test_create_connection_reuses_existing_pending_setup(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
