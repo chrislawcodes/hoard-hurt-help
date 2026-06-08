@@ -442,7 +442,6 @@
   function fmtWinsUnit(w){ return (Math.round(w*10)/10) === 1 ? 'round' : 'rounds'; }
 
   var rScore={}, rWins={}, railRowEl={};
-  var drawnPactArcs={};
   var seatEls={};
   AGENTS.forEach(function(id){ rScore[id]=0; rWins[id]=0; });
 
@@ -800,7 +799,6 @@
     updateProgress(i);
     turnlabel.textContent='Round '+t.round+' · Turn '+t.turn;
     fx.innerHTML='';
-    drawnPactArcs={};
     clearPhaseTimers();
     sayReset();
     Object.keys(botEls).forEach(function(id){
@@ -905,18 +903,6 @@
         walk(el, mx, my, function(){
           dropCarry(el);
           lockRing(mx,my);
-          var pairKey=[a.agent,a.target].sort().join('|');
-          if(!drawnPactArcs[pairKey]){
-            drawnPactArcs[pairKey]=true;
-            var parc=document.createElementNS(NS,'line');
-            parc.setAttribute('x1',ax);parc.setAttribute('y1',ay);
-            parc.setAttribute('x2',tx);parc.setAttribute('y2',ty);
-            parc.setAttribute('stroke',C_HELP);parc.setAttribute('stroke-width','1.5');
-            parc.setAttribute('stroke-dasharray','5 5');parc.setAttribute('opacity','0');
-            fx.appendChild(parc);
-            parc.animate([{opacity:0},{opacity:.55,offset:.12},{opacity:.55,offset:.82},{opacity:0}],{duration:scaleDur(1400),fill:'forwards'});
-            setTimeout(function(){parc.remove();},scaleDur(1400)+20);
-          }
           eyes(a.agent,'happy',900); eyes(a.target,'happy',900);
           showDelta(el, 8); showDelta(T, 8);
           rScore[a.agent]=(rScore[a.agent]||0)+8;

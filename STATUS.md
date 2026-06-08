@@ -17,6 +17,7 @@
 
 - _Feature Factory engine ported into `docs/workflow/operations/codex-skills/` (this branch)._
 - Connection setup now uses a draft/setup page and only creates the real connection on first authenticated contact; the connection detail page hides agent lists behind `Agent Details` and keeps `Rotate Key`/pause/delete controls at the bottom.
+- Viewer mutual-help animation no longer draws the dashed connector line between paired agents.
 
 ## Now Unblocked
 
