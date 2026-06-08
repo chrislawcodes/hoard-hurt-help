@@ -49,6 +49,8 @@
         <div class="game-card-info">
             <h3><a href="/me/connections/{{ row.connection.id }}">{{ row.display_name }}</a></h3>
             <p class="meta">
+                {% set connection = row.connection %}
+                {% set health = row.health %}
                 <span class="bot-health-live" hx-get="/me/connections/{{ row.connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
                     {% include "connections/_health_badge.html" %}
                 </span>
