@@ -68,7 +68,7 @@ async def test_setup_screen_leads_with_runner(reset_db) -> None:
         follow_redirects=True,
     ) as c:
         # Creating a connection lands on the setup page with the one-time runner message.
-        r = await c.post("/me/agents/new", data={"provider": "claude", "nickname": "Atlas"})
+        r = await c.post("/me/connections", data={"provider": "claude", "nickname": "Atlas"})
     assert r.status_code == 200, r.text
     body = r.text
     # The chained-session setup is the primary path; the page now hands back
@@ -79,6 +79,4 @@ async def test_setup_screen_leads_with_runner(reset_db) -> None:
     assert "X-Connection-Key" in body
     # Tells the operator how to stop the agent.
     assert "Keep one session per match" in body
-    # The page now keeps the runner instructions in the connection setup card.
-    assert "Connect your connection" in body
-    assert "Waiting for the runner" in body
+    assert "Setup AI Provider Connection" in body
