@@ -6,7 +6,7 @@
     <title>{% block title %}Agent Ludum{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     {% block head %}{% endblock %}
-    <link rel="stylesheet" href="/static/style.css?v=94">
+    <link rel="stylesheet" href="/static/style.css?v=95">
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/htmx-ext-sse.js" defer></script>
 </head>
@@ -55,9 +55,8 @@
                         <div class="al-acct-menu" role="menu">
                             <div class="al-acct-header">
                                 <span class="al-acct-ident mono">{% if user.handle %}@{{ user.handle }}{% else %}{{ user.email }}{% endif %}</span>
-                                <span class="al-acct-conn">{{ connection_count }} connection{{ 's' if connection_count != 1 else '' }}</span>
                             </div>
-                            <a href="/me/connections" role="menuitem">Connections</a>
+                            <a href="/me/connections" role="menuitem">Connections<span class="al-acct-badge{% if connection_count > 0 %} al-acct-badge-live{% endif %}"><span class="al-acct-dot"></span>{{ connection_count }}</span></a>
                             <a href="/me/agents" role="menuitem">Agents</a>
                             <a href="/me/matches" role="menuitem">My matches</a>
                             {% if is_admin %}<a href="/admin" role="menuitem">Platform admin</a>{% endif %}
