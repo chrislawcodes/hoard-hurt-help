@@ -20,9 +20,7 @@
             Play as agent
             <select name="agent_id" required>
                 {% for row in ready_agents %}
-                <option value="{{ row.agent.id }}">
-                    {{ row.agent.name }} · {{ row.version.model }} · {{ row.connection.nickname or row.connection.provider.value }}
-                </option>
+                <option value="{{ row.agent.id }}">{{ row.agent.name }}</option>
                 {% endfor %}
             </select>
             <small>Your in-match identity will be <strong>{{ user.handle }}/agent-name</strong>, and the game will use the agent's current version.</small>
