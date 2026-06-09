@@ -22,7 +22,7 @@ from alembic import command
 from alembic.config import Config
 
 import app.config as app_config
-from app.db_bootstrap import detect_legacy_revision, prepare_database_for_upgrade
+from app.db_bootstrap import detect_legacy_revision, prepare_database_for_upgrade, verify_required_tables
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -262,3 +262,36 @@ def test_migration_guard_skips_when_at_head(tmp_path: Path) -> None:
     state = conn.execute("SELECT state FROM matches WHERE id='M_TEST'").fetchone()[0]
     conn.close()
     assert state == "active"
+
+
+# --- verify_required_tables startup check ---
+
+
+def test_verify_required_tables_passes_at_head(tmp_path: Path) -> None:
+    """verify_required_tables must not raise when all migrations have run."""
+    db_path = tmp_path / "verify_ok.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+
+    up = _run_alembic(["upgrade", "head"], db_path)
+    assert up.returncode == 0, f"upgrade head failed:\n{up.stdout}\n{up.stderr}"
+
+    # Should complete without raising.
+    verify_required_tables(db_url)
+
+
+def test_verify_required_tables_raises_when_connection_setups_missing(tmp_path: Path) -> None:
+    """verify_required_tables must raise RuntimeError when connection_setups is absent.
+
+    This simulates a deployment that ran migrations only up to revision 0023
+    (before connection_setups was added in 0024).
+    """
+    db_path = tmp_path / "verify_missing.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+
+    up = _run_alembic(["upgrade", "0023"], db_path)
+    assert up.returncode == 0, f"upgrade 0023 failed:\n{up.stdout}\n{up.stderr}"
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="connection_setups"):
+        verify_required_tables(db_url)

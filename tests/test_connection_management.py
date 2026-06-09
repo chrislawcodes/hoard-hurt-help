@@ -9,7 +9,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from itsdangerous import TimestampSigner
 from starlette.middleware.sessions import SessionMiddleware
@@ -611,6 +612,52 @@ async def test_pending_connections_gc_after_24h(session_factory: async_sessionma
             await db.execute(select(ConnectionSetup).order_by(ConnectionSetup.created_at))
         ).scalars().all()
         assert [setup.id for setup in remaining] == [fresh.id]
+
+
+@pytest.mark.asyncio
+async def test_gc_raises_when_connection_setups_table_missing(
+    engine: AsyncEngine,
+) -> None:
+    """gc_pending_connections must propagate OperationalError when the table is missing.
+
+    The old shim silently returned 0 so a missing migration was invisible.
+    After the shim was removed, the DB error surfaces immediately.
+    """
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        # Drop the connection_setups table to simulate a pre-migration deployment.
+        await conn.execute(text("DROP TABLE connection_setups"))
+
+    bare_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with bare_factory() as db:
+        with pytest.raises(OperationalError):
+            await gc_pending_connections(db, now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_load_pending_setups_raises_when_table_missing(
+    engine: AsyncEngine,
+) -> None:
+    """_load_pending_setups must propagate OperationalError when the table is missing.
+
+    The old shim returned [] so callers never knew the table was absent.
+    After the shim was removed, the DB error surfaces immediately.
+
+    Note: _load_pending_setups is a module-level helper tested directly here
+    rather than through the HTTP layer, because ASGITransport in httpx raises
+    unhandled server errors as exceptions rather than returning 500 responses.
+    """
+    from app.routes.connections_setup import _load_pending_setups
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        # Drop the connection_setups table to simulate a pre-migration deployment.
+        await conn.execute(text("DROP TABLE connection_setups"))
+
+    bare_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with bare_factory() as db:
+        with pytest.raises(OperationalError):
+            await _load_pending_setups(db, user_id=1)
 
 
 @pytest.mark.asyncio

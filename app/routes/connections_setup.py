@@ -8,7 +8,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
 from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, settings
@@ -18,7 +17,7 @@ from app.engine.pending_connection_gc import gc_pending_connections
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection import Connection, ConnectionProvider
 from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 from app.templating import templates
@@ -172,44 +171,23 @@ async def _load_owned_connection(db: DbSession, user: User, connection_id: int) 
     return connection
 
 
-async def _load_resumeable_pending_connection(
-    db: DbSession, user_id: int, provider: ConnectionProvider
-) -> Connection | None:
-    """Return the newest pending connection for this provider, if one exists."""
-    return (
-        await db.execute(
-            select(Connection)
-            .where(
-                Connection.user_id == user_id,
-                Connection.provider == provider,
-                Connection.status == ConnectionStatus.PENDING,
-                Connection.deleted_at.is_(None),
-                Connection.first_connected_at.is_(None),
-            )
-            .order_by(Connection.created_at.desc(), Connection.id.desc())
-        )
-    ).scalar_one_or_none()
-
 
 async def _load_pending_setups(db: DbSession, user_id: int) -> list[ConnectionSetup]:
-    try:
-        rows = (
-            (
-                await db.execute(
-                    select(ConnectionSetup)
-                    .where(
-                        ConnectionSetup.user_id == user_id,
-                        ConnectionSetup.completed_at.is_(None),
-                    )
-                    .order_by(ConnectionSetup.created_at.desc(), ConnectionSetup.id.desc())
+    rows = (
+        (
+            await db.execute(
+                select(ConnectionSetup)
+                .where(
+                    ConnectionSetup.user_id == user_id,
+                    ConnectionSetup.completed_at.is_(None),
                 )
+                .order_by(ConnectionSetup.created_at.desc(), ConnectionSetup.id.desc())
             )
-            .scalars()
-            .all()
         )
-        return list(rows)
-    except OperationalError:
-        return []
+        .scalars()
+        .all()
+    )
+    return list(rows)
 
 
 async def _load_resumeable_pending_setup(
@@ -235,16 +213,6 @@ def _issue_setup_key(setup: ConnectionSetup) -> str:
     setup.key_hint = bot_key_hint(key)
     return key
 
-
-def _issue_connection_key(connection: Connection, *, keep_old_overlap: bool) -> str:
-    key = generate_connection_key()
-    if keep_old_overlap and connection.prev_key_lookup is None:
-        connection.prev_key_lookup = connection.key_lookup
-    connection.key_lookup = bot_key_lookup(key)
-    connection.key_hint = bot_key_hint(key)
-    if not keep_old_overlap:
-        connection.prev_key_lookup = None
-    return key
 
 
 @router.get("", response_class=HTMLResponse)
@@ -304,53 +272,27 @@ async def create_connection(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Unknown provider.") from exc
 
-    try:
-        setup = await _load_resumeable_pending_setup(db, user.id, provider_choice)
-        if setup is None:
-            key = generate_connection_key()
-            setup = ConnectionSetup(
-                user_id=user.id,
-                nickname=(nickname.strip() if nickname and nickname.strip() else None),
-                provider=provider_choice,
-                key_lookup=bot_key_lookup(key),
-                key_hint=bot_key_hint(key),
-            )
-            db.add(setup)
-            await db.flush()
-        else:
-            if nickname and nickname.strip():
-                setup.nickname = nickname.strip()
-            key = _issue_setup_key(setup)
-        await db.commit()
-        request.session[f"fresh_connection_key_setup_{setup.id}"] = key
-        return RedirectResponse(
-            url=f"/me/connections/setup/{setup.id}", status_code=status.HTTP_303_SEE_OTHER
-        )
-    except OperationalError:
-        # Backward compatibility for deployments that haven't created the draft
-        # setup table yet. Fall back to the legacy pending connection row so the
-        # page keeps working instead of crashing.
+    setup = await _load_resumeable_pending_setup(db, user.id, provider_choice)
+    if setup is None:
         key = generate_connection_key()
-        connection = await _load_resumeable_pending_connection(db, user.id, provider_choice)
-        if connection is None:
-            connection = Connection(
-                user_id=user.id,
-                nickname=(nickname.strip() if nickname and nickname.strip() else None),
-                provider=provider_choice,
-                key_lookup=bot_key_lookup(key),
-                key_hint=bot_key_hint(key),
-                status=ConnectionStatus.PENDING,
-            )
-            db.add(connection)
-            await db.flush()
-        elif nickname and nickname.strip():
-            connection.nickname = nickname.strip()
-            key = _issue_connection_key(connection, keep_old_overlap=True)
-        await db.commit()
-        request.session[f"fresh_connection_key_{connection.id}"] = key
-        return RedirectResponse(
-            url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
+        setup = ConnectionSetup(
+            user_id=user.id,
+            nickname=(nickname.strip() if nickname and nickname.strip() else None),
+            provider=provider_choice,
+            key_lookup=bot_key_lookup(key),
+            key_hint=bot_key_hint(key),
         )
+        db.add(setup)
+        await db.flush()
+    else:
+        if nickname and nickname.strip():
+            setup.nickname = nickname.strip()
+        key = _issue_setup_key(setup)
+    await db.commit()
+    request.session[f"fresh_connection_key_setup_{setup.id}"] = key
+    return RedirectResponse(
+        url=f"/me/connections/setup/{setup.id}", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 async def _load_owned_connection_setup(
