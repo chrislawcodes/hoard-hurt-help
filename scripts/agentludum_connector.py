@@ -65,10 +65,9 @@ _ENGAGE = (
     "let their words shape your move."
 )
 
-# Claude's JSON `usage` block maps onto these four billing buckets. On a resumed
-# session most input should land in `cache_read`; if `fresh_in`/`cache_write` stay
-# large every turn the prefix is NOT being reused. Only the Claude adapter reports
-# usage; the others leave it None.
+# Claude/Codex usage maps onto these four billing buckets. On a resumed session
+# most input should land in `cache_read`; if `fresh_in`/`cache_write` stay large
+# every turn the prefix is NOT being reused.
 _TOKEN_KEYS = ("fresh_in", "cache_write", "cache_read", "out")
 _session_tokens: dict[str, int] = {k: 0 for k in _TOKEN_KEYS}
 
@@ -235,7 +234,9 @@ class _CodexAdapter:
     cli = "codex"
     default_model = "gpt-5.4-mini"
 
-    def _call(self, resume_id: str | None, model: str, prompt: str) -> tuple[str, str]:
+    def _call(
+        self, resume_id: str | None, model: str, prompt: str
+    ) -> tuple[str, str, dict[str, int] | None]:
         argv = ["codex", "exec"]
         if resume_id:
             argv += ["resume", resume_id]
@@ -249,21 +250,22 @@ class _CodexAdapter:
             tid = resume_id or _thread_id_from_jsonl(proc.stdout)
             if tid is None:
                 raise RuntimeError(f"codex did not report a thread_id:\n{proc.stdout[:300]}")
+            usage = _codex_usage(proc.stdout)
             try:
                 answer = out_file.read_text().strip()
             except OSError as exc:
                 raise RuntimeError(f"could not read codex output file: {exc}") from exc
         if not answer:
             raise RuntimeError(f"codex returned an empty final message:\n{proc.stdout[:300]}")
-        return answer, tid
+        return answer, tid, usage
 
     def first(self, *, body: str, framing: str, model: str, session: _GameSession):
-        text, session.token = self._call(None, model, f"{framing}\n\n{body}")
-        return text, None
+        text, session.token, usage = self._call(None, model, f"{framing}\n\n{body}")
+        return text, usage
 
     def resume(self, *, body: str, model: str, session: _GameSession):
-        text, _ = self._call(str(session.token), model, body)
-        return text, None
+        text, _, usage = self._call(str(session.token), model, body)
+        return text, usage
 
 
 class _GeminiAdapter:
@@ -274,7 +276,9 @@ class _GeminiAdapter:
     cli = "gemini"
     default_model = "gemini-3-flash-preview"
 
-    def _call(self, session_id: str, model: str, prompt: str, *, resume: bool) -> str:
+    def _call(
+        self, session_id: str, model: str, prompt: str, *, resume: bool
+    ) -> tuple[str, dict[str, int] | None]:
         argv = ["gemini", "-p", prompt]
         argv += ["--resume", session_id] if resume else ["--session-id", session_id]
         argv += ["--output-format", "json", "--skip-trust", "-m", model]
@@ -288,14 +292,14 @@ class _GeminiAdapter:
         response = data.get("response")
         if not response:
             raise RuntimeError(f"gemini returned no response field:\n{proc.stdout[:300]}")
-        return str(response)
+        return str(response), _gemini_usage(data)
 
     def first(self, *, body: str, framing: str, model: str, session: _GameSession):
         session.token = str(uuid.uuid4())
-        return self._call(session.token, model, f"{framing}\n\n{body}", resume=False), None
+        return self._call(session.token, model, f"{framing}\n\n{body}", resume=False)
 
     def resume(self, *, body: str, model: str, session: _GameSession):
-        return self._call(str(session.token), model, body, resume=True), None
+        return self._call(str(session.token), model, body, resume=True)
 
 
 # Adapter registry keyed by the server's provider value.
@@ -330,6 +334,57 @@ def _claude_usage(data: dict) -> dict[str, int]:
         "cache_write": u.get("cache_creation_input_tokens", 0),
         "cache_read": u.get("cache_read_input_tokens", 0),
         "out": u.get("output_tokens", 0),
+    }
+
+
+def _codex_usage(stdout: str) -> dict[str, int] | None:
+    """Extract Codex usage from its JSONL stream."""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "turn.completed":
+            continue
+        raw_usage = event.get("usage") or {}
+        if not isinstance(raw_usage, dict):
+            return None
+        input_tokens = int(raw_usage.get("input_tokens", 0) or 0)
+        cached_input_tokens = int(raw_usage.get("cached_input_tokens", 0) or 0)
+        output_tokens = int(raw_usage.get("output_tokens", 0) or 0)
+        reasoning_output_tokens = int(raw_usage.get("reasoning_output_tokens", 0) or 0)
+        return {
+            "fresh_in": max(input_tokens - cached_input_tokens, 0),
+            "cache_write": 0,
+            "cache_read": max(cached_input_tokens, 0),
+            "out": max(output_tokens + reasoning_output_tokens, 0),
+        }
+    return None
+
+
+def _gemini_usage(data: dict) -> dict[str, int] | None:
+    """Extract Gemini usage from the `stats` block."""
+    stats = data.get("stats", {})
+    models = stats.get("models", {}) if isinstance(stats, dict) else {}
+    if not isinstance(models, dict) or not models:
+        return None
+    model_stats = next(iter(models.values()))
+    if not isinstance(model_stats, dict):
+        return None
+    tokens = model_stats.get("tokens") or {}
+    if not isinstance(tokens, dict):
+        return None
+    input_tokens = int(tokens.get("input", 0) or 0)
+    cached_tokens = int(tokens.get("cached", 0) or 0)
+    total_tokens = int(tokens.get("total", 0) or 0)
+    return {
+        "fresh_in": max(input_tokens - cached_tokens, 0),
+        "cache_write": 0,
+        "cache_read": max(cached_tokens, 0),
+        "out": max(total_tokens - input_tokens, 0),
     }
 
 
