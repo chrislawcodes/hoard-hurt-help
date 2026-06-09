@@ -529,7 +529,7 @@ async def test_delete_active_match_succeeds(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
 
     async with reset_db() as db:
-        u = await make_user(db, i=99)
+        await make_user(db, i=99)
         await db.flush()
         g = Match(
             id="G_ACTIVE",
