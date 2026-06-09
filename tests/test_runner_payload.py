@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -135,3 +136,137 @@ def test_sessions_are_scoped_by_agent_and_match(runner, monkeypatch):
     assert calls[1][0:2] == ("first", "claude-opus-4-8")
     assert calls[2][0:2] == ("resume", "claude-haiku-4-5")
 
+
+def test_decide_records_codex_usage(runner, monkeypatch):
+    stdout = "\n".join(
+        [
+            '{"type":"thread.started","thread_id":"thread-123"}',
+            '{"type":"turn.started"}',
+            (
+                '{"type":"turn.completed","usage":{'
+                '"input_tokens":11434,'
+                '"cached_input_tokens":4480,'
+                '"output_tokens":32,'
+                '"reasoning_output_tokens":21'
+                "}}"
+            ),
+        ]
+    )
+
+    class Proc:
+        def __init__(self, stdout_text: str) -> None:
+            self.returncode = 0
+            self.stdout = stdout_text
+            self.stderr = ""
+
+    def fake_run(argv, stdin_input=None):
+        out_file = Path(argv[argv.index("--output-last-message") + 1])
+        out_file.write_text('{"action":"HOARD","target_id":null,"thinking":"x"}')
+        return Proc(stdout)
+
+    recorded: list[tuple[str, int, int, dict[str, int]]] = []
+
+    def fake_record_usage(game_id, cur, usage, sess):
+        recorded.append((game_id, cur["round"], cur["turn"], dict(usage)))
+
+    monkeypatch.setattr(runner, "_run", fake_run)
+    monkeypatch.setattr(runner, "_record_usage", fake_record_usage)
+
+    turn = _turn(
+        match_id="M_1",
+        agent_id="A",
+        agent_name="Alpha",
+        model="gpt-5.4-mini",
+        version_no=1,
+        turn_no=2,
+        token="turn-a-2",
+    )
+    sess = runner._GameSession(provider="openai", model="gpt-5.4-mini")
+
+    move = runner._decide(turn, sess)
+
+    assert move == {"action": "HOARD", "target_id": None, "thinking": "x"}
+    assert sess.token == "thread-123"
+    assert recorded == [
+        (
+            "M_1",
+            1,
+            2,
+            {
+                "fresh_in": 6954,
+                "cache_write": 0,
+                "cache_read": 4480,
+                "out": 53,
+            },
+        )
+    ]
+
+
+def test_decide_records_gemini_usage(runner, monkeypatch):
+    stdout = json.dumps(
+        {
+            "session_id": "fd9a7884-4dbd-4251-808c-8cadea13dbb9",
+            "response": '{"action":"HOARD","target_id":null,"thinking":"x"}',
+            "stats": {
+                "models": {
+                    "gemini-3-flash-preview": {
+                        "tokens": {
+                            "input": 9291,
+                            "prompt": 9291,
+                            "candidates": 5,
+                            "total": 9331,
+                            "cached": 4480,
+                            "thoughts": 35,
+                            "tool": 0,
+                        }
+                    }
+                }
+            },
+        }
+    )
+
+    class Proc:
+        def __init__(self, stdout_text: str) -> None:
+            self.returncode = 0
+            self.stdout = stdout_text
+            self.stderr = ""
+
+    def fake_run(argv, stdin_input=None):
+        return Proc(stdout)
+
+    recorded: list[tuple[str, int, int, dict[str, int]]] = []
+
+    def fake_record_usage(game_id, cur, usage, sess):
+        recorded.append((game_id, cur["round"], cur["turn"], dict(usage)))
+
+    monkeypatch.setattr(runner, "_run", fake_run)
+    monkeypatch.setattr(runner, "_record_usage", fake_record_usage)
+
+    turn = _turn(
+        match_id="M_2",
+        agent_id="A",
+        agent_name="Alpha",
+        model="gemini-3-flash-preview",
+        version_no=1,
+        turn_no=3,
+        token="turn-a-3",
+    )
+    sess = runner._GameSession(provider="gemini", model="gemini-3-flash-preview")
+
+    move = runner._decide(turn, sess)
+
+    assert move == {"action": "HOARD", "target_id": None, "thinking": "x"}
+    assert sess.token is not None
+    assert recorded == [
+        (
+            "M_2",
+            1,
+            3,
+            {
+                "fresh_in": 4811,
+                "cache_write": 0,
+                "cache_read": 4480,
+                "out": 40,
+            },
+        )
+    ]
