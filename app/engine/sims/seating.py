@@ -19,7 +19,7 @@ import re
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.sim_presets import sim_preset_by_id
+from app.engine.bot_presets import bot_preset_by_id
 from app.engine.sims.roster import is_known_personality
 from app.models.agent import Agent, AgentKind
 from app.models.match import Match
@@ -118,7 +118,7 @@ async def add_bots_to_game(
     bots_user = await get_or_create_bots_user(db)
     created: list[Player] = []
     for name, strategy in seats:
-        preset = sim_preset_by_id(strategy)
+        preset = bot_preset_by_id(strategy)
         if preset is None:  # guarded by _validate_roster, kept for type-safety
             raise SimSeatingError(f"Unknown personality: {strategy!r}.")
         agent = Agent(

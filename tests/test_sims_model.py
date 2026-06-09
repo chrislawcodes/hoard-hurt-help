@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select, text
 
 from app.db import make_engine
-from app.engine.sim_presets import HISTORICAL_SIM_NAME_POOL
+from app.engine.bot_presets import HISTORICAL_BOT_NAME_POOL
 from app.models import Agent, AgentKind, Base, Match, GameState
 from tests.factories import make_agent, make_user
 
@@ -29,12 +29,12 @@ async def reset_db(monkeypatch):
 
 
 def test_historical_sim_name_pool_has_curated_display_safe_names() -> None:
-    assert len(HISTORICAL_SIM_NAME_POOL) == 125
-    assert len(set(HISTORICAL_SIM_NAME_POOL)) == len(HISTORICAL_SIM_NAME_POOL)
-    assert all("_" not in name for name in HISTORICAL_SIM_NAME_POOL)
+    assert len(HISTORICAL_BOT_NAME_POOL) == 125
+    assert len(set(HISTORICAL_BOT_NAME_POOL)) == len(HISTORICAL_BOT_NAME_POOL)
+    assert all("_" not in name for name in HISTORICAL_BOT_NAME_POOL)
     assert all(
         re.fullmatch(r"[A-Za-z0-9 ]{1,32}", name)
-        for name in HISTORICAL_SIM_NAME_POOL
+        for name in HISTORICAL_BOT_NAME_POOL
     )
 
 

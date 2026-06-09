@@ -11,15 +11,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.db import make_engine
 from app.engine.arena import (
     AUTO_MATCH_MAX_PLAYERS,
-    AUTO_MATCH_SIM_COUNT_MAX,
+    AUTO_MATCH_BOT_COUNT_MAX,
     PRACTICE_ARENA_MAX_PLAYERS,
     PRACTICE_ARENA_NAME,
-    PRACTICE_ARENA_SIM_COUNT,
+    PRACTICE_ARENA_BOT_COUNT,
     ensure_auto_match,
     ensure_practice_arena,
     fill_and_start_auto_matches,
 )
-from app.engine.sim_presets import HISTORICAL_SIM_NAME_POOL
+from app.engine.bot_presets import HISTORICAL_BOT_NAME_POOL
 from app.models import Base
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -62,13 +62,13 @@ async def test_ensure_creates_practice_arena_when_none_exists(db_session):
         assert arena.state == GameState.REGISTERING
         assert arena.max_players == PRACTICE_ARENA_MAX_PLAYERS
 
-        # Should have PRACTICE_ARENA_SIM_COUNT pre-seated Sim players.
+        # Should have PRACTICE_ARENA_BOT_COUNT pre-seated Sim players.
         sim_count = await db.scalar(
             select(func.count()).select_from(Player).where(
                 Player.match_id == arena.id, Player.left_at.is_(None)
             )
         )
-        assert sim_count == PRACTICE_ARENA_SIM_COUNT
+        assert sim_count == PRACTICE_ARENA_BOT_COUNT
         seat_names = (
             (
                 await db.execute(
@@ -80,7 +80,7 @@ async def test_ensure_creates_practice_arena_when_none_exists(db_session):
             .scalars()
             .all()
         )
-        assert seat_names == list(HISTORICAL_SIM_NAME_POOL[:PRACTICE_ARENA_SIM_COUNT])
+        assert seat_names == list(HISTORICAL_BOT_NAME_POOL[:PRACTICE_ARENA_BOT_COUNT])
 
 
 async def test_ensure_practice_arena_idempotent(db_session):
@@ -141,7 +141,7 @@ async def test_ensure_practice_arena_recovers_from_empty_arena(db_session):
                 Player.match_id == new_arena.id, Player.left_at.is_(None)
             )
         )
-        assert bot_count == PRACTICE_ARENA_SIM_COUNT
+        assert bot_count == PRACTICE_ARENA_BOT_COUNT
 
 
 async def test_ensure_practice_arena_recreates_after_completion(db_session):
@@ -246,7 +246,7 @@ async def test_fill_and_start_auto_matches_fills_sims(db_session):
                 Player.match_id == match_id, Player.left_at.is_(None)
             )
         )
-        expected_count = 1 + min(AUTO_MATCH_MAX_PLAYERS - 1, AUTO_MATCH_SIM_COUNT_MAX)
+        expected_count = 1 + min(AUTO_MATCH_MAX_PLAYERS - 1, AUTO_MATCH_BOT_COUNT_MAX)
         assert player_count == expected_count
         seat_names = set(
             (
@@ -259,7 +259,7 @@ async def test_fill_and_start_auto_matches_fills_sims(db_session):
             .scalars()
             .all()
         )
-        assert seat_names == {"Human1", *HISTORICAL_SIM_NAME_POOL[: player_count - 1]}
+        assert seat_names == {"Human1", *HISTORICAL_BOT_NAME_POOL[: player_count - 1]}
 
 
 async def test_fill_and_start_auto_matches_zero_humans_cancels(db_session):

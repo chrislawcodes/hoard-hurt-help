@@ -1,4 +1,4 @@
-"""Preset Sim profiles and helper naming utilities."""
+"""Preset bot profiles and helper naming utilities."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class SimPreset:
+class BotPreset:
     id: str
     name: str
     description: str
@@ -16,8 +16,8 @@ class SimPreset:
     seed_offset: int
 
 
-SIM_PRESETS: tuple[SimPreset, ...] = (
-    SimPreset(
+BOT_PRESETS: tuple[BotPreset, ...] = (
+    BotPreset(
         id="coalition_seeker",
         name="Coalition Seeker",
         description="Looks for useful mutual-help lanes and sticks to them.",
@@ -26,7 +26,7 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
         trust_model="even",
         seed_offset=0,
     ),
-    SimPreset(
+    BotPreset(
         id="loyal_partner",
         name="Loyal Partner",
         description="Builds one reliable partnership and protects it.",
@@ -35,7 +35,7 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
         trust_model="open",
         seed_offset=1,
     ),
-    SimPreset(
+    BotPreset(
         id="grudger",
         name="Grudger",
         description="Starts open, then remembers betrayal hard.",
@@ -44,7 +44,7 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
         trust_model="bitter",
         seed_offset=2,
     ),
-    SimPreset(
+    BotPreset(
         id="leader_pressure",
         name="Leader Pressure",
         description="Targets the current leader when the gap gets too large.",
@@ -53,7 +53,7 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
         trust_model="careful",
         seed_offset=3,
     ),
-    SimPreset(
+    BotPreset(
         id="opportunist",
         name="Opportunist",
         description="Helps when it helps, hoards when it can get away with it.",
@@ -62,7 +62,7 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
         trust_model="twitchy",
         seed_offset=4,
     ),
-    SimPreset(
+    BotPreset(
         id="endgame_sniper",
         name="Endgame Sniper",
         description="Plays patient early, then turns sharp near the finish.",
@@ -71,7 +71,7 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
         trust_model="even",
         seed_offset=5,
     ),
-    SimPreset(
+    BotPreset(
         id="diplomat",
         name="Diplomat",
         description="Tries to keep peace and repair trust before conflict escalates.",
@@ -80,7 +80,7 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
         trust_model="open",
         seed_offset=6,
     ),
-    SimPreset(
+    BotPreset(
         id="crowd_follower",
         name="Crowd Follower",
         description="Copies the pattern that seems to be working.",
@@ -91,7 +91,7 @@ SIM_PRESETS: tuple[SimPreset, ...] = (
     ),
 )
 
-HISTORICAL_SIM_NAME_POOL: tuple[str, ...] = (
+HISTORICAL_BOT_NAME_POOL: tuple[str, ...] = (
     # Africa and North Africa
     "Cleopatra",
     "Hannibal",
@@ -228,24 +228,24 @@ HISTORICAL_SIM_NAME_POOL: tuple[str, ...] = (
 )
 
 
-def sim_presets() -> list[SimPreset]:
-    return list(SIM_PRESETS)
+def bot_presets() -> list[BotPreset]:
+    return list(BOT_PRESETS)
 
 
-def sim_preset_by_id(preset_id: str) -> SimPreset | None:
-    return next((preset for preset in SIM_PRESETS if preset.id == preset_id), None)
+def bot_preset_by_id(preset_id: str) -> BotPreset | None:
+    return next((preset for preset in BOT_PRESETS if preset.id == preset_id), None)
 
 
-def build_sim_bot_name(
+def build_bot_name(
     *,
     used_names: set[str] | None = None,
     name_index: int = 0,
 ) -> str:
-    """Build the default display name for a preset Sim bot."""
+    """Build the default display name for a preset bot."""
     taken = used_names if used_names is not None else set()
-    for offset in range(len(HISTORICAL_SIM_NAME_POOL)):
-        candidate = HISTORICAL_SIM_NAME_POOL[
-            (name_index + offset) % len(HISTORICAL_SIM_NAME_POOL)
+    for offset in range(len(HISTORICAL_BOT_NAME_POOL)):
+        candidate = HISTORICAL_BOT_NAME_POOL[
+            (name_index + offset) % len(HISTORICAL_BOT_NAME_POOL)
         ]
         if candidate not in taken:
             return candidate
@@ -257,16 +257,16 @@ def build_sim_bot_name(
         suffix += 1
 
 
-def allocate_default_sim_names(
+def allocate_default_bot_names(
     count: int,
     *,
     used_names: set[str] | None = None,
 ) -> list[str]:
-    """Pick default Sim names from the historical leader pool."""
+    """Pick default bot names from the historical leader pool."""
     taken = set(used_names or set())
     names: list[str] = []
     for index in range(count):
-        name = build_sim_bot_name(used_names=taken, name_index=index)
+        name = build_bot_name(used_names=taken, name_index=index)
         names.append(name)
         taken.add(name)
     return names

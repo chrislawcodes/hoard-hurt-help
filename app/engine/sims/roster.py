@@ -12,10 +12,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from app.engine.sim_presets import (
-    HISTORICAL_SIM_NAME_POOL,
-    SIM_PRESETS,
-    allocate_default_sim_names,
+from app.engine.bot_presets import (
+    HISTORICAL_BOT_NAME_POOL,
+    BOT_PRESETS,
+    allocate_default_bot_names,
 )
 
 # Each personality leans toward one of the three actions. Used only to colour a
@@ -43,7 +43,7 @@ class Personality:
 
 PERSONALITIES: tuple[Personality, ...] = tuple(
     Personality(p.id, p.name, p.description, _LEAN.get(p.id, "hoard"))
-    for p in SIM_PRESETS
+    for p in BOT_PRESETS
 )
 
 _PERSONALITY_IDS: frozenset[str] = frozenset(p.id for p in PERSONALITIES)
@@ -83,7 +83,7 @@ PACKS: tuple[Pack, ...] = (
 
 # Default Sim names. These are historical generals and leaders; multi-word
 # names use spaces for display.
-SIM_NAME_POOL: tuple[str, ...] = HISTORICAL_SIM_NAME_POOL
+SIM_NAME_POOL: tuple[str, ...] = HISTORICAL_BOT_NAME_POOL
 
 
 def is_known_personality(strategy: str) -> bool:
@@ -96,4 +96,4 @@ def allocate_default_names(count: int, used: Iterable[str]) -> list[str]:
     Walks the historical leader pool first, then falls back to ``Leader N`` if
     a very large table exhausts it.
     """
-    return allocate_default_sim_names(count, used_names=set(used))
+    return allocate_default_bot_names(count, used_names=set(used))
