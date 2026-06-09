@@ -54,6 +54,18 @@ async def test_agent_runner_scripts_are_served() -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_specific_setup_scripts_are_served() -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        for name in ("agentludum_setup_hermes.py", "agentludum_setup_openclaw.py"):
+            r = await c.get(f"/setup-files/{name}")
+            assert r.status_code == 200, name
+            assert "agentludum_connector.py" in r.text, name
+        bad = await c.get("/setup-files/secrets.py")
+        assert bad.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_setup_screen_leads_with_setup_instructions(reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)
@@ -74,7 +86,7 @@ async def test_setup_screen_leads_with_setup_instructions(reset_db) -> None:
     # The setup path is the primary path; the page now hands back setup instructions.
     assert "curl -fsSL" in body
     assert "/setup-files/agentludum_connector.py" in body
-    assert "This connection uses the Claude login I already have." in body
+    assert "This setup uses the login I already have." in body
     assert "X-Connection-Key" in body
     assert "Keep one session per match" in body
     assert "Setup instructions" in body

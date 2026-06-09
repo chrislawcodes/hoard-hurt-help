@@ -303,6 +303,37 @@ async def test_connections_list_groups_provider_choices(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider", "script_name"),
+    (
+        ("hermes", "agentludum_setup_hermes.py"),
+        ("openclaw", "agentludum_setup_openclaw.py"),
+    ),
+)
+async def test_setup_page_uses_provider_specific_runner(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    provider: str,
+    script_name: str,
+) -> None:
+    async with session_factory() as db:
+        user = await _make_user(db)
+        await db.commit()
+
+    resp = await client.post(
+        "/me/connections",
+        cookies=_signed_in_cookies(user.id),
+        data={"provider": provider, "nickname": f"My {provider.title()}"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert script_name in resp.text
+    assert f"setup-files/{script_name}" in resp.text
+    assert "X-Connection-Key" in resp.text
+    assert "mcp" not in resp.text.lower()
+
+
+@pytest.mark.asyncio
 async def test_connections_list_renders_existing_connection(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
