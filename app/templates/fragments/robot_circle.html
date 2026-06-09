@@ -328,8 +328,8 @@
         <button type="button" id="rc-next">Next ›</button>
         <span class="rc-speed" role="group" aria-label="Playback speed">
           <button type="button" class="rc-speed-btn" data-speed="1">1×</button>
-          <button type="button" class="rc-speed-btn" data-speed="2">2×</button>
-          <button type="button" class="rc-speed-btn is-active" data-speed="3">3×</button>
+          <button type="button" class="rc-speed-btn is-active" data-speed="2">2×</button>
+          <button type="button" class="rc-speed-btn" data-speed="3">3×</button>
         </span>
         <label class="rc-skiptalk"><input type="checkbox" id="rc-skiptalk"> Skip talk</label>
       </div>
@@ -362,7 +362,7 @@
   // scheduleNext()'s inter-turn delay, stays in sync at any speed without
   // touching each call site. Durations passed to element.animate() are scaled
   // separately via scaleDur(). Default speed 2 = snappier than the original pace.
-  var speed = 3;
+  var speed = 2;
   var skipTalk = false;
   var _setTimeout = window.setTimeout.bind(window);
   function setTimeout(fn, delay) { return _setTimeout(fn, Math.round((delay || 0) / speed)); }
