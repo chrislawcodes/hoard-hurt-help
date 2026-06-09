@@ -388,7 +388,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "id": g.id,
             "game_type": g.game,
             "name": g.name,
-            "scheduled_start": g.scheduled_start.isoformat(),
+            "scheduled_start": g.scheduled_start,
             "state": g.state,
             "min_players": g.min_players,
             "max_players": g.max_players,

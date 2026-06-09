@@ -166,7 +166,7 @@ async def export_json(
             "id": g.id,
             "name": g.name,
             "state": g.state.value,
-            "scheduled_start": g.scheduled_start.isoformat(),
+            "scheduled_start": g.scheduled_start.isoformat() if g.scheduled_start else None,
             "started_at": g.started_at.isoformat() if g.started_at else None,
             "completed_at": g.completed_at.isoformat() if g.completed_at else None,
             "rules_version": g.rules_version,

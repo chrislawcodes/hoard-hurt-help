@@ -80,7 +80,7 @@ async def _upcoming_views(db) -> list[dict]:
                 "game_type": g.game,
                 "name": g.name,
                 "match_kind": g.match_kind,
-                "scheduled_start": g.scheduled_start.isoformat(),
+                "scheduled_start": g.scheduled_start,
                 "max_players": g.max_players,
                 "player_count": await _player_count(db, g.id),
             }
