@@ -295,3 +295,98 @@ def test_verify_required_tables_raises_when_connection_setups_missing(tmp_path: 
 
     with pytest.raises(RuntimeError, match="connection_setups"):
         verify_required_tables(db_url)
+
+
+# --- OAuth startup validation (_check_oauth_config) ---
+
+
+def test_check_oauth_config_raises_on_railway_when_both_missing(monkeypatch) -> None:
+    """On Railway, missing both OAuth vars must raise RuntimeError naming them."""
+    import pytest
+
+    import app.main as app_main
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env_test")
+    monkeypatch.setattr(
+        app_main.settings,
+        "google_client_id",
+        "",
+    )
+    monkeypatch.setattr(
+        app_main.settings,
+        "google_client_secret",
+        "",
+    )
+
+    with pytest.raises(RuntimeError, match="GOOGLE_CLIENT_ID"):
+        app_main._check_oauth_config()
+
+
+def test_check_oauth_config_raises_on_railway_when_one_missing(monkeypatch) -> None:
+    """On Railway, missing only google_client_secret must raise and name that var."""
+    import pytest
+
+    import app.main as app_main
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env_test")
+    monkeypatch.setattr(app_main.settings, "google_client_id", "real-client-id")
+    monkeypatch.setattr(app_main.settings, "google_client_secret", "")
+
+    with pytest.raises(RuntimeError, match="GOOGLE_CLIENT_SECRET"):
+        app_main._check_oauth_config()
+
+
+def test_check_oauth_config_warns_in_local_dev_when_missing(monkeypatch) -> None:
+    """In local dev (no Railway marker), missing OAuth vars log a WARNING and do not raise.
+
+    We capture the logger call directly rather than via caplog: an earlier
+    alembic-driven fileConfig in this module can disable propagation for the app
+    logger (same reason the guard test above does the same thing).
+    """
+    import app.main as app_main
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT_ID", raising=False)
+    monkeypatch.setattr(app_main.settings, "google_client_id", "")
+    monkeypatch.setattr(app_main.settings, "google_client_secret", "")
+
+    warning_messages: list[str] = []
+    monkeypatch.setattr(
+        app_main.logger,
+        "warning",
+        lambda msg, *a, **k: warning_messages.append(msg % a if a else msg),
+    )
+
+    app_main._check_oauth_config()  # must not raise
+
+    assert any("GOOGLE_CLIENT_ID" in m for m in warning_messages), (
+        f"Expected a warning mentioning GOOGLE_CLIENT_ID; got: {warning_messages}"
+    )
+
+
+def test_check_oauth_config_passes_when_both_set(monkeypatch) -> None:
+    """When both OAuth vars are set, no error or warning is emitted regardless of environment."""
+    import app.main as app_main
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env_test")
+    monkeypatch.setattr(app_main.settings, "google_client_id", "real-client-id")
+    monkeypatch.setattr(app_main.settings, "google_client_secret", "real-client-secret")
+
+    # Must not raise.
+    app_main._check_oauth_config()
+
+
+def test_check_oauth_config_skips_under_pytest(monkeypatch) -> None:
+    """PYTEST_CURRENT_TEST must suppress the check entirely — no raise, no warning."""
+    import app.main as app_main
+
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "test_check_oauth_config_skips_under_pytest")
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env_test")
+    monkeypatch.setattr(app_main.settings, "google_client_id", "")
+    monkeypatch.setattr(app_main.settings, "google_client_secret", "")
+
+    # Must not raise even though we're on Railway with missing credentials.
+    app_main._check_oauth_config()

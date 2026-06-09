@@ -66,6 +66,45 @@ def _should_run_startup_migrations() -> bool:
     }
 
 
+def _check_oauth_config() -> None:
+    """Validate Google OAuth credentials at startup.
+
+    In a real deployment (detected by RAILWAY_ENVIRONMENT_ID), missing OAuth
+    credentials raise RuntimeError so the process exits before accepting traffic.
+    In local dev, log a WARNING and continue — sign-in simply won't work.
+    Tests are skipped entirely (PYTEST_CURRENT_TEST is set by pytest).
+
+    Missing vars are named explicitly so the operator can fix them without
+    reading source code.
+    """
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return
+
+    missing = [
+        var
+        for var, val in (
+            ("GOOGLE_CLIENT_ID", settings.google_client_id),
+            ("GOOGLE_CLIENT_SECRET", settings.google_client_secret),
+        )
+        if not val.strip()
+    ]
+    if not missing:
+        return
+
+    missing_str = ", ".join(missing)
+    if os.getenv("RAILWAY_ENVIRONMENT_ID"):
+        raise RuntimeError(
+            f"OAuth configuration is incomplete: the following environment "
+            f"variable(s) are not set: {missing_str}. "
+            "Set them in your Railway service variables before deploying."
+        )
+    logger.warning(
+        "OAuth configuration incomplete — sign-in will not work. "
+        "Set the following environment variable(s) to enable it: %s",
+        missing_str,
+    )
+
+
 def _alembic_config() -> Config:
     cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     return cfg
@@ -103,6 +142,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        _check_oauth_config()
         await _upgrade_database()
         await scheduler_registry.resume_active_games_on_startup()
         scheduler_registry.start_poller()  # auto-start games when their time comes
