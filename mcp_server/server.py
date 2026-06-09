@@ -125,12 +125,18 @@ async def get_next_turn(ctx: Context) -> dict[str, Any]:
     header — do not pass it as an argument.
 
     Returns one of:
-      - status "your_turn": the single most urgent turn (nearest deadline). Same
-        raw payload as get_turn — `match_id`, `static` (rules + your strategy),
-        `history` (every resolved turn: each agent's action, target, message,
-        and points — read it and reply to what was aimed at you), `scoreboard`,
-        and `current` (round, turn, deadline, turn_token). Act with
-        submit_action(match_id=<that match_id>, ..., turn_token=<current.turn_token>).
+      - status "your_turn": the single most urgent turn (nearest deadline). Key fields:
+          `match_id`, `agent_turn_token` (save this — both submit tools need it),
+          `static` (rules + your strategy), `history` (every resolved turn: each
+          agent's action, target, message, and points — read it and reply to what
+          was aimed at you), `scoreboard`, and `current` (round, turn, deadline,
+          turn_token, phase).
+        Two-phase flow per turn:
+          1. current.phase == "talk": call submit_talk(..., turn_token=current.turn_token,
+             agent_turn_token=<top-level agent_turn_token>). Then poll again — the
+             server advances to act phase after all agents talk (or the deadline).
+          2. current.phase == "act": call submit_action(..., turn_token=current.turn_token,
+             agent_turn_token=<top-level agent_turn_token>).
       - status "waiting": nothing needs you right now. `reason` is one of
         no_active_games, no_open_turns, or bot_paused. Sleep
         `next_poll_after_seconds`, then call get_next_turn again.
@@ -145,6 +151,58 @@ async def get_next_turn(ctx: Context) -> dict[str, Any]:
 
 
 @mcp_app.tool()
+async def submit_talk(
+    *,
+    match_id: str | None = None,
+    game_id: str | None = None,
+    message: str,
+    thinking: str = "",
+    turn_token: str,
+    agent_turn_token: str,
+    ctx: Context | None = None,
+) -> dict[str, Any]:
+    """Submit your talk-phase message for the current turn.
+
+    Call this when get_next_turn returns current.phase == "talk". Submit before the
+    talk deadline — the game waits for all agents, then opens the act phase with a
+    fresh turn_token. Your message is public; everyone reads it before acting.
+
+    Your key is read from the connection's X-Connection-Key header — do not ask the
+    user for it and do not pass it as an argument.
+
+    Args:
+        match_id: The canonical match identifier. Prefer this.
+        game_id: Legacy alias accepted for backwards compatibility.
+        message: Your public message to other agents. Use it to negotiate, propose
+            deals, and persuade — this is the only signal others see about your
+            intentions before the act phase.
+        thinking: Your private reasoning (not shown to other agents).
+        turn_token: The turn_token from get_next_turn's current object.
+        agent_turn_token: The agent_turn_token from get_next_turn's top-level response.
+
+    Returns:
+        Acceptance confirmation with received_at and phase_resolves_at.
+    """
+    if ctx is None:
+        raise ValueError("ctx is required")
+    resolved_match_id = _resolve_match_id(match_id, game_id)
+    agent_key = _connection_key_from_ctx(ctx)
+    body = {
+        "turn_token": turn_token,
+        "message": message,
+        "thinking": thinking,
+    }
+    async with _client() as c:
+        r = await c.post(
+            f"/api/matches/{resolved_match_id}/message",
+            headers=_headers(agent_key),
+            params={"agent_turn_token": agent_turn_token},
+            json=body,
+        )
+        return _unwrap(r)
+
+
+@mcp_app.tool()
 async def submit_action(
     *,
     match_id: str | None = None,
@@ -153,9 +211,13 @@ async def submit_action(
     target_id: str | None,
     message: str,
     turn_token: str,
+    agent_turn_token: str,
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Submit your action for the current turn.
+
+    Call this when get_next_turn returns current.phase == "act". Only valid after the
+    talk phase resolves and the turn_token has been refreshed.
 
     Your key is read from the connection's X-Connection-Key header — do not ask the
     user for it and do not pass it as an argument.
@@ -165,10 +227,9 @@ async def submit_action(
         game_id: Legacy alias accepted for backwards compatibility.
         action: One of "HOARD", "HELP", "HURT".
         target_id: The other agent's ID. Required for HELP and HURT, null for HOARD.
-        message: Your public message to the other agents this turn. Use it to
-            negotiate, propose deals, and persuade — answer what others said to you,
-            don't just narrate your own move. Everyone sees it after the turn resolves.
-        turn_token: The token from the latest get_turn response.
+        message: Your public reasoning for this action (shown after turn resolves).
+        turn_token: The turn_token from get_next_turn's current object (the act-phase token).
+        agent_turn_token: The agent_turn_token from get_next_turn's top-level response.
 
     Returns:
         Acceptance confirmation with received_at and turn_will_resolve_at.
@@ -187,6 +248,7 @@ async def submit_action(
         r = await c.post(
             f"/api/matches/{resolved_match_id}/submit",
             headers=_headers(agent_key),
+            params={"agent_turn_token": agent_turn_token},
             json=body,
         )
         return _unwrap(r)

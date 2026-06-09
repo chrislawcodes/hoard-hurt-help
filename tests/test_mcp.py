@@ -5,11 +5,11 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_mcp_tools_registered():
-    """The three tools we ship are present on the FastMCP instance."""
+    """The four core tools we ship are present on the FastMCP instance."""
     from mcp_server.server import mcp_app
 
     tool_names = {tool.name for tool in await mcp_app.list_tools()}
-    assert {"get_turn", "submit_action", "get_game_state"}.issubset(tool_names)
+    assert {"get_turn", "submit_talk", "submit_action", "get_game_state"}.issubset(tool_names)
 
 
 @pytest.mark.asyncio
@@ -32,7 +32,7 @@ async def test_authed_tools_hide_key_from_schema():
     from mcp_server.server import mcp_app
 
     schemas = {t.name: (t.inputSchema or {}).get("properties", {}) for t in await mcp_app.list_tools()}
-    for name in ("get_turn", "submit_action"):
+    for name in ("get_turn", "submit_talk", "submit_action"):
         assert "agent_key" not in schemas[name], f"{name} still exposes agent_key"
         assert "ctx" not in schemas[name], f"{name} leaks the injected context"
 
@@ -80,8 +80,8 @@ class _FakeClient:
         self.capture.update(method="GET", url=url, headers=headers, params=params)
         return _FakeResp({"status": "waiting"})
 
-    async def post(self, url, headers=None, json=None):
-        self.capture.update(method="POST", url=url, headers=headers, body=json)
+    async def post(self, url, headers=None, params=None, json=None):
+        self.capture.update(method="POST", url=url, headers=headers, params=params, body=json)
         return _FakeResp({"received_at": "now"})
 
 
@@ -101,6 +101,28 @@ async def test_get_turn_forwards_connection_key(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_submit_talk_forwards_connection_key(monkeypatch):
+    from mcp_server import server
+
+    cap: dict = {}
+    monkeypatch.setattr(server, "_client", lambda: _FakeClient(cap))
+    ctx = _FakeCtx({"X-Connection-Key": "sk_game_abc123"})
+
+    await server.submit_talk(
+        match_id="G_0001",
+        message="let's cooperate",
+        turn_token="tok_1",
+        agent_turn_token="tok_1:42:G_0001",
+        ctx=ctx,
+    )
+
+    assert cap["url"] == "/api/matches/G_0001/message"
+    assert cap["headers"]["X-Connection-Key"] == "sk_game_abc123"
+    assert cap["body"]["message"] == "let's cooperate"
+    assert cap["params"] == {"agent_turn_token": "tok_1:42:G_0001"}
+
+
+@pytest.mark.asyncio
 async def test_submit_action_forwards_connection_key(monkeypatch):
     from mcp_server import server
 
@@ -114,11 +136,14 @@ async def test_submit_action_forwards_connection_key(monkeypatch):
         target_id=None,
         message="hi",
         turn_token="tok_1",
+        agent_turn_token="tok_1:42:G_0001",
         ctx=ctx,
     )
 
+    assert cap["url"] == "/api/matches/G_0001/submit"
     assert cap["headers"]["X-Connection-Key"] == "sk_game_abc123"
     assert cap["body"]["action"] == "HOARD"
+    assert cap["params"] == {"agent_turn_token": "tok_1:42:G_0001"}
 
 
 @pytest.mark.asyncio
