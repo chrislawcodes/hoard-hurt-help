@@ -32,6 +32,7 @@ def _nav_cta_context(request: Request) -> dict[str, object]:
         "nav_cta": getattr(request.state, "nav_cta", None),
         "connection_count": getattr(request.state, "connection_count", 0),
         "live_connection_count": getattr(request.state, "live_connection_count", 0),
+        "disconnected_connection_count": getattr(request.state, "disconnected_connection_count", 0),
     }
 
 
