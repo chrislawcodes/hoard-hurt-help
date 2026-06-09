@@ -1,5 +1,5 @@
 {% if health %}
-<span class="{{ health.badge_class }}{% if health.pulse %} badge-pulse{% endif %}">{{ health.label }}</span>
+<span class="{{ health.badge_class }}{% if health.pulse %} badge-pulse{% endif %}">{{ health.label }}</span>{% if health.never_connected %}<span class="meta"> · never connected</span>{% elif health.last_connected_at %}<span class="meta"> · last connected <time class="localtime" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_human }}</time></span>{% endif %}
 {% endif %}
 {% if version %}
 · v{{ version.version_no }} · {{ version.model }}

@@ -1,0 +1,63 @@
+{#
+  Onboarding status card — rendered inside the polled /status fragment.
+  `onboarding` is an AgentOnboardingStatus; `agent` is the Agent.
+  `join_blocked` is True when the connection is at its max concurrent game limit.
+
+  This card owns the "ready-to-play slot" in detail.html and advances live
+  (no page reload needed) as the agent progresses through onboarding.
+
+  States covered:
+    connected_no_game  (2) — connected, idle: "Ready to play" + find-a-match CTA
+    connected_pregame  (3) — in a pre-game match: name + "Starts soon" message
+    in_game_no_move    (4) — active match, no move yet: waiting for first move
+    playing            (5) — has made first real move: flourish + "Watch it play" link
+
+  Also handles:
+    join_blocked       — at capacity: "At capacity" card instead of ready-to-play
+
+  State 1 (waiting / never connected) is already rendered by the reconnect card
+  in detail.html and is not repeated here. When the runner hasn't connected yet,
+  this fragment renders nothing.
+#}
+{% set s = onboarding.state.value %}
+
+{% if s == "playing" %}
+<div class="card" style="border-color:var(--ok, #2d9a5a);">
+    <h3 style="margin-top:0;">Playing</h3>
+    <p class="hint" style="margin-top:0;">Your agent made its first move — it's playing now.</p>
+    {% if onboarding.match_id %}
+    <a class="btn btn-ghost" href="/games/{{ onboarding.game_type }}/matches/{{ onboarding.match_id }}">Watch it play →</a>
+    {% endif %}
+</div>
+
+{% elif s == "in_game_no_move" %}
+<div class="card" style="border-color:var(--ok, #2d9a5a);">
+    <h3 style="margin-top:0;">In a match</h3>
+    <p class="hint" style="margin-top:0;">In <strong>{{ onboarding.match_name }}</strong>. Waiting for its first move…</p>
+    <a class="btn btn-ghost" href="/games/{{ onboarding.game_type }}/matches/{{ onboarding.match_id }}">Watch →</a>
+</div>
+
+{% elif s == "connected_pregame" %}
+<div class="card" style="border-color:var(--ok, #2d9a5a);">
+    <h3 style="margin-top:0;">Match coming up</h3>
+    <p class="hint" style="margin-top:0;">In <strong>{{ onboarding.match_name }}</strong>. Starts soon — your agent will play automatically when it begins.</p>
+    <a class="btn btn-ghost" href="/games/{{ onboarding.game_type }}/matches/{{ onboarding.match_id }}">View match →</a>
+</div>
+
+{% elif s == "connected_no_game" %}
+    {% if join_blocked %}
+<div class="card">
+    <h3 style="margin-top:0;">At capacity</h3>
+    <p class="hint" style="margin-top:0;">This connection is already running its maximum number of active matches.</p>
+    <p class="meta">{{ active_match_count }} / {{ connection.max_concurrent_games }} active matches</p>
+</div>
+    {% elif ready_to_play %}
+<div class="card" style="border-color:var(--ok, #2d9a5a);">
+    <h3 style="margin-top:0;">Ready to play</h3>
+    <p class="hint" style="margin-top:0;">This agent is connected and ready to join a match.</p>
+    <a class="btn btn-primary" href="/games/{{ agent.game }}">Find a match →</a>
+</div>
+    {% endif %}
+
+{% endif %}
+{# state == "waiting": nothing rendered here; detail.html's reconnect card covers it. #}

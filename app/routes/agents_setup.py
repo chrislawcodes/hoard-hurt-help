@@ -13,6 +13,7 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
+from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health import ConnectionHealth, compute_connection_health
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
@@ -48,6 +49,20 @@ class VersionRow:
     match_count: int
     last_played_at: datetime | None
     frozen: bool
+
+
+@dataclass(frozen=True)
+class MatchEntry:
+    """One row in the agent-detail matches table."""
+
+    match_id: str
+    match_name: str
+    game_type: str
+    state: GameState
+    player_id: int
+    round_score: int
+    total_score: int
+    pre_game: bool
 
 
 async def _load_owned_connection(
@@ -136,6 +151,46 @@ async def _count_active_matches_for_connection(db: DbSession, connection_id: int
         )
     )
     return int(count or 0)
+
+
+async def _load_agent_matches(db: DbSession, agent_id: int) -> list[MatchEntry]:
+    """Return match rows for this agent: active first, then upcoming, then recent done (cap 10)."""
+    rows = (
+        await db.execute(
+            select(Match, Player)
+            .join(Player, Player.match_id == Match.id)
+            .where(
+                Player.agent_id == agent_id,
+                Player.left_at.is_(None),
+            )
+            .order_by(Match.scheduled_start.desc())
+        )
+    ).all()
+
+    active: list[MatchEntry] = []
+    upcoming: list[MatchEntry] = []
+    done: list[MatchEntry] = []
+
+    for match, player in rows:
+        pre_game = match.state in (GameState.SCHEDULED, GameState.REGISTERING)
+        entry = MatchEntry(
+            match_id=match.id,
+            match_name=match.name,
+            game_type=match.game,
+            state=match.state,
+            player_id=player.id,
+            round_score=player.current_round_score,
+            total_score=player.total_round_score,
+            pre_game=pre_game,
+        )
+        if match.state == GameState.ACTIVE:
+            active.append(entry)
+        elif pre_game:
+            upcoming.append(entry)
+        else:
+            done.append(entry)
+
+    return active + upcoming + done[:10]
 
 
 async def _version_rows(db: DbSession, agent_id: int) -> list[VersionRow]:
@@ -486,6 +541,22 @@ async def create_agent_or_connection(
     raise HTTPException(status_code=400, detail="Agent name is required.")
 
 
+def _is_ready_to_play(context: dict[str, object]) -> bool:
+    """True when the agent can accept a new match invitation right now."""
+    health = context.get("health")
+    if health is None:
+        return False
+    if isinstance(health, dict):
+        state = health.get("state")
+    else:
+        state = getattr(health, "state", None)
+    if state not in (ConnectionHealth.LIVE, ConnectionHealth.READY):
+        return False
+    if context.get("join_blocked"):
+        return False
+    return True
+
+
 @router.get("/{agent_id}", response_class=HTMLResponse)
 async def agent_detail(
     agent_id: Annotated[int, Path()],
@@ -506,4 +577,26 @@ async def agent_detail(
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found.")
     context = await _build_agent_detail_context(db, request, user, agent)
+    matches = await _load_agent_matches(db, agent.id)
+    raw_connection = context.get("connection")
+    connection_obj = raw_connection if isinstance(raw_connection, Connection) else None
+    # Use first_connected_at with a fallback to last_seen_at for legacy connections
+    # created before first_connected_at was tracked.
+    first_connected_at = (
+        (connection_obj.first_connected_at or connection_obj.last_seen_at)
+        if connection_obj is not None
+        else None
+    )
+    onboarding = await compute_agent_onboarding_state(
+        db,
+        agent_id=agent.id,
+        first_connected_at=first_connected_at,
+        matches=list(matches),
+    )
+    context = {
+        **context,
+        "matches": matches,
+        "onboarding": onboarding,
+        "ready_to_play": _is_ready_to_play(context),
+    }
     return templates.TemplateResponse(request, "agents/detail.html", context)

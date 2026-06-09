@@ -16,6 +16,12 @@
 ## Recently Shipped
 
 - Fail-loudly cleanup across 7 areas: unknown game types are rejected at match creation and cancelled (not zombied) by the scheduler; the poller escalates to CRITICAL after repeated subsystem failures; the migration guard logs every cancelled match; the OperationalError schema shims are replaced by a startup table check; connector LLM fallback moves are flagged `was_defaulted` end-to-end and the poll loop has a circuit breaker; lobby exception handling is narrowed to `SQLAlchemyError`; auto-matches cancel on bot seating failure; bot profiles are validated at seating time; MCP import failures are logged.
+- Agent detail page regained the features lost in the Connection/Agent split (#225):
+  a Matches section (watch / manage / leave), a "Ready to play → find a match" card,
+  and contextual stall diagnostics with last-connected time on the status badge.
+- Onboarding status narration restored on the agent detail page: a live-polled card
+  walks the user from "waiting to connect" → "connected — find a match" → "starts soon"
+  → "waiting for its first move" → "playing — watch it play →".
 - _Feature Factory engine ported into `docs/workflow/operations/codex-skills/` (this branch)._
 - Game admin dashboards now pass raw timestamps through to templates and render scheduled starts with the shared `localdt` filter, so a missing `scheduled_start` cannot crash `/games/<game>/admin/`.
 - Connection delete now soft-deletes the connection so the runner receives an explicit shutdown response on its next poll, then exits; deleted connections are hidden from the normal UI and counts.

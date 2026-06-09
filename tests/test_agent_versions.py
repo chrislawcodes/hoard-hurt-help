@@ -392,6 +392,15 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
 async def test_agent_detail_shows_connection_capacity_when_at_limit(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
+    """At-capacity card shows when the agent is connected-idle but join_blocked.
+
+    When the agent IS already in the active match (the one that fills the slot),
+    the onboarding card shows the match state instead of 'At capacity'. To see
+    the capacity card, a second idle agent on the same connection must be used.
+    The 'At capacity' card is part of the onboarding slot (connected_no_game +
+    join_blocked=True) rather than a separate static card.
+    """
+    recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await _make_user(db, handle="agent5", i=5)
         connection, _ = await _make_connection(
@@ -400,8 +409,14 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
             max_concurrent_games=1,
             provider=ConnectionProvider.CLAUDE,
         )
+        # Set last_seen_at so the connection is warm (runner connected)
+        connection.last_seen_at = recently
+        connection.first_connected_at = recently
+        await db.flush()
         agent = await _make_agent(db, user, connection=connection, name="Alpha")
         version = await _make_version(db, agent)
+        # A second agent on the same connection — it's idle but the connection is full
+        agent2 = await _make_agent(db, user, connection=connection, name="Beta")
         match = await _make_match(db, "M_3000", state=GameState.ACTIVE)
         await _seat_player(
             db,
@@ -413,8 +428,9 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
         )
         await db.commit()
 
+    # agent2 is idle (connected_no_game) but the connection is at capacity
     resp = await client.get(
-        f"/me/agents/{agent.id}",
+        f"/me/agents/{agent2.id}",
         cookies=_signed_in_cookies(user.id),
     )
     assert resp.status_code == 200

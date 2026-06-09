@@ -21,6 +21,7 @@
 </form>
 
 {% if health.needs_reconnect %}
+    {% if not connection %}
 <div class="card">
     <h3 style="margin-top:0;">Needs connection</h3>
     <p class="hint" style="margin-top:0;">This agent is paused until you attach it to a matching connection.</p>
@@ -37,6 +38,28 @@
         <a class="btn btn-primary" href="/me/connections">Go to connections →</a>
     {% endif %}
 </div>
+    {% elif health.never_connected %}
+<div id="reconnect" class="card">
+    <h3 style="margin-top:0;">Runner hasn't connected yet</h3>
+    <p class="hint" style="margin-top:0;">The connection exists but the runner hasn't started yet, so this agent can't play. Start the runner using the setup instructions on your <a href="/me/connections/{{ connection.id }}">connection page</a>.</p>
+</div>
+    {% else %}
+<div id="reconnect" class="card">
+    <h3 style="margin-top:0;">Runner isn't running</h3>
+    <p class="hint" style="margin-top:0;">
+        Runner stopped — last connected
+        {% if health.last_connected_at %}
+        <time class="localtime" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_human }}</time>
+        {% else %}
+        never
+        {% endif %}.
+        {% if health.game_name %}
+        This agent is in <strong>{{ health.game_name }}</strong> and its turns are defaulting.
+        {% endif %}
+        Restart the runner or go to your <a href="/me/connections/{{ connection.id }}">connection page</a> to reissue the setup message.
+    </p>
+</div>
+    {% endif %}
 {% elif health.state.value == 'paused' %}
 <div class="card">
     <h3 style="margin-top:0;">Paused</h3>
@@ -47,13 +70,12 @@
 </div>
 {% endif %}
 
-{% if join_blocked %}
-<div class="card">
-    <h3 style="margin-top:0;">At capacity</h3>
-    <p class="hint" style="margin-top:0;">This connection is already running its maximum number of active matches.</p>
-    <p class="meta">{{ active_match_count }} / {{ connection.max_concurrent_games }} active matches</p>
+<div id="onboarding-status"
+     hx-get="/me/agents/{{ agent.id }}/status"
+     hx-trigger="every 12s"
+     hx-swap="innerHTML">
+    {% include "agents/_onboarding.html" %}
 </div>
-{% endif %}
 
 <div class="card">
     <h3 style="margin-top:0;">Version</h3>
@@ -71,6 +93,34 @@
 </div>
 
 {% include "agents/_versions.html" %}
+
+<h2>Matches</h2>
+{% if matches %}
+    {% for m in matches %}
+    <article class="game-card">
+        <div class="game-card-info">
+            <h3>{{ m.match_name }}</h3>
+            <p class="meta">Round score {{ m.round_score }} · Total {{ m.total_score }}</p>
+        </div>
+        <div class="game-card-action">
+            <span class="badge {{ 'badge-live' if m.state.value == 'active' else ('badge-done' if m.state.value in ['completed', 'cancelled'] else 'badge-soon') }}">{{ m.state.value | capitalize }}</span>
+            <a class="btn btn-primary" href="/games/{{ m.game_type }}/matches/{{ m.match_id }}">Watch →</a>
+            {% if m.pre_game %}
+            <a class="btn btn-ghost" href="/me/players/{{ m.player_id }}">Manage →</a>
+            {% elif m.state.value == 'active' %}
+            <a class="btn btn-ghost" href="/me/players/{{ m.player_id }}">View strategy →</a>
+            {% endif %}
+            {% if m.pre_game %}
+            <form method="post" action="/me/players/{{ m.player_id }}/leave" style="display:inline" onsubmit="return confirm('Pull this agent out of the match?');">
+                <button type="submit">Leave</button>
+            </form>
+            {% endif %}
+        </div>
+    </article>
+    {% endfor %}
+{% else %}
+    <p class="empty">This agent isn't in any matches yet. <a href="/games/{{ agent.game }}">Browse the lobby →</a></p>
+{% endif %}
 
 <div class="card">
     <h3 style="margin-top:0;">Controls</h3>

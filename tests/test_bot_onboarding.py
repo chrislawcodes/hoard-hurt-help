@@ -318,6 +318,12 @@ async def test_agent_call_records_connection_once(client, reset_db, events):
 
 
 async def test_status_fragment_first_paint_waiting(client, reset_db):
+    """Waiting state (never connected): /status fragment renders empty — no card.
+
+    State 1 (waiting / never connected) is already covered by the reconnect card
+    in detail.html. The polled /status fragment renders nothing for this state so
+    there is no duplication.
+    """
     async with reset_db() as db:
         u = await make_user(db)
         connection, _ = await make_connection(db, u, status=ConnectionStatus.PENDING)
@@ -327,7 +333,10 @@ async def test_status_fragment_first_paint_waiting(client, reset_db):
 
     r = await client.get(f"/me/agents/{aid}/status", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    assert "Disconnected" in r.text
+    # Waiting state renders no card in the polled fragment
+    assert "Ready to play" not in r.text
+    assert "Playing" not in r.text
+    # The reconnect / health info lives on the full detail page, not this fragment
 
 
 async def test_status_fragment_connected_no_game_shows_join(client, reset_db):
@@ -363,12 +372,11 @@ async def test_detail_empty_games_copy_when_connected(client, reset_db):
     assert "Needs connection" not in r.text
 
 
-async def test_detail_established_agent_shows_only_badge_not_a_playing_line(client, reset_db):
-    # The bug this fixes: an agent that played a real move, whose game has since
-    # ended and whose runner is now offline, showed BOTH "Playing in <game>" (from
-    # play history) AND a "Disconnected" badge (from a cold heartbeat) at once.
-    # The onboarding panel must not render for an established agent - the health
-    # badge is the single source of truth.
+async def test_detail_established_agent_shows_playing_card(client, reset_db):
+    # An agent that played a real move shows the "Playing" onboarding card.
+    # State 5 (PLAYING) is explicitly rendered as a persistent card so the user
+    # can see their agent is active and follow the "Watch it play →" link.
+    # The health badge continues to show the connection state separately.
     async with reset_db() as db:
         u = await make_user(db)
         connection, _ = await make_connection(db, u)
@@ -384,10 +392,10 @@ async def test_detail_established_agent_shows_only_badge_not_a_playing_line(clie
 
     r = await client.get(f"/me/agents/{aid}", cookies=_signed_in_cookies(uid))
     assert r.status_code == 200
-    # Badge tells the truth - the runner is offline.
+    # Badge tells the truth about connection state.
     assert "Ready" in r.text
-    # No contradicting onboarding panel / "playing" line.
-    assert "Playing" not in r.text
+    # Onboarding card confirms the agent has played.
+    assert "Playing" in r.text
 
 
 async def test_status_fragment_owner_only(client, reset_db):

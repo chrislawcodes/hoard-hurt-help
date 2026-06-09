@@ -12,9 +12,14 @@ from starlette.responses import Response
 
 from app.broadcast import subscribe
 from app.deps import DbSession, require_user_with_handle
+from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.models.agent import Agent, AgentKind
 from app.models.user import User
-from app.routes.agents_setup import _build_agent_detail_context
+from app.routes.agents_setup import (
+    _build_agent_detail_context,
+    _is_ready_to_play,
+    _load_agent_matches,
+)
 from app.templating import templates
 
 router = APIRouter()
@@ -43,9 +48,41 @@ async def agent_status_fragment(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
+    """Polled onboarding card fragment — replaces the ready-to-play slot live."""
     agent = await _load_owned_agent(db, user, agent_id)
     context = await _build_agent_detail_context(db, request, user, agent)
-    return templates.TemplateResponse(request, "agents/_status.html", context)
+    matches = await _load_agent_matches(db, agent_id)
+    connection = context.get("connection")
+    # Use first_connected_at with a fallback to last_seen_at for legacy connections
+    # created before first_connected_at was tracked.
+    first_connected_at = (
+        (
+            getattr(connection, "first_connected_at", None)
+            or getattr(connection, "last_seen_at", None)
+        )
+        if connection is not None
+        else None
+    )
+    onboarding = await compute_agent_onboarding_state(
+        db,
+        agent_id=agent_id,
+        first_connected_at=first_connected_at,
+        matches=list(matches),
+    )
+    join_blocked: object = context.get("join_blocked", False)
+    ready_to_play = _is_ready_to_play(context)
+    return templates.TemplateResponse(
+        request,
+        "agents/_onboarding.html",
+        {
+            "agent": agent,
+            "onboarding": onboarding,
+            "join_blocked": join_blocked,
+            "ready_to_play": ready_to_play,
+            "active_match_count": context.get("active_match_count", 0),
+            "connection": connection,
+        },
+    )
 
 
 @router.get("/{agent_id}/health-badge", response_class=HTMLResponse)
