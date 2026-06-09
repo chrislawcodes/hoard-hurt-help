@@ -1017,10 +1017,11 @@ button.danger:hover,
 }
 .al-nav-inner { display: flex; align-items: center; gap: 18px; height: 70px; }
 /* Brand stays pinned left; its auto margin pushes the menu + right group over to
-   the right. The ☰/links live first in the DOM (far left, before the brand) but
-   order:1 floats them back to the right on desktop, where the panel shows the
-   wayfinding links inline. On a phone the menu reclaims its DOM-leading spot via
-   order:-1 (see the mobile block) so the ☰ button sits at the far left. */
+   the right. The wayfinding links live first in the DOM but order:1 floats them
+   back to the right on desktop, where the panel shows them inline. On a phone
+   (see the mobile block) the bar holds exactly one menu in the right corner:
+   the account pill when signed in, or this <details> as a ☰ when signed out
+   (order:3 pushes it past .al-nav-right to the far-right edge). */
 .al-brand { order: 0; margin-right: auto; }
 .al-nav-menu { order: 1; }
 .al-nav-right { order: 2; }
@@ -1071,6 +1072,13 @@ button.danger:hover,
 }
 .al-acct-caret { color: var(--ink-soft); font-size: 10px; transition: transform 0.15s ease; }
 .al-acct[open] .al-acct-caret { transform: rotate(180deg); }
+/* The ☰ half of the phone's unified pill. Desktop hides it — there the avatar
+   alone is the account trigger, and the wayfinding links sit inline in the bar. */
+.al-acct-burger { display: none; font-size: 15px; line-height: 1; color: var(--ink); }
+/* The wayfinding group inside the account panel exists for the phone's unified
+   menu (see the mobile block); desktop hides it because the same links are
+   already visible inline in the bar. */
+.al-acct-nav { display: none; }
 .al-acct-menu {
     position: absolute; right: 0; top: calc(100% + 12px);
     min-width: 200px; display: flex; flex-direction: column; gap: 1px;
@@ -1107,11 +1115,16 @@ button.danger:hover,
 /* Wayfinding menu — the wrapper that holds Games / Leaderboard / How it works.
    On desktop the ☰ button is hidden and the links show inline (the panel is
    forced visible regardless of the <details> open state). On a phone (≤560px,
-   below) the links collapse behind ☰ into a tap-to-open dropdown, reusing the
-   same native <details> disclosure as the account menu — no JS. */
+   below) this becomes the signed-out visitor's single right-corner menu;
+   signed-in visitors get the account pill instead and this hides entirely
+   (.al-nav-menu-authed). Same native <details> disclosure — no JS. */
 .al-nav-menu { position: relative; display: flex; align-items: center; }
 .al-nav-menu-btn { display: none; }
 .al-nav-menu > .al-nav-menu-panel { display: flex; align-items: center; gap: 16px; }
+/* The menu's Sign in item is a phone-only affordance — on desktop, signed-out
+   pages keep the bar's own entry (Play pill, or the marketing home's quiet
+   "Sign in"), so a second copy inline would be noise. */
+.al-nav-menu-signin { display: none; }
 
 /* sections */
 .al-section { padding: clamp(64px, 9vw, 120px) 0; }
@@ -1373,16 +1386,20 @@ button.danger:hover,
     .al-sub-cta { width: 100%; text-align: center; }
     .al-cta-row .btn { width: 100%; }
     /* Phones can't hold the full bar, so it narrows to what matters most: the
-       ☰ menu (wayfinding), the Play CTA (.al-nav-cta, the front door) and the
-       auth entry (.al-nav-auth / account menu). Wayfinding links — How it works,
-       Games, Leaderboard — fold into the ☰ dropdown (see .al-nav-menu below)
-       rather than disappearing. */
-    /* Pull the ☰ menu to the far left of the bar — ahead of the brand icon. */
-    .al-nav-menu { order: -1; }
+       brand mark, the Play CTA (.al-nav-cta, the front door), and exactly ONE
+       menu in the right corner. Signed in, that menu is the account pill
+       (☰ + avatar) and it carries the wayfinding links too; signed out it's
+       the plain ☰ with Sign in folded in. Account stuff lives top-right by
+       convention, so the merged menu lives there — and it matches where the
+       desktop avatar menu already sits. */
+    /* Signed in: the account pill is the one menu, so the ☰ <details> goes. */
+    .al-nav-menu-authed { display: none; }
+    /* Signed out: the ☰ takes the same right-corner spot the pill would hold. */
+    .al-nav-menu { order: 3; }
     .al-nav-menu-btn {
         display: inline-flex; align-items: center; justify-content: center;
         list-style: none; cursor: pointer;
-        width: 34px; height: 34px; border-radius: 8px;
+        width: 38px; height: 38px; border-radius: 999px;
         border: 2px solid var(--line-bold); background: var(--surface);
         font-size: 16px; line-height: 1; color: var(--ink);
     }
@@ -1390,7 +1407,7 @@ button.danger:hover,
     .al-nav-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
     .al-nav-menu:not([open]) > .al-nav-menu-panel { display: none; }
     .al-nav-menu[open] > .al-nav-menu-panel {
-        position: absolute; left: 0; top: calc(100% + 12px);
+        position: absolute; right: 0; top: calc(100% + 12px);
         flex-direction: column; align-items: stretch; gap: 1px;
         min-width: 200px; z-index: 60;
         background: var(--surface); border: 2px solid var(--line-bold);
@@ -1398,9 +1415,34 @@ button.danger:hover,
         padding: 8px;
     }
     .al-nav-menu[open] > .al-nav-menu-panel a {
-        padding: 8px; border-radius: 8px; font-size: 13.5px; color: var(--ink);
+        padding: 12px 10px; border-radius: 8px; font-size: 13.5px; color: var(--ink);
     }
     .al-nav-menu[open] > .al-nav-menu-panel a:hover { background: var(--bg-2); }
+    /* Sign in joins the signed-out menu, set off from wayfinding by a rule. */
+    .al-nav-menu[open] > .al-nav-menu-panel .al-nav-menu-signin {
+        display: flex; margin-top: 4px; padding-top: 12px;
+        border-top: 1px solid var(--line); border-radius: 0 0 8px 8px;
+    }
+    /* …so the bar's own Sign in (marketing home) hides — one entry, not two. */
+    .al-nav-right .al-nav-auth { display: none; }
+    /* The unified pill: ☰ + avatar in one bordered control, telling the thumb
+       that both site nav and account live here. */
+    .al-acct > summary {
+        gap: 8px; padding: 2px 2px 2px 12px;
+        border: 2px solid var(--line-bold); border-radius: 999px;
+        background: var(--surface);
+    }
+    .al-acct-burger { display: inline-flex; }
+    .al-acct-caret { display: none; }
+    /* Wayfinding group inside the pill's panel — navigation first (it's the
+       most frequent action), then a rule before the account items. */
+    .al-acct-nav {
+        display: flex; flex-direction: column; gap: 1px;
+        padding-bottom: 4px; margin-bottom: 4px;
+        border-bottom: 1px solid var(--line);
+    }
+    /* Comfortable thumb targets (~44px) for every menu row on a phone. */
+    .al-acct-menu a, .al-acct-signout { padding: 12px 10px; }
     /* Drop the nav brand to the logo mark on a phone so the CTA + auth never get
        crowded off the bar. The footer keeps the full wordmark. */
     .al-nav-inner .al-wordmark { display: none; }

@@ -15,6 +15,7 @@
 
 ## Recently Shipped
 
+- Unified the phone nav into a single right-corner menu: signed-in users get a ☰ + avatar pill whose panel carries wayfinding (Games / Leaderboard / page extras) above the account items; signed-out users get one ☰ menu with Sign in folded in. Desktop keeps inline links and the avatar menu unchanged.
 - Fail-loudly follow-ups: missing Google OAuth config now fails startup on Railway (warns in dev); the admin add-bots form validates strategies before seating; and all loud-failure sites emit grep-able `ops_event=` structured log lines (new `app/ops_events.py`) covering match cancellations, poller failures/escalations, seating failures, bot profile rejections, replay/reconciliation fallbacks, and connector fallback moves.
 - Fail-loudly cleanup across 7 areas: unknown game types are rejected at match creation and cancelled (not zombied) by the scheduler; the poller escalates to CRITICAL after repeated subsystem failures; the migration guard logs every cancelled match; the OperationalError schema shims are replaced by a startup table check; connector LLM fallback moves are flagged `was_defaulted` end-to-end and the poll loop has a circuit breaker; lobby exception handling is narrowed to `SQLAlchemyError`; auto-matches cancel on bot seating failure; bot profiles are validated at seating time; MCP import failures are logged.
 - Agent detail page regained the features lost in the Connection/Agent split (#225):
