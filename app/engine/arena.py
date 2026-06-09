@@ -30,8 +30,10 @@ from app.models.player import Player
 logger = logging.getLogger(__name__)
 
 PRACTICE_ARENA_NAME = "Practice Arena"
-PRACTICE_ARENA_MAX_PLAYERS = 10
 PRACTICE_ARENA_BOT_COUNT = len(BOT_PRESETS)  # one bot per default strategy
+# One open seat above the pre-seeded bots, so the lobby reads "8 / 9" and it's
+# clear that a single human joining fills the match and starts the game.
+PRACTICE_ARENA_MAX_PLAYERS = PRACTICE_ARENA_BOT_COUNT + 1
 PRACTICE_ARENA_TOTAL_ROUNDS = 7
 PRACTICE_ARENA_TURNS_PER_ROUND = 7
 
