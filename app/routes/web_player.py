@@ -98,6 +98,8 @@ _AGENT_RUNNERS: dict[str, FsPath] = {
     "agentludum_agent.py": _UNIFIED_RUNNER,
     "agentludum_agent_codex.py": _UNIFIED_RUNNER,
     "agentludum_agent_gemini.py": _UNIFIED_RUNNER,
+    "agentludum_setup_hermes.py": FsPath("scripts/agentludum_setup_hermes.py"),
+    "agentludum_setup_openclaw.py": FsPath("scripts/agentludum_setup_openclaw.py"),
 }
 
 

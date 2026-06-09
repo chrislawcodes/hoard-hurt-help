@@ -54,6 +54,14 @@ _PROVIDER_GROUPS = [
     },
 ]
 
+_SETUP_SCRIPTS = {
+    ConnectionProvider.CLAUDE: "agentludum_connector.py",
+    ConnectionProvider.GEMINI: "agentludum_connector.py",
+    ConnectionProvider.OPENAI: "agentludum_connector.py",
+    ConnectionProvider.HERMES: "agentludum_setup_hermes.py",
+    ConnectionProvider.OPENCLAW: "agentludum_setup_openclaw.py",
+}
+
 
 @dataclass(frozen=True)
 class AgentRow:
@@ -69,26 +77,31 @@ def _connection_display_name(connection: Connection) -> str:
     return connection.nickname or _provider_label(connection.provider)
 
 
-def _setup_message(provider_label: str, key: str) -> str:
+def _setup_script_name(provider: ConnectionProvider) -> str:
+    return _SETUP_SCRIPTS.get(provider, "agentludum_connector.py")
+
+
+def _setup_message(provider: ConnectionProvider, key: str) -> str:
+    script_name = _setup_script_name(provider)
     return (
         "Please set up my AI connection as a persistent background service that starts "
         "automatically on login and restarts if it ever stops.\n\n"
         "Step 1 — save the setup script to a permanent location:\n"
         "  macOS/Linux: mkdir -p ~/.agentludum && "
-        f"curl -fsSL {settings.base_url}/setup-files/agentludum_connector.py"
-        " -o ~/.agentludum/agentludum_connector.py\n"
+        f"curl -fsSL {settings.base_url}/setup-files/{script_name}"
+        f" -o ~/.agentludum/{script_name}\n"
         "  Windows:     mkdir %USERPROFILE%\\.agentludum && "
-        f"curl -fsSL {settings.base_url}/setup-files/agentludum_connector.py"
-        " -o %USERPROFILE%\\.agentludum\\agentludum_connector.py\n\n"
+        f"curl -fsSL {settings.base_url}/setup-files/{script_name}"
+        f" -o %USERPROFILE%\\.agentludum\\{script_name}\n\n"
         "Step 2 — install a system service so it runs on login and auto-restarts:\n"
         "  macOS:   launchd plist in ~/Library/LaunchAgents/ with KeepAlive=true and RunAtLoad=true\n"
         "  Linux:   systemd user unit (~/.config/systemd/user/) with Restart=on-failure, "
         "then systemctl --user enable --now\n"
         "  Windows: Task Scheduler task triggered on login with restart-on-failure enabled\n\n"
         "Setup command:\n"
-        f"  macOS/Linux: python3 ~/.agentludum/agentludum_connector.py --key {key} --url {settings.base_url}\n"
-        f"  Windows:     python %USERPROFILE%\\.agentludum\\agentludum_connector.py --key {key} --url {settings.base_url}\n\n"
-        f"This connection uses the {provider_label} login I already have. "
+        f"  macOS/Linux: python3 ~/.agentludum/{script_name} --key {key} --url {settings.base_url}\n"
+        f"  Windows:     python %USERPROFILE%\\.agentludum\\{script_name} --key {key} --url {settings.base_url}\n\n"
+        "This setup uses the login I already have. "
         "Use the X-Connection-Key header with that key when the client talks to the server.\n\n"
         "Keep one session per match and only think when it is that agent's turn.\n\n"
         "If the server says the key is invalid, stop the service and tell me. "
@@ -378,7 +391,7 @@ async def connection_setup_detail(
             "provider_label": _provider_label(setup.provider),
             "fresh_key": fresh_key,
             "setup_message": (
-                _setup_message(_provider_label(setup.provider), fresh_key)
+                _setup_message(setup.provider, fresh_key)
                 if fresh_key
                 else None
             ),
@@ -420,7 +433,7 @@ async def connection_detail(
     attached_agents = await _load_attached_agents(db, connection.id)
     detached_agents = await _load_detached_agents(db, user.id, connection.provider)
     if fresh_key is not None:
-        setup_message = _setup_message(_provider_label(connection.provider), fresh_key)
+        setup_message = _setup_message(connection.provider, fresh_key)
     else:
         setup_message = None
     return templates.TemplateResponse(
