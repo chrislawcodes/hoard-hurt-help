@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import make_engine
@@ -96,6 +96,52 @@ async def test_ensure_practice_arena_idempotent(db_session):
             )
         )
         assert count == 1
+
+
+async def test_ensure_practice_arena_recovers_from_empty_arena(db_session):
+    """An existing REGISTERING arena with 0 bots is cancelled and replaced."""
+    async with db_session() as db:
+        await ensure_practice_arena(db)
+        arena = (
+            await db.execute(
+                select(Match).where(Match.match_kind == MatchKind.PRACTICE_ARENA.value)
+            )
+        ).scalars().first()
+        assert arena is not None
+        stale_id = arena.id
+
+        # Simulate what migration 0023 did: wipe the players table rows for this
+        # arena so it appears to have no bots, but stays in REGISTERING state.
+        await db.execute(delete(Player).where(Player.match_id == stale_id))
+        await db.commit()
+
+    async with db_session() as db:
+        await ensure_practice_arena(db)
+
+    async with db_session() as db:
+        # The stale arena should be cancelled and a new one created.
+        stale = (
+            await db.execute(select(Match).where(Match.id == stale_id))
+        ).scalar_one()
+        assert stale.state == GameState.CANCELLED
+
+        new_arena = (
+            await db.execute(
+                select(Match).where(
+                    Match.match_kind == MatchKind.PRACTICE_ARENA.value,
+                    Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                )
+            )
+        ).scalars().first()
+        assert new_arena is not None
+        assert new_arena.id != stale_id
+
+        bot_count = await db.scalar(
+            select(func.count()).select_from(Player).where(
+                Player.match_id == new_arena.id, Player.left_at.is_(None)
+            )
+        )
+        assert bot_count == PRACTICE_ARENA_SIM_COUNT
 
 
 async def test_ensure_practice_arena_recreates_after_completion(db_session):
