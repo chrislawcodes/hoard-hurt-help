@@ -52,9 +52,11 @@ def _connection_display_name(connection: Connection) -> str:
 def _runner_setup_message(provider_label: str, key: str) -> str:
     return (
         "Please set up my AI connection in the background and keep it running.\n\n"
-        "Run these commands:\n"
-        f"curl -fsSL {settings.base_url}/runners/agentludum_connector.py -o agentludum_connector.py\n"
-        f"python3 agentludum_connector.py --key {key} --url {settings.base_url}\n\n"
+        "Step 1 — download the runner:\n"
+        f"curl -fsSL {settings.base_url}/runners/agentludum_connector.py -o agentludum_connector.py\n\n"
+        "Step 2 — start it (use the right command for this OS):\n"
+        f"  macOS or Linux:  python3 agentludum_connector.py --key {key} --url {settings.base_url}\n"
+        f"  Windows:         python agentludum_connector.py --key {key} --url {settings.base_url}\n\n"
         f"This connection uses the {provider_label} login I already have. "
         "Use the X-Connection-Key header with that key when the runner talks to the server.\n\n"
         "Keep this running so it plays all my agents' games. Keep one session per match, "
