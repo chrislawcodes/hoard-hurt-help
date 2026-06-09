@@ -47,6 +47,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _should_run_startup_migrations() -> bool:
     """Skip automatic migrations in tests and on Railway; run them elsewhere."""
@@ -91,9 +93,12 @@ def create_app() -> FastAPI:
         from mcp_server.server import asgi_app
 
         mcp_asgi_app = asgi_app
+    except ImportError:
+        # MCP SDK not installed in this environment — /mcp will be unavailable.
+        logger.warning("MCP SDK not installed; /mcp endpoint disabled")
     except Exception:
-        # MCP SDK not importable in this env — skip mounting.
-        pass
+        # MCP SDK is present but broken (bad install, version conflict, etc).
+        logger.exception("Failed to initialize MCP server; /mcp endpoint disabled")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
