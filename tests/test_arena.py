@@ -144,6 +144,45 @@ async def test_ensure_practice_arena_recovers_from_empty_arena(db_session):
         assert bot_count == PRACTICE_ARENA_BOT_COUNT
 
 
+async def test_ensure_practice_arena_refreshes_stale_capacity(db_session):
+    """An arena whose max_players predates the current constant is replaced."""
+    async with db_session() as db:
+        await ensure_practice_arena(db)
+        arena = (
+            await db.execute(
+                select(Match).where(Match.match_kind == MatchKind.PRACTICE_ARENA.value)
+            )
+        ).scalars().first()
+        assert arena is not None
+        stale_id = arena.id
+
+        # Simulate an arena created before PRACTICE_ARENA_MAX_PLAYERS changed: same
+        # bots, but an out-of-date capacity baked into the row.
+        arena.max_players = PRACTICE_ARENA_MAX_PLAYERS + 1
+        await db.commit()
+
+    async with db_session() as db:
+        await ensure_practice_arena(db)
+
+    async with db_session() as db:
+        stale = (
+            await db.execute(select(Match).where(Match.id == stale_id))
+        ).scalar_one()
+        assert stale.state == GameState.CANCELLED
+
+        new_arena = (
+            await db.execute(
+                select(Match).where(
+                    Match.match_kind == MatchKind.PRACTICE_ARENA.value,
+                    Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                )
+            )
+        ).scalars().first()
+        assert new_arena is not None
+        assert new_arena.id != stale_id
+        assert new_arena.max_players == PRACTICE_ARENA_MAX_PLAYERS
+
+
 async def test_ensure_practice_arena_recreates_after_completion(db_session):
     async with db_session() as db:
         await ensure_practice_arena(db)
