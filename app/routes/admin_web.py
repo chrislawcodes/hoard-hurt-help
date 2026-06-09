@@ -4,9 +4,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.deps import DbSession, require_platform_admin
+from app.engine.scheduler import registry
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
@@ -67,10 +68,23 @@ async def admin_delete_match(
     match = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if match is None:
         raise HTTPException(404, detail=f"Match {match_id} not found.")
+    # Stop the scheduler task before touching rows. The asyncio task is
+    # cooperative, so it may write one more TurnSubmission before the
+    # CancelledError fires. The second pass below (by player_id) catches that.
+    registry.stop(match_id)
     turn_ids = select(Turn.id).where(Turn.match_id == match_id)
     await db.execute(delete(TurnSubmission).where(TurnSubmission.turn_id.in_(turn_ids)))
     await db.execute(delete(TurnMessage).where(TurnMessage.turn_id.in_(turn_ids)))
     await db.execute(delete(Turn).where(Turn.match_id == match_id))
+    # Second pass: catch any submissions written by the scheduler in the
+    # cancellation window before it yielded. Also clears winner_player_id so
+    # the Match→Player FK doesn't block the Player delete.
+    player_ids = select(Player.id).where(Player.match_id == match_id)
+    await db.execute(delete(TurnSubmission).where(TurnSubmission.player_id.in_(player_ids)))
+    await db.execute(delete(TurnMessage).where(TurnMessage.player_id.in_(player_ids)))
+    await db.execute(
+        update(Match).where(Match.id == match_id).values(winner_player_id=None)
+    )
     await db.execute(delete(Player).where(Player.match_id == match_id))
     await db.execute(delete(RequestIncident).where(RequestIncident.match_id == match_id))
     await db.execute(delete(Match).where(Match.id == match_id))

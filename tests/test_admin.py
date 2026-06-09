@@ -513,3 +513,68 @@ async def test_agent_api_not_shadowed(client, reset_db):
     # A non-existent match returns 404 from the agent API, not a routing error.
     r = await client.get("/api/games/NOSUCHID/state")
     assert r.status_code in (401, 404, 422)  # any non-405 proves the route is reachable
+
+
+@pytest.mark.asyncio
+async def test_delete_active_match_succeeds(client, reset_db):
+    """Deleting an in-progress match must not 500.
+
+    Regression: the scheduler task can write a TurnSubmission after our first
+    delete pass, and Match.winner_player_id creates a second FK hazard when
+    deleting Players before nulling the reference.
+    """
+    from sqlalchemy import select as sa_select
+    from tests.factories import make_user, seat_player
+
+    admin = await _seed_user(reset_db, "admin@test.com")
+
+    async with reset_db() as db:
+        await make_user(db, i=99)
+        await db.flush()
+        g = Match(
+            id="G_ACTIVE",
+            name="Running Game",
+            state=GameState.ACTIVE,
+            scheduled_start=datetime.now(timezone.utc),
+            per_turn_deadline_seconds=60,
+        )
+        db.add(g)
+        await db.flush()
+        player = await seat_player(db, "G_ACTIVE", "AI_0", i=0)
+        # Simulate a completed-game state: winner_player_id is set.
+        g.winner_player_id = player.id
+        t = Turn(
+            match_id="G_ACTIVE",
+            round=1,
+            turn=1,
+            turn_token="tk_active",
+            opened_at=datetime.now(timezone.utc),
+            deadline_at=datetime.now(timezone.utc),
+        )
+        db.add(t)
+        await db.flush()
+        db.add(
+            TurnSubmission(
+                turn_id=t.id,
+                player_id=player.id,
+                action="HOARD",
+                message="",
+                points_delta=2,
+                round_score_after=2,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    r = await client.post(
+        "/admin/matches/G_ACTIVE/delete",
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    async with reset_db() as db:
+        remaining = (
+            await db.execute(sa_select(Match).where(Match.id == "G_ACTIVE"))
+        ).scalar_one_or_none()
+    assert remaining is None
