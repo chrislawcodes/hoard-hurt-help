@@ -267,3 +267,47 @@ async def test_start_due_games_starts_due_scheduled_game(db, monkeypatch):
     assert started == [game.id]
     await db.refresh(game)
     assert game.state == GameState.ACTIVE
+
+
+# --- watchdog ---
+
+
+async def test_watchdog_cancels_playerless_game(db):
+    # An ACTIVE game with no players (e.g. left by a destructive migration that
+    # wiped the players table) can never make progress. The watchdog must cancel
+    # it so it doesn't stay stuck-active forever.
+    game, players = await _make_game(db, state=GameState.ACTIVE, n_players=3)
+    # Simulate all players having been wiped by setting left_at on each.
+    now = datetime.now(timezone.utc)
+    for p in players:
+        p.left_at = now
+    await db.commit()
+
+    reg = scheduler.SchedulerRegistry()
+    await reg._watchdog(_same_session_factory(db))
+
+    await db.refresh(game)
+    assert game.state == GameState.CANCELLED
+    assert game.cancelled_at is not None
+
+
+async def test_watchdog_restarts_dead_task(db, monkeypatch):
+    # If an ACTIVE game's scheduler task crashes (done but not restarted), the
+    # watchdog must start a new one without waiting for a server restart.
+    game, _ = await _make_game(db, state=GameState.ACTIVE, n_players=3)
+
+    started: list[str] = []
+    reg = scheduler.SchedulerRegistry()
+    # Inject a completed (dead) task for the game to simulate a crashed loop.
+    async def _noop() -> None:
+        pass
+
+    dead_task = asyncio.ensure_future(_noop())
+    await dead_task  # let it complete so done() == True
+    reg._tasks[game.id] = dead_task
+    assert not reg.is_running(game.id)
+
+    monkeypatch.setattr(reg, "start", lambda gid: started.append(gid))
+    await reg._watchdog(_same_session_factory(db))
+
+    assert game.id in started

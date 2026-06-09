@@ -187,3 +187,59 @@ def test_0018_rewrites_ids_and_preserves_data(tmp_path: Path) -> None:
     assert q("SELECT count(*) FROM turns t LEFT JOIN matches m ON t.match_id=m.id WHERE m.id IS NULL") == 0
     assert sorted(r[0] for r in conn.execute("SELECT match_id FROM players")) == ["M_0016", "M_demo"]
     conn.close()
+
+
+# --- migration guard (db_bootstrap._cancel_active_games_if_schema_pending) ---
+
+
+def _seed_active_match(db_path: Path, match_id: str = "M_TEST") -> None:
+    """Insert a minimal ACTIVE match into an already-migrated SQLite database."""
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.execute(
+            "INSERT INTO matches(id, name, state, scheduled_start, game)"
+            " VALUES (?, 'test', 'active', '2026-01-01', 'hoard-hurt-help')",
+            (match_id,),
+        )
+    conn.close()
+
+
+def test_migration_guard_cancels_active_games_when_behind(tmp_path: Path) -> None:
+    """Active games are cancelled before a destructive migration runs."""
+    db_path = tmp_path / "guard_behind.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+
+    # Bring the DB to one revision before head so there are pending migrations.
+    up = _run_alembic(["upgrade", "0023"], db_path)
+    assert up.returncode == 0, f"upgrade 0023 failed:\n{up.stdout}\n{up.stderr}"
+    _seed_active_match(db_path)
+
+    cfg = Config(str(REPO_ROOT / "alembic.ini"))
+    from app.db_bootstrap import _cancel_active_games_if_schema_pending
+
+    _cancel_active_games_if_schema_pending(cfg, db_url)
+
+    conn = sqlite3.connect(db_path)
+    state = conn.execute("SELECT state FROM matches WHERE id='M_TEST'").fetchone()[0]
+    conn.close()
+    assert state == "cancelled"
+
+
+def test_migration_guard_skips_when_at_head(tmp_path: Path) -> None:
+    """Active games are NOT touched when the database is already at head."""
+    db_path = tmp_path / "guard_head.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+
+    up = _run_alembic(["upgrade", "head"], db_path)
+    assert up.returncode == 0, f"upgrade head failed:\n{up.stdout}\n{up.stderr}"
+    _seed_active_match(db_path)
+
+    cfg = Config(str(REPO_ROOT / "alembic.ini"))
+    from app.db_bootstrap import _cancel_active_games_if_schema_pending
+
+    _cancel_active_games_if_schema_pending(cfg, db_url)
+
+    conn = sqlite3.connect(db_path)
+    state = conn.execute("SELECT state FROM matches WHERE id='M_TEST'").fetchone()[0]
+    conn.close()
+    assert state == "active"
