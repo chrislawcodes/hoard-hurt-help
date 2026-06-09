@@ -1015,7 +1015,15 @@ button.danger:hover,
     background: color-mix(in oklab, var(--bg) 86%, transparent);
     backdrop-filter: blur(10px); border-bottom: 1.5px solid var(--line);
 }
-.al-nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 18px; height: 70px; }
+.al-nav-inner { display: flex; align-items: center; gap: 18px; height: 70px; }
+/* Brand stays pinned left; its auto margin pushes the menu + right group over to
+   the right. The ☰/links live first in the DOM (far left, before the brand) but
+   order:1 floats them back to the right on desktop, where the panel shows the
+   wayfinding links inline. On a phone the menu reclaims its DOM-leading spot via
+   order:-1 (see the mobile block) so the ☰ button sits at the far left. */
+.al-brand { order: 0; margin-right: auto; }
+.al-nav-menu { order: 1; }
+.al-nav-right { order: 2; }
 .al-brand { display: flex; align-items: center; gap: 11px; }
 .al-logo { display: block; }
 .al-wordmark { font-family: var(--al-display); font-weight: 800; font-size: 21px; letter-spacing: -0.02em; }
@@ -1369,6 +1377,8 @@ button.danger:hover,
        auth entry (.al-nav-auth / account menu). Wayfinding links — How it works,
        Games, Leaderboard — fold into the ☰ dropdown (see .al-nav-menu below)
        rather than disappearing. */
+    /* Pull the ☰ menu to the far left of the bar — ahead of the brand icon. */
+    .al-nav-menu { order: -1; }
     .al-nav-menu-btn {
         display: inline-flex; align-items: center; justify-content: center;
         list-style: none; cursor: pointer;
@@ -1380,7 +1390,7 @@ button.danger:hover,
     .al-nav-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
     .al-nav-menu:not([open]) > .al-nav-menu-panel { display: none; }
     .al-nav-menu[open] > .al-nav-menu-panel {
-        position: absolute; right: 0; top: calc(100% + 12px);
+        position: absolute; left: 0; top: calc(100% + 12px);
         flex-direction: column; align-items: stretch; gap: 1px;
         min-width: 200px; z-index: 60;
         background: var(--surface); border: 2px solid var(--line-bold);
