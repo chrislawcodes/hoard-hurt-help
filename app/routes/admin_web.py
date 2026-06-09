@@ -29,6 +29,7 @@ async def admin_dashboard(
     for g in all_games:
         view = {
             "id": g.id,
+            "game": g.game,
             "name": g.name,
             "scheduled_start": g.scheduled_start.isoformat(),
             "min_players": g.min_players,
@@ -54,18 +55,6 @@ async def admin_dashboard(
         },
     )
 
-
-@router.get("/admin/matches/{match_id}")
-async def admin_match_redirect(
-    match_id: Annotated[str, Path()],
-    db: DbSession,
-    _: Annotated[User, Depends(require_platform_admin)],
-):
-    """Redirect /admin/matches/<id> to the game-scoped admin detail page."""
-    match = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if match is None:
-        raise HTTPException(404, detail=f"Match {match_id} not found.")
-    return RedirectResponse(url=f"/games/{match.game}/admin/matches/{match_id}")
 
 
 @router.get("/admin/handles", response_class=HTMLResponse)
