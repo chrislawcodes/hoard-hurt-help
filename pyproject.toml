@@ -69,6 +69,8 @@ ignore_missing_imports = true
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "mypy>=2.1.0",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
+    "ruff>=0.15.16",
 ]
