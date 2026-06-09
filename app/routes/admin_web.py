@@ -33,7 +33,7 @@ async def admin_dashboard(
             "id": g.id,
             "game": g.game,
             "name": g.name,
-            "scheduled_start": g.scheduled_start.isoformat(),
+            "scheduled_start": g.scheduled_start,
             "min_players": g.min_players,
             "max_players": g.max_players,
             "state": g.state,

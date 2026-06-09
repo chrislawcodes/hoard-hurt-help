@@ -16,6 +16,7 @@
 ## Recently Shipped
 
 - _Feature Factory engine ported into `docs/workflow/operations/codex-skills/` (this branch)._
+- Game admin dashboards now pass raw timestamps through to templates and render scheduled starts with the shared `localdt` filter, so a missing `scheduled_start` cannot crash `/games/<game>/admin/`.
 - Connection delete now soft-deletes the connection so the runner receives an explicit shutdown response on its next poll, then exits; deleted connections are hidden from the normal UI and counts.
 - Connection setup now uses a draft/setup page and only creates the real connection on first authenticated contact; the connection detail page hides agent lists behind `Agent Details` and keeps `Rotate Key`/pause/delete controls at the bottom.
 - Viewer mutual-help animation no longer draws the dashed connector line between paired agents.
@@ -25,6 +26,7 @@
 
 - Running `/feature-spec` (and the full spec → plan → tasks → implement flow) drives the
   repo-owned runner at `docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py`.
+- The game admin dashboard can now survive a stale or broken match row instead of 500ing the whole page.
 - Deleting a connection now acts as a real runner shutdown signal instead of a best-effort 401 on the next poll.
 - Connection onboarding can now safely wait for the provider's first live call before the real connection row exists.
 - New agent creation uses the restored preset strategy picker, and users without a connection are sent to the connection setup page first.

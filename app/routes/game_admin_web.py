@@ -55,7 +55,7 @@ async def game_admin_dashboard(
         view = {
             "id": m.id,
             "name": m.name,
-            "scheduled_start": m.scheduled_start.isoformat(),
+            "scheduled_start": m.scheduled_start,
             "current_round": m.current_round,
             "total_rounds": m.total_rounds,
             "state": m.state,
