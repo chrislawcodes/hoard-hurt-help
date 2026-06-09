@@ -105,8 +105,8 @@ async def create_match_submit(
     min_players: Annotated[int, Form()] = 6,
     max_players: Annotated[int, Form()] = 20,
     per_turn_deadline_seconds: Annotated[int, Form()] = 60,
-    total_rounds: Annotated[int, Form()] = 10,
-    turns_per_round: Annotated[int, Form()] = 10,
+    total_rounds: Annotated[int, Form()] = 7,
+    turns_per_round: Annotated[int, Form()] = 7,
 ):
     def _error(msg: str):
         return templates.TemplateResponse(

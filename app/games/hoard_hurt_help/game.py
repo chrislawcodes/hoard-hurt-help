@@ -39,14 +39,14 @@ class HoardHurtHelp:
 
     def config_defaults(self) -> GameConfig:
         return GameConfig(
-            total_rounds=10,
-            turns_per_round=10,
+            total_rounds=7,
+            turns_per_round=7,
             per_turn_deadline_seconds=60,
             min_players=6,
             max_players=100,
         )
 
-    def rules_text(self, total_rounds: int = 10, turns_per_round: int = 10) -> str:
+    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
         return make_rules_text(total_rounds, turns_per_round)
 
     def strategy_presets(self) -> list[StrategyPreset]:

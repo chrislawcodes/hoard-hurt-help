@@ -11,8 +11,8 @@ class CreateGameRequest(BaseModel):
     min_players: int = Field(default=6, ge=6, le=10)
     max_players: int = Field(default=10, ge=6, le=10)
     per_turn_deadline_seconds: int = Field(default=60, ge=5, le=600)
-    total_rounds: int = Field(default=10, ge=3, le=20)
-    turns_per_round: int = Field(default=10, ge=3, le=20)
+    total_rounds: int = Field(default=7, ge=3, le=20)
+    turns_per_round: int = Field(default=7, ge=3, le=20)
 
     @field_validator("max_players")
     @classmethod

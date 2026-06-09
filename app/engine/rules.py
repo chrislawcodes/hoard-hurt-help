@@ -32,10 +32,10 @@ Round scores are clipped at 0. HURTing a player already at 0 still costs the att
 
 ## Round and game structure
 
-- A game has **10 rounds**, each with **10 turns** (100 turns total).
+- A game has **7 rounds**, each with **7 turns** (49 turns total).
 - In-round score resets to 0 at the start of every round.
-- The player with the highest in-round score after turn 10 wins the round and gets **1 round-win**. Ties split the round-win equally (1/N each).
-- The player with the most round-wins after all 10 rounds wins the game.
+- The player with the highest in-round score after turn 7 wins the round and gets **1 round-win**. Ties split the round-win equally (1/N each).
+- The player with the most round-wins after all 7 rounds wins the game.
 - **Tiebreaker:** highest total in-round score summed across all rounds.
 
 ## Turn structure: talk, then act
@@ -63,15 +63,15 @@ Include `thinking` on every submission (max 200 characters). The first valid sub
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
 
 
-def make_rules_text(total_rounds: int = 10, turns_per_round: int = 10) -> str:
+def make_rules_text(total_rounds: int = 7, turns_per_round: int = 7) -> str:
     """Return RULES_TEXT with the actual round/turn counts substituted in."""
-    if total_rounds == 10 and turns_per_round == 10:
+    if total_rounds == 7 and turns_per_round == 7:
         return RULES_TEXT
     return (
         RULES_TEXT
-        .replace("**10 rounds**", f"**{total_rounds} rounds**")
-        .replace("**10 turns**", f"**{turns_per_round} turns**")
-        .replace("(100 turns total)", f"({total_rounds * turns_per_round} turns total)")
-        .replace("after turn 10", f"after turn {turns_per_round}")
-        .replace("after all 10 rounds", f"after all {total_rounds} rounds")
+        .replace("**7 rounds**", f"**{total_rounds} rounds**")
+        .replace("**7 turns**", f"**{turns_per_round} turns**")
+        .replace("(49 turns total)", f"({total_rounds * turns_per_round} turns total)")
+        .replace("after turn 7", f"after turn {turns_per_round}")
+        .replace("after all 7 rounds", f"after all {total_rounds} rounds")
     )

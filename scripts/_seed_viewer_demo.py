@@ -54,11 +54,11 @@ async def main() -> None:
             completed_at=now - timedelta(minutes=20),
             min_players=3,
             max_players=20,
-            total_rounds=10,
-            turns_per_round=10,
-            current_round=10,
-            current_turn=10,
-            rounds_awarded=10,
+            total_rounds=7,
+            turns_per_round=7,
+            current_round=7,
+            current_turn=7,
+            rounds_awarded=7,
         )
         db.add(match)
         await db.flush()
