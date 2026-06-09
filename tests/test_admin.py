@@ -113,6 +113,49 @@ async def test_admin_api_rejects_games_over_twenty_players(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_api_rejects_unknown_game_type(client, reset_db):
+    # An unknown game type must be rejected at creation (4xx), so a match with a
+    # game the scheduler can't run never gets persisted as a future zombie.
+    admin = await _seed_user(reset_db, "admin@test.com")
+    when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    r = await client.post(
+        "/api/game-admin/no-such-game/matches",
+        json={
+            "name": "Bad Type",
+            "scheduled_start": when,
+            "min_players": 6,
+            "max_players": 10,
+            "per_turn_deadline_seconds": 30,
+        },
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 400, r.text
+    assert "Unknown game type" in r.text
+
+
+@pytest.mark.asyncio
+async def test_web_form_rejects_unknown_game_type(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
+        "%Y-%m-%dT%H:%M:00.000Z"
+    )
+    r = await client.post(
+        "/games/no-such-game/admin/matches/new",
+        data={
+            "name": "Bad Type",
+            "scheduled_start": future,
+            "min_players": "3",
+            "max_players": "10",
+            "per_turn_deadline_seconds": "60",
+        },
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+    assert "Unknown game type" in r.text
+
+
+@pytest.mark.asyncio
 async def test_create_game_via_web_form(client, reset_db):
     """The browser posts a UTC ISO string (from datetime-local JS conversion)."""
     admin = await _seed_user(reset_db, "admin@test.com")

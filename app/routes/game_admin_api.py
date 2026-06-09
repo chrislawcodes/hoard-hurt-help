@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.deps import DbSession, require_game_admin
 from app.engine.tokens import generate_match_id
+from app.games import known_types
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
 from app.models.player import Player
@@ -36,6 +37,10 @@ async def create_game(
     db: DbSession,
     _: Annotated[User, Depends(require_game_admin)],
 ) -> GameRecord:
+    if game not in known_types():
+        raise HTTPException(
+            400, detail=f"Unknown game type {game!r}. Known: {known_types()}."
+        )
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
     existing_ids = (await db.execute(select(Match.id))).scalars().all()

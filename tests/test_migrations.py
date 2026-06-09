@@ -204,8 +204,16 @@ def _seed_active_match(db_path: Path, match_id: str = "M_TEST") -> None:
     conn.close()
 
 
-def test_migration_guard_cancels_active_games_when_behind(tmp_path: Path) -> None:
-    """Active games are cancelled before a destructive migration runs."""
+def test_migration_guard_cancels_active_games_when_behind(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Active games are cancelled before a destructive migration runs — loudly.
+
+    The guard must log at ERROR naming the cancelled match IDs and the reason,
+    so the cancellation is never a silent workaround. (We capture the logger call
+    directly rather than via caplog: an earlier alembic-driven fileConfig in this
+    module can disable propagation for the app logger.)
+    """
     db_path = tmp_path / "guard_behind.db"
     db_url = f"sqlite+aiosqlite:///{db_path}"
 
@@ -215,14 +223,25 @@ def test_migration_guard_cancels_active_games_when_behind(tmp_path: Path) -> Non
     _seed_active_match(db_path)
 
     cfg = Config(str(REPO_ROOT / "alembic.ini"))
-    from app.db_bootstrap import _cancel_active_games_if_schema_pending
+    import app.db_bootstrap as db_bootstrap
 
-    _cancel_active_games_if_schema_pending(cfg, db_url)
+    error_logs: list[str] = []
+    monkeypatch.setattr(
+        db_bootstrap.logger,
+        "error",
+        lambda msg, *a, **k: error_logs.append(msg % a if a else msg),
+    )
+
+    db_bootstrap._cancel_active_games_if_schema_pending(cfg, db_url)
 
     conn = sqlite3.connect(db_path)
     state = conn.execute("SELECT state FROM matches WHERE id='M_TEST'").fetchone()[0]
     conn.close()
     assert state == "cancelled"
+
+    guard_logs = [m for m in error_logs if "M_TEST" in m]
+    assert guard_logs, "guard must log cancelled match IDs at ERROR"
+    assert "reason=pending_schema_migration" in guard_logs[0]
 
 
 def test_migration_guard_skips_when_at_head(tmp_path: Path) -> None:

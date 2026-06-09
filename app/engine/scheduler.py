@@ -17,10 +17,11 @@ new ones and resume after process restarts.
 import asyncio
 import functools
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.broadcast import publish
 from app.db import SessionLocal
@@ -45,6 +46,10 @@ _START_POLL_SECONDS = 2.0
 # SOFT lobby target (what the admin advertises); this is the rules-mechanical
 # minimum. A due game with fewer than this is cancelled rather than left stuck.
 MIN_PLAYERS_TO_START = 3
+# After this many consecutive failures of the same poller subsystem, escalate
+# the log from `exception` to `critical` — a persistently broken subsystem must
+# not just re-log the same error forever with no alarm.
+_POLLER_ESCALATE_AFTER = 5
 
 
 def _as_aware(dt: datetime) -> datetime:
@@ -69,6 +74,9 @@ class SchedulerRegistry:
     def __init__(self) -> None:
         self._tasks: dict[str, asyncio.Task] = {}
         self._poller: asyncio.Task | None = None
+        # Consecutive-failure count per poller subsystem name. Reset to 0 on a
+        # successful run; escalates to logger.critical past _POLLER_ESCALATE_AFTER.
+        self._subsystem_failures: dict[str, int] = {}
 
     def is_running(self, match_id: str) -> bool:
         t = self._tasks.get(match_id)
@@ -150,6 +158,36 @@ class SchedulerRegistry:
         if self._poller is not None and not self._poller.done():
             self._poller.cancel()
 
+    async def _run_subsystem(
+        self, name: str, coro_factory: Callable[[], Awaitable[object]]
+    ) -> None:
+        """Run one poller subsystem, never letting it kill the poller.
+
+        Each failure logs with `logger.exception` and bumps a consecutive-failure
+        counter for `name`. Once a subsystem fails `_POLLER_ESCALATE_AFTER` times
+        in a row, it also logs `logger.critical` so a persistently broken
+        subsystem raises an alarm instead of silently re-logging forever. A
+        success resets the counter.
+
+        `coro_factory` is a zero-arg callable returning the awaitable to run, so
+        the subsystem coroutine is only created when we actually run it.
+        """
+        try:
+            await coro_factory()
+        except Exception:  # never let the poller die on a transient error
+            count = self._subsystem_failures.get(name, 0) + 1
+            self._subsystem_failures[name] = count
+            logger.exception("%s poll failed (consecutive failure #%d)", name, count)
+            if count >= _POLLER_ESCALATE_AFTER:
+                logger.critical(
+                    "poller subsystem %r has failed %d times in a row — it is "
+                    "persistently broken and needs attention.",
+                    name,
+                    count,
+                )
+        else:
+            self._subsystem_failures[name] = 0
+
     async def _poll_due_loop(self, session_factory: async_sessionmaker | None) -> None:
         from app.engine.arena import (
             ensure_auto_match,
@@ -158,34 +196,33 @@ class SchedulerRegistry:
         )
 
         factory = session_factory or SessionLocal
+
+        async def _with_db(fn: Callable[[AsyncSession], Awaitable[None]]) -> None:
+            async with factory() as db:
+                await fn(db)
+
         while True:
             # 1st: fill overdue auto-matches with Sims before start_due_games
             # evaluates player count — if reversed, auto-matches get cancelled.
-            try:
-                async with factory() as db:
-                    await fill_and_start_auto_matches(db)
-            except Exception:
-                logger.exception("fill_and_start_auto_matches poll failed")
+            await self._run_subsystem(
+                "fill_and_start_auto_matches",
+                lambda: _with_db(fill_and_start_auto_matches),
+            )
 
             # 2nd: recreate Practice Arena if the last one ended.
-            try:
-                async with factory() as db:
-                    await ensure_practice_arena(db)
-            except Exception:
-                logger.exception("ensure_practice_arena poll failed")
+            await self._run_subsystem(
+                "ensure_practice_arena", lambda: _with_db(ensure_practice_arena)
+            )
 
             # 3rd: open the next 30-min auto-match window if none exists.
-            try:
-                async with factory() as db:
-                    await ensure_auto_match(db)
-            except Exception:
-                logger.exception("ensure_auto_match poll failed")
+            await self._run_subsystem(
+                "ensure_auto_match", lambda: _with_db(ensure_auto_match)
+            )
 
             # 4th: existing logic — start/cancel non-arena games that are due.
-            try:
-                await self.start_due_games(session_factory)
-            except Exception:  # never let the poller die on a transient error
-                logger.exception("start_due_games poll failed")
+            await self._run_subsystem(
+                "start_due_games", lambda: self.start_due_games(session_factory)
+            )
 
             # 5th: watchdog — self-heal without waiting for a server restart.
             #   a) Cancel ACTIVE games that have no players left (zombie games from
@@ -194,10 +231,7 @@ class SchedulerRegistry:
             #      False when active_player_count == 0.
             #   b) Restart ACTIVE games whose scheduler task has died (crashed tasks
             #      stay dead until the next server restart without this).
-            try:
-                await self._watchdog(factory)
-            except Exception:
-                logger.exception("watchdog poll failed")
+            await self._run_subsystem("watchdog", lambda: self._watchdog(factory))
 
             await asyncio.sleep(_START_POLL_SECONDS)
 
@@ -270,12 +304,19 @@ async def _run_game(match_id: str) -> None:
             return
 
         # The platform drives the loop through the game's module — never a
-        # hard-coded resolver. Skip (don't crash the poller) on an unknown type.
+        # hard-coded resolver. Creation-time validation should already reject
+        # unknown types; this is defense in depth. If one still reaches here we
+        # must NOT leave the match ACTIVE forever (the zombie state) — cancel it
+        # loudly so it shows as terminal and stops being polled.
         try:
             module = get_game_module(game.game)
         except GameError:
+            game.state = GameState.CANCELLED
+            game.cancelled_at = datetime.now(timezone.utc)
+            await db.commit()
             logger.error(
-                "Match %s has unknown game_type %r — skipping its turn loop.",
+                "Match %s has unknown game_type %r — cancelled (cannot run its "
+                "turn loop). This should have been rejected at creation time.",
                 game.id,
                 game.game,
             )

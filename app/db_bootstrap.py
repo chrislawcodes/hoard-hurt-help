@@ -102,9 +102,19 @@ def _cancel_active_games_if_schema_pending(config: Config, database_url: str) ->
                 {"now": datetime.now(timezone.utc).isoformat()},
             )
             conn.commit()
-        logger.warning(
-            "pre-migration: cancelled %d active game(s) before schema upgrade: %s",
+        # Loud and specific: a pending migration may be destructive (e.g. it
+        # drops/recreates the players table), which would leave these games as
+        # unrecoverable zombies. We name every cancelled match and the reason so
+        # the cancellation is never silent. (There is no per-match reason column
+        # on `matches`; if one is ever added, also record `reason` there.)
+        logger.error(
+            "pre-migration guard: CANCELLED %d active match(es) before applying "
+            "pending schema migration %s -> %s. reason=pending_schema_migration "
+            "(a destructive migration could wipe player data and strand these "
+            "matches as zombies). match_ids=%s",
             len(active_ids),
+            current,
+            head,
             active_ids,
         )
     finally:
