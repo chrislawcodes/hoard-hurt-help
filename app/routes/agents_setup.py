@@ -50,6 +50,20 @@ class VersionRow:
     frozen: bool
 
 
+@dataclass(frozen=True)
+class MatchEntry:
+    """One row in the agent-detail matches table."""
+
+    match_id: str
+    match_name: str
+    game_type: str
+    state: GameState
+    player_id: int
+    round_score: int
+    total_score: int
+    pre_game: bool
+
+
 async def _load_owned_connection(
     db: DbSession, user: User, connection_id: int
 ) -> Connection:
@@ -136,6 +150,46 @@ async def _count_active_matches_for_connection(db: DbSession, connection_id: int
         )
     )
     return int(count or 0)
+
+
+async def _load_agent_matches(db: DbSession, agent_id: int) -> list[MatchEntry]:
+    """Return match rows for this agent: active first, then upcoming, then recent done (cap 10)."""
+    rows = (
+        await db.execute(
+            select(Match, Player)
+            .join(Player, Player.match_id == Match.id)
+            .where(
+                Player.agent_id == agent_id,
+                Player.left_at.is_(None),
+            )
+            .order_by(Match.scheduled_start.desc())
+        )
+    ).all()
+
+    active: list[MatchEntry] = []
+    upcoming: list[MatchEntry] = []
+    done: list[MatchEntry] = []
+
+    for match, player in rows:
+        pre_game = match.state in (GameState.SCHEDULED, GameState.REGISTERING)
+        entry = MatchEntry(
+            match_id=match.id,
+            match_name=match.name,
+            game_type=match.game,
+            state=match.state,
+            player_id=player.id,
+            round_score=player.current_round_score,
+            total_score=player.total_round_score,
+            pre_game=pre_game,
+        )
+        if match.state == GameState.ACTIVE:
+            active.append(entry)
+        elif pre_game:
+            upcoming.append(entry)
+        else:
+            done.append(entry)
+
+    return active + upcoming + done[:10]
 
 
 async def _version_rows(db: DbSession, agent_id: int) -> list[VersionRow]:
@@ -486,6 +540,22 @@ async def create_agent_or_connection(
     raise HTTPException(status_code=400, detail="Agent name is required.")
 
 
+def _is_ready_to_play(context: dict[str, object]) -> bool:
+    """True when the agent can accept a new match invitation right now."""
+    health = context.get("health")
+    if health is None:
+        return False
+    if isinstance(health, dict):
+        state = health.get("state")
+    else:
+        state = getattr(health, "state", None)
+    if state not in (ConnectionHealth.LIVE, ConnectionHealth.READY):
+        return False
+    if context.get("join_blocked"):
+        return False
+    return True
+
+
 @router.get("/{agent_id}", response_class=HTMLResponse)
 async def agent_detail(
     agent_id: Annotated[int, Path()],
@@ -506,4 +576,10 @@ async def agent_detail(
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found.")
     context = await _build_agent_detail_context(db, request, user, agent)
+    matches = await _load_agent_matches(db, agent.id)
+    context = {
+        **context,
+        "matches": matches,
+        "ready_to_play": _is_ready_to_play(context),
+    }
     return templates.TemplateResponse(request, "agents/detail.html", context)
