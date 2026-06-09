@@ -130,10 +130,13 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         )
     ).scalars().first()
     if existing is not None:
-        # Guard against arenas that lost their bots (e.g. a schema migration that
-        # wiped the players table leaves the match row in REGISTERING with 0 bots).
-        # If the bot count is short, cancel the stale arena and fall through to
-        # create a fresh one so the poller self-heals without manual intervention.
+        # Guard against stale arenas (e.g. one created before PRACTICE_ARENA_MAX_PLAYERS
+        # changed still carries the old capacity in its row, or a schema migration that
+        # wiped the players table left the row in REGISTERING with 0 bots). If the bot
+        # count is short or the capacity is out of date, cancel the stale arena and fall
+        # through to create a fresh one so the poller self-heals without manual
+        # intervention. Only REGISTERING/SCHEDULED arenas reach here — once a human joins
+        # the arena goes ACTIVE, so this never cancels a match a person is in.
         bot_count = (
             await db.scalar(
                 select(func.count())
@@ -146,7 +149,10 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
                 )
             )
         ) or 0
-        if bot_count >= PRACTICE_ARENA_BOT_COUNT:
+        if (
+            bot_count >= PRACTICE_ARENA_BOT_COUNT
+            and existing.max_players == PRACTICE_ARENA_MAX_PLAYERS
+        ):
             return
         existing.state = GameState.CANCELLED
         existing.cancelled_at = datetime.now(timezone.utc)
