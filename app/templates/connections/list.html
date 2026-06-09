@@ -3,25 +3,29 @@
 {% block content %}
 <div class="page-head">
     <h1>Connections</h1>
-    <p class="sub">Start a provider setup once, then reuse the same login across every agent you build.</p>
+    <p class="sub">Choose the setup path that matches your provider, then reuse that login across every agent you build.</p>
 </div>
 
 <form method="post" action="/me/connections" class="card form">
     <label>
-        Provider
-        <select name="provider" required>
-            <option value="" selected disabled>Choose a provider</option>
-            {% for provider in provider_choices %}
-                <option value="{{ provider.value }}">{{ provider_labels[provider.value] }}</option>
-            {% endfor %}
-        </select>
-    </label>
-    <label>
         Nickname
         <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="Defaults to the provider name">
     </label>
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Start setup</button>
+    <p class="hint" style="margin-top:0;">Pick one of the two groups below, then choose the provider you want.</p>
+    <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
+        {% for group in provider_groups %}
+        <section class="card" style="margin:0;">
+            <h3 style="margin-top:0;">{{ group.label }}</h3>
+            <p class="hint" style="margin-top:0;">{{ group.description }}</p>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                {% for provider in group.providers %}
+                <button type="submit" name="provider" value="{{ provider.value }}" class="btn btn-primary">
+                    {{ provider_labels[provider.value] }}
+                </button>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
     </div>
 </form>
 

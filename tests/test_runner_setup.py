@@ -1,4 +1,4 @@
-"""The agent setup screen leads with the runner, and the runner script is served."""
+"""The agent setup screen leads with setup instructions, and the setup file is served."""
 
 import base64
 import json
@@ -54,7 +54,7 @@ async def test_agent_runner_scripts_are_served() -> None:
 
 
 @pytest.mark.asyncio
-async def test_setup_screen_leads_with_runner(reset_db) -> None:
+async def test_setup_screen_leads_with_setup_instructions(reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -67,16 +67,14 @@ async def test_setup_screen_leads_with_runner(reset_db) -> None:
         cookies={"hhh_session": _cookie(uid)},
         follow_redirects=True,
     ) as c:
-        # Creating a connection lands on the setup page with the one-time runner message.
+        # Creating a connection lands on the setup page with the one-time setup message.
         r = await c.post("/me/connections", data={"provider": "claude", "nickname": "Atlas"})
     assert r.status_code == 200, r.text
     body = r.text
-    # The chained-session setup is the primary path; the page now hands back
-    # the connection runner, not the removed bot runner.
+    # The setup path is the primary path; the page now hands back setup instructions.
     assert "curl -fsSL" in body
-    assert "/runners/agentludum_connector.py" in body
+    assert "/setup-files/agentludum_connector.py" in body
     assert "This connection uses the Claude login I already have." in body
     assert "X-Connection-Key" in body
-    # Tells the operator how to stop the agent.
     assert "Keep one session per match" in body
-    assert "Setup AI Provider Connection" in body
+    assert "Setup instructions" in body

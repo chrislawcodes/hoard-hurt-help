@@ -87,7 +87,7 @@ async def guide(name: Annotated[str, Path()], request: Request, db: DbSession):
     )
 
 
-# Chained-session connection runner. ONE script now drives every CLI provider
+# Chained-session setup file download. ONE script now drives every CLI provider
 # for a connection. The old runner name is kept as an alias so older setup
 # messages still fetch a working file, but the canonical filename is the new
 # connector path.
@@ -101,18 +101,27 @@ _AGENT_RUNNERS: dict[str, FsPath] = {
 }
 
 
-@router.get("/runners/{name}", include_in_schema=False)
-async def agent_runner_script(name: Annotated[str, Path()]) -> FileResponse:
-    """Serve a chained-session agent runner so the setup `curl` fetches it.
-
-    Allowlisted by exact filename — the path never comes from the request, so
-    there's no traversal surface. Single source of truth: this streams the
-    repo's scripts/<name>, so the downloaded runner always matches this server.
-    """
+def _serve_agent_file(name: str) -> FileResponse:
     path = _AGENT_RUNNERS.get(name)
     if path is None or not path.is_file():
         raise HTTPException(404)
     return FileResponse(path, media_type="text/x-python", filename=name)
+
+
+@router.get("/setup-files/{name}", include_in_schema=False)
+async def agent_setup_file(name: Annotated[str, Path()]) -> FileResponse:
+    """Serve a setup script so the setup `curl` fetches it.
+
+    Allowlisted by exact filename — the path never comes from the request, so
+    there's no traversal surface. Single source of truth: this streams the
+    repo's scripts/<name>, so the downloaded file always matches this server.
+    """
+    return _serve_agent_file(name)
+
+
+@router.get("/runners/{name}", include_in_schema=False)
+async def agent_runner_script(name: Annotated[str, Path()]) -> FileResponse:
+    return _serve_agent_file(name)
 
 
 @router.get("/games/{match_id}/join", response_class=HTMLResponse)

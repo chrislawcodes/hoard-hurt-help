@@ -259,11 +259,12 @@ async def test_create_connection_shows_setup_page_before_connect(
         follow_redirects=True,
     )
     assert resp.status_code == 200
-    assert "Setup AI Provider Connection" in resp.text
-    assert "This connection is not established" in resp.text
-    assert "The connection will be created when the AI provider talks to the server." in resp.text
-    assert "Copy setup message" in resp.text
+    assert "Claude setup" in resp.text
+    assert "This connection is not established yet." in resp.text
+    assert "Add the key below to your client and it will connect automatically." in resp.text
+    assert "Copy setup instructions" in resp.text
     assert "agentludum_connector.py" in resp.text
+    assert "setup-files/agentludum_connector.py" in resp.text
     assert "X-Connection-Key" in resp.text
     assert "X-Agent-Key" not in resp.text
     assert "mcp" not in resp.text.lower()
@@ -278,6 +279,27 @@ async def test_create_connection_shows_setup_page_before_connect(
             await db.execute(select(Connection).where(Connection.user_id == user.id))
         ).scalar_one_or_none()
         assert connection is None
+
+
+@pytest.mark.asyncio
+async def test_connections_list_groups_provider_choices(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with session_factory() as db:
+        user = await _make_user(db)
+        await db.commit()
+
+    resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
+    assert resp.status_code == 200
+    assert "Claude / Gemini / OpenAI" in resp.text
+    assert "Hermes / OpenClaw" in resp.text
+    assert "Use the standard setup path for the CLI-backed providers." in resp.text
+    assert "Use the Hermes/OpenClaw setup path." in resp.text
+    assert 'name="provider" value="claude"' in resp.text
+    assert 'name="provider" value="gemini"' in resp.text
+    assert 'name="provider" value="openai"' in resp.text
+    assert 'name="provider" value="hermes"' in resp.text
+    assert 'name="provider" value="openclaw"' in resp.text
 
 
 @pytest.mark.asyncio

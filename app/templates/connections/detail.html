@@ -16,10 +16,10 @@
 
 {% if fresh_key %}
 <div class="card" id="setup">
-    <h3 style="margin-top:0;">Rotate Key</h3>
-    <p class="hint" style="margin-top:0;">Copy this new setup message into the runner so it keeps playing your agents.</p>
-    <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Copy setup message</button>
-    <pre id="runner-msg">{{ runner_message }}</pre>
+    <h3 style="margin-top:0;">Rotate key</h3>
+    <p class="hint" style="margin-top:0;">Copy this new setup message into your client so it keeps playing your agents.</p>
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setup-msg').textContent)">Copy setup instructions</button>
+    <pre id="setup-msg">{{ setup_message }}</pre>
     <p class="hint">If you lose this message, rotate the key from the controls at the bottom.</p>
 </div>
 {% endif %}

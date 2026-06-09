@@ -2,17 +2,17 @@
     <h3 style="margin-top:0;">Connection status</h3>
     <p class="hint" style="margin-top:0;">
         {% if connection.status.value == 'pending' and health.never_connected %}
-            Waiting for the runner to connect. Paste the setup message above, then keep the runner running.
+            Waiting for the client to connect. Paste the setup instructions above, then keep the client running.
         {% elif health.state.value == 'paused' %}
             This connection is paused.
         {% elif health.state.value == 'stalled' %}
-            The runner is connected, but turns are stalling. Use Rotate Key below if it needs a fresh setup message.
+            The client is connected, but turns are stalling. Use Rotate Key below if it needs a fresh setup message.
         {% elif health.state.value == 'live' %}
-            The runner is connected and playing.
+            The client is connected and playing.
         {% elif health.state.value == 'ready' %}
-            The runner is connected and idle, ready for the next turn.
+            The client is connected and idle, ready for the next turn.
         {% else %}
-            Waiting for the runner to connect. Use Rotate Key below if the setup message needs to be refreshed.
+            Waiting for the client to connect. Use Rotate Key below if the setup message needs to be refreshed.
         {% endif %}
     </p>
     <p class="meta">

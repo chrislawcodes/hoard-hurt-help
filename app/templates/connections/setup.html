@@ -3,17 +3,17 @@
 {% block content %}
 <a class="backlink" href="/me/connections">← Connections</a>
 <div class="page-head">
-    <h1>Setup AI Provider Connection</h1>
+    <h1>{{ provider_label }} setup</h1>
     <p class="sub">{{ provider_label }} · waiting for the first authenticated connection</p>
 </div>
 
 {% if fresh_key %}
 <div class="card" id="setup">
-    <h3 style="margin-top:0;">Setup AI Provider Connection</h3>
-    <p class="hint" style="margin-top:0;">This connection is not established. The connection will be created when the AI provider talks to the server.</p>
-    <button type="button" onclick="copyWithFeedback(this, document.getElementById('runner-msg').textContent)">Copy setup message</button>
-    <pre id="runner-msg">{{ runner_message }}</pre>
-    <p class="hint">If you lose this message before the provider connects, start the setup again.</p>
+    <h3 style="margin-top:0;">Setup instructions</h3>
+    <p class="hint" style="margin-top:0;">This connection is not established yet. Add the key below to your client and it will connect automatically.</p>
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setup-msg').textContent)">Copy setup instructions</button>
+    <pre id="setup-msg">{{ setup_message }}</pre>
+    <p class="hint">If you lose this message before the client connects, open the setup again from Connections.</p>
 </div>
 {% endif %}
 
