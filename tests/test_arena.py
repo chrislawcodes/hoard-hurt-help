@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import delete, func, select
@@ -20,6 +21,7 @@ from app.engine.arena import (
     fill_and_start_auto_matches,
 )
 from app.engine.bot_presets import HISTORICAL_BOT_NAME_POOL
+from app.engine.sims.seating import SimSeatingError
 from app.models import Base
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -333,3 +335,78 @@ async def test_fill_and_start_auto_matches_zero_humans_cancels(db_session):
             )
         )
         assert player_count == 0
+
+
+async def test_fill_and_start_seating_error_cancels_match_and_continues(db_session):
+    """A SimSeatingError during bot seating cancels the affected match.
+
+    The failed match must end up CANCELLED (not left in limbo), and the loop
+    must continue processing subsequent due matches.
+    """
+    past = datetime.now(timezone.utc) - timedelta(minutes=5)
+    failing_id = "M_9010"
+    succeeding_id = "M_9011"
+
+    async with db_session() as db:
+        # First match: has a human, but bot seating will fail.
+        m1 = Match(
+            id=failing_id,
+            name="Failing Match",
+            state=GameState.SCHEDULED,
+            scheduled_start=past,
+            min_players=1,
+            max_players=AUTO_MATCH_MAX_PLAYERS,
+            match_kind=MatchKind.AUTO_SCHEDULED.value,
+        )
+        db.add(m1)
+        await db.flush()
+        await seat_player(db, failing_id, "Human1", i=1)
+
+        # Second match: also has a human, and bot seating will succeed normally.
+        m2 = Match(
+            id=succeeding_id,
+            name="Succeeding Match",
+            state=GameState.SCHEDULED,
+            scheduled_start=past,
+            min_players=1,
+            max_players=AUTO_MATCH_MAX_PLAYERS,
+            match_kind=MatchKind.AUTO_SCHEDULED.value,
+        )
+        db.add(m2)
+        await db.flush()
+        await seat_player(db, succeeding_id, "Human2", i=2)
+        await db.commit()
+
+    # Patch add_bots_to_game so it raises only for the first match.
+    original_add_bots = "app.engine.arena.add_bots_to_game"
+    call_count = 0
+
+    async def _add_bots_side_effect(db, match, seats):
+        nonlocal call_count
+        call_count += 1
+        if match.id == failing_id:
+            raise SimSeatingError("Test-induced seating failure")
+        from app.engine.sims.seating import add_bots_to_game as _real
+        return await _real(db, match, seats)
+
+    with patch(original_add_bots, side_effect=_add_bots_side_effect):
+        # Also patch start_game to avoid spinning up asyncio game tasks.
+        with patch("app.engine.scheduler.start_game", new_callable=AsyncMock):
+            async with db_session() as db:
+                await fill_and_start_auto_matches(db)
+
+    async with db_session() as db:
+        # The failing match must be CANCELLED with a timestamp.
+        m1 = (
+            await db.execute(select(Match).where(Match.id == failing_id))
+        ).scalar_one()
+        assert m1.state == GameState.CANCELLED
+        assert m1.cancelled_at is not None
+
+        # The succeeding match must have been processed (ACTIVE or still in DB).
+        # We at minimum verify the loop did not stop after the first failure.
+        m2 = (
+            await db.execute(select(Match).where(Match.id == succeeding_id))
+        ).scalar_one()
+        # The loop continued past the failure to attempt seating the second match.
+        assert call_count == 2
