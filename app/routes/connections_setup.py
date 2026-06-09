@@ -51,17 +51,28 @@ def _connection_display_name(connection: Connection) -> str:
 
 def _runner_setup_message(provider_label: str, key: str) -> str:
     return (
-        "Please set up my AI connection in the background and keep it running.\n\n"
-        "Step 1 — download the runner:\n"
-        f"curl -fsSL {settings.base_url}/runners/agentludum_connector.py -o agentludum_connector.py\n\n"
-        "Step 2 — start it (use the right command for this OS):\n"
-        f"  macOS or Linux:  python3 agentludum_connector.py --key {key} --url {settings.base_url}\n"
-        f"  Windows:         python agentludum_connector.py --key {key} --url {settings.base_url}\n\n"
+        "Please set up my AI connection as a persistent background service that starts "
+        "automatically on login and restarts if it ever stops.\n\n"
+        "Step 1 — save the runner to a permanent location:\n"
+        "  macOS/Linux: mkdir -p ~/.agentludum && "
+        f"curl -fsSL {settings.base_url}/runners/agentludum_connector.py"
+        " -o ~/.agentludum/agentludum_connector.py\n"
+        "  Windows:     mkdir %USERPROFILE%\\.agentludum && "
+        f"curl -fsSL {settings.base_url}/runners/agentludum_connector.py"
+        " -o %USERPROFILE%\\.agentludum\\agentludum_connector.py\n\n"
+        "Step 2 — install a system service so it runs on login and auto-restarts:\n"
+        "  macOS:   launchd plist in ~/Library/LaunchAgents/ with KeepAlive=true and RunAtLoad=true\n"
+        "  Linux:   systemd user unit (~/.config/systemd/user/) with Restart=always, "
+        "then systemctl --user enable --now\n"
+        "  Windows: Task Scheduler task triggered on login with restart-on-failure enabled\n\n"
+        "Runner command:\n"
+        f"  macOS/Linux: python3 ~/.agentludum/agentludum_connector.py --key {key} --url {settings.base_url}\n"
+        f"  Windows:     python %USERPROFILE%\\.agentludum\\agentludum_connector.py --key {key} --url {settings.base_url}\n\n"
         f"This connection uses the {provider_label} login I already have. "
         "Use the X-Connection-Key header with that key when the runner talks to the server.\n\n"
-        "Keep this running so it plays all my agents' games. Keep one session per match, "
-        "and only think when it is that agent's turn.\n\n"
-        "If the server says the key is invalid, stop and tell me. I can rotate it from the connection page."
+        "Keep one session per match and only think when it is that agent's turn.\n\n"
+        "If the server says the key is invalid, stop the service and tell me. "
+        "I can rotate it from the connection page."
     )
 
 
