@@ -1,19 +1,26 @@
-{% if versions %}
+{% if versions | length > 1 %}
 <div class="card">
-    <h3 style="margin-top:0;">Versions</h3>
-    {% for row in versions %}
+    <h3 style="margin-top:0;">Version history</h3>
+    {% for row in versions | reverse %}
     <article class="game-card">
         <div class="game-card-info">
-            <h4 style="margin:0;">v{{ row.version.version_no }}{% if row.version.id == version.id %} <span class="badge badge-ok">Current</span>{% endif %}</h4>
+            <h4 style="margin:0;">
+                v{{ row.version.version_no }}
+                {% if row.version.id == version.id %}<span class="badge badge-ok">Current</span>{% endif %}
+                {% if row.frozen %}<span class="badge">Frozen</span>{% endif %}
+            </h4>
             <p class="meta">
-                Created {{ row.version.created_at | localdt }}
-                {% if row.version.frozen_at %} · Frozen {{ row.version.frozen_at | localdt }}{% endif %}
-                · Rank {{ row.rank }}
+                {{ row.version.model }}
+                · {{ row.version.created_at | localdt }}
                 · {{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}
+                {% if row.match_count > 0 %} · Rank {{ row.rank }}{% endif %}
             </p>
-            <p>{{ row.version.model }}</p>
-            <pre style="white-space:pre-wrap; margin:0;">{{ row.version.strategy_text }}</pre>
         </div>
+        {% if row.version.id != version.id %}
+        <form method="post" action="/me/agents/{{ agent.id }}/restore-version/{{ row.version.id }}">
+            <button type="submit" class="secondary">Restore</button>
+        </form>
+        {% endif %}
     </article>
     {% endfor %}
 </div>
