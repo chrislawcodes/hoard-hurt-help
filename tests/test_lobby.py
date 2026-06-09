@@ -891,3 +891,46 @@ async def test_programming_error_during_upcoming_reconciliation_propagates(
 
     r = await client.get("/games/hoard-hurt-help/upcoming")
     assert r.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_upcoming_fragment_survives_null_scheduled_start(client, reset_db, monkeypatch):
+    """A legacy row with scheduled_start=NULL must not 500 the upcoming fragment.
+
+    The DB schema enforces NOT NULL today, but defensive rendering ensures a stale
+    row in a live database (or a future schema change) can't take the page down.
+    """
+    from app.routes import web_lobby
+
+    async def _fake_upcoming(_db):
+        return [
+            {
+                "id": "G_NULL",
+                "game_type": "hoard-hurt-help",
+                "name": "Legacy Broken",
+                "match_kind": "manual",
+                "scheduled_start": None,
+                "max_players": 10,
+                "player_count": 0,
+            }
+        ]
+
+    monkeypatch.setattr(web_lobby, "_upcoming_views", _fake_upcoming)
+
+    r = await client.get("/games/hoard-hurt-help/upcoming")
+    assert r.status_code == 200
+    assert "Legacy Broken" in r.text
+
+
+@pytest.mark.asyncio
+async def test_upcoming_fragment_renders_raw_datetime(client, reset_db):
+    """The upcoming fragment must render a raw datetime object via the localdt filter.
+
+    Before this fix, _upcoming_views passed pre-formatted ISO strings to the template.
+    Now it passes raw datetime objects; this test confirms the Jinja filter handles them.
+    """
+    await _seed_game(reset_db)
+    r = await client.get("/games/hoard-hurt-help/upcoming")
+    assert r.status_code == 200
+    assert "Test Match" in r.text
+    assert 'class="localtime"' in r.text

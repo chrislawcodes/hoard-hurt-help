@@ -425,7 +425,7 @@ async def game_admin_prompts(
         {
             "match_id": match_id,
             "agent_id": seat_name,
-            "created_at": version.created_at.isoformat(),
+            "created_at": version.created_at,
             "is_default": version.version_no == 1,
             "prompt": version.strategy_text,
         }
