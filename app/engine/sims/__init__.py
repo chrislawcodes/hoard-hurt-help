@@ -18,6 +18,7 @@ from .runtime import (
     choose_bot_action_decision,
     choose_bot_talk_decision,
     choose_talk_decision,
+    validate_bot_profile_fields,
 )
 from .signals import TalkSignal, extract_talk_signals
 from .strategies import choose_action_plan, choose_talk_plan, normalize_strategy_name
@@ -51,6 +52,7 @@ __all__ = [
     "SimTalkDecision",
     "SimActionDecision",
     "build_bot_profile",
+    "validate_bot_profile_fields",
     "TalkSignal",
     "choose_bot_action_decision",
     "choose_bot_talk_decision",
