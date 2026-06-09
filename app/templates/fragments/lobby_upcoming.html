@@ -7,7 +7,7 @@
     <div class="game-card-info">
         <h3>{{ g.name }}</h3>
         {% if g.match_kind == 'practice_arena' %}
-        <p class="meta">{{ g.player_count }} / {{ g.max_players }} registered · Starts when you add an agent</p>
+        <p class="meta">{{ g.player_count }} / {{ g.max_players }} registered · Game starts when you join</p>
         {% else %}
         <p class="meta">Starts {{ g.scheduled_start | localdt }} · {{ g.player_count }} / {{ g.max_players }} registered</p>
         {% endif %}

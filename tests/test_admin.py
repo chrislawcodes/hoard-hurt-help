@@ -458,6 +458,7 @@ async def test_platform_admin_dashboard_handles_missing_start_time(monkeypatch):
                         id="M_9999",
                         game="hoard-hurt-help",
                         name="Broken row",
+                        match_kind="manual",
                         scheduled_start=None,
                         min_players=3,
                         max_players=10,

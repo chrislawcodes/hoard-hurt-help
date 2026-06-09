@@ -471,23 +471,35 @@ async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_practice_arena_join_copy_mentions_agent_start(client, reset_db):
+async def test_practice_arena_join_copy_mentions_join_start(client, reset_db):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
     await _seed_practice_arena(reset_db)
 
     r = await client.get("/games/hoard-hurt-help/matches/G_PA/join", cookies=cookies)
     assert r.status_code == 200
-    assert "Starts when you add an agent" in r.text
+    assert "Game starts when you join" in r.text
+    assert "registered" in r.text
 
 
 @pytest.mark.asyncio
-async def test_practice_arena_upcoming_copy_mentions_agent_start(client, reset_db):
+async def test_practice_arena_upcoming_copy_mentions_join_start(client, reset_db):
     await _seed_practice_arena(reset_db)
 
     r = await client.get("/games/hoard-hurt-help/upcoming")
     assert r.status_code == 200
-    assert "Starts when you add an agent" in r.text
+    assert "Game starts when you join" in r.text
+    assert "registered" in r.text
+
+
+@pytest.mark.asyncio
+async def test_practice_arena_match_page_copy_mentions_join_start(client, reset_db):
+    await _seed_practice_arena(reset_db)
+
+    r = await client.get("/games/hoard-hurt-help/matches/G_PA")
+    assert r.status_code == 200
+    assert "Game starts when you join" in r.text
+    assert "Starts <time" not in r.text
 
 
 @pytest.mark.asyncio

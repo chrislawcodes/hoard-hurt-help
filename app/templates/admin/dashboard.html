@@ -30,7 +30,11 @@
 <article class="game-card">
     <div class="game-card-info">
         <h3>{{ g.name }}</h3>
+        {% if g.match_kind == 'practice_arena' %}
+        <p class="meta">{{ g.player_count }} / {{ g.max_players }} registered · Game starts when a player joins</p>
+        {% else %}
         <p class="meta">Starts {{ g.scheduled_start | localdt }} · {{ g.player_count }} / {{ g.max_players }} registered</p>
+        {% endif %}
     </div>
     <div class="game-card-action">
         <a class="btn btn-ghost" href="/games/{{ g.game }}/admin/matches/{{ g.id }}">Open →</a>
