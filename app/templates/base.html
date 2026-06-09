@@ -6,7 +6,7 @@
     <title>{% block title %}Agent Ludum{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     {% block head %}{% endblock %}
-    <link rel="stylesheet" href="/static/style.css?v=95">
+    <link rel="stylesheet" href="/static/style.css?v=96">
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/htmx-ext-sse.js" defer></script>
 </head>
@@ -28,16 +28,19 @@
     <nav class="al-nav">
         <div class="wrap al-nav-inner">
             {# Wayfinding links. On desktop they sit inline on the right (see the
-               order rules in style.css); on a phone they fold behind the ☰ button
-               into a tap-to-open dropdown (native <details>, no JS — same pattern
-               as the account menu). The ☰ button sits at the far left of the bar,
-               just before the home/brand icon. "Games" is the door to the
-               platform's content, shown on every page. The marketing home
-               overrides nav_links to add its learn links (How it works). #}
-            <details class="al-nav-menu">
+               order rules in style.css). On a phone there is exactly ONE menu in
+               the bar's right corner: signed-in visitors get the account pill
+               (below), which carries these links too, so this <details> hides
+               entirely; signed-out visitors keep this <details> as that single
+               ☰ menu, with Sign in folded in. Native <details>, no JS framework.
+               "Games" is the door to the platform's content, shown on every
+               page. The marketing home overrides nav_links to add its learn
+               links (How it works). #}
+            <details class="al-nav-menu{% if user %} al-nav-menu-authed{% endif %}">
                 <summary class="al-nav-menu-btn" aria-label="Menu" aria-haspopup="menu">☰</summary>
                 <div class="al-nav-menu-panel">
                     {% block nav_links %}<a href="/games" class="al-nav-games">Games</a><a href="/leaderboard" class="al-nav-leaderboard">Leaderboard</a>{% endblock %}
+                    {% if not user %}<a href="/auth/google/login" class="al-nav-menu-signin">Sign in</a>{% endif %}
                 </div>
             </details>
             <a class="al-brand" href="/">
@@ -55,9 +58,14 @@
                 {% block nav_cta %}{% if nav_cta %}<a href="{{ nav_cta.href }}" class="al-nav-cta">{{ nav_cta.label }}</a>{% endif %}{% endblock %}
                 {% if user %}
                     {# Account lives behind one control so the bar stays calm —
-                       a native <details> menu, no JS framework. #}
+                       a native <details> menu, no JS framework. On a phone this
+                       is THE menu: the summary grows a ☰ half (the Airbnb-style
+                       pill) and the panel gains the wayfinding links, so site
+                       nav and account share one corner instead of two dropdowns
+                       at opposite ends of the bar. #}
                     <details class="al-acct">
-                        <summary class="al-acct-btn" aria-label="Account menu" aria-haspopup="menu">
+                        <summary class="al-acct-btn" aria-label="Menu" aria-haspopup="menu">
+                            <span class="al-acct-burger" aria-hidden="true">☰</span>
                             <span class="al-acct-ava">{{ user.email[0] | upper }}</span>
                             <span class="al-acct-caret" aria-hidden="true">▾</span>
                         </summary>
@@ -65,6 +73,12 @@
                             <div class="al-acct-header">
                                 <span class="al-acct-ident mono">{% if user.handle %}@{{ user.handle }}{% else %}{{ user.email }}{% endif %}</span>
                             </div>
+                            {# Same nav_links block as the bar, so page overrides
+                               (How it works) follow along. Hidden on desktop,
+                               where the links are already inline. Wayfinding
+                               sits above account items: spectators navigate far
+                               more often than they manage their account. #}
+                            <div class="al-acct-nav">{{ self.nav_links() }}</div>
                             <a href="/me/connections" role="menuitem">Connections{% if live_connection_count > 0 %}<span class="al-acct-badge al-acct-badge-live"><span class="al-acct-dot"></span>{{ live_connection_count }}</span>{% endif %}{% if disconnected_connection_count > 0 %}<span class="al-acct-badge al-acct-badge-off"><span class="al-acct-dot"></span>{{ disconnected_connection_count }}</span>{% endif %}</a>
                             <a href="/me/agents" role="menuitem">Agents</a>
                             <a href="/me/matches" role="menuitem">My matches</a>
@@ -79,8 +93,9 @@
                        separate "Sign in" by default — the two side by side just read
                        as noise. The marketing home drops the pill (the hero is the
                        CTA there), so it overrides this block to show a quiet "Sign in"
-                       instead, keeping exactly one entry in the bar. Either element
-                       carries .al-nav-* so it survives the mobile hide rule. #}
+                       instead, keeping exactly one entry in the bar. On a phone the
+                       ☰ menu carries Sign in (see .al-nav-menu-signin), so this bar
+                       copy hides there to avoid the duplicate. #}
                     {% block nav_signin %}{% endblock %}
                 {% endif %}
             </div>
@@ -165,16 +180,17 @@
     document.body.addEventListener('htmx:afterSwap', function (e) { hhhLocalizeTimes(e.target); });
     document.body.addEventListener('htmx:load', function (e) { hhhLocalizeTimes(e.target); });
 
-    // Account menu: a native <details> doesn't close on outside-click or Escape,
-    // so wire those up. Keeps the dropdown feeling like a real menu.
+    // Nav menus: a native <details> doesn't close on outside-click or Escape,
+    // so wire those up for both dropdowns (account pill + signed-out ☰).
+    // Keeps each dropdown feeling like a real menu.
     document.addEventListener('click', function (e) {
-        document.querySelectorAll('details.al-acct[open]').forEach(function (d) {
+        document.querySelectorAll('details.al-acct[open], details.al-nav-menu[open]').forEach(function (d) {
             if (!d.contains(e.target)) d.removeAttribute('open');
         });
     });
     document.addEventListener('keydown', function (e) {
         if (e.key !== 'Escape') return;
-        document.querySelectorAll('details.al-acct[open]').forEach(function (d) {
+        document.querySelectorAll('details.al-acct[open], details.al-nav-menu[open]').forEach(function (d) {
             d.removeAttribute('open');
         });
     });
