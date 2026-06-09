@@ -302,10 +302,10 @@ async def test_run_game_cancels_unknown_game_type(db, monkeypatch):
 
     errors: list[str] = []
 
-    def record_error(msg: str, *args, **kwargs) -> None:
+    def record_log(level: int, msg: str, *args, **kwargs) -> None:
         errors.append(msg % args if args else msg)
 
-    monkeypatch.setattr(scheduler.logger, "error", record_error)
+    monkeypatch.setattr(scheduler.logger, "log", record_log)
     # _run_game opens its own SessionLocal; point it at the test session.
     monkeypatch.setattr(scheduler, "SessionLocal", _same_session_factory(db))
 
@@ -324,31 +324,34 @@ async def test_run_subsystem_escalates_after_consecutive_failures(monkeypatch):
     # Each failure logs `exception`; after _POLLER_ESCALATE_AFTER consecutive
     # failures of the same subsystem it must also log `critical`.
     reg = scheduler.SchedulerRegistry()
-    criticals: list[str] = []
-    monkeypatch.setattr(
-        scheduler.logger,
-        "critical",
-        lambda msg, *a, **k: criticals.append(msg % a if a else msg),
-    )
-    monkeypatch.setattr(scheduler.logger, "exception", lambda *a, **k: None)
+    log_entries: list[tuple[int, str]] = []
+
+    def record_log(level: int, msg: str, *a, **k) -> None:
+        log_entries.append((level, msg % a if a else msg))
+
+    monkeypatch.setattr(scheduler.logger, "log", record_log)
 
     async def boom() -> None:
         raise RuntimeError("kaboom")
 
+    import logging as _logging
+
     n = scheduler._POLLER_ESCALATE_AFTER
     for _ in range(n - 1):
         await reg._run_subsystem("flaky", boom)
-    assert criticals == []  # not escalated yet
+    criticals_before = [m for lvl, m in log_entries if lvl == _logging.CRITICAL]
+    assert criticals_before == []  # not escalated yet
     assert reg._subsystem_failures["flaky"] == n - 1
 
     await reg._run_subsystem("flaky", boom)  # Nth failure
+    criticals = [m for lvl, m in log_entries if lvl == _logging.CRITICAL]
     assert len(criticals) == 1
     assert any("persistently broken" in m for m in criticals)
 
 
 async def test_run_subsystem_resets_counter_on_success(monkeypatch):
     reg = scheduler.SchedulerRegistry()
-    monkeypatch.setattr(scheduler.logger, "exception", lambda *a, **k: None)
+    monkeypatch.setattr(scheduler.logger, "log", lambda *a, **k: None)
 
     async def boom() -> None:
         raise RuntimeError("kaboom")

@@ -225,11 +225,11 @@ def test_migration_guard_cancels_active_games_when_behind(
     cfg = Config(str(REPO_ROOT / "alembic.ini"))
     import app.db_bootstrap as db_bootstrap
 
-    error_logs: list[str] = []
+    log_records: list[tuple[int, str]] = []
     monkeypatch.setattr(
         db_bootstrap.logger,
-        "error",
-        lambda msg, *a, **k: error_logs.append(msg % a if a else msg),
+        "log",
+        lambda level, msg, *a, **k: log_records.append((level, msg % a if a else msg)),
     )
 
     db_bootstrap._cancel_active_games_if_schema_pending(cfg, db_url)
@@ -239,6 +239,9 @@ def test_migration_guard_cancels_active_games_when_behind(
     conn.close()
     assert state == "cancelled"
 
+    import logging as _logging
+
+    error_logs = [m for lvl, m in log_records if lvl == _logging.ERROR]
     guard_logs = [m for m in error_logs if "M_TEST" in m]
     assert guard_logs, "guard must log cancelled match IDs at ERROR"
     assert "reason=pending_schema_migration" in guard_logs[0]

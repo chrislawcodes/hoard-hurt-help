@@ -20,6 +20,8 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
+from app.ops_events import log_ops_event
+
 logger = logging.getLogger(__name__)
 
 LEGACY_PRE_RENAME_REVISION = "0017"
@@ -107,15 +109,19 @@ def _cancel_active_games_if_schema_pending(config: Config, database_url: str) ->
         # unrecoverable zombies. We name every cancelled match and the reason so
         # the cancellation is never silent. (There is no per-match reason column
         # on `matches`; if one is ever added, also record `reason` there.)
-        logger.error(
-            "pre-migration guard: CANCELLED %d active match(es) before applying "
-            "pending schema migration %s -> %s. reason=pending_schema_migration "
-            "(a destructive migration could wipe player data and strand these "
-            "matches as zombies). match_ids=%s",
-            len(active_ids),
-            current,
-            head,
-            active_ids,
+        log_ops_event(
+            logger,
+            logging.ERROR,
+            "match_cancelled",
+            f"pre-migration guard: CANCELLED {len(active_ids)} active match(es)"
+            f" before applying pending schema migration {current} -> {head}"
+            " (a destructive migration could wipe player data and strand these"
+            " matches as zombies).",
+            cancelled_count=len(active_ids),
+            from_revision=current,
+            match_ids=active_ids,
+            reason="pending_schema_migration",
+            to_revision=head,
         )
     finally:
         engine.dispose()

@@ -26,6 +26,7 @@ from app.engine.tokens import generate_match_id
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
+from app.ops_events import log_ops_event
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,13 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
     try:
         await add_bots_to_game(db, arena, seats)
     except SimSeatingError as exc:
-        logger.exception("Failed to seat bots in Practice Arena: %s", exc)
+        log_ops_event(
+            logger,
+            logging.ERROR,
+            "practice_arena_seating_failed",
+            f"Failed to seat bots in Practice Arena: {exc}",
+            match_id=match_id,
+        )
         await db.rollback()
         return
 
@@ -277,10 +284,13 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
                 try:
                     await add_bots_to_game(db, match, seats)
                 except SimSeatingError as exc:
-                    logger.error(
-                        "Auto-match %s bot seating failed — cancelling match: %s",
-                        match_id,
-                        exc,
+                    log_ops_event(
+                        logger,
+                        logging.ERROR,
+                        "match_cancelled",
+                        f"Auto-match {match_id} bot seating failed — cancelling match: {exc}",
+                        match_id=match_id,
+                        reason="seating_failure",
                     )
                     await db.rollback()
                     # Rollback expires all session objects; reload the match row
