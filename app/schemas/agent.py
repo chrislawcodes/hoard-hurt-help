@@ -279,12 +279,19 @@ class SubmitRequest(BaseModel):
     target_id: str | None = None
     message: str = Field(default="", max_length=200)
     thinking: str = Field(default="", max_length=200)
+    # Connector sets this True when the LLM failed and a default move is being
+    # submitted on its behalf. The server stores it via the existing was_defaulted
+    # column so fallback moves are identifiable in the DB without a migration.
+    is_connector_fallback: bool = False
 
 
 class MessageRequest(BaseModel):
     turn_token: str
     message: str = Field(default="", max_length=200)
     thinking: str = Field(default="", max_length=200)
+    # Same flag as SubmitRequest — marks talk-phase messages sent as defaults
+    # because the LLM process failed.
+    is_connector_fallback: bool = False
 
 
 class MessageResponse(BaseModel):

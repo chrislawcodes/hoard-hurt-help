@@ -47,6 +47,11 @@ DEFAULT_URL = "http://localhost:8000"
 DEFAULT_PROVIDER = "claude"
 _TURN_TIMEOUT = 180  # a single model turn can take a while
 
+# Circuit-breaker threshold for the poll loop. Each failed poll sleeps ~5 s, so
+# 24 consecutive failures ≈ 2 minutes of a permanently unreachable server before
+# we give up and exit with a non-zero code.
+_POLL_FAIL_THRESHOLD = 24
+
 _PROTOCOL = (
     "Each turn has two phases. On a TALK PHASE prompt reply with ONLY "
     '{"message": "<public message, max 500 chars>", '
@@ -481,13 +486,26 @@ def _session_for_turn(
     return sess
 
 
+def _poll_failed(consecutive: int) -> bool:
+    """Return True when the circuit breaker should trip.
+
+    Pure helper so tests can verify the threshold without running the poll loop.
+    """
+    return consecutive >= _POLL_FAIL_THRESHOLD
+
+
 def _decide(turn: dict, sess: _GameSession) -> dict:
-    """Get a move from this game's chained session; fall back to HOARD on any
-    failure (and drop the session so the next turn re-establishes it)."""
+    """Get a move from this game's chained session; fall back to a default on any
+    failure (and drop the session so the next turn re-establishes it).
+
+    On failure the returned move includes ``is_connector_fallback=True`` so the
+    submission layer can mark the record in the database and callers can log it.
+    """
     adapter = _ADAPTERS[str(sess.provider)]
     history = turn.get("history", [])
     cur = turn["current"]
     phase = _phase(cur)
+    match_id = _turn_match_id(turn)
     try:
         if sess.token is None:
             text, usage = adapter.first(
@@ -502,14 +520,18 @@ def _decide(turn: dict, sess: _GameSession) -> dict:
             )
         move = _parse_move(text)
     except (RuntimeError, subprocess.SubprocessError, OSError) as exc:
+        default = _default_move(phase)
         print(
-            f"[agentludum-connector] {sess.provider} model error: {exc}; defaulting to {phase.upper()}",
+            f"[agentludum-connector] ERROR: LLM subprocess failed — submitting FALLBACK move.\n"
+            f"  game={match_id} round={cur.get('round')} turn={cur.get('turn')} phase={phase}\n"
+            f"  provider={sess.provider} failure={exc!r}\n"
+            f"  fallback_move={default}",
             file=sys.stderr,
         )
         sess.token = None  # a bad resume → re-establish the session next turn
-        return _default_move(phase)
+        return {**default, "is_connector_fallback": True}
     if usage:
-        _record_usage(_turn_match_id(turn), cur, usage, sess)
+        _record_usage(match_id, cur, usage, sess)
     if history:
         sess.last_marker = max((h["round"], h["turn"]) for h in history)
     return _normalize_move(move, phase)
@@ -541,17 +563,39 @@ def main() -> None:
             json={"pid": pid},
             timeout=10,
         ).raise_for_status()
-    except Exception as exc:
-        print(f"[agentludum-connector] could not report PID {pid}: {exc}", file=sys.stderr)
+    except httpx.HTTPError as exc:
+        # Non-fatal: PID reporting is best-effort. The connector continues to
+        # play even if the server can't record the PID for the operator.
+        print(
+            f"[agentludum-connector] WARNING: could not report PID {pid} to server: {exc}",
+            file=sys.stderr,
+        )
     print(
         f"[agentludum-connector] connected to {base}; PID {pid}; one chained session per agent+match."
     )
+
+    # Circuit-breaker state: count consecutive failed polls. After
+    # _POLL_FAIL_THRESHOLD consecutive failures we give up and exit so the
+    # process doesn't spin forever against a dead server.
+    consecutive_poll_failures = 0
 
     while True:
         try:
             r = httpx.get(f"{base}/api/agent/next-turn", headers=headers, timeout=40)
         except httpx.HTTPError as exc:
-            print(f"[agentludum-connector] network error: {exc}; retrying in 5s", file=sys.stderr)
+            consecutive_poll_failures += 1
+            print(
+                f"[agentludum-connector] network error: {exc}; retrying in 5s "
+                f"(consecutive failures: {consecutive_poll_failures}/{_POLL_FAIL_THRESHOLD})",
+                file=sys.stderr,
+            )
+            if _poll_failed(consecutive_poll_failures):
+                print(
+                    f"[agentludum-connector] FATAL: {consecutive_poll_failures} consecutive poll "
+                    f"failures — server appears permanently unreachable. Exiting.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             time.sleep(5)
             continue
 
@@ -572,18 +616,32 @@ def main() -> None:
             )
             return
         if r.status_code == 403:  # connection paused by its owner
+            consecutive_poll_failures = 0
             time.sleep(30)
             continue
         if r.status_code == 429:  # polled too fast
+            consecutive_poll_failures = 0
             time.sleep(1)
             continue
         if r.status_code != 200:
+            consecutive_poll_failures += 1
             print(
-                f"[agentludum-connector] {r.status_code}: {r.text[:200]}; retrying",
+                f"[agentludum-connector] {r.status_code}: {r.text[:200]}; retrying "
+                f"(consecutive failures: {consecutive_poll_failures}/{_POLL_FAIL_THRESHOLD})",
                 file=sys.stderr,
             )
+            if _poll_failed(consecutive_poll_failures):
+                print(
+                    f"[agentludum-connector] FATAL: {consecutive_poll_failures} consecutive poll "
+                    f"failures — server appears permanently unreachable. Exiting.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             time.sleep(5)
             continue
+
+        # Successful poll — reset the circuit breaker.
+        consecutive_poll_failures = 0
 
         turn = r.json()
         if turn.get("status") != "your_turn":
@@ -602,6 +660,7 @@ def main() -> None:
                 f"(agent {turn.get('agent_id', 'unknown')}, v{version_no}) on {sess.provider} ({sess.model})."
             )
         decision = _decide(turn, sess)
+        is_fallback = bool(decision.get("is_connector_fallback"))
         if phase == "talk":
             r2 = httpx.post(
                 f"{base}/api/games/{match_id}/message",
@@ -610,12 +669,14 @@ def main() -> None:
                     "turn_token": cur["turn_token"],
                     "message": _clip(decision.get("message", ""), 500),
                     "thinking": _clip(decision.get("thinking", ""), 2000),
+                    "is_connector_fallback": is_fallback,
                 },
                 timeout=20,
             )
+            fallback_tag = " [FALLBACK]" if is_fallback else ""
             print(
                 f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} TALK: "
-                f"({r2.status_code})"
+                f"({r2.status_code}){fallback_tag}"
             )
         else:
             action = str(decision.get("action", "HOARD")).upper()
@@ -628,13 +689,15 @@ def main() -> None:
                     "action": action,
                     "target_id": target,
                     "thinking": _clip(decision.get("thinking", ""), 2000),
+                    "is_connector_fallback": is_fallback,
                 },
                 timeout=20,
             )
             arrow = f" -> {target}" if target else ""
+            fallback_tag = " [FALLBACK]" if is_fallback else ""
             print(
                 f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} ACT: "
-                f"{action}{arrow} ({r2.status_code})"
+                f"{action}{arrow} ({r2.status_code}){fallback_tag}"
             )
 
 

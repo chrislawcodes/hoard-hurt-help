@@ -89,6 +89,7 @@ class HoardHurtHelp:
         move: dict[str, Any],
         *,
         existing: TurnSubmission | None,
+        is_connector_fallback: bool = False,
     ) -> None:
         action = str(move["action"]).upper()
         target_id = move.get("target_id")
@@ -104,12 +105,15 @@ class HoardHurtHelp:
             target_player_id = target.id if target is not None else None
         message = str(move.get("message", ""))
         thinking = str(move.get("thinking", ""))
+        # Connector fallbacks reuse the existing was_defaulted column so they are
+        # identifiable in the DB without a migration. A genuine move clears the flag.
+        was_defaulted = is_connector_fallback
         if existing is not None:
             existing.action = action
             existing.target_player_id = target_player_id
             existing.message = message
             existing.thinking = thinking
-            existing.was_defaulted = False
+            existing.was_defaulted = was_defaulted
             existing.submitted_at = _now()
         else:
             db.add(
@@ -120,6 +124,7 @@ class HoardHurtHelp:
                     target_player_id=target_player_id,
                     message=message,
                     thinking=thinking,
+                    was_defaulted=was_defaulted,
                     submitted_at=_now(),
                 )
             )
@@ -133,11 +138,14 @@ class HoardHurtHelp:
         thinking: str,
         *,
         existing: TurnMessage | None,
+        is_connector_fallback: bool = False,
     ) -> None:
+        # Connector fallbacks reuse the existing was_defaulted column.
+        was_defaulted = is_connector_fallback
         if existing is not None:
             existing.text = message
             existing.thinking = thinking
-            existing.was_defaulted = False
+            existing.was_defaulted = was_defaulted
             existing.submitted_at = _now()
         else:
             db.add(
@@ -146,7 +154,7 @@ class HoardHurtHelp:
                     player_id=player.id,
                     text=message,
                     thinking=thinking,
-                    was_defaulted=False,
+                    was_defaulted=was_defaulted,
                     submitted_at=_now(),
                 )
             )

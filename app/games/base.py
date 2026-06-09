@@ -109,8 +109,14 @@ class GameModule(Protocol):
         move: dict[str, Any],
         *,
         existing: TurnSubmission | None,
+        is_connector_fallback: bool = False,
     ) -> None:
-        """Persist a validated move into the module's storage (create or replace)."""
+        """Persist a validated move into the module's storage (create or replace).
+
+        When `is_connector_fallback` is True the move was produced by the connector
+        because the LLM subprocess failed; it should be stored with was_defaulted=True
+        so it is distinguishable from a genuine agent decision.
+        """
         ...
 
     async def record_message(
@@ -122,8 +128,13 @@ class GameModule(Protocol):
         thinking: str,
         *,
         existing: TurnMessage | None,
+        is_connector_fallback: bool = False,
     ) -> None:
-        """Persist a validated talk-phase message into the module's storage."""
+        """Persist a validated talk-phase message into the module's storage.
+
+        When `is_connector_fallback` is True the message was emitted because the
+        LLM subprocess failed; it should be stored with was_defaulted=True.
+        """
         ...
 
     async def resolve_turn(self, db: AsyncSession, turn: Turn) -> None: ...
