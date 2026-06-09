@@ -17,14 +17,16 @@ as a router dependency, computes the CTA, and stashes it on ``request.state``;
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import DbSession, get_current_user
+from app.engine.connection_health import LIVE_WINDOW_SECONDS
 from app.models.agent import Agent, AgentKind
-from app.models.connection import Connection
+from app.models.connection import Connection, ConnectionStatus
 from app.models.user import User
 
 
@@ -68,6 +70,21 @@ async def user_connection_count(db: AsyncSession, user_id: int) -> int:
     return (await db.scalar(stmt)) or 0
 
 
+async def user_live_connection_count(db: AsyncSession, user_id: int) -> int:
+    """Number of non-paused connections warm (seen within LIVE_WINDOW_SECONDS)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=LIVE_WINDOW_SECONDS)
+    stmt = (
+        select(func.count())
+        .select_from(Connection)
+        .where(
+            Connection.user_id == user_id,
+            Connection.status != ConnectionStatus.PAUSED,
+            Connection.last_seen_at >= cutoff,
+        )
+    )
+    return (await db.scalar(stmt)) or 0
+
+
 async def compute_nav_cta(db: AsyncSession, user: User | None) -> NavCta:
     """Resolve the Play CTA for this visitor."""
     if user is None:
@@ -92,4 +109,7 @@ async def populate_nav_cta(request: Request, db: DbSession) -> None:
     request.state.nav_cta = await compute_nav_cta(db, user)
     request.state.connection_count = (
         await user_connection_count(db, user.id) if user else 0
+    )
+    request.state.live_connection_count = (
+        await user_live_connection_count(db, user.id) if user else 0
     )

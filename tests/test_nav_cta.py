@@ -6,7 +6,7 @@ Covers both the pure resolver (`compute_nav_cta`) and the rendered nav, plus the
 
 import base64
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -15,11 +15,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
+from app.engine.connection_health import LIVE_WINDOW_SECONDS
 from app.main import app
 from app.models import Base
 from app.models.agent import AgentKind
 from app.models.connection import Connection
-from app.routes.nav_context import compute_nav_cta
+from app.routes.nav_context import compute_nav_cta, user_live_connection_count
 from tests.factories import make_agent, make_bot, make_connection, make_user
 
 
@@ -237,3 +238,80 @@ async def test_play_connected_agent_goes_to_lobby(client, reset_db):
     )
     assert r.status_code == 302
     assert r.headers["location"] == "/games/hoard-hurt-help"
+
+
+# ── live connection count (nav green dot) ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_live_connection_count_zero_when_no_connections(reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        await db.commit()
+        count = await user_live_connection_count(db, user.id)
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_live_connection_count_zero_when_connection_never_seen(reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        await make_connection(db, user)  # last_seen_at stays NULL
+        await db.commit()
+        count = await user_live_connection_count(db, user.id)
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_live_connection_count_zero_when_connection_stale(reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user)
+        connection.last_seen_at = datetime.now(timezone.utc) - timedelta(
+            seconds=LIVE_WINDOW_SECONDS + 10
+        )
+        await db.commit()
+        count = await user_live_connection_count(db, user.id)
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_live_connection_count_one_when_connection_warm(reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user)
+        connection.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+        await db.commit()
+        count = await user_live_connection_count(db, user.id)
+    assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_nav_badge_not_green_when_connection_disconnected(client, reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user)
+        # last_seen_at is stale — connection is disconnected
+        connection.last_seen_at = datetime.now(timezone.utc) - timedelta(
+            seconds=LIVE_WINDOW_SECONDS + 60
+        )
+        await db.commit()
+        user_id = user.id
+
+    r = await client.get("/games", cookies=_signed_in_cookies(user_id))
+    assert r.status_code == 200
+    assert "al-acct-badge-live" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_nav_badge_green_when_connection_warm(client, reset_db):
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user)
+        connection.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+        await db.commit()
+        user_id = user.id
+
+    r = await client.get("/games", cookies=_signed_in_cookies(user_id))
+    assert r.status_code == 200
+    assert "al-acct-badge-live" in r.text
