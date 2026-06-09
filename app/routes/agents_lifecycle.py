@@ -5,18 +5,21 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Path, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
+from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
+from app.models.connection import Connection
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
 from app.routes.agents_setup import _load_owned_connection
+from app.templating import templates
 
 router = APIRouter()
 
@@ -271,5 +274,110 @@ async def set_strategy(
     if clean_strategy == current.strategy_text.strip():
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
     await _apply_version_edit(db, agent=agent, strategy_text=clean_strategy)
+    await db.commit()
+    return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/{agent_id}/edit", response_class=HTMLResponse)
+async def edit_agent_version_page(
+    agent_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> Response:
+    agent = (
+        await db.execute(
+            select(Agent).where(
+                Agent.id == agent_id,
+                Agent.user_id == user.id,
+                Agent.kind == AgentKind.AI,
+                Agent.archived_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found.")
+    version = (
+        await db.execute(
+            select(AgentVersion).where(AgentVersion.id == agent.current_version_id)
+        )
+    ).scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=400, detail="Agent has no current version.")
+    connection: Connection | None = None
+    if agent.connection_id is not None:
+        connection = await _load_owned_connection(db, user, agent.connection_id)
+    provider_models = PROVIDER_MODELS.get(connection.provider.value, []) if connection else []
+    max_version_no = await db.scalar(
+        select(func.max(AgentVersion.version_no)).where(AgentVersion.agent_id == agent.id)
+    )
+    current_has_rated_history = await _version_has_rated_history(db, version.id)
+    will_fork = current_has_rated_history or version.frozen_at is not None
+    next_version_no = int(max_version_no or 0) + 1 if will_fork else int(max_version_no or 1)
+    return templates.TemplateResponse(
+        request,
+        "agents/edit_version.html",
+        {
+            "user": user,
+            "agent": agent,
+            "version": version,
+            "provider_models": provider_models,
+            "next_version_no": next_version_no,
+            "will_fork": will_fork,
+        },
+    )
+
+
+@router.post("/{agent_id}/save-version")
+async def save_version(
+    agent_id: Annotated[int, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    model: Annotated[str, Form()],
+    strategy_text: Annotated[str, Form()],
+) -> RedirectResponse:
+    agent = await _load_owned_agent(db, user, agent_id)
+    connection: Connection | None = None
+    if agent.connection_id is not None:
+        connection = await _load_owned_connection(db, user, agent.connection_id)
+    clean_model = model.strip()
+    if not clean_model:
+        raise HTTPException(status_code=400, detail="Model is required.")
+    if connection is not None:
+        allowed = PROVIDER_MODELS.get(connection.provider.value, [])
+        if allowed and clean_model not in allowed:
+            raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
+    clean_strategy = strategy_text.strip()
+    if not clean_strategy:
+        raise HTTPException(status_code=400, detail="Strategy text is required.")
+    current = await _load_current_version(db, agent)
+    if clean_model == current.model and clean_strategy == current.strategy_text.strip():
+        return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+    await _apply_version_edit(db, agent=agent, model=clean_model, strategy_text=clean_strategy)
+    await db.commit()
+    return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/{agent_id}/restore-version/{version_id}")
+async def restore_version(
+    agent_id: Annotated[int, Path()],
+    version_id: Annotated[int, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> RedirectResponse:
+    agent = await _load_owned_agent(db, user, agent_id)
+    version = (
+        await db.execute(
+            select(AgentVersion).where(
+                AgentVersion.id == version_id,
+                AgentVersion.agent_id == agent.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=404, detail="Version not found.")
+    if version.id == agent.current_version_id:
+        return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+    agent.current_version_id = version.id
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
