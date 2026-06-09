@@ -8,7 +8,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, require_game_admin
+from app.engine.bot_presets import bot_preset_by_id
 from app.engine.scheduler import registry, start_game
+from app.engine.sims import validate_bot_profile_fields
 from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
 from app.engine.state_machine import TransitionError
@@ -351,6 +353,44 @@ async def add_bots_submit(
             status_code=400,
         )
     seats = list(zip(names, strategies))
+    # Validate each bot configuration before seating so the user gets a clear
+    # form error instead of a late failure inside add_bots_to_game.  We only
+    # validate bot-kind entries (this form exclusively creates bots, so the
+    # guard is always true, but the check is explicit for clarity).
+    for seat_name_val, seat_strategy_val in seats:
+        preset = bot_preset_by_id(seat_strategy_val)
+        if preset is None:
+            # Unknown personality ID — build a legible error before seating.
+            return await _render_add_bots(
+                request,
+                db,
+                user,
+                game,
+                g,
+                error=f"Unknown bot strategy {seat_strategy_val!r} for bot {seat_name_val!r}.",
+                prefill=seats,
+                status_code=400,
+            )
+        try:
+            validate_bot_profile_fields(
+                kind=AgentKind.BOT,
+                bot_strategy=preset.strategy,
+                bot_truthfulness=preset.truthfulness,
+                bot_trust_model=preset.trust_model,
+                bot_seed=preset.seed_offset,  # non-None int; seating overwrites with agent.id
+                bot_version="v1",
+            )
+        except ValueError as exc:
+            return await _render_add_bots(
+                request,
+                db,
+                user,
+                game,
+                g,
+                error=f"Invalid bot configuration for {seat_name_val!r}: {exc}",
+                prefill=seats,
+                status_code=400,
+            )
     try:
         created = await add_sims_to_game(db, g, seats)
     except SimSeatingError as exc:
