@@ -21,6 +21,7 @@ from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection
 from app.models.match import Match, GameState
 from app.models.player import Player
+from app.ops_events import log_ops_event
 from app.read_models.leaderboard import load_leaderboard_sections
 from app.routes.web_support import (
     _TEST_NAME_PREFIX,
@@ -65,9 +66,13 @@ async def _showcase_replay_data(
         ctx = await _game_view_context(request, db, match)
         return match_id, _build_rc_data(ctx["scoreboard"], ctx["history"])
     except SQLAlchemyError:
-        logger.exception(
-            "DB error building robot-circle replay for match %s; falling back to sample",
-            match_id,
+        log_ops_event(
+            logger,
+            logging.ERROR,
+            "replay_fallback",
+            f"DB error building robot-circle replay for match {match_id};"
+            " falling back to sample",
+            match_id=match_id,
         )
         return None, sample_replay_data()
 
@@ -374,7 +379,13 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     try:
         await cancel_overdue_unfilled_games(db)
     except SQLAlchemyError:
-        logger.exception("lobby: DB error during overdue-game reconciliation; rendering current state")
+        log_ops_event(
+            logger,
+            logging.ERROR,
+            "lobby_reconciliation_failed",
+            "lobby: DB error during overdue-game reconciliation; rendering current state",
+            route="game_lobby",
+        )
     all_games = (
         (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
@@ -518,7 +529,13 @@ async def game_upcoming(request: Request, db: DbSession, game: Annotated[str, Pa
     try:
         await cancel_overdue_unfilled_games(db)
     except SQLAlchemyError:
-        logger.exception("lobby upcoming: DB error during overdue-game reconciliation; rendering current state")
+        log_ops_event(
+            logger,
+            logging.ERROR,
+            "lobby_reconciliation_failed",
+            "lobby upcoming: DB error during overdue-game reconciliation; rendering current state",
+            route="game_upcoming",
+        )
     return templates.TemplateResponse(
         request,
         "fragments/lobby_upcoming.html",

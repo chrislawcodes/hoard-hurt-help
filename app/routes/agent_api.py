@@ -3,6 +3,7 @@
 Auth: X-Connection-Key header. Errors: spec.md §10 envelope.
 """
 
+import logging
 import time
 from dataclasses import dataclass
 from collections.abc import Awaitable, Callable, Sequence
@@ -18,6 +19,7 @@ from app.deps import (
     _parse_agent_turn_token,
     require_agent_player,
 )
+from app.ops_events import log_ops_event
 from app.engine.connection_activity import mark_first_move
 from app.engine.game_records import Action
 from app.games import get as get_game_module
@@ -51,6 +53,7 @@ from app.schemas.agent import (
 )
 
 router = APIRouter(tags=["agent"])
+logger = logging.getLogger(__name__)
 
 # Per-bot poll throttle (1 Hz). Keyed by Bot.id — a bot owns many players, so
 # keying by player would let it dodge the cap by switching games.
@@ -472,6 +475,19 @@ async def agent_message(
         existing=existing,
         is_connector_fallback=body.is_connector_fallback,
     )
+    if body.is_connector_fallback:
+        log_ops_event(
+            logger,
+            logging.WARNING,
+            "connector_fallback_move",
+            f"connector fallback message recorded for agent {player.seat_name}"
+            f" in match {match_id} (round={turn.round} turn={turn.turn})",
+            agent_id=player.seat_name,
+            match_id=match_id,
+            phase="talk",
+            round=turn.round,
+            turn=turn.turn,
+        )
     await db.commit()
 
     return MessageResponse(
@@ -539,6 +555,19 @@ async def agent_submit(
         existing=existing,
         is_connector_fallback=body.is_connector_fallback,
     )
+    if body.is_connector_fallback:
+        log_ops_event(
+            logger,
+            logging.WARNING,
+            "connector_fallback_move",
+            f"connector fallback action recorded for agent {player.seat_name}"
+            f" in match {match_id} (round={turn.round} turn={turn.turn})",
+            agent_id=player.seat_name,
+            match_id=match_id,
+            phase="act",
+            round=turn.round,
+            turn=turn.turn,
+        )
     await db.commit()
 
     # Announce the bot's first real move so an open bot-detail page lights up.

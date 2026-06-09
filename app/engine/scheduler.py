@@ -34,6 +34,7 @@ from app.games.base import GameError
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
+from app.ops_events import log_ops_event
 
 logger = logging.getLogger(__name__)
 
@@ -177,13 +178,23 @@ class SchedulerRegistry:
         except Exception:  # never let the poller die on a transient error
             count = self._subsystem_failures.get(name, 0) + 1
             self._subsystem_failures[name] = count
-            logger.exception("%s poll failed (consecutive failure #%d)", name, count)
+            log_ops_event(
+                logger,
+                logging.ERROR,
+                "poller_subsystem_failed",
+                f"{name} poll failed (consecutive failure #{count})",
+                consecutive_failures=count,
+                subsystem=name,
+            )
             if count >= _POLLER_ESCALATE_AFTER:
-                logger.critical(
-                    "poller subsystem %r has failed %d times in a row — it is "
-                    "persistently broken and needs attention.",
-                    name,
-                    count,
+                log_ops_event(
+                    logger,
+                    logging.CRITICAL,
+                    "poller_subsystem_persistent_failure",
+                    f"poller subsystem {name!r} has failed {count} times in a row"
+                    " — it is persistently broken and needs attention.",
+                    consecutive_failures=count,
+                    subsystem=name,
                 )
         else:
             self._subsystem_failures[name] = 0
@@ -253,8 +264,13 @@ class SchedulerRegistry:
                 if player_count == 0:
                     g.state = GameState.CANCELLED
                     g.cancelled_at = now
-                    logger.warning(
-                        "watchdog: cancelled game %s — no active players", g.id
+                    log_ops_event(
+                        logger,
+                        logging.WARNING,
+                        "match_cancelled",
+                        f"watchdog: cancelled game {g.id} — no active players",
+                        match_id=g.id,
+                        reason="no_active_players",
                     )
             await db.commit()
 
@@ -314,11 +330,16 @@ async def _run_game(match_id: str) -> None:
             game.state = GameState.CANCELLED
             game.cancelled_at = datetime.now(timezone.utc)
             await db.commit()
-            logger.error(
-                "Match %s has unknown game_type %r — cancelled (cannot run its "
-                "turn loop). This should have been rejected at creation time.",
-                game.id,
-                game.game,
+            log_ops_event(
+                logger,
+                logging.ERROR,
+                "match_cancelled",
+                f"Match {game.id} has unknown game_type {game.game!r} — cancelled"
+                " (cannot run its turn loop). This should have been rejected at"
+                " creation time.",
+                game_type=game.game,
+                match_id=game.id,
+                reason="unknown_game_type",
             )
             return
 

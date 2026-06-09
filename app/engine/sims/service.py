@@ -18,6 +18,7 @@ from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.match import Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
+from app.ops_events import log_ops_event
 from app.read_models.matches import load_action_records, load_scoreboard
 from app.schemas.agent import TalkMessage
 
@@ -64,7 +65,13 @@ async def auto_submit_sim_phase(
         except ValueError:
             # After creation-time validation this should never happen.  Log at
             # ERROR so it is visible in production monitoring if it does.
-            logger.error("Skipping malformed bot %s — profile is invalid", agent.id)
+            log_ops_event(
+                logger,
+                logging.ERROR,
+                "bot_profile_invalid",
+                f"Skipping malformed bot {agent.id} — profile is invalid",
+                agent_id=agent.id,
+            )
             continue
 
         context = SimContext(
