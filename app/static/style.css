@@ -1091,6 +1091,7 @@ button.danger:hover,
     background: var(--ink-soft); flex-shrink: 0;
 }
 .al-acct-badge-live .al-acct-dot { background: #4ade80; }
+.al-acct-badge-off .al-acct-dot { background: var(--hurt); }
 .al-acct-menu a:hover, .al-acct-signout:hover { background: var(--bg-2); }
 .al-acct-form { margin: 4px 0 0; padding: 4px 0 0; border-top: 1px solid var(--line); }
 .al-acct-signout { color: var(--hurt); }
