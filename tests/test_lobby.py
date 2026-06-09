@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
@@ -755,3 +756,138 @@ async def test_my_games_lists_user_games(client, reset_db):
     r = await client.get("/me/matches", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
     assert "Test Match" in r.text
+
+
+# ---------------------------------------------------------------------------
+# Exception-narrowing tests (fail-loudly cleanup)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_db_error_building_replay_falls_back_to_sample(
+    client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A SQLAlchemyError while building the showcase replay is caught, logged,
+    and the page still renders with the sample fallback — not a 500."""
+    await _seed_completed_showcase(reset_db)
+
+    # Monkeypatch _game_view_context (called inside _showcase_replay_data) to
+    # simulate a transient DB failure after the match has already been found.
+    async def _raise_db_error(*args: object, **kwargs: object) -> dict:
+        raise SQLAlchemyError("simulated DB connection error")
+
+    monkeypatch.setattr(
+        "app.routes.web_lobby._game_view_context",
+        _raise_db_error,
+    )
+
+    r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 200
+    # The page renders, but falls back to the bundled sample replay.
+    assert 'id="rc-data"' in r.text
+    assert '"sample": true' in r.text
+
+
+@pytest.mark.asyncio
+async def test_programming_error_building_replay_propagates(
+    client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A programming bug (TypeError, AttributeError, etc.) inside the replay
+    builder must NOT be silently swallowed — it should propagate so it gets
+    noticed, not hidden behind the sample fallback forever."""
+    await _seed_completed_showcase(reset_db)
+
+    async def _raise_type_error(*args: object, **kwargs: object) -> dict:
+        raise TypeError("simulated programming bug: wrong argument type")
+
+    monkeypatch.setattr(
+        "app.routes.web_lobby._game_view_context",
+        _raise_type_error,
+    )
+
+    # The narrowed except clause only catches SQLAlchemyError, so TypeError
+    # propagates out of the route and FastAPI returns a 500.
+    r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_db_error_during_reconciliation_still_renders_lobby(
+    client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A SQLAlchemyError during cancel_overdue_unfilled_games is caught, logged,
+    and the lobby still renders with whatever state the DB already holds."""
+    await _seed_game(reset_db)
+
+    async def _raise_db_error(db: object) -> int:
+        raise SQLAlchemyError("simulated DB error in reconciliation")
+
+    monkeypatch.setattr(
+        "app.routes.web_lobby.cancel_overdue_unfilled_games",
+        _raise_db_error,
+    )
+
+    r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 200
+    assert "Test Match" in r.text  # DB state still rendered despite reconcile failure
+
+
+@pytest.mark.asyncio
+async def test_programming_error_during_reconciliation_propagates(
+    client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A programming bug inside cancel_overdue_unfilled_games must propagate,
+    not be silently ignored. The narrowed except only covers SQLAlchemyError."""
+    await _seed_game(reset_db)
+
+    async def _raise_attr_error(db: object) -> int:
+        raise AttributeError("simulated programming bug: bad attribute access")
+
+    monkeypatch.setattr(
+        "app.routes.web_lobby.cancel_overdue_unfilled_games",
+        _raise_attr_error,
+    )
+
+    r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_db_error_during_upcoming_reconciliation_still_renders(
+    client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The polled /upcoming fragment catches SQLAlchemyError from reconciliation
+    and renders current state rather than returning a 500."""
+    await _seed_game(reset_db)
+
+    async def _raise_db_error(db: object) -> int:
+        raise SQLAlchemyError("simulated DB error in upcoming reconciliation")
+
+    monkeypatch.setattr(
+        "app.routes.web_lobby.cancel_overdue_unfilled_games",
+        _raise_db_error,
+    )
+
+    r = await client.get("/games/hoard-hurt-help/upcoming")
+    assert r.status_code == 200
+    assert "Test Match" in r.text
+
+
+@pytest.mark.asyncio
+async def test_programming_error_during_upcoming_reconciliation_propagates(
+    client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A programming bug in reconciliation propagates from the /upcoming fragment
+    just as it does from the full lobby page."""
+    await _seed_game(reset_db)
+
+    async def _raise_key_error(db: object) -> int:
+        raise KeyError("simulated programming bug: missing key")
+
+    monkeypatch.setattr(
+        "app.routes.web_lobby.cancel_overdue_unfilled_games",
+        _raise_key_error,
+    )
+
+    r = await client.get("/games/hoard-hurt-help/upcoming")
+    assert r.status_code == 500
