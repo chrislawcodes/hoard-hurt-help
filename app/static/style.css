@@ -1096,9 +1096,14 @@ button.danger:hover,
 .al-acct-form { margin: 4px 0 0; padding: 4px 0 0; border-top: 1px solid var(--line); }
 .al-acct-signout { color: var(--hurt); }
 
-/* "Games" is a plain wayfinding link (styled by .al-nav-right > a:not(.btn)),
-   not a button. The class is only a hook so it survives the mobile hide rule
-   below — it's the one nav link a phone viewer needs to reach the games. */
+/* Wayfinding menu — the wrapper that holds Games / Leaderboard / How it works.
+   On desktop the ☰ button is hidden and the links show inline (the panel is
+   forced visible regardless of the <details> open state). On a phone (≤560px,
+   below) the links collapse behind ☰ into a tap-to-open dropdown, reusing the
+   same native <details> disclosure as the account menu — no JS. */
+.al-nav-menu { position: relative; display: flex; align-items: center; }
+.al-nav-menu-btn { display: none; }
+.al-nav-menu > .al-nav-menu-panel { display: flex; align-items: center; gap: 16px; }
 
 /* sections */
 .al-section { padding: clamp(64px, 9vw, 120px) 0; }
@@ -1360,10 +1365,32 @@ button.danger:hover,
     .al-sub-cta { width: 100%; text-align: center; }
     .al-cta-row .btn { width: 100%; }
     /* Phones can't hold the full bar, so it narrows to what matters most: the
-       Play CTA (.al-nav-cta, the front door) and the auth entry (.al-nav-auth /
-       account menu). Wayfinding links — How it works, Games, Leaderboard — fold
-       away here; they're still reachable in the footer. Direct-child only. */
-    .al-nav-right > a:not(.btn):not(.al-nav-auth):not(.al-nav-cta), .al-nav-right > .al-inline-form { display: none; }
+       ☰ menu (wayfinding), the Play CTA (.al-nav-cta, the front door) and the
+       auth entry (.al-nav-auth / account menu). Wayfinding links — How it works,
+       Games, Leaderboard — fold into the ☰ dropdown (see .al-nav-menu below)
+       rather than disappearing. */
+    .al-nav-menu-btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        list-style: none; cursor: pointer;
+        width: 34px; height: 34px; border-radius: 8px;
+        border: 2px solid var(--line-bold); background: var(--surface);
+        font-size: 16px; line-height: 1; color: var(--ink);
+    }
+    .al-nav-menu-btn::-webkit-details-marker { display: none; }
+    .al-nav-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+    .al-nav-menu:not([open]) > .al-nav-menu-panel { display: none; }
+    .al-nav-menu[open] > .al-nav-menu-panel {
+        position: absolute; right: 0; top: calc(100% + 12px);
+        flex-direction: column; align-items: stretch; gap: 1px;
+        min-width: 200px; z-index: 60;
+        background: var(--surface); border: 2px solid var(--line-bold);
+        border-radius: var(--al-radius); box-shadow: var(--al-shadow-soft);
+        padding: 8px;
+    }
+    .al-nav-menu[open] > .al-nav-menu-panel a {
+        padding: 8px; border-radius: 8px; font-size: 13.5px; color: var(--ink);
+    }
+    .al-nav-menu[open] > .al-nav-menu-panel a:hover { background: var(--bg-2); }
     /* Drop the nav brand to the logo mark on a phone so the CTA + auth never get
        crowded off the bar. The footer keeps the full wordmark. */
     .al-nav-inner .al-wordmark { display: none; }
