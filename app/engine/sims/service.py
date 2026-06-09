@@ -62,7 +62,9 @@ async def auto_submit_sim_phase(
         try:
             profile = build_bot_profile(agent)
         except ValueError:
-            logger.warning("Skipping malformed bot %s", agent.id)
+            # After creation-time validation this should never happen.  Log at
+            # ERROR so it is visible in production monitoring if it does.
+            logger.error("Skipping malformed bot %s — profile is invalid", agent.id)
             continue
 
         context = SimContext(

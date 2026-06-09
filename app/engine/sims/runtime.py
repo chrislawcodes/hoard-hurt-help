@@ -10,22 +10,73 @@ from app.schemas.agent import ScoreboardRow
 
 from .phrases import render_phrase
 from .signals import extract_talk_signals
-from .strategies import choose_action_plan, choose_talk_plan, normalize_strategy_name
+from .strategies import (
+    VALID_STRATEGIES,
+    choose_action_plan,
+    choose_talk_plan,
+    normalize_strategy_name,
+)
 from .trust import compute_trust_map
 from .types import SimActionDecision, SimContext, SimPlan, SimProfile, SimTalkDecision
 
 
-def build_bot_profile(agent: Agent) -> SimProfile:
-    if agent.kind != AgentKind.BOT:
+def validate_bot_profile_fields(
+    *,
+    kind: AgentKind | None,
+    bot_strategy: str | None,
+    bot_truthfulness: int | None,
+    bot_trust_model: str | None,
+    bot_seed: int | None,
+    bot_version: str | None,
+) -> None:
+    """Validate that bot profile fields are present and internally consistent.
+
+    Raises :class:`ValueError` with a descriptive message on the first problem
+    found. Call this at creation/edit time so malformed bots are rejected before
+    they ever reach a game seat.
+    """
+    if kind != AgentKind.BOT:
         raise ValueError("agent is not a bot")
-    if (
-        agent.bot_strategy is None
-        or agent.bot_truthfulness is None
-        or agent.bot_trust_model is None
-        or agent.bot_seed is None
-        or agent.bot_version is None
-    ):
-        raise ValueError("bot agent is missing required bot fields")
+    missing = [
+        field
+        for field, value in [
+            ("bot_strategy", bot_strategy),
+            ("bot_truthfulness", bot_truthfulness),
+            ("bot_trust_model", bot_trust_model),
+            ("bot_seed", bot_seed),
+            ("bot_version", bot_version),
+        ]
+        if value is None
+    ]
+    if missing:
+        raise ValueError(
+            f"bot agent is missing required fields: {', '.join(missing)}"
+        )
+    # bot_strategy is not None here (checked above), so the assert is for mypy.
+    assert bot_strategy is not None
+    normalized = normalize_strategy_name(bot_strategy)
+    if normalized not in VALID_STRATEGIES:
+        raise ValueError(
+            f"unknown bot strategy {bot_strategy!r}; "
+            f"valid strategies are: {sorted(VALID_STRATEGIES)}"
+        )
+
+
+def build_bot_profile(agent: Agent) -> SimProfile:
+    validate_bot_profile_fields(
+        kind=agent.kind,
+        bot_strategy=agent.bot_strategy,
+        bot_truthfulness=agent.bot_truthfulness,
+        bot_trust_model=agent.bot_trust_model,
+        bot_seed=agent.bot_seed,
+        bot_version=agent.bot_version,
+    )
+    # All fields are guaranteed non-None by validate_bot_profile_fields.
+    assert agent.bot_strategy is not None
+    assert agent.bot_truthfulness is not None
+    assert agent.bot_trust_model is not None
+    assert agent.bot_seed is not None
+    assert agent.bot_version is not None
     return SimProfile(
         strategy=normalize_strategy_name(agent.bot_strategy),
         truthfulness=agent.bot_truthfulness,

@@ -102,13 +102,51 @@ def _cancel_active_games_if_schema_pending(config: Config, database_url: str) ->
                 {"now": datetime.now(timezone.utc).isoformat()},
             )
             conn.commit()
-        logger.warning(
-            "pre-migration: cancelled %d active game(s) before schema upgrade: %s",
+        # Loud and specific: a pending migration may be destructive (e.g. it
+        # drops/recreates the players table), which would leave these games as
+        # unrecoverable zombies. We name every cancelled match and the reason so
+        # the cancellation is never silent. (There is no per-match reason column
+        # on `matches`; if one is ever added, also record `reason` there.)
+        logger.error(
+            "pre-migration guard: CANCELLED %d active match(es) before applying "
+            "pending schema migration %s -> %s. reason=pending_schema_migration "
+            "(a destructive migration could wipe player data and strand these "
+            "matches as zombies). match_ids=%s",
             len(active_ids),
+            current,
+            head,
             active_ids,
         )
     finally:
         engine.dispose()
+
+
+_REQUIRED_TABLES = ("connection_setups",)
+
+
+def verify_required_tables(database_url: str) -> None:
+    """Raise RuntimeError if any required table is missing after migrations.
+
+    This is a post-migration sanity check.  If the table is absent it means
+    the migration that creates it never ran (or the DB was partially rolled
+    back), and the app would otherwise fail silently at runtime.  Loud failure
+    here is intentional: run ``alembic upgrade head`` to fix it.
+    """
+    sync_url = _sync_database_url(database_url)
+    engine = create_engine(sync_url, future=True)
+    try:
+        with engine.connect() as conn:
+            existing = set(inspect(conn).get_table_names())
+    finally:
+        engine.dispose()
+
+    missing = [t for t in _REQUIRED_TABLES if t not in existing]
+    if missing:
+        raise RuntimeError(
+            f"Required database table(s) missing after migrations: {missing}. "
+            "Run 'alembic upgrade head' to apply all pending migrations, "
+            "then restart the application."
+        )
 
 
 def prepare_database_for_upgrade(config: Config, database_url: str) -> None:

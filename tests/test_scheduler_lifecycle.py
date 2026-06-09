@@ -291,6 +291,79 @@ async def test_watchdog_cancels_playerless_game(db):
     assert game.cancelled_at is not None
 
 
+async def test_run_game_cancels_unknown_game_type(db, monkeypatch):
+    # Defense in depth: if a match with an unknown game_type ever reaches the
+    # scheduler, it must be CANCELLED (terminal) — never left ACTIVE forever
+    # (the zombie state). Creation-time validation should prevent this, but the
+    # scheduler must not trust that.
+    game, _ = await _make_game(db, state=GameState.ACTIVE, n_players=3)
+    game.game = "no-such-game"
+    await db.commit()
+
+    errors: list[str] = []
+
+    def record_error(msg: str, *args, **kwargs) -> None:
+        errors.append(msg % args if args else msg)
+
+    monkeypatch.setattr(scheduler.logger, "error", record_error)
+    # _run_game opens its own SessionLocal; point it at the test session.
+    monkeypatch.setattr(scheduler, "SessionLocal", _same_session_factory(db))
+
+    await scheduler._run_game(game.id)
+
+    await db.refresh(game)
+    assert game.state == GameState.CANCELLED
+    assert game.cancelled_at is not None
+    assert any("unknown game_type" in m for m in errors)
+
+
+# --- poller subsystem failure escalation ---
+
+
+async def test_run_subsystem_escalates_after_consecutive_failures(monkeypatch):
+    # Each failure logs `exception`; after _POLLER_ESCALATE_AFTER consecutive
+    # failures of the same subsystem it must also log `critical`.
+    reg = scheduler.SchedulerRegistry()
+    criticals: list[str] = []
+    monkeypatch.setattr(
+        scheduler.logger,
+        "critical",
+        lambda msg, *a, **k: criticals.append(msg % a if a else msg),
+    )
+    monkeypatch.setattr(scheduler.logger, "exception", lambda *a, **k: None)
+
+    async def boom() -> None:
+        raise RuntimeError("kaboom")
+
+    n = scheduler._POLLER_ESCALATE_AFTER
+    for _ in range(n - 1):
+        await reg._run_subsystem("flaky", boom)
+    assert criticals == []  # not escalated yet
+    assert reg._subsystem_failures["flaky"] == n - 1
+
+    await reg._run_subsystem("flaky", boom)  # Nth failure
+    assert len(criticals) == 1
+    assert any("persistently broken" in m for m in criticals)
+
+
+async def test_run_subsystem_resets_counter_on_success(monkeypatch):
+    reg = scheduler.SchedulerRegistry()
+    monkeypatch.setattr(scheduler.logger, "exception", lambda *a, **k: None)
+
+    async def boom() -> None:
+        raise RuntimeError("kaboom")
+
+    async def ok() -> None:
+        return None
+
+    await reg._run_subsystem("flaky", boom)
+    await reg._run_subsystem("flaky", boom)
+    assert reg._subsystem_failures["flaky"] == 2
+
+    await reg._run_subsystem("flaky", ok)
+    assert reg._subsystem_failures["flaky"] == 0
+
+
 async def test_watchdog_restarts_dead_task(db, monkeypatch):
     # If an ACTIVE game's scheduler task crashes (done but not restarted), the
     # watchdog must start a new one without waiting for a server restart.

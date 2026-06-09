@@ -18,7 +18,7 @@ from starlette.applications import Starlette
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
-from app.db_bootstrap import prepare_database_for_upgrade
+from app.db_bootstrap import prepare_database_for_upgrade, verify_required_tables
 from app.engine.scheduler import registry as scheduler_registry
 from app.request_logging import install_request_logging
 from app.routes import (
@@ -46,6 +46,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _should_run_startup_migrations() -> bool:
@@ -77,6 +79,7 @@ async def _upgrade_database() -> None:
         cfg = _alembic_config()
         prepare_database_for_upgrade(cfg, settings.database_url)
         command.upgrade(cfg, "head")
+        verify_required_tables(settings.database_url)
 
     await asyncio.to_thread(_run_upgrade)
 
@@ -91,9 +94,12 @@ def create_app() -> FastAPI:
         from mcp_server.server import asgi_app
 
         mcp_asgi_app = asgi_app
+    except ImportError:
+        # MCP SDK not installed in this environment — /mcp will be unavailable.
+        logger.warning("MCP SDK not installed; /mcp endpoint disabled")
     except Exception:
-        # MCP SDK not importable in this env — skip mounting.
-        pass
+        # MCP SDK is present but broken (bad install, version conflict, etc).
+        logger.exception("Failed to initialize MCP server; /mcp endpoint disabled")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

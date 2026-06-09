@@ -13,6 +13,7 @@ from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
 from app.engine.state_machine import TransitionError
 from app.engine.tokens import generate_match_id
+from app.games import known_types
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
@@ -116,6 +117,8 @@ async def create_match_submit(
             status_code=400,
         )
 
+    if game not in known_types():
+        return _error(f"Unknown game type {game!r}.")
     try:
         when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
     except ValueError:

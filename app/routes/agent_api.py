@@ -470,6 +470,7 @@ async def agent_message(
         word_filter.mask(body.message),
         word_filter.mask(body.thinking),
         existing=existing,
+        is_connector_fallback=body.is_connector_fallback,
     )
     await db.commit()
 
@@ -533,7 +534,11 @@ async def agent_submit(
             None,
         )
         internal_move["target_id"] = target_player.agent_id if target_player else None
-    await module.record_submission(db, turn, player, internal_move, existing=existing)
+    await module.record_submission(
+        db, turn, player, internal_move,
+        existing=existing,
+        is_connector_fallback=body.is_connector_fallback,
+    )
     await db.commit()
 
     # Announce the bot's first real move so an open bot-detail page lights up.

@@ -230,22 +230,29 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
     from app.engine.scheduler import start_game
 
     now = datetime.now(timezone.utc)
-    due = (
-        await db.execute(
-            select(Match).where(
-                Match.match_kind == MatchKind.AUTO_SCHEDULED.value,
-                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
-                Match.scheduled_start <= now,
+    due_ids: list[str] = list(
+        (
+            await db.execute(
+                select(Match.id).where(
+                    Match.match_kind == MatchKind.AUTO_SCHEDULED.value,
+                    Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                    Match.scheduled_start <= now,
+                )
             )
-        )
-    ).scalars().all()
+        ).scalars().all()
+    )
 
-    for match in due:
+    for match_id in due_ids:
+        # Re-fetch each match by ID so rollbacks on previous iterations do not
+        # leave stale, expired ORM objects in the current session.
+        match = await db.get(Match, match_id)
+        if match is None:
+            continue  # already removed by a concurrent process
         active_players = (
             await db.execute(
                 select(Player.seat_name, Agent.kind)
                 .join(Agent, Agent.id == Player.agent_id)
-                .where(Player.match_id == match.id, Player.left_at.is_(None))
+                .where(Player.match_id == match_id, Player.left_at.is_(None))
             )
         ).all()
         has_external_agent = any(
@@ -256,7 +263,7 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
             match.cancelled_at = now
             await db.commit()
             logger.info(
-                "Cancelled auto-match %s: no external agents joined.", match.id
+                "Cancelled auto-match %s: no external agents joined.", match_id
             )
             continue
 
@@ -270,10 +277,20 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
                 try:
                     await add_bots_to_game(db, match, seats)
                 except SimSeatingError as exc:
-                    logger.exception(
-                        "Failed to seat bots in auto-match %s: %s", match.id, exc
+                    logger.error(
+                        "Auto-match %s bot seating failed — cancelling match: %s",
+                        match_id,
+                        exc,
                     )
+                    await db.rollback()
+                    # Rollback expires all session objects; reload the match row
+                    # before mutating it so we don't touch a stale in-memory state.
+                    fresh = await db.get(Match, match_id)
+                    if fresh is not None:
+                        fresh.state = GameState.CANCELLED
+                        fresh.cancelled_at = now
+                        await db.commit()
                     continue
 
         await start_game(db, match)
-        logger.info("Started auto-match %s.", match.id)
+        logger.info("Started auto-match %s.", match_id)

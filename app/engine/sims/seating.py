@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.bot_presets import bot_preset_by_id
 from app.engine.sims.roster import is_known_personality
+from app.engine.sims.runtime import validate_bot_profile_fields
 from app.models.agent import Agent, AgentKind
 from app.models.match import Match
 from app.models.player import Player
@@ -137,6 +138,21 @@ async def add_bots_to_game(
         # agent.id is globally unique, so each seat gets a distinct seed - same
         # personality, different tie-breaks and wording.
         agent.bot_seed = agent.id
+        # Validate the full bot profile now so a malformed preset is caught at
+        # seating time, not silently skipped mid-game.
+        try:
+            validate_bot_profile_fields(
+                kind=agent.kind,
+                bot_strategy=agent.bot_strategy,
+                bot_truthfulness=agent.bot_truthfulness,
+                bot_trust_model=agent.bot_trust_model,
+                bot_seed=agent.bot_seed,
+                bot_version=agent.bot_version,
+            )
+        except ValueError as exc:
+            raise SimSeatingError(
+                f"Bot profile for {name!r} is invalid: {exc}"
+            ) from exc
         player = Player(
             match_id=game.id,
             user_id=bots_user.id,

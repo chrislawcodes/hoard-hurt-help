@@ -10,6 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import case, func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.deps import DbSession, get_current_user
 from app.engine.connection_activity import compute_bot_health
@@ -63,8 +64,11 @@ async def _showcase_replay_data(
         match = await _load_match_or_404(db, match_id)
         ctx = await _game_view_context(request, db, match)
         return match_id, _build_rc_data(ctx["scoreboard"], ctx["history"])
-    except Exception:
-        logger.exception("Failed to build robot-circle replay data for %s", match_id)
+    except SQLAlchemyError:
+        logger.exception(
+            "DB error building robot-circle replay for match %s; falling back to sample",
+            match_id,
+        )
         return None, sample_replay_data()
 
 
@@ -365,12 +369,12 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     # Self-heal before reading: a game past its start time with too few players
     # should show as cancelled, not linger as "Upcoming" with a live Join button.
     # The background poller normally does this within seconds, but the lobby must
-    # not depend on it having run. A failure here must never break the page — log
-    # and fall through to whatever state the DB already holds.
+    # not depend on it having run. A DB failure here must never break the page —
+    # log and fall through to whatever state the DB already holds.
     try:
         await cancel_overdue_unfilled_games(db)
-    except Exception:
-        logger.exception("lobby: failed to reconcile overdue games")
+    except SQLAlchemyError:
+        logger.exception("lobby: DB error during overdue-game reconciliation; rendering current state")
     all_games = (
         (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
@@ -513,8 +517,8 @@ async def game_upcoming(request: Request, db: DbSession, game: Annotated[str, Pa
         raise HTTPException(404)
     try:
         await cancel_overdue_unfilled_games(db)
-    except Exception:
-        logger.exception("lobby upcoming: failed to reconcile overdue games")
+    except SQLAlchemyError:
+        logger.exception("lobby upcoming: DB error during overdue-game reconciliation; rendering current state")
     return templates.TemplateResponse(
         request,
         "fragments/lobby_upcoming.html",
