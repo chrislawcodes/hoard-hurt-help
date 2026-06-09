@@ -70,19 +70,12 @@
 </div>
 {% endif %}
 
-{% if join_blocked %}
-<div class="card">
-    <h3 style="margin-top:0;">At capacity</h3>
-    <p class="hint" style="margin-top:0;">This connection is already running its maximum number of active matches.</p>
-    <p class="meta">{{ active_match_count }} / {{ connection.max_concurrent_games }} active matches</p>
+<div id="onboarding-status"
+     hx-get="/me/agents/{{ agent.id }}/status"
+     hx-trigger="every 12s"
+     hx-swap="innerHTML">
+    {% include "agents/_onboarding.html" %}
 </div>
-{% elif ready_to_play %}
-<div class="card" style="border-color:var(--ok, #2d9a5a);">
-    <h3 style="margin-top:0;">Ready to play</h3>
-    <p class="hint" style="margin-top:0;">This agent is connected and ready to join a match.</p>
-    <a class="btn btn-primary" href="/games/{{ agent.game }}">Find a match →</a>
-</div>
-{% endif %}
 
 <div class="card">
     <h3 style="margin-top:0;">Version</h3>

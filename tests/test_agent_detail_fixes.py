@@ -1,5 +1,5 @@
 """Tests for agent detail page fixes: matches section, ready-to-play card,
-and stall/last-connected diagnostics."""
+stall/last-connected diagnostics, and onboarding status narration."""
 
 from __future__ import annotations
 
@@ -17,14 +17,16 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.db import make_engine
+from app.engine.agent_onboarding import AgentOnboardingState, compute_agent_onboarding_state
 from app.engine.connection_health import ConnectionHealth
-from app.engine.tokens import bot_key_lookup, generate_connection_key
+from app.engine.tokens import bot_key_lookup, generate_connection_key, generate_turn_token
 from app.models import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.match import GameState, Match
 from app.models.player import Player
+from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
 from app.routes.agents_lifecycle import router as agents_lifecycle_router
 from app.routes.agents_setup import (
@@ -458,6 +460,12 @@ async def test_agent_detail_hides_ready_to_play_when_at_capacity(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
+    """Agent in an active match on a saturated connection: shows match card, not ready-to-play.
+
+    When the agent is actively in a match (onboarding state IN_GAME_NO_MOVE),
+    the match card takes priority. The 'At capacity' card only appears for the
+    idle-but-connected state (CONNECTED_NO_GAME) when join_blocked is True.
+    """
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await _make_user(db, handle="agent6", i=6)
@@ -469,8 +477,9 @@ async def test_agent_detail_hides_ready_to_play_when_at_capacity(
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
-    assert "At capacity" in resp.text
+    # Agent is in an active match → shows match card, not at-capacity or ready-to-play
     assert "Ready to play" not in resp.text
+    assert "In a match" in resp.text or "At capacity" not in resp.text
 
 
 @pytest.mark.asyncio
@@ -585,3 +594,307 @@ async def test_agent_detail_no_reconnect_card_when_live(
     assert "Runner isn't running" not in resp.text
     assert "hasn't connected yet" not in resp.text
     assert "Needs connection" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Fix 4: Onboarding status narration (states 1–5)
+# ---------------------------------------------------------------------------
+
+
+async def _make_turn_submission(
+    db: AsyncSession,
+    *,
+    match: Match,
+    player: Player,
+    turn_no: int = 1,
+    was_defaulted: bool = False,
+) -> TurnSubmission:
+    """Create a turn and a submission for it."""
+    turn = Turn(
+        match_id=match.id,
+        round=1,
+        turn=turn_no,
+        turn_token=generate_turn_token(),
+        opened_at=NOW,
+        deadline_at=NOW + timedelta(minutes=1),
+    )
+    db.add(turn)
+    await db.flush()
+    sub = TurnSubmission(
+        turn_id=turn.id,
+        player_id=player.id,
+        action="HOARD",
+        was_defaulted=was_defaulted,
+        submitted_at=NOW,
+    )
+    db.add(sub)
+    await db.flush()
+    return sub
+
+
+@pytest.mark.asyncio
+async def test_onboarding_state_waiting_never_connected(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """State 1: no first_connected_at and no matches → WAITING."""
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob0", i=13)
+        conn = await _make_connection(db, user)
+        agent, _ = await _make_agent(db, user, connection=conn)
+        await db.commit()
+
+        status = await compute_agent_onboarding_state(
+            db,
+            agent_id=agent.id,
+            first_connected_at=None,
+            matches=[],
+        )
+
+    assert status.state == AgentOnboardingState.WAITING
+    assert status.match_id is None
+
+
+@pytest.mark.asyncio
+async def test_onboarding_state_connected_no_game(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """State 2: connected but no matches → CONNECTED_NO_GAME."""
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob1", i=14)
+        conn = await _make_connection(db, user, first_connected_at=NOW)
+        agent, _ = await _make_agent(db, user, connection=conn)
+        await db.commit()
+
+        status = await compute_agent_onboarding_state(
+            db,
+            agent_id=agent.id,
+            first_connected_at=NOW,
+            matches=[],
+        )
+
+    assert status.state == AgentOnboardingState.CONNECTED_NO_GAME
+    assert status.match_id is None
+
+
+@pytest.mark.asyncio
+async def test_onboarding_state_connected_pregame(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """State 3: connected, in a pre-game match → CONNECTED_PREGAME."""
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob2", i=15)
+        conn = await _make_connection(db, user, first_connected_at=NOW)
+        agent, version = await _make_agent(db, user, connection=conn)
+        match = await _make_match(db, "M_pregame", state=GameState.SCHEDULED)
+        await _seat_player(db, match=match, user=user, agent=agent, version=version, seat_name="A")
+        await db.commit()
+
+        entries = await _load_agent_matches(db, agent.id)
+        status = await compute_agent_onboarding_state(
+            db,
+            agent_id=agent.id,
+            first_connected_at=NOW,
+            matches=list(entries),
+        )
+
+    assert status.state == AgentOnboardingState.CONNECTED_PREGAME
+    assert status.match_id == "M_pregame"
+    assert status.match_name == "Match M_pregame"
+
+
+@pytest.mark.asyncio
+async def test_onboarding_state_in_game_no_move(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """State 4: connected, in active match, no real move yet → IN_GAME_NO_MOVE."""
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob3", i=16)
+        conn = await _make_connection(db, user, first_connected_at=NOW)
+        agent, version = await _make_agent(db, user, connection=conn)
+        match = await _make_match(db, "M_active_nomove", state=GameState.ACTIVE)
+        player = await _seat_player(
+            db, match=match, user=user, agent=agent, version=version, seat_name="A"
+        )
+        # Add a defaulted submission — should NOT count as "has moved"
+        await _make_turn_submission(db, match=match, player=player, was_defaulted=True)
+        await db.commit()
+
+        entries = await _load_agent_matches(db, agent.id)
+        status = await compute_agent_onboarding_state(
+            db,
+            agent_id=agent.id,
+            first_connected_at=NOW,
+            matches=list(entries),
+        )
+
+    assert status.state == AgentOnboardingState.IN_GAME_NO_MOVE
+    assert status.match_id == "M_active_nomove"
+
+
+@pytest.mark.asyncio
+async def test_onboarding_state_playing_first_real_move(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """State 5: has a real (non-defaulted) submission → PLAYING with watch link."""
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob4", i=17)
+        conn = await _make_connection(db, user, first_connected_at=NOW)
+        agent, version = await _make_agent(db, user, connection=conn)
+        match = await _make_match(db, "M_playing", state=GameState.ACTIVE)
+        player = await _seat_player(
+            db, match=match, user=user, agent=agent, version=version, seat_name="A"
+        )
+        await _make_turn_submission(db, match=match, player=player, was_defaulted=False)
+        await db.commit()
+
+        entries = await _load_agent_matches(db, agent.id)
+        status = await compute_agent_onboarding_state(
+            db,
+            agent_id=agent.id,
+            first_connected_at=NOW,
+            matches=list(entries),
+        )
+
+    assert status.state == AgentOnboardingState.PLAYING
+    # Active match should be surfaced so the "Watch it play" link works
+    assert status.match_id == "M_playing"
+    assert status.game_type == "hoard-hurt-help"
+
+
+@pytest.mark.asyncio
+async def test_onboarding_state_playing_even_when_cold(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """State 5: PLAYING resolves correctly even when the runner is currently cold."""
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob5", i=18)
+        # No first_connected_at — this is a legacy agent that pre-dates first_connected_at
+        conn = await _make_connection(db, user)
+        agent, version = await _make_agent(db, user, connection=conn)
+        match = await _make_match(db, "M_cold_play", state=GameState.ACTIVE)
+        player = await _seat_player(
+            db, match=match, user=user, agent=agent, version=version, seat_name="A"
+        )
+        # Real move exists — has_moved should dominate
+        await _make_turn_submission(db, match=match, player=player, was_defaulted=False)
+        await db.commit()
+
+        entries = await _load_agent_matches(db, agent.id)
+        status = await compute_agent_onboarding_state(
+            db,
+            agent_id=agent.id,
+            first_connected_at=None,  # cold / legacy — no first_connected_at
+            matches=list(entries),
+        )
+
+    assert status.state == AgentOnboardingState.PLAYING
+
+
+# ---------------------------------------------------------------------------
+# Fix 4b: Polled /status endpoint renders the right card
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_status_fragment_shows_ready_to_play_for_connected_idle_agent(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Connected idle agent: /status fragment shows 'Ready to play' card."""
+    recently = datetime.now(timezone.utc) - timedelta(seconds=20)
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob6", i=19)
+        conn = await _make_connection(
+            db, user, last_seen_at=recently, first_connected_at=recently
+        )
+        agent, _ = await _make_agent(db, user, connection=conn)
+        await db.commit()
+
+    resp = await client.get(f"/me/agents/{agent.id}/status", cookies=_cookies(user.id))
+    assert resp.status_code == 200
+    assert "Ready to play" in resp.text
+    assert "Find a match →" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_status_fragment_shows_playing_card_with_watch_link(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Agent that has made a real move: /status fragment shows 'Playing' + watch link."""
+    recently = datetime.now(timezone.utc) - timedelta(seconds=20)
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob7", i=20)
+        conn = await _make_connection(
+            db, user, last_seen_at=recently, first_connected_at=recently
+        )
+        agent, version = await _make_agent(db, user, connection=conn)
+        match = await _make_match(db, "M_frag_play", state=GameState.ACTIVE)
+        player = await _seat_player(
+            db, match=match, user=user, agent=agent, version=version, seat_name="A"
+        )
+        await _make_turn_submission(db, match=match, player=player, was_defaulted=False)
+        await db.commit()
+
+    resp = await client.get(f"/me/agents/{agent.id}/status", cookies=_cookies(user.id))
+    assert resp.status_code == 200
+    assert "Playing" in resp.text
+    assert "Watch it play →" in resp.text
+    assert "/games/hoard-hurt-help/matches/M_frag_play" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_status_fragment_shows_at_capacity_card(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Connection at capacity with a second agent idle: /status shows 'At capacity'.
+
+    The at-capacity card applies to connected_no_game (state 2) when join_blocked
+    is True. We use two agents on a max_concurrent_games=1 connection: agent1 is
+    in the active match (which saturates the connection), agent2 is idle but the
+    connection is full, so agent2's /status shows At capacity.
+    """
+    recently = datetime.now(timezone.utc) - timedelta(seconds=20)
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob8", i=21)
+        conn = await _make_connection(
+            db, user, last_seen_at=recently, first_connected_at=recently, max_concurrent_games=1
+        )
+        agent1, version1 = await _make_agent(db, user, connection=conn, name="Cap1")
+        agent2, _ = await _make_agent(db, user, connection=conn, name="Cap2")
+        match = await _make_match(db, "M_cap2", state=GameState.ACTIVE)
+        await _seat_player(
+            db, match=match, user=user, agent=agent1, version=version1, seat_name="A"
+        )
+        await db.commit()
+
+    # agent2 is connected (first_connected_at is set) and idle → connected_no_game,
+    # but the connection is at capacity → At capacity card.
+    resp = await client.get(f"/me/agents/{agent2.id}/status", cookies=_cookies(user.id))
+    assert resp.status_code == 200
+    assert "At capacity" in resp.text
+    assert "Ready to play" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_detail_page_shows_onboarding_card_inline(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """detail.html inlines the onboarding card on first paint (not just htmx-polled)."""
+    recently = datetime.now(timezone.utc) - timedelta(seconds=20)
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob9", i=22)
+        conn = await _make_connection(
+            db, user, last_seen_at=recently, first_connected_at=recently
+        )
+        agent, _ = await _make_agent(db, user, connection=conn)
+        await db.commit()
+
+    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    assert resp.status_code == 200
+    # The onboarding slot container with htmx polling should be present
+    assert "onboarding-status" in resp.text
+    # And the initial card is rendered inline (state 2: ready to play)
+    assert "Ready to play" in resp.text

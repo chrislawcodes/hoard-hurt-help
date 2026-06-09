@@ -13,6 +13,7 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
+from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health import ConnectionHealth, compute_connection_health
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
@@ -577,9 +578,25 @@ async def agent_detail(
         raise HTTPException(status_code=404, detail="Agent not found.")
     context = await _build_agent_detail_context(db, request, user, agent)
     matches = await _load_agent_matches(db, agent.id)
+    raw_connection = context.get("connection")
+    connection_obj = raw_connection if isinstance(raw_connection, Connection) else None
+    # Use first_connected_at with a fallback to last_seen_at for legacy connections
+    # created before first_connected_at was tracked.
+    first_connected_at = (
+        (connection_obj.first_connected_at or connection_obj.last_seen_at)
+        if connection_obj is not None
+        else None
+    )
+    onboarding = await compute_agent_onboarding_state(
+        db,
+        agent_id=agent.id,
+        first_connected_at=first_connected_at,
+        matches=list(matches),
+    )
     context = {
         **context,
         "matches": matches,
+        "onboarding": onboarding,
         "ready_to_play": _is_ready_to_play(context),
     }
     return templates.TemplateResponse(request, "agents/detail.html", context)
