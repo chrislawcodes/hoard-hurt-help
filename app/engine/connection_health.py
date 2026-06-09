@@ -15,7 +15,7 @@ from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
 
-_LIVE_WINDOW_SECONDS = 90
+LIVE_WINDOW_SECONDS = 90
 _HEARTBEAT_THROTTLE_SECONDS = 10
 
 
@@ -107,7 +107,7 @@ async def compute_connection_health(
     last_seen = connection.last_seen_at
     warm = (
         last_seen is not None
-        and (now - _as_aware(last_seen)).total_seconds() <= _LIVE_WINDOW_SECONDS
+        and (now - _as_aware(last_seen)).total_seconds() <= LIVE_WINDOW_SECONDS
     )
     last_connected = connection.last_seen_at or connection.first_connected_at
     never_connected = last_connected is None
