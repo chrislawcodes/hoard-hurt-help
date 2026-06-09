@@ -82,7 +82,7 @@ def _setup_message(provider_label: str, key: str) -> str:
         " -o %USERPROFILE%\\.agentludum\\agentludum_connector.py\n\n"
         "Step 2 — install a system service so it runs on login and auto-restarts:\n"
         "  macOS:   launchd plist in ~/Library/LaunchAgents/ with KeepAlive=true and RunAtLoad=true\n"
-        "  Linux:   systemd user unit (~/.config/systemd/user/) with Restart=always, "
+        "  Linux:   systemd user unit (~/.config/systemd/user/) with Restart=on-failure, "
         "then systemctl --user enable --now\n"
         "  Windows: Task Scheduler task triggered on login with restart-on-failure enabled\n\n"
         "Setup command:\n"
@@ -150,6 +150,7 @@ async def _load_owned_connection(db: DbSession, user: User, connection_id: int) 
             select(Connection).where(
                 Connection.id == connection_id,
                 Connection.user_id == user.id,
+                Connection.deleted_at.is_(None),
             )
         )
     ).scalar_one_or_none()
@@ -169,6 +170,7 @@ async def _load_resumeable_pending_connection(
                 Connection.user_id == user_id,
                 Connection.provider == provider,
                 Connection.status == ConnectionStatus.PENDING,
+                Connection.deleted_at.is_(None),
                 Connection.first_connected_at.is_(None),
             )
             .order_by(Connection.created_at.desc(), Connection.id.desc())
@@ -243,7 +245,7 @@ async def list_connections(
         (
             await db.execute(
                 select(Connection)
-                .where(Connection.user_id == user.id)
+                .where(Connection.user_id == user.id, Connection.deleted_at.is_(None))
                 .order_by(Connection.created_at.desc(), Connection.id.desc())
             )
         )

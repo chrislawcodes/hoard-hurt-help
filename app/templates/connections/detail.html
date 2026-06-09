@@ -79,7 +79,7 @@
             <form method="post" action="/me/connections/{{ connection.id }}/pause"><button type="submit">Pause</button></form>
         {% endif %}
         <form method="post" action="/me/connections/{{ connection.id }}/rotate"><button type="submit">Rotate Key</button></form>
-        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this connection? Its agents will be detached, paused, and kept. Continue?');">
+        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this connection? Its agents will be detached, paused, and kept. The runner will be told to exit. Continue?');">
             <button type="submit">Delete</button>
         </form>
     </div>

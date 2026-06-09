@@ -411,6 +411,13 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
     )
     assert delete_resp.status_code == 303
 
+    stop_resp = await client.get(
+        "/api/agent/next-turn",
+        headers={"X-Connection-Key": plain_key},
+    )
+    assert stop_resp.status_code == 410
+    assert stop_resp.json()["detail"]["error"]["code"] == "CONNECTION_DELETED"
+
     async with session_factory() as db:
         setup_row = (
             await db.execute(select(ConnectionSetup).where(ConnectionSetup.id == setup.id))
@@ -419,8 +426,9 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
         assert setup_row.completed_at is not None
         connection = (
             await db.execute(select(Connection).where(Connection.id == connection_id))
-        ).scalar_one_or_none()
-        assert connection is None
+        ).scalar_one()
+        assert connection.deleted_at is not None
+        assert connection.status is ConnectionStatus.PAUSED
 
 
 @pytest.mark.asyncio
@@ -472,7 +480,9 @@ async def test_delete_detaches_agents_and_reattachs_same_provider_connection(
 ) -> None:
     async with session_factory() as db:
         user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection, old_key = await _make_connection(
+            db, user, provider=ConnectionProvider.CLAUDE
+        )
         agent, version = await _make_agent(
             db,
             user,
@@ -498,10 +508,25 @@ async def test_delete_detaches_agents_and_reattachs_same_provider_connection(
     )
     assert delete_resp.status_code == 303
 
+    stop_resp = await client.get(
+        "/api/agent/next-turn",
+        headers={"X-Connection-Key": old_key},
+    )
+    assert stop_resp.status_code == 410
+    assert stop_resp.json()["detail"]["error"]["code"] == "CONNECTION_DELETED"
+
+    detail_resp = await client.get(
+        f"/me/connections/{connection.id}",
+        cookies=_signed_in_cookies(user.id),
+    )
+    assert detail_resp.status_code == 404
+
     async with session_factory() as db:
-        assert (
+        stored = (
             await db.execute(select(Connection).where(Connection.id == connection.id))
-        ).scalar_one_or_none() is None
+        ).scalar_one()
+        assert stored.deleted_at is not None
+        assert stored.status is ConnectionStatus.PAUSED
         stored_agent = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
         assert stored_agent.connection_id is None
         assert stored_agent.status is AgentStatus.PAUSED

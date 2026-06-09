@@ -425,6 +425,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
                     Agent.user_id == user.id,
                     Agent.archived_at.is_(None),
                     Agent.kind == AgentKind.AI,
+                    Connection.deleted_at.is_(None),
                 )
             )
         ).scalars().all()

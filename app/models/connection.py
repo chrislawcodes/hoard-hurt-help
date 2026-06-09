@@ -60,6 +60,10 @@ class Connection(Base):
         nullable=True,
     )
     paused_reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     first_connected_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

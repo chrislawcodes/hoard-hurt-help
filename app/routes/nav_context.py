@@ -54,6 +54,7 @@ async def user_has_connected_agent(db: AsyncSession, user_id: int) -> bool:
             Agent.user_id == user_id,
             Agent.archived_at.is_(None),
             Agent.kind == AgentKind.AI,
+            Connection.deleted_at.is_(None),
             Connection.first_connected_at.is_not(None),
         )
     )
@@ -65,7 +66,7 @@ async def user_connection_count(db: AsyncSession, user_id: int) -> int:
     stmt = (
         select(func.count())
         .select_from(Connection)
-        .where(Connection.user_id == user_id)
+        .where(Connection.user_id == user_id, Connection.deleted_at.is_(None))
     )
     return (await db.scalar(stmt)) or 0
 
@@ -78,6 +79,7 @@ async def user_live_connection_count(db: AsyncSession, user_id: int) -> int:
         .select_from(Connection)
         .where(
             Connection.user_id == user_id,
+            Connection.deleted_at.is_(None),
             Connection.status != ConnectionStatus.PAUSED,
             Connection.last_seen_at >= cutoff,
         )
@@ -93,6 +95,7 @@ async def user_disconnected_connection_count(db: AsyncSession, user_id: int) -> 
         .select_from(Connection)
         .where(
             Connection.user_id == user_id,
+            Connection.deleted_at.is_(None),
             Connection.status != ConnectionStatus.PAUSED,
             (Connection.last_seen_at < cutoff) | Connection.last_seen_at.is_(None),
         )

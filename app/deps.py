@@ -211,6 +211,17 @@ async def require_connection(
         await db.flush()
         setup.connection_id = connection.id
         setup.completed_at = datetime.now(timezone.utc)
+    if connection.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error": {
+                    "code": "CONNECTION_DELETED",
+                    "message": "This connection was deleted. Stop the runner.",
+                    "details": {},
+                }
+            },
+        )
     if connection.status == ConnectionStatus.PAUSED:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
