@@ -186,7 +186,61 @@ class SchedulerRegistry:
                 await self.start_due_games(session_factory)
             except Exception:  # never let the poller die on a transient error
                 logger.exception("start_due_games poll failed")
+
+            # 5th: watchdog — self-heal without waiting for a server restart.
+            #   a) Cancel ACTIVE games that have no players left (zombie games from
+            #      destructive migrations that wiped the players table).  They can
+            #      never make progress because _all_messaged / _all_submitted return
+            #      False when active_player_count == 0.
+            #   b) Restart ACTIVE games whose scheduler task has died (crashed tasks
+            #      stay dead until the next server restart without this).
+            try:
+                await self._watchdog(factory)
+            except Exception:
+                logger.exception("watchdog poll failed")
+
             await asyncio.sleep(_START_POLL_SECONDS)
+
+    async def _watchdog(self, factory: async_sessionmaker) -> None:
+        """Cancel playerless ACTIVE games; restart ACTIVE games with dead tasks."""
+        now = datetime.now(timezone.utc)
+        async with factory() as db:
+            active_games: list[Match] = list(
+                (await db.execute(select(Match).where(Match.state == GameState.ACTIVE)))
+                .scalars()
+                .all()
+            )
+            for g in active_games:
+                player_count = await db.scalar(
+                    select(func.count())
+                    .select_from(Player)
+                    .where(Player.match_id == g.id, Player.left_at.is_(None))
+                ) or 0
+                if player_count == 0:
+                    g.state = GameState.CANCELLED
+                    g.cancelled_at = now
+                    logger.warning(
+                        "watchdog: cancelled game %s — no active players", g.id
+                    )
+            await db.commit()
+
+        # Restart tasks for games that are still ACTIVE but have no running task.
+        async with factory() as db:
+            still_active: list[str] = list(
+                (
+                    await db.execute(
+                        select(Match.id).where(Match.state == GameState.ACTIVE)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        for match_id in still_active:
+            if not self.is_running(match_id):
+                logger.warning(
+                    "watchdog: restarting dead task for game %s", match_id
+                )
+                self.start(match_id)
 
     async def resume_active_games_on_startup(
         self, session_factory: async_sessionmaker | None = None

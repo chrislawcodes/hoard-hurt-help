@@ -11,9 +11,16 @@ revision before applying the normal upgrade path.
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
+
 from alembic import command
 from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
+
+logger = logging.getLogger(__name__)
 
 LEGACY_PRE_RENAME_REVISION = "0017"
 
@@ -58,8 +65,55 @@ def detect_legacy_revision(database_url: str) -> str | None:
         engine.dispose()
 
 
+def _cancel_active_games_if_schema_pending(config: Config, database_url: str) -> None:
+    """Cancel ACTIVE games when there are pending schema migrations.
+
+    A destructive migration (e.g. one that drops and recreates the players table)
+    wipes player data and leaves games in an unrecoverable zombie state. Cancelling
+    them before the upgrade is cleaner — the match shows as cancelled rather than
+    stuck-active with no players.
+
+    No-op when the database is already at head (normal restarts with no pending
+    migrations must not touch running games).
+    """
+    sync_url = _sync_database_url(database_url)
+    engine = create_engine(sync_url, future=True)
+    try:
+        with engine.connect() as conn:
+            current = MigrationContext.configure(conn).get_current_revision()
+        head = ScriptDirectory.from_config(config).get_current_head()
+        if current is None or current == head:
+            return
+
+        with engine.connect() as conn:
+            if "matches" not in set(inspect(conn).get_table_names()):
+                return
+            rows = conn.execute(
+                text("SELECT id FROM matches WHERE state = 'active'")
+            ).fetchall()
+            if not rows:
+                return
+            active_ids = [r[0] for r in rows]
+            conn.execute(
+                text(
+                    "UPDATE matches SET state = 'cancelled', cancelled_at = :now"
+                    " WHERE state = 'active'"
+                ),
+                {"now": datetime.now(timezone.utc).isoformat()},
+            )
+            conn.commit()
+        logger.warning(
+            "pre-migration: cancelled %d active game(s) before schema upgrade: %s",
+            len(active_ids),
+            active_ids,
+        )
+    finally:
+        engine.dispose()
+
+
 def prepare_database_for_upgrade(config: Config, database_url: str) -> None:
     """Stamp a legacy unversioned database, then let Alembic upgrade normally."""
     revision = detect_legacy_revision(database_url)
     if revision is not None:
         command.stamp(config, revision)
+    _cancel_active_games_if_schema_pending(config, database_url)
