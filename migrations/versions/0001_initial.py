@@ -49,8 +49,8 @@ def upgrade() -> None:
         sa.Column(
             "per_turn_deadline_seconds", sa.Integer(), nullable=False, server_default="60"
         ),
-        sa.Column("total_rounds", sa.Integer(), nullable=False, server_default="10"),
-        sa.Column("turns_per_round", sa.Integer(), nullable=False, server_default="10"),
+        sa.Column("total_rounds", sa.Integer(), nullable=False, server_default="7"),
+        sa.Column("turns_per_round", sa.Integer(), nullable=False, server_default="7"),
         sa.Column("current_round", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("current_turn", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("rules_version", sa.String(16), nullable=False, server_default="v1"),

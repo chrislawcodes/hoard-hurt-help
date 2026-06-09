@@ -57,8 +57,8 @@ class Match(Base):
         Integer, default=20, server_default="20", nullable=False
     )
     per_turn_deadline_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
-    total_rounds: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
-    turns_per_round: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    total_rounds: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
+    turns_per_round: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
     current_round: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_turn: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # Highest round number already awarded (round-wins + round-score folded into
