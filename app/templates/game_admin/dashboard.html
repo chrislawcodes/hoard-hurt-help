@@ -30,7 +30,7 @@
     <tr>
         <td><a href="/games/{{ game_slug }}/admin/matches/{{ g.id }}">{{ g.name }}</a></td>
         <td>{{ g.state.value }}</td>
-        <td>{{ g.scheduled_start }}</td>
+        <td>{{ g.scheduled_start | localdt }}</td>
         <td>{{ g.player_count }}</td>
         <td></td>
     </tr>

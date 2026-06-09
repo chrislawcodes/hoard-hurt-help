@@ -3,13 +3,18 @@
 import base64
 import json
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
+from starlette.requests import Request
+
 from app.config import settings
 from app.main import app
 from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
+from app.routes import admin_web
+from app.routes import game_admin_web
 from tests.factories import make_agent
 
 
@@ -328,6 +333,122 @@ async def test_game_admin_wrong_game_cannot_access(client, reset_db, monkeypatch
         "/games/other-game/admin/", cookies=_cookies(gameonly.id), follow_redirects=False
     )
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_game_admin_dashboard_handles_missing_start_time(monkeypatch):
+    """A bad match row should not take the whole dashboard down."""
+
+    class FakeResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return self._rows
+
+    class FakeDB:
+        async def execute(self, _stmt):
+            return FakeResult(
+                [
+                    SimpleNamespace(
+                        id="M_9999",
+                        name="Broken row",
+                        scheduled_start=None,
+                        current_round=0,
+                        total_rounds=7,
+                        state=GameState.SCHEDULED,
+                    )
+                ]
+            )
+
+    async def _count_players(_db, _match_id):
+        return 0
+
+    monkeypatch.setattr(game_admin_web, "_seated_player_count", _count_players)
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/games/hoard-hurt-help/admin/",
+            "headers": [],
+            "query_string": b"",
+        },
+        receive,
+    )
+
+    response = await game_admin_web.game_admin_dashboard(
+        game="hoard-hurt-help",
+        request=request,
+        db=FakeDB(),
+        user=SimpleNamespace(email="gameonly@test.com"),
+    )
+
+    assert response.context["scheduled_games"][0]["scheduled_start"] is None
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_dashboard_handles_missing_start_time(monkeypatch):
+    """The top-level admin page should also survive a broken timestamp."""
+
+    class FakeResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return self._rows
+
+    class FakeDB:
+        async def execute(self, _stmt):
+            return FakeResult(
+                [
+                    SimpleNamespace(
+                        id="M_9999",
+                        game="hoard-hurt-help",
+                        name="Broken row",
+                        scheduled_start=None,
+                        min_players=3,
+                        max_players=10,
+                        state=GameState.SCHEDULED,
+                    )
+                ]
+            )
+
+    async def _count_players(_db, _match_id):
+        return 0
+
+    monkeypatch.setattr(admin_web, "_seated_player_count", _count_players)
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin",
+            "headers": [],
+            "query_string": b"",
+        },
+        receive,
+    )
+
+    response = await admin_web.admin_dashboard(
+        request=request,
+        db=FakeDB(),
+        user=SimpleNamespace(email="admin@test.com"),
+    )
+
+    assert response.context["scheduled_games"][0]["scheduled_start"] is None
 
 
 @pytest.mark.asyncio
