@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -214,6 +215,24 @@ async def test_paused_connection_rejected(
     r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 403
     assert r.json()["detail"]["error"]["code"] == "CONNECTION_PAUSED"
+
+
+@pytest.mark.asyncio
+async def test_deleted_connection_returns_gone(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    connection, key = await _seed_connection(session_factory)
+
+    async with session_factory() as db:
+        stored = (
+            await db.execute(select(Connection).where(Connection.id == connection.id))
+        ).scalar_one()
+        stored.deleted_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 410
+    assert r.json()["detail"]["error"]["code"] == "CONNECTION_DELETED"
 
 
 @pytest.mark.asyncio

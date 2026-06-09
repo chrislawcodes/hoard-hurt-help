@@ -555,9 +555,19 @@ def main() -> None:
             time.sleep(5)
             continue
 
-        if r.status_code == 401:
+        if r.status_code in (401, 410):
+            if r.status_code == 410:
+                message = (
+                    "[agentludum-connector] connection deleted; exiting now so the "
+                    "replacement can start."
+                )
+            else:
+                message = (
+                    "[agentludum-connector] connection deleted or key revoked (401). "
+                    "Stop this runner and install the replacement."
+                )
             print(
-                "[agentludum-connector] invalid key (401). Reissue it from My Connections.",
+                message,
                 file=sys.stderr,
             )
             return

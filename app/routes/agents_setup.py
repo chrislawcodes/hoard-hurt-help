@@ -58,6 +58,7 @@ async def _load_owned_connection(
             select(Connection).where(
                 Connection.id == connection_id,
                 Connection.user_id == user.id,
+                Connection.deleted_at.is_(None),
             )
         )
     ).scalar_one_or_none()
@@ -76,6 +77,7 @@ async def _load_active_connection_for_provider(
                 Connection.user_id == user_id,
                 Connection.provider == provider,
                 Connection.status == ConnectionStatus.ACTIVE,
+                Connection.deleted_at.is_(None),
             )
             .order_by(Connection.created_at.desc(), Connection.id.desc())
         )
@@ -86,9 +88,9 @@ async def _load_active_connection_for_provider(
 async def _load_user_connections(db: DbSession, user_id: int) -> list[Connection]:
     rows = (
         await db.execute(
-            select(Connection).where(Connection.user_id == user_id).order_by(
-                Connection.created_at.desc(), Connection.id.desc()
-            )
+            select(Connection)
+            .where(Connection.user_id == user_id, Connection.deleted_at.is_(None))
+            .order_by(Connection.created_at.desc(), Connection.id.desc())
         )
     )
     return list(rows.scalars().all())
@@ -189,6 +191,7 @@ async def _build_agent_detail_context(
                 select(Connection).where(
                     Connection.id == agent.connection_id,
                     Connection.user_id == user.id,
+                    Connection.deleted_at.is_(None),
                 )
             )
         ).scalar_one_or_none()
@@ -235,7 +238,8 @@ async def _build_agent_detail_context(
         candidate_connections = [
             item
             for item in await _load_user_connections(db, user.id)
-            if item.provider == connection.provider and item.status != ConnectionStatus.PENDING
+            if item.provider == connection.provider
+            and item.status != ConnectionStatus.PENDING
         ]
     elif version is not None:
         candidate_connections = [
@@ -333,7 +337,9 @@ async def new_agent_form(
     await gc_pending_connections(db)
     connections = await _load_user_connections(db, user.id)
     active_connections = [
-        connection for connection in connections if connection.status == ConnectionStatus.ACTIVE
+        connection
+        for connection in connections
+        if connection.status == ConnectionStatus.ACTIVE and connection.deleted_at is None
     ]
     selected_provider_override: str | None = None
     if connection_id is not None:

@@ -84,6 +84,16 @@ async def delete_connection(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
     connection = await _load_owned_connection(db, user, connection_id)
+    # Deleting a connection must also stop the runner. Removing the connection
+    # row marks it deleted, which makes the next runner check-in return a
+    # dedicated shutdown response.
+    now = datetime.now(timezone.utc)
+    connection.deleted_at = now
+    connection.status = ConnectionStatus.PAUSED
+    connection.paused_at = now
+    connection.paused_reason = "deleted"
+    connection.runner_pid = None
+    connection.prev_key_lookup = None
     # Detach (never delete) this connection's AI agents in one atomic statement
     # scoped to the owned connection: they survive, paused, reattachable (FR-029).
     await db.execute(
@@ -99,7 +109,6 @@ async def delete_connection(
         .where(ConnectionSetup.connection_id == connection.id)
         .values(connection_id=None)
     )
-    await db.delete(connection)
     await db.commit()
     return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
 
