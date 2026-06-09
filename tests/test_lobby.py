@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.engine.sim_presets import sim_presets
+from app.engine.bot_presets import bot_presets
 from app.engine.tokens import bot_key_lookup
 from app.main import app
 from app.models import Base, Agent, AgentKind, Connection, ConnectionSetup, Match, GameState, Player, User
@@ -426,7 +426,7 @@ async def test_create_agent_setup_shows_key_once(client, reset_db):
 async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
-    presets = sim_presets()
+    presets = bot_presets()
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         for idx, preset in enumerate(presets, start=1):

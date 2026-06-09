@@ -17,10 +17,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.sim_presets import allocate_default_sim_names, sim_presets
+from app.engine.bot_presets import BOT_PRESETS, allocate_default_bot_names, bot_presets
 from app.engine.sims.seating import SimSeatingError, add_bots_to_game
 from app.engine.tokens import generate_match_id
 from app.models.agent import Agent, AgentKind
@@ -31,13 +31,13 @@ logger = logging.getLogger(__name__)
 
 PRACTICE_ARENA_NAME = "Practice Arena"
 PRACTICE_ARENA_MAX_PLAYERS = 10
-PRACTICE_ARENA_SIM_COUNT = 9
+PRACTICE_ARENA_BOT_COUNT = len(BOT_PRESETS)  # one bot per default strategy
 PRACTICE_ARENA_TOTAL_ROUNDS = 7
 PRACTICE_ARENA_TURNS_PER_ROUND = 7
 
 AUTO_MATCH_INTERVAL_MINUTES = 30
 AUTO_MATCH_MAX_PLAYERS = 8
-AUTO_MATCH_SIM_COUNT_MAX = 7
+AUTO_MATCH_BOT_COUNT_MAX = 7
 AUTO_MATCH_TOTAL_ROUNDS = 7
 AUTO_MATCH_TURNS_PER_ROUND = 7
 
@@ -70,10 +70,10 @@ def _choose_bot_seats(
     used_names: set[str] | None = None,
 ) -> list[tuple[str, str]]:
     """Pick n bot personality IDs from the preset list (cycling if needed)."""
-    presets = sim_presets()
+    presets = bot_presets()
     if not presets:
         return []
-    names = allocate_default_sim_names(n, used_names=used_names)
+    names = allocate_default_bot_names(n, used_names=used_names)
     seats = []
     for i in range(n):
         preset = presets[i % len(presets)]
@@ -128,9 +128,29 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         )
     ).scalars().first()
     if existing is not None:
-        return
+        # Guard against arenas that lost their bots (e.g. a schema migration that
+        # wiped the players table leaves the match row in REGISTERING with 0 bots).
+        # If the bot count is short, cancel the stale arena and fall through to
+        # create a fresh one so the poller self-heals without manual intervention.
+        bot_count = (
+            await db.scalar(
+                select(func.count())
+                .select_from(Player)
+                .join(Agent, Agent.id == Player.agent_id)
+                .where(
+                    Player.match_id == existing.id,
+                    Player.left_at.is_(None),
+                    Agent.kind == AgentKind.BOT,
+                )
+            )
+        ) or 0
+        if bot_count >= PRACTICE_ARENA_BOT_COUNT:
+            return
+        existing.state = GameState.CANCELLED
+        existing.cancelled_at = datetime.now(timezone.utc)
+        await db.commit()
 
-    presets = sim_presets()
+    presets = bot_presets()
     if not presets:
         logger.warning("No Sim presets available — Practice Arena not created.")
         return
@@ -151,7 +171,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
     db.add(arena)
     await db.flush()
 
-    seats = _choose_bot_seats(PRACTICE_ARENA_SIM_COUNT)
+    seats = _choose_bot_seats(PRACTICE_ARENA_BOT_COUNT)
     try:
         await add_bots_to_game(db, arena, seats)
     except SimSeatingError as exc:
@@ -235,9 +255,9 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
         player_count = len(active_players)
         empty_slots = match.max_players - player_count
         if empty_slots > 0:
-            n_sims = min(empty_slots, AUTO_MATCH_SIM_COUNT_MAX)
+            n_bots = min(empty_slots, AUTO_MATCH_BOT_COUNT_MAX)
             agent_ids = {seat_name for seat_name, _ in active_players}
-            seats = _choose_bot_seats(n_sims, used_names=agent_ids)
+            seats = _choose_bot_seats(n_bots, used_names=agent_ids)
             if seats:
                 try:
                     await add_bots_to_game(db, match, seats)

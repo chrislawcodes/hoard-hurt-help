@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.engine.sim_presets import sim_presets
+from app.engine.bot_presets import bot_presets
 from app.main import app
 from app.models import Base, Agent, AgentKind, AgentStatus, Connection, Match, GameState, Player, User
 from tests.factories import make_agent, make_connection, make_user
@@ -252,7 +252,7 @@ async def test_archived_agent_keeps_profile_metadata(client, reset_db):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
 
-    presets = sim_presets()
+    presets = bot_presets()
     async with reset_db() as db:
         connection, _ = await make_connection(db, user)
         db.add(
