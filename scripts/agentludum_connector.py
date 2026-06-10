@@ -308,11 +308,52 @@ class _GeminiAdapter:
         return self._call(str(session.token), model, body, resume=True)
 
 
+class _HermesAdapter:
+    """`hermes -z` one-shot (NousResearch/hermes-agent). `-z` is the headless
+    print mode: single prompt in, final reply text out, exit.
+
+    Path A: Hermes has no captured session here, so it is fed the FULL game state
+    every turn (``supports_resume = False`` makes ``_decide`` always send
+    ``_setup_body``). It uses its OWN configured model — the connector never
+    passes ``--model``. Adding ``--resume`` delta turns is a follow-up once a
+    live install confirms how ``-z`` exposes the session id.
+    """
+
+    cli = "hermes"
+    # Hermes uses its own configured model; this is a placeholder so `_resolve`'s
+    # `adapter.default_model` access works. The adapter never passes it to the CLI.
+    default_model = "hermes"
+    supports_resume = False
+
+    def _one_shot(self, prompt: str) -> str:
+        proc = _run(["hermes", "-z", prompt])
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or f"hermes exit {proc.returncode}")
+        text = proc.stdout.strip()
+        if not text:
+            raise RuntimeError(
+                f"hermes -z returned empty output:\n{proc.stderr[:300]}"
+            )
+        return text
+
+    def first(self, *, body: str, framing: str, model: str, session: _GameSession):
+        # Leave session.token None on purpose: every turn re-sends the full state.
+        return self._one_shot(f"{framing}\n\n{body}"), None
+
+    def resume(self, *, body: str, model: str, session: _GameSession):
+        # Unreachable while supports_resume is False (`_decide` always calls
+        # first); kept for interface symmetry.
+        return self._one_shot(body), None
+
+
 # Adapter registry keyed by the server's provider value.
-_ADAPTERS: dict[str, _ClaudeAdapter | _CodexAdapter | _GeminiAdapter] = {
+_ADAPTERS: dict[
+    str, _ClaudeAdapter | _CodexAdapter | _GeminiAdapter | _HermesAdapter
+] = {
     "claude": _ClaudeAdapter(),
     "openai": _CodexAdapter(),
     "gemini": _GeminiAdapter(),
+    "hermes": _HermesAdapter(),
 }
 
 
@@ -443,7 +484,12 @@ def _detect_providers() -> list[str]:
     Best-effort and informational only — the server stores these into
     connection_providers.detected; it never flips the user's `enabled` toggle.
     """
-    cli_by_provider = {"claude": "claude", "openai": "codex", "gemini": "gemini"}
+    cli_by_provider = {
+        "claude": "claude",
+        "openai": "codex",
+        "gemini": "gemini",
+        "hermes": "hermes",
+    }
     return [provider for provider, cli in cli_by_provider.items() if shutil.which(cli)]
 
 
@@ -527,7 +573,9 @@ def _decide(turn: dict, sess: _GameSession) -> dict:
     phase = _phase(cur)
     match_id = _turn_match_id(turn)
     try:
-        if sess.token is None:
+        # A sessionless adapter (supports_resume=False, e.g. Hermes) gets the FULL
+        # game state every turn — there is no chained session to send a delta to.
+        if sess.token is None or not getattr(adapter, "supports_resume", True):
             text, usage = adapter.first(
                 body=_setup_body(turn), framing=_framing(turn), model=str(sess.model), session=sess
             )

@@ -61,9 +61,17 @@ def test_unset_provider_defaults_to_claude(runner):
     assert runner._resolve(_turn(None, None), _args()) == ("claude", "claude-haiku-4-5")
 
 
-def test_non_cli_provider_falls_back_to_claude(runner):
-    # Hermes/OpenClaw play over MCP — no CLI runner — so this script falls back.
-    assert runner._resolve(_turn("hermes", None), _args()) == ("claude", "claude-haiku-4-5")
+def test_hermes_resolves_to_its_own_adapter(runner):
+    # Hermes is now a first-class CLI adapter (hermes -z), not an MCP-only
+    # fallback. It uses its own configured model, so the model is a placeholder.
+    provider, _model = runner._resolve(_turn("hermes", None), _args())
+    assert provider == "hermes"
+    assert runner._ADAPTERS["hermes"].cli == "hermes"
+
+
+def test_openclaw_still_falls_back_to_claude(runner):
+    # OpenClaw has no adapter yet (fast-follow), so it still falls back.
+    assert runner._resolve(_turn("openclaw", None), _args()) == ("claude", "claude-haiku-4-5")
 
 
 def test_provider_flag_overrides_and_drops_other_providers_model(runner):
@@ -114,3 +122,85 @@ def test_old_payload_without_provider_field_still_resolves(runner):
 def test_detect_providers_uses_cli_presence(runner, monkeypatch):
     monkeypatch.setattr(runner.shutil, "which", lambda cli: cli in {"claude", "gemini"})
     assert set(runner._detect_providers()) == {"claude", "gemini"}
+
+
+# --- Hermes adapter (Path A: one-shot `hermes -z`, full state every turn) ---
+
+class _FakeProc:
+    def __init__(self, stdout="", stderr="", returncode=0):
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+
+
+def _full_turn():
+    return {
+        "match_id": "M1",
+        "static": {
+            "your_agent_id": "you",
+            "all_agent_ids": ["you", "rival"],
+            "your_strategy": "win",
+            "rules": "the rules",
+        },
+        "scoreboard": [{"agent_id": "you", "round_score": 0}],
+        "history": [],
+        "current": {"round": 1, "turn": 1, "phase": "act", "talk_messages": []},
+    }
+
+
+def test_hermes_adapter_is_sessionless_and_modelless(runner):
+    a = runner._ADAPTERS["hermes"]
+    assert a.cli == "hermes"
+    assert a.supports_resume is False
+
+
+def test_hermes_first_invokes_hermes_z_one_shot_no_model(runner, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        sys.modules["agentludum_connector"], "_run",
+        lambda argv, **kw: calls.append(argv) or _FakeProc(
+            stdout='{"action":"HELP","target_id":"rival","thinking":"t"}'
+        ),
+    )
+    sess = runner._GameSession(provider="hermes", model="hermes")
+    text, usage = runner._ADAPTERS["hermes"].first(
+        body="BODY", framing="FRAME", model="ignored", session=sess
+    )
+    assert calls == [["hermes", "-z", "FRAME\n\nBODY"]]
+    assert "--model" not in calls[0]
+    assert usage is None
+    assert sess.token is None  # Path A: no session captured
+    import json
+    assert json.loads(text)["action"] == "HELP"
+
+
+def test_hermes_decide_sends_full_state_every_turn(runner, monkeypatch):
+    prompts = []
+    monkeypatch.setattr(
+        sys.modules["agentludum_connector"], "_run",
+        lambda argv, **kw: prompts.append(argv[-1]) or _FakeProc(
+            stdout='{"action":"HOARD","target_id":null,"thinking":""}'
+        ),
+    )
+    sess = runner._GameSession(provider="hermes", model="hermes")
+    runner._decide(_full_turn(), sess)
+    runner._decide(_full_turn(), sess)  # second turn
+    # Both turns send the FULL setup body (no delta), and no session is captured.
+    assert len(prompts) == 2
+    assert all("GAME SO FAR" in p for p in prompts)
+    assert sess.token is None
+
+
+def test_hermes_malformed_output_yields_fallback_move(runner, monkeypatch):
+    monkeypatch.setattr(
+        sys.modules["agentludum_connector"], "_run", lambda argv, **kw: _FakeProc(stdout="not json at all")
+    )
+    sess = runner._GameSession(provider="hermes", model="hermes")
+    move = runner._decide(_full_turn(), sess)
+    assert move["is_connector_fallback"] is True
+    assert move["action"] == "HOARD"  # the act-phase default
+
+
+def test_detect_providers_includes_hermes(runner, monkeypatch):
+    monkeypatch.setattr(runner.shutil, "which", lambda cli: cli in {"hermes", "claude"})
+    assert set(runner._detect_providers()) == {"hermes", "claude"}
