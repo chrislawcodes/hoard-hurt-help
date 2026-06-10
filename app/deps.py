@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from fastapi import Depends, Header, HTTPException, Path, Query, Request, status
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -17,6 +17,7 @@ from app.engine.match_id_rewrite import match_id_candidates
 from app.engine.tokens import bot_key_lookup
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
 from app.models.player import Player
 from app.models.user import User
@@ -280,14 +281,25 @@ async def require_agent_player(
             )
 
     candidate_match_ids = match_id_candidates(match_id)
+    # An agent is no longer pinned to a connection. This connection may act for
+    # the agent in this match when it belongs to the same user AND the agent's
+    # stored provider is enabled on this connection (join connection_providers).
     rows = (
         await db.execute(
             select(Player, Agent)
             .join(Agent, Agent.id == Player.agent_id)
+            .join(
+                ConnectionProviderRow,
+                and_(
+                    ConnectionProviderRow.connection_id == connection.id,
+                    ConnectionProviderRow.provider == Agent.provider,
+                    ConnectionProviderRow.enabled.is_(True),
+                ),
+            )
             .where(
                 Player.match_id.in_(candidate_match_ids),
                 Player.left_at.is_(None),
-                Agent.connection_id == connection.id,
+                Agent.user_id == connection.user_id,
                 Agent.kind == AgentKind.AI,
                 Agent.status == AgentStatus.ACTIVE,
                 Agent.archived_at.is_(None),

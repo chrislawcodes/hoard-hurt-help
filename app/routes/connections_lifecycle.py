@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
-from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
+from app.engine.connection_health import LIVE_WINDOW_SECONDS
 from app.models.agent import Agent, AgentKind, AgentStatus
-from app.models.agent_version import AgentVersion
-from app.models.connection import ConnectionStatus
+from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 
@@ -22,27 +22,57 @@ from app.routes.connections_setup import _load_owned_connection
 router = APIRouter()
 
 
-async def _load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
-    agent = (
-        await db.execute(
-            select(Agent).where(Agent.id == agent_id, Agent.user_id == user.id)
+async def _provider_covered_by_other_live(
+    db: DbSession,
+    user_id: int,
+    provider: ConnectionProvider,
+    *,
+    exclude_connection_id: int,
+    now: datetime | None = None,
+) -> bool:
+    """True if ANOTHER live connection of this user still enables ``provider``.
+
+    "Live" = not paused, not deleted, seen within LIVE_WINDOW_SECONDS. Used to
+    decide whether disabling a provider (or deleting a machine) would strand the
+    agents that depend on it.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=LIVE_WINDOW_SECONDS)
+    count = await db.scalar(
+        select(func.count())
+        .select_from(ConnectionProviderRow)
+        .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
+        .where(
+            ConnectionProviderRow.provider == provider,
+            ConnectionProviderRow.enabled.is_(True),
+            Connection.user_id == user_id,
+            Connection.id != exclude_connection_id,
+            Connection.deleted_at.is_(None),
+            Connection.status != ConnectionStatus.PAUSED,
+            Connection.last_seen_at.is_not(None),
+            Connection.last_seen_at >= cutoff,
         )
-    ).scalar_one_or_none()
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found.")
-    return agent
+    )
+    return bool(count)
 
 
-async def _agent_current_model(db: DbSession, agent_id: int) -> str | None:
-    row = (
-        await db.execute(
-            select(AgentVersion.model)
+async def _stranded_provider_agent_count(
+    db: DbSession, user_id: int, provider: ConnectionProvider
+) -> int:
+    """How many of the user's active AI agents use ``provider``."""
+    return (
+        await db.scalar(
+            select(func.count())
             .select_from(Agent)
-            .join(AgentVersion, Agent.current_version_id == AgentVersion.id)
-            .where(Agent.id == agent_id)
+            .where(
+                Agent.user_id == user_id,
+                Agent.kind == AgentKind.AI,
+                Agent.status == AgentStatus.ACTIVE,
+                Agent.archived_at.is_(None),
+                Agent.provider == provider,
+            )
         )
-    ).scalar_one_or_none()
-    return row
+    ) or 0
 
 
 @router.post("/{connection_id}/pause")
@@ -94,16 +124,10 @@ async def delete_connection(
     connection.paused_reason = "deleted"
     connection.runner_pid = None
     connection.prev_key_lookup = None
-    # Detach (never delete) this connection's AI agents in one atomic statement
-    # scoped to the owned connection: they survive, paused, reattachable (FR-029).
-    await db.execute(
-        update(Agent)
-        .where(
-            Agent.connection_id == connection.id,
-            Agent.kind == AgentKind.AI,
-        )
-        .values(connection_id=None, status=AgentStatus.PAUSED)
-    )
+    # Coverage-aware delete: agents are no longer attached to a connection, so
+    # deleting a machine just stops its runner and detaches any pending setup.
+    # Agents stay ACTIVE — they keep playing on any OTHER live connection that
+    # covers their provider; only agents now covered nowhere quietly wait.
     await db.execute(
         update(ConnectionSetup)
         .where(ConnectionSetup.connection_id == connection.id)
@@ -113,36 +137,53 @@ async def delete_connection(
     return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/{connection_id}/reattach/{agent_id}")
-async def reattach_agent(
+@router.post("/{connection_id}/providers/{provider}")
+async def toggle_provider(
     connection_id: Annotated[int, Path()],
-    agent_id: Annotated[int, Path()],
+    provider: Annotated[ConnectionProvider, Path()],
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
+    enabled: Annotated[bool, Query()] = True,
+    confirm: Annotated[bool, Query()] = False,
 ) -> RedirectResponse:
+    """Enable or disable a provider on this machine.
+
+    Disabling a provider that would strand agents (no OTHER live connection
+    covers it) requires ``confirm=true`` — the UI shows a warning first.
+    """
     connection = await _load_owned_connection(db, user, connection_id)
-    if connection.status != ConnectionStatus.ACTIVE:
-        raise HTTPException(status_code=409, detail="Connection is not active.")
-    agent = await _load_owned_agent(db, user, agent_id)
-    if agent.kind != AgentKind.AI:
-        raise HTTPException(status_code=400, detail="Only AI agents can be reattached.")
-    if agent.connection_id is not None:
-        raise HTTPException(status_code=409, detail="That agent already has a connection.")
-    if agent.status != AgentStatus.PAUSED:
-        raise HTTPException(status_code=409, detail="That agent is not waiting for a connection.")
-    model = await _agent_current_model(db, agent.id)
-    if model is None:
-        raise HTTPException(status_code=400, detail="That agent has no model set.")
-    allowed_models = PROVIDER_MODELS.get(connection.provider.value, [])
-    # Empty allowed_models (hermes/openclaw) means "any model" — skip the
-    # membership check rather than rejecting every reattach against an empty list.
-    if allowed_models and model not in allowed_models:
-        raise HTTPException(
-            status_code=400,
-            detail="That agent's model is not valid for this connection provider.",
+    if not enabled and not confirm:
+        covered = await _provider_covered_by_other_live(
+            db, user.id, provider, exclude_connection_id=connection.id
         )
-    agent.connection_id = connection.id
-    agent.status = AgentStatus.ACTIVE
+        stranded = await _stranded_provider_agent_count(db, user.id, provider)
+        if not covered and stranded > 0:
+            return RedirectResponse(
+                url=(
+                    f"/me/connections/{connection.id}"
+                    f"?strand_provider={provider.value}&strand_count={stranded}"
+                ),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+    row = (
+        await db.execute(
+            select(ConnectionProviderRow).where(
+                ConnectionProviderRow.connection_id == connection.id,
+                ConnectionProviderRow.provider == provider,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        db.add(
+            ConnectionProviderRow(
+                connection_id=connection.id,
+                provider=provider,
+                enabled=enabled,
+                detected=False,
+            )
+        )
+    else:
+        row.enabled = enabled
     await db.commit()
     return RedirectResponse(
         url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER

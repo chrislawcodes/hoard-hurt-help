@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
@@ -12,12 +13,13 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import compute_connection_health
+from app.engine.connection_health import LIVE_WINDOW_SECONDS, compute_connection_health
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.connection import Connection, ConnectionProvider
+from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 from app.templating import templates
@@ -73,6 +75,10 @@ def _provider_label(provider: ConnectionProvider) -> str:
 
 
 def _connection_display_name(connection: Connection) -> str:
+    # `connection.provider` is the retained legacy "connection type" (see §1 of
+    # the unified-connections spec) — used for the display name fallback, setup
+    # script selection, and hermes/openclaw identity. These provider reads are
+    # intentional; routing/coverage use connection_providers, not this column.
     return connection.nickname or _provider_label(connection.provider)
 
 
@@ -108,16 +114,33 @@ def _setup_message(provider: ConnectionProvider, key: str) -> str:
     )
 
 
-async def _load_attached_agents(db: DbSession, connection_id: int) -> list[AgentRow]:
+async def _load_attached_agents(db: DbSession, connection: Connection) -> list[AgentRow]:
+    """Agents this machine COVERS: the user's active AI agents whose provider is
+    enabled on this connection (agents are no longer attached to a connection)."""
+    enabled = (
+        (
+            await db.execute(
+                select(ConnectionProviderRow.provider).where(
+                    ConnectionProviderRow.connection_id == connection.id,
+                    ConnectionProviderRow.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not enabled:
+        return []
     rows = (
         (
             await db.execute(
                 select(Agent, AgentVersion)
                 .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
                 .where(
-                    Agent.connection_id == connection_id,
+                    Agent.user_id == connection.user_id,
                     Agent.kind == AgentKind.AI,
                     Agent.archived_at.is_(None),
+                    Agent.provider.in_(enabled),
                 )
                 .order_by(Agent.name)
             )
@@ -127,9 +150,28 @@ async def _load_attached_agents(db: DbSession, connection_id: int) -> list[Agent
     return [AgentRow(agent=agent, version=version) for agent, version in rows]
 
 
-async def _load_detached_agents(
-    db: DbSession, user_id: int, provider: ConnectionProvider
-) -> list[AgentRow]:
+async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
+    """Active AI agents whose provider is enabled on NO live connection — they
+    are waiting for a machine to come up that covers them."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=LIVE_WINDOW_SECONDS)
+    live_providers = set(
+        (
+            await db.execute(
+                select(ConnectionProviderRow.provider)
+                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
+                .where(
+                    ConnectionProviderRow.enabled.is_(True),
+                    Connection.user_id == user_id,
+                    Connection.deleted_at.is_(None),
+                    Connection.status != ConnectionStatus.PAUSED,
+                    Connection.last_seen_at.is_not(None),
+                    Connection.last_seen_at >= cutoff,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     rows = (
         (
             await db.execute(
@@ -138,8 +180,7 @@ async def _load_detached_agents(
                 .where(
                     Agent.user_id == user_id,
                     Agent.kind == AgentKind.AI,
-                    Agent.connection_id.is_(None),
-                    Agent.status == AgentStatus.PAUSED,
+                    Agent.status == AgentStatus.ACTIVE,
                     Agent.archived_at.is_(None),
                 )
                 .order_by(Agent.name)
@@ -147,13 +188,29 @@ async def _load_detached_agents(
         )
         .all()
     )
-    allowed = set(PROVIDER_MODELS.get(provider.value, ()))
-    rows_out: list[AgentRow] = []
-    for agent, version in rows:
-        if version is None or version.model not in allowed:
-            continue
-        rows_out.append(AgentRow(agent=agent, version=version))
-    return rows_out
+    return [
+        AgentRow(agent=agent, version=version)
+        for agent, version in rows
+        if agent.provider not in live_providers
+    ]
+
+
+async def _load_connection_providers(
+    db: DbSession, connection_id: int
+) -> dict[str, ConnectionProviderRow]:
+    """Map provider value → its toggle row for this connection (for the UI box)."""
+    rows = (
+        (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == connection_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {row.provider.value: row for row in rows}
 
 
 async def _load_owned_connection(db: DbSession, user: User, connection_id: int) -> Connection:
@@ -242,7 +299,7 @@ async def list_connections(
                 "connection": connection,
                 "display_name": _connection_display_name(connection),
                 "health": health,
-                "agents": await _load_attached_agents(db, connection.id),
+                "agents": await _load_attached_agents(db, connection),
             }
         )
     return templates.TemplateResponse(
@@ -372,12 +429,23 @@ async def connection_detail(
     connection = await _load_owned_connection(db, user, connection_id)
     fresh_key = request.session.pop(f"fresh_connection_key_{connection.id}", None)
     health = await compute_connection_health(db, connection)
-    attached_agents = await _load_attached_agents(db, connection.id)
-    detached_agents = await _load_detached_agents(db, user.id, connection.provider)
-    if fresh_key is not None:
-        setup_message = _setup_message(connection.provider, fresh_key)
-    else:
-        setup_message = None
+    attached_agents = await _load_attached_agents(db, connection)
+    stranded_agents = await _load_stranded_agents(db, user.id)
+    provider_rows = await _load_connection_providers(db, connection.id)
+    # The toggle box lists every provider with its current enabled/detected state.
+    provider_toggles = [
+        {
+            "value": p.value,
+            "label": _provider_label(p),
+            "enabled": (provider_rows[p.value].enabled if p.value in provider_rows else False),
+            "detected": (provider_rows[p.value].detected if p.value in provider_rows else False),
+            "detected_detail": (
+                provider_rows[p.value].detected_detail if p.value in provider_rows else None
+            ),
+        }
+        for p in ConnectionProvider
+    ]
+    setup_message = _setup_message(connection.provider, fresh_key) if fresh_key is not None else None
     return templates.TemplateResponse(
         request,
         "connections/detail.html",
@@ -389,9 +457,12 @@ async def connection_detail(
             "fresh_key": fresh_key,
             "setup_message": setup_message,
             "attached_agents": attached_agents,
-            "detached_agents": detached_agents,
+            "stranded_agents": stranded_agents,
+            "provider_toggles": provider_toggles,
             "provider_label": _provider_label(connection.provider),
             "provider_models": PROVIDER_MODELS.get(connection.provider.value, []),
+            "strand_provider": request.query_params.get("strand_provider"),
+            "strand_count": request.query_params.get("strand_count"),
             "base_url": settings.base_url,
             "agent_count": len(attached_agents),
         },
@@ -413,7 +484,7 @@ async def connection_status_fragment(
             "connection": connection,
             "display_name": _connection_display_name(connection),
             "health": await compute_connection_health(db, connection),
-            "agent_count": len(await _load_attached_agents(db, connection.id)),
+            "agent_count": len(await _load_attached_agents(db, connection)),
         },
     )
 

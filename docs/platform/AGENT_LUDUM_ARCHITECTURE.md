@@ -28,7 +28,9 @@ Everything hangs off one split (see `AGENT_LUDUM_DESIGN.md` §11):
 
 - **The platform** is game‑agnostic. It owns users, **connections, agents**, the
   lobby, the turn loop, the agent API, the spectator viewer, and storage. It
-  never imports a specific game.
+  never imports a specific game. A **connection is one machine** running the
+  connector; **agents are not pinned to a connection** — each turn routes to any
+  live connection that covers the agent's provider.
 - **A game module** is a plugin in `app/games/<name>/` that owns the rules: legal
   moves, scoring, how a turn/round/game resolves, and the game's color theme.
 
@@ -85,13 +87,13 @@ Every external entry point. Split by audience.
 | `web_analysis.py` | 124 | Spectator analysis pages: season overview, round drill-in, and legacy analysis redirects. |
 | `web_player.py` | 461 | Setup guide rendering, runner downloads, join flow, my games, player dashboard, strategy updates, and leave flow. |
 | `web_support.py` | 136 | Shared web helpers for match URLs, legacy redirects, player counts, game themes, upcoming cards, and standings. |
-| `agent_api.py` | 710 | The agent‑facing HTTP API: poll for your turn, submit talk/action, read history, chat, opponent stats, standings. Auth by per‑**connection** key (`X-Connection-Key`); each call resolves the connection's specific agent‑player by `(agent_id, match_id)`. |
-| `connections_*.py` / `agents_*.py` | ~545 | The split self‑serve panel (replacing `bots_web.py`): `connections_setup`/`connections_credentials`/`connections_lifecycle` drive **`/me/connections`** (create a login, reissue/revoke its key, pause/resume, delete → **detaches** its agents); `agents_setup`/`agents_lifecycle`/`agents_status` drive **`/me/agents`** + **`/me/agents/new`** (create/name/model/strategy, per‑agent pause/delete, onboarding+health fragments). Preset **Bots** are auto‑provisioned as connectionless agents. |
+| `agent_api.py` | 710 | The agent‑facing HTTP API: poll for your turn, submit talk/action, read history, chat, opponent stats, standings. Auth by per‑**connection** key (`X-Connection-Key`); each call resolves the playable agent‑player by `(agent_id, match_id)` among the agents the connection is **eligible** to serve (same user + the agent's stored `provider` enabled on this connection + the match's sticky pin), not by a fixed `connection_id` on the agent. |
+| `connections_*.py` / `agents_*.py` | ~545 | The split self‑serve panel (replacing `bots_web.py`): `connections_setup`/`connections_credentials`/`connections_lifecycle` drive **`/me/connections`** (create a **machine** — nickname only, no provider choice — reissue/revoke its key, pause/resume, toggle per‑provider via `connection_providers`, delete → stops that machine's runner but leaves agents ACTIVE; only agents now covered by no live connection show a "no live connection" warning); `agents_setup`/`agents_lifecycle`/`agents_status` drive **`/me/agents`** + **`/me/agents/new`** (create/name/model/strategy with a stored `provider`, per‑agent pause/delete, onboarding+health fragments). Preset **Bots** are auto‑provisioned as connectionless agents. |
 | `admin_web.py` | ~150 | **Platform admin** HTML: dashboard, handles, incidents. Guarded by `require_platform_admin`. |
 | `game_admin_web.py` | ~350 | **Game admin** HTML: create/view/start/cancel/delete matches, add bots, strategy prompts. Prefix `/games/{game}/admin`. Guarded by `require_game_admin`. |
 | `game_admin_api.py` | ~200 | **Game admin** JSON: create/cancel matches, CSV/JSON export. Prefix `/api/game-admin/{game}`. Guarded by `require_game_admin`. |
 | `spectator_api.py` | 183 | Public spectator JSON. **Never** returns strategy prompts. |
-| `agent_next_turn.py` | 200 | The game‑agnostic "what do I do next" endpoint — the heart of paste‑once play. **Connection‑scoped**: fans out across all the connection's active agents, keys candidate turns by `(agent_id, match_id)`, and returns the chosen agent's id/name/model/version plus an `agent_turn_token` that binds the later submit to one (agent, match). |
+| `agent_next_turn.py` | 200 | The game‑agnostic "what do I do next" endpoint — the heart of paste‑once play. **Provider‑routed**: fans out across the agents this polling connection is eligible to serve (same user + agent's stored `provider` enabled on the connection + the match's sticky‑pin rule), claims the match's pin with one atomic conditional UPDATE so two polls can't double‑serve, keys candidate turns by `(agent_id, match_id)`, and returns the chosen agent's id/name/model/version/**provider** plus an `agent_turn_token` that binds the later submit to one (agent, match). Eligibility + the atomic pin claim live in the DB‑free `app/engine/turn_routing.py`; final ordering stays in `next_turn.select_next_turn`. `report_pid` also lives here and accepts optional `detected_providers` to update `connection_providers.detected`. |
 | `sse.py` | — | Server‑Sent Events streams the live viewer subscribes to (bridges `broadcast`). |
 | `auth.py` | 87 | Google OAuth sign‑in / sign‑out. |
 
@@ -107,10 +109,10 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 | `opponent_stats.py` | 183 | Per‑opponent, action‑derived stats and a bounded short‑list. |
 | `turn_summary.py` | 173 | Builds the bounded `TurnSummary` the agent's `get_turn` returns. |
 | `connection_activity.py` | 364 | Connection onboarding + health across its agents: first‑connect / first‑move detection, key cutover on graceful reissue, the live heartbeat badge. (Renamed from `bot_activity.py`; auth's single choke point calls its `mark_seen` on the `Connection`.) |
-| `connection_health.py` | ~120 (planned, slice 4) | Live / stalled / ready computed at the **connection** level across all its agents — first‑class logic, not a single‑agent renamed helper. |
+| `connection_health.py` | 224 | Live / stalled / ready computed at the **connection** level. Keys off the connection's own liveness (`last_seen_at`, `runner_pid`) and the matches currently pinned to it via `players.served_by_connection_id` — **not** agent attachment. Owns the `ConnectionHealth` enum, badge map, and the `LIVE_WINDOW_SECONDS` staleness threshold that the sticky‑pin "dead connection" failover check reuses. |
 | `arena.py` | 222 | Managed Practice Arena and Auto‑Match creation: idempotent poller helpers, shared Sim seeding, and start timing. |
 | `resolver.py` | 200 | Turn resolution, round‑winner awarding, game finalization. Lives in the platform's `app/engine/` dir but encodes PD scoring — the PD‑specific scoring detail is documented in `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md`. |
-| `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `sim_presets.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn support; the 8 preset Sim profiles and shared default-name allocator. |
+| `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `turn_routing.py`, `sim_presets.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn ordering (`select_next_turn`, unchanged); DB‑free turn‑routing eligibility + sticky‑pin claim helper; the 8 preset Sim profiles and shared default-name allocator. |
 
 ### 3. Bots engine — `app/engine/sims/` (~1,790 lines)
 
@@ -143,37 +145,59 @@ The Hoard‑Hurt‑Help PD module → see `../games/hoard-hurt-help/HOARD_HURT_H
 SQLAlchemy ORM. The spine of the whole system.
 
 ```
-User ──< Connection ──< Agent ──< AgentVersion
-                          │  │
-                          │  └──< Player >── Match
-                          │           │  └──> AgentVersion   (the version it ran)
-                          │           └──< Turn ──< TurnSubmission   (the "act" phase)
-                          │                    └──< TurnMessage       (the "talk" phase)
-                          (a Bot is an Agent with kind=bot and no Connection)
+User ──< Connection ──< ConnectionProviders   (per‑provider toggle + detection)
+  │
+  └──< Agent ──< AgentVersion                  (agent stores its own provider)
+        │
+        └──< Player >── Match
+                 │  └──> AgentVersion           (the version it ran)
+                 │  └──> Connection             (served_by_connection_id: the sticky pin)
+                 └──< Turn ──< TurnSubmission    (the "act" phase)
+                          └──< TurnMessage        (the "talk" phase)
+   (a Bot is an Agent with kind=bot; agents are no longer pinned to a Connection —
+    turns route to any live connection covering the agent's provider, sticky per match)
 ```
 
 The single `Bot` row was split into a **login** and a **competitor** (feature
 015, `DESIGN.md` §12):
 
-- **`connection.py`** (87) — a user's AI **login**: provider + the one stable
-  `sk_conn_` key (indexed hash; plaintext shown once) + runner/health fields
-  (`first_connected_at`, `last_seen_at`, `runner_pid`, `max_concurrent_games`,
-  `stall_threshold`, `pending`/`active`/`paused` status). Game‑agnostic; carries
-  no model.
-- **`agent.py`** (107) — a per‑game **competitor identity**: `name`, `game`,
-  `kind` (`ai`/`bot`), a nullable `connection_id` (NULL ⇔ a Bot, or an AI agent
-  detached when its connection was deleted), `current_version_id`, and the
-  `bot_*` config when `kind=bot`. A check constraint enforces "a bot never has a
-  connection."
+- **`connection.py`** (87) — a user's **machine** running the connector: the one
+  stable `sk_conn_` key (indexed hash; plaintext shown once) + runner/health
+  fields (`first_connected_at`, `last_seen_at`, `runner_pid`,
+  `max_concurrent_games`, `stall_threshold`, `pending`/`active`/`paused` status).
+  Game‑agnostic; carries no model. `provider` is **retained but nullable/legacy**:
+  new machine connections leave it NULL; hermes/openclaw connections keep it set
+  (single‑provider, out of scope for the machine model). Per‑provider toggles
+  live in the child table below, not on this column.
+- **`connection_providers.py`** — per‑connection provider toggles + connector
+  detection: one row per (`connection_id`, `provider`) with `enabled` (the user's
+  toggle), `detected` / `detected_detail` (what the connector reported finding —
+  informational; a user may enable a provider not yet detected), and
+  `updated_at`. A table (not a JSON column) so it joins in the routing
+  eligibility query.
+- **`agent.py`** (107) — a per‑game **competitor identity** belonging to a user:
+  `name`, `game`, `kind` (`ai`/`bot`), a **stored `provider`** (enum, nullable
+  with a CHECK constraint: NOT NULL for a non-archived `kind=ai` agent, NULL for
+  `kind=bot` since bots never route by provider; archived AI agents may be NULL
+  — mirrors the old "a bot never has a connection" check) — set from the chosen model's dropdown group at create time, and the
+  value routing/gameplay read directly rather than re‑deriving from the model;
+  required for AI agents because hermes/openclaw have empty model allowlists, so
+  provider can't be derived from a model — `current_version_id`, and the `bot_*`
+  config when `kind=bot`. **No `connection_id`** — agents are not pinned to a
+  connection; turns route by user + provider coverage (see `turn_routing.py`).
 - **`agent_version.py`** (38) — the versioned **(model + strategy)** an agent
   has run: `version_no`, `model`, `strategy_text`, `frozen_at`. Append‑only and
   retained forever once frozen (it first plays a rated match), so a completed
   match always resolves the exact competitor it ran. Replaces the old
   `strategy_prompts` table.
-- **`player.py`** (now has `agent_id` FK + `agent_version_id` FK + `seat_name`) —
-  one participation per match, pinned to the exact version that played.
-  `seat_name` (`"{handle}/{agent.name}"`, uniquified per match) is the only
-  public in‑match label; the integer `agent_id` is never exposed.
+- **`player.py`** (now has `agent_id` FK + `agent_version_id` FK + `seat_name` +
+  sticky‑pin columns) — one participation per match, pinned to the exact version
+  that played. `served_by_connection_id` (nullable FK → connections) +
+  `served_pinned_at` record the sticky pin: which live connection is serving this
+  (agent, match). Set on first serve, re‑set on failover when the pinned
+  connection goes dead. `seat_name` (`"{handle}/{agent.name}"`, uniquified per
+  match) is the only public in‑match label; the integer `agent_id` is never
+  exposed.
 - **`turn.py`** (88) — `Turn` (two‑phase: `phase` talk→act), plus `TurnSubmission`
   (actions) and `TurnMessage` (talk), each unique per (turn, player).
 - **`match.py`**, **`user.py`**, **`request_incident.py`** — one row per match /
@@ -185,7 +209,15 @@ Schema changes ship as Alembic migrations in `migrations/versions/`. Migration
 `strategy_prompts`, rebuilt `players`, created `connections` / `agents` /
 `agent_versions`) — a single destructive reshape, pre‑launch, **no backfill**;
 its `downgrade()` rebuilds the old shape so the up/down round‑trip test passes.
-Migrations apply automatically on startup.
+The **unified‑connections** migration then detaches agents from connections:
+it creates `connection_providers` (one enabled row per existing connection's
+legacy provider), adds NOT‑NULL `agents.provider` (backfilled from the old
+connection's provider — or, for already‑detached agents, reverse‑mapped from
+the model via `PROVIDER_MODELS`; it fails loudly on any agent it can't resolve),
+adds the `players` sticky‑pin columns (backfilled so active matches start
+already‑pinned), and drops `agents.connection_id`. `connections.provider` is
+**kept** (now nullable) — its drop is deferred to the follow‑up adapter run
+(keep‑then‑drop). Migrations apply automatically on startup.
 
 ### 6. Wire contracts — `app/schemas/` (~440 lines)
 
@@ -232,7 +264,10 @@ Hoard‑Hurt‑Help's rules.
 
 1. The runner polls `agent_next_turn` / `agent_api` with its `sk_conn_`
    **connection** key. The server resolves the key to a `Connection`, then fans
-   out across that connection's active agents.
+   out across the agents this connection is **eligible** to serve — the user's
+   agents whose stored `provider` is enabled on this connection, subject to the
+   match's sticky pin (`turn_routing.py`). It claims the pin atomically so two
+   live connections covering the same provider never double‑serve one turn.
 2. Server says "waiting" or hands back the **turn context** (rules, scoreboard,
    bounded history, deadline, a turn‑token) for the most urgent open turn,
    resolved by `(agent_id, match_id)`. It names **which agent** the turn is for
@@ -275,6 +310,9 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change an agent's model/strategy | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
 | Touch the turn lifecycle | `app/engine/scheduler.py`. |
 | Change what an agent sees/submits | `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
+| Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (eligibility + sticky‑pin claim) wired into `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. Pin columns live on `app/models/player.py`. |
+| Change per‑connection provider toggles / detection | `app/models/connection_providers.py` + the toggle endpoint in `app/routes/connections_setup.py`; detection flows in via `report_pid` in `app/routes/agent_next_turn.py`. |
+| Change connection health / liveness | `app/engine/connection_health.py` (reads `last_seen_at`/`runner_pid` + `players.served_by_connection_id`, not agent attachment). |
 | Change a human page | Start in the split `app/routes/web_*.py` module for that page area (or `admin_web.py` for platform admin, `game_admin_web.py` for game admin, `connections_*.py` / `agents_*.py` panels) + `app/templates/`. |
 | Change the live viewer | `templates/fragments/` + `app/routes/sse.py` + `app/engine/board_signals.py`. |
 | Alter the schema | new migration in `migrations/versions/` + the model in `app/models/`. |

@@ -10,18 +10,30 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from starlette.responses import Response
 
-from app.config import PROVIDER_MODELS
+from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.connection import Connection
+from app.models.connection import ConnectionProvider
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
-from app.routes.agents_setup import _load_owned_connection
 from app.templating import templates
 
 router = APIRouter()
+
+
+def _sync_agent_provider(agent: Agent, model: str) -> None:
+    """Keep ``agent.provider`` in sync with its model on every model change.
+
+    claude/gemini/openai map to a provider uniquely; a freeform model
+    (hermes/openclaw) maps to nothing and leaves the stored provider as-is.
+    Without this, editing an agent to a cross-provider model would leave the
+    stored provider stale and route the agent to the wrong provider.
+    """
+    derived = provider_for_model(model)
+    if derived is not None:
+        agent.provider = ConnectionProvider(derived)
 
 
 async def _load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
@@ -136,6 +148,8 @@ async def _apply_version_edit(
     current = await _load_current_version(db, agent)
     if await _version_has_active_match(db, current.id):
         raise HTTPException(status_code=409, detail="That version is mid-match and locked.")
+    if model is not None:
+        _sync_agent_provider(agent, model)
     current_has_rated_history = await _version_has_rated_history(db, current.id)
     if not current_has_rated_history and current.frozen_at is None:
         if model is not None:
@@ -200,8 +214,9 @@ async def resume_agent(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
     agent = await _load_owned_agent(db, user, agent_id)
-    if agent.connection_id is None:
-        raise HTTPException(status_code=409, detail="Attach a connection before resuming.")
+    # Agents are no longer attached to a connection — resume just makes it
+    # ACTIVE. Whether it can actually play depends on provider coverage, shown
+    # as the "no live connection runs <provider>" warning, not a hard block.
     agent.status = AgentStatus.ACTIVE
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
@@ -241,16 +256,11 @@ async def set_model(
 ) -> RedirectResponse:
     agent = await _load_owned_agent(db, user, agent_id)
     current = await _load_current_version(db, agent)
-    connection = None
-    if agent.connection_id is not None:
-        connection = await _load_owned_connection(db, user, agent.connection_id)
     clean_model = model.strip()
     if not clean_model:
         raise HTTPException(status_code=400, detail="Model is required.")
-    if connection is not None:
-        allowed = PROVIDER_MODELS.get(connection.provider.value, [])
-        if allowed and clean_model not in allowed:
-            raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
+    # The model→provider derivation (_apply_version_edit) sets the agent's
+    # provider from the chosen model; no connection-based allowlist check.
     current_model = current.model
     if clean_model == current_model:
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
@@ -304,10 +314,10 @@ async def edit_agent_version_page(
     ).scalar_one_or_none()
     if version is None:
         raise HTTPException(status_code=400, detail="Agent has no current version.")
-    connection: Connection | None = None
-    if agent.connection_id is not None:
-        connection = await _load_owned_connection(db, user, agent.connection_id)
-    provider_models = PROVIDER_MODELS.get(connection.provider.value, []) if connection else []
+    # Model choices come from the agent's stored provider (not a connection).
+    provider_models = (
+        PROVIDER_MODELS.get(agent.provider.value, []) if agent.provider else []
+    )
     max_version_no = await db.scalar(
         select(func.max(AgentVersion.version_no)).where(AgentVersion.agent_id == agent.id)
     )
@@ -337,16 +347,9 @@ async def save_version(
     strategy_text: Annotated[str, Form()],
 ) -> RedirectResponse:
     agent = await _load_owned_agent(db, user, agent_id)
-    connection: Connection | None = None
-    if agent.connection_id is not None:
-        connection = await _load_owned_connection(db, user, agent.connection_id)
     clean_model = model.strip()
     if not clean_model:
         raise HTTPException(status_code=400, detail="Model is required.")
-    if connection is not None:
-        allowed = PROVIDER_MODELS.get(connection.provider.value, [])
-        if allowed and clean_model not in allowed:
-            raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
     clean_strategy = strategy_text.strip()
     if not clean_strategy:
         raise HTTPException(status_code=400, detail="Strategy text is required.")
@@ -379,5 +382,7 @@ async def restore_version(
     if version.id == agent.current_version_id:
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
     agent.current_version_id = version.id
+    # Restoring an older version may change the model → re-derive the provider.
+    _sync_agent_provider(agent, version.model)
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)

@@ -234,6 +234,10 @@ async def test_ai_agent_creation_is_unaffected(client, reset_db) -> None:
             status=ConnectionStatus.ACTIVE,
         )
         db.add(conn)
+        await db.flush()
+        from app.models.connection_provider import ConnectionProvider as _CPRow
+
+        db.add(_CPRow(connection_id=conn.id, provider=ConnectionProvider.CLAUDE, enabled=True, detected=False))
         await db.commit()
         uid, cid = u.id, conn.id
 

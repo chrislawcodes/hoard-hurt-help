@@ -6,11 +6,12 @@ import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
@@ -102,7 +103,16 @@ async def _is_defaulting(
 async def compute_connection_health(
     db: AsyncSession, connection: Connection, *, now: datetime | None = None
 ) -> ConnectionHealthStatus:
-    """Resolve connection health from the connection and all of its agents."""
+    """Resolve health from THIS connection's liveness and the matches pinned to it.
+
+    Agents are no longer attached to a connection, so health keys off the
+    connection's own liveness (``last_seen_at``) plus the matches it is currently
+    serving via ``players.served_by_connection_id`` — not agent attachment. An
+    idle-but-live machine (running, providers on, nothing pinned yet) is READY,
+    which is correct: it can take work the moment a turn needs it. ``agent_count``
+    reports how many of the user's active AI agents this machine *covers* (their
+    provider is enabled here).
+    """
     now = now or datetime.now(timezone.utc)
     last_seen = connection.last_seen_at
     warm = (
@@ -143,36 +153,46 @@ async def compute_connection_health(
     if connection.status == ConnectionStatus.PAUSED:
         return build(ConnectionHealth.PAUSED)
 
-    agent_rows = (
-        await db.execute(
-            select(Agent.id)
-            .where(
-                Agent.connection_id == connection.id,
-                Agent.kind == AgentKind.AI,
-                Agent.status == AgentStatus.ACTIVE,
-                Agent.archived_at.is_(None),
+    # Agents this machine COVERS: the user's active AI agents whose provider is
+    # enabled on this connection. Drives the badge's agent_count only.
+    enabled_providers = (
+        (
+            await db.execute(
+                select(ConnectionProviderRow.provider).where(
+                    ConnectionProviderRow.connection_id == connection.id,
+                    ConnectionProviderRow.enabled.is_(True),
+                )
             )
         )
-    ).all()
-    active_agent_ids = [agent_id for (agent_id,) in agent_rows]
-    if not active_agent_ids:
-        if warm:
-            return build(ConnectionHealth.READY)
-        return build(ConnectionHealth.DISCONNECTED, needs_reconnect=True)
+        .scalars()
+        .all()
+    )
+    covered_count = 0
+    if enabled_providers:
+        covered_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(Agent)
+                .where(
+                    Agent.user_id == connection.user_id,
+                    Agent.kind == AgentKind.AI,
+                    Agent.status == AgentStatus.ACTIVE,
+                    Agent.archived_at.is_(None),
+                    Agent.provider.in_(enabled_providers),
+                )
+            )
+        ).scalar() or 0
 
+    # Matches this connection is currently SERVING (the sticky pin).
     player_rows = (
         (
             await db.execute(
                 select(Match, Player)
                 .join(Player, Player.match_id == Match.id)
-                .join(Agent, Agent.id == Player.agent_id)
                 .where(
                     Match.state == GameState.ACTIVE,
                     Player.left_at.is_(None),
-                    Agent.connection_id == connection.id,
-                    Agent.kind == AgentKind.AI,
-                    Agent.status == AgentStatus.ACTIVE,
-                    Agent.archived_at.is_(None),
+                    Player.served_by_connection_id == connection.id,
                 )
                 .order_by(Match.id, Player.id)
             )
@@ -180,11 +200,12 @@ async def compute_connection_health(
         .all()
     )
     if not player_rows:
+        # Live but idle (READY) or not seen recently (DISCONNECTED).
         if warm:
-            return build(ConnectionHealth.READY, agent_count=len(active_agent_ids))
+            return build(ConnectionHealth.READY, agent_count=covered_count)
         return build(
             ConnectionHealth.DISCONNECTED,
-            agent_count=len(active_agent_ids),
+            agent_count=covered_count,
             needs_reconnect=True,
         )
 
@@ -211,7 +232,7 @@ async def compute_connection_health(
         return build(
             ConnectionHealth.STALLED,
             game=stalled_match,
-            agent_count=len(active_agent_ids),
+            agent_count=covered_count,
             needs_reconnect=True,
         )
 
@@ -219,5 +240,5 @@ async def compute_connection_health(
     return build(
         ConnectionHealth.LIVE,
         game=live_match,
-        agent_count=len(active_agent_ids),
+        agent_count=covered_count,
     )

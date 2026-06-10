@@ -225,7 +225,7 @@ async def test_join_with_disconnected_provider_is_rejected(client, reset_db) -> 
         cookies=_signed_in_cookies(user.id),
     )
     assert r.status_code == 409, r.text
-    assert "active connection for that provider" in r.text
+    assert "No connection runs openai" in r.text
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,7 @@ from app.models import Base
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
@@ -97,6 +98,15 @@ async def make_connection(
     )
     db.add(connection)
     await db.flush()
+    db.add(
+        ConnectionProviderRow(
+            connection_id=connection.id,
+            provider=provider,
+            enabled=True,
+            detected=False,
+        )
+    )
+    await db.flush()
     return connection, plain_key
 
 
@@ -108,9 +118,15 @@ async def make_agent(
     name: str | None = None,
     kind: AgentKind = AgentKind.AI,
 ) -> Agent:
+    provider = (
+        connection.provider
+        if (kind == AgentKind.AI and connection is not None)
+        else (ConnectionProvider.CLAUDE if kind == AgentKind.AI else None)
+    )
     agent = Agent(
         user_id=user.id,
         connection_id=None if connection is None else connection.id,
+        provider=provider,
         kind=kind,
         name=name or f"agent-{user.id}",
     )
@@ -433,3 +449,133 @@ async def test_urgency_ordering_prefers_the_earliest_deadline(
     assert body["model"] == early_version.model
     assert body["version_no"] == early_version.version_no
     assert body["seat_name"] == early_player.seat_name
+
+
+@pytest.mark.asyncio
+async def test_next_turn_payload_includes_provider(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        match, _turn = await _create_match_with_turn(db, "M_PROV", deadline_seconds=60)
+        await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        await db.commit()
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    assert r.json()["provider"] == "claude"
+
+
+@pytest.mark.asyncio
+async def test_report_pid_with_detected_providers_sets_detected_only(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.post(
+        "/api/agent/report-pid",
+        json={"pid": 4321, "detected_providers": ["claude", "openai"]},
+        headers={"X-Connection-Key": key},
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as db:
+        rows = (
+            (
+                await db.execute(
+                    select(ConnectionProviderRow).where(
+                        ConnectionProviderRow.connection_id == conn_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_provider = {row.provider.value: row for row in rows}
+        # claude was the legacy enabled row: detected flips True, enabled untouched
+        assert by_provider["claude"].detected is True
+        assert by_provider["claude"].enabled is True
+        # openai newly detected: detected True, enabled stays False (toggle is sacred)
+        assert by_provider["openai"].detected is True
+        assert by_provider["openai"].enabled is False
+        conn = (
+            await db.execute(select(Connection).where(Connection.id == conn_id))
+        ).scalar_one()
+        assert conn.runner_pid == 4321
+
+
+@pytest.mark.asyncio
+async def test_report_pid_without_detected_providers_still_works(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """An OLD connector posts only {pid: ...}; it must not error (acceptance #7)."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.post(
+        "/api/agent/report-pid", json={"pid": 99}, headers={"X-Connection-Key": key}
+    )
+    assert r.status_code == 204, r.text
+    async with session_factory() as db:
+        conn = (
+            await db.execute(select(Connection).where(Connection.id == conn_id))
+        ).scalar_one()
+        assert conn.runner_pid == 99
+
+
+@pytest.mark.asyncio
+async def test_failover_live_connection_serves_match_pinned_to_dead_connection(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with session_factory() as db:
+        user = await make_user(db)
+        # Dead connection: stale last_seen, holds the pin.
+        dead, _dead_key = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        dead.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=600)
+        # Live connection covering the same provider.
+        live, live_key = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        live.last_seen_at = datetime.now(timezone.utc)
+        match, _turn = await _create_match_with_turn(db, "M_FAIL", deadline_seconds=60)
+        _agent, _version, player = await _seat_agent(
+            db,
+            user=user,
+            connection=dead,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        # Pin the match to the now-dead connection.
+        player.served_by_connection_id = dead.id
+        player.served_pinned_at = datetime.now(timezone.utc) - timedelta(seconds=600)
+        await db.commit()
+        live_id = live.id
+        player_id = player.id
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": live_key})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "your_turn"
+    # The pin moved to the live connection (failover).
+    async with session_factory() as db:
+        moved = (
+            await db.execute(select(Player).where(Player.id == player_id))
+        ).scalar_one()
+        assert moved.served_by_connection_id == live_id

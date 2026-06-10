@@ -19,9 +19,12 @@ class ConnectionSetup(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False, index=True
     )
+    # DB column nullable (migration 0026) for future machine-style setups; the
+    # Python type stays non-None until slice 5 creates NULL drafts and updates
+    # the resume/label paths together.
     provider: Mapped[ConnectionProvider] = mapped_column(
         FlexibleEnumType(ConnectionProvider, length=16),
-        nullable=False,
+        nullable=True,
     )
     nickname: Mapped[str | None] = mapped_column(String(60), nullable=True)
     key_lookup: Mapped[str] = mapped_column(

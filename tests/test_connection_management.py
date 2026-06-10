@@ -120,6 +120,10 @@ async def _make_connection(
     )
     db.add(connection)
     await db.flush()
+    from app.models.connection_provider import ConnectionProvider as _CPRow
+
+    db.add(_CPRow(connection_id=connection.id, provider=provider, enabled=True, detected=False))
+    await db.flush()
     return connection, plain_key
 
 
@@ -153,9 +157,15 @@ async def _make_agent(
     model: str,
     kind: AgentKind = AgentKind.AI,
 ) -> tuple[Agent, AgentVersion | None]:
+    agent_provider = (
+        (connection.provider if connection is not None else ConnectionProvider.CLAUDE)
+        if kind == AgentKind.AI
+        else None
+    )
     agent = Agent(
         user_id=user.id,
         connection_id=None if connection is None else connection.id,
+        provider=agent_provider,
         kind=kind,
         name=name,
         game="hoard-hurt-help",
@@ -507,9 +517,12 @@ async def test_rotate_overlap_keeps_old_key_until_new_key_used(
 
 
 @pytest.mark.asyncio
-async def test_delete_detaches_agents_and_reattachs_same_provider_connection(
+async def test_delete_stops_runner_but_leaves_agents_active(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
+    """Coverage-aware delete: the machine's runner is stopped, but agents stay
+    ACTIVE — they are no longer pinned to a connection, so they keep playing on
+    any other live connection covering their provider (or wait)."""
     async with session_factory() as db:
         user = await _make_user(db)
         connection, old_key = await _make_connection(
@@ -559,29 +572,82 @@ async def test_delete_detaches_agents_and_reattachs_same_provider_connection(
         ).scalar_one()
         assert stored.deleted_at is not None
         assert stored.status is ConnectionStatus.PAUSED
+        # The agent is NOT paused — it survives, ACTIVE, keeping its provider.
         stored_agent = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
-        assert stored_agent.connection_id is None
-        assert stored_agent.status is AgentStatus.PAUSED
+        assert stored_agent.status is AgentStatus.ACTIVE
+        assert stored_agent.provider is ConnectionProvider.CLAUDE
         stored_player = (
             await db.execute(select(Player).where(Player.id == player.id))
         ).scalar_one()
         assert stored_player.id == player.id
 
-        replacement_connection, _ = await _make_connection(
-            db, user, provider=ConnectionProvider.CLAUDE
-        )
-        await db.commit()
 
-    reattach_resp = await client.post(
-        f"/me/connections/{replacement_connection.id}/reattach/{agent.id}",
-        cookies=_signed_in_cookies(user.id),
-    )
-    assert reattach_resp.status_code == 303
+@pytest.mark.asyncio
+async def test_toggle_provider_enables_and_strand_guard(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 
     async with session_factory() as db:
-        stored_agent = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
-        assert stored_agent.connection_id == replacement_connection.id
-        assert stored_agent.status is AgentStatus.ACTIVE
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        # An active AI agent depending on claude (the only covering connection).
+        await _make_agent(db, user, connection=connection, name="Solo", model="claude-sonnet-4-6")
+        await db.commit()
+        conn_id = connection.id
+
+    # Enable openai (was off) — succeeds, detected stays informational.
+    r = await client.post(
+        f"/me/connections/{conn_id}/providers/openai?enabled=true",
+        cookies=_signed_in_cookies(user.id),
+    )
+    assert r.status_code == 303
+    async with session_factory() as db:
+        row = (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == conn_id,
+                    ConnectionProviderRow.provider == ConnectionProvider.OPENAI,
+                )
+            )
+        ).scalar_one()
+        assert row.enabled is True
+
+    # Disabling claude would strand the Solo agent (no other live connection) →
+    # without confirm, it redirects to the warning and does NOT disable.
+    r = await client.post(
+        f"/me/connections/{conn_id}/providers/claude?enabled=false",
+        cookies=_signed_in_cookies(user.id),
+    )
+    assert r.status_code == 303
+    assert "strand_provider=claude" in r.headers["location"]
+    async with session_factory() as db:
+        claude_row = (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == conn_id,
+                    ConnectionProviderRow.provider == ConnectionProvider.CLAUDE,
+                )
+            )
+        ).scalar_one()
+        assert claude_row.enabled is True  # still enabled — strand guard held
+
+    # With confirm=true it goes through.
+    r = await client.post(
+        f"/me/connections/{conn_id}/providers/claude?enabled=false&confirm=true",
+        cookies=_signed_in_cookies(user.id),
+    )
+    assert r.status_code == 303
+    async with session_factory() as db:
+        claude_row = (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == conn_id,
+                    ConnectionProviderRow.provider == ConnectionProvider.CLAUDE,
+                )
+            )
+        ).scalar_one()
+        assert claude_row.enabled is False
 
 
 @pytest.mark.asyncio
@@ -699,6 +765,12 @@ async def test_connection_health_across_multiple_agents_tracks_the_active_game(
             version=cold_version,
             seat_name=f"{user.handle}/Cold",
         )
+        # Health now tracks the matches this connection is SERVING (the sticky
+        # pin), not agent attachment — pin both players to this connection.
+        warm_player.served_by_connection_id = connection.id
+        warm_player.served_pinned_at = NOW
+        cold_player.served_by_connection_id = connection.id
+        cold_player.served_pinned_at = NOW
         connection.last_seen_at = NOW - timedelta(seconds=20)
         for turn_no in (1, 2, 3):
             await _make_turn(db, match=cold_match, player=cold_player, turn_no=turn_no, defaulted=True)

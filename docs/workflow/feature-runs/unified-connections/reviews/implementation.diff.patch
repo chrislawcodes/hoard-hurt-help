@@ -1,0 +1,38 @@
+diff --git a/app/routes/connections_setup.py b/app/routes/connections_setup.py
+index 14d13fb..6777e87 100644
+--- a/app/routes/connections_setup.py
++++ b/app/routes/connections_setup.py
+@@ -75,6 +75,10 @@ def _provider_label(provider: ConnectionProvider) -> str:
+ 
+ 
+ def _connection_display_name(connection: Connection) -> str:
++    # `connection.provider` is the retained legacy "connection type" (see §1 of
++    # the unified-connections spec) — used for the display name fallback, setup
++    # script selection, and hermes/openclaw identity. These provider reads are
++    # intentional; routing/coverage use connection_providers, not this column.
+     return connection.nickname or _provider_label(connection.provider)
+ 
+ 
+diff --git a/app/templates/connections/list.html b/app/templates/connections/list.html
+index cc447b1..4efd807 100644
+--- a/app/templates/connections/list.html
++++ b/app/templates/connections/list.html
+@@ -3,15 +3,15 @@
+ {% block content %}
+ <div class="page-head">
+     <h1>Connections</h1>
+-    <p class="sub">Choose the setup path that matches your provider, then reuse that login across every agent you build.</p>
++    <p class="sub">A connection is one computer running the connector. Add a machine here, then turn the AI providers it should run on or off from its page. Your agents run on whichever live connection covers their provider.</p>
+ </div>
+ 
+ <form method="post" action="/me/connections" class="card form">
+     <label>
+         Nickname
+-        <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="Defaults to the provider name">
++        <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="e.g. Home Mac">
+     </label>
+-    <p class="hint" style="margin-top:0;">Pick one of the two groups below, then choose the provider you want.</p>
++    <p class="hint" style="margin-top:0;">Pick the first provider this machine should run — you can turn on more on its page afterward.</p>
+     <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
+         {% for group in provider_groups %}
+         <section class="card" style="margin:0;">

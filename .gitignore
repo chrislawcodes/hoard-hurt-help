@@ -73,3 +73,8 @@ alembic/versions/__pycache__/
 docs/workflow/feature-runs/*/.*.lock
 # Feature Factory shared review-attempts log (auto-generated, not per-feature)
 docs/workflow/operations/review-attempts.jsonl
+
+# Feature Factory review debug intermediates (canonical record is the .review.md)
+feature-runs/**/reviews/*.stderr.txt
+feature-runs/**/reviews/*.stdout.txt
+feature-runs/**/reviews/*.review.md.raw.txt

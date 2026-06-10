@@ -432,24 +432,35 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     # match yet. Disappears naturally once they're in a game.
     show_onboarding_banner = False
     if user is not None:
-        user_connections = (
-            await db.execute(
-                select(Connection).distinct()
-                .join(Agent, Agent.connection_id == Connection.id)
+        # Agents are no longer attached to a connection: the user has a "warm
+        # agent" when they own an AI agent and have a live/ready connection to
+        # serve it. compute_bot_health already reflects provider coverage.
+        owns_ai_agent = bool(
+            await db.scalar(
+                select(func.count())
+                .select_from(Agent)
                 .where(
                     Agent.user_id == user.id,
                     Agent.archived_at.is_(None),
                     Agent.kind == AgentKind.AI,
+                )
+            )
+        )
+        user_connections = (
+            await db.execute(
+                select(Connection).where(
+                    Connection.user_id == user.id,
                     Connection.deleted_at.is_(None),
                 )
             )
         ).scalars().all()
         has_warm_agent = False
-        for connection in user_connections:
-            health = await compute_bot_health(db, connection)
-            if health.state.value in ("live", "ready"):
-                has_warm_agent = True
-                break
+        if owns_ai_agent:
+            for connection in user_connections:
+                health = await compute_bot_health(db, connection)
+                if health.state.value in ("live", "ready"):
+                    has_warm_agent = True
+                    break
         if has_warm_agent:
             active_entry_count = await db.scalar(
                 select(func.count()).select_from(Player)

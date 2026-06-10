@@ -96,3 +96,21 @@ def test_first_turn_folds_framing_for_codex_gemini_not_claude(runner):
     )
     assert "FRAMING" in captured["prompt"] and "BODY" in captured["prompt"]
     assert sess.token is not None  # gemini assigns its own session UUID
+
+
+def test_new_payload_provider_field_is_preferred(runner):
+    # The server's explicit per-turn `provider` field wins over model-prefix
+    # guessing — the connector no longer has to infer the provider.
+    turn = {"provider": "gemini", "model": "gemini-3.1-pro-preview"}
+    assert runner._resolve(turn, _args()) == ("gemini", "gemini-3.1-pro-preview")
+
+
+def test_old_payload_without_provider_field_still_resolves(runner):
+    # An old server payload (no `provider` field) still works via model prefix.
+    turn = {"model": "gpt-5.4-mini"}
+    assert runner._resolve(turn, _args()) == ("openai", "gpt-5.4-mini")
+
+
+def test_detect_providers_uses_cli_presence(runner, monkeypatch):
+    monkeypatch.setattr(runner.shutil, "which", lambda cli: cli in {"claude", "gemini"})
+    assert set(runner._detect_providers()) == {"claude", "gemini"}

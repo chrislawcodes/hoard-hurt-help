@@ -46,29 +46,51 @@
             <p class="empty">No agents are attached yet.</p>
         {% endif %}
     </div>
+    {% if stranded_agents %}
     <div style="margin-top:1.5rem;">
-        <h3 style="margin-top:0;">Detached agents you can reattach</h3>
-        {% if detached_agents %}
-            {% for row in detached_agents %}
-            <article class="game-card">
-                <div class="game-card-info">
-                    <h3>{{ row.agent.name }}</h3>
-                    <p class="meta">
-                        {{ row.agent.game }} · {{ row.version.model }} · v{{ row.version.version_no }}
-                    </p>
-                </div>
-                <div class="game-card-action">
-                    <form method="post" action="/me/connections/{{ connection.id }}/reattach/{{ row.agent.id }}">
-                        <button type="submit" class="btn btn-primary">Reattach</button>
-                    </form>
-                </div>
-            </article>
-            {% endfor %}
+        <h3 style="margin-top:0;">Agents waiting for a live connection</h3>
+        <p class="meta">No live connection currently covers these agents' providers — they'll resume the moment one comes up.</p>
+        {% for row in stranded_agents %}
+        <article class="game-card">
+            <div class="game-card-info">
+                <h3>{{ row.agent.name }}</h3>
+                <p class="meta">
+                    {{ row.agent.game }} · {{ row.agent.provider.value if row.agent.provider else "—" }}{% if row.version %} · {{ row.version.model }}{% endif %}
+                </p>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% endif %}
+</details>
+
+<div class="card">
+    <h3 style="margin-top:0;">Providers</h3>
+    <p class="meta">Turn the AI providers this machine should run on or off. Your agents route to whichever live connection covers their provider.</p>
+    {% if strand_provider %}
+    <div class="card" style="border-color:var(--danger,#b00);">
+        <p class="meta" style="color:var(--danger,#b00);">Turning off <strong>{{ strand_provider }}</strong> would strand {{ strand_count }} agent(s) — no other live connection covers it.</p>
+        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ strand_provider }}?enabled=false&confirm=true">
+            <button type="submit">Turn off {{ strand_provider }} anyway</button>
+        </form>
+    </div>
+    {% endif %}
+    {% for t in provider_toggles %}
+    <div style="display:flex; align-items:center; gap:0.75rem; padding:0.35rem 0;">
+        <span style="min-width:6rem;">{{ t.label }}</span>
+        <span class="meta">{% if t.detected %}detected{% else %}not detected{% endif %}</span>
+        {% if t.enabled %}
+        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=false">
+            <button type="submit">Turn off</button>
+        </form>
         {% else %}
-            <p class="empty">No detached agents are waiting for this provider.</p>
+        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=true">
+            <button type="submit">Turn on</button>
+        </form>
         {% endif %}
     </div>
-</details>
+    {% endfor %}
+</div>
 
 <div class="card">
     <h3 style="margin-top:0;">Connection controls</h3>
@@ -79,7 +101,7 @@
             <form method="post" action="/me/connections/{{ connection.id }}/pause"><button type="submit">Pause</button></form>
         {% endif %}
         <form method="post" action="/me/connections/{{ connection.id }}/rotate"><button type="submit">Rotate Key</button></form>
-        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this connection? Its agents will be detached, paused, and kept. The runner will be told to exit. Continue?');">
+        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this machine? Its runner will be told to exit. Your agents keep playing on any other live connection that covers their provider; any covered by no other live connection will wait. Continue?');">
             <button type="submit">Delete</button>
         </form>
     </div>

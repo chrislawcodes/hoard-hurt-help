@@ -1,0 +1,11 @@
+{
+  "paths": [
+    "app",
+    "scripts"
+  ],
+  "allowed_dirty_paths": [
+    "app",
+    "docs/workflow",
+    "scripts"
+  ]
+}

@@ -161,3 +161,41 @@ PROVIDER_MODELS: dict[str, list[str]] = {
     "hermes": [],
     "openclaw": [],
 }
+
+
+def _assert_unique_non_empty_provider_models(provider_models: dict[str, list[str]]) -> None:
+    """Ensure the non-empty provider allowlists do not share a model name."""
+    seen: dict[str, str] = {}
+    duplicates: list[str] = []
+    for provider, models in provider_models.items():
+        if not models:
+            continue
+        for model in models:
+            prior = seen.get(model)
+            if prior is not None and prior != provider:
+                duplicates.append(f"{model!r} in {prior} and {provider}")
+            else:
+                seen[model] = provider
+    if duplicates:
+        raise AssertionError(
+            "Duplicate model names across non-empty provider allowlists: "
+            + ", ".join(sorted(duplicates))
+        )
+
+
+_assert_unique_non_empty_provider_models(PROVIDER_MODELS)
+
+
+def provider_for_model(model: str) -> str | None:
+    """Reverse-map a model name to its provider via PROVIDER_MODELS.
+
+    The single source of truth for model→provider (the assertion above keeps
+    model names unique across the non-empty allowlists, so this is
+    unambiguous). Returns None for a model in no allowlist — e.g. a freeform
+    Hermes/OpenClaw model whose provider must come from elsewhere (the stored
+    `agents.provider`), not from the model name.
+    """
+    for provider, models in PROVIDER_MODELS.items():
+        if model in models:
+            return provider
+    return None
