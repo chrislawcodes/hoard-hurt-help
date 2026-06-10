@@ -399,11 +399,10 @@ async def test_join_requires_sign_in(client, reset_db):
 @pytest.mark.asyncio
 async def test_create_agent_setup_shows_key_once(client, reset_db):
     user = await _seed_user(reset_db)
-    r = await client.post(
+    # The connections page mints one pending machine setup and shows its key inline.
+    r = await client.get(
         "/me/connections",
         cookies=_signed_in_cookies(user.id),
-        follow_redirects=True,
-        data={"provider": "claude", "nickname": "Atlas"},
     )
     assert r.status_code == 200
     assert "sk_conn_" in r.text

@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from starlette.responses import Response
 
@@ -316,18 +316,22 @@ async def list_connections(
     )
 
 
-@router.post("")
-async def create_connection(
+@router.post("/name", response_class=HTMLResponse)
+async def save_machine_name(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     nickname: Annotated[str | None, Form()] = None,
-) -> RedirectResponse:
-    # Naming a machine just labels the one open setup; it never rotates the key or
-    # creates a second setup. There is no provider to pick — the machine reports
-    # the AI CLIs it has.
-    await _ensure_pending_setup_and_key(request, db, user.id, nickname=nickname)
-    return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
+) -> HTMLResponse:
+    """Auto-save the optional machine name (HTMX, no button, no reload).
+
+    Labels the one open setup; never rotates the key or creates a second setup.
+    A blank name is cleared — the machine then names itself from its hostname when
+    it connects (see report_pid). Returns a tiny status span for the inline tick.
+    """
+    setup, _ = await _ensure_pending_setup_and_key(request, db, user.id, nickname=nickname)
+    label = "Saved ✓" if setup.nickname else ""
+    return HTMLResponse(label)
 
 
 async def _load_owned_connection_setup(

@@ -540,6 +540,54 @@ async def test_report_pid_without_detected_providers_still_works(
 
 
 @pytest.mark.asyncio
+async def test_report_pid_hostname_defaults_unnamed_connection(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """An unnamed machine takes the reported hostname as its default name."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user, nickname=None)
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.post(
+        "/api/agent/report-pid",
+        json={"pid": 7, "hostname": "chris-macbook"},
+        headers={"X-Connection-Key": key},
+    )
+    assert r.status_code == 204, r.text
+    async with session_factory() as db:
+        conn = (
+            await db.execute(select(Connection).where(Connection.id == conn_id))
+        ).scalar_one()
+        assert conn.nickname == "chris-macbook"
+
+
+@pytest.mark.asyncio
+async def test_report_pid_hostname_never_overrides_a_typed_name(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A name the operator typed always wins over the hostname default."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user, nickname="Battlestation")
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.post(
+        "/api/agent/report-pid",
+        json={"pid": 7, "hostname": "chris-macbook"},
+        headers={"X-Connection-Key": key},
+    )
+    assert r.status_code == 204, r.text
+    async with session_factory() as db:
+        conn = (
+            await db.execute(select(Connection).where(Connection.id == conn_id))
+        ).scalar_one()
+        assert conn.nickname == "Battlestation"
+
+
+@pytest.mark.asyncio
 async def test_failover_live_connection_serves_match_pinned_to_dead_connection(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

@@ -34,6 +34,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -669,7 +670,11 @@ def main() -> None:
         httpx.post(
             f"{base}/api/agent/report-pid",
             headers=headers,
-            json={"pid": pid, "detected_providers": _detect_providers()},
+            json={
+                "pid": pid,
+                "hostname": socket.gethostname(),
+                "detected_providers": _detect_providers(),
+            },
             timeout=10,
         ).raise_for_status()
     except httpx.HTTPError as exc:

@@ -317,6 +317,9 @@ class _ReportPidRequest(BaseModel):
     # (acceptance #7). When present, lists the provider CLIs the connector found
     # installed on this machine (e.g. ["claude", "openai"]).
     detected_providers: list[str] | None = None
+    # The machine's hostname. Used only as a DEFAULT name when the operator
+    # didn't name the connection — a typed name always wins.
+    hostname: str | None = None
 
 
 async def _apply_detected_providers(
@@ -375,4 +378,8 @@ async def report_pid(
     connection.runner_pid = body.pid
     if body.detected_providers is not None:
         await _apply_detected_providers(db, connection, body.detected_providers)
+    # Default the connection name to the machine's hostname, but never override a
+    # name the operator typed.
+    if connection.nickname is None and body.hostname and body.hostname.strip():
+        connection.nickname = body.hostname.strip()[:60]
     await db.commit()

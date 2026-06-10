@@ -7,22 +7,24 @@
 </div>
 
 <div class="card" id="setup">
-    <h3 style="margin-top:0;">Set up a machine</h3>
-
-    <form method="post" action="/me/connections" class="form" style="margin-bottom:1rem;">
-        <label>
-            Name your machine
-            <input type="text" name="nickname" maxlength="60" autocomplete="off"
-                   placeholder="e.g. home-mac"
-                   value="{{ active_setup.nickname or '' }}">
-        </label>
-        <p class="hint" style="margin-top:0;">So you can tell your machines apart later.</p>
-        <button type="submit" class="btn">Save name</button>
-    </form>
+    <h3 style="margin-top:0;">Set up a machine connection</h3>
 
     <p class="hint" style="margin-bottom:0.4rem;">Paste this to your AI assistant:</p>
     <button type="button" onclick="copyWithFeedback(this, document.getElementById('setup-msg').textContent)">Copy</button>
     <pre id="setup-msg">{{ setup_message }}</pre>
+
+    <label style="display:block;margin-top:1rem;">
+        Name this machine <span class="hint">(optional)</span>
+        <input type="text" name="nickname" maxlength="60" autocomplete="off"
+               placeholder="Defaults to your computer's name"
+               value="{{ active_setup.nickname or '' }}"
+               hx-post="/me/connections/name"
+               hx-trigger="change"
+               hx-target="#name-saved"
+               hx-swap="innerHTML">
+        <span id="name-saved" class="hint"></span>
+    </label>
+    <p class="hint" style="margin-top:0.25rem;">Leave it blank and the machine names itself when it connects.</p>
 </div>
 
 {% with %}

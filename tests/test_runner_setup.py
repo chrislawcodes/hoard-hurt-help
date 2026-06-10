@@ -92,8 +92,8 @@ async def test_connections_page_shows_inline_setup_instructions(reset_db) -> Non
         r = await c.get("/me/connections")
     assert r.status_code == 200, r.text
     body = r.text
-    assert "Set up a machine" in body
-    assert "Name your machine" in body
+    assert "Set up a machine connection" in body
+    assert "Name this machine" in body
     assert "Paste this to your AI assistant:" in body
     assert "curl -fsSL" in body
     assert "/setup-files/agentludum_connector.py" in body

@@ -227,13 +227,8 @@ async def test_create_connection_reuses_existing_pending_setup(
         user = await _make_user(db, handle="agent0", i=0)
         await db.commit()
 
-    cookies = _signed_in_cookies(user.id)
-    first = await client.post(
-        "/me/connections",
-        cookies=cookies,
-        data={"provider": "claude", "nickname": "My Claude"},
-        follow_redirects=True,
-    )
+    client.cookies.update(_signed_in_cookies(user.id))
+    first = await client.get("/me/connections")
     assert first.status_code == 200
     assert "agentludum_connector.py" in first.text
     assert "X-Connection-Key" in first.text
@@ -241,17 +236,15 @@ async def test_create_connection_reuses_existing_pending_setup(
     assert first_match is not None
     first_key = first_match.group(1)
 
-    second = await client.post(
-        "/me/connections",
-        cookies=cookies,
-        data={"provider": "claude", "nickname": "My Claude 2"},
-        follow_redirects=True,
-    )
+    # Auto-saving the optional name reuses the one open setup and keeps the key.
+    await client.post("/me/connections/name", data={"nickname": "My Claude"})
+    await client.post("/me/connections/name", data={"nickname": "My Claude 2"})
+
+    second = await client.get("/me/connections")
     assert second.status_code == 200
     second_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", second.text)
     assert second_match is not None
-    second_key = second_match.group(1)
-    assert second_key != first_key
+    assert second_match.group(1) == first_key
 
     async with session_factory() as db:
         setups = (
@@ -266,8 +259,7 @@ async def test_create_connection_reuses_existing_pending_setup(
         assert setup.nickname == "My Claude 2"
         assert setup.completed_at is None
         assert setup.connection_id is None
-        assert setup.key_lookup == bot_key_lookup(second_key)
-        assert setup.key_lookup != bot_key_lookup(first_key)
+        assert setup.key_lookup == bot_key_lookup(first_key)
 
 
 @pytest.mark.asyncio
