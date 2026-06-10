@@ -3,14 +3,14 @@ reviewer: "gemini"
 lens: "regression-adversarial"
 stage: "diff"
 artifact_path: "docs/workflow/feature-runs/unified-connections/reviews/implementation.diff.patch"
-artifact_sha256: "48d5f76247796046d50fb924f2027645ab729545591fb08b3de201c1b5ae8c56"
+artifact_sha256: "62087cc50e5d25e552e3f6b8efde9deab41f68c8028b58c4d61b14dd8ec3bce3"
 repo_root: "."
-git_head_sha: "05d31495c1dd197fa7950054c888a1e9f2ad93d3"
-git_base_ref: "142a366374c7e93afe75b9b79511202ec5b041d0"
-git_base_sha: "142a366374c7e93afe75b9b79511202ec5b041d0"
+git_head_sha: "366f65bce27dceb18814a5f38e9b3cc9412823a9"
+git_base_ref: "05d31495c1dd197fa7950054c888a1e9f2ad93d3"
+git_base_sha: "05d31495c1dd197fa7950054c888a1e9f2ad93d3"
 generation_method: "gemini-cli"
 resolution_status: "accepted"
-resolution_note: "Slice 2 (turn_routing.py). (1) sort efficiency: per-user connection counts are tiny; acceptable. (2) _as_aware UTC for naive dt: DB columns are DateTime(timezone=True) so values are tz-aware; safe. (3) dead-pinning: review calls it 'robust' — no action. (4) IMPORTANT carried to Slice 3: the in-memory TurnPinClaimStore asyncio.Lock is the DB-free testable logic layer (and single-instance prod, numReplicas=1, is fine today), but Slice 3 must implement the REAL claim as the DB-level conditional UPDATE (WHERE served_by_connection_id IS NULL OR =:me OR <dead>) returning rowcount==1 — exactly what the plan §arch-decision-4 specifies. No slice-2 code change."
+resolution_note: "Slice 3. All minor/UNVERIFIED, accepted: (1) _route_states two-query read can be slightly stale, but the atomic conditional UPDATE (rowcount==1) is the real correctness gate — a stale route-state never double-serves because the claim re-validates the pin against the DB. (2) detection writes commit together via SQLAlchemy's unit-of-work in the single report_pid db.commit(); an error mid-process rolls back, no partial state. (3) ConnectionProvider(value) try/except skips a provider the server doesn't know — intentional best-effort for old/foreign connectors, not silent corruption (enabled is never touched). No code change."
 raw_output_path: "docs/workflow/feature-runs/unified-connections/reviews/diff.gemini.regression-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,30 +22,23 @@ coverage_note: ""
 
 ## Findings
 
-1.  **[UNVERIFIED] Deterministic Fallback Inconsistency (Severity: MEDIUM):** 
-    In `choose_connection_id_for_provider`, if the existing `pin_connection_id` is *not* in `eligible`, the function defaults to `eligible[0]`. Since `eligible_connection_ids` sorts by `connection.connection_id` (integer), the fallback is deterministic. However, if the underlying `connections` sequence passed to `eligible_connection_ids` is provided in a non-deterministic order (e.g., from a database query without an `ORDER BY`), the reliance on `eligible[0]` after a sort internally is safe. **Risk:** If `connections` is large, repeated sorting in `eligible_connection_ids` might be inefficient if called frequently per-turn.
-
-2.  **[UNVERIFIED] Time Drift/Zone Sensitivity (Severity: LOW):** 
-    The `_as_aware` function treats `None` tzinfo as `timezone.utc`. If the database returns local time or a different offset without explicit TZ awareness, `connection_is_dead` could miscalculate the `LIVE_WINDOW_SECONDS` threshold depending on the server's local environment.
-
-3.  **Logical Edge Case: Dead Pinning (Severity: LOW):** 
-    In `can_connection_claim_turn`, if `pinned_connection` exists but `connection_is_dead` returns `True` for it, the function returns `True` (allowing the new connection to take the pin). This is correct for failover, but does not explicitly handle the scenario where the *current* connection being evaluated is also technically dead (though `can_connection_claim_turn` checks `connection_is_dead(connection)` first). This logic is robust.
-
-4.  **Implicit Assumption: Atomic `try_claim` (Severity: LOW):** 
-    The `TurnPinClaimStore` uses an `asyncio.Lock()` to ensure atomic updates. This assumes the caller will use the *same* `TurnPinClaimStore` instance for competing claims. If the application environment runs multiple workers (common in FastAPI deployments), this in-memory lock will be insufficient; the database-level conditional `UPDATE` mentioned in the docstring must implement the same logic (e.g., `WHERE pin_connection_id IS NULL OR pin_connection_id = <dead_id>`).
+- **[UNVERIFIED] Race Condition in `_route_states`:** `_route_states` performs a query to fetch all connections for a user, then a separate query to fetch `ConnectionProviderRow`s. Between these two queries, a new `Connection` could be added or deleted, causing a mismatch or potential data inconsistency in the `ConnectionRouteState` returned. (Severity: MEDIUM)
+- **Non-Atomic Provider Detection:** In `_apply_detected_providers`, the code iterates over existing rows, modifies them, and adds new ones. While `await db.commit()` is called in the caller (`report_pid`), the sequence of reads and writes in `_apply_detected_providers` is not atomic across multiple connections/providers, potentially leading to partial updates if an error occurs mid-process. (Severity: LOW)
+- **Implicit Dependency on `ConnectionProvider` Enum:** `_apply_detected_providers` uses `ConnectionProvider(value)`. If the `ConnectionProvider` enum changes or becomes more restrictive in the future, this code could start silently ignoring provider updates rather than surfacing them as a configuration mismatch. (Severity: LOW)
 
 ## Residual Risks
 
-*   **Race Conditions in Distributed Environments:** The primary risk is that the in-memory `TurnPinClaimStore` provides a false sense of security for multi-process environments. If the database implementation of the routing logic deviates from the constraints checked in `can_connection_claim_turn` (specifically the `connections_by_id` state check), the system will lose the "sticky" guarantees.
-*   **Provider Normalization:** `_provider_value` relies on string conversion/comparison. If `ConnectionProvider` enum members or raw strings are inconsistent (e.g., case sensitivity or unexpected whitespace), `connection_covers_provider` will fail silently by returning `False`, preventing connections from being eligible. Strict enum adherence is advised.
+- **Stale Failover State:** The failover logic relies on `connection_is_dead` and `last_seen_at`. If multiple connections exist for a user and one is improperly flagged as "dead" due to network latency (even if the process is alive), the system may forcefully re-route turns, potentially creating contention or race conditions if the "dead" connection is actually still performing work.
+- **`detected_detail` Overwrites:** The logic `row.detected_detail = "CLI detected" if is_detected else "not found"` aggressively overwrites existing metadata. If other administrative processes or UI actions add context to this field, those will be silently lost upon the next `report-pid` call.
+- **Scaling of `_route_states`:** `_route_states` fetches *all* connections and *all* `ConnectionProvider` rows for a user on every `/next-turn` request. As a user adds more connections, this will linearly increase latency for every single poll, which may impact throughput significantly.
 
 ## Token Stats
 
-- total_input=14142
-- total_output=796
-- total_tokens=28483
-- `gemini-3.1-flash-lite`: input=14142, output=796, total=28483
+- total_input=15876
+- total_output=468
+- total_tokens=16344
+- `gemini-3.1-flash-lite`: input=15876, output=468, total=16344
 
 ## Resolution
 - status: accepted
-- note: Slice 2 (turn_routing.py). (1) sort efficiency: per-user connection counts are tiny; acceptable. (2) _as_aware UTC for naive dt: DB columns are DateTime(timezone=True) so values are tz-aware; safe. (3) dead-pinning: review calls it 'robust' — no action. (4) IMPORTANT carried to Slice 3: the in-memory TurnPinClaimStore asyncio.Lock is the DB-free testable logic layer (and single-instance prod, numReplicas=1, is fine today), but Slice 3 must implement the REAL claim as the DB-level conditional UPDATE (WHERE served_by_connection_id IS NULL OR =:me OR <dead>) returning rowcount==1 — exactly what the plan §arch-decision-4 specifies. No slice-2 code change.
+- note: Slice 3. All minor/UNVERIFIED, accepted: (1) _route_states two-query read can be slightly stale, but the atomic conditional UPDATE (rowcount==1) is the real correctness gate — a stale route-state never double-serves because the claim re-validates the pin against the DB. (2) detection writes commit together via SQLAlchemy's unit-of-work in the single report_pid db.commit(); an error mid-process rolls back, no partial state. (3) ConnectionProvider(value) try/except skips a provider the server doesn't know — intentional best-effort for old/foreign connectors, not silent corruption (enabled is never touched). No code change.

@@ -1,207 +1,332 @@
-## New file: app/engine/turn_routing.py
-
-"""Provider-aware turn routing helpers.
-
-This module stays DB-free so the sticky routing rules can be unit tested in
-isolation. The route layer will map database rows into these snapshots and use
-the same eligibility logic when it is wired in later.
-"""
-
-from __future__ import annotations
-
-import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from collections.abc import Mapping, Sequence
-
-from app.engine.connection_health import LIVE_WINDOW_SECONDS
-from app.models.connection import ConnectionProvider
-
-
-def _as_aware(dt: datetime) -> datetime:
-    """SQLite may drop tzinfo on read; treat naive values as UTC."""
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-
-
-def _provider_value(provider: str | ConnectionProvider) -> str:
-    """Normalize provider enum values and raw strings to a plain slug."""
-    return provider.value if isinstance(provider, ConnectionProvider) else provider
-
-
-@dataclass(frozen=True, slots=True)
-class ConnectionRouteState:
-    """Snapshot of one live connection used by the routing helper."""
-
-    connection_id: int
-    enabled_providers: frozenset[str]
-    paused: bool = False
-    deleted: bool = False
-    last_seen_at: datetime | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class TurnPin:
-    """Sticky pin stored on a player row."""
-
-    served_by_connection_id: int | None
-    served_pinned_at: datetime | None
-
-
-@dataclass(frozen=True, slots=True)
-class TurnClaimResult:
-    """Result of a claim attempt."""
-
-    claimed: bool
-    pin: TurnPin
-
-
-def connection_is_dead(connection: ConnectionRouteState, *, now: datetime | None = None) -> bool:
-    """Return True when the connection should be treated as dead for failover."""
-    now = now or datetime.now(timezone.utc)
-    last_seen = connection.last_seen_at
-    if connection.paused or connection.deleted:
-        return True
-    if last_seen is None:
-        return True
-    return (now - _as_aware(last_seen)).total_seconds() > LIVE_WINDOW_SECONDS
-
-
-def connection_covers_provider(
-    connection: ConnectionRouteState, provider: str | ConnectionProvider
-) -> bool:
-    """Return True when the connection has that provider enabled."""
-    return _provider_value(provider) in connection.enabled_providers
-
-
-def can_connection_claim_turn(
-    connection: ConnectionRouteState,
-    provider: str | ConnectionProvider,
-    pin: TurnPin,
-    *,
-    now: datetime | None = None,
-    connections_by_id: Mapping[int, ConnectionRouteState] | None = None,
-) -> bool:
-    """Return True when this connection may claim the player's next turn.
-
-    The sticky rule is:
-    - no pin, or
-    - already pinned to this connection, or
-    - the pinned connection is dead.
-    """
-    if connection_is_dead(connection, now=now):
-        return False
-    if not connection_covers_provider(connection, provider):
-        return False
-
-    pinned_connection_id = pin.served_by_connection_id
-    if pinned_connection_id is None or pinned_connection_id == connection.connection_id:
-        return True
-
-    if connections_by_id is None:
-        return False
-    pinned_connection = connections_by_id.get(pinned_connection_id)
-    return pinned_connection is None or connection_is_dead(pinned_connection, now=now)
-
-
-def eligible_connection_ids(
-    connections: Sequence[ConnectionRouteState],
-    provider: str | ConnectionProvider,
-    *,
-    pin: TurnPin | None = None,
-    now: datetime | None = None,
-) -> list[int]:
-    """Return the live connections that can currently serve this provider.
-
-    The result is sorted by connection id so the fallback choice is
-    deterministic when more than one live connection can cover the provider.
-    """
-    pin = pin or TurnPin(None, None)
-    now = now or datetime.now(timezone.utc)
-    by_id = {connection.connection_id: connection for connection in connections}
-    eligible = [
-        connection.connection_id
-        for connection in sorted(connections, key=lambda connection: connection.connection_id)
-        if can_connection_claim_turn(
-            connection,
-            provider,
-            pin,
-            now=now,
-            connections_by_id=by_id,
-        )
-    ]
-    return eligible
-
-
-def choose_connection_id_for_provider(
-    connections: Sequence[ConnectionRouteState],
-    provider: str | ConnectionProvider,
-    *,
-    pin: TurnPin | None = None,
-    now: datetime | None = None,
-) -> int | None:
-    """Pick the sticky connection for this provider, or None if nobody qualifies."""
-    eligible = eligible_connection_ids(connections, provider, pin=pin, now=now)
-    if not eligible:
-        return None
-    pin_connection_id = None if pin is None else pin.served_by_connection_id
-    if pin_connection_id in eligible:
-        return pin_connection_id
-    return eligible[0]
-
-
-class TurnPinClaimStore:
-    """Small in-memory store that models the atomic pin claim behavior.
-
-    The production route will use a conditional UPDATE. This store gives the
-    same semantics for unit tests without needing a database.
-    """
-
-    def __init__(
-        self,
-        connections: Sequence[ConnectionRouteState],
-        pin: TurnPin | None = None,
-    ) -> None:
-        self._connections = {connection.connection_id: connection for connection in connections}
-        self._pin = pin or TurnPin(None, None)
-        self._lock = asyncio.Lock()
-
-    @property
-    def pin(self) -> TurnPin:
-        return self._pin
-
-    def eligible_connection_ids(
-        self,
-        provider: str | ConnectionProvider,
-        *,
-        now: datetime | None = None,
-    ) -> list[int]:
-        return eligible_connection_ids(
-            list(self._connections.values()), provider, pin=self._pin, now=now
-        )
-
-    async def try_claim(
-        self,
-        connection_id: int,
-        provider: str | ConnectionProvider,
-        *,
-        now: datetime | None = None,
-    ) -> TurnClaimResult:
-        """Attempt to claim the pin for one connection.
-
-        Exactly one concurrent claimant wins when the pin is unset. If the pin is
-        already owned by another live connection, this returns a no-op failure.
-        """
-        now = now or datetime.now(timezone.utc)
-        async with self._lock:
-            connection = self._connections[connection_id]
-            if not can_connection_claim_turn(
-                connection,
-                provider,
-                self._pin,
-                now=now,
-                connections_by_id=self._connections,
-            ):
-                return TurnClaimResult(False, self._pin)
-
-            self._pin = TurnPin(connection_id, now)
-            return TurnClaimResult(True, self._pin)
+diff --git a/app/config.py b/app/config.py
+index 32c7104..1549d47 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -184,3 +184,18 @@ def _assert_unique_non_empty_provider_models(provider_models: dict[str, list[str
+ 
+ 
+ _assert_unique_non_empty_provider_models(PROVIDER_MODELS)
++
++
++def provider_for_model(model: str) -> str | None:
++    """Reverse-map a model name to its provider via PROVIDER_MODELS.
++
++    The single source of truth for model→provider (the assertion above keeps
++    model names unique across the non-empty allowlists, so this is
++    unambiguous). Returns None for a model in no allowlist — e.g. a freeform
++    Hermes/OpenClaw model whose provider must come from elsewhere (the stored
++    `agents.provider`), not from the model name.
++    """
++    for provider, models in PROVIDER_MODELS.items():
++        if model in models:
++            return provider
++    return None
+diff --git a/app/deps.py b/app/deps.py
+index 8619104..0cdc47d 100644
+--- a/app/deps.py
++++ b/app/deps.py
+@@ -6,7 +6,7 @@ from datetime import datetime, timezone
+ from urllib.parse import quote
+ 
+ from fastapi import Depends, Header, HTTPException, Path, Query, Request, status
+-from sqlalchemy import or_, select
++from sqlalchemy import and_, or_, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.config import settings
+@@ -17,6 +17,7 @@ from app.engine.match_id_rewrite import match_id_candidates
+ from app.engine.tokens import bot_key_lookup
+ from app.models.agent import Agent, AgentKind, AgentStatus
+ from app.models.connection import Connection, ConnectionStatus
++from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+ from app.models.connection_setup import ConnectionSetup
+ from app.models.player import Player
+ from app.models.user import User
+@@ -280,14 +281,25 @@ async def require_agent_player(
+             )
+ 
+     candidate_match_ids = match_id_candidates(match_id)
++    # An agent is no longer pinned to a connection. This connection may act for
++    # the agent in this match when it belongs to the same user AND the agent's
++    # stored provider is enabled on this connection (join connection_providers).
+     rows = (
+         await db.execute(
+             select(Player, Agent)
+             .join(Agent, Agent.id == Player.agent_id)
++            .join(
++                ConnectionProviderRow,
++                and_(
++                    ConnectionProviderRow.connection_id == connection.id,
++                    ConnectionProviderRow.provider == Agent.provider,
++                    ConnectionProviderRow.enabled.is_(True),
++                ),
++            )
+             .where(
+                 Player.match_id.in_(candidate_match_ids),
+                 Player.left_at.is_(None),
+-                Agent.connection_id == connection.id,
++                Agent.user_id == connection.user_id,
+                 Agent.kind == AgentKind.AI,
+                 Agent.status == AgentStatus.ACTIVE,
+                 Agent.archived_at.is_(None),
+diff --git a/app/routes/agent_next_turn.py b/app/routes/agent_next_turn.py
+index 504d4a8..9cf9d04 100644
+--- a/app/routes/agent_next_turn.py
++++ b/app/routes/agent_next_turn.py
+@@ -10,18 +10,26 @@ from __future__ import annotations
+ 
+ import logging
+ from datetime import datetime, timezone
+-from typing import Annotated
++from typing import Annotated, cast
+ 
+ from fastapi import APIRouter, Depends
+ from pydantic import BaseModel
+-from sqlalchemy import select
++from sqlalchemy import false, or_, select, update
++from sqlalchemy.engine import CursorResult
+ 
+ from app.deps import DbSession, require_connection
+ from app.engine.next_turn import TurnCandidate, select_next_turn
++from app.engine.turn_routing import (
++    ConnectionRouteState,
++    TurnPin,
++    can_connection_claim_turn,
++    connection_is_dead,
++)
+ from app.games import get as get_game_module
+ from app.models.agent import Agent, AgentKind, AgentStatus
+ from app.models.agent_version import AgentVersion
+-from app.models.connection import Connection
++from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
++from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+ from app.models.match import GameState, Match
+ from app.models.player import Player
+ from app.models.turn import Turn, TurnSubmission
+@@ -47,12 +55,73 @@ def _agent_turn_token(turn_token: str, agent_id: int, match_id: str) -> str:
+     return f"{turn_token}:{agent_id}:{match_id}"
+ 
+ 
++async def _route_states(
++    db: DbSession, connection: Connection
++) -> tuple[dict[int, ConnectionRouteState], ConnectionRouteState]:
++    """Build route states for ALL of the polling user's connections.
++
++    Deleted connections are included (flagged dead) so a pin held by a deleted
++    connection is consistently treated as dead by both the eligibility check and
++    the atomic claim's dead-id set. Returns the id→state map plus the polling
++    connection's own state.
++    """
++    conns = (
++        (
++            await db.execute(
++                select(Connection).where(Connection.user_id == connection.user_id)
++            )
++        )
++        .scalars()
++        .all()
++    )
++    conn_ids = [c.id for c in conns]
++    enabled_by_conn: dict[int, set[str]] = {}
++    if conn_ids:
++        cp_rows = (
++            (
++                await db.execute(
++                    select(ConnectionProviderRow).where(
++                        ConnectionProviderRow.connection_id.in_(conn_ids),
++                        ConnectionProviderRow.enabled.is_(True),
++                    )
++                )
++            )
++            .scalars()
++            .all()
++        )
++        for row in cp_rows:
++            enabled_by_conn.setdefault(row.connection_id, set()).add(row.provider.value)
++
++    def _state(c: Connection) -> ConnectionRouteState:
++        return ConnectionRouteState(
++            connection_id=c.id,
++            enabled_providers=frozenset(enabled_by_conn.get(c.id, set())),
++            paused=c.status == ConnectionStatus.PAUSED,
++            deleted=c.deleted_at is not None,
++            last_seen_at=c.last_seen_at,
++        )
++
++    by_id = {c.id: _state(c) for c in conns}
++    polling = by_id.get(connection.id) or _state(connection)
++    return by_id, polling
++
++
+ @router.get("/next-turn", response_model=None)
+ async def next_turn(
+     connection: Annotated[Connection, Depends(require_connection)],
+     db: DbSession,
+ ) -> dict[str, object]:
+-    """Return the single most urgent open turn across this connection's agents."""
++    """Return the single most urgent open turn this connection may serve.
++
++    Routing is no longer connection-scoped: an agent belongs to a user, not a
++    connection. This connection may serve a turn when it is the same user's, the
++    agent's provider is enabled here, and the match's sticky pin is free, ours,
++    or held by a now-dead connection (failover). The pin is claimed with one
++    atomic conditional UPDATE so two concurrent polls can't double-serve.
++    """
++    now = datetime.now(timezone.utc)
++    connections_by_id, polling_state = await _route_states(db, connection)
++
+     agent_rows = (
+         await db.execute(
+             select(Agent, Player, Match, AgentVersion)
+@@ -60,7 +129,7 @@ async def next_turn(
+             .join(Match, Match.id == Player.match_id)
+             .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+             .where(
+-                Agent.connection_id == connection.id,
++                Agent.user_id == connection.user_id,
+                 Agent.kind == AgentKind.AI,
+                 Agent.status == AgentStatus.ACTIVE,
+                 Agent.archived_at.is_(None),
+@@ -87,6 +156,28 @@ async def next_turn(
+                 connection.id,
+             )
+             continue
++        if agent.provider is None:
++            # Routing reads the stored provider; a kind=AI agent must have one
++            # (CHECK constraint). Guard defensively and skip rather than crash.
++            logger.warning(
++                "next-turn: AI agent %s has no provider; skipping", agent.id
++            )
++            continue
++        pin = TurnPin(
++            served_by_connection_id=player.served_by_connection_id,
++            served_pinned_at=player.served_pinned_at,
++        )
++        if not can_connection_claim_turn(
++            polling_state,
++            agent.provider,
++            pin,
++            now=now,
++            connections_by_id=connections_by_id,
++        ):
++            # This connection doesn't cover the agent's provider, or the match is
++            # stickily pinned to another still-live connection. Leave it for the
++            # connection that owns the pin.
++            continue
+         player_by_key[(agent.id, match.id)] = player
+         agent_by_id[agent.id] = agent
+         version_by_agent_id[agent.id] = version
+@@ -136,6 +227,38 @@ async def next_turn(
+     agent = agent_by_id[chosen.agent_id]
+     player = player_by_key[(chosen.agent_id, chosen.match_id)]
+     version = version_by_agent_id[chosen.agent_id]
++
++    # Atomic sticky-pin claim: only serve the turn if THIS poll wins the pin.
++    # The WHERE clause re-checks the sticky rule (pin free, ours, or held by a
++    # dead connection) so two concurrent polls can't both serve the same turn —
++    # exactly one UPDATE affects the row.
++    dead_ids = [
++        cid
++        for cid, state in connections_by_id.items()
++        if connection_is_dead(state, now=now)
++    ]
++    claim = cast(
++        CursorResult,
++        await db.execute(
++            update(Player)
++            .where(
++                Player.id == player.id,
++                or_(
++                    Player.served_by_connection_id.is_(None),
++                    Player.served_by_connection_id == connection.id,
++                    Player.served_by_connection_id.in_(dead_ids)
++                    if dead_ids
++                    else false(),
++                ),
++            )
++            .values(served_by_connection_id=connection.id, served_pinned_at=now)
++        ),
++    )
++    if claim.rowcount != 1:
++        # Another live connection claimed this match first; back off and re-poll.
++        await db.rollback()
++        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
++    await db.commit()
+     match = (
+         await db.execute(select(Match).where(Match.id == chosen.match_id))
+     ).scalar_one()
+@@ -174,6 +297,7 @@ async def next_turn(
+         "game": match.game,
+         "agent_id": agent.id,
+         "agent_name": agent.name,
++        "provider": agent.provider.value if agent.provider is not None else None,
+         "model": version.model,
+         "strategy": version.strategy_text,
+         "version_no": version.version_no,
+@@ -189,6 +313,56 @@ async def next_turn(
+ 
+ class _ReportPidRequest(BaseModel):
+     pid: int
++    # Optional so OLD connectors that send only {"pid": ...} keep working
++    # (acceptance #7). When present, lists the provider CLIs the connector found
++    # installed on this machine (e.g. ["claude", "openai"]).
++    detected_providers: list[str] | None = None
++
++
++async def _apply_detected_providers(
++    db: DbSession, connection: Connection, detected: list[str]
++) -> None:
++    """Update connection_providers.detected from the connector's CLI sweep.
++
++    Touches only the informational `detected`/`detected_detail` columns — NEVER
++    `enabled` (the user's toggle is sacred). Creates a detected row if none
++    exists yet (enabled defaults False). Providers the connector no longer
++    reports are marked detected=False but left enabled as the user set them.
++    """
++    detected_values = {p.strip() for p in detected if p.strip()}
++    rows = (
++        (
++            await db.execute(
++                select(ConnectionProviderRow).where(
++                    ConnectionProviderRow.connection_id == connection.id
++                )
++            )
++        )
++        .scalars()
++        .all()
++    )
++    seen: set[str] = set()
++    for row in rows:
++        is_detected = row.provider.value in detected_values
++        row.detected = is_detected
++        row.detected_detail = "CLI detected" if is_detected else "not found"
++        seen.add(row.provider.value)
++    for value in detected_values - seen:
++        try:
++            provider = ConnectionProvider(value)
++        except ValueError:
++            # Connector reported a provider this server doesn't know; ignore it
++            # rather than crash the best-effort startup call.
++            continue
++        db.add(
++            ConnectionProviderRow(
++                connection_id=connection.id,
++                provider=provider,
++                enabled=False,
++                detected=True,
++                detected_detail="CLI detected",
++            )
++        )
+ 
+ 
+ @router.post("/report-pid", status_code=204)
+@@ -197,6 +371,8 @@ async def report_pid(
+     connection: Annotated[Connection, Depends(require_connection)],
+     db: DbSession,
+ ) -> None:
+-    """Store the runner's OS process ID so the operator can kill a stuck process."""
++    """Store the runner's OS process ID and (optionally) its detected providers."""
+     connection.runner_pid = body.pid
++    if body.detected_providers is not None:
++        await _apply_detected_providers(db, connection, body.detected_providers)
+     await db.commit()
