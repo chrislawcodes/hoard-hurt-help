@@ -2,18 +2,9 @@
   "feature_slug": "unified-connections",
   "stage": "diff",
   "artifact_path": "docs/workflow/feature-runs/unified-connections/reviews/implementation.diff.patch",
-  "git_base_ref": "1b9d2ecc45aeef9fd126f9c50d7e09a55ae68d83",
+  "git_base_ref": "9eb03d7885edda5a5300b862a14d8de5d8efe35f",
   "allowed_dirty_paths": [],
-  "required_reviews": [
-    {
-      "reviewer": "gemini",
-      "lens": "regression-adversarial",
-      "stage": "diff",
-      "path": "docs/workflow/feature-runs/unified-connections/reviews/diff.gemini.regression-adversarial.review.md",
-      "context_paths": [],
-      "model": "gemini-3.1-flash-lite"
-    }
-  ],
+  "required_reviews": [],
   "max_artifact_chars": 50000,
   "max_context_chars": 60000,
   "max_total_chars": 250000

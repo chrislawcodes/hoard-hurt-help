@@ -1,234 +1,90 @@
-diff --git a/app/routes/agents_lifecycle.py b/app/routes/agents_lifecycle.py
-index a922cd9..c052dee 100644
---- a/app/routes/agents_lifecycle.py
-+++ b/app/routes/agents_lifecycle.py
-@@ -10,20 +10,32 @@ from fastapi.responses import HTMLResponse, RedirectResponse
- from sqlalchemy import func, select
- from starlette.responses import Response
- 
--from app.config import PROVIDER_MODELS
-+from app.config import PROVIDER_MODELS, provider_for_model
- from app.deps import DbSession, require_user_with_handle
- from app.models.agent import Agent, AgentKind, AgentStatus
- from app.models.agent_version import AgentVersion
--from app.models.connection import Connection
-+from app.models.connection import ConnectionProvider
- from app.models.match import GameState, Match, MatchKind
- from app.models.player import Player
- from app.models.user import User
--from app.routes.agents_setup import _load_owned_connection
- from app.templating import templates
- 
- router = APIRouter()
+diff --git a/scripts/agentludum_connector.py b/scripts/agentludum_connector.py
+index a73c129..dcfa78d 100644
+--- a/scripts/agentludum_connector.py
++++ b/scripts/agentludum_connector.py
+@@ -33,6 +33,7 @@ import argparse
+ import json
+ import os
+ import re
++import shutil
+ import subprocess
+ import sys
+ import tempfile
+@@ -435,24 +436,43 @@ def _provider_from_model(model: str | None) -> str | None:
+     return None
  
  
-+def _sync_agent_provider(agent: Agent, model: str) -> None:
-+    """Keep ``agent.provider`` in sync with its model on every model change.
++def _detect_providers() -> list[str]:
++    """Report which provider CLIs are installed on this machine.
 +
-+    claude/gemini/openai map to a provider uniquely; a freeform model
-+    (hermes/openclaw) maps to nothing and leaves the stored provider as-is.
-+    Without this, editing an agent to a cross-provider model would leave the
-+    stored provider stale and route the agent to the wrong provider.
++    Maps each provider to its CLI binary (openai is driven by the `codex` CLI).
++    Best-effort and informational only — the server stores these into
++    connection_providers.detected; it never flips the user's `enabled` toggle.
 +    """
-+    derived = provider_for_model(model)
-+    if derived is not None:
-+        agent.provider = ConnectionProvider(derived)
++    cli_by_provider = {"claude": "claude", "openai": "codex", "gemini": "gemini"}
++    return [provider for provider, cli in cli_by_provider.items() if shutil.which(cli)]
 +
 +
- async def _load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
-     agent = (
-         await db.execute(
-@@ -136,6 +148,8 @@ async def _apply_version_edit(
-     current = await _load_current_version(db, agent)
-     if await _version_has_active_match(db, current.id):
-         raise HTTPException(status_code=409, detail="That version is mid-match and locked.")
-+    if model is not None:
-+        _sync_agent_provider(agent, model)
-     current_has_rated_history = await _version_has_rated_history(db, current.id)
-     if not current_has_rated_history and current.frozen_at is None:
-         if model is not None:
-@@ -200,8 +214,9 @@ async def resume_agent(
-     user: Annotated[User, Depends(require_user_with_handle)],
- ) -> RedirectResponse:
-     agent = await _load_owned_agent(db, user, agent_id)
--    if agent.connection_id is None:
--        raise HTTPException(status_code=409, detail="Attach a connection before resuming.")
-+    # Agents are no longer attached to a connection — resume just makes it
-+    # ACTIVE. Whether it can actually play depends on provider coverage, shown
-+    # as the "no live connection runs <provider>" warning, not a hard block.
-     agent.status = AgentStatus.ACTIVE
-     await db.commit()
-     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-@@ -241,16 +256,11 @@ async def set_model(
- ) -> RedirectResponse:
-     agent = await _load_owned_agent(db, user, agent_id)
-     current = await _load_current_version(db, agent)
--    connection = None
--    if agent.connection_id is not None:
--        connection = await _load_owned_connection(db, user, agent.connection_id)
-     clean_model = model.strip()
-     if not clean_model:
-         raise HTTPException(status_code=400, detail="Model is required.")
--    if connection is not None:
--        allowed = PROVIDER_MODELS.get(connection.provider.value, [])
--        if allowed and clean_model not in allowed:
--            raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
-+    # The model→provider derivation (_apply_version_edit) sets the agent's
-+    # provider from the chosen model; no connection-based allowlist check.
-     current_model = current.model
-     if clean_model == current_model:
-         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-@@ -304,10 +314,10 @@ async def edit_agent_version_page(
-     ).scalar_one_or_none()
-     if version is None:
-         raise HTTPException(status_code=400, detail="Agent has no current version.")
--    connection: Connection | None = None
--    if agent.connection_id is not None:
--        connection = await _load_owned_connection(db, user, agent.connection_id)
--    provider_models = PROVIDER_MODELS.get(connection.provider.value, []) if connection else []
-+    # Model choices come from the agent's stored provider (not a connection).
-+    provider_models = (
-+        PROVIDER_MODELS.get(agent.provider.value, []) if agent.provider else []
-+    )
-     max_version_no = await db.scalar(
-         select(func.max(AgentVersion.version_no)).where(AgentVersion.agent_id == agent.id)
+ def _resolve(turn: dict, args: argparse.Namespace) -> tuple[str, str]:
+     """Pick the provider and model for a turn.
+ 
+     Legacy payloads may still supply `preferred_provider` / `preferred_model`.
+     New payloads supply `model` plus `agent_id` / `match_id`.
+     """
++    # Priority: --provider override > the server's explicit per-turn `provider`
++    # field (the new routing sends it) > legacy preferred_provider > model
++    # prefix. The explicit field means the connector no longer has to guess.
++    payload_provider = (turn.get("provider") or "").lower()
+     legacy_provider = (turn.get("preferred_provider") or "").lower()
+     turn_provider = _provider_from_model(turn.get("model")) or _provider_from_model(
+         turn.get("preferred_model")
      )
-@@ -337,16 +347,9 @@ async def save_version(
-     strategy_text: Annotated[str, Form()],
- ) -> RedirectResponse:
-     agent = await _load_owned_agent(db, user, agent_id)
--    connection: Connection | None = None
--    if agent.connection_id is not None:
--        connection = await _load_owned_connection(db, user, agent.connection_id)
-     clean_model = model.strip()
-     if not clean_model:
-         raise HTTPException(status_code=400, detail="Model is required.")
--    if connection is not None:
--        allowed = PROVIDER_MODELS.get(connection.provider.value, [])
--        if allowed and clean_model not in allowed:
--            raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
-     clean_strategy = strategy_text.strip()
-     if not clean_strategy:
-         raise HTTPException(status_code=400, detail="Strategy text is required.")
-@@ -379,5 +382,7 @@ async def restore_version(
-     if version.id == agent.current_version_id:
-         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-     agent.current_version_id = version.id
-+    # Restoring an older version may change the model → re-derive the provider.
-+    _sync_agent_provider(agent, version.model)
-     await db.commit()
-     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-diff --git a/app/routes/agents_setup.py b/app/routes/agents_setup.py
-index f8419f4..b2e683c 100644
---- a/app/routes/agents_setup.py
-+++ b/app/routes/agents_setup.py
-@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
- from sqlalchemy import func, select
- from starlette.responses import Response
- 
--from app.config import PROVIDER_MODELS
-+from app.config import PROVIDER_MODELS, provider_for_model
- from app.deps import DbSession, require_user_with_handle
- from app.engine.agent_onboarding import compute_agent_onboarding_state
- from app.engine.connection_health import ConnectionHealth, compute_connection_health
-@@ -20,6 +20,7 @@ from app.games import get as get_game_module, known_types
- from app.models.agent import Agent, AgentKind, AgentStatus
- from app.models.agent_version import AgentVersion
- from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
-+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
- from app.models.match import GameState, Match
- from app.models.player import Player
- from app.models.user import User
-@@ -111,6 +112,27 @@ async def _load_user_connections(db: DbSession, user_id: int) -> list[Connection
-     return list(rows.scalars().all())
- 
- 
-+async def _enabled_provider_values(db: DbSession, user_id: int) -> set[str]:
-+    """Provider values enabled on at least one of the user's live-or-not
-+    connections — the providers an agent can be created for."""
-+    rows = (
-+        (
-+            await db.execute(
-+                select(ConnectionProviderRow.provider)
-+                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
-+                .where(
-+                    Connection.user_id == user_id,
-+                    Connection.deleted_at.is_(None),
-+                    ConnectionProviderRow.enabled.is_(True),
-+                )
-+            )
-+        )
-+        .scalars()
-+        .all()
+-    provider = args.provider or (legacy_provider if legacy_provider in _ADAPTERS else None)
+-    if provider is None:
+-        provider = turn_provider
++    provider = (
++        args.provider
++        or (payload_provider if payload_provider in _ADAPTERS else None)
++        or (legacy_provider if legacy_provider in _ADAPTERS else None)
++        or turn_provider
 +    )
-+    return {p.value for p in rows}
-+
-+
- async def _load_user_agents(db: DbSession, user_id: int) -> list[tuple[Agent, AgentVersion | None, Connection | None]]:
-     rows = (
-         await db.execute(
-@@ -479,31 +501,32 @@ async def create_agent_or_connection(
-         if existing is not None:
-             raise HTTPException(status_code=409, detail="You already have an agent with that name.")
+     if provider not in _ADAPTERS:
+-        if legacy_provider and not args.provider:
++        if (payload_provider or legacy_provider) and not args.provider:
+             print(
+-                f"[agentludum-connector] turn is configured for {legacy_provider!r}, which has no "
+-                f"CLI runner — using {DEFAULT_PROVIDER}. (MCP-only providers do not use this runner.)",
++                f"[agentludum-connector] turn is configured for "
++                f"{(payload_provider or legacy_provider)!r}, which has no CLI runner — "
++                f"using {DEFAULT_PROVIDER}. (MCP-only providers do not use this runner.)",
+                 file=sys.stderr,
+             )
+         provider = DEFAULT_PROVIDER
+@@ -460,13 +480,13 @@ def _resolve(turn: dict, args: argparse.Namespace) -> tuple[str, str]:
+     if args.model:
+         model = args.model
+     elif args.provider:
++        # A CLI --provider override forces a different CLI than the turn's; the
++        # turn's model belongs to the agent's real provider and must not leak
++        # into the overridden CLI — use this adapter's default model.
+         model = adapter.default_model
+-    elif provider == legacy_provider:
+-        model = str(turn.get("preferred_model") or adapter.default_model)
+-    elif provider == turn_provider:
+-        model = str(turn.get("model") or adapter.default_model)
+     else:
+-        model = adapter.default_model
++        # Normal path: the server sends the agent's model in the payload; trust it.
++        model = str(turn.get("model") or turn.get("preferred_model") or adapter.default_model)
+     return provider, model
  
--        connection: Connection | None = None
--        if connection_id is not None:
--            connection = await _load_owned_connection(db, user, connection_id)
--            if connection.status != ConnectionStatus.ACTIVE:
--                raise HTTPException(status_code=409, detail="Connection must be active first.")
--        else:
--            if provider is None:
--                raise HTTPException(status_code=400, detail="Pick a provider or choose a connection.")
--            try:
--                provider_choice = ConnectionProvider(provider.strip().lower())
--            except ValueError as exc:
--                raise HTTPException(status_code=400, detail="Unknown provider.") from exc
--            connection = await _load_active_connection_for_provider(db, user.id, provider_choice)
--            if connection is None:
--                raise HTTPException(
--                    status_code=409,
--                    detail="Create an active connection for that provider first.",
--                )
--
-         clean_model = (model or "").strip()
--        allowed = PROVIDER_MODELS.get(connection.provider.value, [])
--        if allowed and clean_model not in allowed:
--            raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
-         if not clean_model:
-             raise HTTPException(status_code=400, detail="Model is required.")
-+        # An agent is name + model + strategy; its provider is derived from the
-+        # chosen model (claude/gemini/openai) and stored. A freeform model
-+        # (hermes/openclaw) takes the explicit provider param.
-+        derived = provider_for_model(clean_model)
-+        if derived is not None:
-+            agent_provider = ConnectionProvider(derived)
-+        elif provider:
-+            try:
-+                agent_provider = ConnectionProvider(provider.strip().lower())
-+            except ValueError as exc:
-+                raise HTTPException(status_code=400, detail="Unknown provider.") from exc
-+        else:
-+            raise HTTPException(status_code=400, detail="Pick a model.")
-+        # Availability: the provider must be enabled on at least one connection,
-+        # else the agent could never be served (acceptance #3).
-+        if agent_provider.value not in await _enabled_provider_values(db, user.id):
-+            raise HTTPException(
-+                status_code=409,
-+                detail=(
-+                    f"No connection runs {agent_provider.value}. "
-+                    "Turn it on at /me/connections first."
-+                ),
-+            )
-         clean_strategy = (strategy_text or "").strip()
-         if not clean_strategy and strategy_preset:
-             preset = next(
-@@ -518,7 +541,8 @@ async def create_agent_or_connection(
-         version_text = clean_strategy or get_game_module(_DEFAULT_GAME).default_strategy()
-         agent = Agent(
-             user_id=user.id,
--            connection_id=connection.id,
-+            connection_id=None,
-+            provider=agent_provider,
-             kind=AgentKind.AI,
-             name=clean_name,
-             game=_DEFAULT_GAME,
+ 
+@@ -560,7 +580,7 @@ def main() -> None:
+         httpx.post(
+             f"{base}/api/agent/report-pid",
+             headers=headers,
+-            json={"pid": pid},
++            json={"pid": pid, "detected_providers": _detect_providers()},
+             timeout=10,
+         ).raise_for_status()
+     except httpx.HTTPError as exc:
