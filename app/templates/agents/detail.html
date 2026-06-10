@@ -8,9 +8,8 @@
         <span class="agent-health-live" hx-get="/me/agents/{{ agent.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
             {% include "agents/_status.html" %}
         </span>
-        {% if connection %}
-            · {{ connection.nickname or provider_label }}
-            {% if connection.runner_pid %} · PID {{ connection.runner_pid }}{% endif %}
+        {% if provider_label %}
+            · {{ provider_label }}
         {% endif %}
     </p>
 </div>
@@ -21,34 +20,11 @@
 </form>
 
 {% if health.needs_reconnect %}
-    {% if not connection %}
 <div class="card">
     <h3 style="margin-top:0;">No live connection runs {{ agent.provider.value if agent.provider else "this agent's provider" }}</h3>
     <p class="hint" style="margin-top:0;">This agent plays on any live connection that has its provider turned on. Turn it on (and start the runner) from your connections page.</p>
     <a class="btn btn-primary" href="/me/connections">Go to connections →</a>
 </div>
-    {% elif health.never_connected %}
-<div id="reconnect" class="card">
-    <h3 style="margin-top:0;">Runner hasn't connected yet</h3>
-    <p class="hint" style="margin-top:0;">The connection exists but the runner hasn't started yet, so this agent can't play. Start the runner using the setup instructions on your <a href="/me/connections/{{ connection.id }}">connection page</a>.</p>
-</div>
-    {% else %}
-<div id="reconnect" class="card">
-    <h3 style="margin-top:0;">Runner isn't running</h3>
-    <p class="hint" style="margin-top:0;">
-        Runner stopped — last connected
-        {% if health.last_connected_at %}
-        <time class="localtime" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_human }}</time>
-        {% else %}
-        never
-        {% endif %}.
-        {% if health.game_name %}
-        This agent is in <strong>{{ health.game_name }}</strong> and its turns are defaulting.
-        {% endif %}
-        Restart the runner or go to your <a href="/me/connections/{{ connection.id }}">connection page</a> to reissue the setup message.
-    </p>
-</div>
-    {% endif %}
 {% elif health.state.value == 'paused' %}
 <div class="card">
     <h3 style="margin-top:0;">Paused</h3>
@@ -114,7 +90,7 @@
 <div class="card">
     <h3 style="margin-top:0;">Controls</h3>
     <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-        {% if agent.status.value == 'paused' and not health.needs_reconnect and connection %}
+        {% if agent.status.value == 'paused' and not health.needs_reconnect %}
             <form method="post" action="/me/agents/{{ agent.id }}/resume"><button type="submit">Resume</button></form>
         {% else %}
             <form method="post" action="/me/agents/{{ agent.id }}/pause"><button type="submit">Pause</button></form>

@@ -430,12 +430,14 @@ async def test_health_badge_fragment_renders_and_owner_only(client, reset_db):
         aid, owner_id, other_id = agent.id, owner.id, other.id
 
     # Owner sees the live badge fragment (the HTMX poll target).
+    # Under coverage-based routing a PENDING (never-seen) connection means the
+    # provider is not live-covered → "No live connection" badge.
     r = await client.get(
         f"/me/agents/{aid}/health-badge", cookies=_signed_in_cookies(owner_id)
     )
     assert r.status_code == 200
     assert "badge-alert" in r.text
-    assert "Disconnected" in r.text
+    assert "No live connection" in r.text
 
     # Not the owner -> 404, so no one else can poll your agent's status.
     r = await client.get(

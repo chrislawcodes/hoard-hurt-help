@@ -14,12 +14,18 @@ from starlette.responses import Response
 from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
-from app.engine.connection_health import ConnectionHealth, compute_connection_health
+from app.engine.connection_health import (
+    ConnectionHealth,
+    active_matches_for_provider,
+    is_join_blocked,
+    live_provider_capacity,
+    provider_is_covered,
+)
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection import Connection, ConnectionProvider
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -38,7 +44,6 @@ _DEFAULT_GAME = known_types()[0] if known_types() else "hoard-hurt-help"
 class AgentRow:
     agent: Agent
     version: AgentVersion | None
-    connection: Connection | None
     health: object
     match_count: int
 
@@ -64,41 +69,6 @@ class MatchEntry:
     round_score: int
     total_score: int
     pre_game: bool
-
-
-async def _load_owned_connection(
-    db: DbSession, user: User, connection_id: int
-) -> Connection:
-    connection = (
-        await db.execute(
-            select(Connection).where(
-                Connection.id == connection_id,
-                Connection.user_id == user.id,
-                Connection.deleted_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if connection is None:
-        raise HTTPException(status_code=404, detail="Connection not found.")
-    return connection
-
-
-async def _load_active_connection_for_provider(
-    db: DbSession, user_id: int, provider: ConnectionProvider
-) -> Connection | None:
-    rows = (
-        await db.execute(
-            select(Connection)
-            .where(
-                Connection.user_id == user_id,
-                Connection.provider == provider,
-                Connection.status == ConnectionStatus.ACTIVE,
-                Connection.deleted_at.is_(None),
-            )
-            .order_by(Connection.created_at.desc(), Connection.id.desc())
-        )
-    ).scalars()
-    return rows.first()
 
 
 async def _load_user_connections(db: DbSession, user_id: int) -> list[Connection]:
@@ -167,12 +137,11 @@ def _build_model_picker_groups(
     return groups, selected, notes
 
 
-async def _load_user_agents(db: DbSession, user_id: int) -> list[tuple[Agent, AgentVersion | None, Connection | None]]:
+async def _load_user_agents(db: DbSession, user_id: int) -> list[tuple[Agent, AgentVersion | None]]:
     rows = (
         await db.execute(
-            select(Agent, AgentVersion, Connection)
+            select(Agent, AgentVersion)
             .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-            .join(Connection, Connection.id == Agent.connection_id, isouter=True)
             .where(
                 Agent.user_id == user_id,
                 Agent.kind == AgentKind.AI,
@@ -181,30 +150,12 @@ async def _load_user_agents(db: DbSession, user_id: int) -> list[tuple[Agent, Ag
             .order_by(Agent.created_at.desc(), Agent.id.desc())
         )
     ).all()
-    return [(agent, version, connection) for agent, version, connection in rows]
+    return [(agent, version) for agent, version in rows]
 
 
 async def _count_agent_matches(db: DbSession, agent_id: int) -> int:
     count = await db.scalar(
         select(func.count()).select_from(Player).where(Player.agent_id == agent_id)
-    )
-    return int(count or 0)
-
-
-async def _count_active_matches_for_connection(db: DbSession, connection_id: int) -> int:
-    count = await db.scalar(
-        select(func.count(func.distinct(Match.id)))
-        .select_from(Agent)
-        .join(Player, Player.agent_id == Agent.id)
-        .join(Match, Match.id == Player.match_id)
-        .where(
-            Agent.connection_id == connection_id,
-            Agent.kind == AgentKind.AI,
-            Agent.status == AgentStatus.ACTIVE,
-            Agent.archived_at.is_(None),
-            Player.left_at.is_(None),
-            Match.state == GameState.ACTIVE,
-        )
     )
     return int(count or 0)
 
@@ -295,24 +246,51 @@ async def _build_agent_detail_context(
     user: User,
     agent: Agent,
 ) -> dict[str, object]:
-    connection: Connection | None = None
-    if agent.connection_id is not None:
-        connection = (
-            await db.execute(
-                select(Connection).where(
-                    Connection.id == agent.connection_id,
-                    Connection.user_id == user.id,
-                    Connection.deleted_at.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
-    health: object = None
-    if connection is not None:
-        health = await compute_connection_health(db, connection)
-    elif agent.status == AgentStatus.PAUSED:
-        health = {
+    """Build the template context for an agent detail / status page.
+
+    Health and readiness come from *provider coverage* — whether any of the
+    user's live connections has the agent's provider enabled — not from an
+    attached connection. There is no per-agent "attached connection" any more.
+    """
+    provider = agent.provider
+    covered = (
+        await provider_is_covered(db, user.id, provider) if provider is not None else False
+    )
+
+    # Build a health-like dict the templates can read (same keys as
+    # ConnectionHealthStatus but not the dataclass itself).
+    if agent.status == AgentStatus.PAUSED:
+        health: object = {
             "state": ConnectionHealth.PAUSED,
-            "label": "Needs connection",
+            "label": "Paused",
+            "badge_class": "badge-done",
+            "pulse": False,
+            "needs_reconnect": False,
+            "never_connected": False,
+            "last_connected_at": None,
+            "last_connected_human": None,
+            "match_id": None,
+            "game_name": None,
+            "agent_count": 0,
+        }
+    elif provider is None:
+        health = {
+            "state": ConnectionHealth.DISCONNECTED,
+            "label": "No provider",
+            "badge_class": "badge-alert",
+            "pulse": False,
+            "needs_reconnect": True,
+            "never_connected": True,
+            "last_connected_at": None,
+            "last_connected_human": None,
+            "match_id": None,
+            "game_name": None,
+            "agent_count": 0,
+        }
+    elif not covered:
+        health = {
+            "state": ConnectionHealth.DISCONNECTED,
+            "label": "No live connection",
             "badge_class": "badge-alert",
             "pulse": False,
             "needs_reconnect": True,
@@ -325,44 +303,29 @@ async def _build_agent_detail_context(
         }
     else:
         health = {
-            "state": ConnectionHealth.DISCONNECTED,
-            "label": "Disconnected",
-            "badge_class": "badge-alert",
+            "state": ConnectionHealth.READY,
+            "label": "Ready",
+            "badge_class": "badge-ok",
             "pulse": False,
-            "needs_reconnect": True,
-            "never_connected": True,
+            "needs_reconnect": False,
+            "never_connected": False,
             "last_connected_at": None,
             "last_connected_human": None,
             "match_id": None,
             "game_name": None,
             "agent_count": 0,
         }
+
     version = (
         await db.execute(
             select(AgentVersion).where(AgentVersion.id == agent.current_version_id)
         )
     ).scalar_one_or_none()
     versions = await _version_rows(db, agent.id)
-    allowed_models = (
-        PROVIDER_MODELS.get(connection.provider.value, [])
-        if connection is not None and connection.provider is not None
-        else []
-    )
-    candidate_connections: list[Connection] = []
-    if agent.connection_id is not None and connection is not None and connection.provider is not None:
-        candidate_connections = [
-            item
-            for item in await _load_user_connections(db, user.id)
-            if item.provider == connection.provider
-            and item.status != ConnectionStatus.PENDING
-        ]
-    elif version is not None:
-        candidate_connections = [
-            item
-            for item in await _load_user_connections(db, user.id)
-            if item.provider is not None
-            and version.model in PROVIDER_MODELS.get(item.provider.value, [])
-        ]
+
+    # allowed_models and provider_label come from the agent's stored provider.
+    allowed_models = PROVIDER_MODELS.get(provider.value, []) if provider is not None else []
+
     active_matches = (
         await db.execute(
             select(Match.id)
@@ -375,24 +338,29 @@ async def _build_agent_detail_context(
             .limit(1)
         )
     ).first() is not None
-    active_match_count = (
-        await _count_active_matches_for_connection(db, connection.id)
-        if connection is not None
-        else 0
-    )
+
+    # SUM-based join-gate: active matches for this provider vs. sum of capacities.
+    if provider is not None:
+        active_match_count = await active_matches_for_provider(db, user.id, provider)
+        capacity_sum = await live_provider_capacity(db, user.id, provider)
+        join_blocked = is_join_blocked(active_match_count, capacity_sum)
+    else:
+        active_match_count = 0
+        capacity_sum = 0
+        join_blocked = True
+
     return {
         "user": user,
         "agent": agent,
-        "connection": connection,
         "version": version,
         "versions": versions,
         "health": health,
-        "provider_label": _provider_label(connection.provider) if connection else None,
+        "provider_label": _provider_label(provider),
         "provider_models": allowed_models,
-        "candidate_connections": candidate_connections,
         "active_matches": active_matches,
         "active_match_count": active_match_count,
-        "join_blocked": connection is not None and active_match_count >= connection.max_concurrent_games,
+        "capacity_sum": capacity_sum,
+        "join_blocked": join_blocked,
         "match_count": await _count_agent_matches(db, agent.id),
     }
 
@@ -405,13 +373,31 @@ async def list_agents(
 ) -> Response:
     agents = await _load_user_agents(db, user.id)
     rows: list[AgentRow] = []
-    for agent, version, connection in agents:
-        health = (
-            await compute_connection_health(db, connection)
-            if connection is not None
-            else {
+    for agent, version in agents:
+        provider = agent.provider
+        covered = (
+            await provider_is_covered(db, user.id, provider)
+            if provider is not None
+            else False
+        )
+        if agent.status == AgentStatus.PAUSED:
+            health: object = {
                 "state": ConnectionHealth.PAUSED,
-                "label": "Needs connection",
+                "label": "Paused",
+                "badge_class": "badge-done",
+                "pulse": False,
+                "needs_reconnect": False,
+                "never_connected": False,
+                "last_connected_at": None,
+                "last_connected_human": None,
+                "match_id": None,
+                "game_name": None,
+                "agent_count": 0,
+            }
+        elif not covered:
+            health = {
+                "state": ConnectionHealth.DISCONNECTED,
+                "label": "No live connection",
                 "badge_class": "badge-alert",
                 "pulse": False,
                 "needs_reconnect": True,
@@ -422,12 +408,24 @@ async def list_agents(
                 "game_name": None,
                 "agent_count": 0,
             }
-        )
+        else:
+            health = {
+                "state": ConnectionHealth.READY,
+                "label": "Ready",
+                "badge_class": "badge-ok",
+                "pulse": False,
+                "needs_reconnect": False,
+                "never_connected": False,
+                "last_connected_at": None,
+                "last_connected_human": None,
+                "match_id": None,
+                "game_name": None,
+                "agent_count": 0,
+            }
         rows.append(
             AgentRow(
                 agent=agent,
                 version=version,
-                connection=connection,
                 health=health,
                 match_count=await _count_agent_matches(db, agent.id),
             )
@@ -605,13 +603,16 @@ async def agent_detail(
         raise HTTPException(status_code=404, detail="Agent not found.")
     context = await _build_agent_detail_context(db, request, user, agent)
     matches = await _load_agent_matches(db, agent.id)
-    raw_connection = context.get("connection")
-    connection_obj = raw_connection if isinstance(raw_connection, Connection) else None
-    # Use first_connected_at with a fallback to last_seen_at for legacy connections
-    # created before first_connected_at was tracked.
-    first_connected_at = (
-        (connection_obj.first_connected_at or connection_obj.last_seen_at)
-        if connection_obj is not None
+    # Under coverage-based routing, "connected" means the provider is currently
+    # covered by a live connection.  We pass a non-None sentinel (True) when
+    # covered so compute_agent_onboarding_state advances past state-1 (waiting).
+    health = context.get("health")
+    _health_state = (
+        health.get("state") if isinstance(health, dict) else getattr(health, "state", None)
+    )
+    first_connected_at: object = (
+        True
+        if _health_state in (ConnectionHealth.READY, ConnectionHealth.LIVE)
         else None
     )
     onboarding = await compute_agent_onboarding_state(
