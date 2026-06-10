@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent, AgentKind, AgentStatus
-from app.models.connection import Connection, ConnectionStatus
+from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -242,3 +242,114 @@ async def compute_connection_health(
         game=live_match,
         agent_count=covered_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# Coverage-aware helpers (provider-based, not attached-connection-based)
+# ---------------------------------------------------------------------------
+
+
+def _connection_is_live(connection: Connection, now: datetime) -> bool:
+    """True when this connection counts as *live* for coverage purposes.
+
+    A connection is live when:
+    - not deleted (caller already filters deleted_at IS NULL)
+    - status != PAUSED
+    - last_seen_at is within LIVE_WINDOW_SECONDS of *now*
+    """
+    if connection.status == ConnectionStatus.PAUSED:
+        return False
+    last_seen = connection.last_seen_at
+    if last_seen is None:
+        return False
+    aware = last_seen if last_seen.tzinfo is not None else last_seen.replace(tzinfo=timezone.utc)
+    return (now - aware).total_seconds() <= LIVE_WINDOW_SECONDS
+
+
+async def provider_is_covered(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when the user has at least one *live* connection with *provider* enabled.
+
+    A live connection satisfies all three conditions:
+    - deleted_at IS NULL
+    - status != PAUSED
+    - last_seen_at within LIVE_WINDOW_SECONDS of now
+    """
+    now = datetime.now(timezone.utc)
+    rows = (
+        await db.execute(
+            select(Connection)
+            .join(
+                ConnectionProviderRow,
+                ConnectionProviderRow.connection_id == Connection.id,
+            )
+            .where(
+                Connection.user_id == user_id,
+                Connection.deleted_at.is_(None),
+                ConnectionProviderRow.provider == provider,
+                ConnectionProviderRow.enabled.is_(True),
+            )
+        )
+    ).scalars().all()
+    return any(_connection_is_live(c, now) for c in rows)
+
+
+async def active_matches_for_provider(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> int:
+    """Count active matches for AI agents of *user_id* whose provider is *provider*.
+
+    Used by the SUM join-gate rule.
+    """
+    count = await db.scalar(
+        select(func.count(func.distinct(Match.id)))
+        .select_from(Agent)
+        .join(Player, Player.agent_id == Agent.id)
+        .join(Match, Match.id == Player.match_id)
+        .where(
+            Agent.user_id == user_id,
+            Agent.provider == provider,
+            Agent.kind == AgentKind.AI,
+            Agent.status == AgentStatus.ACTIVE,
+            Agent.archived_at.is_(None),
+            Player.left_at.is_(None),
+            Match.state == GameState.ACTIVE,
+        )
+    )
+    return int(count or 0)
+
+
+async def live_provider_capacity(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> int:
+    """Sum of max_concurrent_games over the user's live connections that have *provider* enabled.
+
+    Returns 0 when no live connection covers the provider (join is always blocked).
+    """
+    now = datetime.now(timezone.utc)
+    rows = (
+        await db.execute(
+            select(Connection)
+            .join(
+                ConnectionProviderRow,
+                ConnectionProviderRow.connection_id == Connection.id,
+            )
+            .where(
+                Connection.user_id == user_id,
+                Connection.deleted_at.is_(None),
+                ConnectionProviderRow.provider == provider,
+                ConnectionProviderRow.enabled.is_(True),
+            )
+        )
+    ).scalars().all()
+    return sum(c.max_concurrent_games for c in rows if _connection_is_live(c, now))
+
+
+def is_join_blocked(active_count: int, capacity_sum: int) -> bool:
+    """Return True when the active count reaches or exceeds the combined capacity.
+
+    DB-free helper — unit-testable without a session.
+    capacity_sum == 0 means no live connection covers the provider → always blocked.
+    """
+    return active_count >= capacity_sum if capacity_sum > 0 else True

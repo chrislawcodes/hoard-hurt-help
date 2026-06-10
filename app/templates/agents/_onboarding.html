@@ -48,8 +48,8 @@
     {% if join_blocked %}
 <div class="card">
     <h3 style="margin-top:0;">At capacity</h3>
-    <p class="hint" style="margin-top:0;">This connection is already running its maximum number of active matches.</p>
-    <p class="meta">{{ active_match_count }} / {{ connection.max_concurrent_games }} active matches</p>
+    <p class="hint" style="margin-top:0;">Your machines are already running their maximum number of active matches for this provider.</p>
+    <p class="meta">{{ active_match_count }} / {{ capacity_sum }} active matches</p>
 </div>
     {% elif ready_to_play %}
 <div class="card" style="border-color:var(--ok, #2d9a5a);">

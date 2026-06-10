@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import Annotated
 from urllib.parse import quote
@@ -13,11 +13,16 @@ from sqlalchemy import case, func, select
 
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
+from app.engine.connection_health import (
+    active_matches_for_provider,
+    is_join_blocked,
+    live_provider_capacity,
+    provider_is_covered,
+)
 from app.engine.scheduler import start_game
 from app.games import get as get_game_module
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
-from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
 from app.models.user import User
@@ -37,16 +42,6 @@ router = APIRouter(tags=["web"])
 
 _DOCS_DIR = FsPath("docs")
 _GUIDE_NAME = re.compile(r"^[a-z0-9-]+$")
-_BOT_LIVE_WINDOW = timedelta(seconds=90)
-
-
-def _is_warm(connection: Connection) -> bool:
-    """True if this connection's runner contacted the server in the last 90 seconds."""
-    ls = connection.last_seen_at
-    if ls is None:
-        return False
-    aware = ls if ls.tzinfo is not None else ls.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - aware <= _BOT_LIVE_WINDOW
 
 
 def _seat_name(handle: str, agent_name: str, existing: set[str]) -> str:
@@ -147,35 +142,16 @@ async def legacy_join_submit_redirect(
 
 async def _load_user_agents(
     db: DbSession, user_id: int
-) -> list[tuple[Agent, AgentVersion | None, Connection | None]]:
+) -> list[tuple[Agent, AgentVersion | None]]:
     rows = (
         await db.execute(
-            select(Agent, AgentVersion, Connection)
+            select(Agent, AgentVersion)
             .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-            .join(Connection, Connection.id == Agent.connection_id, isouter=True)
             .where(Agent.user_id == user_id, Agent.archived_at.is_(None))
             .order_by(Agent.created_at.desc(), Agent.id.desc())
         )
     ).all()
-    return [(agent, version, connection) for agent, version, connection in rows]
-
-
-async def _active_match_count_for_connection(db: DbSession, connection_id: int) -> int:
-    result = await db.scalar(
-        select(func.count(func.distinct(Match.id)))
-        .select_from(Agent)
-        .join(Player, Player.agent_id == Agent.id)
-        .join(Match, Match.id == Player.match_id)
-        .where(
-            Agent.connection_id == connection_id,
-            Agent.kind == AgentKind.AI,
-            Agent.status == AgentStatus.ACTIVE,
-            Agent.archived_at.is_(None),
-            Player.left_at.is_(None),
-            Match.state == GameState.ACTIVE,
-        )
-    )
-    return int(result or 0)
+    return [(agent, version) for agent, version in rows]
 
 
 @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
@@ -205,32 +181,29 @@ async def join_form(
         return redirect
 
     agents = await _load_user_agents(db, user.id)
-    joinable_agents = [
-        {
+    joinable_agents = []
+    for agent, version in agents:
+        if agent.kind != AgentKind.AI:
+            continue
+        provider = agent.provider
+        covered = (
+            await provider_is_covered(db, user.id, provider)
+            if provider is not None
+            else False
+        )
+        provider_label = provider.value if provider is not None else None
+        model_label = (
+            f"{provider.value}/{version.model}"
+            if provider is not None and version is not None
+            else None
+        )
+        joinable_agents.append({
             "agent": agent,
             "version": version,
-            "connection": connection,
-            "provider_label": (
-                connection.provider.value
-                if connection is not None and connection.provider is not None
-                else None
-            ),
-            "model_label": (
-                f"{connection.provider.value}/{version.model}"
-                if connection is not None and connection.provider is not None and version is not None
-                else None
-            ),
-            "ready": (
-                agent.kind == AgentKind.AI
-                and connection is not None
-                and connection.status == ConnectionStatus.ACTIVE
-                and _is_warm(connection)
-                and version is not None
-            ),
-        }
-        for agent, version, connection in agents
-        if agent.kind == AgentKind.AI
-    ]
+            "provider_label": provider_label,
+            "model_label": model_label,
+            "ready": covered and version is not None,
+        })
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -281,11 +254,10 @@ async def join_submit(
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Match not open for registration.")
 
-    agent = (
+    agent_row = (
         await db.execute(
-            select(Agent, AgentVersion, Connection)
+            select(Agent, AgentVersion)
             .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-            .join(Connection, Connection.id == Agent.connection_id, isouter=True)
             .where(
                 Agent.id == selected_agent_id,
                 Agent.user_id == user.id,
@@ -294,25 +266,33 @@ async def join_submit(
             )
         )
     ).one_or_none()
-    if agent is None:
+    if agent_row is None:
         raise HTTPException(404, detail="Agent not found.")
-    selected_agent, version, connection = agent
+    selected_agent, version = agent_row
     if version is None:
         raise HTTPException(status_code=409, detail="That agent has no current version.")
-    if connection is None or connection.status != ConnectionStatus.ACTIVE or not _is_warm(connection):
-        raise HTTPException(status_code=409, detail="That connection is not live yet.")
-    allowed_models = (
-        PROVIDER_MODELS.get(connection.provider.value, [])
-        if connection.provider is not None
-        else []
-    )
-    if allowed_models and version.model not in allowed_models:
-        raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
-    active_match_count = await _active_match_count_for_connection(db, connection.id)
-    if active_match_count >= connection.max_concurrent_games:
+    provider = selected_agent.provider
+    if provider is None:
+        raise HTTPException(status_code=409, detail="That agent has no provider configured.")
+    covered = await provider_is_covered(db, user.id, provider)
+    if not covered:
         raise HTTPException(
             status_code=409,
-            detail="That connection is already running its maximum number of active matches.",
+            detail=f"No live connection runs {provider.value}. Start a machine first.",
+        )
+    allowed_models = PROVIDER_MODELS.get(provider.value, [])
+    if allowed_models and version.model not in allowed_models:
+        raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
+    # SUM-based join gate: active count vs. sum of capacities over live connections.
+    active_match_count = await active_matches_for_provider(db, user.id, provider)
+    capacity_sum = await live_provider_capacity(db, user.id, provider)
+    if is_join_blocked(active_match_count, capacity_sum):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Your machines are at capacity for {provider.value} "
+                f"({active_match_count}/{capacity_sum} active matches)."
+            ),
         )
     already_in = (
         await db.execute(
@@ -337,9 +317,9 @@ async def join_submit(
     )
     seat_name = _seat_name(user.handle or user.name or "", selected_agent.name, existing_seats)
     model_label = (
-        f"{connection.provider.value}/{version.model}"
-        if connection.provider is not None and version.model
-        else (connection.provider.value if connection.provider is not None else version.model)
+        f"{provider.value}/{version.model}"
+        if version.model
+        else provider.value
     )
     player = Player(
         match_id=match.id,
@@ -454,28 +434,19 @@ async def player_dashboard(
     )
     presets = [asdict(p) for p in get_game_module(game.game).strategy_presets()]
 
-    agent = (
+    agent_row = (
         await db.execute(
-            select(Agent, AgentVersion, Connection)
+            select(Agent, AgentVersion)
             .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-            .join(Connection, Connection.id == Agent.connection_id, isouter=True)
             .where(Agent.id == player.agent_id)
         )
     ).one_or_none()
     current_agent: Agent | None = None
     current_version: AgentVersion | None = None
-    current_connection: Connection | None = None
-    if agent is not None:
-        current_agent, current_version, current_connection = agent
+    if agent_row is not None:
+        current_agent, current_version = agent_row
 
-    # The connection key is shown exactly once, right after it is issued — on
-    # connect or on an explicit re-issue. We only ever store the argon2 hash, so
-    # we cannot show the key again on later visits.
-    fresh_key = (
-        request.session.pop(f"fresh_connection_key_{current_connection.id}", None)
-        if current_connection is not None
-        else None
-    )
+    fresh_key: str | None = None
 
     selected_ai = request.session.pop(f"ai_type_{player.id}", None)
     pre_game = game.state in (GameState.SCHEDULED, GameState.REGISTERING)
@@ -491,7 +462,6 @@ async def player_dashboard(
             "player": player,
             "agent": current_agent,
             "version": current_version,
-            "connection": current_connection,
             "agent_key": fresh_key,
             "strategy": current_version.strategy_text if current_version else "",
             "base_url": settings.base_url,

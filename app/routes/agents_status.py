@@ -13,6 +13,7 @@ from starlette.responses import Response
 from app.broadcast import subscribe
 from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
+from app.engine.connection_health import ConnectionHealth
 from app.models.agent import Agent, AgentKind
 from app.models.user import User
 from app.routes.agents_setup import (
@@ -52,15 +53,14 @@ async def agent_status_fragment(
     agent = await _load_owned_agent(db, user, agent_id)
     context = await _build_agent_detail_context(db, request, user, agent)
     matches = await _load_agent_matches(db, agent_id)
-    connection = context.get("connection")
-    # Use first_connected_at with a fallback to last_seen_at for legacy connections
-    # created before first_connected_at was tracked.
-    first_connected_at = (
-        (
-            getattr(connection, "first_connected_at", None)
-            or getattr(connection, "last_seen_at", None)
-        )
-        if connection is not None
+    # Coverage-based: pass a non-None sentinel when the provider is live-covered.
+    health = context.get("health")
+    _health_state = (
+        health.get("state") if isinstance(health, dict) else getattr(health, "state", None)
+    )
+    first_connected_at: object = (
+        True
+        if _health_state in (ConnectionHealth.READY, ConnectionHealth.LIVE)
         else None
     )
     onboarding = await compute_agent_onboarding_state(
@@ -71,6 +71,8 @@ async def agent_status_fragment(
     )
     join_blocked: object = context.get("join_blocked", False)
     ready_to_play = _is_ready_to_play(context)
+    capacity_sum: object = context.get("capacity_sum", 0)
+    active_match_count: object = context.get("active_match_count", 0)
     return templates.TemplateResponse(
         request,
         "agents/_onboarding.html",
@@ -79,8 +81,8 @@ async def agent_status_fragment(
             "onboarding": onboarding,
             "join_blocked": join_blocked,
             "ready_to_play": ready_to_play,
-            "active_match_count": context.get("active_match_count", 0),
-            "connection": connection,
+            "active_match_count": active_match_count,
+            "capacity_sum": capacity_sum,
         },
     )
 
