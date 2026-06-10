@@ -3,14 +3,14 @@ reviewer: "gemini"
 lens: "regression-adversarial"
 stage: "diff"
 artifact_path: "docs/workflow/feature-runs/unified-connections/reviews/implementation.diff.patch"
-artifact_sha256: "295673ce107b5bf64d31850e69f915368cbf5068c8c9160f8d8da7013dfe1ab5"
+artifact_sha256: "a98d5f606590f6552647c4b1c6fd941a71d4116eeb8b9675b749ba365c693f46"
 repo_root: "."
-git_head_sha: "02d54ac116ea939765e6698f291d3b8f02d964ac"
-git_base_ref: "b38f3976eaff71ab3f173104ad02cc2ea169473e"
-git_base_sha: "b38f3976eaff71ab3f173104ad02cc2ea169473e"
+git_head_sha: "9eb03d7885edda5a5300b862a14d8de5d8efe35f"
+git_base_ref: "1b9d2ecc45aeef9fd126f9c50d7e09a55ae68d83"
+git_base_sha: "1b9d2ecc45aeef9fd126f9c50d7e09a55ae68d83"
 generation_method: "gemini-cli"
 resolution_status: "accepted"
-resolution_note: "Slice 5. The HIGH UX gap (hidden confirm form) is FIXED in this diff — a real 'Turn off <provider> anyway' button now posts confirm=true. Remaining findings minor/UNVERIFIED: (1) toggle check-then-update race is a deliberate user action, low-stakes, and the confirm flow is the guard; (2) 'live' flicker is inherent to any LIVE_WINDOW and applied consistently across helpers; (3) orphaned connection_providers rows after soft-delete are harmless (all routing/coverage queries filter Connection.deleted_at IS NULL) — a cleanup is a nice-to-have, not a correctness issue. No further code change."
+resolution_note: "Slice 6, all UNVERIFIED. (1) 'SQL injection' in _enabled_provider_values: REJECTED — provider is a FlexibleEnumType(ConnectionProvider) enum column queried via parameterized ORM; no raw user strings, no injection surface, values are enum-constrained. (2) create-then-disable race: if a provider is disabled/connection deleted right after the availability check, the agent simply enters the accepted wait state (coverage is re-evaluated every poll; the eligibility helper returns no-candidate, no crash) — best-effort create check is by design. (3) stale provider if PROVIDER_MODELS remapping moves a model between providers: rare config-change limitation, accepted; agents re-sync on next edit. No code change."
 raw_output_path: "docs/workflow/feature-runs/unified-connections/reviews/diff.gemini.regression-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,27 +22,33 @@ coverage_note: ""
 
 ## Findings
 
-- **[UNVERIFIED] Race Condition in Provider Toggling:** The `toggle_provider` route checks `_provider_covered_by_other_live` and `_stranded_provider_agent_count` separately before performing an `upsert`/`update` on the `ConnectionProvider` row. If multiple requests arrive nearly simultaneously (or if a connection heartbeat changes status between the check and the update), it is possible to disable a provider that *was* required, potentially stranding agents without the user's intent being fully validated by the current state.
+### 1. [UNVERIFIED] Potential SQL Injection / Integrity Risk in `_enabled_provider_values`
+*   **Severity:** MEDIUM
+*   **Analysis:** The function queries `ConnectionProviderRow.provider`. If `provider` is an Enum or a string column being cast/queried without strict validation, and the source is user-controllable (or if the database contains unexpected/mangled values), it could lead to unexpected filtering behavior.
+*   **Context:** `_enabled_provider_values` joins `ConnectionProviderRow` with `Connection`. If the `provider` column in `ConnectionProviderRow` is not properly constrained by the `ConnectionProvider` Enum (e.g., if it's a raw string), the `set` creation and subsequent membership checks could be bypassed or poisoned.
 
-- **[UNVERIFIED] Inconsistent "Live" Definition:** `_provider_covered_by_other_live` and `_load_stranded_agents` calculate "live" status using `Connection.last_seen_at >= (now - LIVE_WINDOW_SECONDS)`. If a connection runner is delayed, but not yet expired, an agent might "flicker" between being stranded and active, potentially causing unnecessary churn in the connection/runner logic.
+### 2. [UNVERIFIED] Race Condition: Agent Creation vs. Connection Status
+*   **Severity:** MEDIUM
+*   **Analysis:** In `create_agent_or_connection`, the `agent_provider` is checked against `_enabled_provider_values(db, user.id)` which filters by `Connection.deleted_at.is_(None)` and `ConnectionProviderRow.enabled.is_(True)`. However, there is no lock on the connection state.
+*   **Risk:** A user could disable a connection or delete it immediately after the validation check passes but before the transaction completes. This could leave the system with an `ACTIVE` agent that has no valid backend service, contrary to the requirement that an agent must be servable.
 
-- **[UNVERIFIED] Orphaned `ConnectionProvider` Rows:** The `delete_connection` route removes `ConnectionSetup` records but leaves the `ConnectionProvider` rows in the database. While harmless for queries that filter by `Connection.deleted_at.is_(None)`, it adds noise to the database and could potentially lead to confusing states if a connection with the same ID is ever re-created or if historical analysis is performed without filtering for `deleted_at`.
-
-- **Missing UI Feedback on Confirmation:** The `toggle_provider` route uses a `RedirectResponse` with `strand_provider` and `strand_count` query parameters to trigger a warning, but the implementation doesn't appear to provide a way to pass the `confirm=true` flag effectively through the UI's form submission flow based on the provided template change (it hides the form with `display:none`).
+### 3. [UNVERIFIED] Stale Provider During Model Change
+*   **Severity:** LOW
+*   **Analysis:** The `_sync_agent_provider` logic relies on `provider_for_model(model)`. If the `provider_for_model` registry is updated (e.g., a model is moved from one provider to another, or a new model is introduced that doesn't map to a standard provider), existing agents with the "wrong" provider will not be retroactively updated unless a user edits them.
+*   **Risk:** Agents could become orphaned or mis-routed if the configuration mapping changes, leading to silent failures where an agent is stuck trying to connect to a provider that no longer supports its chosen model.
 
 ## Residual Risks
 
-- **Agent Liveness Uncertainty:** By moving to an implicit coverage model, there is no longer a direct, single-source-of-truth mapping between an `Agent` and a specific `Connection`. This makes debugging agent-connection-runner lifecycle issues significantly more complex, as an agent's status now depends on the global state of *all* active connections.
-
-- **Provider Coverage Fragmentation:** If a user has multiple connections, but only enables specific providers on specific machines, the "routing" of an agent to a specific runner is no longer deterministic or visible to the user at the agent-detail level. This may lead to user confusion if agents do not appear to be running despite having a valid provider.
+*   **Logic Drift:** The transition from `agent.connection_id` (a hard, stateful link) to derived provider-based routing introduces a "logical coupling" that is now implicit. If `PROVIDER_MODELS` configuration becomes desynchronized from the actual provider capabilities of the connections enabled by the user, the agent creation flow will fail with a `409` error, which may be confusing if the user thinks their configuration is valid.
+*   **Schema Evolution:** The `Agent` model now stores the `provider` explicitly (denormalized). If the codebase ever introduces a "provider migration" (e.g., merging two providers or renaming one), every single `Agent` row in the database will need an expensive migration script, whereas previously it was only linked to a `Connection`.
 
 ## Token Stats
 
-- total_input=19702
-- total_output=679
-- total_tokens=38048
-- `gemini-3.1-flash-lite`: input=19702, output=679, total=38048
+- total_input=15302
+- total_output=663
+- total_tokens=15965
+- `gemini-3.1-flash-lite`: input=15302, output=663, total=15965
 
 ## Resolution
 - status: accepted
-- note: Slice 5. The HIGH UX gap (hidden confirm form) is FIXED in this diff — a real 'Turn off <provider> anyway' button now posts confirm=true. Remaining findings minor/UNVERIFIED: (1) toggle check-then-update race is a deliberate user action, low-stakes, and the confirm flow is the guard; (2) 'live' flicker is inherent to any LIVE_WINDOW and applied consistently across helpers; (3) orphaned connection_providers rows after soft-delete are harmless (all routing/coverage queries filter Connection.deleted_at IS NULL) — a cleanup is a nice-to-have, not a correctness issue. No further code change.
+- note: Slice 6, all UNVERIFIED. (1) 'SQL injection' in _enabled_provider_values: REJECTED — provider is a FlexibleEnumType(ConnectionProvider) enum column queried via parameterized ORM; no raw user strings, no injection surface, values are enum-constrained. (2) create-then-disable race: if a provider is disabled/connection deleted right after the availability check, the agent simply enters the accepted wait state (coverage is re-evaluated every poll; the eligibility helper returns no-candidate, no crash) — best-effort create check is by design. (3) stale provider if PROVIDER_MODELS remapping moves a model between providers: rare config-change limitation, accepted; agents re-sync on next edit. No code change.
