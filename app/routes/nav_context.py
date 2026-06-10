@@ -27,6 +27,7 @@ from app.deps import DbSession, get_current_user
 from app.engine.connection_health import LIVE_WINDOW_SECONDS
 from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
 
 
@@ -45,15 +46,22 @@ async def user_has_connected_agent(db: AsyncSession, user_id: int) -> bool:
     the right signal here: once an agent has connected it can play, so the honest
     next step is "Play now". Using live presence would flip the label back to
     "Connect your AI" every time the runner briefly drops, which is wrong.
+
+    Agents are no longer attached to a connection: an agent is "connected" when
+    its provider is enabled on one of the user's connections that has connected
+    at least once.
     """
     stmt = (
         select(func.count())
         .select_from(Agent)
-        .join(Connection, Connection.id == Agent.connection_id)
+        .join(ConnectionProviderRow, ConnectionProviderRow.provider == Agent.provider)
+        .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
         .where(
             Agent.user_id == user_id,
             Agent.archived_at.is_(None),
             Agent.kind == AgentKind.AI,
+            ConnectionProviderRow.enabled.is_(True),
+            Connection.user_id == user_id,
             Connection.deleted_at.is_(None),
             Connection.first_connected_at.is_not(None),
         )

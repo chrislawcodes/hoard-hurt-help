@@ -699,6 +699,12 @@ async def test_connection_health_across_multiple_agents_tracks_the_active_game(
             version=cold_version,
             seat_name=f"{user.handle}/Cold",
         )
+        # Health now tracks the matches this connection is SERVING (the sticky
+        # pin), not agent attachment — pin both players to this connection.
+        warm_player.served_by_connection_id = connection.id
+        warm_player.served_pinned_at = NOW
+        cold_player.served_by_connection_id = connection.id
+        cold_player.served_pinned_at = NOW
         connection.last_seen_at = NOW - timedelta(seconds=20)
         for turn_no in (1, 2, 3):
             await _make_turn(db, match=cold_match, player=cold_player, turn_no=turn_no, defaulted=True)

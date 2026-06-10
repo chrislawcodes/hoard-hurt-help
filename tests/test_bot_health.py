@@ -50,7 +50,16 @@ async def _game(db, gid: str, state: GameState) -> Match:
 
 
 async def _seat(db, game: Match, agent, user, agent_id: str = "A") -> Player:
-    p = Player(match_id=game.id, user_id=user.id, agent_id=agent.id, seat_name=agent_id)
+    # Health now tracks matches the connection is SERVING (the sticky pin), so
+    # pin the seat to the agent's connection (these tests keep agents attached).
+    p = Player(
+        match_id=game.id,
+        user_id=user.id,
+        agent_id=agent.id,
+        seat_name=agent_id,
+        served_by_connection_id=agent.connection_id,
+        served_pinned_at=NOW,
+    )
     db.add(p)
     await db.flush()
     return p

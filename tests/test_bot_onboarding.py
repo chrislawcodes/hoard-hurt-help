@@ -90,7 +90,16 @@ async def _game(db, gid: str, state: GameState) -> Match:
 
 
 async def _player(db, match_id: str, agent: Agent, user: User, seat_name: str = "AI_0") -> Player:
-    p = Player(match_id=match_id, user_id=user.id, agent_id=agent.id, seat_name=seat_name)
+    # Pin the seat to the agent's connection so the connection's serving health
+    # sees this match (health is pin-based now, not agent-attachment).
+    p = Player(
+        match_id=match_id,
+        user_id=user.id,
+        agent_id=agent.id,
+        seat_name=seat_name,
+        served_by_connection_id=agent.connection_id,
+        served_pinned_at=NOW,
+    )
     db.add(p)
     await db.flush()
     return p
