@@ -3,15 +3,15 @@
 {% block content %}
 <div class="page-head">
     <h1>Connections</h1>
-    <p class="sub">Choose the setup path that matches your provider, then reuse that login across every agent you build.</p>
+    <p class="sub">A connection is one computer running the connector. Add a machine here, then turn the AI providers it should run on or off from its page. Your agents run on whichever live connection covers their provider.</p>
 </div>
 
 <form method="post" action="/me/connections" class="card form">
     <label>
         Nickname
-        <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="Defaults to the provider name">
+        <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="e.g. Home Mac">
     </label>
-    <p class="hint" style="margin-top:0;">Pick one of the two groups below, then choose the provider you want.</p>
+    <p class="hint" style="margin-top:0;">Pick the first provider this machine should run — you can turn on more on its page afterward.</p>
     <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
         {% for group in provider_groups %}
         <section class="card" style="margin:0;">

@@ -75,6 +75,10 @@ def _provider_label(provider: ConnectionProvider) -> str:
 
 
 def _connection_display_name(connection: Connection) -> str:
+    # `connection.provider` is the retained legacy "connection type" (see §1 of
+    # the unified-connections spec) — used for the display name fallback, setup
+    # script selection, and hermes/openclaw identity. These provider reads are
+    # intentional; routing/coverage use connection_providers, not this column.
     return connection.nickname or _provider_label(connection.provider)
 
 
