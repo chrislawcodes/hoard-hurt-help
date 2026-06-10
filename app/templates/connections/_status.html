@@ -21,4 +21,15 @@
         </span>
         {% if agent_count %} · {{ agent_count }} attached agent(s){% endif %}
     </p>
+    <div class="connection-controls">
+        {% if connection.status.value == 'paused' %}
+            <form method="post" action="/me/connections/{{ connection.id }}/resume"><button type="submit">Resume</button></form>
+        {% else %}
+            <form method="post" action="/me/connections/{{ connection.id }}/pause"><button type="submit" class="secondary">Pause</button></form>
+        {% endif %}
+        <form method="post" action="/me/connections/{{ connection.id }}/rotate"><button type="submit" class="secondary">Rotate Key</button></form>
+        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this machine? Its runner will be told to exit. Your agents keep playing on any other live connection that covers their provider; any covered by no other live connection will wait. Continue?');">
+            <button type="submit" class="secondary">Delete</button>
+        </form>
+    </div>
 </div>

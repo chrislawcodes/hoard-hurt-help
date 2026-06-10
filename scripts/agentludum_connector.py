@@ -55,6 +55,13 @@ _TURN_TIMEOUT = 180  # a single model turn can take a while
 # we give up and exit with a non-zero code.
 _POLL_FAIL_THRESHOLD = 24
 
+# How often the connector re-reports its PID + detected provider CLIs while
+# running. Detection is otherwise a one-shot at startup, so installing a CLI (or
+# turning a provider on) would not show as "detected" until the next restart.
+# Re-reporting on this interval lets the website reflect a freshly installed CLI
+# within a few minutes without the operator restarting the connector.
+_DETECT_REPORT_INTERVAL = 300  # seconds
+
 _PROTOCOL = (
     "Each turn has two phases. On a TALK PHASE prompt reply with ONLY "
     '{"message": "<public message, max 500 chars>", '
@@ -536,6 +543,32 @@ def _detect_providers() -> list[str]:
     return [provider for provider, cli in cli_by_provider.items() if shutil.which(cli)]
 
 
+def _report_pid(base: str, headers: dict[str, str], pid: int) -> None:
+    """Best-effort report of this process's PID + detected provider CLIs.
+
+    Called once at startup and then on _DETECT_REPORT_INTERVAL so a CLI the
+    operator installs while the connector runs becomes "detected" on the site
+    without a restart. Non-fatal: the connector keeps playing if the report
+    fails.
+    """
+    try:
+        httpx.post(
+            f"{base}/api/agent/report-pid",
+            headers=headers,
+            json={
+                "pid": pid,
+                "hostname": socket.gethostname(),
+                "detected_providers": _detect_providers(),
+            },
+            timeout=10,
+        ).raise_for_status()
+    except httpx.HTTPError as exc:
+        print(
+            f"[agentludum-connector] WARNING: could not report PID {pid} to server: {exc}",
+            file=sys.stderr,
+        )
+
+
 def _resolve(turn: dict, args: argparse.Namespace) -> tuple[str, str]:
     """Pick the provider and model for a turn.
 
@@ -870,24 +903,8 @@ def main() -> None:
     headers = {"X-Connection-Key": args.key}
     sessions: dict[tuple[str, str], _GameSession] = {}
     pid = os.getpid()
-    try:
-        httpx.post(
-            f"{base}/api/agent/report-pid",
-            headers=headers,
-            json={
-                "pid": pid,
-                "hostname": socket.gethostname(),
-                "detected_providers": _detect_providers(),
-            },
-            timeout=10,
-        ).raise_for_status()
-    except httpx.HTTPError as exc:
-        # Non-fatal: PID reporting is best-effort. The connector continues to
-        # play even if the server can't record the PID for the operator.
-        print(
-            f"[agentludum-connector] WARNING: could not report PID {pid} to server: {exc}",
-            file=sys.stderr,
-        )
+    _report_pid(base, headers, pid)
+    last_detect_report = time.monotonic()
     print(
         f"[agentludum-connector] connected to {base}; PID {pid}; one chained session per agent+match."
     )
@@ -898,6 +915,11 @@ def main() -> None:
     consecutive_poll_failures = 0
 
     while True:
+        # Refresh detection periodically so a CLI installed (or a provider
+        # turned on) after startup shows as "detected" without a restart.
+        if time.monotonic() - last_detect_report >= _DETECT_REPORT_INTERVAL:
+            _report_pid(base, headers, pid)
+            last_detect_report = time.monotonic()
         try:
             r = httpx.get(f"{base}/api/agent/next-turn", headers=headers, timeout=40)
         except httpx.HTTPError as exc:

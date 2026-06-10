@@ -659,6 +659,60 @@ async def test_toggle_provider_enables_and_strand_guard(
 
 
 @pytest.mark.asyncio
+async def test_detail_renders_provider_toggles_and_install_hint(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The detail page shows providers as switches and, when a provider is on
+    but its CLI was not detected, prompts the operator to install it."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        # _make_connection seeds the claude provider row enabled=True, detected=False.
+        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.get(
+        f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    # Providers render as toggle switches, not plain buttons.
+    assert "toggle-switch" in r.text
+    assert "provider-row" in r.text
+    # claude is on but undetected → the install hint names the CLI binary.
+    assert "provider-install-hint" in r.text
+    assert "<code>claude</code>" in r.text
+
+
+@pytest.mark.asyncio
+async def test_connection_controls_live_in_status_card(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Pause/Rotate/Delete moved into the connection status card, so they also
+    survive the status fragment's 5s poll instead of sitting in a separate box."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await db.commit()
+        conn_id = connection.id
+
+    # The polled status fragment carries the controls.
+    r = await client.get(
+        f"/me/connections/{conn_id}/status", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    assert "connection-controls" in r.text
+    assert f"/me/connections/{conn_id}/rotate" in r.text
+
+    # The detail page no longer has a standalone "Connection controls" card.
+    r = await client.get(
+        f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    assert "connection-controls" in r.text  # present via the included status card
+    assert "<h3 style=\"margin-top:0;\">Connection controls</h3>" not in r.text
+
+
+@pytest.mark.asyncio
 async def test_pending_connections_gc_after_24h(session_factory: async_sessionmaker[AsyncSession]) -> None:
     async with session_factory() as db:
         user = await _make_user(db)
