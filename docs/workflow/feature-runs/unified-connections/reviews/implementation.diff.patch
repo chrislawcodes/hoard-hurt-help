@@ -1,90 +1,38 @@
-diff --git a/scripts/agentludum_connector.py b/scripts/agentludum_connector.py
-index a73c129..dcfa78d 100644
---- a/scripts/agentludum_connector.py
-+++ b/scripts/agentludum_connector.py
-@@ -33,6 +33,7 @@ import argparse
- import json
- import os
- import re
-+import shutil
- import subprocess
- import sys
- import tempfile
-@@ -435,24 +436,43 @@ def _provider_from_model(model: str | None) -> str | None:
-     return None
+diff --git a/app/routes/connections_setup.py b/app/routes/connections_setup.py
+index 14d13fb..6777e87 100644
+--- a/app/routes/connections_setup.py
++++ b/app/routes/connections_setup.py
+@@ -75,6 +75,10 @@ def _provider_label(provider: ConnectionProvider) -> str:
  
  
-+def _detect_providers() -> list[str]:
-+    """Report which provider CLIs are installed on this machine.
-+
-+    Maps each provider to its CLI binary (openai is driven by the `codex` CLI).
-+    Best-effort and informational only — the server stores these into
-+    connection_providers.detected; it never flips the user's `enabled` toggle.
-+    """
-+    cli_by_provider = {"claude": "claude", "openai": "codex", "gemini": "gemini"}
-+    return [provider for provider, cli in cli_by_provider.items() if shutil.which(cli)]
-+
-+
- def _resolve(turn: dict, args: argparse.Namespace) -> tuple[str, str]:
-     """Pick the provider and model for a turn.
- 
-     Legacy payloads may still supply `preferred_provider` / `preferred_model`.
-     New payloads supply `model` plus `agent_id` / `match_id`.
-     """
-+    # Priority: --provider override > the server's explicit per-turn `provider`
-+    # field (the new routing sends it) > legacy preferred_provider > model
-+    # prefix. The explicit field means the connector no longer has to guess.
-+    payload_provider = (turn.get("provider") or "").lower()
-     legacy_provider = (turn.get("preferred_provider") or "").lower()
-     turn_provider = _provider_from_model(turn.get("model")) or _provider_from_model(
-         turn.get("preferred_model")
-     )
--    provider = args.provider or (legacy_provider if legacy_provider in _ADAPTERS else None)
--    if provider is None:
--        provider = turn_provider
-+    provider = (
-+        args.provider
-+        or (payload_provider if payload_provider in _ADAPTERS else None)
-+        or (legacy_provider if legacy_provider in _ADAPTERS else None)
-+        or turn_provider
-+    )
-     if provider not in _ADAPTERS:
--        if legacy_provider and not args.provider:
-+        if (payload_provider or legacy_provider) and not args.provider:
-             print(
--                f"[agentludum-connector] turn is configured for {legacy_provider!r}, which has no "
--                f"CLI runner — using {DEFAULT_PROVIDER}. (MCP-only providers do not use this runner.)",
-+                f"[agentludum-connector] turn is configured for "
-+                f"{(payload_provider or legacy_provider)!r}, which has no CLI runner — "
-+                f"using {DEFAULT_PROVIDER}. (MCP-only providers do not use this runner.)",
-                 file=sys.stderr,
-             )
-         provider = DEFAULT_PROVIDER
-@@ -460,13 +480,13 @@ def _resolve(turn: dict, args: argparse.Namespace) -> tuple[str, str]:
-     if args.model:
-         model = args.model
-     elif args.provider:
-+        # A CLI --provider override forces a different CLI than the turn's; the
-+        # turn's model belongs to the agent's real provider and must not leak
-+        # into the overridden CLI — use this adapter's default model.
-         model = adapter.default_model
--    elif provider == legacy_provider:
--        model = str(turn.get("preferred_model") or adapter.default_model)
--    elif provider == turn_provider:
--        model = str(turn.get("model") or adapter.default_model)
-     else:
--        model = adapter.default_model
-+        # Normal path: the server sends the agent's model in the payload; trust it.
-+        model = str(turn.get("model") or turn.get("preferred_model") or adapter.default_model)
-     return provider, model
+ def _connection_display_name(connection: Connection) -> str:
++    # `connection.provider` is the retained legacy "connection type" (see §1 of
++    # the unified-connections spec) — used for the display name fallback, setup
++    # script selection, and hermes/openclaw identity. These provider reads are
++    # intentional; routing/coverage use connection_providers, not this column.
+     return connection.nickname or _provider_label(connection.provider)
  
  
-@@ -560,7 +580,7 @@ def main() -> None:
-         httpx.post(
-             f"{base}/api/agent/report-pid",
-             headers=headers,
--            json={"pid": pid},
-+            json={"pid": pid, "detected_providers": _detect_providers()},
-             timeout=10,
-         ).raise_for_status()
-     except httpx.HTTPError as exc:
+diff --git a/app/templates/connections/list.html b/app/templates/connections/list.html
+index cc447b1..4efd807 100644
+--- a/app/templates/connections/list.html
++++ b/app/templates/connections/list.html
+@@ -3,15 +3,15 @@
+ {% block content %}
+ <div class="page-head">
+     <h1>Connections</h1>
+-    <p class="sub">Choose the setup path that matches your provider, then reuse that login across every agent you build.</p>
++    <p class="sub">A connection is one computer running the connector. Add a machine here, then turn the AI providers it should run on or off from its page. Your agents run on whichever live connection covers their provider.</p>
+ </div>
+ 
+ <form method="post" action="/me/connections" class="card form">
+     <label>
+         Nickname
+-        <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="Defaults to the provider name">
++        <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="e.g. Home Mac">
+     </label>
+-    <p class="hint" style="margin-top:0;">Pick one of the two groups below, then choose the provider you want.</p>
++    <p class="hint" style="margin-top:0;">Pick the first provider this machine should run — you can turn on more on its page afterward.</p>
+     <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
+         {% for group in provider_groups %}
+         <section class="card" style="margin:0;">

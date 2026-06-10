@@ -1189,6 +1189,18 @@
       "files_written": 7,
       "subprocess_invocations": 38,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T10:32:07Z",
+      "wall_seconds": 0.589,
+      "input_bytes_read": 541669,
+      "output_bytes_written": 326231,
+      "files_read": 24,
+      "files_written": 8,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -1219,7 +1231,7 @@
       "initial_sha": "ab000321c91b7af21061425d2a571c6be5fb2525328d87c042e38cbd189554b7"
     },
     "diff": {
-      "adversarial_rounds": 8,
+      "adversarial_rounds": 9,
       "annotations": [],
       "adversarial_sha_history": [
         "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6",
@@ -1234,7 +1246,8 @@
         "295673ce107b5bf64d31850e69f915368cbf5068c8c9160f8d8da7013dfe1ab5",
         "b24e3e6719c819a87f69ac7b3db707b65b3496e3f6dde025d561f52e4214c632",
         "a98d5f606590f6552647c4b1c6fd941a71d4116eeb8b9675b749ba365c693f46",
-        "8990c47630b0d242592e6f7c2d7f25f0bd8583f46377dc25b5b0a5c84ecfaa48"
+        "8990c47630b0d242592e6f7c2d7f25f0bd8583f46377dc25b5b0a5c84ecfaa48",
+        "e5f944963369fde8e4a3dddcf514f460626a8796e83a616c3e900070f89ad58c"
       ],
       "initial_sha": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
     }
@@ -1242,9 +1255,9 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 8,
+    "index": 1,
     "markers_sha": "1c3f0476d0c468648069cb8c9e3b9ad5260ddfd0016800d5cc5897269bff7c0f",
-    "last_diff_head_sha": "971b07dde661525937217bb51d00ca0e0e70d819"
+    "last_diff_head_sha": "17cd9c6d585b40826ee7d68ab6aacdab24e252f6"
   },
   "spec_adversarial_rounds": 0,
   "plan_adversarial_rounds": 0,
@@ -1254,7 +1267,7 @@
     "reason": "diff checkpoint completed",
     "blockers": []
   },
-  "diff_adversarial_rounds": 8,
+  "diff_adversarial_rounds": 9,
   "heartbeats": [
     {
       "timestamp_pt": "2026-06-10T00:54:09.260441-07:00",
