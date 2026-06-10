@@ -69,9 +69,12 @@ def test_hermes_resolves_to_its_own_adapter(runner):
     assert runner._ADAPTERS["hermes"].cli == "hermes"
 
 
-def test_openclaw_still_falls_back_to_claude(runner):
-    # OpenClaw has no adapter yet (fast-follow), so it still falls back.
-    assert runner._resolve(_turn("openclaw", None), _args()) == ("claude", "claude-haiku-4-5")
+def test_openclaw_resolves_to_its_own_adapter(runner):
+    # OpenClaw is now a first-class CLI adapter (openclaw agent --message), not a
+    # fallback. It uses its own configured model, so the model is a placeholder.
+    provider, _model = runner._resolve(_turn("openclaw", None), _args())
+    assert provider == "openclaw"
+    assert runner._ADAPTERS["openclaw"].cli == "openclaw"
 
 
 def test_provider_flag_overrides_and_drops_other_providers_model(runner):
@@ -204,3 +207,62 @@ def test_hermes_malformed_output_yields_fallback_move(runner, monkeypatch):
 def test_detect_providers_includes_hermes(runner, monkeypatch):
     monkeypatch.setattr(runner.shutil, "which", lambda cli: cli in {"hermes", "claude"})
     assert set(runner._detect_providers()) == {"hermes", "claude"}
+
+
+# --- OpenClaw adapter (Path A: one-shot `openclaw agent --message`) ---
+
+def test_openclaw_adapter_is_sessionless_and_modelless(runner):
+    a = runner._ADAPTERS["openclaw"]
+    assert a.cli == "openclaw"
+    assert a.supports_resume is False
+
+
+def test_openclaw_first_invokes_one_shot_no_model(runner, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        sys.modules["agentludum_connector"], "_run",
+        lambda argv, **kw: calls.append(argv) or _FakeProc(
+            stdout='{"action":"HELP","target_id":"rival","thinking":"t"}'
+        ),
+    )
+    sess = runner._GameSession(provider="openclaw", model="openclaw")
+    text, usage = runner._ADAPTERS["openclaw"].first(
+        body="BODY", framing="FRAME", model="ignored", session=sess
+    )
+    assert calls == [["openclaw", "agent", "--message", "FRAME\n\nBODY"]]
+    assert "--model" not in calls[0]
+    assert usage is None
+    assert sess.token is None  # Path A: no session captured
+    import json
+    assert json.loads(text)["action"] == "HELP"
+
+
+def test_openclaw_decide_sends_full_state_every_turn(runner, monkeypatch):
+    prompts = []
+    monkeypatch.setattr(
+        sys.modules["agentludum_connector"], "_run",
+        lambda argv, **kw: prompts.append(argv[-1]) or _FakeProc(
+            stdout='{"action":"HOARD","target_id":null,"thinking":""}'
+        ),
+    )
+    sess = runner._GameSession(provider="openclaw", model="openclaw")
+    runner._decide(_full_turn(), sess)
+    runner._decide(_full_turn(), sess)  # second turn
+    assert len(prompts) == 2
+    assert all("GAME SO FAR" in p for p in prompts)
+    assert sess.token is None
+
+
+def test_openclaw_malformed_output_yields_fallback_move(runner, monkeypatch):
+    monkeypatch.setattr(
+        sys.modules["agentludum_connector"], "_run", lambda argv, **kw: _FakeProc(stdout="not json at all")
+    )
+    sess = runner._GameSession(provider="openclaw", model="openclaw")
+    move = runner._decide(_full_turn(), sess)
+    assert move["is_connector_fallback"] is True
+    assert move["action"] == "HOARD"
+
+
+def test_detect_providers_includes_openclaw(runner, monkeypatch):
+    monkeypatch.setattr(runner.shutil, "which", lambda cli: cli in {"openclaw", "claude"})
+    assert set(runner._detect_providers()) == {"openclaw", "claude"}

@@ -54,19 +54,23 @@ async def test_agent_runner_scripts_are_served() -> None:
 
 
 @pytest.mark.asyncio
-async def test_provider_specific_setup_scripts_are_served() -> None:
+async def test_retired_provider_setup_scripts_are_not_served() -> None:
+    # One connector now drives every provider — the old per-provider shim
+    # downloads were removed, so their names must 404 (no resurrection surface).
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         for name in ("agentludum_setup_hermes.py", "agentludum_setup_openclaw.py"):
             r = await c.get(f"/setup-files/{name}")
-            assert r.status_code == 200, name
-            assert "agentludum_connector.py" in r.text, name
+            assert r.status_code == 404, name
+        # The one canonical connector is still served.
+        ok = await c.get("/setup-files/agentludum_connector.py")
+        assert ok.status_code == 200
         bad = await c.get("/setup-files/secrets.py")
         assert bad.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_setup_screen_leads_with_setup_instructions(reset_db) -> None:
+async def test_connections_page_shows_inline_setup_instructions(reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -79,14 +83,16 @@ async def test_setup_screen_leads_with_setup_instructions(reset_db) -> None:
         cookies={"hhh_session": _cookie(uid)},
         follow_redirects=True,
     ) as c:
-        # Creating a connection lands on the setup page with the one-time setup message.
-        r = await c.post("/me/connections", data={"provider": "claude", "nickname": "Atlas"})
+        # The connections page itself shows the ready-to-run setup command inline —
+        # no provider picking, no second page.
+        r = await c.get("/me/connections")
     assert r.status_code == 200, r.text
     body = r.text
-    # The setup path is the primary path; the page now hands back setup instructions.
+    assert "Set up a machine" in body
+    assert "Name your machine" in body
+    assert "Paste this to your AI assistant:" in body
     assert "curl -fsSL" in body
     assert "/setup-files/agentludum_connector.py" in body
     assert "This setup uses the login I already have." in body
     assert "X-Connection-Key" in body
     assert "Keep one session per match" in body
-    assert "Setup instructions" in body

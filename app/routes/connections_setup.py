@@ -35,33 +35,10 @@ _PROVIDER_LABELS = {
     ConnectionProvider.OPENCLAW.value: "OpenClaw",
 }
 
-_PROVIDER_GROUPS = [
-    {
-        "label": "Claude / Gemini / OpenAI",
-        "description": "Use the standard setup path for the CLI-backed providers.",
-        "providers": [
-            ConnectionProvider.CLAUDE,
-            ConnectionProvider.GEMINI,
-            ConnectionProvider.OPENAI,
-        ],
-    },
-    {
-        "label": "Hermes / OpenClaw",
-        "description": "Use the Hermes/OpenClaw setup path.",
-        "providers": [
-            ConnectionProvider.HERMES,
-            ConnectionProvider.OPENCLAW,
-        ],
-    },
-]
-
-_SETUP_SCRIPTS = {
-    ConnectionProvider.CLAUDE: "agentludum_connector.py",
-    ConnectionProvider.GEMINI: "agentludum_connector.py",
-    ConnectionProvider.OPENAI: "agentludum_connector.py",
-    ConnectionProvider.HERMES: "agentludum_setup_hermes.py",
-    ConnectionProvider.OPENCLAW: "agentludum_setup_openclaw.py",
-}
+# One connector drives every provider. A connection is a machine; the connector
+# auto-detects which AI CLIs are installed and reports them, so there is no
+# per-provider setup path or per-provider download anymore.
+_SETUP_SCRIPT = "agentludum_connector.py"
 
 
 @dataclass(frozen=True)
@@ -80,14 +57,8 @@ def _connection_display_name(connection: Connection) -> str:
     return connection.nickname or "Machine"
 
 
-def _setup_script_name(provider: ConnectionProvider | None) -> str:
-    if provider is None:
-        return "agentludum_connector.py"
-    return _SETUP_SCRIPTS.get(provider, "agentludum_connector.py")
-
-
-def _setup_message(provider: ConnectionProvider | None, key: str) -> str:
-    script_name = _setup_script_name(provider)
+def _setup_message(key: str) -> str:
+    script_name = _SETUP_SCRIPT
     return (
         "Please set up my AI connection as a persistent background service that starts "
         "automatically on login and restarts if it ever stops.\n\n"
@@ -229,24 +200,6 @@ async def _load_owned_connection(db: DbSession, user: User, connection_id: int) 
 
 
 
-async def _load_pending_setups(db: DbSession, user_id: int) -> list[ConnectionSetup]:
-    rows = (
-        (
-            await db.execute(
-                select(ConnectionSetup)
-                .where(
-                    ConnectionSetup.user_id == user_id,
-                    ConnectionSetup.completed_at.is_(None),
-                )
-                .order_by(ConnectionSetup.created_at.desc(), ConnectionSetup.id.desc())
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return list(rows)
-
-
 async def _load_resumeable_pending_setup(
     db: DbSession, user_id: int, provider: ConnectionProvider | None
 ) -> ConnectionSetup | None:
@@ -276,6 +229,48 @@ def _issue_setup_key(setup: ConnectionSetup) -> str:
     return key
 
 
+async def _ensure_pending_setup_and_key(
+    request: Request,
+    db: DbSession,
+    user_id: int,
+    nickname: str | None = None,
+) -> tuple[ConnectionSetup, str]:
+    """Reuse the user's one open machine setup (or mint it) and return a STABLE
+    plaintext key for the inline setup command.
+
+    A machine is provider-agnostic — the connector auto-detects which AI CLIs are
+    installed — so setups are always created with ``provider=None``. The key is
+    minted once and stashed in the session so reloads show the SAME command; we
+    never silently rotate a key the user may have already copied. The key only
+    regenerates if the session no longer carries it (e.g. a new browser session),
+    since the raw value is unrecoverable from the stored hash.
+    """
+    setup = await _load_resumeable_pending_setup(db, user_id, None)
+    if setup is None:
+        key = generate_connection_key()
+        setup = ConnectionSetup(
+            user_id=user_id,
+            nickname=(nickname.strip() if nickname and nickname.strip() else None),
+            provider=None,
+            key_lookup=bot_key_lookup(key),
+            key_hint=bot_key_hint(key),
+        )
+        db.add(setup)
+        await db.flush()
+        request.session[f"fresh_connection_key_setup_{setup.id}"] = key
+    else:
+        if nickname is not None:
+            setup.nickname = nickname.strip() or None
+        session_field = f"fresh_connection_key_setup_{setup.id}"
+        stored = request.session.get(session_field)
+        if stored:
+            key = str(stored)
+        else:
+            key = _issue_setup_key(setup)
+            request.session[session_field] = key
+    await db.commit()
+    return setup, key
+
 
 @router.get("", response_class=HTMLResponse)
 async def list_connections(
@@ -295,7 +290,9 @@ async def list_connections(
         .scalars()
         .all()
     )
-    pending_setups = await _load_pending_setups(db, user.id)
+    # The page always offers a ready-to-run setup command inline: reuse the user's
+    # one open machine setup or mint it, with a key that stays stable across loads.
+    active_setup, key = await _ensure_pending_setup_and_key(request, db, user.id)
     rows = []
     for connection in connections:
         health = await compute_connection_health(db, connection)
@@ -313,10 +310,8 @@ async def list_connections(
         {
             "user": user,
             "connections": rows,
-            "pending_setups": pending_setups,
-            "provider_choices": list(ConnectionProvider),
-            "provider_labels": _PROVIDER_LABELS,
-            "provider_groups": _PROVIDER_GROUPS,
+            "active_setup": active_setup,
+            "setup_message": _setup_message(key),
         },
     )
 
@@ -326,39 +321,13 @@ async def create_connection(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
-    provider: Annotated[str | None, Form()] = None,
     nickname: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
-    try:
-        provider_choice = (
-            None
-            if provider is None or not provider.strip()
-            else ConnectionProvider(provider.strip().lower())
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Unknown provider.") from exc
-
-    setup = await _load_resumeable_pending_setup(db, user.id, provider_choice)
-    if setup is None:
-        key = generate_connection_key()
-        setup = ConnectionSetup(
-            user_id=user.id,
-            nickname=(nickname.strip() if nickname and nickname.strip() else None),
-            provider=provider_choice,
-            key_lookup=bot_key_lookup(key),
-            key_hint=bot_key_hint(key),
-        )
-        db.add(setup)
-        await db.flush()
-    else:
-        if nickname and nickname.strip():
-            setup.nickname = nickname.strip()
-        key = _issue_setup_key(setup)
-    await db.commit()
-    request.session[f"fresh_connection_key_setup_{setup.id}"] = key
-    return RedirectResponse(
-        url=f"/me/connections/setup/{setup.id}", status_code=status.HTTP_303_SEE_OTHER
-    )
+    # Naming a machine just labels the one open setup; it never rotates the key or
+    # creates a second setup. There is no provider to pick — the machine reports
+    # the AI CLIs it has.
+    await _ensure_pending_setup_and_key(request, db, user.id, nickname=nickname)
+    return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
 
 
 async def _load_owned_connection_setup(
@@ -398,11 +367,7 @@ async def connection_setup_detail(
             "connection": connection,
             "provider_label": _provider_label(setup.provider),
             "fresh_key": fresh_key,
-            "setup_message": (
-                _setup_message(setup.provider, fresh_key)
-                if fresh_key
-                else None
-            ),
+            "setup_message": (_setup_message(fresh_key) if fresh_key else None),
         },
     )
 
@@ -454,7 +419,7 @@ async def connection_detail(
         }
         for p in ConnectionProvider
     ]
-    setup_message = _setup_message(connection.provider, fresh_key) if fresh_key is not None else None
+    setup_message = _setup_message(fresh_key) if fresh_key is not None else None
     return templates.TemplateResponse(
         request,
         "connections/detail.html",
