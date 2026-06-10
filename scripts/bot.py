@@ -2,8 +2,8 @@
 """A throwaway random test bot for Hoard-Hurt-Help.
 
 Fills a seat with random HOARD / HELP / HURT moves so you can run live games
-without standing up real AI runners. Unlike scripts/agentludum_agent.py it makes no model
-calls — it just plays randomly.
+without standing up real AI runners. Unlike scripts/agentludum_connector.py it makes no
+model calls — it just plays randomly.
 
 Setup (new bot model): create a bot and enter it into a game on the site, then
 run this with that bot's key. It plays every game the bot is in via
