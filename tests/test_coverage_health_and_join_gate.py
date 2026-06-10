@@ -205,8 +205,8 @@ async def test_provider_is_covered_false_when_provider_not_enabled(
 
 @pytest.mark.asyncio
 async def test_detached_covered_agent_is_ready(db_session: AsyncSession) -> None:
-    """An agent with no connection_id but a live connection covering its provider
-    must resolve as covered — not 'needs connection'.
+    """An agent with a live connection covering its provider must resolve as
+    covered — not 'needs connection'.
     """
     user = await make_user(db_session, 10)
     # Create a live connection covering CLAUDE.
@@ -216,14 +216,13 @@ async def test_detached_covered_agent_is_ready(db_session: AsyncSession) -> None
     conn.last_seen_at = _RECENTLY
     await db_session.flush()
 
-    # Create a detached agent (connection_id=None) with provider=CLAUDE.
+    # Create an agent with provider=CLAUDE (derived from model).
     agent, _ = await make_agent(db_session, user, model="claude-haiku-4-5", status=AgentStatus.ACTIVE)
     # make_agent sets provider from model — should be CLAUDE.
     assert agent.provider == ConnectionProvider.CLAUDE
-    assert agent.connection_id is None
 
     result = await provider_is_covered(db_session, user.id, ConnectionProvider.CLAUDE)
-    assert result is True, "Detached agent's provider must be covered by the live connection"
+    assert result is True, "Agent's provider must be covered by the live connection"
 
 
 # ---------------------------------------------------------------------------

@@ -239,7 +239,7 @@ async def test_ai_agent_creation_is_unaffected(client, reset_db) -> None:
 
         db.add(_CPRow(connection_id=conn.id, provider=ConnectionProvider.CLAUDE, enabled=True, detected=False))
         await db.commit()
-        uid, cid = u.id, conn.id
+        uid = u.id
 
     signer = TimestampSigner(settings.session_secret)
     payload = base64.b64encode(
@@ -250,7 +250,6 @@ async def test_ai_agent_creation_is_unaffected(client, reset_db) -> None:
     r = await client.post(
         "/me/agents/new",
         data={
-            "connection_id": cid,
             "name": "My AI Agent",
             "model": "claude-haiku-4-5",
             "strategy_text": "Play to win.",

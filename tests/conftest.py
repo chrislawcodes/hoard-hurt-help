@@ -100,7 +100,6 @@ async def make_agent(
     """Create an agent for tests."""
     agent = Agent(
         user_id=user.id,
-        connection_id=None if connection is None else connection.id,
         provider=connection.provider if connection is not None else None,
         kind=kind,
         name=name or f"agent-{user.id}",

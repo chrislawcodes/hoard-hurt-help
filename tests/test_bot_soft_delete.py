@@ -149,7 +149,6 @@ async def test_delete_with_history_archives_instead(client, reset_db):
     assert archived is not None, "agent with history must be kept, not deleted"
     assert archived.archived_at is not None
     assert archived.status == AgentStatus.PAUSED
-    assert archived.connection_id is None
     assert connection.id is not None
 
 
@@ -266,7 +265,7 @@ async def test_archived_agent_keeps_profile_metadata(client, reset_db):
         )
         agent = Agent(
             user_id=user.id,
-            connection_id=connection.id,
+            provider=connection.provider,
             kind=AgentKind.AI,
             name="PresetSim",
             game="hoard-hurt-help",

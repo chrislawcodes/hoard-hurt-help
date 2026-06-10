@@ -240,7 +240,6 @@ async def delete_agent(
     if has_history:
         agent.archived_at = datetime.now(timezone.utc)
         agent.status = AgentStatus.PAUSED
-        agent.connection_id = None
     else:
         await db.delete(agent)
     await db.commit()
