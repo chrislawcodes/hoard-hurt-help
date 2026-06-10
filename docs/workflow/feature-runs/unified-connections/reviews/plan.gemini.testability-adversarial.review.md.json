@@ -1,0 +1,57 @@
+{
+  "session_id": "262ebdd7-90cf-490b-bd3f-8165496cbd80",
+  "response": "## Findings\n\n1.  **[CODE-CONFIRMED] `connection_health.py` module is not a stub.**\n    The `AGENT_LUDUM_ARCHITECTURE.md` (\u00a72, Row 7) explicitly claims `connection_health.py` is a \"~120 (planned, slice 4)\" stub. The provided file structure and the Reuse Audit confirm it is an existing, functional ~224-line module. Relying on the architecture document's description of this as \"planned\" is a high-severity documentation rot risk that misleads the implementation plan.\n\n2.  **[CODE-CONFIRMED] Migration `0026` does not have a hard `downgrade` path for data.**\n    The plan states `downgrade()` is \"structural, not data-restoring\" and \"The migration is forward-only for data, reversible for schema.\" While this is a valid decision, the plan fails to explicitly warn that running `alembic downgrade` will result in **permanent loss** of the `provider` assignment and `sticky-pin` state for existing agents/matches, as these cannot be reconstructed from the new `connection_providers` table.\n\n3.  **[CODE-CONFIRMED] `agents.provider` backfill risk is underestimated.**\n    The plan correctly identifies the need to archive unresolvable orphan agents during migration. However, the `0026` migration plan assumes all detached agents can be identified by the absence of a `connection_id`. If existing code allows orphaned agents to persist with invalid `connection_id` references, the migration logic might incorrectly treat them as \"attached,\" resulting in a corrupted `provider` assignment or a database constraint violation.\n\n## Residual Risks\n\n1.  **Inconsistent Health Logic (Medium):** The plan notes that `compute_connection_health` keys off `last_seen_at` and `runner_pid`. If the connector remains \"live\" (sending heatbeats) but is unable to serve matches due to internal errors or misconfiguration of the newly introduced `connection_providers` toggles, the health status will erroneously report as \"READY/LIVE\" while matches remain effectively stranded.\n\n2.  **Toggle/Delete State Divergence (Low):** The `connections_lifecycle.py` logic for strand detection relies on a coverage predicate shared with the toggle-disable endpoint. If the implementation fails to share the *exact same* database query logic (e.g., due to minor differences in how \"paused\" vs. \"active\" agents are counted), the delete confirm dialog and the toggle-disable dialog will display conflicting information to the user regarding whether an agent will be stranded.\n\n3.  **Migration Race Conditions (Low):** The plan relies on the migration running atomically as part of the `preDeployCommand`. In environments without proper transactional DDL or if the migration takes significant time on a large database, the system may be in an inconsistent state during the deployment window where some agents are backfilled but pins are not yet active.",
+  "stats": {
+    "models": {
+      "gemini-3.1-flash-lite": {
+        "api": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 4349
+        },
+        "tokens": {
+          "input": 27822,
+          "prompt": 27822,
+          "candidates": 639,
+          "total": 28461,
+          "cached": 0,
+          "thoughts": 0,
+          "tool": 0
+        },
+        "roles": {
+          "main": {
+            "totalRequests": 1,
+            "totalErrors": 0,
+            "totalLatencyMs": 4349,
+            "tokens": {
+              "input": 27822,
+              "prompt": 27822,
+              "candidates": 639,
+              "total": 28461,
+              "cached": 0,
+              "thoughts": 0,
+              "tool": 0
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 0,
+      "totalSuccess": 0,
+      "totalFail": 0,
+      "totalDurationMs": 0,
+      "totalDecisions": {
+        "accept": 0,
+        "reject": 0,
+        "modify": 0,
+        "auto_accept": 0
+      },
+      "byName": {}
+    },
+    "files": {
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0
+    }
+  }
+}

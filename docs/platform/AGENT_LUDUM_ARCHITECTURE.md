@@ -176,12 +176,14 @@ The single `Bot` row was split into a **login** and a **competitor** (feature
   `updated_at`. A table (not a JSON column) so it joins in the routing
   eligibility query.
 - **`agent.py`** (107) — a per‑game **competitor identity** belonging to a user:
-  `name`, `game`, `kind` (`ai`/`bot`), a **stored `provider`** (enum, NOT NULL —
-  set from the chosen model's dropdown group at create time, and the value
-  routing/gameplay read directly rather than re‑deriving from the model;
-  required because hermes/openclaw have empty model allowlists, so provider
-  can't be derived from a model), `current_version_id`, and the `bot_*` config
-  when `kind=bot`. **No `connection_id`** — agents are not pinned to a
+  `name`, `game`, `kind` (`ai`/`bot`), a **stored `provider`** (enum, nullable
+  with a CHECK constraint: NOT NULL for a non-archived `kind=ai` agent, NULL for
+  `kind=bot` since bots never route by provider; archived AI agents may be NULL
+  — mirrors the old "a bot never has a connection" check) — set from the chosen model's dropdown group at create time, and the
+  value routing/gameplay read directly rather than re‑deriving from the model;
+  required for AI agents because hermes/openclaw have empty model allowlists, so
+  provider can't be derived from a model — `current_version_id`, and the `bot_*`
+  config when `kind=bot`. **No `connection_id`** — agents are not pinned to a
   connection; turns route by user + provider coverage (see `turn_routing.py`).
 - **`agent_version.py`** (38) — the versioned **(model + strategy)** an agent
   has run: `version_no`, `model`, `strategy_text`, `frozen_at`. Append‑only and
