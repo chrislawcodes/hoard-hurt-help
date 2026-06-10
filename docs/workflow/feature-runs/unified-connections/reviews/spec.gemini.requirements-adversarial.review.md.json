@@ -1,0 +1,57 @@
+{
+  "session_id": "36dfafc0-cb53-417d-ae28-f89ca8e8ac17",
+  "response": "## Findings\n\n1.  **Race Condition in `next_turn` Pinning**\n    The spec mandates an atomic conditional update for `served_by_connection_id` to prevent double-serving turns. The provided code for `next_turn` in `app/routes/agent_next_turn.py` (lines 62-127) implements a purely read-only selection and makes no attempt to claim or pin the turn.\n    *   **Severity:** HIGH\n    *   **Status:** [CODE-CONFIRMED]\n\n2.  **Inconsistent State Management for Paused Connections**\n    `app/engine/connection_health.py` (line 120) and `app/routes/connections_lifecycle.py` (line 33) handle pausing at the `Connection` level. However, the spec requires that an agent's status should rely on whether a live connection *covers* its provider. The current `next_turn` implementation (line 54) continues to filter by `Agent.status == AgentStatus.ACTIVE` and `Agent.connection_id == connection.id`. The code is still pinned to the old attachment model and does not account for the provider-coverage-based routing defined in the spec.\n    *   **Severity:** HIGH\n    *   **Status:** [CODE-CONFIRMED]\n\n3.  **Fragility in Admin Fallback Logic**\n    `app/config.py` (line 104-118) provides `game_admin_emails_for` which relies on `admin_emails` fallback. While the spec mentions removing `admin_emails` in the future, the code currently allows legacy `admin_emails` to override per-game admin configs if `raw` is empty. The spec requires strict per-game routing. Relying on global admin fallbacks creates a risk of unauthorized users gaining game-admin access if the new `GAME_ADMIN_EMAILS__*` env vars are misconfigured.\n    *   **Severity:** MEDIUM\n    *   **Status:** [CODE-CONFIRMED]\n\n4.  **Missing `provider` Column in `Agent`**\n    The spec requires an `agents.provider` column to be backfilled and used for routing, as Hermes/OpenClaw providers cannot be derived from models. `app/models/agent.py` (lines 35-103) does not contain this column, meaning any code relying on this agent provider for routing will currently fail or fallback to unsafe derivation.\n    *   **Severity:** MEDIUM\n    *   **Status:** [CODE-CONFIRMED]\n\n## Residual Risks\n\n1.  **Migration Failure:** The migration path (\u00a76) relies on an \"explicit precedence\" backfill for the `agents.provider` column. Given the complexity of the backfill (joining across three tables and handling detached agents with varying states), there is a significant risk that agents without a `current_version_id` or with orphaned versions will cause the migration to fail, potentially stalling production deployments.\n2.  **Health Badge Misreporting:** `compute_connection_health` (in `app/engine/connection_health.py`) relies on `Agent.connection_id` and `Agent.status`. Since the transition to \"provider coverage\" logic is not yet implemented, the health badge will likely report inaccurate data or \"disconnected\" status for correctly functioning machines once the underlying attachment model is modified, leading to user confusion and unnecessary support load.",
+  "stats": {
+    "models": {
+      "gemini-3.1-flash-lite": {
+        "api": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 5270
+        },
+        "tokens": {
+          "input": 35243,
+          "prompt": 35243,
+          "candidates": 746,
+          "total": 35989,
+          "cached": 0,
+          "thoughts": 0,
+          "tool": 0
+        },
+        "roles": {
+          "main": {
+            "totalRequests": 1,
+            "totalErrors": 0,
+            "totalLatencyMs": 5270,
+            "tokens": {
+              "input": 35243,
+              "prompt": 35243,
+              "candidates": 746,
+              "total": 35989,
+              "cached": 0,
+              "thoughts": 0,
+              "tool": 0
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 0,
+      "totalSuccess": 0,
+      "totalFail": 0,
+      "totalDurationMs": 0,
+      "totalDecisions": {
+        "accept": 0,
+        "reject": 0,
+        "modify": 0,
+        "auto_accept": 0
+      },
+      "byName": {}
+    },
+    "files": {
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0
+    }
+  }
+}
