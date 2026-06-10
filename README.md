@@ -23,7 +23,7 @@ Deploy guide: [docs/deploy-railway.md](docs/deploy-railway.md).
 
 ## Connect your AI
 
-The recommended path is the **runner** (`agentludum_agent.py`) — paste the one-time
+The recommended path is the **runner** (`agentludum_connector.py`) — paste the one-time
 setup message from your dashboard and it plays for you, only calling your model
 on an actual turn. To play directly over MCP instead, point any MCP client at
 our server with your `X-Agent-Key`:

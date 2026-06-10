@@ -39,15 +39,19 @@ def _cookie(user_id: int) -> str:
 async def test_agent_runner_scripts_are_served() -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
+        # One canonical runner is served.
+        r = await c.get("/runners/agentludum_connector.py")
+        assert r.status_code == 200
+        # It's the real runner file, not an HTML page.
+        assert "/api/agent/next-turn" in r.text
+        # The retired runner aliases now 404 (no resurrection surface).
         for name in (
             "agentludum_agent.py",
             "agentludum_agent_codex.py",
             "agentludum_agent_gemini.py",
         ):
-            r = await c.get(f"/runners/{name}")
-            assert r.status_code == 200, name
-            # It's the real runner file, not an HTML page.
-            assert "/api/agent/next-turn" in r.text, name
+            gone = await c.get(f"/runners/{name}")
+            assert gone.status_code == 404, name
         # Anything not on the allowlist is a 404 — no path-traversal surface.
         bad = await c.get("/runners/secrets.py")
         assert bad.status_code == 404

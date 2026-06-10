@@ -15,12 +15,14 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "agentludum_agent.py"
+_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "agentludum_connector.py"
 
 
 @pytest.fixture(scope="module")
 def runner():
-    spec = importlib.util.spec_from_file_location("agentludum_agent_unified", _SCRIPT)
+    # Load under the module's real name so the adapters resolve `_run` from the
+    # same object the tests patch via sys.modules["agentludum_connector"].
+    spec = importlib.util.spec_from_file_location("agentludum_connector", _SCRIPT)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     # Register before exec so the @dataclass decorator can resolve the module
