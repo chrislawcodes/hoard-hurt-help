@@ -25,6 +25,15 @@ class Player(Base):
     agent_id: Mapped[int] = mapped_column(
         ForeignKey("agents.id"), nullable=False, index=True
     )
+    served_by_connection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("connections.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    served_pinned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     agent_version_id: Mapped[int | None] = mapped_column(
         ForeignKey("agent_versions.id"),
         nullable=True,

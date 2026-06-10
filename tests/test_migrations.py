@@ -85,7 +85,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0025",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0026",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -98,6 +98,116 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
             ).fetchone()[0]
             == 0
         )
+    finally:
+        conn.close()
+
+
+# --- feature unified-connections: schema foundation (migration 0026) ----------
+
+
+_SEED_0025 = """
+INSERT INTO users(id,google_sub,email,handle,handle_key) VALUES
+  (1,'sub-1','u1@example.com','user1','user1'),
+  (2,'sub-2','u2@example.com','user2','user2');
+INSERT INTO connections(
+    id,user_id,nickname,provider,key_lookup,prev_key_lookup,key_hint,status,
+    paused_at,paused_reason,deleted_at,first_connected_at,last_seen_at,runner_pid,
+    max_concurrent_games,stall_threshold,created_at
+) VALUES
+  (10,1,'Home Mac','claude','lk10',NULL,'abcd','active',NULL,NULL,NULL,
+   '2026-06-09T11:55:00+00:00','2026-06-09T11:59:00+00:00',4321,3,3,'2026-06-09T11:00:00+00:00'),
+  (11,1,'Old Laptop','openai','lk11',NULL,'efgh','paused',NULL,NULL,'2026-06-09T09:00:00+00:00',
+   '2026-06-09T10:55:00+00:00','2026-06-09T10:59:00+00:00',NULL,2,2,'2026-06-09T09:00:00+00:00');
+INSERT INTO agent_versions(id,agent_id,version_no,model,strategy_text,created_at,frozen_at) VALUES
+  (100,1,1,'claude-haiku-4-5','Play to win.','2026-06-09T11:00:00+00:00',NULL),
+  (101,2,1,'gemini-3.1-pro-preview','Play to win.','2026-06-09T11:00:00+00:00',NULL),
+  (102,3,1,'gpt-5.4','Play to win.','2026-06-09T11:00:00+00:00',NULL);
+INSERT INTO agents(
+    id,user_id,connection_id,kind,name,game,current_version_id,status,archived_at,created_at,
+    bot_profile_id,bot_profile_name,bot_strategy,bot_truthfulness,bot_trust_model,bot_seed,
+    bot_version,bot_fixture_pack
+) VALUES
+  (1,1,10,'ai','Attached Claude','hoard-hurt-help',100,'active',NULL,'2026-06-09T11:00:00+00:00',
+   NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+  (2,1,NULL,'ai','Detached Gemini','hoard-hurt-help',101,'paused',NULL,'2026-06-09T11:00:00+00:00',
+   NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+  (3,1,11,'ai','Deleted OpenAI','hoard-hurt-help',102,'active',NULL,'2026-06-09T11:00:00+00:00',
+   NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+  (4,2,NULL,'bot','Bot Seat','hoard-hurt-help',NULL,'active',NULL,'2026-06-09T11:00:00+00:00',
+   'bot-4','Bot Seat','leader_pressure',80,'even',17,'v1','pack-a');
+INSERT INTO matches(
+    id,name,game,state,scheduled_start,started_at,completed_at,cancelled_at,min_players,max_players,
+    per_turn_deadline_seconds,total_rounds,turns_per_round,current_round,current_turn,rounds_awarded,
+    rules_version,winner_player_id,match_kind,created_at
+) VALUES
+  ('M_active','Active Match','hoard-hurt-help','active','2026-06-09T10:00:00+00:00',
+   '2026-06-09T10:05:00+00:00',NULL,NULL,3,20,60,7,7,1,1,0,'v1',NULL,'manual','2026-06-09T10:00:00+00:00'),
+  ('M_done','Done Match','hoard-hurt-help','completed','2026-06-08T10:00:00+00:00',
+   '2026-06-08T10:05:00+00:00','2026-06-08T10:30:00+00:00',NULL,3,20,60,7,7,7,7,7,'v1',NULL,'manual','2026-06-08T10:00:00+00:00');
+INSERT INTO players(
+    id,match_id,user_id,agent_id,agent_version_id,seat_name,model_self_report,joined_at,left_at,
+    total_round_wins,total_round_score,current_round_score
+) VALUES
+  (1,'M_active',1,1,100,'Seat A','claude-haiku-4-5','2026-06-09T10:05:00+00:00',NULL,0.0,10,2),
+  (2,'M_active',1,2,101,'Seat B','gemini-3.1-pro-preview','2026-06-09T10:05:00+00:00',NULL,0.0,8,1),
+  (3,'M_active',1,3,102,'Seat C','gpt-5.4','2026-06-09T10:05:00+00:00',NULL,0.0,6,0),
+  (4,'M_done',2,4,NULL,'Bot Seat',NULL,'2026-06-08T10:05:00+00:00',NULL,1.0,15,3);
+"""
+
+
+def _seed_0025_schema(db_path: Path) -> None:
+    up = _run_alembic(["upgrade", "0025"], db_path)
+    assert up.returncode == 0, f"upgrade 0025 failed:\n{up.stdout}\n{up.stderr}"
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.executescript(_SEED_0025)
+    conn.close()
+
+
+def test_0026_unified_connections_backfills_schema(tmp_path: Path) -> None:
+    """0026 adds provider coverage tables and backfills existing rows safely."""
+    db_path = tmp_path / "unified_connections.db"
+    _seed_0025_schema(db_path)
+
+    up = _run_alembic(["upgrade", "0026"], db_path)
+    assert up.returncode == 0, f"upgrade 0026 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0026",)]
+        assert conn.execute("SELECT count(*) FROM connection_providers").fetchone()[0] == 2
+        provider_rows = conn.execute(
+            "SELECT connection_id, provider, enabled, detected FROM connection_providers "
+            "ORDER BY connection_id, provider"
+        ).fetchall()
+        assert provider_rows == [
+            (10, "claude", 1, 0),
+            (11, "openai", 1, 0),
+        ]
+
+        agent_rows = conn.execute(
+            "SELECT id, provider, connection_id FROM agents ORDER BY id"
+        ).fetchall()
+        assert agent_rows == [
+            (1, "claude", 10),
+            (2, "gemini", None),
+            (3, "openai", 11),
+            (4, None, None),
+        ]
+
+        player_rows = conn.execute(
+            "SELECT id, served_by_connection_id, served_pinned_at FROM players ORDER BY id"
+        ).fetchall()
+        assert player_rows[0][1] == 10
+        assert player_rows[1][1] is None
+        assert player_rows[2][1] == 11
+        assert player_rows[3][1] is None
+        assert player_rows[0][2] is not None
+        assert player_rows[2][2] is not None
+
+        assert conn.execute("SELECT count(*) FROM agent_versions").fetchone()[0] == 3
+        assert conn.execute("SELECT count(*) FROM matches").fetchone()[0] == 2
+        assert conn.execute("SELECT count(*) FROM players").fetchone()[0] == 4
     finally:
         conn.close()
 

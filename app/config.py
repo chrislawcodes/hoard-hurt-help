@@ -161,3 +161,26 @@ PROVIDER_MODELS: dict[str, list[str]] = {
     "hermes": [],
     "openclaw": [],
 }
+
+
+def _assert_unique_non_empty_provider_models(provider_models: dict[str, list[str]]) -> None:
+    """Ensure the non-empty provider allowlists do not share a model name."""
+    seen: dict[str, str] = {}
+    duplicates: list[str] = []
+    for provider, models in provider_models.items():
+        if not models:
+            continue
+        for model in models:
+            prior = seen.get(model)
+            if prior is not None and prior != provider:
+                duplicates.append(f"{model!r} in {prior} and {provider}")
+            else:
+                seen[model] = provider
+    if duplicates:
+        raise AssertionError(
+            "Duplicate model names across non-empty provider allowlists: "
+            + ", ".join(sorted(duplicates))
+        )
+
+
+_assert_unique_non_empty_provider_models(PROVIDER_MODELS)

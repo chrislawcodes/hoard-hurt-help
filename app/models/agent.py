@@ -9,6 +9,7 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, U
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.models.base import Base
+from app.models.connection import ConnectionProvider
 from app.models.enum_types import FlexibleEnumType
 
 
@@ -43,6 +44,11 @@ class Agent(Base):
     )
     connection_id: Mapped[int | None] = mapped_column(
         ForeignKey("connections.id"),
+        nullable=True,
+        index=True,
+    )
+    provider: Mapped[ConnectionProvider | None] = mapped_column(
+        FlexibleEnumType(ConnectionProvider, length=16),
         nullable=True,
         index=True,
     )

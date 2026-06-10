@@ -34,9 +34,9 @@ class Connection(Base):
         ForeignKey("users.id"), nullable=False, index=True
     )
     nickname: Mapped[str | None] = mapped_column(String(60), nullable=True)
-    provider: Mapped[ConnectionProvider] = mapped_column(
+    provider: Mapped[ConnectionProvider | None] = mapped_column(
         FlexibleEnumType(ConnectionProvider, length=16),
-        nullable=False,
+        nullable=True,
     )
     key_lookup: Mapped[str] = mapped_column(
         String(64),
