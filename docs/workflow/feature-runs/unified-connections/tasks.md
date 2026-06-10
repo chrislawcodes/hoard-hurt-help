@@ -40,7 +40,7 @@ Reconciliation directives) and `spec.md`.
   bots NULL, active AI = old provider, orphan archived, pins set, CHECK holds,
   counts unchanged, `upgrade head` exits 0.
 - [ ] Preflight Gate green.
-- [ ] `[CHECKPOINT]`
+- [ ] [CHECKPOINT]
 
 ## Slice 2 — turn_routing engine + unit tests  (~200 lines) [deps: 1]
 
@@ -54,7 +54,7 @@ Reconciliation directives) and `spec.md`.
   coverage → no candidate (no exception); after A claims, B polling same match
   → no candidate while pin alive.
 - [ ] Preflight Gate green.
-- [ ] `[CHECKPOINT]`
+- [ ] [CHECKPOINT]
 
 ## Slice 3 — Wire routing into the agent API  (~220 lines) [deps: 2]
 
@@ -70,7 +70,7 @@ Reconciliation directives) and `spec.md`.
 - [ ] Tests: routing serves the right agent; report-pid with/without
   detected_providers; old payload (no provider) still works.
 - [ ] Preflight Gate green.
-- [ ] `[CHECKPOINT]`
+- [ ] [CHECKPOINT]
 
 ## Slice 4 — Health + nav + lobby + player resolution  (~250 lines) [deps: 3]
 
@@ -86,7 +86,7 @@ Reconciliation directives) and `spec.md`.
 - [ ] Tests: health for live/idle/stale/dead; join-gate sum at 0/1/2 live
   connections; player_dashboard renders a detached-but-covered agent.
 - [ ] Preflight Gate green.
-- [ ] `[CHECKPOINT]`
+- [ ] [CHECKPOINT]
 
 ## Slice 5 — Connections routes (machine model)  (~280 lines) [deps: 3] [P: app/routes/connections_setup.py, app/routes/connections_lifecycle.py]
 
@@ -106,7 +106,7 @@ Reconciliation directives) and `spec.md`.
 - [ ] Tests: machine create has no provider; toggle-disable strand confirm;
   delete leaves covered agents ACTIVE; hermes/openclaw detail page still loads.
 - [ ] Preflight Gate green.
-- [ ] `[CHECKPOINT]`
+- [ ] [CHECKPOINT]
 
 ## Slice 6 — Agents routes (creation/edit + read views)  (~300 lines) [deps: 3]
 
@@ -128,7 +128,7 @@ Reconciliation directives) and `spec.md`.
   flips provider; restore version re-derives provider; resume a detached agent
   succeeds.
 - [ ] Preflight Gate green.
-- [ ] `[CHECKPOINT]`
+- [ ] [CHECKPOINT]
 
 ## Slice 7 — Connector script  (~120 lines) [deps: 3] [P: scripts/agentludum_connector.py]
 
@@ -140,7 +140,7 @@ Reconciliation directives) and `spec.md`.
 - [ ] Manual/scripted check: connector still starts and serves a turn against a
   dev server (no live-LLM dependency in the unit layer).
 - [ ] Preflight Gate green.
-- [ ] `[CHECKPOINT]`
+- [ ] [CHECKPOINT]
 
 ## Slice 8 — Templates, copy & final attachment sweep  (~220 lines) [deps: 4,5,6]
 
@@ -154,7 +154,7 @@ Reconciliation directives) and `spec.md`.
   resolve or annotate each hit (incl. player_dashboard, onboarding/status
   fragments).
 - [ ] Preflight Gate green.
-- [ ] `[CHECKPOINT]`
+- [ ] [CHECKPOINT]
 
 ## Verification (pre-merge, beyond per-slice preflight)
 
