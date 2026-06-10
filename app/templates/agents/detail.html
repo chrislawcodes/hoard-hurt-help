@@ -23,20 +23,9 @@
 {% if health.needs_reconnect %}
     {% if not connection %}
 <div class="card">
-    <h3 style="margin-top:0;">Needs connection</h3>
-    <p class="hint" style="margin-top:0;">This agent is paused until you attach it to a matching connection.</p>
-    {% if candidate_connections %}
-        <div style="display:grid; gap:0.75rem;">
-            {% for candidate in candidate_connections %}
-            <form method="post" action="/me/connections/{{ candidate.id }}/reattach/{{ agent.id }}">
-                <button type="submit" class="btn btn-primary">Reattach to {{ candidate.nickname or candidate.provider.value }}</button>
-            </form>
-            {% endfor %}
-        </div>
-    {% else %}
-        <p class="empty">No matching connections are available yet.</p>
-        <a class="btn btn-primary" href="/me/connections">Go to connections →</a>
-    {% endif %}
+    <h3 style="margin-top:0;">No live connection runs {{ agent.provider.value if agent.provider else "this agent's provider" }}</h3>
+    <p class="hint" style="margin-top:0;">This agent plays on any live connection that has its provider turned on. Turn it on (and start the runner) from your connections page.</p>
+    <a class="btn btn-primary" href="/me/connections">Go to connections →</a>
 </div>
     {% elif health.never_connected %}
 <div id="reconnect" class="card">
