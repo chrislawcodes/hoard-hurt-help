@@ -270,10 +270,11 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
         follow_redirects=True,
     )
     assert resp.status_code == 200
-    assert "Machine setup" in resp.text
-    assert "This connection is not established yet." in resp.text
-    assert "Add the key below to your client and it will connect automatically." in resp.text
-    assert "Copy setup instructions" in resp.text
+    # Naming a machine lands back on the connections page, which shows the
+    # ready-to-run setup command inline (no provider picker, no second page).
+    assert "Set up a machine" in resp.text
+    assert "Name your machine" in resp.text
+    assert "Paste this to your AI assistant:" in resp.text
     assert "agentludum_connector.py" in resp.text
     assert "setup-files/agentludum_connector.py" in resp.text
     assert "X-Connection-Key" in resp.text
@@ -319,7 +320,7 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
 
 
 @pytest.mark.asyncio
-async def test_connections_list_groups_provider_choices(
+async def test_connections_list_shows_inline_setup_and_no_provider_picker(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
@@ -328,44 +329,16 @@ async def test_connections_list_groups_provider_choices(
 
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
-    assert "Machine" in resp.text
-    assert "Hermes / OpenClaw" in resp.text
-    assert "Use the Hermes/OpenClaw setup path." in resp.text
-    assert 'Add a machine' in resp.text
-    assert 'name="provider" value="hermes"' in resp.text
-    assert 'name="provider" value="openclaw"' in resp.text
-    assert 'Start with a bare machine.' in resp.text
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("provider", "script_name"),
-    (
-        ("hermes", "agentludum_setup_hermes.py"),
-        ("openclaw", "agentludum_setup_openclaw.py"),
-    ),
-)
-async def test_setup_page_uses_provider_specific_runner(
-    client: AsyncClient,
-    session_factory: async_sessionmaker[AsyncSession],
-    provider: str,
-    script_name: str,
-) -> None:
-    async with session_factory() as db:
-        user = await _make_user(db)
-        await db.commit()
-
-    resp = await client.post(
-        "/me/connections",
-        cookies=_signed_in_cookies(user.id),
-        data={"provider": provider, "nickname": f"My {provider.title()}"},
-        follow_redirects=True,
-    )
-    assert resp.status_code == 200
-    assert script_name in resp.text
-    assert f"setup-files/{script_name}" in resp.text
-    assert "X-Connection-Key" in resp.text
-    assert "mcp" not in resp.text.lower()
+    # One unified setup prompt, inline, using the single connector download.
+    assert "Set up a machine" in resp.text
+    assert "Name your machine" in resp.text
+    assert "Paste this to your AI assistant:" in resp.text
+    assert "setup-files/agentludum_connector.py" in resp.text
+    # The old two-group, per-provider picker is gone.
+    assert "Hermes / OpenClaw" not in resp.text
+    assert 'name="provider"' not in resp.text
+    assert "agentludum_setup_hermes.py" not in resp.text
+    assert "agentludum_setup_openclaw.py" not in resp.text
 
 
 @pytest.mark.asyncio
@@ -386,18 +359,19 @@ async def test_connections_list_renders_existing_connection(
 
 
 @pytest.mark.asyncio
-async def test_create_connection_reuses_existing_pending_setup(
+async def test_naming_machine_reuses_one_setup_and_keeps_a_stable_key(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await _make_user(db)
         await db.commit()
 
-    cookies = _signed_in_cookies(user.id)
+    # Set the auth cookie on the client jar (like a browser) so the server's
+    # session updates — which carry the one-time key — persist across requests.
+    client.cookies.update(_signed_in_cookies(user.id))
     first = await client.post(
         "/me/connections",
-        cookies=cookies,
-        data={"provider": "claude", "nickname": "My Claude"},
+        data={"nickname": "My Machine"},
         follow_redirects=True,
     )
     assert first.status_code == 200
@@ -407,14 +381,17 @@ async def test_create_connection_reuses_existing_pending_setup(
 
     second = await client.post(
         "/me/connections",
-        cookies=cookies,
-        data={"provider": "claude", "nickname": "My Claude (again)"},
+        data={"nickname": "My Machine (renamed)"},
         follow_redirects=True,
     )
     assert second.status_code == 200
     second_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", second.text)
     assert second_match is not None
     second_key = second_match.group(1)
+
+    # Renaming reuses the one open setup and does NOT rotate the key the user may
+    # have already copied.
+    assert second_key == first_key
 
     async with session_factory() as db:
         setups = (
@@ -424,11 +401,11 @@ async def test_create_connection_reuses_existing_pending_setup(
         ).scalars().all()
         assert len(setups) == 1
         setup = setups[0]
-        assert setup.nickname == "My Claude (again)"
+        assert setup.nickname == "My Machine (renamed)"
+        assert setup.provider is None
         assert setup.completed_at is None
         assert setup.connection_id is None
         assert setup.key_lookup == bot_key_lookup(second_key)
-        assert setup.key_lookup != bot_key_lookup(first_key)
 
 
 @pytest.mark.asyncio
@@ -722,32 +699,6 @@ async def test_gc_raises_when_connection_setups_table_missing(
     async with bare_factory() as db:
         with pytest.raises(OperationalError):
             await gc_pending_connections(db, now=NOW)
-
-
-@pytest.mark.asyncio
-async def test_load_pending_setups_raises_when_table_missing(
-    engine: AsyncEngine,
-) -> None:
-    """_load_pending_setups must propagate OperationalError when the table is missing.
-
-    The old shim returned [] so callers never knew the table was absent.
-    After the shim was removed, the DB error surfaces immediately.
-
-    Note: _load_pending_setups is a module-level helper tested directly here
-    rather than through the HTTP layer, because ASGITransport in httpx raises
-    unhandled server errors as exceptions rather than returning 500 responses.
-    """
-    from app.routes.connections_setup import _load_pending_setups
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        # Drop the connection_setups table to simulate a pre-migration deployment.
-        await conn.execute(text("DROP TABLE connection_setups"))
-
-    bare_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with bare_factory() as db:
-        with pytest.raises(OperationalError):
-            await _load_pending_setups(db, user_id=1)
 
 
 @pytest.mark.asyncio

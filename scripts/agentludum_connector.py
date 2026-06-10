@@ -346,14 +346,54 @@ class _HermesAdapter:
         return self._one_shot(body), None
 
 
+class _OpenClawAdapter:
+    """`openclaw agent --message` one-shot. A one-shot run replies once and the
+    child retires, so there is no lingering process.
+
+    Path A (same as Hermes): no captured session, so it is fed the FULL game
+    state every turn (``supports_resume = False``). It uses its OWN configured
+    default model — the connector never passes ``--model``. Adding thread/resume
+    delta turns is a follow-up once a live install confirms how a one-shot
+    exposes its thread id.
+    """
+
+    cli = "openclaw"
+    # OpenClaw uses its own configured model; this is a placeholder so `_resolve`'s
+    # `adapter.default_model` access works. The adapter never passes it to the CLI.
+    default_model = "openclaw"
+    supports_resume = False
+
+    def _one_shot(self, prompt: str) -> str:
+        proc = _run(["openclaw", "agent", "--message", prompt])
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or f"openclaw exit {proc.returncode}")
+        text = proc.stdout.strip()
+        if not text:
+            raise RuntimeError(
+                f"openclaw agent returned empty output:\n{proc.stderr[:300]}"
+            )
+        return text
+
+    def first(self, *, body: str, framing: str, model: str, session: _GameSession):
+        # Leave session.token None on purpose: every turn re-sends the full state.
+        return self._one_shot(f"{framing}\n\n{body}"), None
+
+    def resume(self, *, body: str, model: str, session: _GameSession):
+        # Unreachable while supports_resume is False (`_decide` always calls
+        # first); kept for interface symmetry.
+        return self._one_shot(body), None
+
+
 # Adapter registry keyed by the server's provider value.
 _ADAPTERS: dict[
-    str, _ClaudeAdapter | _CodexAdapter | _GeminiAdapter | _HermesAdapter
+    str,
+    _ClaudeAdapter | _CodexAdapter | _GeminiAdapter | _HermesAdapter | _OpenClawAdapter,
 ] = {
     "claude": _ClaudeAdapter(),
     "openai": _CodexAdapter(),
     "gemini": _GeminiAdapter(),
     "hermes": _HermesAdapter(),
+    "openclaw": _OpenClawAdapter(),
 }
 
 
@@ -489,6 +529,7 @@ def _detect_providers() -> list[str]:
         "openai": "codex",
         "gemini": "gemini",
         "hermes": "hermes",
+        "openclaw": "openclaw",
     }
     return [provider for provider, cli in cli_by_provider.items() if shutil.which(cli)]
 

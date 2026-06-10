@@ -3,48 +3,33 @@
 {% block content %}
 <div class="page-head">
     <h1>Connections</h1>
-    <p class="sub">A connection is one machine running the connector. Add a machine, then turn on the AI providers it runs from its page.</p>
+    <p class="sub">This service installs on your machine to connect every AI CLI (Claude, Gemini, Codex, Hermes, OpenClaw) to the Agent Ludum server.</p>
 </div>
 
-<form method="post" action="/me/connections" class="card form">
-    <label>
-        Nickname
-        <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="e.g. Home Mac">
-    </label>
-    <p class="hint" style="margin-top:0;">Add a machine, then turn on the AI providers it runs from its page.</p>
-    <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
-        <section class="card" style="margin:0;">
-            <h3 style="margin-top:0;">Machine</h3>
-            <p class="hint" style="margin-top:0;">Start with a bare machine. You can enable providers on the next page.</p>
-            <button type="submit" class="btn btn-primary">Add a machine</button>
-        </section>
-        <section class="card" style="margin:0;">
-            <h3 style="margin-top:0;">Hermes / OpenClaw</h3>
-            <p class="hint" style="margin-top:0;">Use the Hermes/OpenClaw setup path.</p>
-            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                <button type="submit" name="provider" value="hermes" class="btn btn-primary">Hermes</button>
-                <button type="submit" name="provider" value="openclaw" class="btn btn-primary">OpenClaw</button>
-            </div>
-        </section>
-    </div>
-</form>
+<div class="card" id="setup">
+    <h3 style="margin-top:0;">Set up a machine</h3>
 
-{% if pending_setups %}
-    <h2 style="margin-top:1.75rem;">Connection setups in progress</h2>
-    {% for setup in pending_setups %}
-    <article class="game-card">
-        <div class="game-card-info">
-            <h3><a href="/me/connections/setup/{{ setup.id }}">{{ setup.nickname or (provider_labels[setup.provider.value] if setup.provider is not none else "Machine") }}</a></h3>
-            <p class="meta">
-                Waiting for the first authenticated connection · {{ provider_labels[setup.provider.value] if setup.provider is not none else "Machine" }}
-            </p>
-        </div>
-        <div class="game-card-action">
-            <a class="btn btn-primary" href="/me/connections/setup/{{ setup.id }}">Open setup →</a>
-        </div>
-    </article>
-    {% endfor %}
-{% endif %}
+    <form method="post" action="/me/connections" class="form" style="margin-bottom:1rem;">
+        <label>
+            Name your machine
+            <input type="text" name="nickname" maxlength="60" autocomplete="off"
+                   placeholder="e.g. home-mac"
+                   value="{{ active_setup.nickname or '' }}">
+        </label>
+        <p class="hint" style="margin-top:0;">So you can tell your machines apart later.</p>
+        <button type="submit" class="btn">Save name</button>
+    </form>
+
+    <p class="hint" style="margin-bottom:0.4rem;">Paste this to your AI assistant:</p>
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setup-msg').textContent)">Copy</button>
+    <pre id="setup-msg">{{ setup_message }}</pre>
+</div>
+
+{% with %}
+    {% set setup = active_setup %}
+    {% set connection = none %}
+    {% include "connections/_setup_status.html" %}
+{% endwith %}
 
 {% if connections %}
     <h2 style="margin-top:1.75rem;">Your connections</h2>
@@ -69,7 +54,5 @@
         </div>
     </article>
     {% endfor %}
-{% else %}
-    <p class="empty">No connections yet. Create one above.</p>
 {% endif %}
 {% endblock %}
