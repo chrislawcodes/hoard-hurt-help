@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from starlette.responses import Response
 
-from app.config import PROVIDER_MODELS
+from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health import ConnectionHealth, compute_connection_health
@@ -20,6 +20,7 @@ from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
@@ -109,6 +110,27 @@ async def _load_user_connections(db: DbSession, user_id: int) -> list[Connection
         )
     )
     return list(rows.scalars().all())
+
+
+async def _enabled_provider_values(db: DbSession, user_id: int) -> set[str]:
+    """Provider values enabled on at least one of the user's live-or-not
+    connections — the providers an agent can be created for."""
+    rows = (
+        (
+            await db.execute(
+                select(ConnectionProviderRow.provider)
+                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
+                .where(
+                    Connection.user_id == user_id,
+                    Connection.deleted_at.is_(None),
+                    ConnectionProviderRow.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {p.value for p in rows}
 
 
 async def _load_user_agents(db: DbSession, user_id: int) -> list[tuple[Agent, AgentVersion | None, Connection | None]]:
@@ -479,31 +501,32 @@ async def create_agent_or_connection(
         if existing is not None:
             raise HTTPException(status_code=409, detail="You already have an agent with that name.")
 
-        connection: Connection | None = None
-        if connection_id is not None:
-            connection = await _load_owned_connection(db, user, connection_id)
-            if connection.status != ConnectionStatus.ACTIVE:
-                raise HTTPException(status_code=409, detail="Connection must be active first.")
-        else:
-            if provider is None:
-                raise HTTPException(status_code=400, detail="Pick a provider or choose a connection.")
-            try:
-                provider_choice = ConnectionProvider(provider.strip().lower())
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail="Unknown provider.") from exc
-            connection = await _load_active_connection_for_provider(db, user.id, provider_choice)
-            if connection is None:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Create an active connection for that provider first.",
-                )
-
         clean_model = (model or "").strip()
-        allowed = PROVIDER_MODELS.get(connection.provider.value, [])
-        if allowed and clean_model not in allowed:
-            raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
         if not clean_model:
             raise HTTPException(status_code=400, detail="Model is required.")
+        # An agent is name + model + strategy; its provider is derived from the
+        # chosen model (claude/gemini/openai) and stored. A freeform model
+        # (hermes/openclaw) takes the explicit provider param.
+        derived = provider_for_model(clean_model)
+        if derived is not None:
+            agent_provider = ConnectionProvider(derived)
+        elif provider:
+            try:
+                agent_provider = ConnectionProvider(provider.strip().lower())
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Unknown provider.") from exc
+        else:
+            raise HTTPException(status_code=400, detail="Pick a model.")
+        # Availability: the provider must be enabled on at least one connection,
+        # else the agent could never be served (acceptance #3).
+        if agent_provider.value not in await _enabled_provider_values(db, user.id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"No connection runs {agent_provider.value}. "
+                    "Turn it on at /me/connections first."
+                ),
+            )
         clean_strategy = (strategy_text or "").strip()
         if not clean_strategy and strategy_preset:
             preset = next(
@@ -518,7 +541,8 @@ async def create_agent_or_connection(
         version_text = clean_strategy or get_game_module(_DEFAULT_GAME).default_strategy()
         agent = Agent(
             user_id=user.id,
-            connection_id=connection.id,
+            connection_id=None,
+            provider=agent_provider,
             kind=AgentKind.AI,
             name=clean_name,
             game=_DEFAULT_GAME,
