@@ -554,6 +554,61 @@
       "duration_seconds": 8.944476,
       "agent_id": null,
       "artifact_sha_at_time": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 7649,
+      "prompt_cap": 250000,
+      "input_tokens": 607,
+      "output_tokens": 445,
+      "cost_usd_estimate": 0.00081925,
+      "timestamp": "2026-06-10T07:29:11.904906Z",
+      "started_at": "2026-06-10T07:29:03.662463Z",
+      "ended_at": "2026-06-10T07:29:11.904906Z",
+      "duration_seconds": 8.242334,
+      "agent_id": null,
+      "artifact_sha_at_time": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6",
+      "activity_subtype": "micro"
+    },
+    {
+      "stage": "diff",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 7649,
+      "prompt_cap": 200000,
+      "input_tokens": 14192,
+      "output_tokens": 470,
+      "cost_usd_estimate": 0.004253,
+      "timestamp": "2026-06-10T07:30:35.664281Z",
+      "started_at": "2026-06-10T07:30:28.302129Z",
+      "ended_at": "2026-06-10T07:30:35.664281Z",
+      "duration_seconds": 7.361979,
+      "agent_id": null,
+      "artifact_sha_at_time": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
+    },
+    {
+      "stage": "diff",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 7649,
+      "prompt_cap": 200000,
+      "input_tokens": 15036,
+      "output_tokens": 728,
+      "cost_usd_estimate": 0.004851,
+      "timestamp": "2026-06-10T07:34:03.156365Z",
+      "started_at": "2026-06-10T07:33:53.663799Z",
+      "ended_at": "2026-06-10T07:34:03.156365Z",
+      "duration_seconds": 9.492484,
+      "agent_id": null,
+      "artifact_sha_at_time": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
     }
   ],
   "command_telemetry": [
@@ -796,6 +851,42 @@
       "files_written": 6,
       "subprocess_invocations": 14,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T07:29:12Z",
+      "wall_seconds": 8.688,
+      "input_bytes_read": 230390,
+      "output_bytes_written": 158170,
+      "files_read": 8,
+      "files_written": 6,
+      "subprocess_invocations": 14,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-10T07:35:22Z",
+      "wall_seconds": 0.457,
+      "input_bytes_read": 99484,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T07:36:13Z",
+      "wall_seconds": 0.481,
+      "input_bytes_read": 383816,
+      "output_bytes_written": 204968,
+      "files_read": 23,
+      "files_written": 7,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -826,12 +917,14 @@
       "initial_sha": "ab000321c91b7af21061425d2a571c6be5fb2525328d87c042e38cbd189554b7"
     },
     "diff": {
-      "adversarial_rounds": 0,
+      "adversarial_rounds": 1,
       "annotations": [],
       "adversarial_sha_history": [
         "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6",
         "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6",
-        "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
+        "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6",
+        "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6",
+        "512dddf95d875ade346b7e2299b0b7c26adf60007c0e1de47b8e22a5011f790e"
       ],
       "initial_sha": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
     }
@@ -839,18 +932,18 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 0,
-    "markers_sha": "",
-    "last_diff_head_sha": ""
+    "index": 1,
+    "markers_sha": "1c3f0476d0c468648069cb8c9e3b9ad5260ddfd0016800d5cc5897269bff7c0f",
+    "last_diff_head_sha": "142a366374c7e93afe75b9b79511202ec5b041d0"
   },
   "spec_adversarial_rounds": 0,
   "plan_adversarial_rounds": 0,
   "tasks_adversarial_rounds": 1,
   "last_action_result": {
     "next": "dispatch_next_slice_to_codex",
-    "reason": "tasks checkpoint completed",
+    "reason": "diff checkpoint completed",
     "blockers": []
   },
-  "diff_adversarial_rounds": 0,
+  "diff_adversarial_rounds": 1,
   "dirty_overrides": {}
 }

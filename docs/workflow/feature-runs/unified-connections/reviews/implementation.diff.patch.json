@@ -1,0 +1,14 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "142a366374c7e93afe75b9b79511202ec5b041d0",
+  "git_base_ref": "origin/claude/awesome-mendel-y2hj7c",
+  "git_base_sha": "1b8506be62344350e95f0062eae000dbf0417a74",
+  "paths": [
+    "app",
+    "scripts"
+  ],
+  "allowed_dirty_paths": [],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/unified-connections/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}

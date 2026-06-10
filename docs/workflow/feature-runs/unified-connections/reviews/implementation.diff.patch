@@ -1,0 +1,196 @@
+diff --git a/app/config.py b/app/config.py
+index 4e52700..32c7104 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -161,3 +161,26 @@ PROVIDER_MODELS: dict[str, list[str]] = {
+     "hermes": [],
+     "openclaw": [],
+ }
++
++
++def _assert_unique_non_empty_provider_models(provider_models: dict[str, list[str]]) -> None:
++    """Ensure the non-empty provider allowlists do not share a model name."""
++    seen: dict[str, str] = {}
++    duplicates: list[str] = []
++    for provider, models in provider_models.items():
++        if not models:
++            continue
++        for model in models:
++            prior = seen.get(model)
++            if prior is not None and prior != provider:
++                duplicates.append(f"{model!r} in {prior} and {provider}")
++            else:
++                seen[model] = provider
++    if duplicates:
++        raise AssertionError(
++            "Duplicate model names across non-empty provider allowlists: "
++            + ", ".join(sorted(duplicates))
++        )
++
++
++_assert_unique_non_empty_provider_models(PROVIDER_MODELS)
+diff --git a/app/models/__init__.py b/app/models/__init__.py
+index 9ab6ba0..ae7ae77 100644
+--- a/app/models/__init__.py
++++ b/app/models/__init__.py
+@@ -4,17 +4,19 @@ from app.models.base import Base
+ from app.models.agent import Agent, AgentKind, AgentStatus
+ from app.models.agent_version import AgentVersion
+ from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
++from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+ from app.models.connection_setup import ConnectionSetup
+-from app.models.user import User
+ from app.models.match import GameState, Match
+ from app.models.player import Player
+ from app.models.request_incident import RequestIncident
++from app.models.user import User
+ from app.models.turn import Turn, TurnMessage, TurnSubmission
+ 
+ __all__ = [
+     "Base",
+     "Connection",
+     "ConnectionProvider",
++    "ConnectionProviderRow",
+     "ConnectionStatus",
+     "ConnectionSetup",
+     "Agent",
+diff --git a/app/models/agent.py b/app/models/agent.py
+index d573141..38ae628 100644
+--- a/app/models/agent.py
++++ b/app/models/agent.py
+@@ -9,6 +9,7 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, U
+ from sqlalchemy.orm import Mapped, mapped_column, validates
+ 
+ from app.models.base import Base
++from app.models.connection import ConnectionProvider
+ from app.models.enum_types import FlexibleEnumType
+ 
+ 
+@@ -46,6 +47,11 @@ class Agent(Base):
+         nullable=True,
+         index=True,
+     )
++    provider: Mapped[ConnectionProvider | None] = mapped_column(
++        FlexibleEnumType(ConnectionProvider, length=16),
++        nullable=True,
++        index=True,
++    )
+     kind: Mapped[AgentKind] = mapped_column(
+         FlexibleEnumType(AgentKind, length=16),
+         nullable=False,
+diff --git a/app/models/connection.py b/app/models/connection.py
+index a736d70..3011d94 100644
+--- a/app/models/connection.py
++++ b/app/models/connection.py
+@@ -34,9 +34,14 @@ class Connection(Base):
+         ForeignKey("users.id"), nullable=False, index=True
+     )
+     nickname: Mapped[str | None] = mapped_column(String(60), nullable=True)
++    # DB column is nullable (migration 0026) so future machine-style connections
++    # can leave it NULL, but the Python type stays non-None until slice 5
++    # introduces those NULL rows and updates every consumer together. Every row
++    # that exists today is backfilled with its legacy provider, so non-None is
++    # accurate for now.
+     provider: Mapped[ConnectionProvider] = mapped_column(
+         FlexibleEnumType(ConnectionProvider, length=16),
+-        nullable=False,
++        nullable=True,
+     )
+     key_lookup: Mapped[str] = mapped_column(
+         String(64),
+## New file: app/models/connection_provider.py
+
+"""Per-connection provider toggle rows."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+import sqlalchemy as sa
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+from app.models.connection import ConnectionProvider as ConnectionProviderEnum
+from app.models.enum_types import FlexibleEnumType
+
+
+class ConnectionProvider(Base):
+    __tablename__ = "connection_providers"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "provider",
+            name="uq_connection_providers_connection_id_provider",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    provider: Mapped[ConnectionProviderEnum] = mapped_column(
+        FlexibleEnumType(ConnectionProviderEnum, length=16),
+        nullable=False,
+        index=True,
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.false(),
+    )
+    detected: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.false(),
+    )
+    detected_detail: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+diff --git a/app/models/connection_setup.py b/app/models/connection_setup.py
+index 5cbfdb6..87f87f6 100644
+--- a/app/models/connection_setup.py
++++ b/app/models/connection_setup.py
+@@ -19,9 +19,12 @@ class ConnectionSetup(Base):
+     user_id: Mapped[int] = mapped_column(
+         ForeignKey("users.id"), nullable=False, index=True
+     )
++    # DB column nullable (migration 0026) for future machine-style setups; the
++    # Python type stays non-None until slice 5 creates NULL drafts and updates
++    # the resume/label paths together.
+     provider: Mapped[ConnectionProvider] = mapped_column(
+         FlexibleEnumType(ConnectionProvider, length=16),
+-        nullable=False,
++        nullable=True,
+     )
+     nickname: Mapped[str | None] = mapped_column(String(60), nullable=True)
+     key_lookup: Mapped[str] = mapped_column(
+diff --git a/app/models/player.py b/app/models/player.py
+index cd77f71..41de098 100644
+--- a/app/models/player.py
++++ b/app/models/player.py
+@@ -25,6 +25,15 @@ class Player(Base):
+     agent_id: Mapped[int] = mapped_column(
+         ForeignKey("agents.id"), nullable=False, index=True
+     )
++    served_by_connection_id: Mapped[int | None] = mapped_column(
++        ForeignKey("connections.id", ondelete="SET NULL"),
++        nullable=True,
++        index=True,
++    )
++    served_pinned_at: Mapped[datetime | None] = mapped_column(
++        DateTime(timezone=True),
++        nullable=True,
++    )
+     agent_version_id: Mapped[int | None] = mapped_column(
+         ForeignKey("agent_versions.id"),
+         nullable=True,
