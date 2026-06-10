@@ -1,0 +1,65 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [],
+    "summary": "",
+    "updated_at": 1781128884,
+    "answers": {
+      "Scope?": "Hermes first; OpenClaw as a fast-follow using the same adapter pattern."
+    },
+    "non_goals": [
+      "Session-id capture / --resume delta turns for Hermes (the Path B optimization \u2014 follow-up once a live install confirms the id-capture mechanism)",
+      "OpenClaw adapter (fast-follow run, same pattern)",
+      "Changing the connector's claude/codex/gemini adapters or the routing/coverage model (unified-connections already shipped)"
+    ],
+    "acceptance_criteria": [
+      "A connector with the 'hermes' CLI installed reports hermes in detected_providers (shutil.which('hermes'))",
+      "When the server routes a turn to a hermes-provider agent, the connector invokes 'hermes -z' one-shot with the full game state and parses the move from stdout; no --model is passed (Hermes uses its own configured model)",
+      "Every hermes turn sends full state (Path A) \u2014 no session id is captured or required; failover and first-turn behave identically",
+      "A hermes agent is created with no model dropdown (provider=hermes); routing/coverage treat hermes like any other provider",
+      "Unit tests mock the hermes subprocess (success + malformed output -> connector fallback move); a live-install validation step is documented"
+    ],
+    "checklist": {
+      "goal": "Add a connector adapter so Hermes (NousResearch/hermes-agent) agents play via the standard low-token connector \u2014 invoked one-shot per turn (hermes -z), full game state each turn (Path A: no session resume yet). OpenClaw is a fast-follow.",
+      "audience": "Players who run Hermes as their AI competitor; they install the connector once per machine and toggle the Hermes provider on, like claude/gemini/openai today.",
+      "constraints": "Hermes 'hermes -z' headless mode: single prompt in, final reply text out, exit. Watch NousResearch/hermes-agent#38252 (clean CLI handback). No live Hermes install is available to the implementer yet, so the adapter is written against the documented CLI + mocked-subprocess tests; a live -z smoke test is a required pre-merge step (data/integration-critical)."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "b25dfab3d7ebce487ddf63d46df80706ef39012c",
+  "token_usage": [],
+  "command_telemetry": [],
+  "stages": {},
+  "invariant_warnings": [],
+  "schema_version": 1,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  }
+}

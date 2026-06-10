@@ -1,0 +1,13 @@
+{
+  "paths": [
+    "app",
+    "mcp_server",
+    "scripts"
+  ],
+  "allowed_dirty_paths": [
+    "app",
+    "docs/workflow/feature-runs/hermes-openclaw-adapters",
+    "mcp_server",
+    "scripts"
+  ]
+}
