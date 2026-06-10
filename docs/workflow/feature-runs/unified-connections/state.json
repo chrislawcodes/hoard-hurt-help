@@ -1340,5 +1340,10 @@
       "elapsed_ms": 3000047
     }
   ],
-  "dirty_overrides": {}
+  "dirty_overrides": {},
+  "arch_docs": {
+    "no_change_acked": true,
+    "reason": "Scoped architecture doc (AGENT_LUDUM_ARCHITECTURE.md) was updated to target state during the Design stage and reviewed at the plan checkpoint; it remains accurate. Implementation deltas (deferred coverage-aware display/capacity reads) are recorded in closeout.md, not architectural drift.",
+    "updated_at": 1781087721
+  }
 }
