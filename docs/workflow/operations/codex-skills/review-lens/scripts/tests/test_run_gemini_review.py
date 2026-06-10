@@ -179,5 +179,27 @@ class ExpandNewFilesTests(unittest.TestCase):
         self.assertLessEqual(len(result), 50)
 
 
+prompt_for = RUN_GEMINI.prompt_for
+
+
+class PromptForFailLoudTests(unittest.TestCase):
+    """The fail-loud swallow check is included for code stages only."""
+
+    _NEEDLE = "swallowed errors and silent"
+
+    def test_diff_stage_includes_fail_loud_check(self) -> None:
+        prompt = prompt_for("diff", "correctness-adversarial", "diff", "some code", [])
+        self.assertIn(self._NEEDLE, prompt)
+
+    def test_closeout_stage_includes_fail_loud_check(self) -> None:
+        prompt = prompt_for("closeout", "regression-adversarial", "diff", "some code", [])
+        self.assertIn(self._NEEDLE, prompt)
+
+    def test_artifact_stages_omit_fail_loud_check(self) -> None:
+        for stage in ("spec", "plan", "tasks"):
+            prompt = prompt_for(stage, "requirements-adversarial", "spec.md", "text", [])
+            self.assertNotIn(self._NEEDLE, prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

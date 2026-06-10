@@ -50,6 +50,13 @@ target-version = "py311"
 # so it is excluded from the app lint pass.
 extend-exclude = ["docs/workflow/operations/codex-skills"]
 
+[tool.ruff.lint]
+# Fail loud: forbid swallowed errors in app code. Bare `except:` (E722) is on by
+# default; these add `try/except: pass` (S110) and `try/except: continue` (S112),
+# the classic silent-swallow shapes. Enforced on every feature via the Preflight
+# Gate (`ruff check .`), so no new code can swallow an exception and still ship.
+extend-select = ["S110", "S112"]
+
 [tool.black]
 line-length = 100
 target-version = ["py311"]
