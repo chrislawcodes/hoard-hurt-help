@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
     <h1>Connections</h1>
-    <p class="sub">A connection is one computer running the connector. Add a machine here, then turn the AI providers it should run on or off from its page. Your agents run on whichever live connection covers their provider.</p>
+    <p class="sub">A connection is one machine running the connector. Add a machine, then turn on the AI providers it runs from its page.</p>
 </div>
 
 <form method="post" action="/me/connections" class="card form">
@@ -11,21 +11,21 @@
         Nickname
         <input type="text" name="nickname" maxlength="60" autocomplete="off" placeholder="e.g. Home Mac">
     </label>
-    <p class="hint" style="margin-top:0;">Pick the first provider this machine should run — you can turn on more on its page afterward.</p>
+    <p class="hint" style="margin-top:0;">Add a machine, then turn on the AI providers it runs from its page.</p>
     <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
-        {% for group in provider_groups %}
         <section class="card" style="margin:0;">
-            <h3 style="margin-top:0;">{{ group.label }}</h3>
-            <p class="hint" style="margin-top:0;">{{ group.description }}</p>
+            <h3 style="margin-top:0;">Machine</h3>
+            <p class="hint" style="margin-top:0;">Start with a bare machine. You can enable providers on the next page.</p>
+            <button type="submit" class="btn btn-primary">Add a machine</button>
+        </section>
+        <section class="card" style="margin:0;">
+            <h3 style="margin-top:0;">Hermes / OpenClaw</h3>
+            <p class="hint" style="margin-top:0;">Use the Hermes/OpenClaw setup path.</p>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                {% for provider in group.providers %}
-                <button type="submit" name="provider" value="{{ provider.value }}" class="btn btn-primary">
-                    {{ provider_labels[provider.value] }}
-                </button>
-                {% endfor %}
+                <button type="submit" name="provider" value="hermes" class="btn btn-primary">Hermes</button>
+                <button type="submit" name="provider" value="openclaw" class="btn btn-primary">OpenClaw</button>
             </div>
         </section>
-        {% endfor %}
     </div>
 </form>
 
@@ -34,9 +34,9 @@
     {% for setup in pending_setups %}
     <article class="game-card">
         <div class="game-card-info">
-            <h3><a href="/me/connections/setup/{{ setup.id }}">{{ setup.nickname or provider_labels[setup.provider.value] }}</a></h3>
+            <h3><a href="/me/connections/setup/{{ setup.id }}">{{ setup.nickname or (provider_labels[setup.provider.value] if setup.provider is not none else "Machine") }}</a></h3>
             <p class="meta">
-                Waiting for the first authenticated connection · {{ provider_labels[setup.provider.value] }}
+                Waiting for the first authenticated connection · {{ provider_labels[setup.provider.value] if setup.provider is not none else "Machine" }}
             </p>
         </div>
         <div class="game-card-action">

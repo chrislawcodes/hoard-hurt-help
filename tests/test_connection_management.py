@@ -24,6 +24,7 @@ from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_setup import ConnectionSetup
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
@@ -256,7 +257,7 @@ async def _make_turn(
 
 
 @pytest.mark.asyncio
-async def test_create_connection_shows_setup_page_before_connect(
+async def test_create_machine_connection_shows_setup_page_before_connect(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
@@ -266,11 +267,11 @@ async def test_create_connection_shows_setup_page_before_connect(
     resp = await client.post(
         "/me/connections",
         cookies=_signed_in_cookies(user.id),
-        data={"provider": "claude", "nickname": "My Claude"},
+        data={"nickname": "My Machine"},
         follow_redirects=True,
     )
     assert resp.status_code == 200
-    assert "Claude setup" in resp.text
+    assert "Machine setup" in resp.text
     assert "This connection is not established yet." in resp.text
     assert "Add the key below to your client and it will connect automatically." in resp.text
     assert "Copy setup instructions" in resp.text
@@ -286,10 +287,36 @@ async def test_create_connection_shows_setup_page_before_connect(
         ).scalar_one()
         assert setup.completed_at is None
         assert setup.connection_id is None
+        assert setup.provider is None
         connection = (
             await db.execute(select(Connection).where(Connection.user_id == user.id))
         ).scalar_one_or_none()
         assert connection is None
+
+    key_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", resp.text)
+    assert key_match is not None
+    key = key_match.group(1)
+
+    auth = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert auth.status_code == 200
+
+    async with session_factory() as db:
+        setup = (
+            await db.execute(select(ConnectionSetup).where(ConnectionSetup.user_id == user.id))
+        ).scalar_one()
+        assert setup.completed_at is not None
+        connection = (
+            await db.execute(select(Connection).where(Connection.user_id == user.id))
+        ).scalar_one()
+        assert connection.provider is None
+        rows = (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == connection.id
+                )
+            )
+        ).scalars().all()
+        assert rows == []
 
 
 @pytest.mark.asyncio
@@ -302,15 +329,13 @@ async def test_connections_list_groups_provider_choices(
 
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
-    assert "Claude / Gemini / OpenAI" in resp.text
+    assert "Machine" in resp.text
     assert "Hermes / OpenClaw" in resp.text
-    assert "Use the standard setup path for the CLI-backed providers." in resp.text
     assert "Use the Hermes/OpenClaw setup path." in resp.text
-    assert 'name="provider" value="claude"' in resp.text
-    assert 'name="provider" value="gemini"' in resp.text
-    assert 'name="provider" value="openai"' in resp.text
+    assert 'Add a machine' in resp.text
     assert 'name="provider" value="hermes"' in resp.text
     assert 'name="provider" value="openclaw"' in resp.text
+    assert 'Start with a bare machine.' in resp.text
 
 
 @pytest.mark.asyncio

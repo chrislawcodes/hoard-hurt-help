@@ -16,6 +16,7 @@ from app.db import make_engine
 from app.engine.tokens import bot_key_lookup
 from app.models import Base
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 from app.routes.agent_next_turn import router as agent_next_turn_router
@@ -99,6 +100,15 @@ async def make_connection(
         status=status,
     )
     db.add(connection)
+    await db.flush()
+    db.add(
+        ConnectionProviderRow(
+            connection_id=connection.id,
+            provider=provider,
+            enabled=True,
+            detected=False,
+        )
+    )
     await db.flush()
     return connection, plain_key
 

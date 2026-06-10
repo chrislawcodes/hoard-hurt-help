@@ -7,7 +7,7 @@
     <p class="sub">
         In “{{ game.name }}” · <span class="badge badge-done">{{ game.state.value | capitalize }}</span> · starts {{ game.scheduled_start | localdt }}
         {% if connection %}
-            · {{ connection.nickname or connection.provider.value }}
+            · {{ connection.nickname or (connection.provider.value if connection.provider else "Machine") }}
             {% if connection.runner_pid %} · PID {{ connection.runner_pid }}{% endif %}
         {% endif %}
     </p>

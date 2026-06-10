@@ -210,8 +210,16 @@ async def join_form(
             "agent": agent,
             "version": version,
             "connection": connection,
-            "provider_label": connection.provider.value if connection else None,
-            "model_label": f"{connection.provider.value}/{version.model}" if connection and version else None,
+            "provider_label": (
+                connection.provider.value
+                if connection is not None and connection.provider is not None
+                else None
+            ),
+            "model_label": (
+                f"{connection.provider.value}/{version.model}"
+                if connection is not None and connection.provider is not None and version is not None
+                else None
+            ),
             "ready": (
                 agent.kind == AgentKind.AI
                 and connection is not None
@@ -293,7 +301,11 @@ async def join_submit(
         raise HTTPException(status_code=409, detail="That agent has no current version.")
     if connection is None or connection.status != ConnectionStatus.ACTIVE or not _is_warm(connection):
         raise HTTPException(status_code=409, detail="That connection is not live yet.")
-    allowed_models = PROVIDER_MODELS.get(connection.provider.value, [])
+    allowed_models = (
+        PROVIDER_MODELS.get(connection.provider.value, [])
+        if connection.provider is not None
+        else []
+    )
     if allowed_models and version.model not in allowed_models:
         raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
     active_match_count = await _active_match_count_for_connection(db, connection.id)
@@ -325,7 +337,9 @@ async def join_submit(
     )
     seat_name = _seat_name(user.handle or user.name or "", selected_agent.name, existing_seats)
     model_label = (
-        f"{connection.provider.value}/{version.model}" if version.model else connection.provider.value
+        f"{connection.provider.value}/{version.model}"
+        if connection.provider is not None and version.model
+        else (connection.provider.value if connection.provider is not None else version.model)
     )
     player = Player(
         match_id=match.id,

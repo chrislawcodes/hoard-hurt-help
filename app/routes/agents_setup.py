@@ -133,6 +133,40 @@ async def _enabled_provider_values(db: DbSession, user_id: int) -> set[str]:
     return {p.value for p in rows}
 
 
+def _build_model_picker_groups(
+    enabled_provider_values: set[str], selected_model: str | None
+) -> tuple[list[dict[str, object]], str | None, list[str]]:
+    """Return grouped model options plus the first selectable model and disabled notes."""
+    groups: list[dict[str, object]] = []
+    notes: list[str] = []
+    first_enabled: str | None = None
+    first_any: str | None = None
+    for provider_value, models in PROVIDER_MODELS.items():
+        provider = ConnectionProvider(provider_value)
+        enabled = provider_value in enabled_provider_values
+        options: list[dict[str, str]] = [{"value": model, "label": model} for model in models]
+        if options and first_any is None:
+            first_any = options[0]["value"]
+        if enabled and options and first_enabled is None:
+            first_enabled = options[0]["value"]
+        if not enabled:
+            notes.append(
+                f"No machine runs {_provider_label(provider)} — turn it on at /me/connections."
+            )
+        groups.append(
+            {
+                "provider_value": provider_value,
+                "provider_label": _provider_label(provider),
+                "enabled": enabled,
+                "options": options,
+            }
+        )
+    selected = selected_model
+    if selected is None:
+        selected = first_enabled or first_any
+    return groups, selected, notes
+
+
 async def _load_user_agents(db: DbSession, user_id: int) -> list[tuple[Agent, AgentVersion | None, Connection | None]]:
     rows = (
         await db.execute(
@@ -309,9 +343,13 @@ async def _build_agent_detail_context(
         )
     ).scalar_one_or_none()
     versions = await _version_rows(db, agent.id)
-    allowed_models = PROVIDER_MODELS.get(connection.provider.value, []) if connection else []
+    allowed_models = (
+        PROVIDER_MODELS.get(connection.provider.value, [])
+        if connection is not None and connection.provider is not None
+        else []
+    )
     candidate_connections: list[Connection] = []
-    if agent.connection_id is not None and connection is not None:
+    if agent.connection_id is not None and connection is not None and connection.provider is not None:
         candidate_connections = [
             item
             for item in await _load_user_connections(db, user.id)
@@ -322,7 +360,8 @@ async def _build_agent_detail_context(
         candidate_connections = [
             item
             for item in await _load_user_connections(db, user.id)
-            if version.model in PROVIDER_MODELS.get(item.provider.value, [])
+            if item.provider is not None
+            and version.model in PROVIDER_MODELS.get(item.provider.value, [])
         ]
     active_matches = (
         await db.execute(
@@ -408,39 +447,21 @@ async def new_agent_form(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
-    connection_id: int | None = None,
     provider: str | None = None,
 ) -> Response:
     await gc_pending_connections(db)
     connections = await _load_user_connections(db, user.id)
-    active_connections = [
-        connection
-        for connection in connections
-        if connection.status == ConnectionStatus.ACTIVE and connection.deleted_at is None
-    ]
-    selected_provider_override: str | None = None
-    if connection_id is not None:
-        candidate = await _load_owned_connection(db, user, connection_id)
-        if candidate.status == ConnectionStatus.ACTIVE:
-            selected_provider_override = candidate.provider.value
-    provider_choices = [
-        provider
-        for provider in ConnectionProvider
-        if any(connection.provider == provider for connection in active_connections)
-    ]
-    provider_labels = {p.value: _provider_label(p) for p in provider_choices}
-    selected_provider = (
-        provider.strip().lower()
-        if provider and provider.strip()
-        else (
-            selected_provider_override
-            if selected_provider_override is not None
-            else (provider_choices[0].value if provider_choices else None)
-        )
+    enabled_provider_values = await _enabled_provider_values(db, user.id)
+    requested_provider = provider.strip().lower() if provider and provider.strip() else None
+    selected_model = None
+    if requested_provider is not None:
+        for provider_value, models in PROVIDER_MODELS.items():
+            if provider_value == requested_provider and models:
+                selected_model = models[0]
+                break
+    model_groups, selected_model, availability_notes = _build_model_picker_groups(
+        enabled_provider_values, selected_model
     )
-    if selected_provider not in provider_labels:
-        selected_provider = provider_choices[0].value if provider_choices else None
-    selected_provider_models = PROVIDER_MODELS.get(selected_provider, []) if selected_provider else []
     strategy_presets = [
         {
             "id": preset.id,
@@ -453,13 +474,9 @@ async def new_agent_form(
     context: dict[str, object] = {
         "user": user,
         "connections": connections,
-        "provider_choices": provider_choices,
-        "provider_labels": provider_labels,
-        "selected_provider": selected_provider,
-        "provider_models": selected_provider_models,
-        "provider_models_map": {
-            p.value: PROVIDER_MODELS.get(p.value, []) for p in provider_choices
-        },
+        "model_groups": model_groups,
+        "selected_model": selected_model,
+        "availability_notes": availability_notes,
         "default_game": _DEFAULT_GAME,
         "default_strategy": get_game_module(_DEFAULT_GAME).default_strategy(),
         "strategy_presets": strategy_presets,
@@ -477,9 +494,6 @@ async def new_agent_form(
 async def create_agent_or_connection(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
-    connection_id: Annotated[int | None, Form()] = None,
-    provider: Annotated[str | None, Form()] = None,
-    nickname: Annotated[str | None, Form()] = None,
     name: Annotated[str | None, Form()] = None,
     model: Annotated[str | None, Form()] = None,
     strategy_text: Annotated[str | None, Form()] = None,
@@ -504,26 +518,15 @@ async def create_agent_or_connection(
         clean_model = (model or "").strip()
         if not clean_model:
             raise HTTPException(status_code=400, detail="Model is required.")
-        # An agent is name + model + strategy; its provider is derived from the
-        # chosen model (claude/gemini/openai) and stored. A freeform model
-        # (hermes/openclaw) takes the explicit provider param.
         derived = provider_for_model(clean_model)
-        if derived is not None:
-            agent_provider = ConnectionProvider(derived)
-        elif provider:
-            try:
-                agent_provider = ConnectionProvider(provider.strip().lower())
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail="Unknown provider.") from exc
-        else:
-            raise HTTPException(status_code=400, detail="Pick a model.")
-        # Availability: the provider must be enabled on at least one connection,
-        # else the agent could never be served (acceptance #3).
+        if derived is None:
+            raise HTTPException(status_code=400, detail="Unknown model.")
+        agent_provider = ConnectionProvider(derived)
         if agent_provider.value not in await _enabled_provider_values(db, user.id):
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"No connection runs {agent_provider.value}. "
+                    f"No machine runs {_provider_label(agent_provider)}. "
                     "Turn it on at /me/connections first."
                 ),
             )
