@@ -1,34 +1,34 @@
 {
-  "session_id": "4c5d690a-e57f-49c2-9bf1-26cd54fe009e",
-  "response": "## Findings\n\n1.  **Race Condition in `compute_connection_health` Logic:** The calculation of `covered_count` and `player_rows` (the matches being served) are executed as two separate database queries without an explicit transaction or synchronization. Between these queries, a match could be reassigned from this connection to another, causing the reported `covered_count` and the associated `live_match` to represent inconsistent states of the connection. **Severity: MEDIUM** [UNVERIFIED]\n\n2.  **Inconsistent `Agent` Filtering in `user_has_connected_agent`:** The query joins `Agent` -> `ConnectionProviderRow` -> `Connection`. However, it does not explicitly enforce that the `ConnectionProviderRow` belongs to the same user as the `Agent`, relying instead on the `Agent.user_id` and the `Connection` user ID being linked indirectly. If an agent's `provider` string matches a provider enabled on a *different* user's connection, this could return a false positive. **Severity: MEDIUM** [UNVERIFIED]\n\n3.  **Ambiguity in `Connection` Selection:** In `web_lobby.py`, `user_connections` is fetched without checking `Connection.first_connected_at.is_not(None)`. If a user has a connection created but never successfully connected, `compute_bot_health` might return `READY` based on liveness alone, even if the connection is effectively unusable. This could lead to a misleading `has_warm_agent` signal. **Severity: LOW** [UNVERIFIED]\n\n## Residual Risks\n\n*   **Logic Drift:** The shift from agent-to-connection attachment to a provider-based model is a significant architectural change. The distributed nature of this logic across `compute_connection_health`, `nav_context.py`, and `web_lobby.py` creates a high risk of desynchronization if the \"provider\" string or the mapping definition changes in the future.\n*   **Performance Overhead:** The `compute_bot_health` function is now performing potentially heavy aggregate queries inside a loop in `web_lobby.py` (depending on the number of `user_connections`). This could introduce significant latency on the lobby page as the number of user connections grows.",
+  "session_id": "46a9fda8-8d42-4cfb-83ee-3ca66db29f60",
+  "response": "## Findings\n\n- **[UNVERIFIED] Race Condition in Provider Toggling:** The `toggle_provider` route checks `_provider_covered_by_other_live` and `_stranded_provider_agent_count` separately before performing an `upsert`/`update` on the `ConnectionProvider` row. If multiple requests arrive nearly simultaneously (or if a connection heartbeat changes status between the check and the update), it is possible to disable a provider that *was* required, potentially stranding agents without the user's intent being fully validated by the current state.\n\n- **[UNVERIFIED] Inconsistent \"Live\" Definition:** `_provider_covered_by_other_live` and `_load_stranded_agents` calculate \"live\" status using `Connection.last_seen_at >= (now - LIVE_WINDOW_SECONDS)`. If a connection runner is delayed, but not yet expired, an agent might \"flicker\" between being stranded and active, potentially causing unnecessary churn in the connection/runner logic.\n\n- **[UNVERIFIED] Orphaned `ConnectionProvider` Rows:** The `delete_connection` route removes `ConnectionSetup` records but leaves the `ConnectionProvider` rows in the database. While harmless for queries that filter by `Connection.deleted_at.is_(None)`, it adds noise to the database and could potentially lead to confusing states if a connection with the same ID is ever re-created or if historical analysis is performed without filtering for `deleted_at`.\n\n- **Missing UI Feedback on Confirmation:** The `toggle_provider` route uses a `RedirectResponse` with `strand_provider` and `strand_count` query parameters to trigger a warning, but the implementation doesn't appear to provide a way to pass the `confirm=true` flag effectively through the UI's form submission flow based on the provided template change (it hides the form with `display:none`).\n\n## Residual Risks\n\n- **Agent Liveness Uncertainty:** By moving to an implicit coverage model, there is no longer a direct, single-source-of-truth mapping between an `Agent` and a specific `Connection`. This makes debugging agent-connection-runner lifecycle issues significantly more complex, as an agent's status now depends on the global state of *all* active connections.\n\n- **Provider Coverage Fragmentation:** If a user has multiple connections, but only enables specific providers on specific machines, the \"routing\" of an agent to a specific runner is no longer deterministic or visible to the user at the agent-detail level. This may lead to user confusion if agents do not appear to be running despite having a valid provider.",
   "stats": {
     "models": {
       "gemini-3.1-flash-lite": {
         "api": {
-          "totalRequests": 1,
+          "totalRequests": 2,
           "totalErrors": 0,
-          "totalLatencyMs": 3144
+          "totalLatencyMs": 5729
         },
         "tokens": {
-          "input": 14576,
-          "prompt": 14576,
-          "candidates": 482,
-          "total": 15058,
-          "cached": 0,
+          "input": 19702,
+          "prompt": 37369,
+          "candidates": 679,
+          "total": 38048,
+          "cached": 17667,
           "thoughts": 0,
           "tool": 0
         },
         "roles": {
           "main": {
-            "totalRequests": 1,
+            "totalRequests": 2,
             "totalErrors": 0,
-            "totalLatencyMs": 3144,
+            "totalLatencyMs": 5729,
             "tokens": {
-              "input": 14576,
-              "prompt": 14576,
-              "candidates": 482,
-              "total": 15058,
-              "cached": 0,
+              "input": 19702,
+              "prompt": 37369,
+              "candidates": 679,
+              "total": 38048,
+              "cached": 17667,
               "thoughts": 0,
               "tool": 0
             }
@@ -37,17 +37,30 @@
       }
     },
     "tools": {
-      "totalCalls": 0,
-      "totalSuccess": 0,
+      "totalCalls": 1,
+      "totalSuccess": 1,
       "totalFail": 0,
-      "totalDurationMs": 0,
+      "totalDurationMs": 3,
       "totalDecisions": {
-        "accept": 0,
+        "accept": 1,
         "reject": 0,
         "modify": 0,
         "auto_accept": 0
       },
-      "byName": {}
+      "byName": {
+        "update_topic": {
+          "count": 1,
+          "success": 1,
+          "fail": 0,
+          "durationMs": 3,
+          "decisions": {
+            "accept": 1,
+            "reject": 0,
+            "modify": 0,
+            "auto_accept": 0
+          }
+        }
+      }
     },
     "files": {
       "totalLinesAdded": 0,

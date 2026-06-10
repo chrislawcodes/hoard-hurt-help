@@ -719,6 +719,24 @@
       "duration_seconds": 9.548651,
       "agent_id": null,
       "artifact_sha_at_time": "0b5183eba6a0ad205fc645c327b29ad6e357b4a347b70bbedce2bb0b57184a21"
+    },
+    {
+      "stage": "diff",
+      "round": 5,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 23874,
+      "prompt_cap": 250000,
+      "input_tokens": 19702,
+      "output_tokens": 679,
+      "cost_usd_estimate": 0.005944,
+      "timestamp": "2026-06-10T10:14:37.338115Z",
+      "started_at": "2026-06-10T10:14:25.186405Z",
+      "ended_at": "2026-06-10T10:14:37.338115Z",
+      "duration_seconds": 12.151618,
+      "agent_id": null,
+      "artifact_sha_at_time": "295673ce107b5bf64d31850e69f915368cbf5068c8c9160f8d8da7013dfe1ab5"
     }
   ],
   "command_telemetry": [
@@ -1081,6 +1099,18 @@
       "files_written": 0,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T10:14:37Z",
+      "wall_seconds": 12.925,
+      "input_bytes_read": 466833,
+      "output_bytes_written": 260684,
+      "files_read": 21,
+      "files_written": 7,
+      "subprocess_invocations": 38,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -1111,7 +1141,7 @@
       "initial_sha": "ab000321c91b7af21061425d2a571c6be5fb2525328d87c042e38cbd189554b7"
     },
     "diff": {
-      "adversarial_rounds": 4,
+      "adversarial_rounds": 5,
       "annotations": [],
       "adversarial_sha_history": [
         "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6",
@@ -1122,7 +1152,8 @@
         "fc431fc5e6b71aaab760a538d83772660d1039d0f4b916fb78e396e394ae8c2c",
         "48d5f76247796046d50fb924f2027645ab729545591fb08b3de201c1b5ae8c56",
         "62087cc50e5d25e552e3f6b8efde9deab41f68c8028b58c4d61b14dd8ec3bce3",
-        "0b5183eba6a0ad205fc645c327b29ad6e357b4a347b70bbedce2bb0b57184a21"
+        "0b5183eba6a0ad205fc645c327b29ad6e357b4a347b70bbedce2bb0b57184a21",
+        "295673ce107b5bf64d31850e69f915368cbf5068c8c9160f8d8da7013dfe1ab5"
       ],
       "initial_sha": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
     }
@@ -1130,9 +1161,9 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 4,
+    "index": 5,
     "markers_sha": "1c3f0476d0c468648069cb8c9e3b9ad5260ddfd0016800d5cc5897269bff7c0f",
-    "last_diff_head_sha": "b38f3976eaff71ab3f173104ad02cc2ea169473e"
+    "last_diff_head_sha": "02d54ac116ea939765e6698f291d3b8f02d964ac"
   },
   "spec_adversarial_rounds": 0,
   "plan_adversarial_rounds": 0,
@@ -1142,7 +1173,7 @@
     "reason": "diff checkpoint completed",
     "blockers": []
   },
-  "diff_adversarial_rounds": 4,
+  "diff_adversarial_rounds": 5,
   "heartbeats": [
     {
       "timestamp_pt": "2026-06-10T00:54:09.260441-07:00",

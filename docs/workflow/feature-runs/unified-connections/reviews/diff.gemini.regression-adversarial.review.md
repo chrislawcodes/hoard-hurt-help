@@ -3,14 +3,14 @@ reviewer: "gemini"
 lens: "regression-adversarial"
 stage: "diff"
 artifact_path: "docs/workflow/feature-runs/unified-connections/reviews/implementation.diff.patch"
-artifact_sha256: "0b5183eba6a0ad205fc645c327b29ad6e357b4a347b70bbedce2bb0b57184a21"
+artifact_sha256: "295673ce107b5bf64d31850e69f915368cbf5068c8c9160f8d8da7013dfe1ab5"
 repo_root: "."
-git_head_sha: "b38f3976eaff71ab3f173104ad02cc2ea169473e"
-git_base_ref: "366f65bce27dceb18814a5f38e9b3cc9412823a9"
-git_base_sha: "366f65bce27dceb18814a5f38e9b3cc9412823a9"
+git_head_sha: "02d54ac116ea939765e6698f291d3b8f02d964ac"
+git_base_ref: "b38f3976eaff71ab3f173104ad02cc2ea169473e"
+git_base_sha: "b38f3976eaff71ab3f173104ad02cc2ea169473e"
 generation_method: "gemini-cli"
-resolution_status: "accepted"
-resolution_note: "Slice 4. (1) covered_count vs player_rows read-race: health is a read-only informational badge; slight transient inconsistency is harmless and self-corrects next render. (2) cross-user false positive in user_has_connected_agent: ALREADY GUARDED — the WHERE includes Connection.user_id == user_id (and Agent.user_id == user_id), so a provider matching another user's connection can't match. (3) web_lobby never-connected connection showing READY: not possible — compute_connection_health requires warm (last_seen_at within LIVE_WINDOW) for LIVE/READY; a never-connected connection has last_seen_at NULL -> DISCONNECTED, so has_warm_agent stays False. No code change."
+resolution_status: "open"
+resolution_note: ""
 raw_output_path: "docs/workflow/feature-runs/unified-connections/reviews/diff.gemini.regression-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,24 +22,27 @@ coverage_note: ""
 
 ## Findings
 
-1.  **Race Condition in `compute_connection_health` Logic:** The calculation of `covered_count` and `player_rows` (the matches being served) are executed as two separate database queries without an explicit transaction or synchronization. Between these queries, a match could be reassigned from this connection to another, causing the reported `covered_count` and the associated `live_match` to represent inconsistent states of the connection. **Severity: MEDIUM** [UNVERIFIED]
+- **[UNVERIFIED] Race Condition in Provider Toggling:** The `toggle_provider` route checks `_provider_covered_by_other_live` and `_stranded_provider_agent_count` separately before performing an `upsert`/`update` on the `ConnectionProvider` row. If multiple requests arrive nearly simultaneously (or if a connection heartbeat changes status between the check and the update), it is possible to disable a provider that *was* required, potentially stranding agents without the user's intent being fully validated by the current state.
 
-2.  **Inconsistent `Agent` Filtering in `user_has_connected_agent`:** The query joins `Agent` -> `ConnectionProviderRow` -> `Connection`. However, it does not explicitly enforce that the `ConnectionProviderRow` belongs to the same user as the `Agent`, relying instead on the `Agent.user_id` and the `Connection` user ID being linked indirectly. If an agent's `provider` string matches a provider enabled on a *different* user's connection, this could return a false positive. **Severity: MEDIUM** [UNVERIFIED]
+- **[UNVERIFIED] Inconsistent "Live" Definition:** `_provider_covered_by_other_live` and `_load_stranded_agents` calculate "live" status using `Connection.last_seen_at >= (now - LIVE_WINDOW_SECONDS)`. If a connection runner is delayed, but not yet expired, an agent might "flicker" between being stranded and active, potentially causing unnecessary churn in the connection/runner logic.
 
-3.  **Ambiguity in `Connection` Selection:** In `web_lobby.py`, `user_connections` is fetched without checking `Connection.first_connected_at.is_not(None)`. If a user has a connection created but never successfully connected, `compute_bot_health` might return `READY` based on liveness alone, even if the connection is effectively unusable. This could lead to a misleading `has_warm_agent` signal. **Severity: LOW** [UNVERIFIED]
+- **[UNVERIFIED] Orphaned `ConnectionProvider` Rows:** The `delete_connection` route removes `ConnectionSetup` records but leaves the `ConnectionProvider` rows in the database. While harmless for queries that filter by `Connection.deleted_at.is_(None)`, it adds noise to the database and could potentially lead to confusing states if a connection with the same ID is ever re-created or if historical analysis is performed without filtering for `deleted_at`.
+
+- **Missing UI Feedback on Confirmation:** The `toggle_provider` route uses a `RedirectResponse` with `strand_provider` and `strand_count` query parameters to trigger a warning, but the implementation doesn't appear to provide a way to pass the `confirm=true` flag effectively through the UI's form submission flow based on the provided template change (it hides the form with `display:none`).
 
 ## Residual Risks
 
-*   **Logic Drift:** The shift from agent-to-connection attachment to a provider-based model is a significant architectural change. The distributed nature of this logic across `compute_connection_health`, `nav_context.py`, and `web_lobby.py` creates a high risk of desynchronization if the "provider" string or the mapping definition changes in the future.
-*   **Performance Overhead:** The `compute_bot_health` function is now performing potentially heavy aggregate queries inside a loop in `web_lobby.py` (depending on the number of `user_connections`). This could introduce significant latency on the lobby page as the number of user connections grows.
+- **Agent Liveness Uncertainty:** By moving to an implicit coverage model, there is no longer a direct, single-source-of-truth mapping between an `Agent` and a specific `Connection`. This makes debugging agent-connection-runner lifecycle issues significantly more complex, as an agent's status now depends on the global state of *all* active connections.
+
+- **Provider Coverage Fragmentation:** If a user has multiple connections, but only enables specific providers on specific machines, the "routing" of an agent to a specific runner is no longer deterministic or visible to the user at the agent-detail level. This may lead to user confusion if agents do not appear to be running despite having a valid provider.
 
 ## Token Stats
 
-- total_input=14576
-- total_output=482
-- total_tokens=15058
-- `gemini-3.1-flash-lite`: input=14576, output=482, total=15058
+- total_input=19702
+- total_output=679
+- total_tokens=38048
+- `gemini-3.1-flash-lite`: input=19702, output=679, total=38048
 
 ## Resolution
-- status: accepted
-- note: Slice 4. (1) covered_count vs player_rows read-race: health is a read-only informational badge; slight transient inconsistency is harmless and self-corrects next render. (2) cross-user false positive in user_has_connected_agent: ALREADY GUARDED — the WHERE includes Connection.user_id == user_id (and Agent.user_id == user_id), so a provider matching another user's connection can't match. (3) web_lobby never-connected connection showing READY: not possible — compute_connection_health requires warm (last_seen_at within LIVE_WINDOW) for LIVE/READY; a never-connected connection has last_seen_at NULL -> DISCONNECTED, so has_warm_agent stays False. No code change.
+- status: open
+- note:

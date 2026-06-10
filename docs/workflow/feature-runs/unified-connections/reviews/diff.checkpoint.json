@@ -2,7 +2,7 @@
   "feature_slug": "unified-connections",
   "stage": "diff",
   "artifact_path": "docs/workflow/feature-runs/unified-connections/reviews/implementation.diff.patch",
-  "git_base_ref": "366f65bce27dceb18814a5f38e9b3cc9412823a9",
+  "git_base_ref": "b38f3976eaff71ab3f173104ad02cc2ea169473e",
   "allowed_dirty_paths": [],
   "required_reviews": [
     {

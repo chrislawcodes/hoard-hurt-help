@@ -1,218 +1,515 @@
-diff --git a/app/engine/connection_health.py b/app/engine/connection_health.py
-index cc27b11..0a44e5d 100644
---- a/app/engine/connection_health.py
-+++ b/app/engine/connection_health.py
-@@ -6,11 +6,12 @@ import enum
- from dataclasses import dataclass
- from datetime import datetime, timezone
+diff --git a/app/routes/connections_lifecycle.py b/app/routes/connections_lifecycle.py
+index 218a406..b177025 100644
+--- a/app/routes/connections_lifecycle.py
++++ b/app/routes/connections_lifecycle.py
+@@ -2,18 +2,18 @@
  
--from sqlalchemy import select
-+from sqlalchemy import func, select
- from sqlalchemy.ext.asyncio import AsyncSession
+ from __future__ import annotations
  
+-from datetime import datetime, timezone
++from datetime import datetime, timedelta, timezone
+ from typing import Annotated
+ 
+-from fastapi import APIRouter, Depends, HTTPException, Path, status
++from fastapi import APIRouter, Depends, Path, Query, status
+ from fastapi.responses import RedirectResponse
+-from sqlalchemy import select, update
++from sqlalchemy import func, select, update
+ 
+-from app.config import PROVIDER_MODELS
+ from app.deps import DbSession, require_user_with_handle
++from app.engine.connection_health import LIVE_WINDOW_SECONDS
  from app.models.agent import Agent, AgentKind, AgentStatus
- from app.models.connection import Connection, ConnectionStatus
+-from app.models.agent_version import AgentVersion
+-from app.models.connection import ConnectionStatus
++from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 +from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
- from app.models.match import GameState, Match
- from app.models.player import Player
- from app.models.turn import Turn, TurnSubmission
-@@ -102,7 +103,16 @@ async def _is_defaulting(
- async def compute_connection_health(
-     db: AsyncSession, connection: Connection, *, now: datetime | None = None
- ) -> ConnectionHealthStatus:
--    """Resolve connection health from the connection and all of its agents."""
-+    """Resolve health from THIS connection's liveness and the matches pinned to it.
-+
-+    Agents are no longer attached to a connection, so health keys off the
-+    connection's own liveness (``last_seen_at``) plus the matches it is currently
-+    serving via ``players.served_by_connection_id`` — not agent attachment. An
-+    idle-but-live machine (running, providers on, nothing pinned yet) is READY,
-+    which is correct: it can take work the moment a turn needs it. ``agent_count``
-+    reports how many of the user's active AI agents this machine *covers* (their
-+    provider is enabled here).
-+    """
-     now = now or datetime.now(timezone.utc)
-     last_seen = connection.last_seen_at
-     warm = (
-@@ -143,36 +153,46 @@ async def compute_connection_health(
-     if connection.status == ConnectionStatus.PAUSED:
-         return build(ConnectionHealth.PAUSED)
+ from app.models.connection_setup import ConnectionSetup
+ from app.models.user import User
  
--    agent_rows = (
+@@ -22,27 +22,57 @@ from app.routes.connections_setup import _load_owned_connection
+ router = APIRouter()
+ 
+ 
+-async def _load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
+-    agent = (
 -        await db.execute(
--            select(Agent.id)
--            .where(
--                Agent.connection_id == connection.id,
--                Agent.kind == AgentKind.AI,
--                Agent.status == AgentStatus.ACTIVE,
--                Agent.archived_at.is_(None),
-+    # Agents this machine COVERS: the user's active AI agents whose provider is
-+    # enabled on this connection. Drives the badge's agent_count only.
-+    enabled_providers = (
+-            select(Agent).where(Agent.id == agent_id, Agent.user_id == user.id)
++async def _provider_covered_by_other_live(
++    db: DbSession,
++    user_id: int,
++    provider: ConnectionProvider,
++    *,
++    exclude_connection_id: int,
++    now: datetime | None = None,
++) -> bool:
++    """True if ANOTHER live connection of this user still enables ``provider``.
++
++    "Live" = not paused, not deleted, seen within LIVE_WINDOW_SECONDS. Used to
++    decide whether disabling a provider (or deleting a machine) would strand the
++    agents that depend on it.
++    """
++    now = now or datetime.now(timezone.utc)
++    cutoff = now - timedelta(seconds=LIVE_WINDOW_SECONDS)
++    count = await db.scalar(
++        select(func.count())
++        .select_from(ConnectionProviderRow)
++        .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
++        .where(
++            ConnectionProviderRow.provider == provider,
++            ConnectionProviderRow.enabled.is_(True),
++            Connection.user_id == user_id,
++            Connection.id != exclude_connection_id,
++            Connection.deleted_at.is_(None),
++            Connection.status != ConnectionStatus.PAUSED,
++            Connection.last_seen_at.is_not(None),
++            Connection.last_seen_at >= cutoff,
+         )
+-    ).scalar_one_or_none()
+-    if agent is None:
+-        raise HTTPException(status_code=404, detail="Agent not found.")
+-    return agent
++    )
++    return bool(count)
+ 
+ 
+-async def _agent_current_model(db: DbSession, agent_id: int) -> str | None:
+-    row = (
+-        await db.execute(
+-            select(AgentVersion.model)
++async def _stranded_provider_agent_count(
++    db: DbSession, user_id: int, provider: ConnectionProvider
++) -> int:
++    """How many of the user's active AI agents use ``provider``."""
++    return (
++        await db.scalar(
++            select(func.count())
+             .select_from(Agent)
+-            .join(AgentVersion, Agent.current_version_id == AgentVersion.id)
+-            .where(Agent.id == agent_id)
++            .where(
++                Agent.user_id == user_id,
++                Agent.kind == AgentKind.AI,
++                Agent.status == AgentStatus.ACTIVE,
++                Agent.archived_at.is_(None),
++                Agent.provider == provider,
++            )
+         )
+-    ).scalar_one_or_none()
+-    return row
++    ) or 0
+ 
+ 
+ @router.post("/{connection_id}/pause")
+@@ -94,16 +124,10 @@ async def delete_connection(
+     connection.paused_reason = "deleted"
+     connection.runner_pid = None
+     connection.prev_key_lookup = None
+-    # Detach (never delete) this connection's AI agents in one atomic statement
+-    # scoped to the owned connection: they survive, paused, reattachable (FR-029).
+-    await db.execute(
+-        update(Agent)
+-        .where(
+-            Agent.connection_id == connection.id,
+-            Agent.kind == AgentKind.AI,
+-        )
+-        .values(connection_id=None, status=AgentStatus.PAUSED)
+-    )
++    # Coverage-aware delete: agents are no longer attached to a connection, so
++    # deleting a machine just stops its runner and detaches any pending setup.
++    # Agents stay ACTIVE — they keep playing on any OTHER live connection that
++    # covers their provider; only agents now covered nowhere quietly wait.
+     await db.execute(
+         update(ConnectionSetup)
+         .where(ConnectionSetup.connection_id == connection.id)
+@@ -113,36 +137,53 @@ async def delete_connection(
+     return RedirectResponse(url="/me/connections", status_code=status.HTTP_303_SEE_OTHER)
+ 
+ 
+-@router.post("/{connection_id}/reattach/{agent_id}")
+-async def reattach_agent(
++@router.post("/{connection_id}/providers/{provider}")
++async def toggle_provider(
+     connection_id: Annotated[int, Path()],
+-    agent_id: Annotated[int, Path()],
++    provider: Annotated[ConnectionProvider, Path()],
+     db: DbSession,
+     user: Annotated[User, Depends(require_user_with_handle)],
++    enabled: Annotated[bool, Query()] = True,
++    confirm: Annotated[bool, Query()] = False,
+ ) -> RedirectResponse:
++    """Enable or disable a provider on this machine.
++
++    Disabling a provider that would strand agents (no OTHER live connection
++    covers it) requires ``confirm=true`` — the UI shows a warning first.
++    """
+     connection = await _load_owned_connection(db, user, connection_id)
+-    if connection.status != ConnectionStatus.ACTIVE:
+-        raise HTTPException(status_code=409, detail="Connection is not active.")
+-    agent = await _load_owned_agent(db, user, agent_id)
+-    if agent.kind != AgentKind.AI:
+-        raise HTTPException(status_code=400, detail="Only AI agents can be reattached.")
+-    if agent.connection_id is not None:
+-        raise HTTPException(status_code=409, detail="That agent already has a connection.")
+-    if agent.status != AgentStatus.PAUSED:
+-        raise HTTPException(status_code=409, detail="That agent is not waiting for a connection.")
+-    model = await _agent_current_model(db, agent.id)
+-    if model is None:
+-        raise HTTPException(status_code=400, detail="That agent has no model set.")
+-    allowed_models = PROVIDER_MODELS.get(connection.provider.value, [])
+-    # Empty allowed_models (hermes/openclaw) means "any model" — skip the
+-    # membership check rather than rejecting every reattach against an empty list.
+-    if allowed_models and model not in allowed_models:
+-        raise HTTPException(
+-            status_code=400,
+-            detail="That agent's model is not valid for this connection provider.",
++    if not enabled and not confirm:
++        covered = await _provider_covered_by_other_live(
++            db, user.id, provider, exclude_connection_id=connection.id
++        )
++        stranded = await _stranded_provider_agent_count(db, user.id, provider)
++        if not covered and stranded > 0:
++            return RedirectResponse(
++                url=(
++                    f"/me/connections/{connection.id}"
++                    f"?strand_provider={provider.value}&strand_count={stranded}"
++                ),
++                status_code=status.HTTP_303_SEE_OTHER,
++            )
++    row = (
++        await db.execute(
++            select(ConnectionProviderRow).where(
++                ConnectionProviderRow.connection_id == connection.id,
++                ConnectionProviderRow.provider == provider,
++            )
++        )
++    ).scalar_one_or_none()
++    if row is None:
++        db.add(
++            ConnectionProviderRow(
++                connection_id=connection.id,
++                provider=provider,
++                enabled=enabled,
++                detected=False,
++            )
+         )
+-    agent.connection_id = connection.id
+-    agent.status = AgentStatus.ACTIVE
++    else:
++        row.enabled = enabled
+     await db.commit()
+     return RedirectResponse(
+         url=f"/me/connections/{connection.id}", status_code=status.HTTP_303_SEE_OTHER
+diff --git a/app/routes/connections_setup.py b/app/routes/connections_setup.py
+index bed7316..14d13fb 100644
+--- a/app/routes/connections_setup.py
++++ b/app/routes/connections_setup.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+ 
+ from dataclasses import dataclass
++from datetime import datetime, timedelta, timezone
+ from typing import Annotated
+ 
+ from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
+@@ -12,12 +13,13 @@ from starlette.responses import Response
+ 
+ from app.config import PROVIDER_MODELS, settings
+ from app.deps import DbSession, require_user_with_handle
+-from app.engine.connection_health import compute_connection_health
++from app.engine.connection_health import LIVE_WINDOW_SECONDS, compute_connection_health
+ from app.engine.pending_connection_gc import gc_pending_connections
+ from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
+ from app.models.agent import Agent, AgentKind, AgentStatus
+ from app.models.agent_version import AgentVersion
+-from app.models.connection import Connection, ConnectionProvider
++from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
++from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+ from app.models.connection_setup import ConnectionSetup
+ from app.models.user import User
+ from app.templating import templates
+@@ -108,16 +110,33 @@ def _setup_message(provider: ConnectionProvider, key: str) -> str:
+     )
+ 
+ 
+-async def _load_attached_agents(db: DbSession, connection_id: int) -> list[AgentRow]:
++async def _load_attached_agents(db: DbSession, connection: Connection) -> list[AgentRow]:
++    """Agents this machine COVERS: the user's active AI agents whose provider is
++    enabled on this connection (agents are no longer attached to a connection)."""
++    enabled = (
 +        (
 +            await db.execute(
 +                select(ConnectionProviderRow.provider).where(
 +                    ConnectionProviderRow.connection_id == connection.id,
 +                    ConnectionProviderRow.enabled.is_(True),
 +                )
-             )
-         )
--    ).all()
--    active_agent_ids = [agent_id for (agent_id,) in agent_rows]
--    if not active_agent_ids:
--        if warm:
--            return build(ConnectionHealth.READY)
--        return build(ConnectionHealth.DISCONNECTED, needs_reconnect=True)
++            )
++        )
 +        .scalars()
 +        .all()
 +    )
-+    covered_count = 0
-+    if enabled_providers:
-+        covered_count = (
-+            await db.execute(
-+                select(func.count())
-+                .select_from(Agent)
-+                .where(
-+                    Agent.user_id == connection.user_id,
-+                    Agent.kind == AgentKind.AI,
-+                    Agent.status == AgentStatus.ACTIVE,
-+                    Agent.archived_at.is_(None),
-+                    Agent.provider.in_(enabled_providers),
-+                )
-+            )
-+        ).scalar() or 0
- 
-+    # Matches this connection is currently SERVING (the sticky pin).
-     player_rows = (
++    if not enabled:
++        return []
+     rows = (
          (
              await db.execute(
-                 select(Match, Player)
-                 .join(Player, Player.match_id == Match.id)
--                .join(Agent, Agent.id == Player.agent_id)
+                 select(Agent, AgentVersion)
+                 .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
                  .where(
-                     Match.state == GameState.ACTIVE,
-                     Player.left_at.is_(None),
--                    Agent.connection_id == connection.id,
--                    Agent.kind == AgentKind.AI,
--                    Agent.status == AgentStatus.ACTIVE,
--                    Agent.archived_at.is_(None),
-+                    Player.served_by_connection_id == connection.id,
-                 )
-                 .order_by(Match.id, Player.id)
-             )
-@@ -180,11 +200,12 @@ async def compute_connection_health(
-         .all()
-     )
-     if not player_rows:
-+        # Live but idle (READY) or not seen recently (DISCONNECTED).
-         if warm:
--            return build(ConnectionHealth.READY, agent_count=len(active_agent_ids))
-+            return build(ConnectionHealth.READY, agent_count=covered_count)
-         return build(
-             ConnectionHealth.DISCONNECTED,
--            agent_count=len(active_agent_ids),
-+            agent_count=covered_count,
-             needs_reconnect=True,
-         )
- 
-@@ -211,7 +232,7 @@ async def compute_connection_health(
-         return build(
-             ConnectionHealth.STALLED,
-             game=stalled_match,
--            agent_count=len(active_agent_ids),
-+            agent_count=covered_count,
-             needs_reconnect=True,
-         )
- 
-@@ -219,5 +240,5 @@ async def compute_connection_health(
-     return build(
-         ConnectionHealth.LIVE,
-         game=live_match,
--        agent_count=len(active_agent_ids),
-+        agent_count=covered_count,
-     )
-diff --git a/app/routes/nav_context.py b/app/routes/nav_context.py
-index b2247a0..804b593 100644
---- a/app/routes/nav_context.py
-+++ b/app/routes/nav_context.py
-@@ -27,6 +27,7 @@ from app.deps import DbSession, get_current_user
- from app.engine.connection_health import LIVE_WINDOW_SECONDS
- from app.models.agent import Agent, AgentKind
- from app.models.connection import Connection, ConnectionStatus
-+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
- from app.models.user import User
- 
- 
-@@ -45,15 +46,22 @@ async def user_has_connected_agent(db: AsyncSession, user_id: int) -> bool:
-     the right signal here: once an agent has connected it can play, so the honest
-     next step is "Play now". Using live presence would flip the label back to
-     "Connect your AI" every time the runner briefly drops, which is wrong.
-+
-+    Agents are no longer attached to a connection: an agent is "connected" when
-+    its provider is enabled on one of the user's connections that has connected
-+    at least once.
-     """
-     stmt = (
-         select(func.count())
-         .select_from(Agent)
--        .join(Connection, Connection.id == Agent.connection_id)
-+        .join(ConnectionProviderRow, ConnectionProviderRow.provider == Agent.provider)
-+        .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
-         .where(
-             Agent.user_id == user_id,
-             Agent.archived_at.is_(None),
-             Agent.kind == AgentKind.AI,
-+            ConnectionProviderRow.enabled.is_(True),
-+            Connection.user_id == user_id,
-             Connection.deleted_at.is_(None),
-             Connection.first_connected_at.is_not(None),
-         )
-diff --git a/app/routes/web_lobby.py b/app/routes/web_lobby.py
-index 92cc6fe..8506d3f 100644
---- a/app/routes/web_lobby.py
-+++ b/app/routes/web_lobby.py
-@@ -432,24 +432,35 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
-     # match yet. Disappears naturally once they're in a game.
-     show_onboarding_banner = False
-     if user is not None:
--        user_connections = (
--            await db.execute(
--                select(Connection).distinct()
--                .join(Agent, Agent.connection_id == Connection.id)
-+        # Agents are no longer attached to a connection: the user has a "warm
-+        # agent" when they own an AI agent and have a live/ready connection to
-+        # serve it. compute_bot_health already reflects provider coverage.
-+        owns_ai_agent = bool(
-+            await db.scalar(
-+                select(func.count())
-+                .select_from(Agent)
-                 .where(
-                     Agent.user_id == user.id,
-                     Agent.archived_at.is_(None),
+-                    Agent.connection_id == connection_id,
++                    Agent.user_id == connection.user_id,
                      Agent.kind == AgentKind.AI,
+                     Agent.archived_at.is_(None),
++                    Agent.provider.in_(enabled),
+                 )
+                 .order_by(Agent.name)
+             )
+@@ -127,9 +146,28 @@ async def _load_attached_agents(db: DbSession, connection_id: int) -> list[Agent
+     return [AgentRow(agent=agent, version=version) for agent, version in rows]
+ 
+ 
+-async def _load_detached_agents(
+-    db: DbSession, user_id: int, provider: ConnectionProvider
+-) -> list[AgentRow]:
++async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
++    """Active AI agents whose provider is enabled on NO live connection — they
++    are waiting for a machine to come up that covers them."""
++    cutoff = datetime.now(timezone.utc) - timedelta(seconds=LIVE_WINDOW_SECONDS)
++    live_providers = set(
++        (
++            await db.execute(
++                select(ConnectionProviderRow.provider)
++                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
++                .where(
++                    ConnectionProviderRow.enabled.is_(True),
++                    Connection.user_id == user_id,
++                    Connection.deleted_at.is_(None),
++                    Connection.status != ConnectionStatus.PAUSED,
++                    Connection.last_seen_at.is_not(None),
++                    Connection.last_seen_at >= cutoff,
 +                )
 +            )
 +        )
-+        user_connections = (
-+            await db.execute(
-+                select(Connection).where(
-+                    Connection.user_id == user.id,
-                     Connection.deleted_at.is_(None),
++        .scalars()
++        .all()
++    )
+     rows = (
+         (
+             await db.execute(
+@@ -138,8 +176,7 @@ async def _load_detached_agents(
+                 .where(
+                     Agent.user_id == user_id,
+                     Agent.kind == AgentKind.AI,
+-                    Agent.connection_id.is_(None),
+-                    Agent.status == AgentStatus.PAUSED,
++                    Agent.status == AgentStatus.ACTIVE,
+                     Agent.archived_at.is_(None),
                  )
-             )
-         ).scalars().all()
-         has_warm_agent = False
--        for connection in user_connections:
--            health = await compute_bot_health(db, connection)
--            if health.state.value in ("live", "ready"):
--                has_warm_agent = True
--                break
-+        if owns_ai_agent:
-+            for connection in user_connections:
-+                health = await compute_bot_health(db, connection)
-+                if health.state.value in ("live", "ready"):
-+                    has_warm_agent = True
-+                    break
-         if has_warm_agent:
-             active_entry_count = await db.scalar(
-                 select(func.count()).select_from(Player)
+                 .order_by(Agent.name)
+@@ -147,13 +184,29 @@ async def _load_detached_agents(
+         )
+         .all()
+     )
+-    allowed = set(PROVIDER_MODELS.get(provider.value, ()))
+-    rows_out: list[AgentRow] = []
+-    for agent, version in rows:
+-        if version is None or version.model not in allowed:
+-            continue
+-        rows_out.append(AgentRow(agent=agent, version=version))
+-    return rows_out
++    return [
++        AgentRow(agent=agent, version=version)
++        for agent, version in rows
++        if agent.provider not in live_providers
++    ]
++
++
++async def _load_connection_providers(
++    db: DbSession, connection_id: int
++) -> dict[str, ConnectionProviderRow]:
++    """Map provider value → its toggle row for this connection (for the UI box)."""
++    rows = (
++        (
++            await db.execute(
++                select(ConnectionProviderRow).where(
++                    ConnectionProviderRow.connection_id == connection_id
++                )
++            )
++        )
++        .scalars()
++        .all()
++    )
++    return {row.provider.value: row for row in rows}
+ 
+ 
+ async def _load_owned_connection(db: DbSession, user: User, connection_id: int) -> Connection:
+@@ -242,7 +295,7 @@ async def list_connections(
+                 "connection": connection,
+                 "display_name": _connection_display_name(connection),
+                 "health": health,
+-                "agents": await _load_attached_agents(db, connection.id),
++                "agents": await _load_attached_agents(db, connection),
+             }
+         )
+     return templates.TemplateResponse(
+@@ -372,12 +425,23 @@ async def connection_detail(
+     connection = await _load_owned_connection(db, user, connection_id)
+     fresh_key = request.session.pop(f"fresh_connection_key_{connection.id}", None)
+     health = await compute_connection_health(db, connection)
+-    attached_agents = await _load_attached_agents(db, connection.id)
+-    detached_agents = await _load_detached_agents(db, user.id, connection.provider)
+-    if fresh_key is not None:
+-        setup_message = _setup_message(connection.provider, fresh_key)
+-    else:
+-        setup_message = None
++    attached_agents = await _load_attached_agents(db, connection)
++    stranded_agents = await _load_stranded_agents(db, user.id)
++    provider_rows = await _load_connection_providers(db, connection.id)
++    # The toggle box lists every provider with its current enabled/detected state.
++    provider_toggles = [
++        {
++            "value": p.value,
++            "label": _provider_label(p),
++            "enabled": (provider_rows[p.value].enabled if p.value in provider_rows else False),
++            "detected": (provider_rows[p.value].detected if p.value in provider_rows else False),
++            "detected_detail": (
++                provider_rows[p.value].detected_detail if p.value in provider_rows else None
++            ),
++        }
++        for p in ConnectionProvider
++    ]
++    setup_message = _setup_message(connection.provider, fresh_key) if fresh_key is not None else None
+     return templates.TemplateResponse(
+         request,
+         "connections/detail.html",
+@@ -389,9 +453,12 @@ async def connection_detail(
+             "fresh_key": fresh_key,
+             "setup_message": setup_message,
+             "attached_agents": attached_agents,
+-            "detached_agents": detached_agents,
++            "stranded_agents": stranded_agents,
++            "provider_toggles": provider_toggles,
+             "provider_label": _provider_label(connection.provider),
+             "provider_models": PROVIDER_MODELS.get(connection.provider.value, []),
++            "strand_provider": request.query_params.get("strand_provider"),
++            "strand_count": request.query_params.get("strand_count"),
+             "base_url": settings.base_url,
+             "agent_count": len(attached_agents),
+         },
+@@ -413,7 +480,7 @@ async def connection_status_fragment(
+             "connection": connection,
+             "display_name": _connection_display_name(connection),
+             "health": await compute_connection_health(db, connection),
+-            "agent_count": len(await _load_attached_agents(db, connection.id)),
++            "agent_count": len(await _load_attached_agents(db, connection)),
+         },
+     )
+ 
+diff --git a/app/templates/agents/detail.html b/app/templates/agents/detail.html
+index 29e3463..f1825e0 100644
+--- a/app/templates/agents/detail.html
++++ b/app/templates/agents/detail.html
+@@ -23,20 +23,9 @@
+ {% if health.needs_reconnect %}
+     {% if not connection %}
+ <div class="card">
+-    <h3 style="margin-top:0;">Needs connection</h3>
+-    <p class="hint" style="margin-top:0;">This agent is paused until you attach it to a matching connection.</p>
+-    {% if candidate_connections %}
+-        <div style="display:grid; gap:0.75rem;">
+-            {% for candidate in candidate_connections %}
+-            <form method="post" action="/me/connections/{{ candidate.id }}/reattach/{{ agent.id }}">
+-                <button type="submit" class="btn btn-primary">Reattach to {{ candidate.nickname or candidate.provider.value }}</button>
+-            </form>
+-            {% endfor %}
+-        </div>
+-    {% else %}
+-        <p class="empty">No matching connections are available yet.</p>
+-        <a class="btn btn-primary" href="/me/connections">Go to connections →</a>
+-    {% endif %}
++    <h3 style="margin-top:0;">No live connection runs {{ agent.provider.value if agent.provider else "this agent's provider" }}</h3>
++    <p class="hint" style="margin-top:0;">This agent plays on any live connection that has its provider turned on. Turn it on (and start the runner) from your connections page.</p>
++    <a class="btn btn-primary" href="/me/connections">Go to connections →</a>
+ </div>
+     {% elif health.never_connected %}
+ <div id="reconnect" class="card">
+diff --git a/app/templates/connections/detail.html b/app/templates/connections/detail.html
+index 62aadb8..fde675f 100644
+--- a/app/templates/connections/detail.html
++++ b/app/templates/connections/detail.html
+@@ -46,29 +46,47 @@
+             <p class="empty">No agents are attached yet.</p>
+         {% endif %}
+     </div>
++    {% if stranded_agents %}
+     <div style="margin-top:1.5rem;">
+-        <h3 style="margin-top:0;">Detached agents you can reattach</h3>
+-        {% if detached_agents %}
+-            {% for row in detached_agents %}
+-            <article class="game-card">
+-                <div class="game-card-info">
+-                    <h3>{{ row.agent.name }}</h3>
+-                    <p class="meta">
+-                        {{ row.agent.game }} · {{ row.version.model }} · v{{ row.version.version_no }}
+-                    </p>
+-                </div>
+-                <div class="game-card-action">
+-                    <form method="post" action="/me/connections/{{ connection.id }}/reattach/{{ row.agent.id }}">
+-                        <button type="submit" class="btn btn-primary">Reattach</button>
+-                    </form>
+-                </div>
+-            </article>
+-            {% endfor %}
++        <h3 style="margin-top:0;">Agents waiting for a live connection</h3>
++        <p class="meta">No live connection currently covers these agents' providers — they'll resume the moment one comes up.</p>
++        {% for row in stranded_agents %}
++        <article class="game-card">
++            <div class="game-card-info">
++                <h3>{{ row.agent.name }}</h3>
++                <p class="meta">
++                    {{ row.agent.game }} · {{ row.agent.provider.value if row.agent.provider else "—" }}{% if row.version %} · {{ row.version.model }}{% endif %}
++                </p>
++            </div>
++        </article>
++        {% endfor %}
++    </div>
++    {% endif %}
++</details>
++
++<div class="card">
++    <h3 style="margin-top:0;">Providers</h3>
++    <p class="meta">Turn the AI providers this machine should run on or off. Your agents route to whichever live connection covers their provider.</p>
++    {% if strand_provider %}
++    <p class="meta" style="color:var(--danger,#b00);">Turning off <strong>{{ strand_provider }}</strong> would strand {{ strand_count }} agent(s) — no other live connection covers it. Re-submit with confirm to do it anyway.</p>
++    {% endif %}
++    {% for t in provider_toggles %}
++    <div style="display:flex; align-items:center; gap:0.75rem; padding:0.35rem 0;">
++        <span style="min-width:6rem;">{{ t.label }}</span>
++        <span class="meta">{% if t.detected %}detected{% else %}not detected{% endif %}</span>
++        {% if t.enabled %}
++        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=false">
++            <button type="submit">Turn off</button>
++        </form>
++        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=false&confirm=true" style="display:none;"></form>
+         {% else %}
+-            <p class="empty">No detached agents are waiting for this provider.</p>
++        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=true">
++            <button type="submit">Turn on</button>
++        </form>
+         {% endif %}
+     </div>
+-</details>
++    {% endfor %}
++</div>
+ 
+ <div class="card">
+     <h3 style="margin-top:0;">Connection controls</h3>
+@@ -79,7 +97,7 @@
+             <form method="post" action="/me/connections/{{ connection.id }}/pause"><button type="submit">Pause</button></form>
+         {% endif %}
+         <form method="post" action="/me/connections/{{ connection.id }}/rotate"><button type="submit">Rotate Key</button></form>
+-        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this connection? Its agents will be detached, paused, and kept. The runner will be told to exit. Continue?');">
++        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this machine? Its runner will be told to exit. Your agents keep playing on any other live connection that covers their provider; any covered by no other live connection will wait. Continue?');">
+             <button type="submit">Delete</button>
+         </form>
+     </div>

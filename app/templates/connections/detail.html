@@ -68,7 +68,12 @@
     <h3 style="margin-top:0;">Providers</h3>
     <p class="meta">Turn the AI providers this machine should run on or off. Your agents route to whichever live connection covers their provider.</p>
     {% if strand_provider %}
-    <p class="meta" style="color:var(--danger,#b00);">Turning off <strong>{{ strand_provider }}</strong> would strand {{ strand_count }} agent(s) — no other live connection covers it. Re-submit with confirm to do it anyway.</p>
+    <div class="card" style="border-color:var(--danger,#b00);">
+        <p class="meta" style="color:var(--danger,#b00);">Turning off <strong>{{ strand_provider }}</strong> would strand {{ strand_count }} agent(s) — no other live connection covers it.</p>
+        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ strand_provider }}?enabled=false&confirm=true">
+            <button type="submit">Turn off {{ strand_provider }} anyway</button>
+        </form>
+    </div>
     {% endif %}
     {% for t in provider_toggles %}
     <div style="display:flex; align-items:center; gap:0.75rem; padding:0.35rem 0;">
@@ -78,7 +83,6 @@
         <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=false">
             <button type="submit">Turn off</button>
         </form>
-        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=false&confirm=true" style="display:none;"></form>
         {% else %}
         <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=true">
             <button type="submit">Turn on</button>
