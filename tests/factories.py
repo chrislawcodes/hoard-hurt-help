@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from app.config import provider_for_model
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User
@@ -51,6 +53,17 @@ async def make_connection(
     )
     db.add(connection)
     await db.flush()
+    # Mirror migration 0026: every connection gets one enabled provider row for
+    # its legacy provider, so the new provider-coverage routing can serve it.
+    db.add(
+        ConnectionProviderRow(
+            connection_id=connection.id,
+            provider=provider,
+            enabled=True,
+            detected=False,
+        )
+    )
+    await db.flush()
     return connection, plain_key
 
 
@@ -73,9 +86,22 @@ async def make_agent(
     sim_version: str | None = None,
     sim_fixture_pack: str | None = None,
 ) -> tuple[Agent, AgentVersion | None]:
+    # AI agents carry a stored provider (CHECK: non-archived AI ⇒ provider set);
+    # bots never route by provider, so theirs stays None. Mirror prod: take the
+    # connection's provider when attached, else derive from the model.
+    agent_provider: ConnectionProvider | None = None
+    if kind == AgentKind.AI:
+        if connection is not None:
+            agent_provider = connection.provider
+        else:
+            derived = provider_for_model(model)
+            agent_provider = (
+                ConnectionProvider(derived) if derived is not None else ConnectionProvider.CLAUDE
+            )
     agent = Agent(
         user_id=user.id,
         connection_id=None if connection is None else connection.id,
+        provider=agent_provider,
         kind=kind,
         name=name or f"agent-{user.id}",
         game="hoard-hurt-help",

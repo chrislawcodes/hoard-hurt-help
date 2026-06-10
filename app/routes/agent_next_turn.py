@@ -10,18 +10,26 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import false, or_, select, update
+from sqlalchemy.engine import CursorResult
 
 from app.deps import DbSession, require_connection
 from app.engine.next_turn import TurnCandidate, select_next_turn
+from app.engine.turn_routing import (
+    ConnectionRouteState,
+    TurnPin,
+    can_connection_claim_turn,
+    connection_is_dead,
+)
 from app.games import get as get_game_module
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.connection import Connection
+from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
@@ -47,12 +55,73 @@ def _agent_turn_token(turn_token: str, agent_id: int, match_id: str) -> str:
     return f"{turn_token}:{agent_id}:{match_id}"
 
 
+async def _route_states(
+    db: DbSession, connection: Connection
+) -> tuple[dict[int, ConnectionRouteState], ConnectionRouteState]:
+    """Build route states for ALL of the polling user's connections.
+
+    Deleted connections are included (flagged dead) so a pin held by a deleted
+    connection is consistently treated as dead by both the eligibility check and
+    the atomic claim's dead-id set. Returns the id→state map plus the polling
+    connection's own state.
+    """
+    conns = (
+        (
+            await db.execute(
+                select(Connection).where(Connection.user_id == connection.user_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    conn_ids = [c.id for c in conns]
+    enabled_by_conn: dict[int, set[str]] = {}
+    if conn_ids:
+        cp_rows = (
+            (
+                await db.execute(
+                    select(ConnectionProviderRow).where(
+                        ConnectionProviderRow.connection_id.in_(conn_ids),
+                        ConnectionProviderRow.enabled.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in cp_rows:
+            enabled_by_conn.setdefault(row.connection_id, set()).add(row.provider.value)
+
+    def _state(c: Connection) -> ConnectionRouteState:
+        return ConnectionRouteState(
+            connection_id=c.id,
+            enabled_providers=frozenset(enabled_by_conn.get(c.id, set())),
+            paused=c.status == ConnectionStatus.PAUSED,
+            deleted=c.deleted_at is not None,
+            last_seen_at=c.last_seen_at,
+        )
+
+    by_id = {c.id: _state(c) for c in conns}
+    polling = by_id.get(connection.id) or _state(connection)
+    return by_id, polling
+
+
 @router.get("/next-turn", response_model=None)
 async def next_turn(
     connection: Annotated[Connection, Depends(require_connection)],
     db: DbSession,
 ) -> dict[str, object]:
-    """Return the single most urgent open turn across this connection's agents."""
+    """Return the single most urgent open turn this connection may serve.
+
+    Routing is no longer connection-scoped: an agent belongs to a user, not a
+    connection. This connection may serve a turn when it is the same user's, the
+    agent's provider is enabled here, and the match's sticky pin is free, ours,
+    or held by a now-dead connection (failover). The pin is claimed with one
+    atomic conditional UPDATE so two concurrent polls can't double-serve.
+    """
+    now = datetime.now(timezone.utc)
+    connections_by_id, polling_state = await _route_states(db, connection)
+
     agent_rows = (
         await db.execute(
             select(Agent, Player, Match, AgentVersion)
@@ -60,7 +129,7 @@ async def next_turn(
             .join(Match, Match.id == Player.match_id)
             .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
             .where(
-                Agent.connection_id == connection.id,
+                Agent.user_id == connection.user_id,
                 Agent.kind == AgentKind.AI,
                 Agent.status == AgentStatus.ACTIVE,
                 Agent.archived_at.is_(None),
@@ -86,6 +155,28 @@ async def next_turn(
                 agent.id,
                 connection.id,
             )
+            continue
+        if agent.provider is None:
+            # Routing reads the stored provider; a kind=AI agent must have one
+            # (CHECK constraint). Guard defensively and skip rather than crash.
+            logger.warning(
+                "next-turn: AI agent %s has no provider; skipping", agent.id
+            )
+            continue
+        pin = TurnPin(
+            served_by_connection_id=player.served_by_connection_id,
+            served_pinned_at=player.served_pinned_at,
+        )
+        if not can_connection_claim_turn(
+            polling_state,
+            agent.provider,
+            pin,
+            now=now,
+            connections_by_id=connections_by_id,
+        ):
+            # This connection doesn't cover the agent's provider, or the match is
+            # stickily pinned to another still-live connection. Leave it for the
+            # connection that owns the pin.
             continue
         player_by_key[(agent.id, match.id)] = player
         agent_by_id[agent.id] = agent
@@ -136,6 +227,38 @@ async def next_turn(
     agent = agent_by_id[chosen.agent_id]
     player = player_by_key[(chosen.agent_id, chosen.match_id)]
     version = version_by_agent_id[chosen.agent_id]
+
+    # Atomic sticky-pin claim: only serve the turn if THIS poll wins the pin.
+    # The WHERE clause re-checks the sticky rule (pin free, ours, or held by a
+    # dead connection) so two concurrent polls can't both serve the same turn —
+    # exactly one UPDATE affects the row.
+    dead_ids = [
+        cid
+        for cid, state in connections_by_id.items()
+        if connection_is_dead(state, now=now)
+    ]
+    claim = cast(
+        CursorResult,
+        await db.execute(
+            update(Player)
+            .where(
+                Player.id == player.id,
+                or_(
+                    Player.served_by_connection_id.is_(None),
+                    Player.served_by_connection_id == connection.id,
+                    Player.served_by_connection_id.in_(dead_ids)
+                    if dead_ids
+                    else false(),
+                ),
+            )
+            .values(served_by_connection_id=connection.id, served_pinned_at=now)
+        ),
+    )
+    if claim.rowcount != 1:
+        # Another live connection claimed this match first; back off and re-poll.
+        await db.rollback()
+        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
+    await db.commit()
     match = (
         await db.execute(select(Match).where(Match.id == chosen.match_id))
     ).scalar_one()
@@ -174,6 +297,7 @@ async def next_turn(
         "game": match.game,
         "agent_id": agent.id,
         "agent_name": agent.name,
+        "provider": agent.provider.value if agent.provider is not None else None,
         "model": version.model,
         "strategy": version.strategy_text,
         "version_no": version.version_no,
@@ -189,6 +313,56 @@ async def next_turn(
 
 class _ReportPidRequest(BaseModel):
     pid: int
+    # Optional so OLD connectors that send only {"pid": ...} keep working
+    # (acceptance #7). When present, lists the provider CLIs the connector found
+    # installed on this machine (e.g. ["claude", "openai"]).
+    detected_providers: list[str] | None = None
+
+
+async def _apply_detected_providers(
+    db: DbSession, connection: Connection, detected: list[str]
+) -> None:
+    """Update connection_providers.detected from the connector's CLI sweep.
+
+    Touches only the informational `detected`/`detected_detail` columns — NEVER
+    `enabled` (the user's toggle is sacred). Creates a detected row if none
+    exists yet (enabled defaults False). Providers the connector no longer
+    reports are marked detected=False but left enabled as the user set them.
+    """
+    detected_values = {p.strip() for p in detected if p.strip()}
+    rows = (
+        (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == connection.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    seen: set[str] = set()
+    for row in rows:
+        is_detected = row.provider.value in detected_values
+        row.detected = is_detected
+        row.detected_detail = "CLI detected" if is_detected else "not found"
+        seen.add(row.provider.value)
+    for value in detected_values - seen:
+        try:
+            provider = ConnectionProvider(value)
+        except ValueError:
+            # Connector reported a provider this server doesn't know; ignore it
+            # rather than crash the best-effort startup call.
+            continue
+        db.add(
+            ConnectionProviderRow(
+                connection_id=connection.id,
+                provider=provider,
+                enabled=False,
+                detected=True,
+                detected_detail="CLI detected",
+            )
+        )
 
 
 @router.post("/report-pid", status_code=204)
@@ -197,6 +371,8 @@ async def report_pid(
     connection: Annotated[Connection, Depends(require_connection)],
     db: DbSession,
 ) -> None:
-    """Store the runner's OS process ID so the operator can kill a stuck process."""
+    """Store the runner's OS process ID and (optionally) its detected providers."""
     connection.runner_pid = body.pid
+    if body.detected_providers is not None:
+        await _apply_detected_providers(db, connection, body.detected_providers)
     await db.commit()

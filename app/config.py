@@ -184,3 +184,18 @@ def _assert_unique_non_empty_provider_models(provider_models: dict[str, list[str
 
 
 _assert_unique_non_empty_provider_models(PROVIDER_MODELS)
+
+
+def provider_for_model(model: str) -> str | None:
+    """Reverse-map a model name to its provider via PROVIDER_MODELS.
+
+    The single source of truth for model→provider (the assertion above keeps
+    model names unique across the non-empty allowlists, so this is
+    unambiguous). Returns None for a model in no allowlist — e.g. a freeform
+    Hermes/OpenClaw model whose provider must come from elsewhere (the stored
+    `agents.provider`), not from the model name.
+    """
+    for provider, models in PROVIDER_MODELS.items():
+        if model in models:
+            return provider
+    return None
