@@ -15,7 +15,8 @@ from app.games import get as get_game_module
 from app.main import app
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
-from app.models.connection import ConnectionProvider, ConnectionStatus
+from app.models.connection import ConnectionProvider
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from tests.factories import make_connection, make_user
 
 
@@ -85,11 +86,10 @@ def test_pd_module_exposes_presets_and_default() -> None:
 
 @pytest.mark.asyncio
 async def test_join_with_custom_strategy_seeds_it(client, reset_db) -> None:
-    user_id, connection_id = await _seed_game_user_agent(reset_db)
+    user_id, _connection_id = await _seed_game_user_agent(reset_db)
     r = await client.post(
         "/me/agents/new",
         data={
-            "connection_id": connection_id,
             "name": "Atlas",
             "model": "claude-haiku-4-5",
             "strategy_text": "CUSTOM: always cooperate.",
@@ -108,11 +108,10 @@ async def test_join_with_custom_strategy_seeds_it(client, reset_db) -> None:
 
 @pytest.mark.asyncio
 async def test_join_without_strategy_uses_module_default(client, reset_db) -> None:
-    user_id, connection_id = await _seed_game_user_agent(reset_db)
+    user_id, _connection_id = await _seed_game_user_agent(reset_db)
     r = await client.post(
         "/me/agents/new",
         data={
-            "connection_id": connection_id,
             "name": "Atlas",
             "model": "claude-haiku-4-5",
         },
@@ -131,11 +130,10 @@ async def test_join_without_strategy_uses_module_default(client, reset_db) -> No
 
 @pytest.mark.asyncio
 async def test_join_with_preset_strategy_seeds_preset_prompt(client, reset_db) -> None:
-    user_id, connection_id = await _seed_game_user_agent(reset_db)
+    user_id, _connection_id = await _seed_game_user_agent(reset_db)
     r = await client.post(
         "/me/agents/new",
         data={
-            "connection_id": connection_id,
             "name": "Atlas",
             "model": "claude-haiku-4-5",
             "strategy_preset": "tit_for_tat",
@@ -158,33 +156,33 @@ async def test_join_with_preset_strategy_seeds_preset_prompt(client, reset_db) -
 
 
 @pytest.mark.asyncio
-async def test_join_form_only_lists_connected_providers_and_uses_chips(
+async def test_join_form_groups_models_and_disables_uncovered_providers(
     client, reset_db
 ) -> None:
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
-        await make_connection(
-            db,
-            user,
-            provider=ConnectionProvider.OPENAI,
-            status=ConnectionStatus.PAUSED,
-        )
+        openai, _ = await make_connection(db, user, provider=ConnectionProvider.OPENAI)
+        row = (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == openai.id,
+                    ConnectionProviderRow.provider == ConnectionProvider.OPENAI,
+                )
+            )
+        ).scalar_one()
+        row.enabled = False
         await db.commit()
 
-    r = await client.get(
-        "/me/agents/new?provider=openai",
-        cookies=_signed_in_cookies(user.id),
-    )
+    r = await client.get("/me/agents/new", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
-    # Only connected providers should appear.
-    assert 'name="provider"' in r.text
-    assert 'value="claude"' in r.text
-    assert 'value="openai"' not in r.text
+    assert 'name="provider"' not in r.text
     assert 'name="model"' in r.text
+    assert '<optgroup label="Claude">' in r.text
+    assert '<optgroup label="OpenAI" disabled>' in r.text
+    assert 'No machine runs OpenAI — turn it on at /me/connections.' in r.text
     assert 'name="strategy_preset"' not in r.text
     assert 'name="strategy_text"' in r.text
-    assert "Using your newest active" not in r.text
     assert 'data-preset-id="tit_for_tat"' in r.text
     assert 'data-preset-id="custom"' in r.text
     assert r.text.index('data-preset-id="tit_for_tat"') < r.text.index('data-preset-id="custom"')
@@ -202,9 +200,13 @@ async def test_join_page_without_active_connection_points_to_connections(
 
     r = await client.get("/me/agents/new", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
-    assert "No connection yet" in r.text
-    assert 'href="/me/connections"' in r.text
-    assert 'name="strategy_preset"' not in r.text
+    assert 'name="model"' in r.text
+    assert '<optgroup label="Claude" disabled>' in r.text
+    assert '<optgroup label="Gemini" disabled>' in r.text
+    assert '<optgroup label="OpenAI" disabled>' in r.text
+    assert 'No machine runs Claude — turn it on at /me/connections.' in r.text
+    assert 'No machine runs Gemini — turn it on at /me/connections.' in r.text
+    assert 'No machine runs OpenAI — turn it on at /me/connections.' in r.text
 
 
 @pytest.mark.asyncio
@@ -218,14 +220,13 @@ async def test_join_with_disconnected_provider_is_rejected(client, reset_db) -> 
         "/me/agents/new",
         data={
             "name": "Atlas",
-            "provider": "openai",
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.4-mini",
             "strategy_text": "CUSTOM: always cooperate.",
         },
         cookies=_signed_in_cookies(user.id),
     )
     assert r.status_code == 409, r.text
-    assert "No connection runs openai" in r.text
+    assert "No machine runs OpenAI" in r.text
 
 
 @pytest.mark.asyncio

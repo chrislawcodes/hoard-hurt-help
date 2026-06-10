@@ -70,23 +70,23 @@ class AgentRow:
     version: AgentVersion | None
 
 
-def _provider_label(provider: ConnectionProvider) -> str:
+def _provider_label(provider: ConnectionProvider | None) -> str:
+    if provider is None:
+        return "Machine"
     return _PROVIDER_LABELS.get(provider.value, provider.value.title())
 
 
 def _connection_display_name(connection: Connection) -> str:
-    # `connection.provider` is the retained legacy "connection type" (see §1 of
-    # the unified-connections spec) — used for the display name fallback, setup
-    # script selection, and hermes/openclaw identity. These provider reads are
-    # intentional; routing/coverage use connection_providers, not this column.
-    return connection.nickname or _provider_label(connection.provider)
+    return connection.nickname or "Machine"
 
 
-def _setup_script_name(provider: ConnectionProvider) -> str:
+def _setup_script_name(provider: ConnectionProvider | None) -> str:
+    if provider is None:
+        return "agentludum_connector.py"
     return _SETUP_SCRIPTS.get(provider, "agentludum_connector.py")
 
 
-def _setup_message(provider: ConnectionProvider, key: str) -> str:
+def _setup_message(provider: ConnectionProvider | None, key: str) -> str:
     script_name = _setup_script_name(provider)
     return (
         "Please set up my AI connection as a persistent background service that starts "
@@ -248,15 +248,20 @@ async def _load_pending_setups(db: DbSession, user_id: int) -> list[ConnectionSe
 
 
 async def _load_resumeable_pending_setup(
-    db: DbSession, user_id: int, provider: ConnectionProvider
+    db: DbSession, user_id: int, provider: ConnectionProvider | None
 ) -> ConnectionSetup | None:
     """Return the newest pending setup for this provider, if one exists."""
+    provider_clause = (
+        ConnectionSetup.provider.is_(None)
+        if provider is None
+        else ConnectionSetup.provider == provider
+    )
     return (
         await db.execute(
             select(ConnectionSetup)
             .where(
                 ConnectionSetup.user_id == user_id,
-                ConnectionSetup.provider == provider,
+                provider_clause,
                 ConnectionSetup.completed_at.is_(None),
             )
             .order_by(ConnectionSetup.created_at.desc(), ConnectionSetup.id.desc())
@@ -321,11 +326,15 @@ async def create_connection(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
-    provider: Annotated[str, Form()],
+    provider: Annotated[str | None, Form()] = None,
     nickname: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
     try:
-        provider_choice = ConnectionProvider(provider.strip().lower())
+        provider_choice = (
+            None
+            if provider is None or not provider.strip()
+            else ConnectionProvider(provider.strip().lower())
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Unknown provider.") from exc
 
@@ -460,7 +469,11 @@ async def connection_detail(
             "stranded_agents": stranded_agents,
             "provider_toggles": provider_toggles,
             "provider_label": _provider_label(connection.provider),
-            "provider_models": PROVIDER_MODELS.get(connection.provider.value, []),
+            "provider_models": (
+                PROVIDER_MODELS.get(connection.provider.value, [])
+                if connection.provider is not None
+                else []
+            ),
             "strand_provider": request.query_params.get("strand_provider"),
             "strand_count": request.query_params.get("strand_count"),
             "base_url": settings.base_url,

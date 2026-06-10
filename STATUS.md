@@ -22,10 +22,9 @@
   sticky per match with race-safe atomic-pin failover. Migration `0026` backfills
   existing data (no stalled games; unresolvable orphans archived, never aborts the
   deploy). Connector reports detected CLIs and trusts an explicit per-turn provider.
-  555 tests green. Open follow-ups (function via retained columns, not yet fully
-  coverage-aware): web_player dashboard/list display + join-gate capacity SUM,
-  agent-detail/list display, the grouped availability-aware create dropdown, and the
-  final drop of `agents.connection_id` / `connections.provider`. Run docs:
+  555 tests green. The `/me/agents/new` form now uses a single grouped model
+  dropdown, derives provider from the selected model, and disables providers that
+  have no enabled machine coverage. Run docs:
   `docs/workflow/feature-runs/unified-connections/`. Pre-deploy: `--dry-run` the
   migration against a production-shaped DB; manual two-connector failover check.
 - Unified the phone nav into a single right-corner menu: signed-in users get a ☰ + avatar pill whose panel carries wayfinding (Games / Leaderboard / page extras) above the account items; signed-out users get one ☰ menu with Sign in folded in. Desktop keeps inline links and the avatar menu unchanged.
@@ -51,7 +50,7 @@
 - The game admin dashboard can now survive a stale or broken match row instead of 500ing the whole page.
 - Deleting a connection now acts as a real runner shutdown signal instead of a best-effort 401 on the next poll.
 - Connection onboarding can now safely wait for the provider's first live call before the real connection row exists.
-- New agent creation uses the restored preset strategy picker, and users without a connection are sent to the connection setup page first.
+- New agent creation now uses the grouped model picker with provider-aware availability notes, and users without a machine are pointed at the connection setup page first.
 
 ## Notes
 

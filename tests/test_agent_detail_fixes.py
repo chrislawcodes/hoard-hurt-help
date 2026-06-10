@@ -24,6 +24,7 @@ from app.models import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
@@ -148,6 +149,15 @@ async def _make_connection(
     )
     db.add(conn)
     await db.flush()
+    db.add(
+        ConnectionProviderRow(
+            connection_id=conn.id,
+            provider=provider,
+            enabled=True,
+            detected=False,
+        )
+    )
+    await db.flush()
     return conn
 
 
@@ -162,6 +172,7 @@ async def _make_agent(
     agent = Agent(
         user_id=user.id,
         connection_id=connection.id if connection else None,
+        provider=connection.provider if connection is not None else None,
         kind=AgentKind.AI,
         name=name,
         game="hoard-hurt-help",

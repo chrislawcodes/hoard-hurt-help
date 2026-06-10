@@ -34,12 +34,7 @@ class Connection(Base):
         ForeignKey("users.id"), nullable=False, index=True
     )
     nickname: Mapped[str | None] = mapped_column(String(60), nullable=True)
-    # DB column is nullable (migration 0026) so future machine-style connections
-    # can leave it NULL, but the Python type stays non-None until slice 5
-    # introduces those NULL rows and updates every consumer together. Every row
-    # that exists today is backfilled with its legacy provider, so non-None is
-    # accurate for now.
-    provider: Mapped[ConnectionProvider] = mapped_column(
+    provider: Mapped[ConnectionProvider | None] = mapped_column(
         FlexibleEnumType(ConnectionProvider, length=16),
         nullable=True,
     )

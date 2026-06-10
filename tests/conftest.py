@@ -17,6 +17,7 @@ from app.db import make_engine
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
 
 
@@ -76,6 +77,15 @@ async def make_connection(
     )
     db.add(connection)
     await db.flush()
+    db.add(
+        ConnectionProviderRow(
+            connection_id=connection.id,
+            provider=provider,
+            enabled=True,
+            detected=False,
+        )
+    )
+    await db.flush()
     return connection, plain_key
 
 
@@ -91,6 +101,7 @@ async def make_agent(
     agent = Agent(
         user_id=user.id,
         connection_id=None if connection is None else connection.id,
+        provider=connection.provider if connection is not None else None,
         kind=kind,
         name=name or f"agent-{user.id}",
     )

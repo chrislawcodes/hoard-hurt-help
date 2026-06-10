@@ -20,7 +20,7 @@
                 {% if row.version %} · {{ row.version.model }} · v{{ row.version.version_no }}{% endif %}
                 · <span class="{{ row.health.badge_class }}">{{ row.health.label }}</span>
                 {% if row.connection %}
-                    · {{ row.connection.nickname or row.connection.provider.value }}
+                    · {{ row.connection.nickname or (row.connection.provider.value if row.connection.provider else "Machine") }}
                 {% endif %}
                 · {{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}
             </p>

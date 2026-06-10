@@ -4,33 +4,33 @@
 <a class="backlink" href="/me/agents">← Agents</a>
 <div class="page-head">
     <h1>New agent</h1>
-    <p class="sub">Pick a provider, model, and strategy.</p>
+    <p class="sub">Pick a model and strategy.</p>
 </div>
 
-{% if provider_choices %}
 <div class="card agent-setup-card">
     <h3 style="margin-top:0;">Create the agent</h3>
     <form method="post" action="/me/agents/new" class="form agent-setup-form">
-        <div class="agent-setup-grid">
-            <label>
-                AI provider
-                <select name="provider" id="agent-provider" required>
-                    {% for provider in provider_choices %}
-                    <option value="{{ provider.value }}" {% if provider.value == selected_provider %}selected{% endif %}>
-                        {{ provider_labels[provider.value] }}
+        <label>
+            AI model
+            <select name="model" id="agent-model" required>
+                {% for group in model_groups %}
+                <optgroup label="{{ group.provider_label }}"{% if not group.enabled %} disabled{% endif %}>
+                    {% for candidate in group.options %}
+                    <option
+                        value="{{ candidate.value }}"
+                        {% if candidate.value == selected_model %}selected{% endif %}
+                        {% if not group.enabled %}disabled{% endif %}
+                    >
+                        {{ candidate.label }}
                     </option>
                     {% endfor %}
-                </select>
-            </label>
-            <label>
-                Model
-                <select name="model" id="agent-model" required>
-                    {% for candidate in provider_models %}
-                    <option value="{{ candidate }}">{{ candidate }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-        </div>
+                </optgroup>
+                {% endfor %}
+            </select>
+            {% for note in availability_notes %}
+            <small class="hint">{{ note }}</small>
+            {% endfor %}
+        </label>
         <label>
             Agent name
             <input type="text" name="name" maxlength="120" required autocomplete="off" placeholder="Alpha">
@@ -68,23 +68,11 @@
         </div>
     </form>
 </div>
-{% else %}
-<div class="card">
-    <h3 style="margin-top:0;">No connection yet</h3>
-    <p class="hint" style="margin-top:0;">
-        To create an agent, first set up a connection on the Connections page.
-    </p>
-    <a class="btn btn-primary" href="/me/connections">Go to Connections →</a>
-</div>
-{% endif %}
 
 <script>
 (function () {
-    const providerModels = {{ provider_models_map | tojson }};
     const presets = {{ strategy_presets | tojson }};
     const defaultStrategy = {{ default_strategy | tojson }};
-    const providerSelect = document.getElementById('agent-provider');
-    const modelSelect = document.getElementById('agent-model');
     const strategyBox = document.getElementById('strategy-text');
     const presetButtons = Array.from(document.querySelectorAll('[data-preset-id]'));
     let activePresetId = {{ selected_strategy_preset | tojson }};
@@ -110,32 +98,6 @@
         strategyBox.setSelectionRange(strategyBox.value.length, strategyBox.value.length);
     }
 
-    function updateModelOptions() {
-        if (!providerSelect || !modelSelect) return;
-        const models = providerModels[providerSelect.value] || [];
-        const previous = modelSelect.value;
-        modelSelect.innerHTML = '';
-        if (!models.length) {
-            const fallback = document.createElement('option');
-            fallback.value = '';
-            fallback.textContent = 'Enter a model';
-            modelSelect.appendChild(fallback);
-            return;
-        }
-        models.forEach(function (model) {
-            const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model;
-            if (model === previous || (!previous && model === models[0])) {
-                option.selected = true;
-            }
-            modelSelect.appendChild(option);
-        });
-    }
-
-    if (providerSelect) {
-        providerSelect.addEventListener('change', updateModelOptions);
-    }
     presetButtons.forEach(function (button) {
         button.addEventListener('click', function () {
             applyPreset(button.dataset.presetId || 'custom');
@@ -153,7 +115,6 @@
         });
     }
 
-    updateModelOptions();
     setActivePreset(activePresetId || 'custom');
 })();
 </script>
