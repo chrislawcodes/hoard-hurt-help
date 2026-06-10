@@ -1,0 +1,95 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 4,
+    "asked_count": 4,
+    "questions": [
+      {
+        "question": "Should agent creation include machine/provider selection?",
+        "recommendation": "No \u2014 name, model, strategy only",
+        "rationale": "The machine is plumbing; the model dropdown can carry provider grouping and availability",
+        "updated_at": 1781069616
+      },
+      {
+        "question": "What happens when a user has two machines with the same provider?",
+        "recommendation": "Pool them with sticky-per-match routing and failover",
+        "rationale": "Connector rebuilds sessions from full history, so failover is already safe",
+        "updated_at": 1781069616
+      },
+      {
+        "question": "Keep the name Connections or rename to Machines?",
+        "recommendation": "Keep Connections",
+        "rationale": "Accurate, already everywhere in nav/keys/code; renaming buys little",
+        "updated_at": 1781069616
+      },
+      {
+        "question": "Which model do Hermes/OpenClaw agents use?",
+        "recommendation": "Whatever the user's own tool is configured with",
+        "rationale": "Their value is their own learning/memory; forcing a model fights the platform",
+        "updated_at": 1781069616
+      }
+    ],
+    "assumptions": [],
+    "summary": "Design settled in conversation on 2026-06-10: wireframes for /me/connections list+detail (provider toggles, recent activity, runner box), grouped availability-aware model dropdown in agent creation, dynamic turn routing with sticky-per-match + failover, agents lose connection_id.",
+    "updated_at": 1781069617,
+    "answers": {
+      "Which model do Hermes/OpenClaw agents use?": "Whatever the user's own Hermes/OpenClaw is configured with \u2014 their model, memory, and learning come along. No model dropdown for them. Their connector adapters are explicitly OUT of this run (follow-up run; needs live-install testing for Hermes session-id capture).",
+      "Should agent creation include machine/provider selection?": "No. Agent = name + model + strategy. Model dropdown groups models by provider and only shows providers enabled on at least one machine; unavailable providers appear greyed out with a pointer to the connections page. Machine and provider setup live on the connections page only.",
+      "What happens when a user has two machines with the same provider?": "They form a pool: turns route to any live connection with the provider enabled, sticky per match while the pinned connection is alive, failing over otherwise. A new machine rebuilds the match session from full history (already supported by the connector's first-turn path).",
+      "Keep the name Connections or rename to Machines?": "Keep Connections. A connection = one computer running the connector. Sub-line copy explains it; nickname becomes the machine name (e.g. Home Mac)."
+    },
+    "non_goals": [
+      "Hermes/OpenClaw connector adapters (follow-up run; needs a live install to verify Hermes session-id capture)",
+      "Renaming Connections to Machines (keeping the Connections name)",
+      "Changes to the direct-MCP play path (docs/setup-mcp.md)",
+      "Leaderboard/match-page presentation changes for black-box (Hermes/OpenClaw) agents"
+    ],
+    "acceptance_criteria": [
+      "Creating a connection no longer asks for a provider; setup hands out one key + one script per machine",
+      "Connection detail shows per-provider toggles with CLI-detection status reported by the connector; a provider with live agents cannot be silently turned off",
+      "Agent creation = name + model (grouped by provider, availability-aware) + strategy; no machine or provider step",
+      "Turns route to a live connection with the agent's provider enabled, sticky per match, with failover when the pinned connection dies",
+      "Existing connections and agents migrate with no data loss and no stalled running games",
+      "A stopped connection warns when it strands agents (no other live connection covers their provider)"
+    ],
+    "checklist": {
+      "goal": "Replace per-provider connections with machine-level connections: install the connector once per machine with one key, toggle AI providers on/off from the site, and detach agents from connections so turns route dynamically to any live machine that supports the agent's provider (sticky per match, with failover).",
+      "audience": "Players who field agents across multiple AI providers. Today they must create one connection per provider, run one connector process per provider, and re-pick providers during agent creation.",
+      "constraints": "Schema migration touches every existing connection and agent; running games must not stall. Turn routing is hot-path engine logic. Sticky-per-match routing is required for prompt-cache economics; failover is safe because the connector re-establishes sessions with full game history. Connector gains a capability handshake (report detected CLIs); server must send provider explicitly per turn instead of inferring from model-name prefixes. Feature Factory checkpoints run on Chris's local machine (codex/gemini CLIs are not available in the remote session that authored this spec)."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "4e0668e93bb1ea3a274ef82d9fa79495201ef334",
+  "token_usage": [],
+  "command_telemetry": [],
+  "stages": {},
+  "invariant_warnings": [],
+  "schema_version": 1,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  }
+}
