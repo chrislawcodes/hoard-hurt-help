@@ -518,6 +518,42 @@
       "duration_seconds": 10.531873,
       "agent_id": null,
       "artifact_sha_at_time": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 7649,
+      "prompt_cap": 250000,
+      "input_tokens": 15061,
+      "output_tokens": 886,
+      "cost_usd_estimate": 0.00509425,
+      "timestamp": "2026-06-10T07:25:54.335312Z",
+      "started_at": "2026-06-10T07:25:43.815379Z",
+      "ended_at": "2026-06-10T07:25:54.335312Z",
+      "duration_seconds": 10.519824,
+      "agent_id": null,
+      "artifact_sha_at_time": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 7649,
+      "prompt_cap": 250000,
+      "input_tokens": 15137,
+      "output_tokens": 674,
+      "cost_usd_estimate": 0.00479525,
+      "timestamp": "2026-06-10T07:27:47.402947Z",
+      "started_at": "2026-06-10T07:27:38.458375Z",
+      "ended_at": "2026-06-10T07:27:47.402947Z",
+      "duration_seconds": 8.944476,
+      "agent_id": null,
+      "artifact_sha_at_time": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
     }
   ],
   "command_telemetry": [
@@ -712,6 +748,54 @@
       "files_written": 2,
       "subprocess_invocations": 12,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T07:25:00Z",
+      "wall_seconds": 0.207,
+      "input_bytes_read": 97629,
+      "output_bytes_written": 57274,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T07:25:54Z",
+      "wall_seconds": 10.994,
+      "input_bytes_read": 215881,
+      "output_bytes_written": 146253,
+      "files_read": 12,
+      "files_written": 6,
+      "subprocess_invocations": 14,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T07:27:01Z",
+      "wall_seconds": 0.166,
+      "input_bytes_read": 99476,
+      "output_bytes_written": 59968,
+      "files_read": 4,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T07:27:47Z",
+      "wall_seconds": 9.404,
+      "input_bytes_read": 223114,
+      "output_bytes_written": 152987,
+      "files_read": 8,
+      "files_written": 6,
+      "subprocess_invocations": 14,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -745,6 +829,8 @@
       "adversarial_rounds": 0,
       "annotations": [],
       "adversarial_sha_history": [
+        "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6",
+        "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6",
         "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
       ],
       "initial_sha": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"

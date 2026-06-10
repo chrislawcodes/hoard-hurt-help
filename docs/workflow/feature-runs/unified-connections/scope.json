@@ -5,7 +5,7 @@
   ],
   "allowed_dirty_paths": [
     "app",
-    "docs/workflow/feature-runs/unified-connections",
+    "docs/workflow",
     "scripts"
   ]
 }
