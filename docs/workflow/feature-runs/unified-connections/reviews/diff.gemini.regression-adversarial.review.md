@@ -9,8 +9,8 @@ git_head_sha: "02d54ac116ea939765e6698f291d3b8f02d964ac"
 git_base_ref: "b38f3976eaff71ab3f173104ad02cc2ea169473e"
 git_base_sha: "b38f3976eaff71ab3f173104ad02cc2ea169473e"
 generation_method: "gemini-cli"
-resolution_status: "open"
-resolution_note: ""
+resolution_status: "accepted"
+resolution_note: "Slice 5. The HIGH UX gap (hidden confirm form) is FIXED in this diff — a real 'Turn off <provider> anyway' button now posts confirm=true. Remaining findings minor/UNVERIFIED: (1) toggle check-then-update race is a deliberate user action, low-stakes, and the confirm flow is the guard; (2) 'live' flicker is inherent to any LIVE_WINDOW and applied consistently across helpers; (3) orphaned connection_providers rows after soft-delete are harmless (all routing/coverage queries filter Connection.deleted_at IS NULL) — a cleanup is a nice-to-have, not a correctness issue. No further code change."
 raw_output_path: "docs/workflow/feature-runs/unified-connections/reviews/diff.gemini.regression-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -44,5 +44,5 @@ coverage_note: ""
 - `gemini-3.1-flash-lite`: input=19702, output=679, total=38048
 
 ## Resolution
-- status: open
-- note:
+- status: accepted
+- note: Slice 5. The HIGH UX gap (hidden confirm form) is FIXED in this diff — a real 'Turn off <provider> anyway' button now posts confirm=true. Remaining findings minor/UNVERIFIED: (1) toggle check-then-update race is a deliberate user action, low-stakes, and the confirm flow is the guard; (2) 'live' flicker is inherent to any LIVE_WINDOW and applied consistently across helpers; (3) orphaned connection_providers rows after soft-delete are harmless (all routing/coverage queries filter Connection.deleted_at IS NULL) — a cleanup is a nice-to-have, not a correctness issue. No further code change.
