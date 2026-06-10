@@ -1,19 +1,19 @@
 {
-  "session_id": "864862b4-312a-4e4b-8f02-36c6e68ad618",
-  "response": "## Findings\n\n- **[UNVERIFIED] Race Condition in `_route_states`:** `_route_states` performs a query to fetch all connections for a user, then a separate query to fetch `ConnectionProviderRow`s. Between these two queries, a new `Connection` could be added or deleted, causing a mismatch or potential data inconsistency in the `ConnectionRouteState` returned. (Severity: MEDIUM)\n- **Non-Atomic Provider Detection:** In `_apply_detected_providers`, the code iterates over existing rows, modifies them, and adds new ones. While `await db.commit()` is called in the caller (`report_pid`), the sequence of reads and writes in `_apply_detected_providers` is not atomic across multiple connections/providers, potentially leading to partial updates if an error occurs mid-process. (Severity: LOW)\n- **Implicit Dependency on `ConnectionProvider` Enum:** `_apply_detected_providers` uses `ConnectionProvider(value)`. If the `ConnectionProvider` enum changes or becomes more restrictive in the future, this code could start silently ignoring provider updates rather than surfacing them as a configuration mismatch. (Severity: LOW)\n\n## Residual Risks\n\n- **Stale Failover State:** The failover logic relies on `connection_is_dead` and `last_seen_at`. If multiple connections exist for a user and one is improperly flagged as \"dead\" due to network latency (even if the process is alive), the system may forcefully re-route turns, potentially creating contention or race conditions if the \"dead\" connection is actually still performing work.\n- **`detected_detail` Overwrites:** The logic `row.detected_detail = \"CLI detected\" if is_detected else \"not found\"` aggressively overwrites existing metadata. If other administrative processes or UI actions add context to this field, those will be silently lost upon the next `report-pid` call.\n- **Scaling of `_route_states`:** `_route_states` fetches *all* connections and *all* `ConnectionProvider` rows for a user on every `/next-turn` request. As a user adds more connections, this will linearly increase latency for every single poll, which may impact throughput significantly.",
+  "session_id": "4c5d690a-e57f-49c2-9bf1-26cd54fe009e",
+  "response": "## Findings\n\n1.  **Race Condition in `compute_connection_health` Logic:** The calculation of `covered_count` and `player_rows` (the matches being served) are executed as two separate database queries without an explicit transaction or synchronization. Between these queries, a match could be reassigned from this connection to another, causing the reported `covered_count` and the associated `live_match` to represent inconsistent states of the connection. **Severity: MEDIUM** [UNVERIFIED]\n\n2.  **Inconsistent `Agent` Filtering in `user_has_connected_agent`:** The query joins `Agent` -> `ConnectionProviderRow` -> `Connection`. However, it does not explicitly enforce that the `ConnectionProviderRow` belongs to the same user as the `Agent`, relying instead on the `Agent.user_id` and the `Connection` user ID being linked indirectly. If an agent's `provider` string matches a provider enabled on a *different* user's connection, this could return a false positive. **Severity: MEDIUM** [UNVERIFIED]\n\n3.  **Ambiguity in `Connection` Selection:** In `web_lobby.py`, `user_connections` is fetched without checking `Connection.first_connected_at.is_not(None)`. If a user has a connection created but never successfully connected, `compute_bot_health` might return `READY` based on liveness alone, even if the connection is effectively unusable. This could lead to a misleading `has_warm_agent` signal. **Severity: LOW** [UNVERIFIED]\n\n## Residual Risks\n\n*   **Logic Drift:** The shift from agent-to-connection attachment to a provider-based model is a significant architectural change. The distributed nature of this logic across `compute_connection_health`, `nav_context.py`, and `web_lobby.py` creates a high risk of desynchronization if the \"provider\" string or the mapping definition changes in the future.\n*   **Performance Overhead:** The `compute_bot_health` function is now performing potentially heavy aggregate queries inside a loop in `web_lobby.py` (depending on the number of `user_connections`). This could introduce significant latency on the lobby page as the number of user connections grows.",
   "stats": {
     "models": {
       "gemini-3.1-flash-lite": {
         "api": {
           "totalRequests": 1,
           "totalErrors": 0,
-          "totalLatencyMs": 3736
+          "totalLatencyMs": 3144
         },
         "tokens": {
-          "input": 15876,
-          "prompt": 15876,
-          "candidates": 468,
-          "total": 16344,
+          "input": 14576,
+          "prompt": 14576,
+          "candidates": 482,
+          "total": 15058,
           "cached": 0,
           "thoughts": 0,
           "tool": 0
@@ -22,12 +22,12 @@
           "main": {
             "totalRequests": 1,
             "totalErrors": 0,
-            "totalLatencyMs": 3736,
+            "totalLatencyMs": 3144,
             "tokens": {
-              "input": 15876,
-              "prompt": 15876,
-              "candidates": 468,
-              "total": 16344,
+              "input": 14576,
+              "prompt": 14576,
+              "candidates": 482,
+              "total": 15058,
               "cached": 0,
               "thoughts": 0,
               "tool": 0
