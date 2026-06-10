@@ -89,15 +89,23 @@ async def _game(db, gid: str, state: GameState) -> Match:
     return g
 
 
-async def _player(db, match_id: str, agent: Agent, user: User, seat_name: str = "AI_0") -> Player:
-    # Pin the seat to the agent's connection so the connection's serving health
+async def _player(
+    db,
+    match_id: str,
+    agent: Agent,
+    user: User,
+    seat_name: str = "AI_0",
+    *,
+    connection_id: int | None = None,
+) -> Player:
+    # Pin the seat to the connection so the connection's serving health
     # sees this match (health is pin-based now, not agent-attachment).
     p = Player(
         match_id=match_id,
         user_id=user.id,
         agent_id=agent.id,
         seat_name=seat_name,
-        served_by_connection_id=agent.connection_id,
+        served_by_connection_id=connection_id,
         served_pinned_at=NOW,
     )
     db.add(p)
@@ -153,7 +161,7 @@ async def test_state_waiting_in_game_when_entered_but_not_connected(reset_db):
         connection, _ = await make_connection(db, u, status=ConnectionStatus.PENDING)
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         g = await _game(db, "G_1", GameState.REGISTERING)
-        await _player(db, g.id, agent, u)
+        await _player(db, g.id, agent, u, connection_id=connection.id)
         await db.commit()
         health = await compute_connection_health(db, connection, now=NOW)
     assert health.state is ConnectionHealth.DISCONNECTED
@@ -181,7 +189,7 @@ async def test_state_connected_pregame(reset_db):
         connection.first_connected_at = NOW
         connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.REGISTERING)
-        await _player(db, g.id, agent, u)
+        await _player(db, g.id, agent, u, connection_id=connection.id)
         await db.commit()
         health = await compute_connection_health(db, connection, now=NOW)
     assert health.state is ConnectionHealth.READY
@@ -196,7 +204,7 @@ async def test_state_in_game_no_move(reset_db):
         connection.first_connected_at = NOW
         connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _player(db, g.id, agent, u)
+        p = await _player(db, g.id, agent, u, connection_id=connection.id)
         await _submission(db, g.id, p, round_=1, turn_=1, defaulted=True)
         await db.commit()
         health = await compute_connection_health(db, connection, now=NOW)
@@ -211,7 +219,7 @@ async def test_state_playing_when_moved(reset_db):
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _player(db, g.id, agent, u)
+        p = await _player(db, g.id, agent, u, connection_id=connection.id)
         await _submission(db, g.id, p, round_=1, turn_=1)
         await db.commit()
         health = await compute_connection_health(db, connection, now=NOW)
@@ -229,7 +237,7 @@ async def test_playing_points_only_at_a_live_game_not_a_finished_one(reset_db):
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.COMPLETED)
-        p = await _player(db, g.id, agent, u)
+        p = await _player(db, g.id, agent, u, connection_id=connection.id)
         await _submission(db, g.id, p, round_=1, turn_=1)
         await db.commit()
         health = await compute_connection_health(db, connection, now=NOW)
@@ -247,7 +255,7 @@ async def test_defaulted_submission_does_not_count_as_moved(reset_db):
         connection.first_connected_at = NOW
         connection.last_seen_at = NOW
         g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _player(db, g.id, agent, u)
+        p = await _player(db, g.id, agent, u, connection_id=connection.id)
         await _submission(db, g.id, p, round_=1, turn_=1, defaulted=True)
         await db.commit()
         health = await compute_connection_health(db, connection, now=NOW)
@@ -282,7 +290,7 @@ async def test_mark_first_move_publishes_only_on_first(reset_db, events):
         connection, _ = await make_connection(db, u)
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _player(db, g.id, agent, u)
+        p = await _player(db, g.id, agent, u, connection_id=connection.id)
         await _submission(db, g.id, p, round_=1, turn_=1)
         await db.commit()
 
@@ -394,7 +402,7 @@ async def test_detail_established_agent_shows_playing_card(client, reset_db):
         connection.first_connected_at = now  # connected once, recently
         connection.last_seen_at = now
         g = await _game(db, "G_1", GameState.COMPLETED)
-        p = await _player(db, g.id, agent, u)
+        p = await _player(db, g.id, agent, u, connection_id=connection.id)
         await _submission(db, g.id, p, round_=1, turn_=1)
         await db.commit()
         uid, aid = u.id, agent.id

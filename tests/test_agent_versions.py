@@ -144,7 +144,6 @@ async def _make_agent(
 ) -> Agent:
     agent = Agent(
         user_id=user.id,
-        connection_id=None if connection is None else connection.id,
         provider=connection.provider if connection is not None else None,
         kind=AgentKind.AI,
         name=name,
@@ -284,7 +283,6 @@ async def test_new_agent_rejects_invalid_model_for_provider(
         "/me/agents/new",
         cookies=_signed_in_cookies(user.id),
         data={
-            "connection_id": connection.id,
             "name": "Alpha",
             "model": "gpt-5.4-mini",
             "strategy_text": "Play to win.",

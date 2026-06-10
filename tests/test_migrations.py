@@ -85,7 +85,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0026",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0027",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -208,6 +208,84 @@ def test_0026_unified_connections_backfills_schema(tmp_path: Path) -> None:
         assert conn.execute("SELECT count(*) FROM agent_versions").fetchone()[0] == 3
         assert conn.execute("SELECT count(*) FROM matches").fetchone()[0] == 2
         assert conn.execute("SELECT count(*) FROM players").fetchone()[0] == 4
+    finally:
+        conn.close()
+
+
+# --- feature: drop agents.connection_id (migration 0027) ---------------------
+
+
+_SEED_0026 = """
+INSERT INTO users(id,google_sub,email,handle,handle_key) VALUES
+  (1,'sub-1','u1@example.com','user1','user1');
+INSERT INTO connections(
+    id,user_id,nickname,provider,key_lookup,prev_key_lookup,key_hint,status,
+    paused_at,paused_reason,deleted_at,first_connected_at,last_seen_at,runner_pid,
+    max_concurrent_games,stall_threshold,created_at
+) VALUES
+  (10,1,'Home Mac','claude','lk10',NULL,'abcd','active',NULL,NULL,NULL,
+   '2026-06-09T11:55:00+00:00','2026-06-09T11:59:00+00:00',4321,3,3,'2026-06-09T11:00:00+00:00');
+INSERT INTO connection_providers(
+    id,connection_id,provider,enabled,detected,detected_detail,updated_at
+) VALUES
+  (1,10,'claude',1,0,NULL,'2026-06-09T11:00:00+00:00');
+INSERT INTO agent_versions(id,agent_id,version_no,model,strategy_text,created_at,frozen_at) VALUES
+  (100,1,1,'claude-haiku-4-5','Play to win.','2026-06-09T11:00:00+00:00',NULL);
+INSERT INTO agents(
+    id,user_id,connection_id,provider,kind,name,game,current_version_id,status,
+    archived_at,created_at,
+    bot_profile_id,bot_profile_name,bot_strategy,bot_truthfulness,bot_trust_model,bot_seed,
+    bot_version,bot_fixture_pack
+) VALUES
+  (1,1,10,'claude','ai','Atlas','hoard-hurt-help',100,'active',NULL,'2026-06-09T11:00:00+00:00',
+   NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+  (2,1,NULL,'claude','ai','Detached','hoard-hurt-help',100,'paused',NULL,'2026-06-09T11:00:00+00:00',
+   NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+"""
+
+
+def _seed_0026_schema(db_path: Path) -> None:
+    up = _run_alembic(["upgrade", "0026"], db_path)
+    assert up.returncode == 0, f"upgrade 0026 failed:\n{up.stdout}\n{up.stderr}"
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.executescript(_SEED_0026)
+    conn.close()
+
+
+def test_0027_drops_agents_connection_id(tmp_path: Path) -> None:
+    """0027 drops connection_id from agents; column must be absent after upgrade
+    and restored on downgrade."""
+    db_path = tmp_path / "drop_agent_connection_id.db"
+    _seed_0026_schema(db_path)
+
+    up = _run_alembic(["upgrade", "0027"], db_path)
+    assert up.returncode == 0, f"upgrade 0027 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0027",)]
+        # connection_id column must be gone.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
+        assert "connection_id" not in cols, "connection_id column must be dropped"
+        # provider and other columns must still be present.
+        assert "provider" in cols
+        assert "kind" in cols
+        # Data rows must survive.
+        rows = conn.execute("SELECT id, provider, kind FROM agents ORDER BY id").fetchall()
+        assert rows == [(1, "claude", "ai"), (2, "claude", "ai")]
+    finally:
+        conn.close()
+
+    # Downgrade must restore the column (data is not restored — that is expected).
+    down = _run_alembic(["downgrade", "0026"], db_path)
+    assert down.returncode == 0, f"downgrade 0026 failed:\n{down.stdout}\n{down.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0026",)]
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
+        assert "connection_id" in cols, "connection_id column must be restored after downgrade"
     finally:
         conn.close()
 

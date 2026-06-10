@@ -67,7 +67,7 @@ async def test_long_name_with_spaces_is_accepted(reset_db) -> None:
     async with _authed_client(user.id) as c:
         r = await c.post(
             "/me/agents/new",
-            data={"connection_id": connection.id, "name": name, "model": "claude-haiku-4-5"},
+            data={"name": name, "model": "claude-haiku-4-5"},
         )
 
     # Lands on the new agent's detail page (200 after the redirect is followed),
@@ -88,7 +88,7 @@ async def test_name_over_120_chars_is_accepted(reset_db) -> None:
     async with _authed_client(user.id) as c:
         r = await c.post(
             "/me/agents/new",
-            data={"connection_id": connection.id, "name": name, "model": "claude-haiku-4-5"},
+            data={"name": name, "model": "claude-haiku-4-5"},
         )
 
     assert r.status_code == 200, r.text
@@ -106,7 +106,6 @@ async def test_rename_to_long_spaced_name_is_accepted(reset_db) -> None:
         created = await c.post(
             "/me/agents/new",
             data={
-                "connection_id": connection.id,
                 "name": "Atlas",
                 "model": "claude-haiku-4-5",
             },

@@ -49,15 +49,17 @@ async def _game(db, gid: str, state: GameState) -> Match:
     return g
 
 
-async def _seat(db, game: Match, agent, user, agent_id: str = "A") -> Player:
+async def _seat(
+    db, game: Match, agent, user, agent_id: str = "A", *, connection_id: int | None = None
+) -> Player:
     # Health now tracks matches the connection is SERVING (the sticky pin), so
-    # pin the seat to the agent's connection (these tests keep agents attached).
+    # pin the seat to the connection that created this agent.
     p = Player(
         match_id=game.id,
         user_id=user.id,
         agent_id=agent.id,
         seat_name=agent_id,
-        served_by_connection_id=agent.connection_id,
+        served_by_connection_id=connection_id,
         served_pinned_at=NOW,
     )
     db.add(p)
@@ -92,7 +94,7 @@ async def test_paused_overrides_everything(reset_db):
         connection.last_seen_at = WARM  # warm, but paused wins
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         g = await _game(db, "G_1", GameState.ACTIVE)
-        await _seat(db, g, agent, u)
+        await _seat(db, g, agent, u, connection_id=connection.id)
         await db.commit()
 
         h = await compute_connection_health(db, connection, now=NOW)
@@ -107,7 +109,7 @@ async def test_live_when_warm_and_in_active_game(reset_db):
         connection.last_seen_at = WARM
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         g = await _game(db, "G_1", GameState.ACTIVE)
-        await _seat(db, g, agent, u)
+        await _seat(db, g, agent, u, connection_id=connection.id)
         await db.commit()
 
         h = await compute_connection_health(db, connection, now=NOW)
@@ -164,7 +166,7 @@ async def test_stalled_when_cold_in_active_game(reset_db):
         connection.last_seen_at = COLD
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         g = await _game(db, "G_1", GameState.ACTIVE)
-        await _seat(db, g, agent, u)
+        await _seat(db, g, agent, u, connection_id=connection.id)
         await db.commit()
 
         h = await compute_connection_health(db, connection, now=NOW)
@@ -181,7 +183,7 @@ async def test_stalled_when_warm_but_defaulting(reset_db):
         connection.last_seen_at = WARM  # runner is alive...
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _seat(db, g, agent, u)
+        p = await _seat(db, g, agent, u, connection_id=connection.id)
         # ...but its last stall_threshold (3) moves all defaulted → failing.
         for turn_ in (1, 2, 3):
             await _submit(db, g.id, p, turn_, defaulted=True)
@@ -199,7 +201,7 @@ async def test_live_when_warm_and_latest_move_is_real(reset_db):
         connection.last_seen_at = WARM
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _seat(db, g, agent, u)
+        p = await _seat(db, g, agent, u, connection_id=connection.id)
         # Older defaults, but the most recent move is real → not stalled.
         await _submit(db, g.id, p, 1, defaulted=True)
         await _submit(db, g.id, p, 2, defaulted=True)

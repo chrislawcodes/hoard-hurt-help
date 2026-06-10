@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import make_engine
@@ -97,7 +96,7 @@ async def _seed_ai_agent(
 ) -> tuple[Agent, AgentVersion]:
     agent = Agent(
         user_id=user.id,
-        connection_id=connection.id,
+        provider=connection.provider,
         kind=AgentKind.AI,
         name=name,
         game="hoard-hurt-help",
@@ -133,7 +132,7 @@ async def _seed_match(db, *, name: str = "Ranked Match") -> Match:
     return match
 
 
-async def test_bot_agent_requires_no_connection_and_ai_agent_has_one(reset_db) -> None:
+async def test_bot_agent_and_ai_agent_kinds(reset_db) -> None:
     async with reset_db() as db:
         bot_owner = await _seed_user(db, 1, handle=None)
         ai_owner = await _seed_user(db, 2, handle="agent2")
@@ -142,20 +141,9 @@ async def test_bot_agent_requires_no_connection_and_ai_agent_has_one(reset_db) -
         ai, _ = await _seed_ai_agent(db, ai_owner, connection=connection, name="Alpha", model="claude-sonnet")
 
         assert bot.kind == AgentKind.BOT
-        assert bot.connection_id is None
         assert ai.kind == AgentKind.AI
-        assert ai.connection_id == connection.id
-
-        with pytest.raises((ValueError, IntegrityError)):
-            bad_bot = Agent(
-                user_id=bot_owner.id,
-                connection_id=connection.id,
-                kind=AgentKind.BOT,
-                name="Broken Bot",
-                game="hoard-hurt-help",
-            )
-            db.add(bad_bot)
-            await db.flush()
+        # AI agent's provider is derived from the connection used to create it.
+        assert ai.provider == connection.provider
 
 
 async def test_bot_play_is_deterministic_without_connection_or_key(reset_db) -> None:

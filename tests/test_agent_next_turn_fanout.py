@@ -125,7 +125,6 @@ async def make_agent(
     )
     agent = Agent(
         user_id=user.id,
-        connection_id=None if connection is None else connection.id,
         provider=provider,
         kind=kind,
         name=name or f"agent-{user.id}",

@@ -542,7 +542,6 @@ async def create_agent_or_connection(
         version_text = clean_strategy or get_game_module(_DEFAULT_GAME).default_strategy()
         agent = Agent(
             user_id=user.id,
-            connection_id=None,
             provider=agent_provider,
             kind=AgentKind.AI,
             name=clean_name,

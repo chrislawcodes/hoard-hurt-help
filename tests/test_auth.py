@@ -97,7 +97,6 @@ async def test_existing_bot_user_no_redirect_override(db):
     bot = Agent(
         user_id=user.id,
         name="myagent",
-        connection_id=None,
         kind=AgentKind.AI,
         game="hoard-hurt-help",
         status="paused",

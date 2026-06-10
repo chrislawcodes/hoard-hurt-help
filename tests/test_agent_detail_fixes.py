@@ -171,7 +171,6 @@ async def _make_agent(
 ) -> tuple[Agent, AgentVersion]:
     agent = Agent(
         user_id=user.id,
-        connection_id=connection.id if connection else None,
         provider=connection.provider if connection is not None else None,
         kind=AgentKind.AI,
         name=name,
