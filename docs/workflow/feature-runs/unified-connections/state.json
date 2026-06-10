@@ -73,7 +73,6 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -501,6 +500,24 @@
       "duration_seconds": 503.768516,
       "agent_id": null,
       "artifact_sha_at_time": "ab000321c91b7af21061425d2a571c6be5fb2525328d87c042e38cbd189554b7"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 7649,
+      "prompt_cap": 250000,
+      "input_tokens": 15080,
+      "output_tokens": 740,
+      "cost_usd_estimate": 0.00488,
+      "timestamp": "2026-06-10T07:21:37.885021Z",
+      "started_at": "2026-06-10T07:21:27.353048Z",
+      "ended_at": "2026-06-10T07:21:37.885021Z",
+      "duration_seconds": 10.531873,
+      "agent_id": null,
+      "artifact_sha_at_time": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
     }
   ],
   "command_telemetry": [
@@ -659,6 +676,42 @@
       "files_written": 5,
       "subprocess_invocations": 22,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T07:21:38Z",
+      "wall_seconds": 11.009,
+      "input_bytes_read": 198940,
+      "output_bytes_written": 135915,
+      "files_read": 8,
+      "files_written": 6,
+      "subprocess_invocations": 14,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T07:23:13Z",
+      "wall_seconds": 0.146,
+      "input_bytes_read": 95745,
+      "output_bytes_written": 56018,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-10T07:23:52Z",
+      "wall_seconds": 0.204,
+      "input_bytes_read": 96687,
+      "output_bytes_written": 56646,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -687,6 +740,14 @@
         "ab000321c91b7af21061425d2a571c6be5fb2525328d87c042e38cbd189554b7"
       ],
       "initial_sha": "ab000321c91b7af21061425d2a571c6be5fb2525328d87c042e38cbd189554b7"
+    },
+    "diff": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
+      ],
+      "initial_sha": "5a428eb773b6a4cb9e858f2cba8e85f114b6ea3431e2a71ea8b3ca771770dea6"
     }
   },
   "invariant_warnings": [],
@@ -703,5 +764,7 @@
     "next": "dispatch_next_slice_to_codex",
     "reason": "tasks checkpoint completed",
     "blockers": []
-  }
+  },
+  "diff_adversarial_rounds": 0,
+  "dirty_overrides": {}
 }
