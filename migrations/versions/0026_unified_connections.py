@@ -74,9 +74,14 @@ def upgrade() -> None:
             sa.text(
                 "INSERT INTO connection_providers "
                 "(connection_id, provider, enabled, detected, detected_detail, updated_at) "
-                "VALUES (:connection_id, :provider, 1, 0, NULL, CURRENT_TIMESTAMP)"
+                "VALUES (:connection_id, :provider, :enabled, :detected, NULL, CURRENT_TIMESTAMP)"
             ),
-            {"connection_id": connection_id, "provider": provider},
+            {
+                "connection_id": connection_id,
+                "provider": provider,
+                "enabled": True,
+                "detected": False,
+            },
         )
 
     with op.batch_alter_table("connections") as batch_op:
