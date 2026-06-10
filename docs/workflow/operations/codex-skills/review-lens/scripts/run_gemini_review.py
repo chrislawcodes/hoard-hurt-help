@@ -603,10 +603,24 @@ def prompt_for(stage: str, lens: str, artifact_label: str, artifact_text: str, e
         "the existing codebase as [UNVERIFIED] and limit it to MEDIUM severity or lower."
     )
 
+    # Code-reviewing stages (diff, closeout) look at real code: specifically hunt
+    # for swallowed errors and silent fallbacks. Artifact stages (spec/plan/tasks)
+    # have no code to swallow, so this guidance is omitted there.
+    fail_loud_instruction = (
+        "This artifact contains code. Specifically hunt for swallowed errors and silent "
+        "fallbacks: an except block that returns a default / None / empty / fake-success "
+        "instead of re-raising, a subprocess or shell command whose return code or stderr "
+        "is never checked, and any shim, stub, or fail-open path that lets a real failure "
+        "read as success. Report each as a finding unless the code explicitly labels it as "
+        "deliberate advisory fail-open."
+        if stage in {"diff", "closeout"} else ""
+    )
+
     parts = [
         f"Review this {stage} artifact using a {lens} lens.",
         "Stay scoped to that lens.",
         "Approach the artifact adversarially: look for hidden flaws, omitted cases, and weak assumptions before giving credit.",
+        *([fail_loud_instruction] if fail_loud_instruction else []),
         context_instruction,
         "The full review artifact text is included below in this prompt.",
         "Return markdown using exactly these sections:",

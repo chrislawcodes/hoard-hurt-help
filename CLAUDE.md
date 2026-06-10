@@ -71,6 +71,17 @@ All function signatures must have type annotations. Use `from __future__ import 
 
 Always catch a specific exception type. `except Exception` is acceptable at the top of a route or task; bare `except:` is not.
 
+### Fail Loud — No Swallowed Errors
+
+Surface failures; never hide them. Do not catch an exception only to return a
+default, `None`, an empty value, or a fake success — re-raise it or propagate it
+so the caller sees the real failure. Do not `except: pass` or `except: continue`
+(the Preflight Gate's `ruff` rules S110/S112 reject these). Always check the
+return code / stderr of a subprocess or shell command; a non-zero exit, missing
+file, or empty output is a failure, not a quiet success. The only acceptable
+silent catch is a deliberate, non-gating advisory path (e.g. an optional status
+banner) — and it must say so in a comment (`# fail-open: advisory only`).
+
 ### Async Consistency
 
 This is an async app. Route handlers and DB calls must be `async def`. Do not mix sync DB calls into async paths.
