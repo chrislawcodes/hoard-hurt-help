@@ -1,11 +1,18 @@
 """User table — one row per Google identity."""
 
+import enum
 from datetime import datetime
 
 from sqlalchemy import DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.models.enum_types import FlexibleEnumType
+
+
+class UserRole(str, enum.Enum):
+    ADMIN = "admin"
+    USER = "user"
 
 
 class User(Base):
@@ -17,6 +24,12 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     given_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     family_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role: Mapped[UserRole] = mapped_column(
+        FlexibleEnumType(UserRole, length=16),
+        nullable=False,
+        default=UserRole.USER,
+        server_default=UserRole.USER.value,
+    )
     # Public, chosen display name shown as "by @handle" on the leaderboard.
     # `handle` keeps the case the user typed; `handle_key` is its lowercased form
     # and carries the unique index, so uniqueness is case-insensitive while the

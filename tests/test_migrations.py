@@ -85,7 +85,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0027",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0028",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -286,6 +286,74 @@ def test_0027_drops_agents_connection_id(tmp_path: Path) -> None:
         assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0026",)]
         cols = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
         assert "connection_id" in cols, "connection_id column must be restored after downgrade"
+    finally:
+        conn.close()
+
+
+# --- feature: user roles and match ownership (migration 0028) -----------------
+
+
+_SEED_0027 = """
+INSERT INTO users(id,google_sub,email) VALUES
+  (1,'sub-admin','admin@example.com'),
+  (2,'sub-user','user@example.com');
+INSERT INTO matches(
+    id,name,game,state,scheduled_start,min_players,max_players,
+    per_turn_deadline_seconds,total_rounds,turns_per_round,current_round,current_turn,
+    rounds_awarded,rules_version,match_kind,created_at
+) VALUES
+  ('M_seed','Seed Match','hoard-hurt-help','scheduled','2026-06-09T10:00:00+00:00',
+   3,20,60,7,7,0,0,0,'v1','manual','2026-06-09T10:00:00+00:00');
+"""
+
+
+def _seed_0027_schema(db_path: Path) -> None:
+    up = _run_alembic(["upgrade", "0027"], db_path)
+    assert up.returncode == 0, f"upgrade 0027 failed:\n{up.stdout}\n{up.stderr}"
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.executescript(_SEED_0027)
+    conn.close()
+
+
+def test_0028_adds_user_roles_and_match_owner_column(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """0028 backfills admin roles, keeps others at user, and adds match ownership."""
+    db_path = tmp_path / "user_roles.db"
+    _seed_0027_schema(db_path)
+    monkeypatch.setenv("PLATFORM_ADMIN_EMAILS", "admin@example.com")
+
+    up = _run_alembic(["upgrade", "0028"], db_path)
+    assert up.returncode == 0, f"upgrade 0028 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0028",)]
+
+        user_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+        assert "role" in user_cols
+
+        match_cols = {row[1] for row in conn.execute("PRAGMA table_info(matches)")}
+        assert "created_by_user_id" in match_cols
+
+        user_rows = conn.execute(
+            "SELECT id, email, role FROM users ORDER BY id"
+        ).fetchall()
+        assert user_rows == [
+            (1, "admin@example.com", "admin"),
+            (2, "user@example.com", "user"),
+        ]
+
+        match_row = conn.execute(
+            "SELECT id, created_by_user_id FROM matches WHERE id='M_seed'"
+        ).fetchone()
+        assert match_row == ("M_seed", None)
+
+        conn.execute(
+            "INSERT INTO users(id,google_sub,email) VALUES (3,'sub-fresh','fresh@example.com')"
+        )
+        assert conn.execute("SELECT role FROM users WHERE id=3").fetchone()[0] == "user"
     finally:
         conn.close()
 
