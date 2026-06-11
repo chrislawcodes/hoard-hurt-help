@@ -1,133 +1,125 @@
-diff --git a/app/config.py b/app/config.py
-index 1549d47..17ae568 100644
---- a/app/config.py
-+++ b/app/config.py
-@@ -49,6 +49,7 @@ class Settings(BaseSettings):
-     # Game admin: per-game match creation, strategy prompts, export.
-     # Set GAME_ADMIN_EMAILS__HOARD_HURT_HELP=alice@example.com for each game.
-     # (Populated at construction time via _collect_game_admin_emails below.)
-+    user_active_match_limit: int = Field(default=3)
+diff --git a/app/deps.py b/app/deps.py
+index 0cdc47d..338397d 100644
+--- a/app/deps.py
++++ b/app/deps.py
+@@ -20,7 +20,7 @@ from app.models.connection import Connection, ConnectionStatus
+ from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+ from app.models.connection_setup import ConnectionSetup
+ from app.models.player import Player
+-from app.models.user import User
++from app.models.user import User, UserRole
  
-     # Compatibility: legacy single-role admin list. Kept as fallback while
-     # PLATFORM_ADMIN_EMAILS / GAME_ADMIN_EMAILS__* are being rolled out.
-diff --git a/app/models/match.py b/app/models/match.py
-index 52cb4cc..630a54d 100644
---- a/app/models/match.py
-+++ b/app/models/match.py
-@@ -41,6 +41,11 @@ class Match(Base):
-     game: Mapped[str] = mapped_column(
-         String(64), nullable=False, default="hoard-hurt-help", index=True
-     )
-+    created_by_user_id: Mapped[int | None] = mapped_column(
-+        ForeignKey("users.id"),
-+        nullable=True,
-+        index=True,
-+    )
-     state: Mapped[GameState] = mapped_column(
-         FlexibleEnumType(GameState, length=32),
-         nullable=False,
-diff --git a/app/models/user.py b/app/models/user.py
-index 793a554..1882f54 100644
---- a/app/models/user.py
-+++ b/app/models/user.py
-@@ -1,11 +1,18 @@
- """User table — one row per Google identity."""
+ logger = logging.getLogger(__name__)
  
-+import enum
- from datetime import datetime
+@@ -69,9 +69,9 @@ async def require_user_with_handle(request: Request, db: DbSession) -> User:
  
- from sqlalchemy import DateTime, String, func
- from sqlalchemy.orm import Mapped, mapped_column
  
- from app.models.base import Base
-+from app.models.enum_types import FlexibleEnumType
+ async def require_platform_admin(request: Request, db: DbSession) -> User:
+-    """Require the user to be in PLATFORM_ADMIN_EMAILS (or legacy ADMIN_EMAILS)."""
++    """Require the user to have platform-admin role."""
+     user = await require_user(request, db)
+-    if user.email.lower() not in settings.platform_admin_emails_set:
++    if user.role != UserRole.ADMIN:
+         raise HTTPException(
+             status_code=status.HTTP_403_FORBIDDEN,
+             detail={
+diff --git a/app/routes/auth.py b/app/routes/auth.py
+index f06bb5a..4dbcc62 100644
+--- a/app/routes/auth.py
++++ b/app/routes/auth.py
+@@ -1,5 +1,7 @@
+ """Google OAuth + sign-out routes."""
+ 
++import logging
 +
+ from fastapi import APIRouter, HTTPException, Request, status
+ from fastapi.responses import RedirectResponse
+ from sqlalchemy import func, select
+@@ -10,9 +12,11 @@ from app.auth.session import clear_session, set_session_user
+ from app.config import settings
+ from app.deps import DbSession
+ from app.models.agent import Agent, AgentKind
+-from app.models.user import User
++from app.models.user import User, UserRole
+ from app.schemas.auth import GoogleUserInfo
+ 
++logger = logging.getLogger(__name__)
 +
-+class UserRole(str, enum.Enum):
-+    ADMIN = "admin"
-+    USER = "user"
+ router = APIRouter(prefix="/auth", tags=["auth"])
  
  
- class User(Base):
-@@ -17,6 +24,12 @@ class User(Base):
-     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-     given_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-     family_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-+    role: Mapped[UserRole] = mapped_column(
-+        FlexibleEnumType(UserRole, length=16),
-+        nullable=False,
-+        default=UserRole.USER,
-+        server_default=UserRole.USER.value,
+@@ -24,6 +28,11 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
+     filled on the user's next login; a name that's already set is never
+     overwritten.
+     """
++    role = (
++        UserRole.ADMIN
++        if userinfo.email.lower() in settings.platform_admin_emails_set
++        else UserRole.USER
 +    )
-     # Public, chosen display name shown as "by @handle" on the leaderboard.
-     # `handle` keeps the case the user typed; `handle_key` is its lowercased form
-     # and carries the unique index, so uniqueness is case-insensitive while the
-## New file: migrations/versions/0028_user_roles.py
-
-"""Add user roles and match ownership.
-
-Revision ID: 0028
-Revises: 0027
-Create Date: 2026-06-11
-"""
-
-from __future__ import annotations
-
-from typing import Sequence, Union
-
-import sqlalchemy as sa
-from alembic import op
-
-from app.config import settings
-
-revision: str = "0028"
-down_revision: Union[str, None] = "0027"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
-
-
-def upgrade() -> None:
-    with op.batch_alter_table("users") as batch_op:
-        batch_op.add_column(
-            sa.Column(
-                "role",
-                sa.String(length=16),
-                nullable=False,
-                server_default="user",
-            )
-        )
-
-    conn = op.get_bind()
-    for email in sorted(settings.platform_admin_emails_set):
-        conn.execute(
-            sa.text("UPDATE users SET role = 'admin' WHERE lower(email) = :email"),
-            {"email": email},
-        )
-
-    with op.batch_alter_table("matches") as batch_op:
-        batch_op.add_column(
-            sa.Column("created_by_user_id", sa.Integer(), nullable=True)
-        )
-        batch_op.create_foreign_key(
-            "fk_matches_created_by_user_id_users",
-            "users",
-            ["created_by_user_id"],
-            ["id"],
-        )
-        batch_op.create_index(
-            "ix_matches_created_by_user_id",
-            ["created_by_user_id"],
-        )
-
-
-def downgrade() -> None:
-    with op.batch_alter_table("matches") as batch_op:
-        batch_op.drop_index("ix_matches_created_by_user_id")
-        batch_op.drop_constraint(
-            "fk_matches_created_by_user_id_users",
-            type_="foreignkey",
-        )
-        batch_op.drop_column("created_by_user_id")
-
-    with op.batch_alter_table("users") as batch_op:
-        batch_op.drop_column("role")
+     user = (
+         await db.execute(select(User).where(User.google_sub == userinfo.sub))
+     ).scalar_one_or_none()
+@@ -34,14 +43,38 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
+             name=userinfo.name,
+             given_name=userinfo.given_name,
+             family_name=userinfo.family_name,
++            role=role,
+         )
+         db.add(user)
+         await db.flush()
+         return user
++    if user.email != userinfo.email:
++        # users.email is unique; another row could already hold this address
++        # (e.g. an orphaned/duplicate row). google_sub is the real identity key,
++        # so on collision keep the stored email and log rather than raise. Role
++        # is seeded from the live userinfo.email above, so it stays correct
++        # regardless of whether the stored email is refreshed.
++        clash = (
++            await db.execute(
++                select(User.id).where(
++                    User.email == userinfo.email, User.id != user.id
++                )
++            )
++        ).scalar_one_or_none()
++        if clash is None:
++            user.email = userinfo.email
++        else:
++            logger.warning(
++                "skipping email refresh for user %s: %s already in use by user %s",
++                user.id,
++                userinfo.email,
++                clash,
++            )
+     if user.given_name is None and userinfo.given_name is not None:
+         user.given_name = userinfo.given_name
+     if user.family_name is None and userinfo.family_name is not None:
+         user.family_name = userinfo.family_name
++    user.role = role
+     return user
+ 
+ 
+diff --git a/app/routes/web_support.py b/app/routes/web_support.py
+index 8c2e78b..5eb7a5f 100644
+--- a/app/routes/web_support.py
++++ b/app/routes/web_support.py
+@@ -12,7 +12,7 @@ from app.games.base import GameError, GameTheme
+ from app.models.agent import Agent, AgentKind
+ from app.models.match import Match, GameState
+ from app.models.player import Player
+-from app.models.user import User
++from app.models.user import User, UserRole
+ from app.read_models.matches import count_players
+ 
+ _GENERAL_NAMES: tuple[str, ...] = (
+@@ -48,7 +48,9 @@ def _is_any_admin(user: User | None) -> bool:
+     if user is None:
+         return False
+     email = user.email.lower()
+-    return email in settings.platform_admin_emails_set or email in settings.all_game_admin_emails_set
++    return user.role == UserRole.ADMIN or (
++        email in settings.all_game_admin_emails_set
++    )
+ 
+ 
+ def _is_game_admin(user: User | None, game: str) -> bool:

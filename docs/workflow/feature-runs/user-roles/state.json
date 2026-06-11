@@ -362,6 +362,24 @@
       "duration_seconds": 8.164859,
       "agent_id": null,
       "artifact_sha_at_time": "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856"
+    },
+    {
+      "stage": "tasks",
+      "round": 2,
+      "activity_type": "implementation",
+      "model": "gpt-5.4-mini",
+      "lens": null,
+      "prompt_chars": 33620,
+      "prompt_cap": null,
+      "input_tokens": 95572,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.095572,
+      "timestamp": "2026-06-11T23:34:24.336307Z",
+      "started_at": "2026-06-11T23:30:22.326927Z",
+      "ended_at": "2026-06-11T23:34:24.336307Z",
+      "duration_seconds": 242.00792,
+      "agent_id": null,
+      "artifact_sha_at_time": "42ca0591ba11894380acead35245e8d303742c97eb745daa3f32953e56f294fb"
     }
   ],
   "command_telemetry": [
@@ -568,6 +586,18 @@
       "files_written": 0,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-11T23:37:19Z",
+      "wall_seconds": 1.184,
+      "input_bytes_read": 339641,
+      "output_bytes_written": 140198,
+      "files_read": 31,
+      "files_written": 7,
+      "subprocess_invocations": 58,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -599,13 +629,14 @@
       "initial_sha": "bb5c4c6e40d9c489df47e416dcbb64896a2371bdb91cd05efe1d2d5aca683eab"
     },
     "diff": {
-      "adversarial_rounds": 0,
+      "adversarial_rounds": 1,
       "annotations": [],
       "adversarial_sha_history": [
         "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550",
         "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856",
         "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856",
-        "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856"
+        "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856",
+        "5677fb807a77386d12c40d3c5d1b6e02acff5f9a7439b6672a05947a65392d7f"
       ],
       "initial_sha": "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550"
     }
@@ -613,24 +644,24 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 1,
+    "index": 2,
     "markers_sha": "95647a29a8c0e1454fde240aa2d52819bc81f2cb11aecd05431a0ae93187b547",
-    "last_diff_head_sha": "2a7a8f75e6707e6053018b98c18b8cdabaa4236f"
+    "last_diff_head_sha": "43c7dfd1098b8b29767affc59e205987781999da"
   },
   "spec_adversarial_rounds": 1,
   "last_action_result": {
     "next": "dispatch_next_slice_to_codex",
-    "reason": "tasks checkpoint completed",
+    "reason": "diff checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 1,
   "tasks_adversarial_rounds": 2,
-  "diff_adversarial_rounds": 0,
+  "diff_adversarial_rounds": 1,
   "dirty_overrides": {
     "allowed_dirty_paths": [
       "docs/workflow/feature-runs/user-roles"
     ],
     "used": true,
-    "updated_at": 1781219399
+    "updated_at": 1781221038
   }
 }
