@@ -720,13 +720,20 @@ def main() -> int:
     }
 
     artifact_text = source_artifact_text
-    # Change 3, PR #832: for diff reviews, expand new-file chunks so Gemini
-    # sees full file content instead of `+`-prefixed lines without context.
+    # Change 3, PR #832: for diff reviews, expand new-file chunks so Gemini sees
+    # full file content instead of `+`-prefixed lines without context.
+    #
+    # This is a PROMPT-PRESENTATION transform only: it shapes what the model
+    # reads (`artifact_text`), NOT the recorded artifact hash. `artifact_sha256`
+    # must stay the hash of the canonical on-disk patch (`source_artifact_hash`,
+    # computed from normalized_artifact_text above), because review_is_healthy /
+    # artifact_hash_matches re-hash that raw patch to decide staleness. Rehashing
+    # the expanded text here made every slice whose diff adds a new file
+    # permanently "stale" (sha256(expanded) never equals sha256(raw patch)), so
+    # the diff checkpoint never advanced. Codex already records the raw-patch
+    # hash; leaving artifact_sha256 untouched keeps Gemini consistent with it.
     if args.stage == "diff":
         artifact_text = expand_new_files_in_diff(artifact_text, repo_root, args.max_total_chars)
-        # Recompute hash so the review metadata reflects the expanded content
-        source_artifact_hash = sha256_text(artifact_text)
-        metadata["artifact_sha256"] = source_artifact_hash
 
     if len(artifact_text) > args.max_artifact_chars:
         narrowed_path, narrowed_hash = write_narrowed_artifact(
