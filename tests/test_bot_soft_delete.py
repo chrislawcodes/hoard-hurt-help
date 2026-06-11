@@ -21,6 +21,7 @@ from app.config import settings
 from app.engine.bot_presets import bot_presets
 from app.main import app
 from app.models import Base, Agent, AgentKind, AgentStatus, Connection, Match, GameState, Player, User
+from app.models.agent_version import AgentVersion
 from tests.factories import make_agent, make_connection, make_user
 
 
@@ -129,6 +130,57 @@ async def test_delete_without_history_hard_deletes(client, reset_db):
     assert r.status_code == 303
     assert r.headers["location"] == "/me/agents"
     assert await _get_agent(reset_db, agent.id) is None
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_with_foreign_keys_enforced(client, monkeypatch):
+    """Reproduce production: an AI agent's version row FKs back to agents.id.
+
+    Postgres enforces that FK; deleting the agent without first clearing the
+    current_version pointer and dropping the versions throws -> 500. The test
+    SQLite DB only enforces it when PRAGMA foreign_keys is ON, which this test
+    turns on so it catches regressions of the real-world bug.
+    """
+    from sqlalchemy import event
+    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
+
+    from app.db import make_engine
+
+    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
+
+    @event.listens_for(test_engine.sync_engine, "connect")
+    def _fk_on(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
+
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    test_factory = _factory(test_engine, expire_on_commit=False)
+    monkeypatch.setattr("app.db.SessionLocal", test_factory)
+    monkeypatch.setattr("app.db.engine", test_engine)
+
+    try:
+        user = await _seed_user(test_factory)
+        agent, _key, _connection = await _seed_agent(test_factory, user)
+
+        r = await client.post(
+            f"/me/agents/{agent.id}/delete",
+            cookies=_signed_in_cookies(user.id),
+            follow_redirects=False,
+        )
+        assert r.status_code == 303, r.text
+        assert await _get_agent(test_factory, agent.id) is None
+        # Versions must be gone too, not orphaned.
+        async with test_factory() as db:
+            versions = (
+                await db.execute(
+                    select(AgentVersion).where(AgentVersion.agent_id == agent.id)
+                )
+            ).scalars().all()
+        assert versions == []
+    finally:
+        await test_engine.dispose()
 
 
 @pytest.mark.asyncio

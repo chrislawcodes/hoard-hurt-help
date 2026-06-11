@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select
 from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, provider_for_model
@@ -38,6 +38,29 @@ from app.templating import templates
 router = APIRouter()
 
 _DEFAULT_GAME = known_types()[0] if known_types() else "hoard-hurt-help"
+
+# Cap names at the column's own declared length so a too-long name returns a
+# friendly 400 instead of a Postgres "value too long" 500. Derived from the
+# column so it can never drift from the schema.
+_AGENT_NAME_TYPE = Agent.__table__.c.name.type
+_AGENT_NAME_MAX = (
+    _AGENT_NAME_TYPE.length
+    if isinstance(_AGENT_NAME_TYPE, String) and _AGENT_NAME_TYPE.length
+    else 120
+)
+
+
+def clean_agent_name(raw: str) -> str:
+    """Strip, require non-empty, and reject names longer than the column holds."""
+    name = raw.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Agent name is required.")
+    if len(name) > _AGENT_NAME_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Agent name must be {_AGENT_NAME_MAX} characters or fewer.",
+        )
+    return name
 
 
 @dataclass(frozen=True)
@@ -498,9 +521,7 @@ async def create_agent_or_connection(
     strategy_preset: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
     if name is not None:
-        clean_name = name.strip()
-        if not clean_name:
-            raise HTTPException(status_code=400, detail="Agent name is required.")
+        clean_name = clean_agent_name(name)
         existing = (
             await db.execute(
                 select(Agent).where(

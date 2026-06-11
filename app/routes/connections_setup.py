@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
+from sqlalchemy import String, select
 from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, settings
@@ -25,6 +25,32 @@ from app.models.user import User
 from app.templating import templates
 
 router = APIRouter()
+
+# Cap nicknames at the column's declared length so a too-long value returns a
+# friendly 400 instead of a Postgres "value too long" 500. Derived from the
+# column so it can't drift from the schema.
+_NICKNAME_TYPE = ConnectionSetup.__table__.c.nickname.type
+_NICKNAME_MAX = (
+    _NICKNAME_TYPE.length
+    if isinstance(_NICKNAME_TYPE, String) and _NICKNAME_TYPE.length
+    else 60
+)
+
+
+def _validate_nickname_length(raw: str | None) -> str | None:
+    """Reject a nickname longer than the column holds; otherwise pass through.
+
+    Blank/None handling is intentionally left to ``_ensure_pending_setup_and_key``,
+    which strips the value and treats an empty string as "clear the name". We only
+    guard the length so a too-long value returns a friendly 400 instead of a
+    Postgres "value too long for type character varying(60)" 500.
+    """
+    if raw is not None and len(raw.strip()) > _NICKNAME_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Nickname must be {_NICKNAME_MAX} characters or fewer.",
+        )
+    return raw
 
 
 _PROVIDER_LABELS = {
@@ -346,7 +372,9 @@ async def save_machine_name(
     A blank name is cleared — the machine then names itself from its hostname when
     it connects (see report_pid). Returns a tiny status span for the inline tick.
     """
-    setup, _ = await _ensure_pending_setup_and_key(request, db, user.id, nickname=nickname)
+    setup, _ = await _ensure_pending_setup_and_key(
+        request, db, user.id, nickname=_validate_nickname_length(nickname)
+    )
     label = "Saved ✓" if setup.nickname else ""
     return HTMLResponse(label)
 

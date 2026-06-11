@@ -318,6 +318,30 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
 
 
 @pytest.mark.asyncio
+async def test_save_machine_name_rejects_overlong_nickname(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """nickname is VARCHAR(60); a longer value must 400, not 500 in prod."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        await db.commit()
+
+    resp = await client.post(
+        "/me/connections/name",
+        cookies=_signed_in_cookies(user.id),
+        data={"nickname": "n" * 61},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 400, resp.text
+    # The length check runs before any setup row is minted.
+    async with session_factory() as db:
+        setup = (
+            await db.execute(select(ConnectionSetup).where(ConnectionSetup.user_id == user.id))
+        ).scalar_one_or_none()
+        assert setup is None
+
+
+@pytest.mark.asyncio
 async def test_connections_list_shows_inline_setup_and_no_provider_picker(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, provider_for_model
@@ -18,6 +18,7 @@ from app.models.connection import ConnectionProvider
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
+from app.routes.agents_setup import clean_agent_name
 from app.templating import templates
 
 router = APIRouter()
@@ -175,9 +176,7 @@ async def rename_agent(
     name: Annotated[str, Form()],
 ) -> RedirectResponse:
     agent = await _load_owned_agent(db, user, agent_id)
-    clean_name = name.strip()
-    if not clean_name:
-        raise HTTPException(status_code=400, detail="Agent name is required.")
+    clean_name = clean_agent_name(name)
     clash = (
         await db.execute(
             select(Agent).where(
@@ -241,6 +240,15 @@ async def delete_agent(
         agent.archived_at = datetime.now(timezone.utc)
         agent.status = AgentStatus.PAUSED
     else:
+        # No game history, so no Player rows reference this agent or its
+        # versions. Hard-delete, but first break the agent -> current_version
+        # pointer and drop the versions, or their FK back to agents.id blocks
+        # the delete (Postgres enforces this; SQLite in tests does not).
+        agent.current_version_id = None
+        await db.flush()
+        await db.execute(
+            delete(AgentVersion).where(AgentVersion.agent_id == agent.id)
+        )
         await db.delete(agent)
     await db.commit()
     return RedirectResponse(url="/me/agents", status_code=status.HTTP_303_SEE_OTHER)
