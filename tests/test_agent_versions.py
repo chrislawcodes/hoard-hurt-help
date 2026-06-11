@@ -231,7 +231,7 @@ async def test_create_connection_reuses_existing_pending_setup(
     first = await client.get("/me/connections")
     assert first.status_code == 200
     assert "agentludum_connector.py" in first.text
-    assert "X-Connection-Key" in first.text
+    assert "--install" in first.text
     first_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", first.text)
     assert first_match is not None
     first_key = first_match.group(1)

@@ -275,7 +275,7 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
     assert "Paste this to your AI assistant:" in resp.text
     assert "agentludum_connector.py" in resp.text
     assert "setup-files/agentludum_connector.py" in resp.text
-    assert "X-Connection-Key" in resp.text
+    assert "--install" in resp.text
     assert "X-Agent-Key" not in resp.text
     assert "mcp" not in resp.text.lower()
 

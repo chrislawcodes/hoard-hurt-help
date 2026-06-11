@@ -268,3 +268,108 @@ def test_openclaw_malformed_output_yields_fallback_move(runner, monkeypatch):
 def test_detect_providers_includes_openclaw(runner, monkeypatch):
     monkeypatch.setattr(runner.shutil, "which", lambda cli: cli in {"openclaw", "claude"})
     assert set(runner._detect_providers()) == {"openclaw", "claude"}
+
+
+# --- Service install (`--install`): one command sets up the background service ---
+
+_SCRIPT_PATH = "/home/me/.agentludum/agentludum_connector.py"
+
+
+def test_xml_escape_escapes_markup_chars(runner):
+    assert runner._xml_escape("a&b<c>") == "a&amp;b&lt;c&gt;"
+
+
+def test_macos_install_plan_writes_secure_plist_and_loads_it(runner):
+    plan = runner._macos_install_plan(
+        "/usr/bin/python3", _SCRIPT_PATH, "sk_conn_abc", "https://agentludum.com", "/Users/me", 501
+    )
+    (path, content, mode) = plan.files[0]
+    assert path == "/Users/me/Library/LaunchAgents/com.agentludum.connector.plist"
+    assert mode == 0o600  # the plist holds the key — keep it user-only
+    assert "<key>RunAtLoad</key><true/>" in content
+    assert "<key>KeepAlive</key><true/>" in content
+    assert "sk_conn_abc" in content and "https://agentludum.com" in content
+    # The SERVICE runs the connector WITHOUT --install (no install-loop in the daemon).
+    assert "--install" not in content
+
+    by_argv = {tuple(argv): allow for argv, allow in plan.commands}
+    assert ("xattr", "-c", _SCRIPT_PATH) in by_argv  # clears provenance/quarantine
+    assert ("launchctl", "enable", "gui/501/com.agentludum.connector") in by_argv
+    # bootout is allowed to fail (idempotent re-install); bootstrap must succeed.
+    assert by_argv[("launchctl", "bootout", "gui/501", path)] is True
+    assert by_argv[("launchctl", "bootstrap", "gui/501", path)] is False
+
+
+def test_linux_install_plan_writes_unit_with_restart_and_enables_it(runner):
+    plan = runner._linux_install_plan(
+        "/usr/bin/python3", _SCRIPT_PATH, "sk_conn_abc", "https://agentludum.com", "/home/me"
+    )
+    (path, content, mode) = plan.files[0]
+    assert path == "/home/me/.config/systemd/user/agentludum-connector.service"
+    assert mode == 0o600
+    assert "Restart=on-failure" in content
+    assert (
+        f"ExecStart=/usr/bin/python3 {_SCRIPT_PATH} --key sk_conn_abc --url https://agentludum.com"
+        in content
+    )
+    argvs = [argv for argv, _ in plan.commands]
+    assert ["systemctl", "--user", "daemon-reload"] in argvs
+    assert ["systemctl", "--user", "enable", "--now", "agentludum-connector.service"] in argvs
+
+
+def test_windows_install_plan_uses_schtasks_and_warns_about_restart(runner):
+    plan = runner._windows_install_plan(
+        "C:\\Py\\python.exe", "C:\\Users\\me\\connector.py", "sk_conn_abc", "https://agentludum.com"
+    )
+    assert plan.files == []
+    (argv, allow_fail) = plan.commands[0]
+    assert argv[0] == "schtasks" and "/create" in argv and "AgentLudumConnector" in argv
+    assert allow_fail is False
+    assert plan.note  # warns Windows on-logon tasks don't auto-restart
+
+
+def test_install_service_dispatches_by_platform(runner, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(runner, "_run_install_plan", lambda plan: captured.update(plan=plan))
+    monkeypatch.setattr(runner.platform, "system", lambda: "Linux")
+    assert runner._install_service("sk_conn_abc", "https://agentludum.com") == 0
+    assert any("systemctl" in argv for argv, _ in captured["plan"].commands)
+
+
+def test_install_service_unsupported_platform_returns_error(runner, monkeypatch):
+    monkeypatch.setattr(runner.platform, "system", lambda: "Plan9")
+    assert runner._install_service("sk_conn_abc", "https://agentludum.com") == 1
+
+
+def test_run_install_plan_writes_files_then_stops_on_required_failure(runner, tmp_path):
+    target = tmp_path / "service.cfg"
+    plan = runner._InstallPlan(
+        files=[(str(target), "unit-body", 0o600)],
+        commands=[(["false"], False)],  # a required command that exits non-zero
+    )
+    with pytest.raises(RuntimeError):
+        runner._run_install_plan(plan)
+    # The file is written before commands run, so it lands even though a command failed.
+    assert target.read_text() == "unit-body"
+    assert (target.stat().st_mode & 0o777) == 0o600
+
+
+def test_run_install_plan_tolerates_allowed_failures(runner):
+    plan = runner._InstallPlan(files=[], commands=[(["false"], True)])
+    runner._run_install_plan(plan)  # allow_fail=True → no raise
+
+
+def test_singleton_lock_blocks_a_second_run_with_the_same_key(runner, monkeypatch, tmp_path):
+    if runner.os.name != "posix":
+        pytest.skip("flock singleton lock is POSIX-only")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    first = runner._acquire_singleton_lock("sk_conn_deadbeef")
+    assert first is not None
+    # A second connector with the SAME key must back off and exit.
+    with pytest.raises(SystemExit):
+        runner._acquire_singleton_lock("sk_conn_deadbeef")
+    # A DIFFERENT key may run side by side.
+    other = runner._acquire_singleton_lock("sk_conn_cafef00d")
+    assert other is not None
+    first.close()
+    other.close()
