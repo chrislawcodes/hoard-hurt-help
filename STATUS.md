@@ -15,6 +15,8 @@
 
 ## Recently Shipped
 
+- Sim table-talk phrases now sound more like natural player messages, reference
+  the relevant player by seat name, and keep the same deterministic intent slots.
 - **Agent prompt cleanup** — strategy presets now contain only ranking guidance
   and strategy-specific behavior. The server generates the shared base prompt,
   rules, and 200-character response contract; turn payloads carry that canonical
@@ -52,6 +54,8 @@
 
 ## Now Unblocked
 
+- Sim-only matches can be used for demos with less repetitive, scripted-sounding
+  AI table talk.
 - Strategy authors can see the shared instructions before writing a strategy,
   without repeating game identity, rules, chat guidance, state format, or the
   response contract in every preset.
