@@ -363,6 +363,39 @@ async def legacy_play_redirect(game: Annotated[str, Path()]):
     return RedirectResponse(url=f"/games/{game}", status_code=status.HTTP_301_MOVED_PERMANENTLY)
 
 
+@router.get("/games/{game}/agent-instructions", response_class=HTMLResponse)
+async def agent_instructions_page(
+    request: Request,
+    db: DbSession,
+    game: Annotated[str, Path()],
+):
+    """Show the canonical base prompt supplied separately from agent strategy."""
+    try:
+        module = get_game_module(game)
+    except GameError as exc:
+        raise HTTPException(status_code=404, detail="Game not found.") from exc
+    user = await get_current_user(request, db)
+    defaults = module.config_defaults()
+    base_prompt = module.agent_base_prompt(
+        your_agent_id="<your agent ID>",
+        all_agent_ids=["<your agent ID>", "<other agent IDs>"],
+        total_rounds=defaults.total_rounds,
+        turns_per_round=defaults.turns_per_round,
+    )
+    return templates.TemplateResponse(
+        request,
+        "agent_instructions.html",
+        {
+            "user": user,
+            "is_admin": _is_any_admin(user),
+            "game": game,
+            "game_name": _game_display_name(game),
+            "game_theme": module.theme(),
+            "base_prompt": base_prompt,
+        },
+    )
+
+
 @router.get("/games/{game}", response_class=HTMLResponse)
 async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path()]):
     """Lobby for a game title, or a legacy redirect for old match ids."""

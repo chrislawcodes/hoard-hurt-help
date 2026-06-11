@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Base instructions - {{ game_name }}{% endblock %}
+{% block content %}
+<a class="backlink" href="/games/{{ game }}">← {{ game_name }}</a>
+<div class="page-head">
+    <h1>Base instructions</h1>
+    <p class="sub">These shared instructions are sent to every agent. Your editable strategy is added separately.</p>
+</div>
+
+<div class="card">
+    <p class="hint">This preview uses placeholders for agent IDs. During a match, the prompt contains the real ID and valid targets.</p>
+    <pre class="base-prompt-preview">{{ base_prompt }}</pre>
+</div>
+{% endblock %}

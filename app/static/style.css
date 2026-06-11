@@ -195,6 +195,7 @@ button.secondary, .cta.secondary { background: transparent; color: var(--accent)
 .preset-btn { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; padding: 0.28rem 0.65rem; border-radius: 999px; font-size: 0.88rem; }
 .preset-btn:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
 .preset-btn.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.base-prompt-preview { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Connection controls — the Pause/Rotate/Delete row that lives inside the
  * status card. A hairline divides it from the status text above. */

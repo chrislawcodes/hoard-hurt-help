@@ -28,6 +28,7 @@
         <label style="margin-top:0.75rem;">
             Strategy
             <textarea name="strategy_text" rows="10" maxlength="2000" required>{{ version.strategy_text }}</textarea>
+            <small class="hint">The game also supplies shared rules and response instructions. <a href="/games/{{ agent.game }}/agent-instructions">View base instructions</a>.</small>
         </label>
         <div class="form-actions">
             {% if will_fork %}

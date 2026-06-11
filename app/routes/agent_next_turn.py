@@ -293,18 +293,25 @@ async def _build_turn_payload(
         }
         for p in sorted(all_players, key=lambda p: (-p.current_round_score, p.seat_name))
     ]
+    module = get_game_module(match.game)
+    your_agent_id = seat_name_by_agent_id[player.agent_id]
+    all_agent_ids = sorted(seat_name_by_agent_id.values())
     static = {
         "match_id": match.id,
         "game_id": match.id,
         "game": match.game,
         "rules_version": match.rules_version,
-        "rules": get_game_module(match.game).rules_text(
-            match.total_rounds, match.turns_per_round
+        "rules": module.rules_text(match.total_rounds, match.turns_per_round),
+        "base_prompt": module.agent_base_prompt(
+            your_agent_id=your_agent_id,
+            all_agent_ids=all_agent_ids,
+            total_rounds=match.total_rounds,
+            turns_per_round=match.turns_per_round,
         ),
         "total_rounds": match.total_rounds,
         "turns_per_round": match.turns_per_round,
-        "your_agent_id": seat_name_by_agent_id[player.agent_id],
-        "all_agent_ids": sorted(seat_name_by_agent_id.values()),
+        "your_agent_id": your_agent_id,
+        "all_agent_ids": all_agent_ids,
         "your_strategy": version.strategy_text,
     }
     current = await _build_current_turn(db, turn)
