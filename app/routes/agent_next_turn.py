@@ -9,6 +9,7 @@ sessions per agent without ever collapsing two agents in the same match.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Annotated, cast
 
@@ -106,20 +107,24 @@ async def _route_states(
     return by_id, polling
 
 
-@router.get("/next-turn", response_model=None)
-async def next_turn(
-    connection: Annotated[Connection, Depends(require_connection)],
-    db: DbSession,
-) -> dict[str, object]:
-    """Return the single most urgent open turn this connection may serve.
+@dataclass
+class _RouteContext:
+    """Lookups shared between candidate selection, pin-claiming, and payload
+    rendering for one poll. Built once by _collect_candidates so the singular
+    next-turn and plural next-turns endpoints stay in exact lockstep."""
 
-    Routing is no longer connection-scoped: an agent belongs to a user, not a
-    connection. This connection may serve a turn when it is the same user's, the
-    agent's provider is enabled here, and the match's sticky pin is free, ours,
-    or held by a now-dead connection (failover). The pin is claimed with one
-    atomic conditional UPDATE so two concurrent polls can't double-serve.
-    """
-    now = datetime.now(timezone.utc)
+    agent_by_id: dict[int, Agent]
+    player_by_key: dict[tuple[int, str], Player]
+    version_by_agent_id: dict[int, AgentVersion]
+    latest_turn_by_match: dict[str, Turn]
+    dead_ids: list[int]
+
+
+async def _collect_candidates(
+    db: DbSession, connection: Connection, now: datetime
+) -> tuple[list[TurnCandidate], _RouteContext]:
+    """Gather every open turn this connection may serve, plus the lookups needed
+    to claim and render each. DB-touching counterpart to select_next_turn."""
     connections_by_id, polling_state = await _route_states(db, connection)
 
     agent_rows = (
@@ -138,13 +143,26 @@ async def next_turn(
             )
         )
     ).all()
-    if not agent_rows:
-        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
 
     latest_turn_by_match: dict[str, Turn] = {}
     player_by_key: dict[tuple[int, str], Player] = {}
     agent_by_id: dict[int, Agent] = {}
     version_by_agent_id: dict[int, AgentVersion] = {}
+    dead_ids = [
+        cid
+        for cid, state in connections_by_id.items()
+        if connection_is_dead(state, now=now)
+    ]
+    ctx = _RouteContext(
+        agent_by_id=agent_by_id,
+        player_by_key=player_by_key,
+        version_by_agent_id=version_by_agent_id,
+        latest_turn_by_match=latest_turn_by_match,
+        dead_ids=dead_ids,
+    )
+    if not agent_rows:
+        return [], ctx
+
     for agent, player, match, version in agent_rows:
         if version is None:
             # An AI agent with no current version cannot play (no model/strategy
@@ -219,24 +237,18 @@ async def next_turn(
                 agent_id=agent_id,
             )
         )
+    return candidates, ctx
 
-    chosen = select_next_turn(candidates)
-    if chosen is None:
-        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
 
-    agent = agent_by_id[chosen.agent_id]
-    player = player_by_key[(chosen.agent_id, chosen.match_id)]
-    version = version_by_agent_id[chosen.agent_id]
-
-    # Atomic sticky-pin claim: only serve the turn if THIS poll wins the pin.
-    # The WHERE clause re-checks the sticky rule (pin free, ours, or held by a
-    # dead connection) so two concurrent polls can't both serve the same turn —
-    # exactly one UPDATE affects the row.
-    dead_ids = [
-        cid
-        for cid, state in connections_by_id.items()
-        if connection_is_dead(state, now=now)
-    ]
+async def _claim_pin(
+    db: DbSession, connection: Connection, cand: TurnCandidate, ctx: _RouteContext, now: datetime
+) -> bool:
+    """Atomic sticky-pin claim for one candidate. Returns True iff THIS poll won
+    the pin. The WHERE clause re-checks the sticky rule (pin free, ours, or held
+    by a dead connection) so two concurrent polls can't both serve the same turn
+    — exactly one UPDATE affects the row. The caller commits (after one claim or
+    a batch of them)."""
+    player = ctx.player_by_key[(cand.agent_id, cand.match_id)]
     claim = cast(
         CursorResult,
         await db.execute(
@@ -246,23 +258,28 @@ async def next_turn(
                 or_(
                     Player.served_by_connection_id.is_(None),
                     Player.served_by_connection_id == connection.id,
-                    Player.served_by_connection_id.in_(dead_ids)
-                    if dead_ids
+                    Player.served_by_connection_id.in_(ctx.dead_ids)
+                    if ctx.dead_ids
                     else false(),
                 ),
             )
             .values(served_by_connection_id=connection.id, served_pinned_at=now)
         ),
     )
-    if claim.rowcount != 1:
-        # Another live connection claimed this match first; back off and re-poll.
-        await db.rollback()
-        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
-    await db.commit()
+    return claim.rowcount == 1
+
+
+async def _build_turn_payload(
+    db: DbSession, cand: TurnCandidate, ctx: _RouteContext
+) -> dict[str, object]:
+    """Render the full your_turn payload for a candidate whose pin we hold."""
+    agent = ctx.agent_by_id[cand.agent_id]
+    player = ctx.player_by_key[(cand.agent_id, cand.match_id)]
+    version = ctx.version_by_agent_id[cand.agent_id]
     match = (
-        await db.execute(select(Match).where(Match.id == chosen.match_id))
+        await db.execute(select(Match).where(Match.id == cand.match_id))
     ).scalar_one()
-    turn = latest_turn_by_match[chosen.match_id]
+    turn = ctx.latest_turn_by_match[cand.match_id]
     all_players = (
         (await db.execute(select(Player).where(Player.match_id == match.id))).scalars().all()
     )
@@ -309,6 +326,63 @@ async def next_turn(
         "scoreboard": scoreboard,
         "current": current,
     }
+
+
+@router.get("/next-turn", response_model=None)
+async def next_turn(
+    connection: Annotated[Connection, Depends(require_connection)],
+    db: DbSession,
+) -> dict[str, object]:
+    """Return the single most urgent open turn this connection may serve.
+
+    Routing is no longer connection-scoped: an agent belongs to a user, not a
+    connection. This connection may serve a turn when it is the same user's, the
+    agent's provider is enabled here, and the match's sticky pin is free, ours,
+    or held by a now-dead connection (failover). The pin is claimed with one
+    atomic conditional UPDATE so two concurrent polls can't double-serve.
+    """
+    now = datetime.now(timezone.utc)
+    candidates, ctx = await _collect_candidates(db, connection, now)
+    chosen = select_next_turn(candidates)
+    if chosen is None:
+        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
+    if not await _claim_pin(db, connection, chosen, ctx, now):
+        # Another live connection claimed this match first; back off and re-poll.
+        await db.rollback()
+        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
+    await db.commit()
+    return await _build_turn_payload(db, chosen, ctx)
+
+
+@router.get("/next-turns", response_model=None)
+async def next_turns(
+    connection: Annotated[Connection, Depends(require_connection)],
+    db: DbSession,
+) -> dict[str, object]:
+    """Return EVERY open turn this connection may serve right now, so the runner
+    can drive its agents concurrently instead of one model call at a time.
+
+    The single-turn next-turn endpoint hands back only the most urgent turn and
+    keeps returning it until it resolves, which forces the runner to play matches
+    serially — slow model calls then make it miss deadlines in every other match.
+    This endpoint claims the sticky pin for each servable turn (same atomic
+    conditional UPDATE, one per player) and renders all of them. Turns whose pin
+    a live connection already holds are simply omitted from this poll's batch.
+    """
+    now = datetime.now(timezone.utc)
+    candidates, ctx = await _collect_candidates(db, connection, now)
+    # Claim in urgency order so that when two connections race, the same
+    # deterministic subset lands with each — mirrors select_next_turn's tie-break.
+    ordered = sorted(
+        candidates,
+        key=lambda c: (c.deadline, c.match_id, c.round, c.turn, c.agent_id),
+    )
+    claimed = [c for c in ordered if await _claim_pin(db, connection, c, ctx, now)]
+    await db.commit()
+    if not claimed:
+        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
+    turns = [await _build_turn_payload(db, c, ctx) for c in claimed]
+    return {"status": "your_turn", "turns": turns}
 
 
 class _ReportPidRequest(BaseModel):

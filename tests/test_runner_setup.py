@@ -42,8 +42,10 @@ async def test_agent_runner_scripts_are_served() -> None:
         # One canonical runner is served.
         r = await c.get("/runners/agentludum_connector.py")
         assert r.status_code == 200
-        # It's the real runner file, not an HTML page.
-        assert "/api/agent/next-turn" in r.text
+        # It's the real runner file, not an HTML page. The runner polls the
+        # agent API (the endpoint name is built dynamically, so match the path
+        # prefix rather than a full literal route).
+        assert "/api/agent/" in r.text
         # The retired runner aliases now 404 (no resurrection surface).
         for name in (
             "agentludum_agent.py",
