@@ -421,28 +421,46 @@ def test_phase_time_budget_negative_when_deadline_passed(connector) -> None:
     assert connector._phase_time_budget(cur, now=now) < 0
 
 
-def test_decide_short_circuits_when_deadline_imminent(connector, monkeypatch) -> None:
-    """With almost no time left, _decide returns a fallback WITHOUT calling the model."""
+class _ExplodingAdapter:
+    default_model = "claude-haiku-4-5"
 
-    class ExplodingAdapter:
-        default_model = "claude-haiku-4-5"
+    def first(self, **kwargs):
+        raise AssertionError("model must not be called when there isn't time")
 
-        def first(self, **kwargs):
-            raise AssertionError("model must not be called when the deadline is imminent")
+    def resume(self, **kwargs):
+        raise AssertionError("model must not be called when there isn't time")
 
-        def resume(self, **kwargs):
-            raise AssertionError("model must not be called when the deadline is imminent")
 
-    monkeypatch.setitem(connector._ADAPTERS, "claude", ExplodingAdapter())
+def test_decide_skips_dead_phase_when_deadline_passed(connector, monkeypatch) -> None:
+    """A past-deadline phase returns None (skip) — no submit, no model call.
+
+    Submitting here would only 410 and busy-loop; the caller must skip to the
+    next live phase instead.
+    """
+    monkeypatch.setitem(connector._ADAPTERS, "claude", _ExplodingAdapter())
 
     turn = _make_turn(phase="act")
     turn["current"]["deadline"] = (
-        datetime.now(timezone.utc) + timedelta(seconds=2)
+        datetime.now(timezone.utc) - timedelta(seconds=3)
+    ).isoformat()
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    assert connector._decide(turn, sess) is None
+
+
+def test_decide_falls_back_when_some_time_but_not_enough(connector, monkeypatch) -> None:
+    """A little time left (but not enough to think) → a real fallback that can land."""
+    monkeypatch.setitem(connector._ADAPTERS, "claude", _ExplodingAdapter())
+
+    turn = _make_turn(phase="act")
+    # ~12s out → budget ≈ 12 - 8 = 4s: positive but below _MIN_MODEL_SECONDS.
+    turn["current"]["deadline"] = (
+        datetime.now(timezone.utc) + timedelta(seconds=12)
     ).isoformat()
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
-
+    assert decision is not None
     assert decision.get("is_connector_fallback") is True
     assert decision.get("action") == "HOARD"
 

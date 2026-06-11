@@ -58,8 +58,14 @@ _TURN_TIMEOUT = 180  # absolute ceiling for a single model turn
 # instead of always allowing the full _TURN_TIMEOUT: reserve _SUBMIT_BUFFER_SECONDS
 # for the POST round-trip, and if fewer than _MIN_MODEL_SECONDS remain we skip the
 # model entirely and submit the fallback so *something* lands before the deadline.
+# If the deadline has ALREADY passed, we don't submit at all (it would just 410);
+# we skip the dead phase and sleep _SKIP_DEAD_PHASE_SECONDS so the server can
+# resolve it and open the next live phase — otherwise the runner busy-loops
+# re-POSTing doomed fallbacks and can never catch up to a phase it can actually
+# act in.
 _SUBMIT_BUFFER_SECONDS = 8
 _MIN_MODEL_SECONDS = 6
+_SKIP_DEAD_PHASE_SECONDS = 2
 
 # Per-turn model-call budget (seconds), set by _decide and read by _run so every
 # provider adapter is bounded without threading a timeout through each one.
@@ -81,14 +87,15 @@ _DETECT_REPORT_INTERVAL = 300  # seconds
 
 _PROTOCOL = (
     "Each turn has two phases. On a TALK PHASE prompt reply with ONLY "
-    '{"message": "<public message, max 500 chars>", '
-    '"thinking": "<private reasoning; humans see it, agents never>"}.\n'
+    '{"message": "<public message, max 200 chars>", '
+    '"thinking": "<private reasoning, max 200 chars>"}.\n'
     "On an ACT PHASE prompt reply with ONLY "
     '{"action": "HOARD|HELP|HURT", "target_id": "<another agent id, or null>", '
-    '"thinking": "<private reasoning, max 2000 chars>"}.\n'
-    "Always fill in `thinking` with a real one- or two-sentence reason for your "
-    "choice — never leave it empty or omit it. Humans read it; agents never do, "
-    "so it costs you nothing.\n"
+    '"thinking": "<private reasoning, max 200 chars>"}.\n'
+    "Reply with the JSON object and NOTHING else — no preamble, no code fence, no "
+    "analysis before or after. Keep `thinking` to one short sentence (never empty). "
+    "You are on a strict per-phase time limit, so answer immediately and briefly; a "
+    "slow reply is discarded and counts as a missed move.\n"
     "HELP and HURT require target_id to be another agent; HOARD must have target_id null."
 )
 _ENGAGE = (
@@ -180,12 +187,12 @@ def _normalize_move(move: dict, phase: str) -> dict:
     if phase == "talk":
         return {
             "message": _clip(move.get("message", ""), 500),
-            "thinking": _clip(move.get("thinking", ""), 2000),
+            "thinking": _clip(move.get("thinking", ""), 200),
         }
     return {
         "action": str(move.get("action", "HOARD")).upper(),
         "target_id": move.get("target_id") or None,
-        "thinking": _clip(move.get("thinking", ""), 2000),
+        "thinking": _clip(move.get("thinking", ""), 200),
     }
 
 
@@ -698,12 +705,14 @@ def _poll_failed(consecutive: int) -> bool:
     return consecutive >= _POLL_FAIL_THRESHOLD
 
 
-def _decide(turn: dict, sess: _GameSession) -> dict:
+def _decide(turn: dict, sess: _GameSession) -> dict | None:
     """Get a move from this game's chained session; fall back to a default on any
     failure (and drop the session so the next turn re-establishes it).
 
-    On failure the returned move includes ``is_connector_fallback=True`` so the
-    submission layer can mark the record in the database and callers can log it.
+    Returns ``None`` when this phase's deadline has already passed — the caller
+    must NOT submit (it would only 410 and busy-loop); it should skip to the next
+    live phase. On a model failure the returned move includes
+    ``is_connector_fallback=True`` so the submission layer can mark the record.
     """
     adapter = _ADAPTERS[str(sess.provider)]
     history = turn.get("history", [])
@@ -712,9 +721,18 @@ def _decide(turn: dict, sess: _GameSession) -> dict:
     match_id = _turn_match_id(turn)
 
     # Don't burn the whole phase thinking and then miss the deadline: bound the
-    # model call to the time left, and if there's barely any left, skip straight
-    # to the fallback so it still lands before the turn resolves.
+    # model call to the time left. If the deadline has already passed, skip the
+    # dead phase entirely (a submit would just 410); if there's a little time but
+    # not enough to think, send a fallback so something still lands.
     budget = _phase_time_budget(cur)
+    if budget is not None and budget <= 0:
+        print(
+            f"[agentludum-connector] {phase} deadline already passed "
+            f"({budget:.0f}s) — skipping this dead phase (no submit).\n"
+            f"  game={match_id} round={cur.get('round')} turn={cur.get('turn')}",
+            file=sys.stderr,
+        )
+        return None
     if budget is not None and budget < _MIN_MODEL_SECONDS:
         default = _default_move(phase)
         print(
@@ -1166,6 +1184,11 @@ def main() -> None:
                 f"(agent {turn.get('agent_id', 'unknown')}, v{version_no}) on {sess.provider} ({sess.model})."
             )
         decision = _decide(turn, sess)
+        if decision is None:
+            # This phase's deadline already passed — don't hammer it with a
+            # doomed submit; let it resolve and poll for the next live phase.
+            time.sleep(_SKIP_DEAD_PHASE_SECONDS)
+            continue
         is_fallback = bool(decision.get("is_connector_fallback"))
         url, params, body = _move_request(base, match_id, turn, decision)
         r2 = httpx.post(url, headers=headers, params=params, json=body, timeout=20)
