@@ -235,6 +235,8 @@ async def _seat_user_agent(
     match: Match,
     agent_id: int,
     existing_seats: set[str],
+    *,
+    bypass_capacity: bool = False,
 ) -> Player:
     """Validate one of *user*'s agents and build its Player row for *match*.
 
@@ -244,6 +246,12 @@ async def _seat_user_agent(
     still gets distinct seats. Does not commit — the caller owns the transaction
     so a failure on any agent rolls back the whole batch. Raises HTTPException on
     any problem, naming the agent so the admin knows which one failed.
+
+    *bypass_capacity* skips the SUM-based concurrency cap so an admin can seat an
+    agent that is already busy in another active match (the cap is "how many
+    matches my machine can serve at once", not a per-agent lock — admins testing
+    want to overcommit on purpose). Coverage is still required: the agent must
+    still have a live connection, or it genuinely cannot play.
     """
     agent_row = (
         await db.execute(
@@ -278,17 +286,20 @@ async def _seat_user_agent(
     allowed_models = PROVIDER_MODELS.get(provider.value, [])
     if allowed_models and version.model not in allowed_models:
         raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
-    # SUM-based join gate: active count vs. sum of capacities over live connections.
-    active_match_count = await active_matches_for_provider(db, user.id, provider)
-    capacity_sum = await live_provider_capacity(db, user.id, provider)
-    if is_join_blocked(active_match_count, capacity_sum):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Your machines are at capacity for {provider.value} "
-                f"({active_match_count}/{capacity_sum} active matches)."
-            ),
-        )
+    # SUM-based join gate: active count vs. sum of capacities over live
+    # connections. Admins bypass it so they can seat an agent that is already
+    # busy in another match (e.g. for testing).
+    if not bypass_capacity:
+        active_match_count = await active_matches_for_provider(db, user.id, provider)
+        capacity_sum = await live_provider_capacity(db, user.id, provider)
+        if is_join_blocked(active_match_count, capacity_sum):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Your machines are at capacity for {provider.value} "
+                    f"({active_match_count}/{capacity_sum} active matches)."
+                ),
+            )
     already_in = (
         await db.execute(
             select(Player.id).where(
@@ -338,7 +349,8 @@ async def join_submit(
     selected_ids = list(dict.fromkeys([*(agent_id or []), *(bot_id or [])]))
     if not selected_ids:
         raise HTTPException(status_code=400, detail="Choose an agent.")
-    if len(selected_ids) > 1 and not _is_any_admin(user):
+    is_admin = _is_any_admin(user)
+    if len(selected_ids) > 1 and not is_admin:
         raise HTTPException(
             status_code=403,
             detail="Only admins can add more than one agent to a match.",
@@ -368,7 +380,8 @@ async def join_submit(
         .all()
     )
     players = [
-        await _seat_user_agent(db, user, match, aid, existing_seats) for aid in selected_ids
+        await _seat_user_agent(db, user, match, aid, existing_seats, bypass_capacity=is_admin)
+        for aid in selected_ids
     ]
     db.add_all(players)
     await db.commit()
