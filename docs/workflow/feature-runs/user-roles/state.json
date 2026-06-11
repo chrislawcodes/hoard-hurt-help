@@ -64,7 +64,6 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -255,6 +254,96 @@
       "duration_seconds": 9.078491,
       "agent_id": null,
       "artifact_sha_at_time": "2e35d63a44309f9aac8dc20c7cce4abebd0aa7cf0b7d91ec3797fb8042165327"
+    },
+    {
+      "stage": "tasks",
+      "round": 2,
+      "activity_type": "implementation",
+      "model": "gpt-5.4-mini",
+      "lens": null,
+      "prompt_chars": 32735,
+      "prompt_cap": null,
+      "input_tokens": 71953,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.071953,
+      "timestamp": "2026-06-11T22:59:03.089055Z",
+      "started_at": "2026-06-11T22:55:33.339104Z",
+      "ended_at": "2026-06-11T22:59:03.089055Z",
+      "duration_seconds": 209.748957,
+      "agent_id": null,
+      "artifact_sha_at_time": "42ca0591ba11894380acead35245e8d303742c97eb745daa3f32953e56f294fb"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 13831,
+      "prompt_cap": 250000,
+      "input_tokens": 16615,
+      "output_tokens": 507,
+      "cost_usd_estimate": 0.00491425,
+      "timestamp": "2026-06-11T23:00:45.672729Z",
+      "started_at": "2026-06-11T23:00:36.617532Z",
+      "ended_at": "2026-06-11T23:00:45.672729Z",
+      "duration_seconds": 9.05506,
+      "agent_id": null,
+      "artifact_sha_at_time": "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 5314,
+      "prompt_cap": 250000,
+      "input_tokens": 14092,
+      "output_tokens": 577,
+      "cost_usd_estimate": 0.0043885,
+      "timestamp": "2026-06-11T23:02:50.952529Z",
+      "started_at": "2026-06-11T23:02:41.167290Z",
+      "ended_at": "2026-06-11T23:02:50.952529Z",
+      "duration_seconds": 9.785091,
+      "agent_id": null,
+      "artifact_sha_at_time": "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856"
+    },
+    {
+      "stage": "diff",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 5314,
+      "prompt_cap": 200000,
+      "input_tokens": 14092,
+      "output_tokens": 537,
+      "cost_usd_estimate": 0.0043285,
+      "timestamp": "2026-06-11T23:05:59.117058Z",
+      "started_at": "2026-06-11T23:05:47.459803Z",
+      "ended_at": "2026-06-11T23:05:59.117058Z",
+      "duration_seconds": 11.657057,
+      "agent_id": null,
+      "artifact_sha_at_time": "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 5314,
+      "prompt_cap": 250000,
+      "input_tokens": 14092,
+      "output_tokens": 498,
+      "cost_usd_estimate": 0.00427,
+      "timestamp": "2026-06-11T23:07:58.709454Z",
+      "started_at": "2026-06-11T23:07:45.700308Z",
+      "ended_at": "2026-06-11T23:07:58.709454Z",
+      "duration_seconds": 13.008969,
+      "agent_id": null,
+      "artifact_sha_at_time": "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856"
     }
   ],
   "command_telemetry": [
@@ -401,6 +490,42 @@
       "files_written": 5,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-11T23:00:45Z",
+      "wall_seconds": 9.545,
+      "input_bytes_read": 132963,
+      "output_bytes_written": 88065,
+      "files_read": 8,
+      "files_written": 6,
+      "subprocess_invocations": 14,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-11T23:02:51Z",
+      "wall_seconds": 10.295,
+      "input_bytes_read": 142208,
+      "output_bytes_written": 93650,
+      "files_read": 10,
+      "files_written": 6,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-11T23:07:58Z",
+      "wall_seconds": 13.543,
+      "input_bytes_read": 152798,
+      "output_bytes_written": 101991,
+      "files_read": 8,
+      "files_written": 6,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -430,6 +555,16 @@
         "42ca0591ba11894380acead35245e8d303742c97eb745daa3f32953e56f294fb"
       ],
       "initial_sha": "bb5c4c6e40d9c489df47e416dcbb64896a2371bdb91cd05efe1d2d5aca683eab"
+    },
+    "diff": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550",
+        "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856",
+        "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856"
+      ],
+      "initial_sha": "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550"
     }
   },
   "invariant_warnings": [],
@@ -446,5 +581,7 @@
     "blockers": []
   },
   "plan_adversarial_rounds": 1,
-  "tasks_adversarial_rounds": 2
+  "tasks_adversarial_rounds": 2,
+  "diff_adversarial_rounds": 0,
+  "dirty_overrides": {}
 }
