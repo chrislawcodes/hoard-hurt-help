@@ -6,6 +6,7 @@ Covers:
 - server-side: is_connector_fallback=True sets was_defaulted=True on TurnSubmission
 - server-side: is_connector_fallback=True sets was_defaulted=True on TurnMessage
 - a genuine (non-fallback) submission sets was_defaulted=False
+- concurrency: the in-flight release callback frees a session slot (even on crash)
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+import threading
+from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -604,3 +607,35 @@ def test_phase_suffix_includes_the_clock(connector) -> None:
 def test_protocol_states_the_time_limit_and_500_thinking(connector) -> None:
     assert "TIME LIMIT" in connector._PROTOCOL
     assert "max 500 chars" in connector._PROTOCOL
+
+
+# ---------------------------------------------------------------------------
+# Concurrency: the in-flight release callback (pure, no real threads needed)
+# ---------------------------------------------------------------------------
+
+
+def test_release_cb_frees_the_session_slot_on_success(connector) -> None:
+    key = ("7", "M_0701")
+    in_flight = {key}
+    lock = threading.Lock()
+    fut: Future = Future()
+    fut.add_done_callback(connector._make_release_cb(key, in_flight, lock))
+    fut.set_result(None)  # fires the callback
+    assert key not in in_flight
+
+
+def test_release_cb_frees_the_slot_even_when_the_worker_crashes(
+    connector, capsys
+) -> None:
+    """A crashed worker must not wedge its session forever: the slot is freed and
+    the crash is surfaced on stderr rather than swallowed."""
+    key = ("9", "M_0702")
+    in_flight = {key}
+    lock = threading.Lock()
+    fut: Future = Future()
+    fut.add_done_callback(connector._make_release_cb(key, in_flight, lock))
+    fut.set_exception(RuntimeError("boom"))
+    assert key not in in_flight
+    err = capsys.readouterr().err
+    assert "crashed" in err
+    assert "boom" in err

@@ -626,3 +626,104 @@ async def test_failover_live_connection_serves_match_pinned_to_dead_connection(
             await db.execute(select(Player).where(Player.id == player_id))
         ).scalar_one()
         assert moved.served_by_connection_id == live_id
+
+
+@pytest.mark.asyncio
+async def test_next_turns_returns_every_servable_turn_at_once(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The batch endpoint hands back ALL open turns across the connection's
+    matches in one poll, so the runner can drive them concurrently. The singular
+    endpoint, by contrast, returns only the most urgent one.
+    """
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        match_a, _turn_a = await _create_match_with_turn(db, "M_0701", deadline_seconds=60)
+        match_b, _turn_b = await _create_match_with_turn(db, "M_0702", deadline_seconds=30)
+        await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match_a,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="alpha strategy",
+        )
+        await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match_b,
+            seat_name=f"{user.handle}/Beta",
+            agent_name="Beta",
+            model="claude-haiku-4-5",
+            strategy_text="beta strategy",
+        )
+        await db.commit()
+
+    # Singular endpoint: only the most urgent (M_0702, nearer deadline).
+    single = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert single.status_code == 200, single.text
+    assert single.json()["match_id"] == "M_0702"
+
+    # Batch endpoint: BOTH matches in one response.
+    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    assert batch.status_code == 200, batch.text
+    body = batch.json()
+    assert body["status"] == "your_turn"
+    match_ids = sorted(t["match_id"] for t in body["turns"])
+    assert match_ids == ["M_0701", "M_0702"]
+    # Each turn carries its own binding token so workers submit independently.
+    assert all(t["agent_turn_token"] for t in body["turns"])
+    assert len({t["agent_turn_token"] for t in body["turns"]}) == 2
+
+
+@pytest.mark.asyncio
+async def test_next_turns_omits_a_turn_already_submitted(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A turn the agent has already moved on drops out of the batch, so a worker
+    isn't re-dispatched for work that's done."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        match_a, _turn_a = await _create_match_with_turn(db, "M_0711", deadline_seconds=60)
+        match_b, turn_b = await _create_match_with_turn(db, "M_0712", deadline_seconds=60)
+        await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match_a,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="alpha strategy",
+        )
+        _agent_b, _version_b, player_b = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match_b,
+            seat_name=f"{user.handle}/Beta",
+            agent_name="Beta",
+            model="claude-haiku-4-5",
+            strategy_text="beta strategy",
+        )
+        # Beta has already submitted a real (non-defaulted) move for its turn.
+        db.add(
+            TurnSubmission(
+                turn_id=turn_b.id,
+                player_id=player_b.id,
+                action="HOARD",
+                target_player_id=None,
+                was_defaulted=False,
+            )
+        )
+        await db.commit()
+
+    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    assert batch.status_code == 200, batch.text
+    body = batch.json()
+    assert [t["match_id"] for t in body["turns"]] == ["M_0711"]

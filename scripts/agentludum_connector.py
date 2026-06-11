@@ -40,8 +40,11 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,14 +61,23 @@ _TURN_TIMEOUT = 180  # absolute ceiling for a single model turn
 # instead of always allowing the full _TURN_TIMEOUT: reserve _SUBMIT_BUFFER_SECONDS
 # for the POST round-trip, and if fewer than _MIN_MODEL_SECONDS remain we skip the
 # model entirely and submit the fallback so *something* lands before the deadline.
-# If the deadline has ALREADY passed, we don't submit at all (it would just 410);
-# we skip the dead phase and sleep _SKIP_DEAD_PHASE_SECONDS so the server can
-# resolve it and open the next live phase — otherwise the runner busy-loops
-# re-POSTing doomed fallbacks and can never catch up to a phase it can actually
-# act in.
+# If the deadline has ALREADY passed, the worker returns without submitting (a POST
+# would just 410); the in-flight guard frees the session and the next poll picks up
+# the next live phase, so the runner never busy-loops re-POSTing doomed fallbacks.
 _SUBMIT_BUFFER_SECONDS = 8
 _MIN_MODEL_SECONDS = 6
-_SKIP_DEAD_PHASE_SECONDS = 2
+
+# The runner drives every servable turn concurrently (one worker per agent+match
+# session) instead of one model call at a time — a slow call in match A no longer
+# burns match B's deadline. _MAX_CONCURRENCY caps simultaneous model subprocesses
+# so we don't overload the machine or trip provider rate limits. _POLL_INTERVAL is
+# how often we re-poll while work is in flight, to pick up newly-opened phases.
+_MAX_CONCURRENCY = 4
+_POLL_INTERVAL_SECONDS = 3
+
+# Guards the process-wide token tally in _record_usage; per-session state is safe
+# without it because exactly one worker ever touches a given session at a time.
+_usage_lock = threading.Lock()
 
 # Per-turn model-call budget (seconds), set by _decide and read by _run so every
 # provider adapter is bounded without threading a timeout through each one.
@@ -569,9 +581,10 @@ def _gemini_usage(data: dict) -> dict[str, int] | None:
 
 
 def _record_usage(game_id: str, cur: dict, usage: dict[str, int], sess: _GameSession) -> None:
-    for k in _TOKEN_KEYS:
-        sess.tokens[k] += usage[k]
-        _session_tokens[k] += usage[k]
+    with _usage_lock:
+        for k in _TOKEN_KEYS:
+            sess.tokens[k] += usage[k]
+            _session_tokens[k] += usage[k]
 
     def _fmt(t: dict[str, int]) -> str:
         return " ".join(f"{k}={t[k]}" for k in _TOKEN_KEYS)
@@ -1072,6 +1085,73 @@ def _acquire_singleton_lock(key: str):
     return handle
 
 
+def _handle_turn(
+    base: str, headers: dict[str, str], turn: dict, sess: _GameSession
+) -> None:
+    """Decide and submit one turn end-to-end. Runs in a worker thread, so it owns
+    all its own I/O and swallows its own POST errors. A given session is handed to
+    exactly one worker at a time (the caller's in-flight guard), so reading and
+    mutating ``sess`` here is race-free."""
+    match_id = _turn_match_id(turn)
+    cur = turn["current"]
+    phase = _phase(cur)
+    if sess.token is None:
+        agent_name = turn.get("agent_name", turn.get("agent_id", "unknown"))
+        version_no = turn.get("version_no", "?")
+        print(
+            f"[agentludum-connector] {match_id}: agent {agent_name} "
+            f"(agent {turn.get('agent_id', 'unknown')}, v{version_no}) on {sess.provider} ({sess.model})."
+        )
+    decision = _decide(turn, sess)
+    if decision is None:
+        # This phase's deadline already passed — let it resolve server-side; the
+        # next poll hands us the next live phase. No submit (it would just 410).
+        return
+    is_fallback = bool(decision.get("is_connector_fallback"))
+    url, params, body = _move_request(base, match_id, turn, decision)
+    try:
+        r2 = httpx.post(url, headers=headers, params=params, json=body, timeout=20)
+    except httpx.HTTPError as exc:
+        print(
+            f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} "
+            f"{phase.upper()} POST failed: {exc}",
+            file=sys.stderr,
+        )
+        return
+    fallback_tag = " [FALLBACK]" if is_fallback else ""
+    if phase == "talk":
+        print(
+            f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} TALK: "
+            f"({r2.status_code}){fallback_tag}"
+        )
+    else:
+        target = body.get("target_id")
+        arrow = f" -> {target}" if target else ""
+        print(
+            f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} ACT: "
+            f"{body['action']}{arrow} ({r2.status_code}){fallback_tag}"
+        )
+
+
+def _make_release_cb(
+    key: tuple[str, str], in_flight: set[tuple[str, str]], lock: threading.Lock
+) -> Callable[[Future[None]], None]:
+    """Build a done-callback that frees a session's in-flight slot and surfaces a
+    worker crash. A crash must not silently wedge the session forever."""
+
+    def _release(fut: Future[None]) -> None:
+        with lock:
+            in_flight.discard(key)
+        exc = fut.exception()
+        if exc is not None:
+            print(
+                f"[agentludum-connector] worker for session {key} crashed: {exc!r}",
+                file=sys.stderr,
+            )
+
+    return _release
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Chained connector runner for Hoard-Hurt-Help (auto-selects the agent provider)"
@@ -1113,6 +1193,16 @@ def main() -> None:
     # process doesn't spin forever against a dead server.
     consecutive_poll_failures = 0
 
+    # Concurrency state: each servable turn runs in its own worker so a slow model
+    # call in one match never blocks another. `in_flight` (guarded by state_lock)
+    # tracks which agent+match sessions a worker already owns, so a re-poll that
+    # returns the same still-open turn doesn't double-dispatch it. `use_plural`
+    # flips off if the server is too old to expose the batch endpoint.
+    executor = ThreadPoolExecutor(max_workers=_MAX_CONCURRENCY)
+    in_flight: set[tuple[str, str]] = set()
+    state_lock = threading.Lock()
+    use_plural = True
+
     while True:
         # Refresh detection periodically so a CLI installed (or a provider
         # turned on) after startup shows as "detected" without a restart.
@@ -1120,7 +1210,8 @@ def main() -> None:
             _report_pid(base, headers, pid)
             last_detect_report = time.monotonic()
         try:
-            r = httpx.get(f"{base}/api/agent/next-turn", headers=headers, timeout=40)
+            endpoint = "next-turns" if use_plural else "next-turn"
+            r = httpx.get(f"{base}/api/agent/{endpoint}", headers=headers, timeout=40)
         except httpx.HTTPError as exc:
             consecutive_poll_failures += 1
             print(
@@ -1162,6 +1253,17 @@ def main() -> None:
             consecutive_poll_failures = 0
             time.sleep(1)
             continue
+        if r.status_code == 404 and use_plural:
+            # Server predates the batch endpoint; degrade to single-turn polling
+            # (serial play) rather than crash-looping on a missing route.
+            use_plural = False
+            print(
+                "[agentludum-connector] server has no /next-turns endpoint; falling "
+                "back to single-turn polling (update the server for concurrent play).",
+                file=sys.stderr,
+            )
+            consecutive_poll_failures = 0
+            continue
         if r.status_code != 200:
             consecutive_poll_failures += 1
             print(
@@ -1182,44 +1284,33 @@ def main() -> None:
         # Successful poll — reset the circuit breaker.
         consecutive_poll_failures = 0
 
-        turn = r.json()
-        if turn.get("status") != "your_turn":
-            time.sleep(turn.get("next_poll_after_seconds", 5))
+        data = r.json()
+        if data.get("status") != "your_turn":
+            time.sleep(data.get("next_poll_after_seconds", 5))
             continue
 
-        match_id = _turn_match_id(turn)
-        cur = turn["current"]
-        phase = _phase(cur)
-        sess = _session_for_turn(turn, args, sessions)
-        if sess.token is None:
-            agent_name = turn.get("agent_name", turn.get("agent_id", "unknown"))
-            version_no = turn.get("version_no", "?")
-            print(
-                f"[agentludum-connector] {match_id}: agent {agent_name} "
-                f"(agent {turn.get('agent_id', 'unknown')}, v{version_no}) on {sess.provider} ({sess.model})."
-            )
-        decision = _decide(turn, sess)
-        if decision is None:
-            # This phase's deadline already passed — don't hammer it with a
-            # doomed submit; let it resolve and poll for the next live phase.
-            time.sleep(_SKIP_DEAD_PHASE_SECONDS)
-            continue
-        is_fallback = bool(decision.get("is_connector_fallback"))
-        url, params, body = _move_request(base, match_id, turn, decision)
-        r2 = httpx.post(url, headers=headers, params=params, json=body, timeout=20)
-        fallback_tag = " [FALLBACK]" if is_fallback else ""
-        if phase == "talk":
-            print(
-                f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} TALK: "
-                f"({r2.status_code}){fallback_tag}"
-            )
-        else:
-            target = body.get("target_id")
-            arrow = f" -> {target}" if target else ""
-            print(
-                f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} ACT: "
-                f"{body['action']}{arrow} ({r2.status_code}){fallback_tag}"
-            )
+        # Plural endpoint returns every servable turn; the legacy singular endpoint
+        # IS the turn. Either way we get a list to fan out to the worker pool.
+        turns = data.get("turns", []) if use_plural else [data]
+        for turn in turns:
+            try:
+                key = _session_key(turn)
+            except ValueError:
+                # A turn payload missing agent_id/match_id can't be routed to a
+                # session; skip it rather than crash the whole poll loop.
+                continue
+            with state_lock:
+                if key in in_flight:
+                    # A worker is already on this session — don't double-dispatch.
+                    continue
+                in_flight.add(key)
+                sess = _session_for_turn(turn, args, sessions)
+            fut = executor.submit(_handle_turn, base, headers, turn, sess)
+            fut.add_done_callback(_make_release_cb(key, in_flight, state_lock))
+
+        # Re-poll on a short cadence so newly-opened phases (e.g. ACT after TALK)
+        # dispatch promptly without busy-looping the server.
+        time.sleep(_POLL_INTERVAL_SECONDS)
 
 
 if __name__ == "__main__":
