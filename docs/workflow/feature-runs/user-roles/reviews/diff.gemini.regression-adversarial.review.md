@@ -3,14 +3,14 @@ reviewer: "gemini"
 lens: "regression-adversarial"
 stage: "diff"
 artifact_path: "docs/workflow/feature-runs/user-roles/reviews/implementation.diff.patch"
-artifact_sha256: "4eebdbf0907f9596ce3e35b4531e74407c63a4df58f885af115567abfb70b6c3"
+artifact_sha256: "3f847256a18f5fbae75b671bdb7017ccd2c05e6c1bde09d1e8c5a5b6cc7a8c88"
 repo_root: "."
-git_head_sha: "2a7a8f75e6707e6053018b98c18b8cdabaa4236f"
-git_base_ref: "eac1035b"
-git_base_sha: "eac1035b0b2bd33fb6fe8f7c889a27a8cc3e9a94"
+git_head_sha: "d310e23a837203803da0690e4f88cf0cfd720768"
+git_base_ref: "43c7dfd1098b8b29767affc59e205987781999da"
+git_base_sha: "43c7dfd1098b8b29767affc59e205987781999da"
 generation_method: "gemini-cli"
 resolution_status: "accepted"
-resolution_note: "Slice 1 (schema+migration). All findings non-actionable: (migration partial-state) one Alembic revision = one transaction, column-add + backfill commit atomically; (orphaned/NULL-owner matches) by design per spec FR-3 — existing matches stay NULL = admin-managed, new routes handle NULL (admin-only); (email case/whitespace) backfill uses lower(email) and settings.platform_admin_emails_set, mirroring the existing admin-check normalization; (role server_default safe) intentional. Code verified correct (enum Agent.kind shape, nullable FK no circular dep, batch_alter_table for SQLite); preflight green (ruff+mypy+644 tests). NOTE: diff-stage engine bug (PR #832 new-file expansion) — review hashes expanded diff, healthiness hashes raw; worked around by writing the expanded diff to the patch artifact. For post-mortem."
+resolution_note: "Slice 3a (shared match_creation). All findings non-actionable — they restate the settled best-effort allocator design: (allocate_match_id race) accepted-by-design, the IntegrityError retry serializes on the unique PK, worst case is a retry; (RuntimeError after retries) correct fail-loud + db.rollback() undoes partial state; (commit flag) internally consistent, lets arena batch within its own txn. Residuals (retry exhaustion / full-scan perf / progress) all accept-as-documented: small scale (hundreds of matches), allocate returns monotonic max+1 so it always progresses; a sequence redesign is out of scope (spec/plan reviews settled this). Code verified: 5 allocators + 4 builders converged on the helper, no inline max+1 left, owner recorded, preflight green (649 tests). Diff-expansion engine bug worked around (expanded diff written to patch)."
 raw_output_path: "docs/workflow/feature-runs/user-roles/reviews/diff.gemini.regression-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,22 +22,23 @@ coverage_note: ""
 
 ## Findings
 
-1.  **[UNVERIFIED] Non-Atomic Schema Update (Severity: MEDIUM):** In `migrations/versions/0028_user_roles.py`, the `upgrade()` function performs data updates (`conn.execute`) *after* altering the `users` table schema, but *before* the transaction is explicitly handled by the surrounding Alembic context. While Alembic typically wraps operations in a transaction, performing manual `conn.execute` statements inside an `upgrade` function that also uses `op.batch_alter_table` can lead to partial migrations if the database doesn't support transactional DDL (e.g., MySQL/MariaDB) or if the connection object behaves unexpectedly during the batch operation.
-2.  **[UNVERIFIED] Potential Incomplete Role Migration (Severity: LOW):** The migration iterates through `settings.platform_admin_emails_set` to perform updates. If `settings` is not correctly configured at the time of the migration (e.g., due to environment variable latency, race conditions, or configuration injection issues), users who *should* be admins may be left with the default `user` role. The migration silently succeeds even if zero rows are updated, providing no warning that no admins were promoted.
-3.  **[UNVERIFIED] Orphaned Matches (Severity: LOW):** The `matches` table is being altered to include `created_by_user_id` as a nullable foreign key. There is no logic provided in the migration to backfill this field for existing matches. This results in all legacy matches having a `NULL` owner, which might break downstream logic that assumes every match is associated with a user or requires an owner for security/limiting checks.
+*   **[UNVERIFIED] Weak `allocate_match_id` implementation:** The logic in `app/engine/match_creation.py` (`allocate_match_id`) is highly vulnerable to race conditions in a concurrent environment. It fetches existing IDs, determines the next increment in application memory, and returns it. If two threads/processes call this simultaneously before either commits, they may receive the same ID, causing a collision that necessitates the retry loop in `create_match`. This is an inefficient design that relies on database failures to serialize access.
+*   **Silent Error / Improper State:** In `app/engine/match_creation.py`, `create_match` raises a `RuntimeError` after exhausting retries. While this prevents "swallowing" the error, it does not guarantee atomicity or cleanup if a transaction was partially modified before the `IntegrityError` occurred, beyond the rollback.
+*   **Complexity Mismatch:** The retry logic in `create_match` introduces a `commit` flag. If `commit=False` is passed (as in `ensure_practice_arena`), `db.commit()` is skipped. However, if the `IntegrityError` occurs, it rolls back everything. This is internally consistent, but the design requires callers to correctly manage the database lifecycle across the function call, increasing the risk of accidental data loss if a caller assumes a partial state persists.
 
 ## Residual Risks
 
-*   **Logic Drift:** If the `Match` model or application code expects `created_by_user_id` to be non-nullable (despite the migration allowing `NULL`), this will trigger runtime `IntegrityError` exceptions or attribute errors, especially if the application doesn't gracefully handle the `NULL` state for legacy rows.
-*   **Role Escalation/Denial:** Since the role is updated via string comparison (`lower(email)`), any mismatch in email casing or formatting between the identity provider and the `platform_admin_emails_set` configuration will result in an accidental demotion of administrative users, requiring manual remediation.
+*   **Retry Exhaustion:** In high-concurrency scenarios, the 3-attempt limit for `create_match` might be insufficient if multiple workers are fighting over the same ID space, leading to frequent `RuntimeError` exceptions that could degrade system availability.
+*   **Database Contention:** Because `allocate_match_id` performs a full select of all `Match.id` entries every time a match is created, this function will scale poorly as the number of matches in the database grows, potentially leading to performance bottlenecks during match creation.
+*   **Unverified Assumptions:** The safety of the `create_match` retry loop assumes that `allocate_match_id` eventually produces a unique ID. If there's an underlying logic flaw (e.g., in `generate_match_id` or how suffixes are calculated), this loop will fail consistently until it exhausts its attempts. The code does not verify that `allocate_match_id` is actually making progress towards a unique value.
 
 ## Token Stats
 
-- total_input=14092
-- total_output=500
-- total_tokens=14592
-- `gemini-3.1-flash-lite`: input=14092, output=500, total=14592
+- total_input=16208
+- total_output=507
+- total_tokens=16715
+- `gemini-3.1-flash-lite`: input=16208, output=507, total=16715
 
 ## Resolution
 - status: accepted
-- note: Slice 1 (schema+migration). All findings non-actionable: (migration partial-state) one Alembic revision = one transaction, column-add + backfill commit atomically; (orphaned/NULL-owner matches) by design per spec FR-3 — existing matches stay NULL = admin-managed, new routes handle NULL (admin-only); (email case/whitespace) backfill uses lower(email) and settings.platform_admin_emails_set, mirroring the existing admin-check normalization; (role server_default safe) intentional. Code verified correct (enum Agent.kind shape, nullable FK no circular dep, batch_alter_table for SQLite); preflight green (ruff+mypy+644 tests). NOTE: diff-stage engine bug (PR #832 new-file expansion) — review hashes expanded diff, healthiness hashes raw; worked around by writing the expanded diff to the patch artifact. For post-mortem.
+- note: Slice 3a (shared match_creation). All findings non-actionable — they restate the settled best-effort allocator design: (allocate_match_id race) accepted-by-design, the IntegrityError retry serializes on the unique PK, worst case is a retry; (RuntimeError after retries) correct fail-loud + db.rollback() undoes partial state; (commit flag) internally consistent, lets arena batch within its own txn. Residuals (retry exhaustion / full-scan perf / progress) all accept-as-documented: small scale (hundreds of matches), allocate returns monotonic max+1 so it always progresses; a sequence redesign is out of scope (spec/plan reviews settled this). Code verified: 5 allocators + 4 builders converged on the helper, no inline max+1 left, owner recorded, preflight green (649 tests). Diff-expansion engine bug worked around (expanded diff written to patch).

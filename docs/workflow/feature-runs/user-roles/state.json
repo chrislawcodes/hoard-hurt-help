@@ -380,6 +380,42 @@
       "duration_seconds": 242.00792,
       "agent_id": null,
       "artifact_sha_at_time": "42ca0591ba11894380acead35245e8d303742c97eb745daa3f32953e56f294fb"
+    },
+    {
+      "stage": "tasks",
+      "round": 2,
+      "activity_type": "implementation",
+      "model": "gpt-5.4-mini",
+      "lens": null,
+      "prompt_chars": 33510,
+      "prompt_cap": null,
+      "input_tokens": 196364,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.196364,
+      "timestamp": "2026-06-11T23:45:49.686093Z",
+      "started_at": "2026-06-11T23:38:10.120459Z",
+      "ended_at": "2026-06-11T23:45:49.686093Z",
+      "duration_seconds": 459.562833,
+      "agent_id": null,
+      "artifact_sha_at_time": "42ca0591ba11894380acead35245e8d303742c97eb745daa3f32953e56f294fb"
+    },
+    {
+      "stage": "diff",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 13917,
+      "prompt_cap": 250000,
+      "input_tokens": 16208,
+      "output_tokens": 507,
+      "cost_usd_estimate": 0.0048125,
+      "timestamp": "2026-06-11T23:47:56.337901Z",
+      "started_at": "2026-06-11T23:47:48.275935Z",
+      "ended_at": "2026-06-11T23:47:56.337901Z",
+      "duration_seconds": 8.061779,
+      "agent_id": null,
+      "artifact_sha_at_time": "4c7dc82af263cfd3a6885667213d7453519aac5ec94b30a4eb91428e78f3fec6"
     }
   ],
   "command_telemetry": [
@@ -598,6 +634,30 @@
       "files_written": 7,
       "subprocess_invocations": 58,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-11T23:47:56Z",
+      "wall_seconds": 8.571,
+      "input_bytes_read": 182635,
+      "output_bytes_written": 122772,
+      "files_read": 10,
+      "files_written": 6,
+      "subprocess_invocations": 16,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-11T23:48:27Z",
+      "wall_seconds": 0.585,
+      "input_bytes_read": 73397,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -636,7 +696,8 @@
         "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856",
         "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856",
         "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856",
-        "5677fb807a77386d12c40d3c5d1b6e02acff5f9a7439b6672a05947a65392d7f"
+        "5677fb807a77386d12c40d3c5d1b6e02acff5f9a7439b6672a05947a65392d7f",
+        "4c7dc82af263cfd3a6885667213d7453519aac5ec94b30a4eb91428e78f3fec6"
       ],
       "initial_sha": "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550"
     }
@@ -644,9 +705,9 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 2,
+    "index": 3,
     "markers_sha": "95647a29a8c0e1454fde240aa2d52819bc81f2cb11aecd05431a0ae93187b547",
-    "last_diff_head_sha": "43c7dfd1098b8b29767affc59e205987781999da"
+    "last_diff_head_sha": "d310e23a837203803da0690e4f88cf0cfd720768"
   },
   "spec_adversarial_rounds": 1,
   "last_action_result": {
@@ -662,6 +723,6 @@
       "docs/workflow/feature-runs/user-roles"
     ],
     "used": true,
-    "updated_at": 1781221038
+    "updated_at": 1781221668
   }
 }

@@ -1,125 +1,352 @@
-diff --git a/app/deps.py b/app/deps.py
-index 0cdc47d..338397d 100644
---- a/app/deps.py
-+++ b/app/deps.py
-@@ -20,7 +20,7 @@ from app.models.connection import Connection, ConnectionStatus
- from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
- from app.models.connection_setup import ConnectionSetup
- from app.models.player import Player
--from app.models.user import User
-+from app.models.user import User, UserRole
+diff --git a/app/engine/arena.py b/app/engine/arena.py
+index a55d898..6f3b8d4 100644
+--- a/app/engine/arena.py
++++ b/app/engine/arena.py
+@@ -21,8 +21,8 @@ from sqlalchemy import func, select
+ from sqlalchemy.ext.asyncio import AsyncSession
  
- logger = logging.getLogger(__name__)
- 
-@@ -69,9 +69,9 @@ async def require_user_with_handle(request: Request, db: DbSession) -> User:
- 
- 
- async def require_platform_admin(request: Request, db: DbSession) -> User:
--    """Require the user to be in PLATFORM_ADMIN_EMAILS (or legacy ADMIN_EMAILS)."""
-+    """Require the user to have platform-admin role."""
-     user = await require_user(request, db)
--    if user.email.lower() not in settings.platform_admin_emails_set:
-+    if user.role != UserRole.ADMIN:
-         raise HTTPException(
-             status_code=status.HTTP_403_FORBIDDEN,
-             detail={
-diff --git a/app/routes/auth.py b/app/routes/auth.py
-index f06bb5a..4dbcc62 100644
---- a/app/routes/auth.py
-+++ b/app/routes/auth.py
-@@ -1,5 +1,7 @@
- """Google OAuth + sign-out routes."""
- 
-+import logging
-+
- from fastapi import APIRouter, HTTPException, Request, status
- from fastapi.responses import RedirectResponse
- from sqlalchemy import func, select
-@@ -10,9 +12,11 @@ from app.auth.session import clear_session, set_session_user
- from app.config import settings
- from app.deps import DbSession
+ from app.engine.bot_presets import BOT_PRESETS, allocate_default_bot_names, bot_presets
++from app.engine.match_creation import create_match
+ from app.engine.sims.seating import SimSeatingError, add_bots_to_game
+-from app.engine.tokens import generate_match_id
  from app.models.agent import Agent, AgentKind
--from app.models.user import User
-+from app.models.user import User, UserRole
- from app.schemas.auth import GoogleUserInfo
+ from app.models.match import GameState, Match, MatchKind
+ from app.models.player import Player
+@@ -86,23 +86,6 @@ def _choose_bot_seats(
  
-+logger = logging.getLogger(__name__)
-+
- router = APIRouter(prefix="/auth", tags=["auth"])
+ _choose_sim_seats = _choose_bot_seats
  
+-
+-async def _next_match_id(db: AsyncSession) -> str:
+-    existing_ids = (await db.execute(select(Match.id))).scalars().all()
+-
+-    def _numeric_suffix(match_id: str) -> int | None:
+-        parts = match_id.split("_", 1)
+-        if len(parts) == 2 and parts[1].isdigit():
+-            return int(parts[1])
+-        return None
+-
+-    n = max(
+-        (s for x in existing_ids if x.startswith("M_") and (s := _numeric_suffix(x)) is not None),
+-        default=0,
+-    ) + 1
+-    return generate_match_id(n)
+-
+-
+ def _auto_match_name(boundary: datetime) -> str:
+     """Pick a name from _AUTO_MATCH_NAMES keyed to the boundary's 30-min slot."""
+     slot = boundary.hour * 2 + boundary.minute // 30
+@@ -164,21 +147,21 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
+         logger.warning("No Sim presets available — Practice Arena not created.")
+         return
  
-@@ -24,6 +28,11 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
-     filled on the user's next login; a name that's already set is never
-     overwritten.
-     """
-+    role = (
-+        UserRole.ADMIN
-+        if userinfo.email.lower() in settings.platform_admin_emails_set
-+        else UserRole.USER
-+    )
-     user = (
-         await db.execute(select(User).where(User.google_sub == userinfo.sub))
-     ).scalar_one_or_none()
-@@ -34,14 +43,38 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
-             name=userinfo.name,
-             given_name=userinfo.given_name,
-             family_name=userinfo.family_name,
-+            role=role,
+-    match_id = await _next_match_id(db)
+     far_future = datetime.now(timezone.utc) + timedelta(days=365)
+-    arena = Match(
+-        id=match_id,
++    arena = await create_match(
++        db,
++        game="hoard-hurt-help",
+         name=PRACTICE_ARENA_NAME,
+-        state=GameState.REGISTERING,
+         scheduled_start=far_future,
+         min_players=1,
+         max_players=PRACTICE_ARENA_MAX_PLAYERS,
++        per_turn_deadline_seconds=60,
+         total_rounds=PRACTICE_ARENA_TOTAL_ROUNDS,
+         turns_per_round=PRACTICE_ARENA_TURNS_PER_ROUND,
++        state=GameState.REGISTERING,
+         match_kind=MatchKind.PRACTICE_ARENA.value,
++        commit=False,
+     )
+-    db.add(arena)
+-    await db.flush()
+ 
+     seats = _choose_bot_seats(PRACTICE_ARENA_BOT_COUNT)
+     try:
+@@ -189,12 +172,12 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
+             logging.ERROR,
+             "practice_arena_seating_failed",
+             f"Failed to seat bots in Practice Arena: {exc}",
+-            match_id=match_id,
++            match_id=arena.id,
          )
-         db.add(user)
-         await db.flush()
-         return user
-+    if user.email != userinfo.email:
-+        # users.email is unique; another row could already hold this address
-+        # (e.g. an orphaned/duplicate row). google_sub is the real identity key,
-+        # so on collision keep the stored email and log rather than raise. Role
-+        # is seeded from the live userinfo.email above, so it stays correct
-+        # regardless of whether the stored email is refreshed.
-+        clash = (
-+            await db.execute(
-+                select(User.id).where(
-+                    User.email == userinfo.email, User.id != user.id
-+                )
-+            )
-+        ).scalar_one_or_none()
-+        if clash is None:
-+            user.email = userinfo.email
-+        else:
-+            logger.warning(
-+                "skipping email refresh for user %s: %s already in use by user %s",
-+                user.id,
-+                userinfo.email,
-+                clash,
-+            )
-     if user.given_name is None and userinfo.given_name is not None:
-         user.given_name = userinfo.given_name
-     if user.family_name is None and userinfo.family_name is not None:
-         user.family_name = userinfo.family_name
-+    user.role = role
-     return user
+         await db.rollback()
+         return
+ 
+-    logger.info("Created Practice Arena %s with %d bot seats.", match_id, len(seats))
++    logger.info("Created Practice Arena %s with %d bot seats.", arena.id, len(seats))
  
  
-diff --git a/app/routes/web_support.py b/app/routes/web_support.py
-index 8c2e78b..5eb7a5f 100644
---- a/app/routes/web_support.py
-+++ b/app/routes/web_support.py
-@@ -12,7 +12,7 @@ from app.games.base import GameError, GameTheme
- from app.models.agent import Agent, AgentKind
+ async def ensure_auto_match(db: AsyncSession) -> None:
+@@ -213,22 +196,23 @@ async def ensure_auto_match(db: AsyncSession) -> None:
+         return
+ 
+     boundary = _next_boundary()
+-    match_id = await _next_match_id(db)
+     name = _auto_match_name(boundary)
+-    auto = Match(
+-        id=match_id,
++    auto = await create_match(
++        db,
++        game="hoard-hurt-help",
+         name=name,
+-        state=GameState.SCHEDULED,
+         scheduled_start=boundary,
+         min_players=1,
+         max_players=AUTO_MATCH_MAX_PLAYERS,
++        per_turn_deadline_seconds=60,
+         total_rounds=AUTO_MATCH_TOTAL_ROUNDS,
+         turns_per_round=AUTO_MATCH_TURNS_PER_ROUND,
++        state=GameState.SCHEDULED,
+         match_kind=MatchKind.AUTO_SCHEDULED.value,
++        commit=False,
+     )
+-    db.add(auto)
+     await db.commit()
+-    logger.info("Created auto-match %s scheduled at %s.", match_id, boundary.isoformat())
++    logger.info("Created auto-match %s scheduled at %s.", auto.id, boundary.isoformat())
+ 
+ 
+ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
+## New file: app/engine/match_creation.py
+
+"""Shared match creation helper for human-facing and automated creators."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.engine.tokens import generate_match_id
+from app.games import known_types
+from app.models.match import GameState, Match, MatchKind
+
+
+def _numeric_suffix(match_id: str) -> int | None:
+    parts = match_id.split("_", 1)
+    if len(parts) == 2 and parts[1].isdigit():
+        return int(parts[1])
+    return None
+
+
+async def allocate_match_id(db: AsyncSession) -> str:
+    """Return the next available M_#### id from the current match rows."""
+    existing_ids = (await db.execute(select(Match.id))).scalars().all()
+    n = 0
+    for match_id in existing_ids:
+        if not match_id.startswith("M_"):
+            continue
+        suffix = _numeric_suffix(match_id)
+        if suffix is not None and suffix > n:
+            n = suffix
+    return generate_match_id(n + 1)
+
+
+async def create_match(
+    db: AsyncSession,
+    *,
+    game: str,
+    name: str,
+    scheduled_start: datetime,
+    min_players: int,
+    max_players: int,
+    per_turn_deadline_seconds: int,
+    total_rounds: int,
+    turns_per_round: int,
+    state: GameState = GameState.REGISTERING,
+    created_by_user_id: int | None = None,
+    match_kind: str = MatchKind.MANUAL.value,
+    commit: bool = True,
+    max_attempts: int = 3,
+) -> Match:
+    """Create a match and retry on primary-key collision."""
+    if game not in known_types():
+        raise ValueError(f"Unknown game type {game!r}.")
+    if scheduled_start.tzinfo is None:
+        scheduled_start = scheduled_start.replace(tzinfo=timezone.utc)
+    if scheduled_start <= datetime.now(timezone.utc):
+        raise ValueError("scheduled_start must be in the future.")
+    if not (1 <= min_players <= 20) or not (1 <= max_players <= 20):
+        raise ValueError("Player counts must be 1 to 20.")
+    if min_players > max_players:
+        raise ValueError("Min players cannot be greater than max players.")
+    if not (1 <= total_rounds <= 20):
+        raise ValueError("Total rounds must be 1 to 20.")
+    if not (1 <= turns_per_round <= 20):
+        raise ValueError("Turns per round must be 1 to 20.")
+
+    for attempt in range(max_attempts):
+        match_id = await allocate_match_id(db)
+        match = Match(
+            id=match_id,
+            game=game,
+            name=name,
+            state=state,
+            scheduled_start=scheduled_start,
+            min_players=min_players,
+            max_players=max_players,
+            per_turn_deadline_seconds=per_turn_deadline_seconds,
+            total_rounds=total_rounds,
+            turns_per_round=turns_per_round,
+            created_by_user_id=created_by_user_id,
+            match_kind=match_kind,
+        )
+        db.add(match)
+        try:
+            await db.flush()
+            if commit:
+                await db.commit()
+            return match
+        except IntegrityError:
+            await db.rollback()
+            if attempt + 1 == max_attempts:
+                raise
+
+    raise RuntimeError("match creation retry loop exhausted")
+
+diff --git a/app/routes/admin_api.py b/app/routes/admin_api.py
+index dff643a..0fa30f1 100644
+--- a/app/routes/admin_api.py
++++ b/app/routes/admin_api.py
+@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
+ from sqlalchemy import select
+ 
+ from app.deps import DbSession, require_platform_admin
+-from app.engine.tokens import generate_match_id
++from app.engine.match_creation import create_match
  from app.models.match import Match, GameState
+ from app.models.agent_version import AgentVersion
  from app.models.player import Player
--from app.models.user import User
-+from app.models.user import User, UserRole
- from app.read_models.matches import count_players
+@@ -27,27 +27,23 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
+ async def create_game(
+     body: CreateGameRequest,
+     db: DbSession,
+-    _: Annotated[User, Depends(require_platform_admin)],
++    user: Annotated[User, Depends(require_platform_admin)],
+ ) -> GameRecord:
+     if body.scheduled_start <= datetime.now(timezone.utc):
+         raise HTTPException(400, detail="scheduled_start must be in the future.")
+-    # Allocate the next M_NNNN id.
+-    existing_ids = (await db.execute(select(Match.id))).scalars().all()
+-    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
+-    g = Match(
+-        id=generate_match_id(n),
++    g = await create_match(
++        db,
++        game="hoard-hurt-help",
+         name=body.name,
+-        state=GameState.REGISTERING,
+         scheduled_start=body.scheduled_start,
+         min_players=body.min_players,
+         max_players=body.max_players,
+         per_turn_deadline_seconds=body.per_turn_deadline_seconds,
+         total_rounds=body.total_rounds,
+         turns_per_round=body.turns_per_round,
++        state=GameState.REGISTERING,
++        created_by_user_id=user.id,
+     )
+-    db.add(g)
+-    await db.commit()
+-    await db.refresh(g)
+     return GameRecord(
+         id=g.id,
+         name=g.name,
+diff --git a/app/routes/game_admin_api.py b/app/routes/game_admin_api.py
+index f61cbab..64d8a81 100644
+--- a/app/routes/game_admin_api.py
++++ b/app/routes/game_admin_api.py
+@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
+ from sqlalchemy import select
  
- _GENERAL_NAMES: tuple[str, ...] = (
-@@ -48,7 +48,9 @@ def _is_any_admin(user: User | None) -> bool:
-     if user is None:
-         return False
-     email = user.email.lower()
--    return email in settings.platform_admin_emails_set or email in settings.all_game_admin_emails_set
-+    return user.role == UserRole.ADMIN or (
-+        email in settings.all_game_admin_emails_set
-+    )
+ from app.deps import DbSession, require_game_admin
+-from app.engine.tokens import generate_match_id
++from app.engine.match_creation import create_match
+ from app.games import known_types
+ from app.models.agent_version import AgentVersion
+ from app.models.match import Match, GameState
+@@ -35,7 +35,7 @@ async def create_game(
+     game: Annotated[str, Path()],
+     body: CreateGameRequest,
+     db: DbSession,
+-    _: Annotated[User, Depends(require_game_admin)],
++    user: Annotated[User, Depends(require_game_admin)],
+ ) -> GameRecord:
+     if game not in known_types():
+         raise HTTPException(
+@@ -43,23 +43,19 @@ async def create_game(
+         )
+     if body.scheduled_start <= datetime.now(timezone.utc):
+         raise HTTPException(400, detail="scheduled_start must be in the future.")
+-    existing_ids = (await db.execute(select(Match.id))).scalars().all()
+-    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
+-    g = Match(
+-        id=generate_match_id(n),
++    g = await create_match(
++        db,
+         game=game,
+         name=body.name,
+-        state=GameState.REGISTERING,
+         scheduled_start=body.scheduled_start,
+         min_players=body.min_players,
+         max_players=body.max_players,
+         per_turn_deadline_seconds=body.per_turn_deadline_seconds,
+         total_rounds=body.total_rounds,
+         turns_per_round=body.turns_per_round,
++        state=GameState.REGISTERING,
++        created_by_user_id=user.id,
+     )
+-    db.add(g)
+-    await db.commit()
+-    await db.refresh(g)
+     return GameRecord(
+         id=g.id,
+         name=g.name,
+diff --git a/app/routes/game_admin_web.py b/app/routes/game_admin_web.py
+index fa7ad4b..0a121c9 100644
+--- a/app/routes/game_admin_web.py
++++ b/app/routes/game_admin_web.py
+@@ -9,12 +9,12 @@ from sqlalchemy import select
  
+ from app.deps import DbSession, require_game_admin
+ from app.engine.bot_presets import bot_preset_by_id
++from app.engine.match_creation import create_match
+ from app.engine.scheduler import registry, start_game
+ from app.engine.sims import validate_bot_profile_fields
+ from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
+ from app.engine.sims.seating import SimSeatingError, add_sims_to_game
+ from app.engine.state_machine import TransitionError
+-from app.engine.tokens import generate_match_id
+ from app.games import known_types
+ from app.models.agent import Agent, AgentKind
+ from app.models.agent_version import AgentVersion
+@@ -138,22 +138,19 @@ async def create_match_submit(
+     if not (3 <= turns_per_round <= 20):
+         return _error("Turns per round must be 3 to 20.")
  
- def _is_game_admin(user: User | None, game: str) -> bool:
+-    existing_ids = (await db.execute(select(Match.id))).scalars().all()
+-    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
+-    m = Match(
+-        id=generate_match_id(n),
++    await create_match(
++        db,
+         game=game,
+         name=name,
+-        state=GameState.REGISTERING,
+         scheduled_start=when,
+         min_players=min_players,
+         max_players=max_players,
+         per_turn_deadline_seconds=per_turn_deadline_seconds,
+         total_rounds=total_rounds,
+         turns_per_round=turns_per_round,
++        state=GameState.REGISTERING,
++        created_by_user_id=user.id,
+     )
+-    db.add(m)
+-    await db.commit()
+     return RedirectResponse(
+         url=f"/games/{game}/admin", status_code=status.HTTP_303_SEE_OTHER
+     )
