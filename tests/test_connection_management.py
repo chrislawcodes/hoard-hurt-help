@@ -438,7 +438,7 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
         cookies=_signed_in_cookies(user.id),
     )
     assert banner.status_code == 200
-    assert "Connection created. You can safely leave this page." in banner.text
+    assert "This machine is connected" in banner.text
 
     async with session_factory() as db:
         setup_row = (
