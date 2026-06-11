@@ -4,7 +4,18 @@
 <div class="toolbar">
     <h1>Platform dashboard</h1>
     <a class="btn btn-ghost" href="/admin/handles">Handles</a>
-    <a class="btn btn-primary" href="/admin/matches/new">+ Create game</a>
+    {% if game_types | length == 1 %}
+    <a class="btn btn-primary" href="/games/{{ game_types[0] }}/admin/matches/new">+ Create game</a>
+    {% else %}
+    <details class="admin-create-menu">
+        <summary class="btn btn-primary">+ Create game</summary>
+        <div class="admin-create-menu-list">
+            {% for gt in game_types %}
+            <a href="/games/{{ gt }}/admin/matches/new">{{ gt }}</a>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
 </div>
 
 <div class="section-head"><h2>Active</h2><span class="count">{{ active_games | length }}</span></div>

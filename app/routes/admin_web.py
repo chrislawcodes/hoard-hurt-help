@@ -8,6 +8,7 @@ from sqlalchemy import delete, select, update
 
 from app.deps import DbSession, require_platform_admin
 from app.engine.scheduler import registry
+from app.games import known_types
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
@@ -56,6 +57,7 @@ async def admin_dashboard(
             "active_games": active,
             "scheduled_games": scheduled,
             "completed_games": completed,
+            "game_types": known_types(),
         },
     )
 
