@@ -408,7 +408,11 @@
   // score when a round ends; ties split the win), so the rail tracks that —
   // the in-round score is shown underneath as live context and resets each round.
   var scoreAt=[], winsAt=[], finalWins={}, finalScore={};
-  (function(){
+  // Recomputed from scratch over the whole TURNS list. Safe to call again after
+  // more turns are appended live (see extendTurns) — the snapshots are rebuilt,
+  // not patched, so the rail stays correct as the match grows.
+  function computeScores(){
+    scoreAt=[]; winsAt=[]; finalWins={}; finalScore={};
     var lastIdxOfRound={};
     TURNS.forEach(function(t,i){ lastIdxOfRound[t.round]=i; });
 
@@ -435,7 +439,8 @@
       }
     });
     AGENTS.forEach(function(id){ finalWins[id]=wins[id]; finalScore[id]=sim[id]||0; });
-  })();
+  }
+  computeScores();
 
   // Format a (possibly fractional) round count: 0, 1, 1.5 — never "1.0".
   function fmtWins(w){ return (Math.round(w*10)/10).toString(); }
@@ -976,6 +981,10 @@
   }
 
   var idx=0, playing=false, timer=null, stepped=false;
+  // True only when autoplay ran out of turns at the live edge (not when the user
+  // paused or stepped). extendTurns() uses it to decide whether newly-arrived
+  // turns should auto-resume the replay or leave the viewer where they parked.
+  var reachedEnd=false;
   function go(i){ stepped=true; idx=(i+TURNS.length)%TURNS.length; renderTurn(idx); }
   function stop(){
     playing=false; clearTimeout(timer);
@@ -984,22 +993,54 @@
   }
   function scheduleNext(){
     timer=setTimeout(function(){
-      if(idx>=TURNS.length-1){stop();return;}
+      if(idx>=TURNS.length-1){reachedEnd=true;stop();return;}
       go(idx+1);
       scheduleNext();
     }, talkDurOf(TURNS[idx]) + buildSchedule(TURNS[idx]).totalDuration + 400);
   }
-  document.getElementById('rc-next').onclick=function(){stop();go(idx+1);};
-  document.getElementById('rc-prev').onclick=function(){stop();go(idx-1);};
+  document.getElementById('rc-next').onclick=function(){reachedEnd=false;stop();go(idx+1);};
+  document.getElementById('rc-prev').onclick=function(){reachedEnd=false;stop();go(idx-1);};
   document.getElementById('rc-play').onclick=function(){
-    if(playing){stop();return;}
-    stepped=true;
+    if(playing){reachedEnd=false;stop();return;}
+    stepped=true; reachedEnd=false;
     playing=true; this.textContent='❚❚ Pause'; this.classList.remove('btn-primary');
     // Watching engages the transcript stream (live turn on top, growing down).
     var _lr=document.getElementById('live-region'); if(_lr) _lr.dataset.follow='1';
     renderTurn(idx);
     scheduleNext();
   };
+
+  // Live growth: the SSE swap fetches fresh replay data and fires `rc:extend`.
+  // Append any turns we don't already have, rebuild the score snapshots, and —
+  // if the viewer is following live and the replay had run dry at the edge —
+  // resume so the animation keeps pace with the match instead of freezing at the
+  // turn count the page first loaded with.
+  function extendTurns(newTurns){
+    if(!Array.isArray(newTurns) || newTurns.length<=TURNS.length) return;
+    for(var k=TURNS.length;k<newTurns.length;k++){ TURNS.push(newTurns[k]); }
+    computeScores();
+    updateProgress(idx);
+    var _lr=document.getElementById('live-region');
+    var follow = !_lr || _lr.dataset.follow!=='0';
+    if(playing) return;                       // running loop will walk into the new turns
+    if(reachedEnd && follow){
+      reachedEnd=false;
+      playing=true;
+      var p=document.getElementById('rc-play');
+      if(p){ p.textContent='❚❚ Pause'; p.classList.remove('btn-primary'); }
+      go(idx+1); scheduleNext();
+    } else if(_reduced && follow){
+      // Reduced motion never animates — keep the parked view on the latest turn
+      // so the rail + feed track current standings as the match grows.
+      go(TURNS.length-1);
+    }
+  }
+  // Dispatched on document (bubbling) by the page after each SSE swap. Listening
+  // on document — not #live-region — because this inline script runs before that
+  // element is parsed, so it isn't reachable here yet at attach time.
+  document.addEventListener('rc:extend', function(e){
+    extendTurns(e && e.detail ? e.detail.turns : null);
+  });
   // Speed + skip-talk take effect from the next scheduled timer (i.e. the next
   // turn / next action), so changing them never cuts off the turn in progress.
   Array.prototype.forEach.call(document.querySelectorAll('.rc-speed-btn'), function(b){
