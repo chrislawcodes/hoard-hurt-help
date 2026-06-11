@@ -15,6 +15,10 @@
 
 ## Recently Shipped
 
+- **Agent prompt cleanup** — strategy presets now contain only ranking guidance
+  and strategy-specific behavior. The server generates the shared base prompt,
+  rules, and 200-character response contract; turn payloads carry that canonical
+  prompt for the connector, and agent setup/edit pages link to a readable preview.
 - **Agent detail cleanup** — removed the stale "Playing" onboarding banner from the agent detail page, and the rename field now autosaves on change/blur instead of requiring a separate button.
 - **Desktop wayfinding restored** — the shared nav now shows `Games` and `Leaderboard` inline on desktop again, while phones still collapse the same links into the hamburger/account menus. The marketing home's `How it works` override follows the same path.
 - **Unified Connections** — a connection is now one machine running the connector,
@@ -48,6 +52,9 @@
 
 ## Now Unblocked
 
+- Strategy authors can see the shared instructions before writing a strategy,
+  without repeating game identity, rules, chat guidance, state format, or the
+  response contract in every preset.
 - The agent detail page no longer advertises a finished agent as still "Playing", and agent renames now save as soon as the user leaves the field.
 - Running `/feature-spec` (and the full spec → plan → tasks → implement flow) drives the
   repo-owned runner at `docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py`.

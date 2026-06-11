@@ -1,5 +1,7 @@
 """Constants shipped to every agent and every player."""
 
+from app.agent_prompt import RESPONSE_PROTOCOL
+
 # Point values — single source of truth for the resolver (app/engine/resolver.py)
 # and the watch view's per-move effect display (app/routes/web.py).
 HOARD_POINTS = 2  # HOARD: actor gains this, no target
@@ -7,15 +9,15 @@ HELP_POINTS = 4  # HELP: target gains this, actor gains 0
 HURT_POINTS = 4  # HURT: target loses this, actor gains 0
 MUTUAL_HELP_BONUS = 4  # extra to each side when two players HELP each other
 
-RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v2)
+GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v2)
 
-You are playing a multiplayer game called Hoard-Hurt-Help. The goal is to win more rounds than any other agent over the course of the game.
+The goal is to win more rounds than any other agent over the course of the game.
 
 ## Actions
 
-Each turn you pick exactly one action. HOARD is the only self-targeting action; HELP and HURT require a target other than yourself.
+In the act phase, choose exactly one action. You cannot target yourself.
 
-- **HOARD** — You gain +{HOARD_POINTS} points. No target.
+- **HOARD** — You gain +{HOARD_POINTS} points.
 - **HELP [target]** — You gain 0 points; the target gains +{HELP_POINTS} points.
 - **HURT [target]** — You gain 0 points; the target loses {HURT_POINTS} points.
 
@@ -40,38 +42,38 @@ Round scores are clipped at 0. HURTing a player already at 0 still costs the att
 
 ## Turn structure: talk, then act
 
-Each turn has TWO phases. You make one submission per phase:
+Each turn has a talk phase followed by an act phase:
 
-1. **Talk phase.** Broadcast one public message (max 200 characters). All messages are revealed simultaneously once everyone has submitted or the deadline passes.
-2. **Act phase.** After seeing all talk messages, submit one action (HOARD/HELP/HURT). All actions resolve simultaneously.
+1. **Talk phase.** Broadcast one public message. Messages are revealed simultaneously once everyone has submitted or the deadline passes.
+2. **Act phase.** After seeing all talk messages, choose your action. Actions resolve simultaneously.
+"""
 
-## Submission contract
+RULES_TEXT = f"""{GAME_RULES_TEXT}
+## Response format
 
-GET /turn (or get_next_turn) returns the current `phase` ("talk" or "act") and the matching `turn_token`. Pass your agent key in `X-Agent-Key`.
-
-Talk phase — POST to the message URL:
-
-    {{ "turn_token": "<token while phase=talk>", "message": "<public message, max 200 characters>", "thinking": "<private reasoning, max 200 characters>" }}
-
-Act phase — POST to the submit URL:
-
-    {{ "turn_token": "<token while phase=act>", "action": "HOARD" | "HELP" | "HURT", "target_id": "<another agent's id, or null for HOARD>", "thinking": "<private reasoning, max 200 characters>" }}
-
-Include `thinking` on every submission (max 200 characters). The first valid submission per phase wins. Late submissions are rejected — a missed talk defaults to an empty message, a missed act defaults to HOARD.
+{RESPONSE_PROTOCOL}
 """
 
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
 
 
-def make_rules_text(total_rounds: int = 7, turns_per_round: int = 7) -> str:
-    """Return RULES_TEXT with the actual round/turn counts substituted in."""
+def make_game_rules_text(total_rounds: int = 7, turns_per_round: int = 7) -> str:
+    """Return semantic game rules with the actual round/turn counts."""
     if total_rounds == 7 and turns_per_round == 7:
-        return RULES_TEXT
+        return GAME_RULES_TEXT
     return (
-        RULES_TEXT
+        GAME_RULES_TEXT
         .replace("**7 rounds**", f"**{total_rounds} rounds**")
         .replace("**7 turns**", f"**{turns_per_round} turns**")
         .replace("(49 turns total)", f"({total_rounds * turns_per_round} turns total)")
         .replace("after turn 7", f"after turn {turns_per_round}")
         .replace("after all 7 rounds", f"after all {total_rounds} rounds")
+    )
+
+
+def make_rules_text(total_rounds: int = 7, turns_per_round: int = 7) -> str:
+    """Return official rules plus the canonical response contract."""
+    return (
+        f"{make_game_rules_text(total_rounds, turns_per_round)}"
+        f"## Response format\n\n{RESPONSE_PROTOCOL}\n"
     )

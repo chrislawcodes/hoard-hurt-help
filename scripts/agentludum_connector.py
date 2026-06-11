@@ -51,6 +51,13 @@ from pathlib import Path
 
 import httpx
 
+try:
+    # In a source checkout, reuse the game's canonical protocol. Downloaded
+    # standalone connectors use the embedded compatibility copy below.
+    from app.agent_prompt import RESPONSE_PROTOCOL as _CANONICAL_PROTOCOL
+except ImportError:
+    _CANONICAL_PROTOCOL = None
+
 DEFAULT_URL = "http://localhost:8000"
 DEFAULT_PROVIDER = "claude"
 _TURN_TIMEOUT = 180  # absolute ceiling for a single model turn
@@ -97,21 +104,15 @@ _POLL_FAIL_THRESHOLD = 24
 # within a few minutes without the operator restarting the connector.
 _DETECT_REPORT_INTERVAL = 300  # seconds
 
-_PROTOCOL = (
-    "Each turn has two phases. On a TALK PHASE prompt reply with ONLY "
-    '{"message": "<public message, max 200 chars>", '
-    '"thinking": "<private reasoning, max 500 chars>"}.\n'
-    "On an ACT PHASE prompt reply with ONLY "
-    '{"action": "HOARD|HELP|HURT", "target_id": "<another agent id, or null>", '
-    '"thinking": "<private reasoning, max 500 chars>"}.\n'
-    "Reply with the JSON object and NOTHING else — no preamble, no code fence, no "
-    "analysis before or after. Keep `thinking` to one or two sentences (never empty).\n"
-    "TIME LIMIT: each phase gives you only ~60 seconds, and every prompt tells you "
-    "the exact seconds left. If your reply does not arrive in time it is discarded "
-    "and counts as a missed move — so decide and answer right away; do not deliberate "
-    "past the clock.\n"
-    "HELP and HURT require target_id to be another agent; HOARD must have target_id null."
-)
+_PROTOCOL = _CANONICAL_PROTOCOL or """TALK PHASE response:
+{"message": "<public message, max 200 chars>", "thinking": "<private reasoning, max 200 chars>"}
+
+ACT PHASE response:
+{"action": "HOARD|HELP|HURT", "target_id": "<another agent ID for HELP/HURT; null for HOARD>", "thinking": "<private reasoning, max 200 chars>"}
+
+Return exactly one JSON object with no prose or code fence. Use one short, non-empty sentence for `thinking`.
+
+Each phase has a hard deadline, and the turn prompt tells you the approximate seconds left. Decide and answer immediately. A late reply is discarded and counts as a missed move."""
 _ENGAGE = (
     "The chat is part of the game: read the other agents' messages, answer "
     "what's aimed at you, make and weigh deals, build or break alliances — "
@@ -213,13 +214,13 @@ def _phase_time_budget(cur: dict, *, now: datetime | None = None) -> float | Non
 def _normalize_move(move: dict, phase: str) -> dict:
     if phase == "talk":
         return {
-            "message": _clip(move.get("message", ""), 500),
-            "thinking": _clip(move.get("thinking", ""), 500),
+            "message": _clip(move.get("message", ""), 200),
+            "thinking": _clip(move.get("thinking", ""), 200),
         }
     return {
         "action": str(move.get("action", "HOARD")).upper(),
         "target_id": move.get("target_id") or None,
-        "thinking": _clip(move.get("thinking", ""), 500),
+        "thinking": _clip(move.get("thinking", ""), 200),
     }
 
 
@@ -227,9 +228,17 @@ def _framing(turn: dict) -> str:
     """The stable per-game framing (strategy + rules + protocol). Claude sends it
     as a `--system-prompt`; Codex/Gemini fold it into the first message."""
     static = turn["static"]
+    strategy = static.get("your_strategy") or "Play to win."
+    base_prompt = static.get("base_prompt")
+    if base_prompt:
+        return (
+            f"{base_prompt}\n\n"
+            f"YOUR STRATEGY (this is your strategy - play it):\n{strategy}"
+        )
+
+    # Compatibility with servers that predate `static.base_prompt`.
     you = static["your_agent_id"]
     others = [a for a in static.get("all_agent_ids", []) if a != you]
-    strategy = static.get("your_strategy") or "Play to win."
     return (
         f'You are playing Hoard-Hurt-Help as agent "{you}" — a multi-round game '
         f"you play to its end. {_ENGAGE}\n\n"
@@ -825,8 +834,8 @@ def _move_request(
             params,
             {
                 "turn_token": cur["turn_token"],
-                "message": _clip(decision.get("message", ""), 500),
-                "thinking": _clip(decision.get("thinking", ""), 2000),
+                "message": _clip(decision.get("message", ""), 200),
+                "thinking": _clip(decision.get("thinking", ""), 200),
                 "is_connector_fallback": is_fallback,
             },
         )
@@ -837,7 +846,7 @@ def _move_request(
             "turn_token": cur["turn_token"],
             "action": str(decision.get("action", "HOARD")).upper(),
             "target_id": decision.get("target_id") or None,
-            "thinking": _clip(decision.get("thinking", ""), 2000),
+            "thinking": _clip(decision.get("thinking", ""), 200),
             "is_connector_fallback": is_fallback,
         },
     )

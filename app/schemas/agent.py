@@ -83,6 +83,7 @@ class ScoreboardRow(BaseModel):
 class TurnStatic(MatchIdEnvelope):
     rules_version: str
     rules: str
+    base_prompt: str | None = None
     total_rounds: int
     turns_per_round: int
     your_agent_id: str

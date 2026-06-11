@@ -84,6 +84,39 @@ def test_pd_module_exposes_presets_and_default() -> None:
     assert module.default_strategy().strip()
 
 
+def test_default_strategies_do_not_repeat_base_instructions() -> None:
+    module = get_game_module("hoard-hurt-help")
+    strategies = [module.default_strategy(), *(preset.prompt for preset in module.strategy_presets())]
+    repeated_base_phrases = (
+        "You are playing Hoard-Hurt-Help",
+        "Read the full rules",
+        "full raw record",
+        "read the chat",
+        "TALK PHASE",
+        "target_id",
+    )
+    for strategy in strategies:
+        assert "Prioritize round wins" in strategy
+        for phrase in repeated_base_phrases:
+            assert phrase not in strategy
+
+
+def test_agent_base_prompt_contains_shared_instructions_not_strategy() -> None:
+    module = get_game_module("hoard-hurt-help")
+    prompt = module.agent_base_prompt(
+        your_agent_id="Alpha",
+        all_agent_ids=["Alpha", "Beta"],
+    )
+    assert 'as agent "Alpha"' in prompt
+    assert "The chat is part of the game" in prompt
+    assert "HISTORY" not in prompt
+    assert "max 200 chars" in prompt
+    assert 'Agents you may target: ["Beta"]' in prompt
+    assert prompt.index("Agents you may target") < prompt.index("RESPONSE FORMAT:")
+    assert prompt.endswith("counts as a missed move.")
+    assert "Prioritize round wins" not in prompt
+
+
 @pytest.mark.asyncio
 async def test_join_with_custom_strategy_seeds_it(client, reset_db) -> None:
     user_id, _connection_id = await _seed_game_user_agent(reset_db)
@@ -183,11 +216,24 @@ async def test_join_form_groups_models_and_disables_uncovered_providers(
     assert 'No machine runs OpenAI — turn it on at /me/connections.' in r.text
     assert 'name="strategy_preset"' not in r.text
     assert 'name="strategy_text"' in r.text
+    assert 'href="/games/hoard-hurt-help/agent-instructions"' in r.text
     assert 'data-preset-id="tit_for_tat"' in r.text
     assert 'data-preset-id="custom"' in r.text
     assert r.text.index('data-preset-id="tit_for_tat"') < r.text.index('data-preset-id="custom"')
     tit_snippet = r.text[r.text.index('data-preset-id="tit_for_tat"') : r.text.index('data-preset-id="tit_for_tat"') + 220]
     assert 'aria-pressed="true"' in tit_snippet
+
+
+@pytest.mark.asyncio
+async def test_agent_instructions_page_shows_canonical_base_prompt(client, reset_db) -> None:
+    r = await client.get("/games/hoard-hurt-help/agent-instructions")
+    assert r.status_code == 200
+    assert "Base instructions" in r.text
+    assert "Your editable strategy is added separately" in r.text
+    assert "The chat is part of the game" in r.text
+    assert "max 200 chars" in r.text
+    assert "X-Agent-Key" not in r.text
+    assert "Prioritize round wins" not in r.text
 
 
 @pytest.mark.asyncio

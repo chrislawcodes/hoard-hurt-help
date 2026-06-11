@@ -95,6 +95,17 @@ class GameModule(Protocol):
         """Strategy text a player's entry textarea is pre-filled with."""
         ...
 
+    def agent_base_prompt(
+        self,
+        *,
+        your_agent_id: str,
+        all_agent_ids: list[str],
+        total_rounds: int = 7,
+        turns_per_round: int = 7,
+    ) -> str:
+        """Stable model instructions supplied separately from player strategy."""
+        ...
+
     def validate_move(
         self, move: dict[str, Any], *, your_agent_id: str, all_agent_ids: list[str]
     ) -> None:

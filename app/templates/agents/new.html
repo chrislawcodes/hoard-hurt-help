@@ -62,6 +62,7 @@
         <label>
             Strategy
             <textarea id="strategy-text" name="strategy_text" rows="8" maxlength="2000" required>{{ selected_strategy_text }}</textarea>
+            <small class="hint">The game also supplies shared rules and response instructions. <a href="/games/{{ default_game }}/agent-instructions">View base instructions</a>.</small>
         </label>
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Create agent</button>
