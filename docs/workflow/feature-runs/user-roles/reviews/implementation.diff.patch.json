@@ -1,0 +1,16 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "2a7a8f75e6707e6053018b98c18b8cdabaa4236f",
+  "git_base_ref": "eac1035b",
+  "git_base_sha": "eac1035b0b2bd33fb6fe8f7c889a27a8cc3e9a94",
+  "paths": [
+    "app",
+    "migrations"
+  ],
+  "allowed_dirty_paths": [
+    "docs/workflow/feature-runs/user-roles"
+  ],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/user-roles/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}

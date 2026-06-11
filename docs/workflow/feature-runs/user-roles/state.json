@@ -344,6 +344,24 @@
       "duration_seconds": 13.008969,
       "agent_id": null,
       "artifact_sha_at_time": "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 5314,
+      "prompt_cap": 250000,
+      "input_tokens": 14092,
+      "output_tokens": 500,
+      "cost_usd_estimate": 0.004273,
+      "timestamp": "2026-06-11T23:10:07.364017Z",
+      "started_at": "2026-06-11T23:09:59.198976Z",
+      "ended_at": "2026-06-11T23:10:07.364017Z",
+      "duration_seconds": 8.164859,
+      "agent_id": null,
+      "artifact_sha_at_time": "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856"
     }
   ],
   "command_telemetry": [
@@ -526,6 +544,30 @@
       "files_written": 6,
       "subprocess_invocations": 12,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-11T23:10:07Z",
+      "wall_seconds": 8.646,
+      "input_bytes_read": 160265,
+      "output_bytes_written": 107472,
+      "files_read": 8,
+      "files_written": 6,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-11T23:13:21Z",
+      "wall_seconds": 0.564,
+      "input_bytes_read": 70295,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -562,6 +604,7 @@
       "adversarial_sha_history": [
         "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550",
         "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856",
+        "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856",
         "acab14941be9adc5b3441e3369550b2563e0900078b4d0b2c84719d7c9276856"
       ],
       "initial_sha": "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550"
@@ -570,9 +613,9 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 0,
+    "index": 1,
     "markers_sha": "95647a29a8c0e1454fde240aa2d52819bc81f2cb11aecd05431a0ae93187b547",
-    "last_diff_head_sha": ""
+    "last_diff_head_sha": "2a7a8f75e6707e6053018b98c18b8cdabaa4236f"
   },
   "spec_adversarial_rounds": 1,
   "last_action_result": {
@@ -583,5 +626,11 @@
   "plan_adversarial_rounds": 1,
   "tasks_adversarial_rounds": 2,
   "diff_adversarial_rounds": 0,
-  "dirty_overrides": {}
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "docs/workflow/feature-runs/user-roles"
+    ],
+    "used": true,
+    "updated_at": 1781219399
+  }
 }
