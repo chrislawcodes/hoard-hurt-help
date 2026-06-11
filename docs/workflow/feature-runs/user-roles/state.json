@@ -1,0 +1,109 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": true,
+    "reason": "Handoff: spec.md authored and discovery complete. Spec checkpoint NOT run \u2014 codex/gemini CLIs are unavailable in the remote container (FileNotFoundError). Resume locally: clear this block, then run checkpoint --slug user-roles --stage spec, reconcile findings, and continue into the plan stage. No open design decisions; discovery answers are recorded in state.json.",
+    "updated_at": 1781214647
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 2,
+    "asked_count": 2,
+    "questions": [
+      {
+        "question": "Where do regular users create matches \u2014 a new user-facing flow, or by opening up the existing game-admin form?",
+        "recommendation": "New user-facing create-match action on the game pages, reusing the existing creation logic server-side.",
+        "rationale": "The admin form exposes admin-only knobs; a slim user flow keeps the admin surface unchanged.",
+        "updated_at": 1781214090
+      },
+      {
+        "question": "Where do regular users create matches \u2014 a new user-facing flow, or by opening up the existing game-admin form?",
+        "recommendation": "New user-facing create-match action on the game pages, reusing the existing creation logic server-side.",
+        "rationale": "The admin form exposes admin-only knobs; a slim user flow keeps the admin surface unchanged.",
+        "updated_at": 1781214266
+      }
+    ],
+    "assumptions": [
+      "users gains a role column ('admin' | 'user'); admin is seeded/synced at login from PLATFORM_ADMIN_EMAILS, which remains the bootstrap source.",
+      "matches gains a nullable created_by_user_id; existing matches have no owner and are admin-managed only.",
+      "Owner cancel of a running match is allowed (cancel preserves data); owner delete is pre-start only.",
+      "Per-user active-match cap defaults to 3 and is configurable via an env var; admins are exempt.",
+      "Match/leaderboard viewing stays public; agent and connection ownership rules are unchanged."
+    ],
+    "summary": "Two roles (admin/user) on the users table seeded from the existing platform-admin allowlist; match ownership via created_by_user_id; owner create/cancel anytime + delete pre-start; admin delete/cancel anything; per-user active-match cap.",
+    "updated_at": 1781214307,
+    "answers": {
+      "Where do regular users create matches \u2014 a new user-facing flow, or by opening up the existing game-admin form?": "New user-facing create-match flow on the game pages, reusing existing server-side creation logic; admin form unchanged.",
+      "When can a match owner delete their own match, given other users' players and scores live in it?": "Owner can delete only matches that have not started; admins can delete any match in any state."
+    },
+    "non_goals": [
+      "No permissions tables, role hierarchies, or admin-management UI.",
+      "No change to viewing: matches and leaderboards stay publicly readable.",
+      "No change to the per-game admin (GAME_ADMIN_EMAILS) mechanism or the admin web forms.",
+      "No soft-delete/archive system; no tournaments or leagues."
+    ],
+    "acceptance_criteria": [
+      "A signed-in regular user can create a match from a user-facing game-page flow; the match records them as creator.",
+      "A regular user can delete their own match only while it is pre-start, and can cancel their own running match; both are rejected for matches they do not own.",
+      "An admin can delete or cancel any match in any state.",
+      "A regular user cannot exceed the active-match cap; admins are exempt.",
+      "Users whose email is in PLATFORM_ADMIN_EMAILS get role=admin on login; everyone else is role=user."
+    ],
+    "checklist": {
+      "goal": "Introduce admin vs regular user roles: signed-in regular users can create matches and delete/cancel their own; admins can delete or cancel any match.",
+      "audience": "Signed-in players of Hoard Hurt Help (regular users) and platform operators (admins).",
+      "constraints": "Async app (async routes + async DB). Schema change needs an Alembic migration that works on SQLite and Postgres. Admin role seeded from existing PLATFORM_ADMIN_EMAILS allowlist. Per-user active-match cap to bound LLM spend. Game-admin email mechanism (GAME_ADMIN_EMAILS__<GAME>) stays as-is."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "094e6f53b0899cfd1b86f4f2b9c458aff6b32d2d",
+  "token_usage": [],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-11T21:47:53Z",
+      "wall_seconds": 0.452,
+      "input_bytes_read": 37845,
+      "output_bytes_written": 20669,
+      "files_read": 7,
+      "files_written": 5,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "b1c06478e1aa7dce25cb0a2776d6fe9bb71c34bf3710caaf305ec1448432b836"
+      ],
+      "initial_sha": "b1c06478e1aa7dce25cb0a2776d6fe9bb71c34bf3710caaf305ec1448432b836"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 0
+}

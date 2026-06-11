@@ -1,0 +1,11 @@
+{
+  "paths": [
+    "app",
+    "migrations"
+  ],
+  "allowed_dirty_paths": [
+    "app",
+    "docs/workflow/feature-runs/user-roles",
+    "migrations"
+  ]
+}
