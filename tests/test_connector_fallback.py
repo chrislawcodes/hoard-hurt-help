@@ -477,3 +477,77 @@ def test_decide_bounds_model_call_to_remaining_time(connector, monkeypatch) -> N
     assert seen["budget"] is not None
     assert 20 < seen["budget"] < 45 < connector._TURN_TIMEOUT
     assert connector._call_timeout.get() is None  # reset after the call
+
+
+# ---------------------------------------------------------------------------
+# Move POST contract — the connector must send agent_turn_token (regression)
+# ---------------------------------------------------------------------------
+
+
+def _payload_for(turn: Turn, player: Player, match_id: str, *, phase: str) -> dict:
+    """A minimal next-turn payload shaped like the server's response."""
+    return {
+        "agent_turn_token": f"{turn.turn_token}:{player.agent_id}:{match_id}",
+        "current": {
+            "round": 1,
+            "turn": 1,
+            "phase": phase,
+            "turn_token": turn.turn_token,
+        },
+    }
+
+
+def test_move_request_includes_agent_turn_token(connector) -> None:
+    """Both /message and /submit must carry agent_turn_token in the query params."""
+
+    class _P:
+        agent_id = 7
+
+    turn = type("T", (), {"turn_token": "tok-9"})()
+    talk_url, talk_params, _ = connector._move_request(
+        "", "M_1", _payload_for(turn, _P(), "M_1", phase="talk"), {"message": "hi"}
+    )
+    act_url, act_params, _ = connector._move_request(
+        "", "M_1", _payload_for(turn, _P(), "M_1", phase="act"), {"action": "HOARD"}
+    )
+
+    assert talk_url.endswith("/message") and act_url.endswith("/submit")
+    assert talk_params["agent_turn_token"] == "tok-9:7:M_1"
+    assert act_params["agent_turn_token"] == "tok-9:7:M_1"
+
+
+@pytest.mark.asyncio
+async def test_connector_submit_lands_on_real_endpoint(connector, client, reset_db) -> None:
+    """The connector's POST (as built by _move_request) is accepted by the live
+    /submit endpoint and records a genuine, non-defaulted move.
+
+    Regression: the connector omitted the required agent_turn_token query param,
+    so every submission 422'd and the agent defaulted every single turn.
+    """
+    game, players = await _seed_active_game(reset_db)
+    turn = await _open_turn(reset_db, game.id, phase="act")
+    player = players[0]
+
+    payload = _payload_for(turn, player, game.id, phase="act")
+    decision = {"action": "HOARD", "target_id": None, "thinking": "bank it"}
+    url, params, body = connector._move_request("", game.id, payload, decision)
+
+    assert "agent_turn_token" in params  # the missing piece that caused the bug
+
+    r = await client.post(
+        url, params=params, headers={"X-Connection-Key": player._test_key}, json=body
+    )
+    assert r.status_code == 202, r.text
+
+    async with reset_db() as db:
+        row = (
+            await db.execute(
+                select(TurnSubmission).where(
+                    TurnSubmission.turn_id == turn.id,
+                    TurnSubmission.player_id == player.id,
+                )
+            )
+        ).scalar_one_or_none()
+    assert row is not None
+    assert row.was_defaulted is False  # a real move landed — not a default
+    assert row.action == "HOARD"

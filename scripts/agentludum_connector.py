@@ -761,6 +761,42 @@ def _decide(turn: dict, sess: _GameSession) -> dict:
     return _normalize_move(move, phase)
 
 
+def _move_request(
+    base: str, match_id: str, turn: dict, decision: dict
+) -> tuple[str, dict, dict]:
+    """Build (url, query_params, json_body) for POSTing this turn's move.
+
+    The query params carry ``agent_turn_token``, which the server requires to
+    bind the move to this agent+turn — omitting it 422s every submission and the
+    agent silently defaults every turn.
+    """
+    cur = turn["current"]
+    params = {"agent_turn_token": turn["agent_turn_token"]}
+    is_fallback = bool(decision.get("is_connector_fallback"))
+    if _phase(cur) == "talk":
+        return (
+            f"{base}/api/games/{match_id}/message",
+            params,
+            {
+                "turn_token": cur["turn_token"],
+                "message": _clip(decision.get("message", ""), 500),
+                "thinking": _clip(decision.get("thinking", ""), 2000),
+                "is_connector_fallback": is_fallback,
+            },
+        )
+    return (
+        f"{base}/api/games/{match_id}/submit",
+        params,
+        {
+            "turn_token": cur["turn_token"],
+            "action": str(decision.get("action", "HOARD")).upper(),
+            "target_id": decision.get("target_id") or None,
+            "thinking": _clip(decision.get("thinking", ""), 2000),
+            "is_connector_fallback": is_fallback,
+        },
+    )
+
+
 # --------------------------------------------------------------------------
 # Service install — one command sets up the persistent background service, so
 # the AI assistant never has to hand-roll launchd / systemd / Task Scheduler.
@@ -1131,43 +1167,20 @@ def main() -> None:
             )
         decision = _decide(turn, sess)
         is_fallback = bool(decision.get("is_connector_fallback"))
+        url, params, body = _move_request(base, match_id, turn, decision)
+        r2 = httpx.post(url, headers=headers, params=params, json=body, timeout=20)
+        fallback_tag = " [FALLBACK]" if is_fallback else ""
         if phase == "talk":
-            r2 = httpx.post(
-                f"{base}/api/games/{match_id}/message",
-                headers=headers,
-                json={
-                    "turn_token": cur["turn_token"],
-                    "message": _clip(decision.get("message", ""), 500),
-                    "thinking": _clip(decision.get("thinking", ""), 2000),
-                    "is_connector_fallback": is_fallback,
-                },
-                timeout=20,
-            )
-            fallback_tag = " [FALLBACK]" if is_fallback else ""
             print(
                 f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} TALK: "
                 f"({r2.status_code}){fallback_tag}"
             )
         else:
-            action = str(decision.get("action", "HOARD")).upper()
-            target = decision.get("target_id") or None
-            r2 = httpx.post(
-                f"{base}/api/games/{match_id}/submit",
-                headers=headers,
-                json={
-                    "turn_token": cur["turn_token"],
-                    "action": action,
-                    "target_id": target,
-                    "thinking": _clip(decision.get("thinking", ""), 2000),
-                    "is_connector_fallback": is_fallback,
-                },
-                timeout=20,
-            )
+            target = body.get("target_id")
             arrow = f" -> {target}" if target else ""
-            fallback_tag = " [FALLBACK]" if is_fallback else ""
             print(
                 f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} ACT: "
-                f"{action}{arrow} ({r2.status_code}){fallback_tag}"
+                f"{body['action']}{arrow} ({r2.status_code}){fallback_tag}"
             )
 
 
