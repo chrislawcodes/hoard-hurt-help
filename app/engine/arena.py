@@ -21,8 +21,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.bot_presets import BOT_PRESETS, allocate_default_bot_names, bot_presets
+from app.engine.match_creation import create_match
 from app.engine.sims.seating import SimSeatingError, add_bots_to_game
-from app.engine.tokens import generate_match_id
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -86,23 +86,6 @@ def _choose_bot_seats(
 
 _choose_sim_seats = _choose_bot_seats
 
-
-async def _next_match_id(db: AsyncSession) -> str:
-    existing_ids = (await db.execute(select(Match.id))).scalars().all()
-
-    def _numeric_suffix(match_id: str) -> int | None:
-        parts = match_id.split("_", 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            return int(parts[1])
-        return None
-
-    n = max(
-        (s for x in existing_ids if x.startswith("M_") and (s := _numeric_suffix(x)) is not None),
-        default=0,
-    ) + 1
-    return generate_match_id(n)
-
-
 def _auto_match_name(boundary: datetime) -> str:
     """Pick a name from _AUTO_MATCH_NAMES keyed to the boundary's 30-min slot."""
     slot = boundary.hour * 2 + boundary.minute // 30
@@ -164,21 +147,21 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         logger.warning("No Sim presets available — Practice Arena not created.")
         return
 
-    match_id = await _next_match_id(db)
     far_future = datetime.now(timezone.utc) + timedelta(days=365)
-    arena = Match(
-        id=match_id,
+    arena = await create_match(
+        db,
+        game="hoard-hurt-help",
         name=PRACTICE_ARENA_NAME,
-        state=GameState.REGISTERING,
         scheduled_start=far_future,
         min_players=1,
         max_players=PRACTICE_ARENA_MAX_PLAYERS,
+        per_turn_deadline_seconds=60,
         total_rounds=PRACTICE_ARENA_TOTAL_ROUNDS,
         turns_per_round=PRACTICE_ARENA_TURNS_PER_ROUND,
+        state=GameState.REGISTERING,
         match_kind=MatchKind.PRACTICE_ARENA.value,
+        commit=False,
     )
-    db.add(arena)
-    await db.flush()
 
     seats = _choose_bot_seats(PRACTICE_ARENA_BOT_COUNT)
     try:
@@ -189,12 +172,12 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
             logging.ERROR,
             "practice_arena_seating_failed",
             f"Failed to seat bots in Practice Arena: {exc}",
-            match_id=match_id,
+            match_id=arena.id,
         )
         await db.rollback()
         return
 
-    logger.info("Created Practice Arena %s with %d bot seats.", match_id, len(seats))
+    logger.info("Created Practice Arena %s with %d bot seats.", arena.id, len(seats))
 
 
 async def ensure_auto_match(db: AsyncSession) -> None:
@@ -213,22 +196,23 @@ async def ensure_auto_match(db: AsyncSession) -> None:
         return
 
     boundary = _next_boundary()
-    match_id = await _next_match_id(db)
     name = _auto_match_name(boundary)
-    auto = Match(
-        id=match_id,
+    auto = await create_match(
+        db,
+        game="hoard-hurt-help",
         name=name,
-        state=GameState.SCHEDULED,
         scheduled_start=boundary,
         min_players=1,
         max_players=AUTO_MATCH_MAX_PLAYERS,
+        per_turn_deadline_seconds=60,
         total_rounds=AUTO_MATCH_TOTAL_ROUNDS,
         turns_per_round=AUTO_MATCH_TURNS_PER_ROUND,
+        state=GameState.SCHEDULED,
         match_kind=MatchKind.AUTO_SCHEDULED.value,
+        commit=False,
     )
-    db.add(auto)
     await db.commit()
-    logger.info("Created auto-match %s scheduled at %s.", match_id, boundary.isoformat())
+    logger.info("Created auto-match %s scheduled at %s.", auto.id, boundary.isoformat())
 
 
 async def fill_and_start_auto_matches(db: AsyncSession) -> None:

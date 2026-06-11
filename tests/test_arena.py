@@ -63,6 +63,7 @@ async def test_ensure_creates_practice_arena_when_none_exists(db_session):
         assert arena.name == PRACTICE_ARENA_NAME
         assert arena.state == GameState.REGISTERING
         assert arena.max_players == PRACTICE_ARENA_MAX_PLAYERS
+        assert arena.created_by_user_id is None
 
         # Should have PRACTICE_ARENA_BOT_COUNT pre-seated Sim players.
         sim_count = await db.scalar(
@@ -281,6 +282,7 @@ async def test_fill_and_start_auto_matches_fills_sims(db_session):
     async with db_session() as db:
         m = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
         assert m.state == GameState.ACTIVE
+        assert m.created_by_user_id is None
 
         player_count = await db.scalar(
             select(func.count()).select_from(Player).where(
@@ -328,6 +330,7 @@ async def test_fill_and_start_auto_matches_zero_humans_cancels(db_session):
         m = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
         assert m.state == GameState.CANCELLED
         assert m.cancelled_at is not None
+        assert m.created_by_user_id is None
 
         player_count = await db.scalar(
             select(func.count()).select_from(Player).where(
@@ -402,6 +405,7 @@ async def test_fill_and_start_seating_error_cancels_match_and_continues(db_sessi
         ).scalar_one()
         assert m1.state == GameState.CANCELLED
         assert m1.cancelled_at is not None
+        assert m1.created_by_user_id is None
 
         # The succeeding match must have been processed (ACTIVE or still in DB).
         # We at minimum verify the loop did not stop after the first failure.
@@ -410,3 +414,4 @@ async def test_fill_and_start_seating_error_cancels_match_and_continues(db_sessi
         ).scalar_one()
         # The loop continued past the failure to attempt seating the second match.
         assert call_count == 2
+        assert m2.created_by_user_id is None

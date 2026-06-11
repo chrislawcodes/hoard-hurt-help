@@ -9,12 +9,12 @@ from sqlalchemy import select
 
 from app.deps import DbSession, require_game_admin
 from app.engine.bot_presets import bot_preset_by_id
+from app.engine.match_creation import create_match
 from app.engine.scheduler import registry, start_game
 from app.engine.sims import validate_bot_profile_fields
 from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
 from app.engine.state_machine import TransitionError
-from app.engine.tokens import generate_match_id
 from app.games import known_types
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
@@ -138,22 +138,19 @@ async def create_match_submit(
     if not (3 <= turns_per_round <= 20):
         return _error("Turns per round must be 3 to 20.")
 
-    existing_ids = (await db.execute(select(Match.id))).scalars().all()
-    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
-    m = Match(
-        id=generate_match_id(n),
+    await create_match(
+        db,
         game=game,
         name=name,
-        state=GameState.REGISTERING,
         scheduled_start=when,
         min_players=min_players,
         max_players=max_players,
         per_turn_deadline_seconds=per_turn_deadline_seconds,
         total_rounds=total_rounds,
         turns_per_round=turns_per_round,
+        state=GameState.REGISTERING,
+        created_by_user_id=user.id,
     )
-    db.add(m)
-    await db.commit()
     return RedirectResponse(
         url=f"/games/{game}/admin", status_code=status.HTTP_303_SEE_OTHER
     )

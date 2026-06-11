@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, require_platform_admin
-from app.engine.tokens import generate_match_id
+from app.engine.match_creation import create_match
 from app.models.match import Match, GameState
 from app.models.agent_version import AgentVersion
 from app.models.player import Player
@@ -27,27 +27,23 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 async def create_game(
     body: CreateGameRequest,
     db: DbSession,
-    _: Annotated[User, Depends(require_platform_admin)],
+    user: Annotated[User, Depends(require_platform_admin)],
 ) -> GameRecord:
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
-    # Allocate the next M_NNNN id.
-    existing_ids = (await db.execute(select(Match.id))).scalars().all()
-    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
-    g = Match(
-        id=generate_match_id(n),
+    g = await create_match(
+        db,
+        game="hoard-hurt-help",
         name=body.name,
-        state=GameState.REGISTERING,
         scheduled_start=body.scheduled_start,
         min_players=body.min_players,
         max_players=body.max_players,
         per_turn_deadline_seconds=body.per_turn_deadline_seconds,
         total_rounds=body.total_rounds,
         turns_per_round=body.turns_per_round,
+        state=GameState.REGISTERING,
+        created_by_user_id=user.id,
     )
-    db.add(g)
-    await db.commit()
-    await db.refresh(g)
     return GameRecord(
         id=g.id,
         name=g.name,

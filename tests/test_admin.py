@@ -116,7 +116,7 @@ async def test_dashboard_prompts_link_is_game_scoped(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_admin_creates_game_via_api(client, reset_db):
+async def test_game_admin_api_records_creator(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
@@ -134,6 +134,31 @@ async def test_admin_creates_game_via_api(client, reset_db):
     body = r.json()
     assert body["id"].startswith("M_")
     assert body["state"] == "registering"
+    async with reset_db() as db:
+        match = (await db.execute(select(Match).where(Match.id == body["id"]))).scalar_one()
+        assert match.created_by_user_id == admin.id
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_api_records_creator(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    r = await client.post(
+        "/api/admin/matches",
+        json={
+            "name": "Platform QA",
+            "scheduled_start": when,
+            "min_players": 6,
+            "max_players": 10,
+            "per_turn_deadline_seconds": 30,
+        },
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    async with reset_db() as db:
+        match = (await db.execute(select(Match).where(Match.id == body["id"]))).scalar_one()
+        assert match.created_by_user_id == admin.id
 
 
 @pytest.mark.asyncio
@@ -217,6 +242,11 @@ async def test_create_game_via_web_form(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303  # redirect on success
+    async with reset_db() as db:
+        match = (
+            await db.execute(select(Match).where(Match.name == "Web Night"))
+        ).scalar_one()
+        assert match.created_by_user_id == admin.id
 
 
 @pytest.mark.asyncio
