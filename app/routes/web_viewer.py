@@ -39,8 +39,8 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     players = await load_players(db, g.id)
     timeline = await load_match_timeline(db, g.id)
 
-    # Owner handle per agent, for the standings rail + winner credit. Bots have
-    # no human byline — suppress them here.
+    # Public labels for the standings rail + winner credit. The rail uses the
+    # agent name as the visible label and only surfaces bot credit there.
     owner_rows = (
         await db.execute(
             select(Player.seat_name, Agent.kind, User.handle, Agent.name)
@@ -50,20 +50,25 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         )
     ).all()
     owner_handles: dict[str, str | None] = {
-        seat_name: (None if kind == AgentKind.BOT else handle)
+        seat_name: ("agentludum" if kind == AgentKind.BOT else handle)
         for seat_name, kind, handle, _name in owner_rows
     }
     agent_names: dict[str, str] = {
         seat_name: name for seat_name, _kind, _handle, name in owner_rows
+    }
+    bot_flags: dict[str, bool] = {
+        seat_name: kind == AgentKind.BOT for seat_name, kind, _handle, _name in owner_rows
     }
 
     scoreboard: list[dict[str, Any]] = sorted(
         (
             {
                 "agent_id": p.seat_name,
+                "display_name": agent_names.get(p.seat_name, p.seat_name),
                 "round_score": p.current_round_score,
                 "round_wins": p.total_round_wins,
                 "owner_handle": owner_handles.get(p.seat_name),
+                "is_bot": bot_flags.get(p.seat_name, False),
             }
             for p in players
         ),

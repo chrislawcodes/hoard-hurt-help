@@ -213,6 +213,39 @@ async def test_quiet_lobby_falls_back_to_sample_replay(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_lobby_recent_games_use_agent_names(client, reset_db):
+    base = datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc)
+    async with reset_db() as db:
+        match = Match(
+            id="G_RECENT",
+            name="Recent Winner Match",
+            state=GameState.COMPLETED,
+            scheduled_start=base - timedelta(days=1),
+            completed_at=base - timedelta(hours=1),
+            per_turn_deadline_seconds=60,
+        )
+        db.add(match)
+        await db.flush()
+        user = await make_user(db, 501)
+        agent, _ = await make_agent(db, user, name="Atlas")
+        player = Player(
+            match_id=match.id,
+            user_id=user.id,
+            agent_id=agent.id,
+            seat_name="agent1/Atlas",
+        )
+        db.add(player)
+        await db.flush()
+        match.winner_player_id = player.id
+        await db.commit()
+
+    r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 200
+    assert "Won by Atlas" in r.text
+    assert "agent1/Atlas" not in r.text
+
+
+@pytest.mark.asyncio
 async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
     base = datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc)
     async with reset_db() as db:
