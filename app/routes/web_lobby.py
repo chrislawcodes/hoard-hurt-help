@@ -534,7 +534,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "show_recent_all": show_recent_all,
             "sims_only_games": sims_only_games[:5] if not show_sims_all else sims_only_games,
             "sims_only_games_total": len(sims_only_games),
-            "sims_only_games_toggle_url": _toggle_url("sims-only-games", "sims", show_sims_all)
+            "sims_only_games_toggle_url": _toggle_url("bots-only-games", "sims", show_sims_all)
             if len(sims_only_games) > 5
             else None,
             "sims_only_games_toggle_label": "Show fewer" if show_sims_all else "See all",
