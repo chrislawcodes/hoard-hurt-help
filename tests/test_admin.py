@@ -75,6 +75,22 @@ async def test_admin_can_see_dashboard(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_create_game_button_links_to_a_real_route(client, reset_db):
+    # The "+ Create game" button used to point at /admin/matches/new, which has
+    # no route, so admins got a 404. It must link to the game-scoped create
+    # form, and that target must actually load.
+    admin = await _seed_user(reset_db, "admin@test.com")
+    r = await client.get("/admin", cookies=_cookies(admin.id))
+    assert r.status_code == 200
+    assert 'href="/admin/matches/new"' not in r.text
+    assert 'href="/games/hoard-hurt-help/admin/matches/new"' in r.text
+    form = await client.get(
+        "/games/hoard-hurt-help/admin/matches/new", cookies=_cookies(admin.id)
+    )
+    assert form.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_admin_creates_game_via_api(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
