@@ -116,7 +116,7 @@ async def compute_nav_cta(db: AsyncSession, user: User | None) -> NavCta:
     if user is None:
         return NavCta(label="Get started", href="/play")
     if await user_has_connected_agent(db, user.id):
-        return NavCta(label="Play now", href="/play")
+        return NavCta(label="Play now", href="/games/hoard-hurt-help#lobby-upcoming")
     if await user_connection_count(db, user.id) > 0:
         return NavCta(label="Create an Agent", href="/me/agents/new")
     return NavCta(label="Connect your AI", href="/me/connections")

@@ -224,7 +224,7 @@ async def test_play_unconnected_agent_goes_to_lobby(client, reset_db):
         "/play", cookies=_signed_in_cookies(user_id), follow_redirects=False
     )
     assert r.status_code == 302
-    assert r.headers["location"] == "/games/hoard-hurt-help"
+    assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio
@@ -241,7 +241,7 @@ async def test_play_connected_agent_goes_to_lobby(client, reset_db):
         "/play", cookies=_signed_in_cookies(user_id), follow_redirects=False
     )
     assert r.status_code == 302
-    assert r.headers["location"] == "/games/hoard-hurt-help"
+    assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 # ── live connection count (nav green dot) ───────────────────────────────────

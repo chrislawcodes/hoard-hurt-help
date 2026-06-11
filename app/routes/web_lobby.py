@@ -355,7 +355,7 @@ async def operator_join_page(request: Request, db: DbSession):
             "/me/handle?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
         )
 
-    return RedirectResponse("/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse("/games/hoard-hurt-help#lobby-upcoming", status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/play/{game}", response_class=HTMLResponse)
