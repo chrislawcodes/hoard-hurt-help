@@ -803,6 +803,7 @@
     sayReset();
     Object.keys(botEls).forEach(function(id){
       var el=botEls[id];
+      if (el._hoardClearTimer) { clearTimeout(el._hoardClearTimer); el._hoardClearTimer = null; }
       el.className='rc-bot dim';
       el.querySelector('.rc-robot').classList.remove('eyes-happy','eyes-mean','eyes-wide','blink');
       el.querySelector('.rc-delta').className='rc-delta';
@@ -880,6 +881,11 @@
     else if(a.missed){ tg.textContent='\u{1F4A4}'; tg.classList.add('missed','show'); }
     if(a.action==='HOARD'){
       el.classList.add('act-hoard');
+      if (el._hoardClearTimer) clearTimeout(el._hoardClearTimer);
+      el._hoardClearTimer = setTimeout(function(){
+        el.classList.remove('act-hoard');
+        el._hoardClearTimer = null;
+      }, HOARD_FULL);
       eyes(a.agent,'happy',900);
       showDelta(el, 2);
       rScore[a.agent]=(rScore[a.agent]||0)+2;
