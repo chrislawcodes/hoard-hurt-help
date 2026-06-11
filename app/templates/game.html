@@ -3,7 +3,7 @@
 {% block content %}
 {% if viewer_player_id %}
 <p class="hint" style="margin-bottom:0.5rem;">
-    You're playing as <strong>{{ viewer_agent_id }}</strong> —
+    You're playing as <strong>{{ viewer_agent_name }}</strong> —
     {% if game.state.value == 'active' %}
     <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">View strategy →</a> (opens new tab)
     {% else %}

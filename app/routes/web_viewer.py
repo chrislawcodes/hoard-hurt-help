@@ -43,7 +43,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     # no human byline — suppress them here.
     owner_rows = (
         await db.execute(
-            select(Player.seat_name, Agent.kind, User.handle)
+            select(Player.seat_name, Agent.kind, User.handle, Agent.name)
             .join(Agent, Agent.id == Player.agent_id)
             .join(User, User.id == Agent.user_id)
             .where(Player.match_id == g.id)
@@ -51,7 +51,10 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     ).all()
     owner_handles: dict[str, str | None] = {
         seat_name: (None if kind == AgentKind.BOT else handle)
-        for seat_name, kind, handle in owner_rows
+        for seat_name, kind, handle, _name in owner_rows
+    }
+    agent_names: dict[str, str] = {
+        seat_name: name for seat_name, _kind, _handle, name in owner_rows
     }
 
     scoreboard: list[dict[str, Any]] = sorted(
@@ -215,7 +218,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         "winner_agent_id": winner_agent_id,
         "winner_owner_handle": owner_handles.get(winner_agent_id) if winner_agent_id else None,
         "viewer_player_id": viewer_player.id if viewer_player else None,
-        "viewer_agent_id": viewer_player.agent_id if viewer_player else None,
+        "viewer_agent_name": agent_names.get(viewer_player.seat_name) if viewer_player else None,
     }
 
 
