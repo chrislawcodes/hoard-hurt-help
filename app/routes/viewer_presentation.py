@@ -357,7 +357,7 @@ def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
                 badge, cap = "The Pact", "Mutual pacts lock in — +8 each."
         elif hurts:
             h0 = hurts[0]
-            badge, cap = "Strike", f"{h0['agent']} strikes {h0['target']}.")
+            badge, cap = "Strike", f"{h0['agent']} strikes {h0['target']}."
         elif helps:
             badge = "Help"
             cap = (
