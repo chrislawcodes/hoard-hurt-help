@@ -149,6 +149,8 @@ def run_codex(
     artifact_path: Path,
     checkpoint: dict,
     workspace_dir: Path | None,
+    timeout_seconds: int,
+    idle_timeout_seconds: int,
 ) -> None:
     cmd = [
         sys.executable,
@@ -176,7 +178,12 @@ def run_codex(
         cmd.extend(["--max-total-chars", str(checkpoint["max_total_chars"])])
     if workspace_dir:
         cmd.extend(["--workspace-dir", str(workspace_dir)])
-    subprocess.run(cmd, check=True, text=True, timeout=210)
+    cmd.extend(["--timeout-seconds", str(timeout_seconds)])
+    cmd.extend(["--idle-timeout-seconds", str(idle_timeout_seconds)])
+    # Outer wrapper mirrors run_gemini's `timeout_seconds + 30`; run_codex_review's
+    # own idle watchdog (--idle-timeout-seconds) is the real liveness control, so
+    # this only fires if the inner backstop ceiling itself wedges.
+    subprocess.run(cmd, check=True, text=True, timeout=timeout_seconds + 30)
 
 
 def main() -> int:
@@ -185,6 +192,9 @@ def main() -> int:
     parser.add_argument("--workspace-dir")
     parser.add_argument("--gemini-timeout-seconds", type=int, default=120)
     parser.add_argument("--gemini-retries", type=int, default=1)
+    # Codex backstop ceiling + idle watchdog window (parity with the gemini knob).
+    parser.add_argument("--codex-timeout-seconds", type=int, default=540)
+    parser.add_argument("--codex-idle-timeout-seconds", type=int, default=90)
     args = parser.parse_args()
 
     manifest_path = Path(args.checkpoint_manifest).resolve()
@@ -227,6 +237,8 @@ def main() -> int:
                     artifact_path,
                     review_checkpoint,
                     workspace_dir,
+                    args.codex_timeout_seconds,
+                    args.codex_idle_timeout_seconds,
                 )
             except subprocess.TimeoutExpired:
                 failed_codex.append(f"{spec['path']} (repair timeout)")

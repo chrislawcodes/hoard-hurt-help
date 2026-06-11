@@ -554,6 +554,12 @@ def command_checkpoint(args: argparse.Namespace) -> int:
             str(args.gemini_timeout_seconds),
             "--gemini-retries",
             str(args.gemini_retries),
+            # getattr keeps older callers / test namespaces that predate the
+            # codex knobs working; run_factory's parser supplies real defaults.
+            "--codex-timeout-seconds",
+            str(getattr(args, "codex_timeout_seconds", 540)),
+            "--codex-idle-timeout-seconds",
+            str(getattr(args, "codex_idle_timeout_seconds", 90)),
         ]
         try:
             result = subprocess.run(

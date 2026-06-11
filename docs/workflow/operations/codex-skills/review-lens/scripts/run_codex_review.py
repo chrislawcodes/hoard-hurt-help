@@ -22,7 +22,6 @@ from run_gemini_review import (
     sha256_text,
     workflow_round_from_paths,
     workflow_slug_from_paths,
-    text_or_empty,
     write_failure,
     write_narrowed_artifact,
     write_quota_deferred,
@@ -33,6 +32,7 @@ FEATURE_FACTORY_SCRIPTS = Path(__file__).resolve().parents[2] / "feature-factory
 if str(FEATURE_FACTORY_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(FEATURE_FACTORY_SCRIPTS))
 
+from codex_stream_runner import run_with_idle_watchdog
 from factory_telemetry import record_ai_call
 from review_attempts import append_review_attempt, review_attempt_record
 
@@ -49,12 +49,20 @@ def main() -> int:
     parser.add_argument("--model", default="gpt-5.4-mini")
     parser.add_argument("--workspace-dir")
     parser.add_argument("--git-base-ref")
-    # Default tightened from 180s -> 120s based on review-performance analysis
-    # (PR #789): every slow Codex call hits the timeout ceiling and produces no
-    # useful output. Healthy reviews complete in <90s (p50 ≈ 50-90s); the tail
-    # past 120s never returns a parseable verdict. Saves ~5+ hours of cumulative
-    # wall clock across feature runs. Operators can still override per-call.
-    parser.add_argument("--timeout-seconds", type=int, default=120)
+    # `--timeout-seconds` is now an absolute *backstop* ceiling, not the primary
+    # control. The 120s ceiling set in PR #789 was wrong: review-attempts.jsonl
+    # shows 46% of Codex reviews hit it, and 7 of 13 *successful* reviews
+    # finished AFTER 120s (up to 425s) returning full, parseable verdicts. Plan
+    # reviews legitimately run 114-425s (p50 ~297s). The real control is the
+    # idle watchdog below: it streams Codex's output and kills the CLI only when
+    # it goes *silent* (genuinely hung), so a slow-but-working review runs as
+    # long as it needs while a hang fails fast in ~one idle window. The ceiling
+    # only catches an "active but never converging" run. Operators can override
+    # both per-call.
+    parser.add_argument("--timeout-seconds", type=int, default=540)
+    # Idle (inactivity) timeout: kill Codex if it emits no output for this long.
+    # This is the primary liveness control -- see run_with_idle_watchdog.
+    parser.add_argument("--idle-timeout-seconds", type=int, default=90)
     # Raised per PR #789's analyzer report plus PR #791's perf fixes.
     # Operators were already overriding to these values routinely; they
     # can still override per-call when a review needs tighter limits.
@@ -227,21 +235,15 @@ def main() -> int:
         prompt,
     ]
     def _call() -> subprocess.CompletedProcess:
-        try:
-            return subprocess.run(
-                cmd,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=args.timeout_seconds,
-            )
-        except subprocess.TimeoutExpired as exc:
-            return subprocess.CompletedProcess(
-                cmd,
-                124,
-                stdout=text_or_empty(exc.stdout),
-                stderr=text_or_empty(exc.stderr),
-            )
+        # Stream Codex's output with an idle watchdog instead of a fixed
+        # capture-and-wait. Returns 124 on an idle-kill or ceiling-kill so the
+        # `result.returncode == 124` branch below still records a timeout.
+        return run_with_idle_watchdog(
+            cmd,
+            hard_ceiling_seconds=args.timeout_seconds,
+            idle_timeout_seconds=args.idle_timeout_seconds,
+            label=f"codex {args.stage}/{args.lens}",
+        )
 
     result = record_ai_call(
         workflow_slug,
