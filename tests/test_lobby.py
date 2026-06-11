@@ -406,7 +406,7 @@ async def test_create_agent_setup_shows_key_once(client, reset_db):
     )
     assert r.status_code == 200
     assert "sk_conn_" in r.text
-    assert "X-Connection-Key" in r.text
+    assert "--install" in r.text
     assert "X-Agent-Key" not in r.text
 
     async with reset_db() as db:

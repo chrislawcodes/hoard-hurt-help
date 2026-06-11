@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import re
 import shutil
 import socket
@@ -647,6 +648,198 @@ def _decide(turn: dict, sess: _GameSession) -> dict:
     return _normalize_move(move, phase)
 
 
+# --------------------------------------------------------------------------
+# Service install — one command sets up the persistent background service, so
+# the AI assistant never has to hand-roll launchd / systemd / Task Scheduler.
+# --------------------------------------------------------------------------
+
+_SERVICE_LABEL = "com.agentludum.connector"
+_LINUX_UNIT_NAME = "agentludum-connector.service"
+_WINDOWS_TASK_NAME = "AgentLudumConnector"
+
+
+@dataclass
+class _InstallPlan:
+    """A platform-agnostic install recipe: files to write, then commands to run.
+
+    Pure data so it can be asserted in tests without touching the real system.
+    Each command is (argv, allow_fail); allow_fail=True swallows a non-zero exit
+    (e.g. unloading a service that isn't loaded yet, on an idempotent re-install).
+    """
+
+    files: list[tuple[str, str, int]]  # (path, content, chmod-mode)
+    commands: list[tuple[list[str], bool]]  # (argv, allow_fail)
+    note: str = ""
+
+
+def _xml_escape(value: str) -> str:
+    return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _macos_install_plan(
+    python_exe: str, script_path: str, key: str, url: str, home: str, uid: int
+) -> _InstallPlan:
+    plist_path = f"{home}/Library/LaunchAgents/{_SERVICE_LABEL}.plist"
+    log_dir = f"{home}/.agentludum"
+    program_args = [python_exe, script_path, "--key", key, "--url", url]
+    args_xml = "".join(f"        <string>{_xml_escape(a)}</string>\n" for a in program_args)
+    plist = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        "<dict>\n"
+        f"    <key>Label</key><string>{_SERVICE_LABEL}</string>\n"
+        "    <key>ProgramArguments</key>\n"
+        "    <array>\n"
+        f"{args_xml}"
+        "    </array>\n"
+        "    <key>RunAtLoad</key><true/>\n"
+        "    <key>KeepAlive</key><true/>\n"
+        f"    <key>StandardOutPath</key><string>{log_dir}/connector.log</string>\n"
+        f"    <key>StandardErrorPath</key><string>{log_dir}/connector.err</string>\n"
+        "</dict>\n"
+        "</plist>\n"
+    )
+    domain = f"gui/{uid}"
+    commands: list[tuple[list[str], bool]] = [
+        # Clear quarantine/provenance xattrs a network download picks up, which
+        # otherwise make launchd refuse the file. Best-effort.
+        (["xattr", "-c", script_path], True),
+        # Re-enable the label in case a prior run left it disabled. Idempotent.
+        (["launchctl", "enable", f"{domain}/{_SERVICE_LABEL}"], True),
+        # Unload any previous copy first so re-installing is clean. Ok to fail
+        # when nothing is loaded yet.
+        (["launchctl", "bootout", domain, plist_path], True),
+        # The one that must succeed: load + start the service.
+        (["launchctl", "bootstrap", domain, plist_path], False),
+    ]
+    return _InstallPlan(files=[(plist_path, plist, 0o600)], commands=commands)
+
+
+def _linux_install_plan(
+    python_exe: str, script_path: str, key: str, url: str, home: str
+) -> _InstallPlan:
+    unit_path = f"{home}/.config/systemd/user/{_LINUX_UNIT_NAME}"
+    unit = (
+        "[Unit]\n"
+        "Description=Agent Ludum connector\n"
+        "After=network-online.target\n"
+        "Wants=network-online.target\n"
+        "\n"
+        "[Service]\n"
+        f"ExecStart={python_exe} {script_path} --key {key} --url {url}\n"
+        "Restart=on-failure\n"
+        "RestartSec=5\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=default.target\n"
+    )
+    commands: list[tuple[list[str], bool]] = [
+        (["systemctl", "--user", "daemon-reload"], False),
+        (["systemctl", "--user", "enable", "--now", _LINUX_UNIT_NAME], False),
+    ]
+    return _InstallPlan(files=[(unit_path, unit, 0o600)], commands=commands)
+
+
+def _windows_install_plan(
+    python_exe: str, script_path: str, key: str, url: str
+) -> _InstallPlan:
+    run = f'"{python_exe}" "{script_path}" --key {key} --url {url}'
+    commands: list[tuple[list[str], bool]] = [
+        (
+            ["schtasks", "/create", "/tn", _WINDOWS_TASK_NAME, "/tr", run,
+             "/sc", "onlogon", "/rl", "limited", "/f"],
+            False,
+        ),
+    ]
+    note = (
+        "Note: Windows Task Scheduler does not auto-restart an on-logon task if it "
+        "stops. If the connector dies, log back in or re-run it to restart."
+    )
+    return _InstallPlan(files=[], commands=commands, note=note)
+
+
+def _run_install_plan(plan: _InstallPlan) -> None:
+    """Write the plan's files (secure perms) then run its commands in order."""
+    for path, content, mode in plan.files:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        os.chmod(target, mode)
+    for argv, allow_fail in plan.commands:
+        proc = subprocess.run(argv, capture_output=True, text=True)
+        if proc.returncode != 0 and not allow_fail:
+            raise RuntimeError(
+                f"`{' '.join(argv)}` failed (exit {proc.returncode}): "
+                f"{proc.stderr.strip() or proc.stdout.strip()}"
+            )
+
+
+def _install_service(key: str, url: str) -> int:
+    """Install the connector as a login-persistent background service, then exit.
+
+    One command per OS — the AI assistant runs this instead of improvising the
+    most error-prone, OS-specific part (daemonizing + macOS security xattrs).
+    """
+    system = platform.system()
+    python_exe = sys.executable
+    script_path = str(Path(__file__).resolve())
+    home = str(Path.home())
+    if system == "Darwin":
+        plan = _macos_install_plan(python_exe, script_path, key, url, home, os.getuid())
+    elif system == "Linux":
+        plan = _linux_install_plan(python_exe, script_path, key, url, home)
+    elif system == "Windows":
+        plan = _windows_install_plan(python_exe, script_path, key, url)
+    else:
+        print(
+            f"[agentludum-connector] --install is not supported on {system!r}. Run the "
+            f"connector directly instead: python3 {script_path} --key {key} --url {url}",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        _run_install_plan(plan)
+    except (RuntimeError, OSError) as exc:
+        print(f"[agentludum-connector] install failed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        "[agentludum-connector] installed as a background service that starts on "
+        "login and restarts if it stops. It is running now."
+    )
+    if plan.note:
+        print(plan.note)
+    return 0
+
+
+def _acquire_singleton_lock(key: str):
+    """Stop a second connector with the SAME key from running on this machine.
+
+    Prevents the accidental "foreground copy + service copy" duplicate. Keyed by
+    the connection key so distinct connections can still run side by side. POSIX
+    only (flock); a no-op elsewhere. Returns the held handle (keep it alive) or
+    None. Exits 0 if another instance already holds the lock.
+    """
+    if os.name != "posix":
+        return None
+    import fcntl
+
+    lock_dir = Path.home() / ".agentludum"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    handle = open(lock_dir / f"connector-{key[-8:]}.lock", "w", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(
+            "[agentludum-connector] another connector is already running for this "
+            "key on this machine; exiting.",
+            file=sys.stderr,
+        )
+        sys.exit(0)
+    return handle
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Chained connector runner for Hoard-Hurt-Help (auto-selects the agent provider)"
@@ -660,7 +853,18 @@ def main() -> None:
     ap.add_argument(
         "--model", default=None, help="Override the model from the turn payload.",
     )
+    ap.add_argument(
+        "--install", action="store_true",
+        help="Install as a background service that starts on login, then exit.",
+    )
     args = ap.parse_args()
+
+    if args.install:
+        sys.exit(_install_service(args.key, args.url))
+
+    # Hold a per-key singleton lock for the whole run so a stray second copy
+    # can't double-poll. Kept in a local so the handle (and lock) outlive setup.
+    _singleton_lock = _acquire_singleton_lock(args.key)
 
     base = args.url.rstrip("/")
     headers = {"X-Connection-Key": args.key}

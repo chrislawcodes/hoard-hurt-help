@@ -97,6 +97,7 @@ async def test_connections_page_shows_inline_setup_instructions(reset_db) -> Non
     assert "Paste this to your AI assistant:" in body
     assert "curl -fsSL" in body
     assert "/setup-files/agentludum_connector.py" in body
-    assert "This setup uses the login I already have." in body
-    assert "X-Connection-Key" in body
-    assert "Keep one session per match" in body
+    # The one-command service install is the recommended path.
+    assert "--install" in body
+    assert "single standalone script" in body
+    assert "background service" in body
