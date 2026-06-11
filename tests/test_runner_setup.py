@@ -101,3 +101,6 @@ async def test_connections_page_shows_inline_setup_instructions(reset_db) -> Non
     assert "--install" in body
     assert "single standalone script" in body
     assert "background service" in body
+    # macOS shows a "Background Items Added" notice on install; warn the operator
+    # it's expected so they don't think something went wrong.
+    assert "Background Items Added" in body
