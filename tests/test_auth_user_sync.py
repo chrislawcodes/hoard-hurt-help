@@ -85,6 +85,26 @@ async def test_refreshes_email_before_role_seeding(
 
 
 @pytest.mark.asyncio
+async def test_email_refresh_skips_on_unique_collision(
+    session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Another row already holds the address this login would refresh to.
+    session.add(User(google_sub="g-other", email="taken@example.com"))
+    session.add(User(google_sub="g-1", email="old@example.com"))
+    await session.commit()
+
+    monkeypatch.setattr(settings, "platform_admin_emails", "taken@example.com")
+
+    # Must not raise on the unique-constraint clash; keeps the stored email but
+    # still seeds the role from the live login email.
+    user = await sync_google_user(session, _info(email="taken@example.com"))
+    await session.commit()
+    assert user.google_sub == "g-1"
+    assert user.email == "old@example.com"  # refresh skipped, not a 500
+    assert user.role == UserRole.ADMIN  # role still seeded from the live email
+
+
+@pytest.mark.asyncio
 async def test_fills_missing_names_on_existing_user(session) -> None:
     # A row created before we captured names (e.g. pre-migration).
     session.add(User(google_sub="g-1", email="a@example.com", name="Ada Lovelace"))
