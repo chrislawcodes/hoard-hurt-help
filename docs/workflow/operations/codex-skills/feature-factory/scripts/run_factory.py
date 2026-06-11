@@ -239,7 +239,15 @@ def build_parser() -> argparse.ArgumentParser:
     checkpoint_parser.add_argument("--max-total-chars", type=int, default=250000)
     checkpoint_parser.add_argument("--gemini-timeout-seconds", type=int, default=120)
     checkpoint_parser.add_argument("--gemini-retries", type=int, default=1)
-    checkpoint_parser.add_argument("--repair-timeout-seconds", type=int, default=300)
+    # Codex backstop ceiling + idle-watchdog window (parity with --gemini-timeout-seconds).
+    # The idle watchdog is the real liveness control; the ceiling only catches an
+    # "active but never converging" run. See codex_stream_runner.run_with_idle_watchdog.
+    checkpoint_parser.add_argument("--codex-timeout-seconds", type=int, default=540)
+    checkpoint_parser.add_argument("--codex-idle-timeout-seconds", type=int, default=90)
+    # Outer repair wrapper must contain a long Codex review (ceiling 540 + 30 = 570)
+    # plus a Gemini pass (120 + 30 = 150); raised 300 -> 780 so the backstop ceiling
+    # is the inner watchdog, not this wrapper killing a healthy long plan review.
+    checkpoint_parser.add_argument("--repair-timeout-seconds", type=int, default=780)
     checkpoint_parser.add_argument("--allow-large-diff-rerun", action="store_true")
     checkpoint_parser.add_argument("--fallback", action="store_true")
     checkpoint_parser.add_argument("--json", action="store_true")
