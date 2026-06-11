@@ -168,6 +168,28 @@ async def test_legacy_viewer_falls_back_to_submission_message(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_live_fragment_carries_replay_data(client, reset_db):
+    """The SSE-refreshed live fragment must embed fresh replay JSON.
+
+    The robot-circle animation is rendered once at page load and lives outside
+    the live region, so it can only learn about new turns from the #rc-data-live
+    blob each /live swap brings. Without it, an open page freezes the replay at
+    the turn count it loaded with (the bug this guards against).
+    """
+    import json
+
+    await _seed(reset_db, GameState.ACTIVE)
+    await _seed_two_phase_turn(reset_db)
+    r = await client.get("/games/hoard-hurt-help/matches/G_001/live")
+    assert r.status_code == 200
+    assert 'id="rc-data-live"' in r.text
+    start = r.text.index('id="rc-data-live"')
+    blob = r.text[r.text.index(">", start) + 1 : r.text.index("</script>", start)]
+    data = json.loads(blob)
+    assert [(t["round"], t["turn"]) for t in data["turns"]] == [(1, 1)]
+
+
+@pytest.mark.asyncio
 async def test_spectator_state_no_prompts(client, reset_db):
     await _seed(reset_db, GameState.ACTIVE)
     r = await client.get("/api/spectator/games/G_001/state")

@@ -213,6 +213,11 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         "game_theme": _game_theme(g),
         "scoreboard": scoreboard,
         "history": history,
+        # The replay's turn data. Built here (not just in the full-page route) so
+        # the live fragment carries fresh turns too — that's what lets an
+        # already-open page extend the animation as new turns resolve, instead of
+        # staying frozen at the turn count present when the page first loaded.
+        "rc_data": _build_rc_data(scoreboard, history),
         "rounds": rounds,
         "max_played_round": max_played_round,
         "winner_agent_id": winner_agent_id,
@@ -233,7 +238,6 @@ async def game_viewer(
     if redirect := _redirect_if_game_slug_mismatch(match, game):
         return redirect
     ctx = await _game_view_context(request, db, match)
-    ctx["rc_data"] = _build_rc_data(ctx["scoreboard"], ctx["history"])
     return templates.TemplateResponse(request, "game.html", ctx)
 
 

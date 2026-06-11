@@ -2,6 +2,13 @@
     {% include "fragments/game_status.html" %}
 </div>
 
+{# Fresh replay data, refreshed on every SSE swap. The robot-circle animation
+   above is rendered once at page load and lives outside this live region, so its
+   own #rc-data never updates. The page script reads this blob after each swap and
+   extends the animation's turn list — that's what lets an open page advance past
+   the turn count it loaded with, instead of freezing. #}
+{% if rc_data %}<script type="application/json" id="rc-data-live">{{ rc_data | safe }}</script>{% endif %}
+
 {# One feed, full width. The standings rail lives in the hero row above (the
    robot-circle viewer's live JS rail); the old static scoreboard + the
    animation's mini "Turn summary" were removed to stop showing the game twice. #}

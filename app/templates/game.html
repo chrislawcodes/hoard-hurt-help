@@ -208,6 +208,27 @@
     }
 })();
 
+// Feed the replay new turns after each SSE swap. The robot-circle animation is
+// rendered once at page load and sits outside #live-region, so its own turn list
+// never refreshes. Each /live swap embeds fresh replay JSON (#rc-data-live); we
+// read it here and hand the turns to the animation via a bubbling `rc:extend`
+// event, so an already-open page keeps advancing instead of freezing at the turn
+// count it loaded with.
+(function () {
+    const region = document.getElementById('live-region');
+    if (!region) return;
+    function pushTurns() {
+        const el = document.getElementById('rc-data-live');
+        if (!el) return;
+        let data;
+        try { data = JSON.parse(el.textContent); }
+        catch (e) { return; }  // malformed blob: skip this swap, the next one heals it
+        if (!data || !Array.isArray(data.turns)) return;
+        document.dispatchEvent(new CustomEvent('rc:extend', { detail: { turns: data.turns } }));
+    }
+    region.addEventListener('htmx:afterSwap', pushTurns);
+})();
+
 // Broadcast booth coordinator. The robot-circle animation is the single
 // playhead; it writes data-rc-seq on #live-region and dispatches `rc:turn`.
 // The narration dock (#now-strip) is the story source that follows that
