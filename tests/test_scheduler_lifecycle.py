@@ -194,20 +194,30 @@ async def test_crashed_game_loop_is_logged(monkeypatch):
     # task exception — that silent swallowing is what froze G_0012 with no log.
     reg = scheduler.SchedulerRegistry()
     logged: list[str] = []
+    incidents: list[dict] = []
 
     async def boom(match_id: str) -> None:
         raise RuntimeError("kaboom")
 
-    def record_error(msg: str, *args, **kwargs) -> None:
+    def record_log(level, msg, *args, **kwargs) -> None:
         logged.append(msg % args if args else msg)
 
+    async def fake_incident(**kwargs) -> None:
+        incidents.append(kwargs)
+
     monkeypatch.setattr(scheduler, "_run_game", boom)
-    monkeypatch.setattr(scheduler.logger, "error", record_error)
+    monkeypatch.setattr(scheduler.logger, "log", record_log)
+    monkeypatch.setattr(scheduler, "record_background_incident", fake_incident)
     reg.start("G_X")
     task = reg._tasks["G_X"]
     with pytest.raises(RuntimeError):
         await task
+    # Surfaced as a greppable ops line...
     assert any("crashed" in message for message in logged)
+    # ...and persisted as a queryable incident keyed by match_id.
+    assert len(incidents) == 1
+    assert incidents[0]["match_id"] == "G_X"
+    assert incidents[0]["stage"] == "turn_loop"
 
 
 # --- read-path reconciliation (lobby self-heal) ---

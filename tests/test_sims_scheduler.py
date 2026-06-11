@@ -204,3 +204,44 @@ async def test_bot_targeted_move_records_internal_agent_id(db, monkeypatch):
     assert actor_sub.action == "HURT"
     # The buggy code stored None here (seat name never matched an integer FK).
     assert actor_sub.target_player_id == target.id
+
+
+@pytest.mark.asyncio
+async def test_turn_loop_crash_persists_incident(db, monkeypatch):
+    """A crashed turn loop must leave a queryable incident row.
+
+    Background loop tasks have no HTTP request, so before this their crashes
+    never reached request_incidents and a frozen match looked silent in the DB.
+    _run_game_guarded now records an incident keyed by match_id plus the
+    round/turn it died on.
+    """
+    from app.models.request_incident import RequestIncident
+
+    game, _players = await _seed_sim_game(db)
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("synthetic turn-loop crash")
+
+    # Make the very first bot phase blow up the loop.
+    monkeypatch.setattr(scheduler, "auto_submit_bot_phase", boom)
+
+    with pytest.raises(RuntimeError, match="synthetic turn-loop crash"):
+        await scheduler._run_game_guarded(game.id)
+
+    async with scheduler.SessionLocal() as s:
+        incidents = (
+            await s.execute(
+                select(RequestIncident).where(RequestIncident.match_id == game.id)
+            )
+        ).scalars().all()
+
+    assert len(incidents) == 1
+    incident = incidents[0]
+    assert incident.error_type == "RuntimeError"
+    assert "synthetic turn-loop crash" in incident.error_message
+    assert incident.stage == "turn_loop"
+    assert incident.method == "TASK"
+    assert incident.path == "scheduler:_run_game"
+    # The round/turn the loop died on is captured for debugging.
+    assert '"round": 1' in (incident.context_json or "")
+    assert "Traceback" in incident.stacktrace
