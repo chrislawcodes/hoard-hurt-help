@@ -1,352 +1,184 @@
-diff --git a/app/engine/arena.py b/app/engine/arena.py
-index a55d898..6f3b8d4 100644
---- a/app/engine/arena.py
-+++ b/app/engine/arena.py
-@@ -21,8 +21,8 @@ from sqlalchemy import func, select
- from sqlalchemy.ext.asyncio import AsyncSession
- 
- from app.engine.bot_presets import BOT_PRESETS, allocate_default_bot_names, bot_presets
-+from app.engine.match_creation import create_match
- from app.engine.sims.seating import SimSeatingError, add_bots_to_game
--from app.engine.tokens import generate_match_id
- from app.models.agent import Agent, AgentKind
- from app.models.match import GameState, Match, MatchKind
- from app.models.player import Player
-@@ -86,23 +86,6 @@ def _choose_bot_seats(
- 
- _choose_sim_seats = _choose_bot_seats
- 
--
--async def _next_match_id(db: AsyncSession) -> str:
--    existing_ids = (await db.execute(select(Match.id))).scalars().all()
--
--    def _numeric_suffix(match_id: str) -> int | None:
--        parts = match_id.split("_", 1)
--        if len(parts) == 2 and parts[1].isdigit():
--            return int(parts[1])
--        return None
--
--    n = max(
--        (s for x in existing_ids if x.startswith("M_") and (s := _numeric_suffix(x)) is not None),
--        default=0,
--    ) + 1
--    return generate_match_id(n)
--
--
- def _auto_match_name(boundary: datetime) -> str:
-     """Pick a name from _AUTO_MATCH_NAMES keyed to the boundary's 30-min slot."""
-     slot = boundary.hour * 2 + boundary.minute // 30
-@@ -164,21 +147,21 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
-         logger.warning("No Sim presets available — Practice Arena not created.")
-         return
- 
--    match_id = await _next_match_id(db)
-     far_future = datetime.now(timezone.utc) + timedelta(days=365)
--    arena = Match(
--        id=match_id,
-+    arena = await create_match(
-+        db,
-+        game="hoard-hurt-help",
-         name=PRACTICE_ARENA_NAME,
--        state=GameState.REGISTERING,
-         scheduled_start=far_future,
-         min_players=1,
-         max_players=PRACTICE_ARENA_MAX_PLAYERS,
-+        per_turn_deadline_seconds=60,
-         total_rounds=PRACTICE_ARENA_TOTAL_ROUNDS,
-         turns_per_round=PRACTICE_ARENA_TURNS_PER_ROUND,
-+        state=GameState.REGISTERING,
-         match_kind=MatchKind.PRACTICE_ARENA.value,
-+        commit=False,
-     )
--    db.add(arena)
--    await db.flush()
- 
-     seats = _choose_bot_seats(PRACTICE_ARENA_BOT_COUNT)
-     try:
-@@ -189,12 +172,12 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
-             logging.ERROR,
-             "practice_arena_seating_failed",
-             f"Failed to seat bots in Practice Arena: {exc}",
--            match_id=match_id,
-+            match_id=arena.id,
-         )
-         await db.rollback()
-         return
- 
--    logger.info("Created Practice Arena %s with %d bot seats.", match_id, len(seats))
-+    logger.info("Created Practice Arena %s with %d bot seats.", arena.id, len(seats))
- 
- 
- async def ensure_auto_match(db: AsyncSession) -> None:
-@@ -213,22 +196,23 @@ async def ensure_auto_match(db: AsyncSession) -> None:
-         return
- 
-     boundary = _next_boundary()
--    match_id = await _next_match_id(db)
-     name = _auto_match_name(boundary)
--    auto = Match(
--        id=match_id,
-+    auto = await create_match(
-+        db,
-+        game="hoard-hurt-help",
-         name=name,
--        state=GameState.SCHEDULED,
-         scheduled_start=boundary,
-         min_players=1,
-         max_players=AUTO_MATCH_MAX_PLAYERS,
-+        per_turn_deadline_seconds=60,
-         total_rounds=AUTO_MATCH_TOTAL_ROUNDS,
-         turns_per_round=AUTO_MATCH_TURNS_PER_ROUND,
-+        state=GameState.SCHEDULED,
-         match_kind=MatchKind.AUTO_SCHEDULED.value,
-+        commit=False,
-     )
--    db.add(auto)
-     await db.commit()
--    logger.info("Created auto-match %s scheduled at %s.", match_id, boundary.isoformat())
-+    logger.info("Created auto-match %s scheduled at %s.", auto.id, boundary.isoformat())
- 
- 
- async def fill_and_start_auto_matches(db: AsyncSession) -> None:
-## New file: app/engine/match_creation.py
+## New file: app/engine/match_deletion.py
 
-"""Shared match creation helper for human-facing and automated creators."""
+"""Shared match teardown: delete cascade and cancel transition."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.tokens import generate_match_id
-from app.games import known_types
-from app.models.match import GameState, Match, MatchKind
+from app.engine.scheduler import registry
+from app.models.match import GameState, Match
+from app.models.player import Player
+from app.models.request_incident import RequestIncident
+from app.models.turn import Turn, TurnMessage, TurnSubmission
 
 
-def _numeric_suffix(match_id: str) -> int | None:
-    parts = match_id.split("_", 1)
-    if len(parts) == 2 and parts[1].isdigit():
-        return int(parts[1])
-    return None
+async def cancel_match(db: AsyncSession, match: Match) -> None:
+    """Cancel a match: stop its scheduler task and mark it CANCELLED.
+
+    Preserves all match data (unlike ``delete_match``). The caller owns the
+    allowed-state policy — this only performs the transition. ``registry.stop``
+    is a no-op when the match has no running task (e.g. a pre-start match).
+    """
+    registry.stop(match.id)
+    match.state = GameState.CANCELLED
+    match.cancelled_at = datetime.now(timezone.utc)
+    await db.commit()
 
 
-async def allocate_match_id(db: AsyncSession) -> str:
-    """Return the next available M_#### id from the current match rows."""
-    existing_ids = (await db.execute(select(Match.id))).scalars().all()
-    n = 0
-    for match_id in existing_ids:
-        if not match_id.startswith("M_"):
-            continue
-        suffix = _numeric_suffix(match_id)
-        if suffix is not None and suffix > n:
-            n = suffix
-    return generate_match_id(n + 1)
-
-
-async def create_match(
-    db: AsyncSession,
-    *,
-    game: str,
-    name: str,
-    scheduled_start: datetime,
-    min_players: int,
-    max_players: int,
-    per_turn_deadline_seconds: int,
-    total_rounds: int,
-    turns_per_round: int,
-    state: GameState = GameState.REGISTERING,
-    created_by_user_id: int | None = None,
-    match_kind: str = MatchKind.MANUAL.value,
-    commit: bool = True,
-    max_attempts: int = 3,
-) -> Match:
-    """Create a match and retry on primary-key collision."""
-    if game not in known_types():
-        raise ValueError(f"Unknown game type {game!r}.")
-    if scheduled_start.tzinfo is None:
-        scheduled_start = scheduled_start.replace(tzinfo=timezone.utc)
-    if scheduled_start <= datetime.now(timezone.utc):
-        raise ValueError("scheduled_start must be in the future.")
-    if not (1 <= min_players <= 20) or not (1 <= max_players <= 20):
-        raise ValueError("Player counts must be 1 to 20.")
-    if min_players > max_players:
-        raise ValueError("Min players cannot be greater than max players.")
-    if not (1 <= total_rounds <= 20):
-        raise ValueError("Total rounds must be 1 to 20.")
-    if not (1 <= turns_per_round <= 20):
-        raise ValueError("Turns per round must be 1 to 20.")
-
-    for attempt in range(max_attempts):
-        match_id = await allocate_match_id(db)
-        match = Match(
-            id=match_id,
-            game=game,
-            name=name,
-            state=state,
-            scheduled_start=scheduled_start,
-            min_players=min_players,
-            max_players=max_players,
-            per_turn_deadline_seconds=per_turn_deadline_seconds,
-            total_rounds=total_rounds,
-            turns_per_round=turns_per_round,
-            created_by_user_id=created_by_user_id,
-            match_kind=match_kind,
-        )
-        db.add(match)
-        try:
-            await db.flush()
-            if commit:
-                await db.commit()
-            return match
-        except IntegrityError:
-            await db.rollback()
-            if attempt + 1 == max_attempts:
-                raise
-
-    raise RuntimeError("match creation retry loop exhausted")
+async def delete_match(db: AsyncSession, match_id: str) -> None:
+    """Stop a match and delete dependent rows in the safe order."""
+    # Stop the scheduler task before touching rows. The asyncio task is
+    # cooperative, so it may write one more TurnSubmission before the
+    # CancelledError fires. The second pass below (by player_id) catches that.
+    registry.stop(match_id)
+    turn_ids = select(Turn.id).where(Turn.match_id == match_id)
+    await db.execute(delete(TurnSubmission).where(TurnSubmission.turn_id.in_(turn_ids)))
+    await db.execute(delete(TurnMessage).where(TurnMessage.turn_id.in_(turn_ids)))
+    await db.execute(delete(Turn).where(Turn.match_id == match_id))
+    # Second pass: catch any submissions written by the scheduler in the
+    # cancellation window before it yielded. Also clears winner_player_id so
+    # the Match->Player FK doesn't block the Player delete.
+    player_ids = select(Player.id).where(Player.match_id == match_id)
+    await db.execute(delete(TurnSubmission).where(TurnSubmission.player_id.in_(player_ids)))
+    await db.execute(delete(TurnMessage).where(TurnMessage.player_id.in_(player_ids)))
+    await db.execute(
+        update(Match).where(Match.id == match_id).values(winner_player_id=None)
+    )
+    await db.execute(delete(Player).where(Player.match_id == match_id))
+    await db.execute(delete(RequestIncident).where(RequestIncident.match_id == match_id))
+    await db.execute(delete(Match).where(Match.id == match_id))
+    await db.commit()
 
 diff --git a/app/routes/admin_api.py b/app/routes/admin_api.py
-index dff643a..0fa30f1 100644
+index 0fa30f1..9cba43b 100644
 --- a/app/routes/admin_api.py
 +++ b/app/routes/admin_api.py
-@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
- from sqlalchemy import select
+@@ -12,6 +12,7 @@ from sqlalchemy import select
  
  from app.deps import DbSession, require_platform_admin
--from app.engine.tokens import generate_match_id
-+from app.engine.match_creation import create_match
+ from app.engine.match_creation import create_match
++from app.engine.match_deletion import cancel_match
  from app.models.match import Match, GameState
  from app.models.agent_version import AgentVersion
  from app.models.player import Player
-@@ -27,27 +27,23 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
- async def create_game(
-     body: CreateGameRequest,
-     db: DbSession,
--    _: Annotated[User, Depends(require_platform_admin)],
-+    user: Annotated[User, Depends(require_platform_admin)],
- ) -> GameRecord:
-     if body.scheduled_start <= datetime.now(timezone.utc):
-         raise HTTPException(400, detail="scheduled_start must be in the future.")
--    # Allocate the next M_NNNN id.
--    existing_ids = (await db.execute(select(Match.id))).scalars().all()
--    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
--    g = Match(
--        id=generate_match_id(n),
-+    g = await create_match(
-+        db,
-+        game="hoard-hurt-help",
-         name=body.name,
--        state=GameState.REGISTERING,
-         scheduled_start=body.scheduled_start,
-         min_players=body.min_players,
-         max_players=body.max_players,
-         per_turn_deadline_seconds=body.per_turn_deadline_seconds,
-         total_rounds=body.total_rounds,
-         turns_per_round=body.turns_per_round,
-+        state=GameState.REGISTERING,
-+        created_by_user_id=user.id,
-     )
--    db.add(g)
+@@ -75,9 +76,7 @@ async def cancel_game(
+         raise HTTPException(409, detail="Match already started.")
+     if g.state in (GameState.COMPLETED, GameState.CANCELLED):
+         raise HTTPException(409, detail="Match already ended.")
+-    g.state = GameState.CANCELLED
+-    g.cancelled_at = datetime.now(timezone.utc)
 -    await db.commit()
--    await db.refresh(g)
-     return GameRecord(
-         id=g.id,
-         name=g.name,
++    await cancel_match(db, g)
+     return CancelResponse()
+ 
+ 
+diff --git a/app/routes/admin_web.py b/app/routes/admin_web.py
+index 7a9374c..d41e69a 100644
+--- a/app/routes/admin_web.py
++++ b/app/routes/admin_web.py
+@@ -4,15 +4,13 @@ from typing import Annotated
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
+ from fastapi.responses import HTMLResponse, RedirectResponse
+-from sqlalchemy import delete, select, update
++from sqlalchemy import select
+ 
+ from app.deps import DbSession, require_platform_admin
+-from app.engine.scheduler import registry
++from app.engine.match_deletion import delete_match
+ from app.games import known_types
+ from app.models.match import Match, GameState
+-from app.models.player import Player
+ from app.models.request_incident import RequestIncident
+-from app.models.turn import Turn, TurnMessage, TurnSubmission
+ from app.models.user import User
+ from app.routes.web_support import _seated_player_count
+ from app.templating import templates  # shared instance with custom filters
+@@ -68,30 +66,11 @@ async def admin_delete_match(
+     db: DbSession,
+     _: Annotated[User, Depends(require_platform_admin)],
+ ):
+-    match = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
+-    if match is None:
++    if (
++        await db.execute(select(Match).where(Match.id == match_id))
++    ).scalar_one_or_none() is None:
+         raise HTTPException(404, detail=f"Match {match_id} not found.")
+-    # Stop the scheduler task before touching rows. The asyncio task is
+-    # cooperative, so it may write one more TurnSubmission before the
+-    # CancelledError fires. The second pass below (by player_id) catches that.
+-    registry.stop(match_id)
+-    turn_ids = select(Turn.id).where(Turn.match_id == match_id)
+-    await db.execute(delete(TurnSubmission).where(TurnSubmission.turn_id.in_(turn_ids)))
+-    await db.execute(delete(TurnMessage).where(TurnMessage.turn_id.in_(turn_ids)))
+-    await db.execute(delete(Turn).where(Turn.match_id == match_id))
+-    # Second pass: catch any submissions written by the scheduler in the
+-    # cancellation window before it yielded. Also clears winner_player_id so
+-    # the Match→Player FK doesn't block the Player delete.
+-    player_ids = select(Player.id).where(Player.match_id == match_id)
+-    await db.execute(delete(TurnSubmission).where(TurnSubmission.player_id.in_(player_ids)))
+-    await db.execute(delete(TurnMessage).where(TurnMessage.player_id.in_(player_ids)))
+-    await db.execute(
+-        update(Match).where(Match.id == match_id).values(winner_player_id=None)
+-    )
+-    await db.execute(delete(Player).where(Player.match_id == match_id))
+-    await db.execute(delete(RequestIncident).where(RequestIncident.match_id == match_id))
+-    await db.execute(delete(Match).where(Match.id == match_id))
+-    await db.commit()
++    await delete_match(db, match_id)
+     return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
+ 
+ 
 diff --git a/app/routes/game_admin_api.py b/app/routes/game_admin_api.py
-index f61cbab..64d8a81 100644
+index 64d8a81..5751156 100644
 --- a/app/routes/game_admin_api.py
 +++ b/app/routes/game_admin_api.py
-@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
- from sqlalchemy import select
+@@ -12,6 +12,7 @@ from sqlalchemy import select
  
  from app.deps import DbSession, require_game_admin
--from app.engine.tokens import generate_match_id
-+from app.engine.match_creation import create_match
+ from app.engine.match_creation import create_match
++from app.engine.match_deletion import cancel_match
  from app.games import known_types
  from app.models.agent_version import AgentVersion
  from app.models.match import Match, GameState
-@@ -35,7 +35,7 @@ async def create_game(
-     game: Annotated[str, Path()],
-     body: CreateGameRequest,
-     db: DbSession,
--    _: Annotated[User, Depends(require_game_admin)],
-+    user: Annotated[User, Depends(require_game_admin)],
- ) -> GameRecord:
-     if game not in known_types():
-         raise HTTPException(
-@@ -43,23 +43,19 @@ async def create_game(
-         )
-     if body.scheduled_start <= datetime.now(timezone.utc):
-         raise HTTPException(400, detail="scheduled_start must be in the future.")
--    existing_ids = (await db.execute(select(Match.id))).scalars().all()
--    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
--    g = Match(
--        id=generate_match_id(n),
-+    g = await create_match(
-+        db,
-         game=game,
-         name=body.name,
--        state=GameState.REGISTERING,
-         scheduled_start=body.scheduled_start,
-         min_players=body.min_players,
-         max_players=body.max_players,
-         per_turn_deadline_seconds=body.per_turn_deadline_seconds,
-         total_rounds=body.total_rounds,
-         turns_per_round=body.turns_per_round,
-+        state=GameState.REGISTERING,
-+        created_by_user_id=user.id,
-     )
--    db.add(g)
+@@ -85,9 +86,7 @@ async def cancel_game(
+         raise HTTPException(409, detail="Match already started.")
+     if g.state in (GameState.COMPLETED, GameState.CANCELLED):
+         raise HTTPException(409, detail="Match already ended.")
+-    g.state = GameState.CANCELLED
+-    g.cancelled_at = datetime.now(timezone.utc)
 -    await db.commit()
--    await db.refresh(g)
-     return GameRecord(
-         id=g.id,
-         name=g.name,
++    await cancel_match(db, g)
+     return CancelResponse()
+ 
+ 
 diff --git a/app/routes/game_admin_web.py b/app/routes/game_admin_web.py
-index fa7ad4b..0a121c9 100644
+index 0a121c9..88fb461 100644
 --- a/app/routes/game_admin_web.py
 +++ b/app/routes/game_admin_web.py
-@@ -9,12 +9,12 @@ from sqlalchemy import select
- 
+@@ -10,7 +10,8 @@ from sqlalchemy import select
  from app.deps import DbSession, require_game_admin
  from app.engine.bot_presets import bot_preset_by_id
-+from app.engine.match_creation import create_match
- from app.engine.scheduler import registry, start_game
+ from app.engine.match_creation import create_match
+-from app.engine.scheduler import registry, start_game
++from app.engine.match_deletion import cancel_match
++from app.engine.scheduler import start_game
  from app.engine.sims import validate_bot_profile_fields
  from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
  from app.engine.sims.seating import SimSeatingError, add_sims_to_game
- from app.engine.state_machine import TransitionError
--from app.engine.tokens import generate_match_id
- from app.games import known_types
- from app.models.agent import Agent, AgentKind
- from app.models.agent_version import AgentVersion
-@@ -138,22 +138,19 @@ async def create_match_submit(
-     if not (3 <= turns_per_round <= 20):
-         return _error("Turns per round must be 3 to 20.")
- 
--    existing_ids = (await db.execute(select(Match.id))).scalars().all()
--    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
--    m = Match(
--        id=generate_match_id(n),
-+    await create_match(
-+        db,
-         game=game,
-         name=name,
--        state=GameState.REGISTERING,
-         scheduled_start=when,
-         min_players=min_players,
-         max_players=max_players,
-         per_turn_deadline_seconds=per_turn_deadline_seconds,
-         total_rounds=total_rounds,
-         turns_per_round=turns_per_round,
-+        state=GameState.REGISTERING,
-+        created_by_user_id=user.id,
-     )
--    db.add(m)
+@@ -430,10 +431,7 @@ async def game_admin_cancel_match(
+         raise HTTPException(409, detail="Match already started.")
+     if g.state in (GameState.COMPLETED, GameState.CANCELLED):
+         raise HTTPException(409, detail="Match already ended.")
+-    registry.stop(match_id)
+-    g.state = GameState.CANCELLED
+-    g.cancelled_at = datetime.now(timezone.utc)
 -    await db.commit()
++    await cancel_match(db, g)
      return RedirectResponse(
-         url=f"/games/{game}/admin", status_code=status.HTTP_303_SEE_OTHER
-     )
+         url=f"/games/{game}/admin",
+         status_code=status.HTTP_303_SEE_OTHER,
