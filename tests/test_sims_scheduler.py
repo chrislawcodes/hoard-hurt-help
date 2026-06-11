@@ -136,3 +136,71 @@ async def test_scheduler_auto_submits_sim_talk_and_actions(db, published):
         "turn_talked",
         "turn_opened",
     ]
+
+
+@pytest.mark.asyncio
+async def test_bot_targeted_move_records_internal_agent_id(db, monkeypatch):
+    """A bot HELP/HURT must store the target's internal player id, not its seat name.
+
+    Regression for the frozen-match bug: the bot path handed the public seat
+    name straight to record_submission, which resolves a move's target by the
+    integer Player.agent_id. On Postgres that raised
+    `operator does not exist: integer = character varying` and silently killed
+    the turn loop (the whole game froze); on SQLite it silently recorded
+    target_player_id=None. Either way the move was wrong. The fix translates
+    seat name -> agent_id before recording, like the real-agent API path.
+    """
+    from app.engine.sims import service
+    from app.engine.sims.types import SimActionDecision
+    from app.games import get as get_game_module
+
+    game, players = await _seed_sim_game(db)
+    actor, target = players[0], players[1]
+
+    def fake_decision(context, profile):
+        # Every bot HURTs some other seat, chosen by its public seat name.
+        other = next(a for a in context.all_agent_ids if a != context.your_agent_id)
+        return SimActionDecision(
+            intent="hurt_leader",
+            move={"action": "HURT", "target_id": other},
+            thinking="t",
+        )
+
+    monkeypatch.setattr(service, "choose_bot_action_decision", fake_decision)
+
+    async with scheduler.SessionLocal() as s:
+        fresh_game = (
+            await s.execute(select(Match).where(Match.id == game.id))
+        ).scalar_one()
+        turn = Turn(
+            match_id=game.id,
+            round=1,
+            turn=1,
+            turn_token="tok",
+            opened_at=datetime.now(timezone.utc),
+            deadline_at=datetime.now(timezone.utc),
+            phase="act",
+        )
+        s.add(turn)
+        await s.commit()
+        await s.refresh(turn)
+        module = get_game_module(fresh_game.game)
+        posted = await service.auto_submit_bot_phase(
+            s, fresh_game, turn, module, phase="act"
+        )
+        turn_id = turn.id
+
+    assert posted == len(players)
+
+    async with scheduler.SessionLocal() as s:
+        subs = (
+            await s.execute(
+                select(TurnSubmission).where(TurnSubmission.turn_id == turn_id)
+            )
+        ).scalars().all()
+
+    assert len(subs) == len(players)
+    actor_sub = next(x for x in subs if x.player_id == actor.id)
+    assert actor_sub.action == "HURT"
+    # The buggy code stored None here (seat name never matched an integer FK).
+    assert actor_sub.target_player_id == target.id
