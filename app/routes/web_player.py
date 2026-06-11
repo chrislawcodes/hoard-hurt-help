@@ -174,9 +174,24 @@ async def join_form(
         return redirect
 
     agents = await _load_user_agents(db, user.id)
+    # Agents already seated in this match can't join again — hide them so adding
+    # more (the admin multi-seat flow) only ever shows agents still available.
+    seated_agent_ids = set(
+        (
+            await db.execute(
+                select(Player.agent_id).where(
+                    Player.match_id == match.id, Player.left_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     joinable_agents = []
     for agent, version in agents:
         if agent.kind != AgentKind.AI:
+            continue
+        if agent.id in seated_agent_ids:
             continue
         provider = agent.provider
         covered = (
