@@ -15,6 +15,7 @@
 
 ## Recently Shipped
 
+- **Desktop wayfinding restored** — the shared nav now shows `Games` and `Leaderboard` inline on desktop again, while phones still collapse the same links into the hamburger/account menus. The marketing home's `How it works` override follows the same path.
 - **Unified Connections** — a connection is now one machine running the connector,
   not one AI-provider login. Per-connection provider toggles (`connection_providers`),
   agents detached from connections and carrying a stored `provider`, and dynamic

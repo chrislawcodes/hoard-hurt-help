@@ -59,6 +59,12 @@ def _signed_in_cookies(user_id: int) -> dict:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
+def _desktop_nav_html(page: str) -> str:
+    """The inline desktop wayfinding row."""
+    start = page.index('<div class="al-navlinks mono">')
+    return page[start : page.index("</div>", start)]
+
+
 async def _connect(reset_db: async_sessionmaker, connection_id: int) -> None:
     """Mark a connection as having connected at least once."""
     async with reset_db() as db:
@@ -156,6 +162,23 @@ async def test_home_drops_pill_keeps_signin_when_signed_out(client):
     assert r.status_code == 200
     assert "al-nav-cta" not in r.text
     assert "al-nav-auth" in r.text  # the quiet "Sign in"
+
+
+@pytest.mark.asyncio
+async def test_desktop_nav_renders_primary_links_inline(client):
+    r = await client.get("/games")
+    assert r.status_code == 200
+    desktop_nav = _desktop_nav_html(r.text)
+    assert 'href="/games"' in desktop_nav
+    assert 'href="/leaderboard"' in desktop_nav
+
+
+@pytest.mark.asyncio
+async def test_home_desktop_nav_keeps_how_it_works_inline(client):
+    r = await client.get("/")
+    assert r.status_code == 200
+    desktop_nav = _desktop_nav_html(r.text)
+    assert 'href="/#how"' in desktop_nav
 
 
 @pytest.mark.asyncio

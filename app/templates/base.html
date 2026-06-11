@@ -6,7 +6,7 @@
     <title>{% block title %}Agent Ludum{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     {% block head %}{% endblock %}
-    <link rel="stylesheet" href="/static/style.css?v=96">
+    <link rel="stylesheet" href="/static/style.css?v=97">
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/htmx-ext-sse.js" defer></script>
 </head>
@@ -27,15 +27,14 @@
        changes between games. Lives outside <main>, so a game's tint can't reach it. #}
     <nav class="al-nav">
         <div class="wrap al-nav-inner">
-            {# Wayfinding links. On desktop they sit inline on the right (see the
-               order rules in style.css). On a phone there is exactly ONE menu in
-               the bar's right corner: signed-in visitors get the account pill
-               (below), which carries these links too, so this <details> hides
-               entirely; signed-out visitors keep this <details> as that single
-               ☰ menu, with Sign in folded in. Native <details>, no JS framework.
-               "Games" is the door to the platform's content, shown on every
-               page. The marketing home overrides nav_links to add its learn
-               links (How it works). #}
+            {# Wayfinding links. Desktop shows them inline in the bar; phones
+               collapse them into the single ☰ menu in the right corner.
+               Signed-in visitors still get the same links inside the account
+               pill panel below, so the phone keeps exactly one menu. Native
+               <details>, no JS framework. "Games" is the door to the platform's
+               content, shown on every page. The marketing home overrides
+               nav_links to add its learn links (How it works). #}
+            <div class="al-navlinks mono">{{ self.nav_links() }}</div>
             <details class="al-nav-menu{% if user %} al-nav-menu-authed{% endif %}">
                 <summary class="al-nav-menu-btn" aria-label="Menu" aria-haspopup="menu">☰</summary>
                 <div class="al-nav-menu-panel">
