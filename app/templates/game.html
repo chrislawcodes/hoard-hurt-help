@@ -19,7 +19,7 @@
 {% if rc_data %}
 <div class="rc-layout">
     {% include "fragments/robot_circle_standings.html" %}
-    <div>{% include "fragments/robot_circle.html" %}</div>
+    <div>{% with rc_autoplay = true %}{% include "fragments/robot_circle.html" %}{% endwith %}</div>
 </div>
 {# Narration dock: the single story source during playback. The booth
    coordinator below fills it from the turn the animation is currently playing —

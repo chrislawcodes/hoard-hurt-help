@@ -41,6 +41,7 @@
 - Connection delete now soft-deletes the connection so the runner receives an explicit shutdown response on its next poll, then exits; deleted connections are hidden from the normal UI and counts.
 - Connection setup now uses a draft/setup page and only creates the real connection on first authenticated contact; the connection detail page hides agent lists behind `Agent Details` and keeps `Rotate Key`/pause/delete controls at the bottom.
 - Viewer mutual-help animation no longer draws the dashed connector line between paired agents.
+- Match viewer replay now autoplays by default, so spectators do not need to hit Play before the turns advance.
 - The `/me/agents/new` page now only shows the agent form when an active connection exists; otherwise it points users to `/me/connections`. Strategy presets are restored.
 
 ## Now Unblocked
@@ -51,6 +52,7 @@
 - Deleting a connection now acts as a real runner shutdown signal instead of a best-effort 401 on the next poll.
 - Connection onboarding can now safely wait for the provider's first live call before the real connection row exists.
 - New agent creation now uses the grouped model picker with provider-aware availability notes, and users without a machine are pointed at the connection setup page first.
+- Spectators watching a match can now let the replay run automatically instead of manually starting playback.
 
 ## Notes
 
