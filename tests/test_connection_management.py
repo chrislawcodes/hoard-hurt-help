@@ -263,17 +263,15 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
         user = await _make_user(db)
         await db.commit()
 
-    resp = await client.post(
+    resp = await client.get(
         "/me/connections",
         cookies=_signed_in_cookies(user.id),
-        data={"nickname": "My Machine"},
-        follow_redirects=True,
     )
     assert resp.status_code == 200
-    # Naming a machine lands back on the connections page, which shows the
-    # ready-to-run setup command inline (no provider picker, no second page).
-    assert "Set up a machine" in resp.text
-    assert "Name your machine" in resp.text
+    # The connections page shows the ready-to-run setup command inline (no provider
+    # picker, no second page) and mints the pending machine setup on load.
+    assert "Set up a machine connection" in resp.text
+    assert "Name this machine" in resp.text
     assert "Paste this to your AI assistant:" in resp.text
     assert "agentludum_connector.py" in resp.text
     assert "setup-files/agentludum_connector.py" in resp.text
@@ -330,8 +328,8 @@ async def test_connections_list_shows_inline_setup_and_no_provider_picker(
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
     # One unified setup prompt, inline, using the single connector download.
-    assert "Set up a machine" in resp.text
-    assert "Name your machine" in resp.text
+    assert "Set up a machine connection" in resp.text
+    assert "Name this machine" in resp.text
     assert "Paste this to your AI assistant:" in resp.text
     assert "setup-files/agentludum_connector.py" in resp.text
     # The old two-group, per-provider picker is gone.
@@ -359,7 +357,7 @@ async def test_connections_list_renders_existing_connection(
 
 
 @pytest.mark.asyncio
-async def test_naming_machine_reuses_one_setup_and_keeps_a_stable_key(
+async def test_naming_machine_autosaves_into_one_setup_and_keeps_a_stable_key(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
@@ -369,29 +367,28 @@ async def test_naming_machine_reuses_one_setup_and_keeps_a_stable_key(
     # Set the auth cookie on the client jar (like a browser) so the server's
     # session updates — which carry the one-time key — persist across requests.
     client.cookies.update(_signed_in_cookies(user.id))
-    first = await client.post(
-        "/me/connections",
-        data={"nickname": "My Machine"},
-        follow_redirects=True,
-    )
-    assert first.status_code == 200
-    first_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", first.text)
+    page = await client.get("/me/connections")
+    first_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", page.text)
     assert first_match is not None
     first_key = first_match.group(1)
 
-    second = await client.post(
-        "/me/connections",
-        data={"nickname": "My Machine (renamed)"},
-        follow_redirects=True,
-    )
-    assert second.status_code == 200
-    second_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", second.text)
-    assert second_match is not None
-    second_key = second_match.group(1)
+    # The name field auto-saves via the dedicated endpoint (no button, no reload)
+    # and returns a tiny "Saved" tick.
+    saved = await client.post("/me/connections/name", data={"nickname": "My Machine"})
+    assert saved.status_code == 200
+    assert "Saved" in saved.text
 
-    # Renaming reuses the one open setup and does NOT rotate the key the user may
-    # have already copied.
-    assert second_key == first_key
+    renamed = await client.post(
+        "/me/connections/name", data={"nickname": "My Machine (renamed)"}
+    )
+    assert renamed.status_code == 200
+
+    page2 = await client.get("/me/connections")
+    second_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", page2.text)
+    assert second_match is not None
+    # Auto-saving the name reuses the one open setup and never rotates the key the
+    # user may have already copied.
+    assert second_match.group(1) == first_key
 
     async with session_factory() as db:
         setups = (
@@ -405,7 +402,17 @@ async def test_naming_machine_reuses_one_setup_and_keeps_a_stable_key(
         assert setup.provider is None
         assert setup.completed_at is None
         assert setup.connection_id is None
-        assert setup.key_lookup == bot_key_lookup(second_key)
+
+    # Clearing the name blanks it (so the hostname default can take over) and the
+    # tick goes away.
+    cleared = await client.post("/me/connections/name", data={"nickname": "  "})
+    assert cleared.status_code == 200
+    assert cleared.text.strip() == ""
+    async with session_factory() as db:
+        setup = (
+            await db.execute(select(ConnectionSetup).where(ConnectionSetup.user_id == user.id))
+        ).scalar_one()
+        assert setup.nickname is None
 
 
 @pytest.mark.asyncio
@@ -431,7 +438,7 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
         cookies=_signed_in_cookies(user.id),
     )
     assert banner.status_code == 200
-    assert "Connection created. You can safely leave this page." in banner.text
+    assert "This machine is connected" in banner.text
 
     async with session_factory() as db:
         setup_row = (

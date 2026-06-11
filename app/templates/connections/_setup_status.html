@@ -1,12 +1,12 @@
 <div id="connection-setup-status" class="card" hx-get="/me/connections/setup/{{ setup.id }}/status" hx-trigger="every 5s" hx-swap="outerHTML">
-    <h3 style="margin-top:0;">Setup status</h3>
     {% if connection is not none %}
-        <p class="hint" style="margin-top:0;">Connection created. You can safely leave this page.</p>
+        <h3 style="margin-top:0;">This machine is connected ✓</h3>
+        <p class="hint" style="margin-top:0;">It's ready to play. You can close this page.</p>
         <p class="meta">
-            <a class="btn btn-primary" href="/me/connections/{{ connection.id }}">Open connection page →</a>
+            <a class="btn btn-primary" href="/me/connections/{{ connection.id }}">Manage this machine →</a>
         </p>
     {% else %}
-        <p class="hint" style="margin-top:0;">Waiting for the client to talk to the server. The connection will be created then.</p>
-        <p class="meta">This may take a few minutes.</p>
+        <h3 style="margin-top:0;">Waiting for this machine to connect…</h3>
+        <p class="hint" style="margin-top:0;">Run the command above on your machine. This page updates on its own the moment it connects — keep it open or come back later.</p>
     {% endif %}
 </div>
