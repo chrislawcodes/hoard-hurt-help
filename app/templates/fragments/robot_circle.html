@@ -22,6 +22,8 @@
 .rc-op-owner{opacity:.82;font-size:10px}
 .rc-mover{display:flex;flex-direction:column;align-items:center;gap:3px;will-change:transform}
 .rc-name{font-size:10px;color:var(--ink-soft,#5b6470);max-width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.rc-name-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-bot-tag{font-size:10px;padding:1px 6px;line-height:1}
 .rc-bot.lit .rc-name{color:var(--ink,#1a1d21);font-weight:700}
 
 .rc-body{transition:transform .3s ease;transform-origin:center}
@@ -347,10 +349,12 @@
 (function(){
   var DATA = JSON.parse(document.getElementById('rc-data').textContent);
   var AGENTS = DATA.agents || [];
+  var LABELS = DATA.labels || {};
+  var BOTS = DATA.bots || {};
   var OWNERS = DATA.owners || {};
-  // Taller rail rows only when there's an owner byline to show, so an all-Sim
-  // game keeps the compact layout.
-  var RAIL_ROW_H = Object.keys(OWNERS).length ? 60 : 52;
+  // Taller rail rows only when a bot badge/byline needs room, so human-only
+  // games keep the compact layout.
+  var RAIL_ROW_H = Object.keys(BOTS).length ? 60 : 52;
   var TURNS = DATA.turns || [];
   // Identity hues deliberately avoid the three action colours (amber --hoard,
   // green --help, red --hurt) so a bot's colour never reads as a move. Greens and
@@ -384,6 +388,12 @@
   }
   var colorOf={}, identOf={};
   AGENTS.forEach(function(id,i){ var it=rcIdentity(id,i); identOf[id]=it; colorOf[id]=it.color; });
+  function labelOf(id){ return LABELS[id] || id; }
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(ch){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
+    });
+  }
 
   // Effect colors follow the active theme (so strikes/locks read in dark + terminal).
   var THEME=getComputedStyle(document.documentElement);
@@ -454,13 +464,17 @@
     if(!railEl) return;  // standings component not on this page — skip the rail
     railEl.innerHTML='';
     AGENTS.forEach(function(id){
+      var label = labelOf(id);
+      var isBot = !!BOTS[id];
+      var owner = isBot ? OWNERS[id] : null;
       var li=document.createElement('li');
       li.className='rc-rail-row'; li.style.setProperty('--c', colorOf[id]);
       li.style.height=RAIL_ROW_H+'px';
-      var owner=OWNERS[id];
       li.innerHTML='<span class="rk">1</span>'
-        +'<span class="nm"><span class="nm-name" title="'+id+'">'+id+'</span>'
-        +(owner?'<span class="nm-owner">by @'+owner+'</span>':'')
+        +'<span class="nm"><span class="nm-name" title="'+esc(label)+'"><span class="nm-name-text">'+esc(label)+'</span>'
+        +(isBot?'<span class="lb-tag lb-tag-sim rc-bot-tag">Bot</span>':'')
+        +'</span>'
+        +(owner?'<span class="nm-owner">by @'+esc(owner)+'</span>':'')
         +'<span class="nm-pts">0 rounds won</span></span>'
         +'<span class="sc">0<span class="sc-unit">pts</span></span>'
         +'<span class="track"><span class="bar"></span></span>';
@@ -528,6 +542,7 @@
     var el=document.createElement('div');
     el.className='rc-bot'; el.dataset.id=id;
     var it=identOf[id];
+    var label = labelOf(id);
     el.innerHTML='<div class="rc-mover">'
       +'<div class="rc-delta"></div><div class="rc-tag"></div>'
       +'<div class="rc-carry-wrap">'
@@ -548,7 +563,7 @@
       +'<span class="arm-s"></span>'
       +'</div>'
       +'</div>'
-      +'<div class="rc-name" title="'+id+'">'+id+'</div>'
+      +'<div class="rc-name" title="'+esc(label)+'"><span class="rc-name-text">'+esc(label)+'</span></div>'
       +'</div>';
     stage.appendChild(el); botEls[id]=el;
   });
@@ -556,16 +571,16 @@
 
   // Tap-to-reveal owner: who runs this agent. On demand only — nothing stands on
   // the stage, so the narrative never gets cluttered. Tap a robot to show its
-  // name and "run by @handle" (owner line only when known); tap elsewhere to
-  // dismiss. The rail already shows owners textually, so this is an enhancement.
+  // name and, for bots, the platform credit; tap elsewhere to dismiss. The rail
+  // already shows the bot credit textually, so this is an enhancement.
   var ownerPop=document.createElement('div');
   ownerPop.className='rc-owner-pop'; ownerPop.hidden=true;
   stage.appendChild(ownerPop);
   function showOwnerPop(id){
     var el=botEls[id]; if(!el) return;
-    var owner=OWNERS[id];
+    var owner=BOTS[id] ? OWNERS[id] : null;
     ownerPop.innerHTML='<span class="rc-op-name"></span>'+(owner?'<span class="rc-op-owner"></span>':'');
-    ownerPop.querySelector('.rc-op-name').textContent=id;
+    ownerPop.querySelector('.rc-op-name').textContent=labelOf(id);
     if(owner) ownerPop.querySelector('.rc-op-owner').textContent='run by @'+owner;
     ownerPop.style.left=el.dataset.x+'px';
     ownerPop.style.top=(parseFloat(el.dataset.y)-44)+'px';

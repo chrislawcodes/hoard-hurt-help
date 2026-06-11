@@ -144,12 +144,19 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
         for match, *_ in rows
         if match.state == GameState.COMPLETED and match.winner_player_id is not None
     }
-    winner_names: dict[int, str] = {}
+    winner_rows: dict[int, dict[str, Any]] = {}
     if winner_ids:
-        winner_names = {
-            player_id: agent_id
-            for player_id, agent_id in (
-                await db.execute(select(Player.id, Player.seat_name).where(Player.id.in_(winner_ids)))
+        winner_rows = {
+            player_id: {
+                "display_name": agent_name,
+                "is_bot": kind == AgentKind.BOT,
+            }
+            for player_id, agent_name, kind in (
+                await db.execute(
+                    select(Player.id, Agent.name, Agent.kind)
+                    .join(Agent, Agent.id == Player.agent_id)
+                    .where(Player.id.in_(winner_ids))
+                )
             ).all()
         }
 
@@ -171,11 +178,20 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
             "agent_count": int(agent_count),
             "timestamp": timestamp,
             "timestamp_label": "Completed" if match.state == GameState.COMPLETED else "Cancelled",
-            "winner_agent_id": winner_names.get(match.winner_player_id) if match.winner_player_id else None,
+            "winner_display_name": (
+                winner_rows.get(match.winner_player_id, {}).get("display_name")
+                if match.winner_player_id
+                else None
+            ),
+            "winner_is_bot": (
+                winner_rows.get(match.winner_player_id, {}).get("is_bot", False)
+                if match.winner_player_id
+                else False
+            ),
             "watch_url": f"/games/{match.game}/matches/{match.id}",
         }
-        if view["winner_agent_id"]:
-            view["summary"] = f"Won by {view['winner_agent_id']}"
+        if view["winner_display_name"]:
+            view["summary"] = f"Won by {view['winner_display_name']}"
         elif match.state == GameState.COMPLETED:
             view["summary"] = "Finished"
         else:
@@ -534,7 +550,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "show_recent_all": show_recent_all,
             "sims_only_games": sims_only_games[:5] if not show_sims_all else sims_only_games,
             "sims_only_games_total": len(sims_only_games),
-            "sims_only_games_toggle_url": _toggle_url("sims-only-games", "sims", show_sims_all)
+            "sims_only_games_toggle_url": _toggle_url("bots-only-games", "sims", show_sims_all)
             if len(sims_only_games) > 5
             else None,
             "sims_only_games_toggle_label": "Show fewer" if show_sims_all else "See all",

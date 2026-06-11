@@ -24,8 +24,12 @@
                 <span class="recent-name">{{ g.name }}</span>
                 {% if kind == 'cancelled' %}
                 <span class="recent-result">{{ g.player_count }} {{ "player" if g.player_count == 1 else "players" }} · Cancelled {{ g.timestamp | localdt }}</span>
+                {% elif kind == 'bots' and g.winner_display_name %}
+                <span class="recent-result">Won by {{ g.winner_display_name }}{% if g.winner_is_bot %} <span class="lb-tag lb-tag-sim">Bot</span>{% endif %} · {{ g.player_count }} {{ "Bot" if g.player_count == 1 else "Bots" }} · {{ g.timestamp_label }} {{ g.timestamp | localdt }}</span>
                 {% elif kind == 'bots' %}
                 <span class="recent-result">{{ g.summary }} · {{ g.player_count }} {{ "Bot" if g.player_count == 1 else "Bots" }} · {{ g.timestamp_label }} {{ g.timestamp | localdt }}</span>
+                {% elif g.winner_display_name %}
+                <span class="recent-result">Won by {{ g.winner_display_name }}{% if g.winner_is_bot %} <span class="lb-tag lb-tag-sim">Bot</span>{% endif %} · {{ g.player_count }} {{ "player" if g.player_count == 1 else "players" }} · {{ g.timestamp_label }} {{ g.timestamp | localdt }}</span>
                 {% else %}
                 <span class="recent-result">{{ g.summary }} · {{ g.player_count }} {{ "player" if g.player_count == 1 else "players" }} · {{ g.timestamp_label }} {{ g.timestamp | localdt }}</span>
                 {% endif %}

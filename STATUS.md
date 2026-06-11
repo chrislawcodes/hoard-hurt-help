@@ -17,6 +17,12 @@
 
 - Sim table-talk phrases now sound more like natural player messages, reference
   the relevant player by seat name, and keep the same deterministic intent slots.
+- **Lobby recent-games cleanup** — the lobby's recent-game rows now show the
+  winning agent name instead of the seat string, and bot winners can be labeled
+  clearly without leaking the human handle.
+- **Standings rail cleanup** — the viewer's live standings now show agent names
+  instead of `handle/agent` seat names, and bot rows are clearly labeled using
+  the platform credit path (`@agentludum`).
 - **Agent prompt cleanup** — strategy presets now contain only ranking guidance
   and strategy-specific behavior. The server generates the shared base prompt,
   rules, and 200-character response contract; turn payloads carry that canonical
@@ -44,7 +50,7 @@
 - Onboarding status narration restored on the agent detail page: a live-polled card
   walks the user from "waiting to connect" → "connected — find a match" → "starts soon"
   → "waiting for its first move" → "playing — watch it play →".
-- _Feature Factory engine ported into `docs/workflow/operations/codex-skills/` (this branch)._
+- _Feature Factory engine ported into `docs/workflow/operations/codex-skills/` (this branch)._ 
 - Game admin dashboards now pass raw timestamps through to templates and render scheduled starts with the shared `localdt` filter, so a missing `scheduled_start` cannot crash `/games/<game>/admin/`.
 - Connection delete now soft-deletes the connection so the runner receives an explicit shutdown response on its next poll, then exits; deleted connections are hidden from the normal UI and counts.
 - Connection setup now uses a draft/setup page and only creates the real connection on first authenticated contact; the connection detail page hides agent lists behind `Agent Details` and keeps `Rotate Key`/pause/delete controls at the bottom.
@@ -56,6 +62,9 @@
 
 - Sim-only matches can be used for demos with less repetitive, scripted-sounding
   AI table talk.
+- Recent lobby games can now read as agent names instead of human seat names.
+- Spectator standings and replay rails can now read as agent names instead of
+  human seat names, with bot rows clearly marked.
 - Strategy authors can see the shared instructions before writing a strategy,
   without repeating game identity, rules, chat guidance, state format, or the
   response contract in every preset.

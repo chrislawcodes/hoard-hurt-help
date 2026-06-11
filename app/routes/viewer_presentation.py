@@ -25,6 +25,8 @@ def sample_replay_data() -> str:
     """
     payload = json.loads(_SAMPLE_REPLAY_PATH.read_text(encoding="utf-8"))
     payload["sample"] = True
+    payload.setdefault("labels", {agent_id: agent_id for agent_id in payload.get("agents", [])})
+    payload.setdefault("bots", {})
     payload.setdefault("owners", {})
     return json.dumps(payload, ensure_ascii=False)
 
@@ -302,6 +304,8 @@ def _turn_headline(
 def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
     """Serialize game history as the robot-circle viewer JSON format."""
     agents = [r["agent_id"] for r in scoreboard]
+    labels = {r["agent_id"]: r.get("display_name") or r["agent_id"] for r in scoreboard}
+    bots = {r["agent_id"]: True for r in scoreboard if r.get("is_bot")}
     # agent_id → owner handle, for the standings rail's muted "by @handle" line.
     # Only non-empty entries (Sims and handle-less owners are omitted).
     owners = {r["agent_id"]: r["owner_handle"] for r in scoreboard if r.get("owner_handle")}
@@ -387,6 +391,8 @@ def _build_rc_data(scoreboard: list[dict], history: list[dict]) -> str:
     return json.dumps(
         {
             "agents": agents,
+            "labels": labels,
+            "bots": bots,
             "owners": owners,
             "turns": turns,
             "max_round": max((t["round"] for t in turns), default=0),
