@@ -274,7 +274,11 @@ class _CodexAdapter:
         argv = ["codex", "exec"]
         if resume_id:
             argv += ["resume", resume_id]
-        argv += ["--json", "--skip-git-repo-check", "--model", model]
+        # read-only sandbox: a game move needs no file writes and no network, so
+        # lock the model's shell tool to reads only. (Codex writes the
+        # --output-last-message file itself, outside the sandbox, so capture
+        # still works.)
+        argv += ["--sandbox", "read-only", "--json", "--skip-git-repo-check", "--model", model]
         with tempfile.TemporaryDirectory() as tmp:
             out_file = Path(tmp) / "last_message.txt"
             argv += ["--output-last-message", str(out_file), prompt]
