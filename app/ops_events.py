@@ -31,6 +31,9 @@ Registered event names
                                (app/engine/arena.py)
 - replay_fallback            — DB error building robot-circle replay; fell back
                                to sample data (app/routes/web_lobby.py)
+- turn_loop_crashed          — a game's fire-and-forget turn loop raised and the
+                               match froze; also persisted to request_incidents
+                               keyed by match_id (app/engine/scheduler.py)
 """
 
 from __future__ import annotations

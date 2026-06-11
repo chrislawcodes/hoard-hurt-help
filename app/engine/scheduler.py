@@ -35,6 +35,7 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.ops_events import log_ops_event
+from app.request_logging import record_background_incident
 
 logger = logging.getLogger(__name__)
 
@@ -412,11 +413,48 @@ async def _run_game(match_id: str) -> None:
 
 
 async def _run_game_guarded(match_id: str) -> None:
-    """Run one game loop and log any crash before re-raising it."""
+    """Run one game loop and record any crash before re-raising it.
+
+    This is the single chokepoint for the fire-and-forget turn loop. A crash
+    here used to surface only as a log line (and the match silently froze), so
+    we now also persist a queryable incident keyed by match_id plus the
+    round/turn it died on, and emit a greppable ops-event line.
+    """
     try:
         await _run_game(match_id)
     except Exception as exc:
-        logger.error("game %s loop task crashed", match_id, exc_info=exc)
+        round_num: int | None = None
+        turn_num: int | None = None
+        try:
+            async with SessionLocal() as db:
+                match = (
+                    await db.execute(select(Match).where(Match.id == match_id))
+                ).scalar_one_or_none()
+                if match is not None:
+                    round_num = match.current_round
+                    turn_num = match.current_turn
+        except Exception:  # never let crash-reporting hide the original crash
+            logger.exception(
+                "could not read match position for crash context match_id=%s",
+                match_id,
+            )
+        log_ops_event(
+            logger,
+            logging.ERROR,
+            "turn_loop_crashed",
+            f"Turn loop for match {match_id} crashed at R{round_num}T{turn_num}",
+            match_id=match_id,
+            round=round_num,
+            turn=turn_num,
+            error_type=type(exc).__name__,
+        )
+        await record_background_incident(
+            source="scheduler:_run_game",
+            exc=exc,
+            match_id=match_id,
+            stage="turn_loop",
+            context={"round": round_num, "turn": turn_num},
+        )
         raise
 
 

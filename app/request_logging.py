@@ -115,6 +115,59 @@ async def _record_incident(
         )
 
 
+async def record_background_incident(
+    *,
+    source: str,
+    exc: BaseException,
+    match_id: str | None = None,
+    stage: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> None:
+    """Persist a RequestIncident for a non-HTTP background failure.
+
+    Background tasks (the turn-loop scheduler, the pollers) have no Request, so
+    until now their crashes never reached ``request_incidents`` — a frozen match
+    looked completely silent in the DB. This writes the same row shape with task
+    sentinels in the HTTP-only columns (``method='TASK'``, ``path=<source>``) so
+    a ``SELECT ... WHERE match_id=`` surfaces background crashes alongside
+    request failures.
+    """
+    try:
+        from app import db as app_db
+    except Exception:
+        logger.exception("Failed to import db module for background incident capture")
+        return
+
+    stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    payload = {
+        "request_id": uuid4().hex[:8],
+        "method": "TASK",
+        "path": source[:255],
+        "query_string": None,
+        "user_id": None,
+        "match_id": match_id,
+        "bot_id": None,
+        "player_id": None,
+        "stage": stage,
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+        "stacktrace": stack,
+        "context_json": (
+            json.dumps(context, sort_keys=True, default=str) if context else None
+        ),
+    }
+    try:
+        async with app_db.SessionLocal() as db:
+            db.add(RequestIncident(**payload))
+            await db.commit()
+    except Exception:
+        logger.exception(
+            "Failed to persist background incident source=%s match_id=%s",
+            source,
+            match_id,
+        )
+
+
 def install_request_logging(app: FastAPI) -> None:
     """Log every request and stamp failures with a request id."""
 
