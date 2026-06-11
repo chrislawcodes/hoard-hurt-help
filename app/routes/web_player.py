@@ -214,45 +214,28 @@ async def join_form(
     )
 
 
-@router.post("/games/{game}/matches/{match_id}/join")
-async def join_submit(
-    game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
-    request: Request,
+async def _seat_user_agent(
     db: DbSession,
-    user: Annotated[User, Depends(require_user_with_handle)],
-    agent_id: Annotated[int | None, Form()] = None,
-    bot_id: Annotated[int | None, Form()] = None,
-    display_name: Annotated[str | None, Form()] = None,
-    strategy_prompt: Annotated[str | None, Form()] = None,
-):
-    """Enter one of the user's agents into a game."""
-    selected_agent_id = agent_id if agent_id is not None else bot_id
-    if selected_agent_id is None:
-        raise HTTPException(status_code=400, detail="Choose an agent.")
-    set_request_trace_context(
-        request,
-        match_id=match_id,
-        stage="join_submit",
-        agent_id=selected_agent_id,
-    )
-    match = await _load_match_or_404(db, match_id)
-    if redirect := _redirect_if_game_slug_mismatch(
-        match,
-        game,
-        "/join",
-        status_code=status.HTTP_308_PERMANENT_REDIRECT,
-    ):
-        return redirect
-    if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
-        raise HTTPException(409, detail="Match not open for registration.")
+    user: User,
+    match: Match,
+    agent_id: int,
+    existing_seats: set[str],
+) -> Player:
+    """Validate one of *user*'s agents and build its Player row for *match*.
 
+    Runs the full per-agent gate (ownership, provider coverage, valid model,
+    connection capacity, not-already-seated) and derives a unique seat name.
+    Mutates *existing_seats* with the new seat so a batch added in one request
+    still gets distinct seats. Does not commit — the caller owns the transaction
+    so a failure on any agent rolls back the whole batch. Raises HTTPException on
+    any problem, naming the agent so the admin knows which one failed.
+    """
     agent_row = (
         await db.execute(
             select(Agent, AgentVersion)
             .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
             .where(
-                Agent.id == selected_agent_id,
+                Agent.id == agent_id,
                 Agent.user_id == user.id,
                 Agent.kind == AgentKind.AI,
                 Agent.archived_at.is_(None),
@@ -263,10 +246,14 @@ async def join_submit(
         raise HTTPException(404, detail="Agent not found.")
     selected_agent, version = agent_row
     if version is None:
-        raise HTTPException(status_code=409, detail="That agent has no current version.")
+        raise HTTPException(
+            status_code=409, detail=f"{selected_agent.name} has no current version."
+        )
     provider = selected_agent.provider
     if provider is None:
-        raise HTTPException(status_code=409, detail="That agent has no provider configured.")
+        raise HTTPException(
+            status_code=409, detail=f"{selected_agent.name} has no provider configured."
+        )
     covered = await provider_is_covered(db, user.id, provider)
     if not covered:
         raise HTTPException(
@@ -297,24 +284,13 @@ async def join_submit(
         )
     ).first()
     if already_in is not None:
-        raise HTTPException(status_code=409, detail="That agent is already in this game.")
-
-    existing_seats = set(
-        (
-            await db.execute(
-                select(Player.seat_name).where(Player.match_id == match.id)
-            )
+        raise HTTPException(
+            status_code=409, detail=f"{selected_agent.name} is already in this game."
         )
-        .scalars()
-        .all()
-    )
     seat_name = _seat_name(user.handle or user.name or "", selected_agent.name, existing_seats)
-    model_label = (
-        f"{provider.value}/{version.model}"
-        if version.model
-        else provider.value
-    )
-    player = Player(
+    existing_seats.add(seat_name)
+    model_label = f"{provider.value}/{version.model}" if version.model else provider.value
+    return Player(
         match_id=match.id,
         user_id=user.id,
         agent_id=selected_agent.id,
@@ -322,7 +298,64 @@ async def join_submit(
         seat_name=seat_name,
         model_self_report=model_label,
     )
-    db.add(player)
+
+
+@router.post("/games/{game}/matches/{match_id}/join")
+async def join_submit(
+    game: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    agent_id: Annotated[list[int] | None, Form()] = None,
+    bot_id: Annotated[list[int] | None, Form()] = None,
+    display_name: Annotated[str | None, Form()] = None,
+    strategy_prompt: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    """Enter one or more of the user's agents into a game.
+
+    Regular users add a single agent. Admins may select several of their own
+    agents at once to fill a match for testing — the backend already allows one
+    user to field multiple (distinct) agents; this just lets them do it in one
+    submit instead of re-running the join flow per agent.
+    """
+    # Dedupe while preserving the picked order; `bot_id` is the legacy field name.
+    selected_ids = list(dict.fromkeys([*(agent_id or []), *(bot_id or [])]))
+    if not selected_ids:
+        raise HTTPException(status_code=400, detail="Choose an agent.")
+    if len(selected_ids) > 1 and not _is_any_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can add more than one agent to a match.",
+        )
+    set_request_trace_context(
+        request,
+        match_id=match_id,
+        stage="join_submit",
+        agent_id=selected_ids[0],
+    )
+    match = await _load_match_or_404(db, match_id)
+    if redirect := _redirect_if_game_slug_mismatch(
+        match,
+        game,
+        "/join",
+        status_code=status.HTTP_308_PERMANENT_REDIRECT,
+    ):
+        return redirect
+    if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
+        raise HTTPException(409, detail="Match not open for registration.")
+
+    existing_seats = set(
+        (
+            await db.execute(select(Player.seat_name).where(Player.match_id == match.id))
+        )
+        .scalars()
+        .all()
+    )
+    players = [
+        await _seat_user_agent(db, user, match, aid, existing_seats) for aid in selected_ids
+    ]
+    db.add_all(players)
     await db.commit()
 
     if match.match_kind == MatchKind.PRACTICE_ARENA.value:
