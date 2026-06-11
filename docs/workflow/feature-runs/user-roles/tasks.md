@@ -37,7 +37,9 @@ S1, but each is implemented as its own checkpoint slice (see Parallel analysis).
       leaves a non-allowlisted user at `'user'`; model default is `'user'`.
 
 **Verify:** `alembic upgrade head` + `downgrade` round-trips on SQLite; backfill
-test passes. `[CHECKPOINT]`
+test passes.
+
+- [ ] Slice 1 checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 
@@ -67,7 +69,9 @@ test passes. `[CHECKPOINT]`
       `tests/test_handle_safety.py`, `tests/test_request_logging.py` — wherever
       they assert admin chrome / dashboard access.
 
-**Verify:** full `pytest -q` green. `[CHECKPOINT]`
+**Verify:** full `pytest -q` green.
+
+- [ ] Slice 2 checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 
@@ -93,7 +97,9 @@ test passes. `[CHECKPOINT]`
       admin exempt.
 
 **Verify:** `pytest -q`; grep confirms no residual inline `max+1` in the four
-human creators. `[CHECKPOINT]`
+human creators.
+
+- [ ] Slice 3a checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 
@@ -117,7 +123,9 @@ human creators. `[CHECKPOINT]`
       (`ACTIVE → 409` preserved on the legacy routes).
 
 **Verify:** `pytest -q`; the cascade regression reproduces the two-pass-sweep
-scenario. `[CHECKPOINT]`
+scenario.
+
+- [ ] Slice 3b checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 
@@ -151,7 +159,9 @@ scenario. `[CHECKPOINT]`
 
 **Verify:** `pytest -q`; preview the create flow + owner controls if previewable.
 If this slice exceeds ~300 lines, split 4a (routes + read model) from 4b
-(templates) at the router-registered boundary. `[CHECKPOINT]`
+(templates) at the router-registered boundary.
+
+- [ ] Slice 4 checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 

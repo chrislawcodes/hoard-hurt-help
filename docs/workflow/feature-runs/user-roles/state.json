@@ -389,6 +389,18 @@
       "files_written": 5,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-11T22:54:23Z",
+      "wall_seconds": 0.692,
+      "input_bytes_read": 228979,
+      "output_bytes_written": 65150,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -411,10 +423,11 @@
       "initial_sha": "2e35d63a44309f9aac8dc20c7cce4abebd0aa7cf0b7d91ec3797fb8042165327"
     },
     "tasks": {
-      "adversarial_rounds": 1,
+      "adversarial_rounds": 2,
       "annotations": [],
       "adversarial_sha_history": [
-        "bb5c4c6e40d9c489df47e416dcbb64896a2371bdb91cd05efe1d2d5aca683eab"
+        "bb5c4c6e40d9c489df47e416dcbb64896a2371bdb91cd05efe1d2d5aca683eab",
+        "42ca0591ba11894380acead35245e8d303742c97eb745daa3f32953e56f294fb"
       ],
       "initial_sha": "bb5c4c6e40d9c489df47e416dcbb64896a2371bdb91cd05efe1d2d5aca683eab"
     }
@@ -423,7 +436,7 @@
   "schema_version": 2,
   "checkpoint_progress": {
     "index": 0,
-    "markers_sha": "",
+    "markers_sha": "95647a29a8c0e1454fde240aa2d52819bc81f2cb11aecd05431a0ae93187b547",
     "last_diff_head_sha": ""
   },
   "spec_adversarial_rounds": 1,
@@ -433,5 +446,5 @@
     "blockers": []
   },
   "plan_adversarial_rounds": 1,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 2
 }
