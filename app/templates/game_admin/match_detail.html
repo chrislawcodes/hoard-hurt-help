@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ match.name }} — {{ game_slug }} Admin{% endblock %}
 {% block content %}
-<a class="backlink" href="/games/{{ game_slug }}/admin">← {{ game_slug }} Admin</a>
+<a class="backlink" href="/games/{{ game_slug }}/admin/">← {{ game_slug }} Admin</a>
 <div class="page-head">
     <h1>{{ match.name }}</h1>
     <p class="sub">State: {{ match.state.value }} · Round {{ match.current_round }} / {{ match.total_rounds }} · Turn {{ match.current_turn }} / {{ match.turns_per_round }}</p>
