@@ -44,6 +44,14 @@ async def auto_submit_sim_phase(
         return 0
 
     all_agent_ids = [player.seat_name for player, _ in active_players]
+    # Bots reason in public seat names, but record_submission resolves a move's
+    # target by the internal integer Player.agent_id. Translate seat name ->
+    # agent_id before recording, exactly as the real-agent API path does
+    # (app/routes/agent_api.py); without it a bot's first HELP/HURT crashes the
+    # turn loop with `operator does not exist: integer = character varying`.
+    agent_id_by_seat_name = {
+        player.seat_name: player.agent_id for player, _ in active_players
+    }
     bot_players = [
         (player, agent)
         for player, agent in active_players
@@ -104,12 +112,18 @@ async def auto_submit_sim_phase(
             module.validate_move(
                 move, your_agent_id=player.seat_name, all_agent_ids=all_agent_ids
             )
+            # Hand record_submission the internal agent_id for the target, not
+            # the public seat name the bot chose.
+            internal_move: dict[str, Any] = {**move}
+            target_seat_name = move.get("target_id")
+            if target_seat_name is not None:
+                internal_move["target_id"] = agent_id_by_seat_name.get(target_seat_name)
             existing_submission = await _existing_submission(db, turn.id, player.id)
             await module.record_submission(
                 db,
                 turn,
                 player,
-                move,
+                internal_move,
                 existing=existing_submission,
             )
         posted += 1
