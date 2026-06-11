@@ -191,15 +191,34 @@ def _delta_body(new_history: list, scoreboard: list, cur: dict) -> str:
     )
 
 
+# The AI CLIs run here, not wherever the operator happened to launch the
+# connector. A CLI that inspects "the working directory" then sees a neutral
+# scratch folder inside our own dotfolder — never the operator's Desktop /
+# Documents / Downloads, which on macOS would pop a file-access prompt blamed on
+# "Python" (the CLIs are our child processes). Created on demand; safe to remake.
+_WORKSPACE_DIR = Path.home() / ".agentludum" / "workspace"
+
+
+def _workspace_dir() -> str:
+    """Path to the neutral scratch dir the AI CLIs run in, created if missing."""
+    _WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+    return str(_WORKSPACE_DIR)
+
+
 def _run(argv: list[str], *, stdin_input: str | None = None) -> subprocess.CompletedProcess:
     """Run a CLI once. Prompt via stdin (claude) or argv (codex/gemini); when no
-    stdin is piped we feed DEVNULL so the CLI never blocks waiting on input."""
+    stdin is piped we feed DEVNULL so the CLI never blocks waiting on input. The
+    CLI runs in a neutral workspace dir so it never scans the operator's real
+    folders."""
+    cwd = _workspace_dir()
     if stdin_input is not None:
         return subprocess.run(
-            argv, input=stdin_input, capture_output=True, text=True, timeout=_TURN_TIMEOUT
+            argv, input=stdin_input, capture_output=True, text=True,
+            timeout=_TURN_TIMEOUT, cwd=cwd,
         )
     return subprocess.run(
-        argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=_TURN_TIMEOUT
+        argv, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        timeout=_TURN_TIMEOUT, cwd=cwd,
     )
 
 
@@ -255,7 +274,11 @@ class _CodexAdapter:
         argv = ["codex", "exec"]
         if resume_id:
             argv += ["resume", resume_id]
-        argv += ["--json", "--skip-git-repo-check", "--model", model]
+        # read-only sandbox: a game move needs no file writes and no network, so
+        # lock the model's shell tool to reads only. (Codex writes the
+        # --output-last-message file itself, outside the sandbox, so capture
+        # still works.)
+        argv += ["--sandbox", "read-only", "--json", "--skip-git-repo-check", "--model", model]
         with tempfile.TemporaryDirectory() as tmp:
             out_file = Path(tmp) / "last_message.txt"
             argv += ["--output-last-message", str(out_file), prompt]

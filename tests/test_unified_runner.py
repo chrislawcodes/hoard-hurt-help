@@ -111,6 +111,27 @@ def test_first_turn_folds_framing_for_codex_gemini_not_claude(runner):
     assert sess.token is not None  # gemini assigns its own session UUID
 
 
+def test_codex_runs_in_read_only_sandbox(runner, monkeypatch):
+    # A game move needs no file writes and no network, so codex's model-run shell
+    # tool is locked to read-only. (codex still writes --output-last-message
+    # itself, outside the sandbox.)
+    codex = next(a for a in runner._ADAPTERS.values() if a.cli == "codex")
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(argv, **kw):
+        captured["argv"] = argv
+        out = argv[argv.index("--output-last-message") + 1]
+        Path(out).write_text("MOVE")
+        return _FakeProc(stdout='{"type":"thread.started","thread_id":"t1"}\n')
+
+    monkeypatch.setattr(sys.modules["agentludum_connector"], "_run", fake_run)
+    sess = runner._GameSession(provider="openai", model="gpt-5.4-mini")
+    text, _ = codex.first(body="B", framing="F", model="gpt-5.4-mini", session=sess)
+    argv = captured["argv"]
+    assert argv[argv.index("--sandbox") + 1] == "read-only"
+    assert text == "MOVE"
+
+
 def test_new_payload_provider_field_is_preferred(runner):
     # The server's explicit per-turn `provider` field wins over model-prefix
     # guessing — the connector no longer has to infer the provider.
@@ -136,6 +157,27 @@ class _FakeProc:
         self.stdout = stdout
         self.stderr = stderr
         self.returncode = returncode
+
+
+def test_run_executes_cli_in_a_neutral_workspace(runner, monkeypatch, tmp_path):
+    # The AI CLIs must run in our scratch dir, never the operator's launch dir —
+    # otherwise a CLI scanning its cwd could read Desktop/Documents/Downloads and
+    # trip a macOS file-access prompt blamed on "Python".
+    workspace = tmp_path / ".agentludum" / "workspace"
+    monkeypatch.setattr(runner, "_WORKSPACE_DIR", workspace)
+    captured: dict[str, object] = {}
+
+    def fake_run(argv, **kw):
+        captured["cwd"] = kw.get("cwd")
+        return _FakeProc(stdout="{}")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    # Both code paths (stdin-piped and DEVNULL) must set cwd.
+    runner._run(["claude", "--print"], stdin_input="hi")
+    assert captured["cwd"] == str(workspace)
+    runner._run(["gemini", "-p", "x"])
+    assert captured["cwd"] == str(workspace)
+    assert workspace.is_dir()  # created on demand
 
 
 def _full_turn():
