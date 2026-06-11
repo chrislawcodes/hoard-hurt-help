@@ -352,9 +352,8 @@
   var LABELS = DATA.labels || {};
   var BOTS = DATA.bots || {};
   var OWNERS = DATA.owners || {};
-  // Taller rail rows only when a bot badge/byline needs room, so human-only
-  // games keep the compact layout.
-  var RAIL_ROW_H = Object.keys(BOTS).length ? 60 : 52;
+  // Taller rail rows whenever the owner byline is shown.
+  var RAIL_ROW_H = Object.keys(OWNERS).length ? 60 : 52;
   var TURNS = DATA.turns || [];
   // Identity hues deliberately avoid the three action colours (amber --hoard,
   // green --help, red --hurt) so a bot's colour never reads as a move. Greens and
@@ -466,7 +465,7 @@
     AGENTS.forEach(function(id){
       var label = labelOf(id);
       var isBot = !!BOTS[id];
-      var owner = isBot ? OWNERS[id] : null;
+      var owner = OWNERS[id] || null;
       var li=document.createElement('li');
       li.className='rc-rail-row'; li.style.setProperty('--c', colorOf[id]);
       li.style.height=RAIL_ROW_H+'px';
@@ -571,14 +570,13 @@
 
   // Tap-to-reveal owner: who runs this agent. On demand only — nothing stands on
   // the stage, so the narrative never gets cluttered. Tap a robot to show its
-  // name and, for bots, the platform credit; tap elsewhere to dismiss. The rail
-  // already shows the bot credit textually, so this is an enhancement.
+  // name and owner credit; tap elsewhere to dismiss.
   var ownerPop=document.createElement('div');
   ownerPop.className='rc-owner-pop'; ownerPop.hidden=true;
   stage.appendChild(ownerPop);
   function showOwnerPop(id){
     var el=botEls[id]; if(!el) return;
-    var owner=BOTS[id] ? OWNERS[id] : null;
+    var owner=OWNERS[id] || null;
     ownerPop.innerHTML='<span class="rc-op-name"></span>'+(owner?'<span class="rc-op-owner"></span>':'');
     ownerPop.querySelector('.rc-op-name').textContent=labelOf(id);
     if(owner) ownerPop.querySelector('.rc-op-owner').textContent='run by @'+owner;

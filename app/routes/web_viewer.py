@@ -40,8 +40,8 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     players = await load_players(db, g.id)
     timeline = await load_match_timeline(db, g.id)
 
-    # Public labels for the standings rail + winner credit. The rail uses the
-    # agent name as the visible label and only surfaces bot credit there.
+    # Public labels for the standings rail + winner credit. The rail shows the
+    # agent name and the owner's byline; bots keep the platform credit.
     owner_rows = (
         await db.execute(
             select(Player.seat_name, Agent, User.handle)
