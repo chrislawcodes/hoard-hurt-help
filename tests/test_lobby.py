@@ -796,6 +796,75 @@ async def test_non_admin_cannot_stack_multiple_agents(client, reset_db):
     assert "<select" in form.text
 
 
+async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
+    """One agent seated in an ACTIVE match on a capacity-1 connection.
+
+    The provider is now at capacity (1/1), so joining this agent into a second
+    match trips the SUM-based join gate. Seeds an open match G_B to join into.
+    Returns the agent id.
+    """
+    async with reset_db() as db:
+        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+        conn, _k = await make_connection(db, u, max_concurrent_games=1)
+        conn.first_connected_at = datetime.now(timezone.utc)
+        conn.last_seen_at = datetime.now(timezone.utc)
+        agent, _v = await make_agent(db, u, connection=conn, name="Busy")
+        active = Match(
+            id="G_A", name="A", state=GameState.ACTIVE,
+            scheduled_start=datetime.now(timezone.utc), per_turn_deadline_seconds=60,
+        )
+        open_match = Match(
+            id="G_B", name="B", state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+            per_turn_deadline_seconds=60,
+        )
+        db.add_all([active, open_match])
+        await db.flush()
+        db.add(Player(match_id="G_A", user_id=u.id, agent_id=agent.id, seat_name=f"{u.handle}/Busy"))
+        await db.commit()
+        return agent.id
+
+
+@pytest.mark.asyncio
+async def test_admin_can_seat_agent_already_busy_at_capacity(client, reset_db, monkeypatch):
+    """An admin can add an agent that is already in another match, past the cap."""
+    user = await _seed_user(reset_db)  # u0@t.com
+    monkeypatch.setattr(settings, "platform_admin_emails", "u0@t.com")
+    agent_id = await _seed_agent_busy_in_active_match(reset_db, user)
+    r = await client.post(
+        "/games/hoard-hurt-help/matches/G_B/join",
+        data={"agent_id": agent_id},
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    async with reset_db() as db:
+        seated = (
+            await db.execute(select(Player).where(Player.match_id == "G_B"))
+        ).scalars().all()
+    assert [p.agent_id for p in seated] == [agent_id]
+
+
+@pytest.mark.asyncio
+async def test_non_admin_still_blocked_by_capacity(client, reset_db):
+    """A regular user still hits the capacity gate — the bypass is admin-only."""
+    user = await _seed_user(reset_db)  # not an admin
+    agent_id = await _seed_agent_busy_in_active_match(reset_db, user)
+    r = await client.post(
+        "/games/hoard-hurt-help/matches/G_B/join",
+        data={"agent_id": agent_id},
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 409
+    assert "at capacity" in r.text
+    async with reset_db() as db:
+        seated = (
+            await db.execute(select(Player).where(Player.match_id == "G_B"))
+        ).scalars().all()
+    assert seated == []
+
+
 @pytest.mark.asyncio
 async def test_duplicate_display_name_does_not_block_join(client, reset_db):
     user = await _seed_user(reset_db)
