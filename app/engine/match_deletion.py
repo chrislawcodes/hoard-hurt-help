@@ -1,15 +1,30 @@
-"""Shared match deletion cascade for admin-managed match teardown."""
+"""Shared match teardown: delete cascade and cancel transition."""
 
 from __future__ import annotations
+
+from datetime import datetime, timezone
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.scheduler import registry
-from app.models.match import Match
+from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
 from app.models.turn import Turn, TurnMessage, TurnSubmission
+
+
+async def cancel_match(db: AsyncSession, match: Match) -> None:
+    """Cancel a match: stop its scheduler task and mark it CANCELLED.
+
+    Preserves all match data (unlike ``delete_match``). The caller owns the
+    allowed-state policy — this only performs the transition. ``registry.stop``
+    is a no-op when the match has no running task (e.g. a pre-start match).
+    """
+    registry.stop(match.id)
+    match.state = GameState.CANCELLED
+    match.cancelled_at = datetime.now(timezone.utc)
+    await db.commit()
 
 
 async def delete_match(db: AsyncSession, match_id: str) -> None:

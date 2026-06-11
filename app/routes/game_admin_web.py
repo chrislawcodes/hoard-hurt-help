@@ -10,7 +10,8 @@ from sqlalchemy import select
 from app.deps import DbSession, require_game_admin
 from app.engine.bot_presets import bot_preset_by_id
 from app.engine.match_creation import create_match
-from app.engine.scheduler import registry, start_game
+from app.engine.match_deletion import cancel_match
+from app.engine.scheduler import start_game
 from app.engine.sims import validate_bot_profile_fields
 from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
@@ -430,10 +431,7 @@ async def game_admin_cancel_match(
         raise HTTPException(409, detail="Match already started.")
     if g.state in (GameState.COMPLETED, GameState.CANCELLED):
         raise HTTPException(409, detail="Match already ended.")
-    registry.stop(match_id)
-    g.state = GameState.CANCELLED
-    g.cancelled_at = datetime.now(timezone.utc)
-    await db.commit()
+    await cancel_match(db, g)
     return RedirectResponse(
         url=f"/games/{game}/admin",
         status_code=status.HTTP_303_SEE_OTHER,

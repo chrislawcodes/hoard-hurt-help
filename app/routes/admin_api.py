@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.deps import DbSession, require_platform_admin
 from app.engine.match_creation import create_match
+from app.engine.match_deletion import cancel_match
 from app.models.match import Match, GameState
 from app.models.agent_version import AgentVersion
 from app.models.player import Player
@@ -75,9 +76,7 @@ async def cancel_game(
         raise HTTPException(409, detail="Match already started.")
     if g.state in (GameState.COMPLETED, GameState.CANCELLED):
         raise HTTPException(409, detail="Match already ended.")
-    g.state = GameState.CANCELLED
-    g.cancelled_at = datetime.now(timezone.utc)
-    await db.commit()
+    await cancel_match(db, g)
     return CancelResponse()
 
 
