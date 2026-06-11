@@ -138,6 +138,27 @@ class _FakeProc:
         self.returncode = returncode
 
 
+def test_run_executes_cli_in_a_neutral_workspace(runner, monkeypatch, tmp_path):
+    # The AI CLIs must run in our scratch dir, never the operator's launch dir —
+    # otherwise a CLI scanning its cwd could read Desktop/Documents/Downloads and
+    # trip a macOS file-access prompt blamed on "Python".
+    workspace = tmp_path / ".agentludum" / "workspace"
+    monkeypatch.setattr(runner, "_WORKSPACE_DIR", workspace)
+    captured: dict[str, object] = {}
+
+    def fake_run(argv, **kw):
+        captured["cwd"] = kw.get("cwd")
+        return _FakeProc(stdout="{}")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    # Both code paths (stdin-piped and DEVNULL) must set cwd.
+    runner._run(["claude", "--print"], stdin_input="hi")
+    assert captured["cwd"] == str(workspace)
+    runner._run(["gemini", "-p", "x"])
+    assert captured["cwd"] == str(workspace)
+    assert workspace.is_dir()  # created on demand
+
+
 def _full_turn():
     return {
         "match_id": "M1",
