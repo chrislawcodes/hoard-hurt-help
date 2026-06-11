@@ -713,6 +713,50 @@ async def test_connection_controls_live_in_status_card(
 
 
 @pytest.mark.asyncio
+async def test_detail_shows_when_connection_last_connected(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The detail page shows when the client last checked in — a relative
+    'last connected 12m ago' in the badge plus a precise timestamp line."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.last_seen_at = datetime.now(timezone.utc) - timedelta(minutes=12)
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.get(
+        f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    assert "last connected" in r.text  # badge meta
+    assert "12m ago" in r.text  # relative, human-readable
+    assert "Last connected" in r.text  # precise line in the status card
+
+
+@pytest.mark.asyncio
+async def test_never_connected_shows_no_last_connected_time(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A connection that has never checked in reads 'never connected', not a
+    bogus timestamp."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.last_seen_at = None
+        connection.first_connected_at = None
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.get(
+        f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    assert "never connected" in r.text
+    assert "Last connected" not in r.text  # the precise status-card line is hidden
+
+
+@pytest.mark.asyncio
 async def test_pending_connections_gc_after_24h(session_factory: async_sessionmaker[AsyncSession]) -> None:
     async with session_factory() as db:
         user = await _make_user(db)
