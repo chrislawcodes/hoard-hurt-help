@@ -42,13 +42,13 @@ def _cookie(user_id: int) -> str:
     return signer.sign(payload).decode()
 
 
-def _authed_client(user_id: int) -> AsyncClient:
+def _authed_client(user_id: int, *, follow_redirects: bool = True) -> AsyncClient:
     transport = ASGITransport(app=app)
     return AsyncClient(
         transport=transport,
         base_url="http://test",
         cookies={"hhh_session": _cookie(user_id)},
-        follow_redirects=True,
+        follow_redirects=follow_redirects,
     )
 
 
@@ -77,7 +77,9 @@ async def test_long_name_with_spaces_is_accepted(reset_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_name_over_120_chars_is_accepted(reset_db) -> None:
+async def test_name_over_120_chars_is_rejected(reset_db) -> None:
+    # The name column is VARCHAR(120). Postgres rejects anything longer, so the
+    # form must catch it with a friendly 400 rather than 500 in prod.
     name = "x" * 121
 
     async with reset_db() as db:
@@ -85,14 +87,20 @@ async def test_name_over_120_chars_is_accepted(reset_db) -> None:
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
 
-    async with _authed_client(user.id) as c:
+    async with _authed_client(user.id, follow_redirects=False) as c:
         r = await c.post(
             "/me/agents/new",
             data={"name": name, "model": "claude-haiku-4-5"},
         )
 
-    assert r.status_code == 200, r.text
-    assert name in r.text
+    assert r.status_code == 400, r.text
+    # Nothing was persisted.
+    async with reset_db() as db:
+        from sqlalchemy import select as _select
+
+        from app.models.agent import Agent
+
+        assert (await db.execute(_select(Agent))).scalars().all() == []
 
 
 @pytest.mark.asyncio

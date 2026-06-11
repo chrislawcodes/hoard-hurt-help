@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
+from sqlalchemy import select
 from starlette.requests import Request
 
 from app.config import settings
@@ -238,6 +239,78 @@ async def test_admin_cancel_pre_start(client, reset_db):
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_delete_completed_match_with_winner(client, reset_db):
+    """Deleting a finished match must not 500 on the winner_player_id FK.
+
+    A completed match points at its winning player while the player points back
+    at the match. Postgres enforces both FKs, so deleting players before
+    clearing the winner pointer throws. SQLite reproduces it now that the test
+    engine enables PRAGMA foreign_keys.
+    """
+    admin = await _seed_user(reset_db, "admin@test.com")
+    async with reset_db() as db:
+        u = User(google_sub="u1", email="p1@t.com")
+        db.add(u)
+        await db.flush()
+        g = Match(
+            id="G_001",
+            name="t",
+            state=GameState.COMPLETED,
+            scheduled_start=datetime.now(timezone.utc),
+        )
+        db.add(g)
+        await db.flush()
+        agent, version = await make_agent(db, u, name="AI_0")
+        p = Player(
+            match_id="G_001",
+            user_id=u.id,
+            agent_id=agent.id,
+            seat_name="AI_0",
+            agent_version_id=version.id if version is not None else None,
+        )
+        db.add(p)
+        await db.flush()
+        g.winner_player_id = p.id  # the bug: match now references the player
+        t = Turn(
+            match_id="G_001",
+            round=1,
+            turn=1,
+            turn_token="tk1",
+            opened_at=datetime.now(timezone.utc),
+            deadline_at=datetime.now(timezone.utc),
+            resolved_at=datetime.now(timezone.utc),
+        )
+        db.add(t)
+        await db.flush()
+        db.add(
+            TurnSubmission(
+                turn_id=t.id,
+                player_id=p.id,
+                action="HOARD",
+                message="hi",
+                points_delta=2,
+                round_score_after=2,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    r = await client.post(
+        "/admin/matches/G_001/delete",
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303, r.text
+    async with reset_db() as db:
+        assert (
+            await db.execute(select(Match).where(Match.id == "G_001"))
+        ).scalar_one_or_none() is None
+        assert (
+            await db.execute(select(Player).where(Player.match_id == "G_001"))
+        ).scalars().all() == []
 
 
 @pytest.mark.asyncio
