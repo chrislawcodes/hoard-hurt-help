@@ -30,6 +30,7 @@ The per-provider mechanics live in small adapters near the bottom; everything el
 from __future__ import annotations
 
 import argparse
+import contextvars
 import json
 import os
 import platform
@@ -42,13 +43,29 @@ import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 
 DEFAULT_URL = "http://localhost:8000"
 DEFAULT_PROVIDER = "claude"
-_TURN_TIMEOUT = 180  # a single model turn can take a while
+_TURN_TIMEOUT = 180  # absolute ceiling for a single model turn
+
+# Each turn phase has a hard server-side deadline (`current.deadline`); a move
+# POSTed after it is rejected with 410 DEADLINE_PASSED, so the agent defaults.
+# We therefore budget the model call against the time actually left in the phase
+# instead of always allowing the full _TURN_TIMEOUT: reserve _SUBMIT_BUFFER_SECONDS
+# for the POST round-trip, and if fewer than _MIN_MODEL_SECONDS remain we skip the
+# model entirely and submit the fallback so *something* lands before the deadline.
+_SUBMIT_BUFFER_SECONDS = 8
+_MIN_MODEL_SECONDS = 6
+
+# Per-turn model-call budget (seconds), set by _decide and read by _run so every
+# provider adapter is bounded without threading a timeout through each one.
+_call_timeout: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "call_timeout", default=None
+)
 
 # Circuit-breaker threshold for the poll loop. Each failed poll sleeps ~5 s, so
 # 24 consecutive failures ≈ 2 minutes of a permanently unreachable server before
@@ -139,6 +156,26 @@ def _default_move(phase: str) -> dict:
     return {"action": "HOARD", "target_id": None, "thinking": ""}
 
 
+def _phase_time_budget(cur: dict, *, now: datetime | None = None) -> float | None:
+    """Seconds left for the model call before this phase's deadline.
+
+    Reads ``current.deadline`` (ISO 8601) and subtracts _SUBMIT_BUFFER_SECONDS so
+    the move can still be POSTed in time. Returns None when no parseable deadline
+    is present (older servers) — callers then fall back to the full _TURN_TIMEOUT.
+    """
+    raw = cur.get("deadline")
+    if not raw:
+        return None
+    try:
+        deadline = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    return (deadline - current).total_seconds() - _SUBMIT_BUFFER_SECONDS
+
+
 def _normalize_move(move: dict, phase: str) -> dict:
     if phase == "talk":
         return {
@@ -211,14 +248,16 @@ def _run(argv: list[str], *, stdin_input: str | None = None) -> subprocess.Compl
     CLI runs in a neutral workspace dir so it never scans the operator's real
     folders."""
     cwd = _workspace_dir()
+    budget = _call_timeout.get()
+    timeout = _TURN_TIMEOUT if budget is None else max(1.0, min(budget, _TURN_TIMEOUT))
     if stdin_input is not None:
         return subprocess.run(
             argv, input=stdin_input, capture_output=True, text=True,
-            timeout=_TURN_TIMEOUT, cwd=cwd,
+            timeout=timeout, cwd=cwd,
         )
     return subprocess.run(
         argv, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-        timeout=_TURN_TIMEOUT, cwd=cwd,
+        timeout=timeout, cwd=cwd,
     )
 
 
@@ -671,6 +710,22 @@ def _decide(turn: dict, sess: _GameSession) -> dict:
     cur = turn["current"]
     phase = _phase(cur)
     match_id = _turn_match_id(turn)
+
+    # Don't burn the whole phase thinking and then miss the deadline: bound the
+    # model call to the time left, and if there's barely any left, skip straight
+    # to the fallback so it still lands before the turn resolves.
+    budget = _phase_time_budget(cur)
+    if budget is not None and budget < _MIN_MODEL_SECONDS:
+        default = _default_move(phase)
+        print(
+            f"[agentludum-connector] only {budget:.0f}s left before the "
+            f"{phase} deadline — submitting FALLBACK move without calling the model.\n"
+            f"  game={match_id} round={cur.get('round')} turn={cur.get('turn')}",
+            file=sys.stderr,
+        )
+        return {**default, "is_connector_fallback": True}
+
+    token = _call_timeout.set(budget)
     try:
         # A sessionless adapter (supports_resume=False, e.g. Hermes) gets the FULL
         # game state every turn — there is no chained session to send a delta to.
@@ -697,11 +752,49 @@ def _decide(turn: dict, sess: _GameSession) -> dict:
         )
         sess.token = None  # a bad resume → re-establish the session next turn
         return {**default, "is_connector_fallback": True}
+    finally:
+        _call_timeout.reset(token)
     if usage:
         _record_usage(match_id, cur, usage, sess)
     if history:
         sess.last_marker = max((h["round"], h["turn"]) for h in history)
     return _normalize_move(move, phase)
+
+
+def _move_request(
+    base: str, match_id: str, turn: dict, decision: dict
+) -> tuple[str, dict, dict]:
+    """Build (url, query_params, json_body) for POSTing this turn's move.
+
+    The query params carry ``agent_turn_token``, which the server requires to
+    bind the move to this agent+turn — omitting it 422s every submission and the
+    agent silently defaults every turn.
+    """
+    cur = turn["current"]
+    params = {"agent_turn_token": turn["agent_turn_token"]}
+    is_fallback = bool(decision.get("is_connector_fallback"))
+    if _phase(cur) == "talk":
+        return (
+            f"{base}/api/games/{match_id}/message",
+            params,
+            {
+                "turn_token": cur["turn_token"],
+                "message": _clip(decision.get("message", ""), 500),
+                "thinking": _clip(decision.get("thinking", ""), 2000),
+                "is_connector_fallback": is_fallback,
+            },
+        )
+    return (
+        f"{base}/api/games/{match_id}/submit",
+        params,
+        {
+            "turn_token": cur["turn_token"],
+            "action": str(decision.get("action", "HOARD")).upper(),
+            "target_id": decision.get("target_id") or None,
+            "thinking": _clip(decision.get("thinking", ""), 2000),
+            "is_connector_fallback": is_fallback,
+        },
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1074,43 +1167,20 @@ def main() -> None:
             )
         decision = _decide(turn, sess)
         is_fallback = bool(decision.get("is_connector_fallback"))
+        url, params, body = _move_request(base, match_id, turn, decision)
+        r2 = httpx.post(url, headers=headers, params=params, json=body, timeout=20)
+        fallback_tag = " [FALLBACK]" if is_fallback else ""
         if phase == "talk":
-            r2 = httpx.post(
-                f"{base}/api/games/{match_id}/message",
-                headers=headers,
-                json={
-                    "turn_token": cur["turn_token"],
-                    "message": _clip(decision.get("message", ""), 500),
-                    "thinking": _clip(decision.get("thinking", ""), 2000),
-                    "is_connector_fallback": is_fallback,
-                },
-                timeout=20,
-            )
-            fallback_tag = " [FALLBACK]" if is_fallback else ""
             print(
                 f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} TALK: "
                 f"({r2.status_code}){fallback_tag}"
             )
         else:
-            action = str(decision.get("action", "HOARD")).upper()
-            target = decision.get("target_id") or None
-            r2 = httpx.post(
-                f"{base}/api/games/{match_id}/submit",
-                headers=headers,
-                json={
-                    "turn_token": cur["turn_token"],
-                    "action": action,
-                    "target_id": target,
-                    "thinking": _clip(decision.get("thinking", ""), 2000),
-                    "is_connector_fallback": is_fallback,
-                },
-                timeout=20,
-            )
+            target = body.get("target_id")
             arrow = f" -> {target}" if target else ""
-            fallback_tag = " [FALLBACK]" if is_fallback else ""
             print(
                 f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} ACT: "
-                f"{action}{arrow} ({r2.status_code}){fallback_tag}"
+                f"{body['action']}{arrow} ({r2.status_code}){fallback_tag}"
             )
 
 
