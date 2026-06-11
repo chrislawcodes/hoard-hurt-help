@@ -398,3 +398,82 @@ async def test_fallback_submit_can_be_overridden_by_genuine_submit(client, reset
     assert len(rows) == 1  # idempotent — only one row
     assert rows[0].action == "HELP"
     assert rows[0].was_defaulted is False
+
+
+# ---------------------------------------------------------------------------
+# Deadline-aware budgeting — keep the move inside the phase deadline
+# ---------------------------------------------------------------------------
+
+
+def test_phase_time_budget_none_when_no_deadline(connector) -> None:
+    assert connector._phase_time_budget({"phase": "act"}) is None
+
+
+def test_phase_time_budget_reserves_submit_buffer(connector) -> None:
+    now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    cur = {"deadline": (now + timedelta(seconds=60)).isoformat()}
+    assert connector._phase_time_budget(cur, now=now) == 60 - connector._SUBMIT_BUFFER_SECONDS
+
+
+def test_phase_time_budget_negative_when_deadline_passed(connector) -> None:
+    now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    cur = {"deadline": (now - timedelta(seconds=5)).isoformat()}
+    assert connector._phase_time_budget(cur, now=now) < 0
+
+
+def test_decide_short_circuits_when_deadline_imminent(connector, monkeypatch) -> None:
+    """With almost no time left, _decide returns a fallback WITHOUT calling the model."""
+
+    class ExplodingAdapter:
+        default_model = "claude-haiku-4-5"
+
+        def first(self, **kwargs):
+            raise AssertionError("model must not be called when the deadline is imminent")
+
+        def resume(self, **kwargs):
+            raise AssertionError("model must not be called when the deadline is imminent")
+
+    monkeypatch.setitem(connector._ADAPTERS, "claude", ExplodingAdapter())
+
+    turn = _make_turn(phase="act")
+    turn["current"]["deadline"] = (
+        datetime.now(timezone.utc) + timedelta(seconds=2)
+    ).isoformat()
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    decision = connector._decide(turn, sess)
+
+    assert decision.get("is_connector_fallback") is True
+    assert decision.get("action") == "HOARD"
+
+
+def test_decide_bounds_model_call_to_remaining_time(connector, monkeypatch) -> None:
+    """The model call is budgeted to the time left, not the full _TURN_TIMEOUT,
+    and the budget context is cleared afterwards."""
+    seen: dict[str, float | None] = {}
+
+    class BudgetSpyAdapter:
+        default_model = "claude-haiku-4-5"
+
+        def first(self, *, body, framing, model, session):
+            seen["budget"] = connector._call_timeout.get()
+            session.token = "tok"
+            return '{"action":"HOARD","target_id":null,"thinking":"x"}', None
+
+        def resume(self, *, body, model, session):
+            seen["budget"] = connector._call_timeout.get()
+            return '{"action":"HOARD","target_id":null,"thinking":"x"}', None
+
+    monkeypatch.setitem(connector._ADAPTERS, "claude", BudgetSpyAdapter())
+
+    turn = _make_turn(phase="act")
+    turn["current"]["deadline"] = (
+        datetime.now(timezone.utc) + timedelta(seconds=45)
+    ).isoformat()
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    connector._decide(turn, sess)
+
+    assert seen["budget"] is not None
+    assert 20 < seen["budget"] < 45 < connector._TURN_TIMEOUT
+    assert connector._call_timeout.get() is None  # reset after the call
