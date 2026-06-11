@@ -12,6 +12,7 @@ from app.models.match import Match
 from app.models.player import Player
 from app.models.user import User
 from app.read_models.matches import load_match_timeline, load_players
+from app.read_models.agent_display import agent_display_name
 from app.routes.viewer_presentation import (
     _build_rc_data,
     _feed_sort_key,
@@ -43,21 +44,22 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     # agent name as the visible label and only surfaces bot credit there.
     owner_rows = (
         await db.execute(
-            select(Player.seat_name, Agent.kind, User.handle, Agent.name)
+            select(Player.seat_name, Agent, User.handle)
             .join(Agent, Agent.id == Player.agent_id)
             .join(User, User.id == Agent.user_id)
             .where(Player.match_id == g.id)
         )
     ).all()
     owner_handles: dict[str, str | None] = {
-        seat_name: ("agentludum" if kind == AgentKind.BOT else handle)
-        for seat_name, kind, handle, _name in owner_rows
+        seat_name: ("agentludum" if agent.kind == AgentKind.BOT else handle)
+        for seat_name, agent, handle in owner_rows
     }
     agent_names: dict[str, str] = {
-        seat_name: name for seat_name, _kind, _handle, name in owner_rows
+        seat_name: agent_display_name(agent)
+        for seat_name, agent, _handle in owner_rows
     }
     bot_flags: dict[str, bool] = {
-        seat_name: kind == AgentKind.BOT for seat_name, kind, _handle, _name in owner_rows
+        seat_name: agent.kind == AgentKind.BOT for seat_name, agent, _handle in owner_rows
     }
 
     scoreboard: list[dict[str, Any]] = sorted(

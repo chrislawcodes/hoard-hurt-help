@@ -226,13 +226,21 @@ async def test_lobby_recent_games_use_agent_names(client, reset_db):
         )
         db.add(match)
         await db.flush()
-        user = await make_user(db, 501)
-        agent, _ = await make_agent(db, user, name="Atlas")
+        bot_owner = await make_user(db, 501)
+        agent, _ = await make_agent(
+            db,
+            bot_owner,
+            name="Atlas",
+            kind=AgentKind.BOT,
+            sim_profile_name="Atlas",
+            sim_strategy="coalition_seeker",
+        )
+        agent.name = f"{match.id}:Atlas"
         player = Player(
             match_id=match.id,
-            user_id=user.id,
+            user_id=bot_owner.id,
             agent_id=agent.id,
-            seat_name="agent1/Atlas",
+            seat_name="Atlas",
         )
         db.add(player)
         await db.flush()
@@ -242,7 +250,7 @@ async def test_lobby_recent_games_use_agent_names(client, reset_db):
     r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
     assert "Won by Atlas" in r.text
-    assert "agent1/Atlas" not in r.text
+    assert f"{match.id}:Atlas" not in r.text
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,7 @@
 
 ## Recently Shipped
 
+- Bot names in standings and recent games now render without the internal match prefix; the UI uses the stable public bot name while keeping the per-match agent name unique behind the scenes.
 - Sim table-talk phrases now sound more like natural player messages, reference
   the relevant player by seat name, and keep the same deterministic intent slots.
 - **Lobby recent-games cleanup** — the lobby's recent-game rows now show the
@@ -60,6 +61,7 @@
 
 ## Now Unblocked
 
+- Bot standings and recent-game labels can stay clean even though bot agent names remain unique internally.
 - Sim-only matches can be used for demos with less repetitive, scripted-sounding
   AI table talk.
 - Recent lobby games can now read as agent names instead of human seat names.
