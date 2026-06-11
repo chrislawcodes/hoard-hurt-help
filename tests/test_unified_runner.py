@@ -279,9 +279,29 @@ def test_xml_escape_escapes_markup_chars(runner):
     assert runner._xml_escape("a&b<c>") == "a&amp;b&lt;c&gt;"
 
 
+def test_install_path_includes_shell_path_and_dedupes(runner, monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin:/bin:/usr/bin")  # duplicate entry
+    monkeypatch.setattr(runner.shutil, "which", lambda _binary: None)
+    path = runner._install_path()
+    entries = path.split(":")
+    assert entries[:2] == ["/usr/bin", "/bin"]  # shell PATH first, deduped
+    assert entries.count("/usr/bin") == 1
+    # Common user-CLI dirs are appended as a safety net even if the shell PATH omits them.
+    assert "/opt/homebrew/bin" in entries
+
+
+def test_install_path_includes_resolved_cli_dirs(runner, monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setattr(
+        runner.shutil, "which", lambda binary: "/custom/cli/bin/claude" if binary == "claude" else None
+    )
+    assert "/custom/cli/bin" in runner._install_path().split(":")
+
+
 def test_macos_install_plan_writes_secure_plist_and_loads_it(runner):
     plan = runner._macos_install_plan(
-        "/usr/bin/python3", _SCRIPT_PATH, "sk_conn_abc", "https://agentludum.com", "/Users/me", 501
+        "/usr/bin/python3", _SCRIPT_PATH, "sk_conn_abc", "https://agentludum.com", "/Users/me", 501,
+        "/Users/me/.local/bin:/opt/homebrew/bin:/usr/bin",
     )
     (path, content, mode) = plan.files[0]
     assert path == "/Users/me/Library/LaunchAgents/com.agentludum.connector.plist"
@@ -289,6 +309,13 @@ def test_macos_install_plan_writes_secure_plist_and_loads_it(runner):
     assert "<key>RunAtLoad</key><true/>" in content
     assert "<key>KeepAlive</key><true/>" in content
     assert "sk_conn_abc" in content and "https://agentludum.com" in content
+    # launchd starts services with a bare PATH; we bake one in so the connector
+    # can find the CLIs (~/.local/bin, /opt/homebrew/bin) it shells out to.
+    assert "<key>EnvironmentVariables</key>" in content
+    assert (
+        "<key>PATH</key><string>/Users/me/.local/bin:/opt/homebrew/bin:/usr/bin</string>"
+        in content
+    )
     # The SERVICE runs the connector WITHOUT --install (no install-loop in the daemon).
     assert "--install" not in content
 
@@ -302,12 +329,16 @@ def test_macos_install_plan_writes_secure_plist_and_loads_it(runner):
 
 def test_linux_install_plan_writes_unit_with_restart_and_enables_it(runner):
     plan = runner._linux_install_plan(
-        "/usr/bin/python3", _SCRIPT_PATH, "sk_conn_abc", "https://agentludum.com", "/home/me"
+        "/usr/bin/python3", _SCRIPT_PATH, "sk_conn_abc", "https://agentludum.com", "/home/me",
+        "/home/me/.local/bin:/usr/local/bin:/usr/bin",
     )
     (path, content, mode) = plan.files[0]
     assert path == "/home/me/.config/systemd/user/agentludum-connector.service"
     assert mode == 0o600
     assert "Restart=on-failure" in content
+    # systemd starts services with a minimal PATH; bake one in so the connector
+    # can find the CLIs it shells out to.
+    assert "Environment=PATH=/home/me/.local/bin:/usr/local/bin:/usr/bin" in content
     assert (
         f"ExecStart=/usr/bin/python3 {_SCRIPT_PATH} --key sk_conn_abc --url https://agentludum.com"
         in content
