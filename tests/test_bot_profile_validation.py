@@ -214,6 +214,12 @@ async def test_add_bots_to_game_succeeds_for_valid_preset(reset_db) -> None:
         created = await add_bots_to_game(db, match, [("Caesar", "grudger")])
         assert len(created) == 1
         assert created[0].seat_name == "Caesar"
+        from sqlalchemy import select
+
+        agent = (
+            await db.execute(select(Agent).where(Agent.id == created[0].agent_id))
+        ).scalar_one()
+        assert agent.name == f"{match.id}:Caesar"
 
 
 @pytest.mark.asyncio

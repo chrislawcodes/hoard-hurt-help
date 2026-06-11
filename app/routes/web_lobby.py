@@ -23,6 +23,7 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.read_models.leaderboard import load_leaderboard_sections
+from app.read_models.agent_display import agent_display_name
 from app.routes.web_support import (
     _TEST_NAME_PREFIX,
     _is_any_admin,
@@ -148,12 +149,12 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
     if winner_ids:
         winner_rows = {
             player_id: {
-                "display_name": agent_name,
-                "is_bot": kind == AgentKind.BOT,
+                "display_name": agent_display_name(agent),
+                "is_bot": agent.kind == AgentKind.BOT,
             }
-            for player_id, agent_name, kind in (
+            for player_id, agent in (
                 await db.execute(
-                    select(Player.id, Agent.name, Agent.kind)
+                    select(Player.id, Agent)
                     .join(Agent, Agent.id == Player.agent_id)
                     .where(Player.id.in_(winner_ids))
                 )

@@ -120,6 +120,7 @@ async def test_viewer_marks_bots_with_agentludum(reset_db, client):
             per_turn_deadline_seconds=60,
             game="hoard-hurt-help",
         )
+        bot_agent.name = f"{match.id}:Bot Alpha"
         db.add(match)
         await db.flush()
         db.add_all(

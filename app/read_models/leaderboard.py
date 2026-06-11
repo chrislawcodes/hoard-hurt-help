@@ -6,7 +6,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import pow
-import re
 from typing import Literal
 
 from sqlalchemy import select
@@ -18,6 +17,7 @@ from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
+from app.read_models.agent_display import agent_display_name
 
 LeaderboardRatingMode = Literal["standard", "bonus"]
 LeaderboardIncluded = Literal["agents", "bot", "all"]
@@ -27,11 +27,6 @@ INITIAL_RATING = 1500.0
 K_FACTOR = 24.0
 FIRST_PLACE_WEIGHT = 1.2
 _TEST_NAME_PREFIX = "prod smoke"
-_ARCHIVE_SUFFIX_RE = re.compile(
-    r"\s+\(archived\s[^)]+\)(?:\s*#\d+)?$|\s+#\d+$"
-)
-
-
 @dataclass(frozen=True)
 class LeaderboardRow:
     """One ranked competitor inside a game section."""
@@ -105,19 +100,8 @@ class _CompetitorState:
     owner_handle: str | None = None
 
 
-def _strip_archive_suffix(name: str) -> str:
-    return _ARCHIVE_SUFFIX_RE.sub("", name)
-
-
 def _agent_display_name(agent: Agent, version: AgentVersion | None) -> str:
-    if agent.kind == AgentKind.BOT:
-        # A preset bot is seated as a throwaway per-match agent named
-        # "<match_id>:<preset>"; show its stable profile name on the board.
-        return agent.bot_profile_name or _strip_archive_suffix(agent.name)
-    base_name = _strip_archive_suffix(agent.name)
-    if version is not None:
-        return f"{base_name} · {version.model}"
-    return base_name
+    return agent_display_name(agent, version)
 
 
 def _competitor_key(agent: Agent) -> str:
