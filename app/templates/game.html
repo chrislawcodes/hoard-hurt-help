@@ -13,7 +13,14 @@
 {% endif %}
 <div class="page-head page-head-row">
     <h1>{{ game.name }}</h1>
-    <a class="btn btn-ghost" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
+    <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+        {% if user and game.state.value in ('scheduled', 'registering') %}
+        <a class="btn btn-primary" href="/games/{{ game.game }}/matches/{{ game.id }}/join">
+            {% if viewer_player_id %}+ Add another agent{% else %}Enter game →{% endif %}
+        </a>
+        {% endif %}
+        <a class="btn btn-ghost" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
+    </div>
 </div>
 
 {% if rc_data %}
