@@ -12,8 +12,15 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
+from app.agent_prompt import make_agent_base_prompt
 from app.engine import resolver
-from app.engine.rules import HELP_POINTS, HOARD_POINTS, HURT_POINTS, make_rules_text
+from app.engine.rules import (
+    HELP_POINTS,
+    HOARD_POINTS,
+    HURT_POINTS,
+    make_game_rules_text,
+    make_rules_text,
+)
 from app.games.base import GameConfig, GameError, GameTheme, StrategyPreset
 from app.games.hoard_hurt_help.strategy import PD_DEFAULT_STRATEGY, PD_STRATEGY_PRESETS
 from app.models.player import Player
@@ -54,6 +61,20 @@ class HoardHurtHelp:
 
     def default_strategy(self) -> str:
         return PD_DEFAULT_STRATEGY
+
+    def agent_base_prompt(
+        self,
+        *,
+        your_agent_id: str,
+        all_agent_ids: list[str],
+        total_rounds: int = 7,
+        turns_per_round: int = 7,
+    ) -> str:
+        return make_agent_base_prompt(
+            your_agent_id=your_agent_id,
+            all_agent_ids=all_agent_ids,
+            rules=make_game_rules_text(total_rounds, turns_per_round),
+        )
 
     def validate_move(
         self, move: dict[str, Any], *, your_agent_id: str, all_agent_ids: list[str]

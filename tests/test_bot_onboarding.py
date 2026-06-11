@@ -389,11 +389,9 @@ async def test_detail_empty_games_copy_when_connected(client, reset_db):
     assert "Needs connection" not in r.text
 
 
-async def test_detail_established_agent_shows_playing_card(client, reset_db):
-    # An agent that played a real move shows the "Playing" onboarding card.
-    # State 5 (PLAYING) is explicitly rendered as a persistent card so the user
-    # can see their agent is active and follow the "Watch it play →" link.
-    # The health badge continues to show the connection state separately.
+async def test_detail_established_agent_hides_playing_banner(client, reset_db):
+    # An agent that played a real move no longer shows the old "Playing"
+    # onboarding card. The health badge continues to show the connection state.
     async with reset_db() as db:
         u = await make_user(db)
         connection, _ = await make_connection(db, u)
@@ -411,8 +409,8 @@ async def test_detail_established_agent_shows_playing_card(client, reset_db):
     assert r.status_code == 200
     # Badge tells the truth about connection state.
     assert "Ready" in r.text
-    # Onboarding card confirms the agent has played.
-    assert "Playing" in r.text
+    # The stale playing banner stays hidden.
+    assert "Playing" not in r.text
 
 
 async def test_status_fragment_owner_only(client, reset_db):

@@ -195,6 +195,16 @@ def _full_turn():
     }
 
 
+def test_framing_prefers_server_base_prompt(runner):
+    turn = _full_turn()
+    turn["static"]["base_prompt"] = "CANONICAL BASE"
+    framing = runner._framing(turn)
+    assert framing.startswith("CANONICAL BASE")
+    assert "YOUR STRATEGY" in framing
+    assert framing.endswith("win")
+    assert "the rules" not in framing
+
+
 def test_hermes_adapter_is_sessionless_and_modelless(runner):
     a = runner._ADAPTERS["hermes"]
     assert a.cli == "hermes"

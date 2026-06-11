@@ -830,11 +830,11 @@ async def test_status_fragment_shows_ready_to_play_for_connected_idle_agent(
 
 
 @pytest.mark.asyncio
-async def test_status_fragment_shows_playing_card_with_watch_link(
+async def test_status_fragment_hides_playing_banner(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Agent that has made a real move: /status fragment shows 'Playing' + watch link."""
+    """A played agent no longer renders the old playing banner in /status."""
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await _make_user(db, handle="ob7", i=20)
@@ -851,9 +851,7 @@ async def test_status_fragment_shows_playing_card_with_watch_link(
 
     resp = await client.get(f"/me/agents/{agent.id}/status", cookies=_cookies(user.id))
     assert resp.status_code == 200
-    assert "Playing" in resp.text
-    assert "Watch it play →" in resp.text
-    assert "/games/hoard-hurt-help/matches/M_frag_play" in resp.text
+    assert resp.text.strip() == ""
 
 
 @pytest.mark.asyncio
@@ -911,3 +909,24 @@ async def test_detail_page_shows_onboarding_card_inline(
     assert "onboarding-status" in resp.text
     # And the initial card is rendered inline (state 2: ready to play)
     assert "Ready to play" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_detail_name_field_autosaves_on_change(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The agent rename field submits itself when the value changes."""
+    recently = datetime.now(timezone.utc) - timedelta(seconds=20)
+    async with session_factory() as db:
+        user = await _make_user(db, handle="ob10", i=23)
+        conn = await _make_connection(
+            db, user, last_seen_at=recently, first_connected_at=recently
+        )
+        agent, _ = await _make_agent(db, user, connection=conn)
+        await db.commit()
+
+    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    assert resp.status_code == 200
+    assert 'onchange="this.form.requestSubmit()"' in resp.text
+    assert 'class="secondary">Rename</button>' not in resp.text

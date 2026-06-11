@@ -604,9 +604,10 @@ def test_phase_suffix_includes_the_clock(connector) -> None:
     assert "to reply" in suffix
 
 
-def test_protocol_states_the_time_limit_and_500_thinking(connector) -> None:
-    assert "TIME LIMIT" in connector._PROTOCOL
-    assert "max 500 chars" in connector._PROTOCOL
+def test_protocol_states_the_deadline_and_200_character_limits(connector) -> None:
+    assert "hard deadline" in connector._PROTOCOL
+    assert "max 200 chars" in connector._PROTOCOL
+    assert "max 500 chars" not in connector._PROTOCOL
 
 
 # ---------------------------------------------------------------------------

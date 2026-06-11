@@ -56,6 +56,16 @@ class StubGame:
     def default_strategy(self) -> str:
         return "Stub strategy: submit MOVE every turn."
 
+    def agent_base_prompt(
+        self,
+        *,
+        your_agent_id: str,
+        all_agent_ids: list[str],
+        total_rounds: int = 10,
+        turns_per_round: int = 10,
+    ) -> str:
+        return f"You are {your_agent_id}. {self.rules_text(total_rounds, turns_per_round)}"
+
     def validate_move(
         self, move: dict[str, Any], *, your_agent_id: str, all_agent_ids: list[str]
     ) -> None:

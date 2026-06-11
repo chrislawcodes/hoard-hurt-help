@@ -417,14 +417,21 @@ async def agent_poll(
             )
         ).scalar_one_or_none()
     module = get_game_module(game.game)
+    all_agent_ids = sorted(seat_name_by_agent_id.values())
     static = TurnStatic(
         match_id=game.id,
         rules_version=game.rules_version,
         rules=module.rules_text(game.total_rounds, game.turns_per_round),
+        base_prompt=module.agent_base_prompt(
+            your_agent_id=player.seat_name,
+            all_agent_ids=all_agent_ids,
+            total_rounds=game.total_rounds,
+            turns_per_round=game.turns_per_round,
+        ),
         total_rounds=game.total_rounds,
         turns_per_round=game.turns_per_round,
         your_agent_id=player.seat_name,
-        all_agent_ids=sorted(seat_name_by_agent_id.values()),
+        all_agent_ids=all_agent_ids,
         your_strategy=current_version.strategy_text if current_version else None,
     )
     # Raw, cache-friendly payload: the stable `static` + append-only `history`

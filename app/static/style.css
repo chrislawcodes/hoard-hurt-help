@@ -195,6 +195,7 @@ button.secondary, .cta.secondary { background: transparent; color: var(--accent)
 .preset-btn { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; padding: 0.28rem 0.65rem; border-radius: 999px; font-size: 0.88rem; }
 .preset-btn:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
 .preset-btn.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.base-prompt-preview { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Connection controls — the Pause/Rotate/Delete row that lives inside the
  * status card. A hairline divides it from the status text above. */
@@ -1102,19 +1103,16 @@ button.danger:hover,
     backdrop-filter: blur(10px); border-bottom: 1.5px solid var(--line);
 }
 .al-nav-inner { display: flex; align-items: center; gap: 18px; height: 70px; }
-/* Brand stays pinned left; its auto margin pushes the menu + right group over to
-   the right. The wayfinding links live first in the DOM but order:1 floats them
-   back to the right on desktop, where the panel shows them inline. On a phone
-   (see the mobile block) the bar holds exactly one menu in the right corner:
-   the account pill when signed in, or this <details> as a ☰ when signed out
-   (order:3 pushes it past .al-nav-right to the far-right edge). */
+/* Brand stays pinned left; its auto margin pushes the wayfinding row + right
+   group over to the right. Desktop shows the links inline; phones collapse
+   them into the single right-corner menu in the mobile block below. */
 .al-brand { order: 0; margin-right: auto; }
-.al-nav-menu { order: 1; }
+.al-navlinks { order: 1; }
 .al-nav-right { order: 2; }
 .al-brand { display: flex; align-items: center; gap: 11px; }
 .al-logo { display: block; }
 .al-wordmark { font-family: var(--al-display); font-weight: 800; font-size: 21px; letter-spacing: -0.02em; }
-.al-navlinks { display: flex; gap: 28px; }
+.al-navlinks { display: flex; align-items: center; gap: 28px; }
 .al-navlinks a { font-size: 13.5px; font-weight: 700; color: var(--ink-soft); }
 .al-navlinks a:hover { color: var(--ink); }
 .al-nav-right { display: flex; align-items: center; gap: 16px; font-size: 13.5px; font-weight: 700; }
@@ -1199,14 +1197,12 @@ button.danger:hover,
 .al-acct-signout { color: var(--hurt); }
 
 /* Wayfinding menu — the wrapper that holds Games / Leaderboard / How it works.
-   On desktop the ☰ button is hidden and the links show inline (the panel is
-   forced visible regardless of the <details> open state). On a phone (≤560px,
-   below) this becomes the signed-out visitor's single right-corner menu;
-   signed-in visitors get the account pill instead and this hides entirely
-   (.al-nav-menu-authed). Same native <details> disclosure — no JS. */
-.al-nav-menu { position: relative; display: flex; align-items: center; }
+   Desktop keeps this hidden because the links already show inline. On a phone
+   (≤560px, below) this becomes the signed-out visitor's single right-corner
+   menu; signed-in visitors get the account pill instead and this hides
+   entirely (.al-nav-menu-authed). Same native <details> disclosure — no JS. */
+.al-nav-menu { position: relative; display: none; align-items: center; }
 .al-nav-menu-btn { display: none; }
-.al-nav-menu > .al-nav-menu-panel { display: flex; align-items: center; gap: 16px; }
 /* The menu's Sign in item is a phone-only affordance — on desktop, signed-out
    pages keep the bar's own entry (Play pill, or the marketing home's quiet
    "Sign in"), so a second copy inline would be noise. */
@@ -1456,14 +1452,14 @@ button.danger:hover,
 }
 
 @media (max-width: 900px) {
-
-    .al-navlinks { display: none; }
     .al-steps { grid-template-columns: repeat(2, 1fr); }
     .al-games { grid-template-columns: repeat(2, 1fr); }
     .al-footer-grid { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 560px) {
+    .al-navlinks { display: none; }
+    .al-nav-menu { display: flex; }
     .al-steps { grid-template-columns: 1fr; }
     .al-games { grid-template-columns: 1fr; }
     .al-footer-grid { grid-template-columns: 1fr; }
@@ -1493,6 +1489,7 @@ button.danger:hover,
     .al-nav-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
     .al-nav-menu:not([open]) > .al-nav-menu-panel { display: none; }
     .al-nav-menu[open] > .al-nav-menu-panel {
+        display: flex;
         position: absolute; right: 0; top: calc(100% + 12px);
         flex-direction: column; align-items: stretch; gap: 1px;
         min-width: 200px; z-index: 60;

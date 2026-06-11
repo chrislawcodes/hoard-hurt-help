@@ -14,6 +14,7 @@ from app.engine.sims import (
     extract_talk_signals,
     render_phrase,
 )
+from app.engine.sims.phrases import PHRASES
 from app.schemas.agent import ScoreboardRow, TalkMessage
 
 
@@ -77,6 +78,24 @@ def test_render_phrase_without_target_does_not_leak_placeholder_id() -> None:
 
     assert "AI_" not in message
     assert len(message) > 0
+
+
+def test_targeted_talk_phrases_name_the_target() -> None:
+    targeted_intents = {
+        "propose_partnership",
+        "confirm_partner",
+        "ask_truce",
+        "warn_attacker",
+        "warn_leader",
+        "claim_repair",
+        "mislead_intent",
+    }
+
+    for intent in targeted_intents:
+        for mode, phrases in PHRASES[intent].items():
+            for seed, _phrase in enumerate(phrases):
+                message = render_phrase(intent, mode, seed=seed, target_name="Sun Tzu")
+                assert "Sun Tzu" in message
 
 
 def test_trust_clamps_to_bounds() -> None:
