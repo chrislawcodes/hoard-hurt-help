@@ -91,6 +91,21 @@ async def test_create_game_button_links_to_a_real_route(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_prompts_link_is_game_scoped(client, reset_db):
+    # The "Strategy prompts" link had the same bug as the create button: it
+    # pointed at /admin/prompts, which has no route. It must be game-scoped.
+    admin = await _seed_user(reset_db, "admin@test.com")
+    r = await client.get("/admin", cookies=_cookies(admin.id))
+    assert r.status_code == 200
+    assert 'href="/admin/prompts"' not in r.text
+    assert 'href="/games/hoard-hurt-help/admin/prompts"' in r.text
+    prompts = await client.get(
+        "/games/hoard-hurt-help/admin/prompts", cookies=_cookies(admin.id)
+    )
+    assert prompts.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_admin_creates_game_via_api(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()

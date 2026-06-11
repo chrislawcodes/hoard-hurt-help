@@ -77,6 +77,12 @@
 </article>
 {% else %}<p class="empty">None.</p>{% endfor %}
 
-<p class="admin-prompts-link"><a href="/admin/prompts">Strategy prompts (research view) →</a></p>
+{% if game_types | length == 1 %}
+<p class="admin-prompts-link"><a href="/games/{{ game_types[0] }}/admin/prompts">Strategy prompts (research view) →</a></p>
+{% else %}
+{% for gt in game_types %}
+<p class="admin-prompts-link"><a href="/games/{{ gt }}/admin/prompts">Strategy prompts — {{ gt }} (research view) →</a></p>
+{% endfor %}
+{% endif %}
 <p class="admin-prompts-link"><a href="/admin/incidents">Request incidents →</a></p>
 {% endblock %}
