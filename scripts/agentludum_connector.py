@@ -88,14 +88,16 @@ _DETECT_REPORT_INTERVAL = 300  # seconds
 _PROTOCOL = (
     "Each turn has two phases. On a TALK PHASE prompt reply with ONLY "
     '{"message": "<public message, max 200 chars>", '
-    '"thinking": "<private reasoning, max 200 chars>"}.\n'
+    '"thinking": "<private reasoning, max 500 chars>"}.\n'
     "On an ACT PHASE prompt reply with ONLY "
     '{"action": "HOARD|HELP|HURT", "target_id": "<another agent id, or null>", '
-    '"thinking": "<private reasoning, max 200 chars>"}.\n'
+    '"thinking": "<private reasoning, max 500 chars>"}.\n'
     "Reply with the JSON object and NOTHING else — no preamble, no code fence, no "
-    "analysis before or after. Keep `thinking` to one short sentence (never empty). "
-    "You are on a strict per-phase time limit, so answer immediately and briefly; a "
-    "slow reply is discarded and counts as a missed move.\n"
+    "analysis before or after. Keep `thinking` to one or two sentences (never empty).\n"
+    "TIME LIMIT: each phase gives you only ~60 seconds, and every prompt tells you "
+    "the exact seconds left. If your reply does not arrive in time it is discarded "
+    "and counts as a missed move — so decide and answer right away; do not deliberate "
+    "past the clock.\n"
     "HELP and HURT require target_id to be another agent; HOARD must have target_id null."
 )
 _ENGAGE = (
@@ -148,9 +150,22 @@ def _format_talk_messages(cur: dict) -> str:
 
 
 def _phase_suffix(cur: dict) -> str:
+    clock = _time_left_note(cur)
     if _phase(cur) == "talk":
-        return "TALK PHASE — JSON only"
-    return f"ACT PHASE — here are this turn's messages: {_format_talk_messages(cur)} — JSON only"
+        return f"TALK PHASE — JSON only.{clock}"
+    return (
+        f"ACT PHASE — here are this turn's messages: {_format_talk_messages(cur)} "
+        f"— JSON only.{clock}"
+    )
+
+
+def _time_left_note(cur: dict) -> str:
+    """A short ' You have ~Ns to reply.' note from the phase deadline, or '' if
+    the payload carries no deadline (older servers)."""
+    budget = _phase_time_budget(cur)
+    if budget is None:
+        return ""
+    return f" You have ~{max(0, int(budget))}s to reply — answer now."
 
 
 def _clip(text: object, limit: int) -> str:
@@ -187,12 +202,12 @@ def _normalize_move(move: dict, phase: str) -> dict:
     if phase == "talk":
         return {
             "message": _clip(move.get("message", ""), 500),
-            "thinking": _clip(move.get("thinking", ""), 200),
+            "thinking": _clip(move.get("thinking", ""), 500),
         }
     return {
         "action": str(move.get("action", "HOARD")).upper(),
         "target_id": move.get("target_id") or None,
-        "thinking": _clip(move.get("thinking", ""), 200),
+        "thinking": _clip(move.get("thinking", ""), 500),
     }
 
 

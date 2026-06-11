@@ -569,3 +569,38 @@ async def test_connector_submit_lands_on_real_endpoint(connector, client, reset_
     assert row is not None
     assert row.was_defaulted is False  # a real move landed — not a default
     assert row.action == "HOARD"
+
+
+# ---------------------------------------------------------------------------
+# Time-budget awareness — the model is told how long it has each phase
+# ---------------------------------------------------------------------------
+
+
+def test_time_left_note_reports_seconds_from_deadline(connector) -> None:
+    cur = {
+        "phase": "act",
+        "deadline": (datetime.now(timezone.utc) + timedelta(seconds=50)).isoformat(),
+    }
+    note = connector._time_left_note(cur)
+    assert "to reply" in note
+    # ~50s minus the submit buffer, rounded down — a small positive number.
+    assert any(str(n) in note for n in range(35, 50))
+
+
+def test_time_left_note_empty_without_deadline(connector) -> None:
+    assert connector._time_left_note({"phase": "act"}) == ""
+
+
+def test_phase_suffix_includes_the_clock(connector) -> None:
+    cur = {
+        "phase": "talk",
+        "deadline": (datetime.now(timezone.utc) + timedelta(seconds=45)).isoformat(),
+    }
+    suffix = connector._phase_suffix(cur)
+    assert "TALK PHASE" in suffix
+    assert "to reply" in suffix
+
+
+def test_protocol_states_the_time_limit_and_500_thinking(connector) -> None:
+    assert "TIME LIMIT" in connector._PROTOCOL
+    assert "max 500 chars" in connector._PROTOCOL
