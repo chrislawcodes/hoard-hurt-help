@@ -67,10 +67,10 @@
   "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
-    "reviewed": false,
+    "reviewed": true,
     "found": false,
-    "note": "",
-    "updated_at": 0
+    "note": "Disjoint opportunity exists: after Slice 1 (schema), Slices 2 (auth/deps/web_support), 3a (match_creation + creators), and 3b (match_deletion + cancel sites) touch non-overlapping file sets with no shared writes. Not annotated [P:] / not dispatched in parallel \u2014 the rollout implements each as its own checkpoint slice so the size-gated diff review stays clean and scoped; parallelism isn't required for correctness and Slice 4 depends on 2+3a+3b anyway.",
+    "updated_at": 1781218190
   },
   "init_head_sha": "094e6f53b0899cfd1b86f4f2b9c458aff6b32d2d",
   "token_usage": [
@@ -377,6 +377,18 @@
       "files_written": 0,
       "subprocess_invocations": 26,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-11T22:49:55Z",
+      "wall_seconds": 0.76,
+      "input_bytes_read": 223286,
+      "output_bytes_written": 62791,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -397,6 +409,14 @@
         "2e35d63a44309f9aac8dc20c7cce4abebd0aa7cf0b7d91ec3797fb8042165327"
       ],
       "initial_sha": "2e35d63a44309f9aac8dc20c7cce4abebd0aa7cf0b7d91ec3797fb8042165327"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "bb5c4c6e40d9c489df47e416dcbb64896a2371bdb91cd05efe1d2d5aca683eab"
+      ],
+      "initial_sha": "bb5c4c6e40d9c489df47e416dcbb64896a2371bdb91cd05efe1d2d5aca683eab"
     }
   },
   "invariant_warnings": [],
@@ -408,9 +428,10 @@
   },
   "spec_adversarial_rounds": 1,
   "last_action_result": {
-    "next": "author_tasks",
-    "reason": "plan checkpoint completed",
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
     "blockers": []
   },
-  "plan_adversarial_rounds": 1
+  "plan_adversarial_rounds": 1,
+  "tasks_adversarial_rounds": 1
 }
