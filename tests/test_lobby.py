@@ -695,6 +695,67 @@ async def test_two_bots_one_game(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monkeypatch):
+    """An admin can tick several of their own agents and seat them in one POST."""
+    user = await _seed_user(reset_db)  # make_user → u0@t.com
+    monkeypatch.setattr(settings, "platform_admin_emails", "u0@t.com")
+    await _seed_game(reset_db)
+    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
+    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
+    # The join form offers checkboxes (multi-select) to admins.
+    form = await client.get(
+        "/games/hoard-hurt-help/matches/G_001/join", cookies=_signed_in_cookies(user.id)
+    )
+    assert 'type="checkbox"' in form.text
+    assert "tick several of your own agents" in form.text
+
+    r = await client.post(
+        "/games/hoard-hurt-help/matches/G_001/join",
+        data={"agent_id": [a1.id, a2.id]},  # httpx repeats the field
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == "/games/hoard-hurt-help/matches/G_001"
+    async with reset_db() as db:
+        players = (
+            (await db.execute(select(Player).where(Player.match_id == "G_001")))
+            .scalars()
+            .all()
+        )
+    assert {p.seat_name for p in players} == {f"{user.handle}/One", f"{user.handle}/Two"}
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_stack_multiple_agents(client, reset_db):
+    """A regular user picking more than one agent is refused and seats nobody."""
+    user = await _seed_user(reset_db)  # not in the admin allowlist
+    await _seed_game(reset_db)
+    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
+    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
+    r = await client.post(
+        "/games/hoard-hurt-help/matches/G_001/join",
+        data={"agent_id": [a1.id, a2.id]},
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 403
+    assert "Only admins" in r.text
+    async with reset_db() as db:
+        count = len(
+            (await db.execute(select(Player).where(Player.match_id == "G_001"))).scalars().all()
+        )
+    assert count == 0
+    # The single-agent path is unchanged for regular users — see test_enter_bot_into_game.
+    # And their join form stays a single dropdown, not checkboxes.
+    form = await client.get(
+        "/games/hoard-hurt-help/matches/G_001/join", cookies=_signed_in_cookies(user.id)
+    )
+    assert 'type="checkbox"' not in form.text
+    assert "<select" in form.text
+
+
+@pytest.mark.asyncio
 async def test_duplicate_display_name_does_not_block_join(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)

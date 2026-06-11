@@ -16,6 +16,19 @@
 {% if ready_agents %}
 <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" id="join-form">
     <div class="card form">
+        {% if is_admin %}
+        <fieldset class="agent-picker">
+            <legend>Play as agent(s)</legend>
+            <p class="hint">Admin: tick several of your own agents to stack them into this match for testing.</p>
+            {% for row in ready_agents %}
+            <label class="check">
+                <input type="checkbox" name="agent_id" value="{{ row.agent.id }}">
+                {{ row.agent.name }}{% if row.model_label %} <small>{{ row.model_label }}</small>{% endif %}
+            </label>
+            {% endfor %}
+            <small>Each gets its own seat as <strong>{{ user.handle }}/agent-name</strong>, using that agent's current version.</small>
+        </fieldset>
+        {% else %}
         <label>
             Play as agent
             <select name="agent_id" required>
@@ -25,6 +38,7 @@
             </select>
             <small>Your in-match identity will be <strong>{{ user.handle }}/agent-name</strong>, and the game will use the agent's current version.</small>
         </label>
+        {% endif %}
         <p class="hint">Manage agents and connection logins under <a href="/me/agents">Agents</a> and <a href="/me/connections">Connections</a>.</p>
         {% if error %}<p class="error">{{ error }}</p>{% endif %}
     </div>
