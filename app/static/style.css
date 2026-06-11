@@ -196,6 +196,92 @@ button.secondary, .cta.secondary { background: transparent; color: var(--accent)
 .preset-btn:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
 .preset-btn.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
+/* Connection controls — the Pause/Rotate/Delete row that lives inside the
+ * status card. A hairline divides it from the status text above. */
+.connection-controls {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--line);
+}
+.connection-controls form { margin: 0; }
+
+/* Provider toggles — one row per AI provider. The switch is the real control
+ * (on = run this provider on this machine); the state text to its right is a
+ * separate "is the CLI installed?" read-out. */
+.provider-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--line);
+}
+.provider-row:last-of-type { border-bottom: none; }
+.provider-toggle-form { display: flex; align-items: center; gap: 0.7rem; margin: 0; }
+.provider-name { font-weight: 700; }
+.provider-state { font-size: 0.85rem; color: var(--ink-soft); text-align: right; }
+.provider-detected { color: var(--help); font-weight: 700; }
+.provider-missing { color: var(--hoard); font-weight: 700; }
+
+.provider-install-hint {
+    margin: 0 0 0.4rem;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    background: var(--surface-2);
+    border-left: 3px solid var(--hoard);
+    border-radius: 0 var(--radius) var(--radius) 0;
+}
+.provider-install-hint code {
+    font-family: var(--font-mono);
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 0.05rem 0.35rem;
+    border-radius: 5px;
+    font-size: 0.82em;
+}
+.provider-strand-warning {
+    margin-bottom: 0.75rem;
+    padding: 0.75rem 0.9rem;
+    background: var(--bad-bg);
+    border: 1.5px solid var(--bad-line);
+    border-radius: var(--radius);
+}
+.provider-strand-warning .meta { color: var(--bad); margin-top: 0; }
+
+/* The switch itself: a hidden checkbox driving a sliding pill. */
+.toggle-switch { display: inline-flex; align-items: center; cursor: pointer; flex: none; }
+.toggle-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.toggle-track {
+    position: relative;
+    display: inline-block;
+    width: 42px;
+    height: 24px;
+    background: var(--line);
+    border-radius: 999px;
+    transition: background 0.15s ease;
+}
+.toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    background: var(--surface);
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(36, 28, 51, 0.4);
+    transition: transform 0.15s ease;
+}
+.toggle-switch input:checked + .toggle-track { background: var(--accent); }
+.toggle-switch input:checked + .toggle-track .toggle-thumb { transform: translateX(18px); }
+.toggle-switch input:focus-visible + .toggle-track {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
 @media (max-width: 720px) {
     .agent-setup-grid { grid-template-columns: 1fr; }
     .agent-setup-card { padding: 0.9rem 0.9rem 1rem; }

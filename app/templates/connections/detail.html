@@ -66,44 +66,43 @@
 
 <div class="card">
     <h3 style="margin-top:0;">Providers</h3>
-    <p class="meta">Turn the AI providers this machine should run on or off. Your agents route to whichever live connection covers their provider.</p>
+    <p class="meta">Turn on the AI providers this machine should run. Your agents route to whichever live connection has their provider switched on — flipping a toggle on here is all it takes to start playing them. "CLI detected" is a separate check that confirms this machine also has that provider's command-line tool installed.</p>
     {% if strand_provider %}
-    <div class="card" style="border-color:var(--danger,#b00);">
-        <p class="meta" style="color:var(--danger,#b00);">Turning off <strong>{{ strand_provider }}</strong> would strand {{ strand_count }} agent(s) — no other live connection covers it.</p>
+    <div class="provider-strand-warning">
+        <p class="meta">Turning off <strong>{{ strand_provider }}</strong> would strand {{ strand_count }} agent(s) — no other live connection has it switched on.</p>
         <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ strand_provider }}?enabled=false&confirm=true">
             <button type="submit">Turn off {{ strand_provider }} anyway</button>
         </form>
     </div>
     {% endif %}
     {% for t in provider_toggles %}
-    <div style="display:flex; align-items:center; gap:0.75rem; padding:0.35rem 0;">
-        <span style="min-width:6rem;">{{ t.label }}</span>
-        <span class="meta">{% if t.detected %}detected{% else %}not detected{% endif %}</span>
-        {% if t.enabled %}
-        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=false">
-            <button type="submit">Turn off</button>
+    <div class="provider-row">
+        <form method="post"
+              action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled={{ 'false' if t.enabled else 'true' }}"
+              class="provider-toggle-form">
+            <label class="toggle-switch" title="{{ 'On — agents using ' ~ t.label ~ ' run on this machine' if t.enabled else 'Off — agents using ' ~ t.label ~ ' will not run here' }}">
+                <input type="checkbox" {% if t.enabled %}checked{% endif %} onchange="this.form.submit()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+            <span class="provider-name">{{ t.label }}</span>
         </form>
-        {% else %}
-        <form method="post" action="/me/connections/{{ connection.id }}/providers/{{ t.value }}?enabled=true">
-            <button type="submit">Turn on</button>
-        </form>
-        {% endif %}
+        <span class="provider-state">
+            {% if t.enabled %}
+                {% if t.detected %}
+                    <span class="provider-detected">On · CLI detected</span>
+                {% else %}
+                    <span class="provider-missing">On · CLI not found here</span>
+                {% endif %}
+            {% else %}
+                <span class="meta">Off</span>
+            {% endif %}
+        </span>
     </div>
+    {% if t.enabled and not t.detected %}
+    <p class="provider-install-hint">
+        This machine can't see the {{ t.label }} CLI (<code>{{ t.cli }}</code>) yet. Install it and sign in, then leave the client running — detection refreshes on its own within a few minutes, no restart needed. Until then, agents will fall back to a built-in move when it's their turn.
+    </p>
+    {% endif %}
     {% endfor %}
-</div>
-
-<div class="card">
-    <h3 style="margin-top:0;">Connection controls</h3>
-    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-        {% if connection.status.value == 'paused' %}
-            <form method="post" action="/me/connections/{{ connection.id }}/resume"><button type="submit">Resume</button></form>
-        {% else %}
-            <form method="post" action="/me/connections/{{ connection.id }}/pause"><button type="submit">Pause</button></form>
-        {% endif %}
-        <form method="post" action="/me/connections/{{ connection.id }}/rotate"><button type="submit">Rotate Key</button></form>
-        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this machine? Its runner will be told to exit. Your agents keep playing on any other live connection that covers their provider; any covered by no other live connection will wait. Continue?');">
-            <button type="submit">Delete</button>
-        </form>
-    </div>
 </div>
 {% endblock %}

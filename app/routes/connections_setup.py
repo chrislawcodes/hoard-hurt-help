@@ -35,6 +35,18 @@ _PROVIDER_LABELS = {
     ConnectionProvider.OPENCLAW.value: "OpenClaw",
 }
 
+# The command-line tool the connector looks for to mark a provider "detected".
+# Must mirror `_detect_providers()` in scripts/agentludum_connector.py (openai is
+# driven by the `codex` CLI). Shown in the install hint when a provider is turned
+# on but its CLI isn't found on the machine.
+_PROVIDER_CLIS = {
+    ConnectionProvider.CLAUDE.value: "claude",
+    ConnectionProvider.GEMINI.value: "gemini",
+    ConnectionProvider.OPENAI.value: "codex",
+    ConnectionProvider.HERMES.value: "hermes",
+    ConnectionProvider.OPENCLAW.value: "openclaw",
+}
+
 # One connector drives every provider. A connection is a machine; the connector
 # auto-detects which AI CLIs are installed and reports them, so there is no
 # per-provider setup path or per-provider download anymore.
@@ -416,6 +428,7 @@ async def connection_detail(
         {
             "value": p.value,
             "label": _provider_label(p),
+            "cli": _PROVIDER_CLIS.get(p.value, p.value),
             "enabled": (provider_rows[p.value].enabled if p.value in provider_rows else False),
             "detected": (provider_rows[p.value].detected if p.value in provider_rows else False),
             "detected_detail": (
