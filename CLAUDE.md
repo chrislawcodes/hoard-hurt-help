@@ -137,3 +137,6 @@ Always read:
 Read when relevant:
 - `specs/` for feature specs
 - `MEMORY.md` for persistent project references
+- `docs/operations/debugging-history.md` when something is broken or frozen in
+  prod — past incidents, how to diagnose a stuck match, and manual recovery.
+  Add an entry whenever you debug a non-trivial production issue.
