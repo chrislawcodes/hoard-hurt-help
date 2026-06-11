@@ -10,7 +10,7 @@ from app.auth.session import clear_session, set_session_user
 from app.config import settings
 from app.deps import DbSession
 from app.models.agent import Agent, AgentKind
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.auth import GoogleUserInfo
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -24,6 +24,11 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
     filled on the user's next login; a name that's already set is never
     overwritten.
     """
+    role = (
+        UserRole.ADMIN
+        if userinfo.email.lower() in settings.platform_admin_emails_set
+        else UserRole.USER
+    )
     user = (
         await db.execute(select(User).where(User.google_sub == userinfo.sub))
     ).scalar_one_or_none()
@@ -34,14 +39,18 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
             name=userinfo.name,
             given_name=userinfo.given_name,
             family_name=userinfo.family_name,
+            role=role,
         )
         db.add(user)
         await db.flush()
         return user
+    if user.email != userinfo.email:
+        user.email = userinfo.email
     if user.given_name is None and userinfo.given_name is not None:
         user.given_name = userinfo.given_name
     if user.family_name is None and userinfo.family_name is not None:
         user.family_name = userinfo.family_name
+    user.role = role
     return user
 
 

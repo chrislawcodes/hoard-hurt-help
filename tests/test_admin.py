@@ -14,6 +14,7 @@ from starlette.requests import Request
 from app.config import settings
 from app.main import app
 from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
+from app.models.user import UserRole
 from app.routes import admin_web
 from app.routes import game_admin_web
 from tests.factories import make_agent
@@ -52,7 +53,16 @@ def _cookies(user_id: int) -> dict:
 
 async def _seed_user(reset_db, email: str) -> User:
     async with reset_db() as db:
-        u = User(google_sub=f"sub-{email}", email=email, name=email)
+        u = User(
+            google_sub=f"sub-{email}",
+            email=email,
+            name=email,
+            role=(
+                UserRole.ADMIN
+                if email.lower() in settings.platform_admin_emails_set
+                else UserRole.USER
+            ),
+        )
         db.add(u)
         await db.commit()
         await db.refresh(u)

@@ -13,6 +13,7 @@ from app.config import settings
 from app.engine.sims.seating import SIMS_USER_SUB
 from app.main import app
 from app.models import Base, Agent, AgentKind, Match, GameState, Player, User
+from app.models.user import UserRole
 from tests.factories import make_agent
 
 
@@ -50,7 +51,16 @@ def _cookies(user_id: int) -> dict:
 
 async def _seed_user(reset_db, email: str) -> User:
     async with reset_db() as db:
-        u = User(google_sub=f"sub-{email}", email=email, name=email)
+        u = User(
+            google_sub=f"sub-{email}",
+            email=email,
+            name=email,
+            role=(
+                UserRole.ADMIN
+                if email.lower() in settings.platform_admin_emails_set
+                else UserRole.USER
+            ),
+        )
         db.add(u)
         await db.commit()
         await db.refresh(u)

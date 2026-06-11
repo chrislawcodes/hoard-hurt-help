@@ -4,9 +4,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.config import settings
 from app.db import make_engine
 from app.models import Base
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.routes.auth import sync_google_user
 from app.schemas.auth import GoogleUserInfo
 
@@ -50,6 +51,37 @@ async def test_creates_user_with_names(session) -> None:
     await session.commit()
     assert user.given_name == "Ada"
     assert user.family_name == "Lovelace"
+
+
+@pytest.mark.asyncio
+async def test_seeds_role_from_allowlist_and_demotes_on_next_login(
+    session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "platform_admin_emails", "admin@example.com")
+
+    user = await sync_google_user(session, _info(email="admin@example.com"))
+    await session.commit()
+    assert user.role == UserRole.ADMIN
+
+    monkeypatch.setattr(settings, "platform_admin_emails", "")
+    user = await sync_google_user(session, _info(email="admin@example.com"))
+    await session.commit()
+    assert user.role == UserRole.USER
+
+
+@pytest.mark.asyncio
+async def test_refreshes_email_before_role_seeding(
+    session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session.add(User(google_sub="g-1", email="old@example.com", name="Ada Lovelace"))
+    await session.commit()
+
+    monkeypatch.setattr(settings, "platform_admin_emails", "new@example.com")
+
+    user = await sync_google_user(session, _info(email="new@example.com"))
+    await session.commit()
+    assert user.email == "new@example.com"
+    assert user.role == UserRole.ADMIN
 
 
 @pytest.mark.asyncio
