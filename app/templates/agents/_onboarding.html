@@ -10,7 +10,6 @@
     connected_no_game  (2) — connected, idle: "Ready to play" + find-a-match CTA
     connected_pregame  (3) — in a pre-game match: name + "Starts soon" message
     in_game_no_move    (4) — active match, no move yet: waiting for first move
-    playing            (5) — has made first real move: flourish + "Watch it play" link
 
   Also handles:
     join_blocked       — at capacity: "At capacity" card instead of ready-to-play
@@ -21,16 +20,7 @@
 #}
 {% set s = onboarding.state.value %}
 
-{% if s == "playing" %}
-<div class="card" style="border-color:var(--ok, #2d9a5a);">
-    <h3 style="margin-top:0;">Playing</h3>
-    <p class="hint" style="margin-top:0;">Your agent made its first move — it's playing now.</p>
-    {% if onboarding.match_id %}
-    <a class="btn btn-ghost" href="/games/{{ onboarding.game_type }}/matches/{{ onboarding.match_id }}">Watch it play →</a>
-    {% endif %}
-</div>
-
-{% elif s == "in_game_no_move" %}
+{% if s == "in_game_no_move" %}
 <div class="card" style="border-color:var(--ok, #2d9a5a);">
     <h3 style="margin-top:0;">In a match</h3>
     <p class="hint" style="margin-top:0;">In <strong>{{ onboarding.match_name }}</strong>. Waiting for its first move…</p>

@@ -14,9 +14,14 @@
     </p>
 </div>
 
-<form method="post" action="/me/agents/{{ agent.id }}/rename" class="form" style="display:flex; gap:0.5rem; align-items:center; max-width:420px; margin:0.5rem 0 1.25rem;">
-    <input type="text" name="name" value="{{ agent.name }}" maxlength="120" required aria-label="Agent name">
-    <button type="submit" class="secondary">Rename</button>
+<form method="post" action="/me/agents/{{ agent.id }}/rename" class="form" style="max-width:420px; margin:0.5rem 0 1.25rem;">
+    <input type="text"
+           name="name"
+           value="{{ agent.name }}"
+           maxlength="120"
+           required
+           aria-label="Agent name"
+           onchange="this.form.requestSubmit()">
 </form>
 
 {% if health.needs_reconnect %}

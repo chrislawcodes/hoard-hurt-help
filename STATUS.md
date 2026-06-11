@@ -15,6 +15,7 @@
 
 ## Recently Shipped
 
+- **Agent detail cleanup** — removed the stale "Playing" onboarding banner from the agent detail page, and the rename field now autosaves on change/blur instead of requiring a separate button.
 - **Desktop wayfinding restored** — the shared nav now shows `Games` and `Leaderboard` inline on desktop again, while phones still collapse the same links into the hamburger/account menus. The marketing home's `How it works` override follows the same path.
 - **Unified Connections** — a connection is now one machine running the connector,
   not one AI-provider login. Per-connection provider toggles (`connection_providers`),
@@ -47,6 +48,7 @@
 
 ## Now Unblocked
 
+- The agent detail page no longer advertises a finished agent as still "Playing", and agent renames now save as soon as the user leaves the field.
 - Running `/feature-spec` (and the full spec → plan → tasks → implement flow) drives the
   repo-owned runner at `docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py`.
 - The game admin dashboard can now survive a stale or broken match row instead of 500ing the whole page.
