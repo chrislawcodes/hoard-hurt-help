@@ -709,8 +709,52 @@ def _xml_escape(value: str) -> str:
     return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# Dirs where user-installed CLIs commonly live but a service PATH usually omits.
+# Baked into the service as a safety net even if the installing shell's PATH is
+# unusual.
+_FALLBACK_PATH_DIRS = (
+    f"{Path.home()}/.local/bin",
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+)
+# CLIs the connector shells out to. Their install dir must be on the service
+# PATH or the connector can neither detect nor drive them. `node` is included
+# because the JS-based CLIs (gemini, codex) need it on PATH at runtime.
+_RUNTIME_BINARIES = ("claude", "codex", "gemini", "node", "hermes", "openclaw")
+
+
+def _install_path() -> str:
+    """Build the PATH to bake into the installed service.
+
+    launchd / systemd start a service with a minimal PATH that omits the dirs
+    where user-installed CLIs live (``~/.local/bin``, ``/opt/homebrew/bin``, …).
+    The connector finds and runs those CLIs by name, so without their dirs on
+    PATH every provider shows "CLI not found" and turns fall back to HOARD. We
+    bake in the installing shell's PATH (which has them), the dir of every CLI
+    we can resolve right now, and a few common fallbacks — first occurrence wins.
+    """
+    dirs: list[str] = []
+    seen: set[str] = set()
+
+    def _add(directory: str) -> None:
+        if directory and directory not in seen:
+            seen.add(directory)
+            dirs.append(directory)
+
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        _add(directory)
+    for binary in _RUNTIME_BINARIES:
+        resolved = shutil.which(binary)
+        if resolved:
+            _add(str(Path(resolved).parent))
+    for directory in _FALLBACK_PATH_DIRS:
+        _add(directory)
+    return os.pathsep.join(dirs)
+
+
 def _macos_install_plan(
-    python_exe: str, script_path: str, key: str, url: str, home: str, uid: int
+    python_exe: str, script_path: str, key: str, url: str, home: str, uid: int, path: str
 ) -> _InstallPlan:
     plist_path = f"{home}/Library/LaunchAgents/{_SERVICE_LABEL}.plist"
     log_dir = f"{home}/.agentludum"
@@ -727,6 +771,10 @@ def _macos_install_plan(
         "    <array>\n"
         f"{args_xml}"
         "    </array>\n"
+        "    <key>EnvironmentVariables</key>\n"
+        "    <dict>\n"
+        f"        <key>PATH</key><string>{_xml_escape(path)}</string>\n"
+        "    </dict>\n"
         "    <key>RunAtLoad</key><true/>\n"
         "    <key>KeepAlive</key><true/>\n"
         f"    <key>StandardOutPath</key><string>{log_dir}/connector.log</string>\n"
@@ -751,7 +799,7 @@ def _macos_install_plan(
 
 
 def _linux_install_plan(
-    python_exe: str, script_path: str, key: str, url: str, home: str
+    python_exe: str, script_path: str, key: str, url: str, home: str, path: str
 ) -> _InstallPlan:
     unit_path = f"{home}/.config/systemd/user/{_LINUX_UNIT_NAME}"
     unit = (
@@ -761,6 +809,7 @@ def _linux_install_plan(
         "Wants=network-online.target\n"
         "\n"
         "[Service]\n"
+        f"Environment=PATH={path}\n"
         f"ExecStart={python_exe} {script_path} --key {key} --url {url}\n"
         "Restart=on-failure\n"
         "RestartSec=5\n"
@@ -819,10 +868,11 @@ def _install_service(key: str, url: str) -> int:
     python_exe = sys.executable
     script_path = str(Path(__file__).resolve())
     home = str(Path.home())
+    path = _install_path()
     if system == "Darwin":
-        plan = _macos_install_plan(python_exe, script_path, key, url, home, os.getuid())
+        plan = _macos_install_plan(python_exe, script_path, key, url, home, os.getuid(), path)
     elif system == "Linux":
-        plan = _linux_install_plan(python_exe, script_path, key, url, home)
+        plan = _linux_install_plan(python_exe, script_path, key, url, home, path)
     elif system == "Windows":
         plan = _windows_install_plan(python_exe, script_path, key, url)
     else:
