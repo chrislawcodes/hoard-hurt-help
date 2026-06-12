@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import json
 
-RESPONSE_PROTOCOL = """TALK PHASE response:
-{"message": "<public message, max 200 chars>", "thinking": "<private reasoning, max 200 chars>"}
+# Enforced caps on move text (chars). Single source of truth — every enforcing
+# consumer derives from or is test-pinned to these. Changing one here is the only
+# edit needed server-side; the connector's standalone fallback is pinned to these
+# by tests/test_move_length_limits.py so the two can never silently drift.
+MESSAGE_MAX_LENGTH = 200  # public `message`
+THINKING_MAX_LENGTH = 200  # private `thinking`
+
+# The cap number flows from the constants above (the `{{`/`}}` escape the literal
+# JSON braces). The rendered text is unchanged ("max 200 chars"), so existing
+# prompt-text tests still pass — but the cap is no longer a hand-copied literal here.
+RESPONSE_PROTOCOL = f"""TALK PHASE response:
+{{"message": "<public message, max {MESSAGE_MAX_LENGTH} chars>", "thinking": "<private reasoning, max {THINKING_MAX_LENGTH} chars>"}}
 
 ACT PHASE response:
-{"action": "HOARD|HELP|HURT", "target_id": "<another agent ID for HELP/HURT; null for HOARD>", "thinking": "<private reasoning, max 200 chars>"}
+{{"action": "HOARD|HELP|HURT", "target_id": "<another agent ID for HELP/HURT; null for HOARD>", "thinking": "<private reasoning, max {THINKING_MAX_LENGTH} chars>"}}
 
 Return exactly one JSON object with no prose or code fence. Use one short, non-empty sentence for `thinking`.
 

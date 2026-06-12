@@ -18,6 +18,27 @@ Tracking whether adversarial reviews (Feature Factory pipeline) actually change 
 
 ---
 
+## Experiment 7 — `move-limit-single-source` (hoard-hurt-help, 2026-06-11)
+
+**Feature:** Make the public-`message` (200) and private-`thinking` (200) char caps a single source of truth across the server schema, the standalone connector, and the model-facing prompt — so they can't silently drift apart again (the drift had 422-dropped oversized moves). No value change; core deliverable is a regression test that fails on divergence.
+
+**Direct PR:** none (branch `direct/move-limit-single-source`, local) | **Feature Factory PR:** none (branch `factory/move-limit-single-source`, local)
+
+| | Direct Path | Feature Factory |
+|--|--------------|---------|
+| Reviews that changed code | 1/1 stages (Implement self-review extended the test to pin the prompt prose) | 2/4 stages (Spec drove the fallback-constant design; Plan reshaped the test); Diff review deferred 1 out-of-scope |
+| Critical catch | — | Plan review (HIGH) caught that pinning constants isn't enough — added **behavioral clip tests** + an `app`-blocked import test that catch a wrong call-site literal Direct's structural test would miss |
+| False positives | None | Low (the 2 Diff-review issues were real but correctly deferred as out-of-scope) |
+| Tests | 5 new (structural) | 7 new (structural + behavioral) |
+| Claude tokens (billed input / cache read / output) | 171,199 / 3,687,466 / 17,004 | 417,767 / 32,674,286 / 64,109 (plus uncounted Codex+Gemini review calls) |
+| Human interruptions | 0 | 0 |
+
+**Verdict:** Both paths shipped a correct, green (preflight-passing) solution; the values stayed 200/200. They chose different designs: Direct added a new dependency-free `app/move_limits.py` and kept a test-pinned local copy in the connector; Feature Factory reused the existing `app/agent_prompt.py` + the connector's existing import-guard, falling back to a local copy only when standalone. Feature Factory won on test quality — its Plan-stage review turned a structural (constant-equality) test into a behavioral one that actually exercises the clip, a gap Direct never noticed. It cost ~2.5× the Claude real-work tokens, ~6.5× wall-clock, and extra Codex/Gemini calls. No post-merge bugs (neither merged yet).
+
+**Lesson:** When the deliverable *is* the safety-net test, Feature Factory's adversarial reviews reliably upgrade a structural test into a behavioral one — worth it if the test is the whole point. For a low-risk, mechanical refactor where you just need it done, Direct Path is sufficient and ~6× faster. Consistent with the ValueRank "backend/correctness → Feature Factory finds a real gap" pattern — first hoard-hurt-help data point agrees.
+
+---
+
 ## Experiment 6 — `per-model-coverage` (valuerank, 2026-04-03)
 
 **Feature:** Per-model trial counts in the coverage matrix — min/max trials per cell across default models, mismatch warning (orange border + ⚠) when models have uneven coverage. Includes `defaultModelIds` on Domain, global model fallback, and `modelBreakdown` tooltip.
@@ -150,12 +171,14 @@ Tracking whether adversarial reviews (Feature Factory pipeline) actually change 
 | 4 — cross-run-reliability | valuerank | Backend/worker fix | Yes | Codex adversarial caught silent wrong-key bug that passed tests |
 | 5 — provider-budget | valuerank | Full-stack feature | Partial | Feature Factory enforced test discipline; both caught same correctness bugs; Feature Factory needed 2 human interventions |
 | 6 — per-model-coverage | valuerank | Full-stack feature | Yes | Caught 2 real UI bugs (color threshold, label) that Direct Path shipped silently |
+| 7 — move-limit-single-source | hoard-hurt-help | Backend refactor + test | Partial | Plan review upgraded a structural test to a behavioral one; both paths otherwise correct; ~2.5× tokens / ~6.5× time |
 
-**Pattern (6 data points, all ValueRank):** Feature Factory 2/2 on backend/algorithmic work. Direct Path 2/2 on UI/nav work. Full-stack features: Feature Factory 2/2 on catching real bugs (though Experiment 5 was partial on process friction).
+**Pattern (7 data points — 6 ValueRank, 1 hoard-hurt-help):** Feature Factory 2/2 on backend/algorithmic work. Direct Path 2/2 on UI/nav work. Full-stack features: Feature Factory 2/2 on catching real bugs (though Experiment 5 was partial on process friction). First hoard-hurt-help point (backend refactor) agrees with the backend lean: Feature Factory found a real test-coverage gap Direct missed — but on a low-risk refactor the win was test robustness, not correctness, so it was only partially worth the steep cost.
 
 **Recommendation:** Route features by type before choosing pipeline:
 - Backend algorithmic / Python worker internals → Feature Factory
 - UI / nav / component refactors → Direct Path
 - Full-stack features → Feature Factory; it consistently catches display-logic bugs that are hard to unit-test
+- Low-risk mechanical refactor where you just need it done → Direct Path (~6× faster); but if the deliverable IS a safety-net test, Feature Factory's reviews reliably upgrade a structural test into a behavioral one (Experiment 7)
 
 _Next hoard-hurt-help experiments append above as Experiment 7+ (tagged `hoard-hurt-help`). Re-check whether the ValueRank pattern holds on this codebase as local data accumulates._

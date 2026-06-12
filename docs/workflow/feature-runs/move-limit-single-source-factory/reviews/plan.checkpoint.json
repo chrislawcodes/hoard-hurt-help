@@ -1,0 +1,34 @@
+{
+  "feature_slug": "move-limit-single-source-factory",
+  "stage": "plan",
+  "artifact_path": "docs/workflow/feature-runs/move-limit-single-source-factory/plan.md",
+  "git_base_ref": "",
+  "allowed_dirty_paths": [],
+  "required_reviews": [
+    {
+      "reviewer": "codex",
+      "lens": "implementation-adversarial",
+      "stage": "plan",
+      "path": "docs/workflow/feature-runs/move-limit-single-source-factory/reviews/plan.codex.implementation-adversarial.review.md",
+      "context_paths": [
+        "docs/platform/AGENT_LUDUM_ARCHITECTURE.md",
+        "docs/workflow/feature-runs/move-limit-single-source-factory/reuse-report.md"
+      ],
+      "model": "gpt-5.4-mini"
+    },
+    {
+      "reviewer": "gemini",
+      "lens": "testability-adversarial",
+      "stage": "plan",
+      "path": "docs/workflow/feature-runs/move-limit-single-source-factory/reviews/plan.gemini.testability-adversarial.review.md",
+      "context_paths": [
+        "docs/platform/AGENT_LUDUM_ARCHITECTURE.md",
+        "docs/workflow/feature-runs/move-limit-single-source-factory/reuse-report.md"
+      ],
+      "model": "gemini-3.1-flash-lite"
+    }
+  ],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}
