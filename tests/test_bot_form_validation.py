@@ -20,6 +20,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.main import app
 from app.models import Base, GameState, Match, Player, User
+from app.models.user import UserRole
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +57,12 @@ def _cookies(user_id: int) -> dict[str, str]:
 
 async def _seed_admin(reset_db) -> User:
     async with reset_db() as db:
-        u = User(google_sub="sub-admin", email="admin@test.com", name="Admin")
+        u = User(
+            google_sub="sub-admin",
+            email="admin@test.com",
+            name="Admin",
+            role=UserRole.ADMIN,
+        )
         db.add(u)
         await db.commit()
         await db.refresh(u)

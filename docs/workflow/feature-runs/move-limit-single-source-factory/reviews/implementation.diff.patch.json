@@ -1,0 +1,20 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "e9c23867fb47703926e1bcc535151d504156093b",
+  "git_base_ref": "origin/main",
+  "git_base_sha": "f306a0bfb31b5b82cd49ce838231a9d8f47c428d",
+  "paths": [
+    "app/agent_prompt.py",
+    "app/schemas/agent.py",
+    "scripts/agentludum_connector.py"
+  ],
+  "allowed_dirty_paths": [
+    "app/agent_prompt.py",
+    "app/schemas/agent.py",
+    "docs/workflow/feature-runs/move-limit-single-source-factory",
+    "scripts/agentludum_connector.py"
+  ],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/move-limit-single-source-factory/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}

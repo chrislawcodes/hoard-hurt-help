@@ -51,12 +51,24 @@ from pathlib import Path
 
 import httpx
 
+# Standalone fallback values for the enforced move-text caps — used when app/ is not
+# importable (the real situation on operator machines, where this script is copied and
+# run on its own). tests/test_move_length_limits.py pins these to the server's
+# authoritative caps (app.agent_prompt.MESSAGE_MAX_LENGTH / THINKING_MAX_LENGTH) so a
+# divergence fails CI before it can silently drop a move.
+_FALLBACK_MESSAGE_MAX_LENGTH = 200
+_FALLBACK_THINKING_MAX_LENGTH = 200
+
 try:
-    # In a source checkout, reuse the game's canonical protocol. Downloaded
-    # standalone connectors use the embedded compatibility copy below.
+    # In a source checkout, reuse the game's canonical protocol + cap constants.
+    # Downloaded standalone connectors use the embedded compatibility copies below.
     from app.agent_prompt import RESPONSE_PROTOCOL as _CANONICAL_PROTOCOL
+    from app.agent_prompt import MESSAGE_MAX_LENGTH as _MESSAGE_MAX_LENGTH
+    from app.agent_prompt import THINKING_MAX_LENGTH as _THINKING_MAX_LENGTH
 except ImportError:
     _CANONICAL_PROTOCOL = None
+    _MESSAGE_MAX_LENGTH = _FALLBACK_MESSAGE_MAX_LENGTH
+    _THINKING_MAX_LENGTH = _FALLBACK_THINKING_MAX_LENGTH
 
 DEFAULT_URL = "http://localhost:8000"
 DEFAULT_PROVIDER = "claude"
@@ -214,13 +226,13 @@ def _phase_time_budget(cur: dict, *, now: datetime | None = None) -> float | Non
 def _normalize_move(move: dict, phase: str) -> dict:
     if phase == "talk":
         return {
-            "message": _clip(move.get("message", ""), 200),
-            "thinking": _clip(move.get("thinking", ""), 200),
+            "message": _clip(move.get("message", ""), _MESSAGE_MAX_LENGTH),
+            "thinking": _clip(move.get("thinking", ""), _THINKING_MAX_LENGTH),
         }
     return {
         "action": str(move.get("action", "HOARD")).upper(),
         "target_id": move.get("target_id") or None,
-        "thinking": _clip(move.get("thinking", ""), 200),
+        "thinking": _clip(move.get("thinking", ""), _THINKING_MAX_LENGTH),
     }
 
 
@@ -834,8 +846,8 @@ def _move_request(
             params,
             {
                 "turn_token": cur["turn_token"],
-                "message": _clip(decision.get("message", ""), 200),
-                "thinking": _clip(decision.get("thinking", ""), 200),
+                "message": _clip(decision.get("message", ""), _MESSAGE_MAX_LENGTH),
+                "thinking": _clip(decision.get("thinking", ""), _THINKING_MAX_LENGTH),
                 "is_connector_fallback": is_fallback,
             },
         )
@@ -846,7 +858,7 @@ def _move_request(
             "turn_token": cur["turn_token"],
             "action": str(decision.get("action", "HOARD")).upper(),
             "target_id": decision.get("target_id") or None,
-            "thinking": _clip(decision.get("thinking", ""), 200),
+            "thinking": _clip(decision.get("thinking", ""), _THINKING_MAX_LENGTH),
             "is_connector_fallback": is_fallback,
         },
     )

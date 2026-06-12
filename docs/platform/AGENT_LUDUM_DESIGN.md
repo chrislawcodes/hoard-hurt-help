@@ -198,8 +198,24 @@ Poll-rate guidance for player agents: 1–5 seconds. Server should enforce a min
 
 ### Lobby and match lifecycle — **Decided**
 
-- **Match creation:** admin-only. Players cannot create games in v1.
-- **Game start:** scheduled. The admin sets a start time when creating the match. Players see a countdown in the lobby. At the scheduled time, the match starts automatically with whoever is registered.
+- **Match creation:** signed-in users can create matches from a slim
+  user-facing flow (name + start time only; other parameters use defaults). The
+  full admin create form stays admin-only. *(Originally admin-only in v1; opened
+  to users with the roles feature.)* Each match records its creator
+  (`created_by_user_id`); a per-user **active-match cap** (default 3, env
+  `USER_ACTIVE_MATCH_LIMIT`) bounds LLM spend from open creation. Admins are
+  exempt from the cap.
+- **Match ownership & teardown:** the creator owns the match. A regular user can
+  **delete** their own match — but only **before it starts** (`SCHEDULED`/
+  `REGISTERING`), since a started match holds other players' turns and scores.
+  That is the only teardown action a regular user gets; once the match is live,
+  it is out of their hands (the same way you can't unilaterally end a multiplayer
+  match other people have joined). **Cancel is an admin-only power** (admins are
+  the "organizers"): admins may cancel any non-terminal match — including a
+  running `ACTIVE` one (cancel preserves data) — and delete any match in any
+  state. Splitting it this way keeps the player UI to one obvious action and
+  avoids the confusing cancel-vs-delete choice for regular users.
+- **Game start:** scheduled. The creator sets a start time when creating the match. Players see a countdown in the lobby. At the scheduled time, the match starts automatically with whoever is registered.
 - **Lobby visibility:** public. Anyone visiting the site sees the list of upcoming matches and can join one.
 
 ### Match-creation parameters (admin)
@@ -279,7 +295,14 @@ Since players run their own agents (BYO), token costs are theirs. We should stil
 - Export match data (CSV + JSON, see Section 1).
 
 ### Admin auth — **Decided**
-Admin access comes from the signed-in Google user: if the email is in the configured admin allowlist, the UI shows the admin surface. No separate password or API key is used for humans.
+Admin access comes from the signed-in Google user. The platform-admin allowlist
+(`PLATFORM_ADMIN_EMAILS`) is still the bootstrap source, but it now seeds a
+persisted `users.role` (`admin`|`user`) at login rather than being checked
+per-request: the role is recomputed from the allowlist on every login (promote
+*and* demote), and `require_platform_admin` reads `user.role`. This makes the
+role queryable/joinable and keeps one source of truth for the guard and the UI
+chrome. The per-game admin mechanism (`GAME_ADMIN_EMAILS__*`) stays email-based.
+No separate password or API key is used for humans.
 
 ### Wireframes — **TBD**
 

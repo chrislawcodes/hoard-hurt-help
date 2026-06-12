@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.main import app
 from app.models import Base, RequestIncident, User
+from app.models.user import UserRole
 from app.request_logging import install_request_logging, set_request_trace_context
 
 
@@ -93,7 +94,12 @@ async def test_request_logging_persists_incident_and_request_id(reset_db):
 @pytest.mark.asyncio
 async def test_admin_incidents_page_lists_seeded_incident(client, reset_db):
     async with reset_db() as db:
-        admin = User(google_sub="sub-admin", email="admin@test.com", name="Admin")
+        admin = User(
+            google_sub="sub-admin",
+            email="admin@test.com",
+            name="Admin",
+            role=UserRole.ADMIN,
+        )
         db.add(admin)
         await db.flush()
         db.add(

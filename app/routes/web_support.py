@@ -12,7 +12,7 @@ from app.games.base import GameError, GameTheme
 from app.models.agent import Agent, AgentKind
 from app.models.match import Match, GameState
 from app.models.player import Player
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.read_models.matches import count_players
 
 _GENERAL_NAMES: tuple[str, ...] = (
@@ -48,7 +48,9 @@ def _is_any_admin(user: User | None) -> bool:
     if user is None:
         return False
     email = user.email.lower()
-    return email in settings.platform_admin_emails_set or email in settings.all_game_admin_emails_set
+    return user.role == UserRole.ADMIN or (
+        email in settings.all_game_admin_emails_set
+    )
 
 
 def _is_game_admin(user: User | None, game: str) -> bool:

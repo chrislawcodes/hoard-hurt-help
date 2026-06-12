@@ -25,7 +25,7 @@ from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.request_logging import set_request_trace_context
 from app.routes.web_support import (
     _game_theme,
@@ -403,16 +403,35 @@ async def my_matches(
     players = (
         (await db.execute(select(Player).where(Player.user_id == user.id))).scalars().all()
     )
-    match_ids = [p.match_id for p in players]
+    owned_matches = (
+        (
+            await db.execute(
+                select(Match)
+                .where(Match.created_by_user_id == user.id)
+                .order_by(Match.scheduled_start.desc(), Match.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    match_ids = {p.match_id for p in players}
+    match_ids.update(m.id for m in owned_matches)
     if not match_ids:
         return templates.TemplateResponse(
-            request, "my_matches.html", {"user": user, "is_admin": _is_any_admin(user), "game_sections": []}
+            request,
+            "my_matches.html",
+            {"user": user, "is_admin": _is_any_admin(user), "game_sections": []},
         )
+    match_id_list = list(match_ids)
 
     matches = {
         m.id: m
-        for m in (await db.execute(select(Match).where(Match.id.in_(match_ids)))).scalars().all()
+        for m in (await db.execute(select(Match).where(Match.id.in_(match_id_list)))).scalars().all()
     }
+
+    own_seats_by_match: dict[str, list[str]] = {}
+    for p in players:
+        own_seats_by_match.setdefault(p.match_id, []).append(p.seat_name)
 
     count_rows = (await db.execute(
         select(
@@ -421,20 +440,22 @@ async def my_matches(
             func.sum(case((Agent.kind == AgentKind.BOT, 1), else_=0)).label("bot_count"),
         )
         .join(Agent, Agent.id == Player.agent_id)
-        .where(Player.match_id.in_(match_ids))
+        .where(Player.match_id.in_(match_id_list))
         .group_by(Player.match_id)
     )).all()
     counts_by_match = {row.match_id: row for row in count_rows}
 
     sections_map: dict[str, dict] = {}
-    for p in players:
-        g = matches[p.match_id]
+    ordered_matches = sorted(
+        matches.values(), key=lambda g: (g.scheduled_start, g.id), reverse=True
+    )
+    for g in ordered_matches:
         slug = g.game
         if slug not in sections_map:
             title = {"hoard-hurt-help": "Hoard Hurt Help"}.get(slug, slug.replace("-", " ").title())
             sections_map[slug] = {"title": title, "active": [], "completed": [], "cancelled": []}
 
-        row = counts_by_match.get(p.match_id)
+        row = counts_by_match.get(g.id)
         total = int(row.total or 0) if row else 0
         bot_count = int(row.bot_count or 0) if row else 0
         agent_count = total - bot_count
@@ -444,14 +465,23 @@ async def my_matches(
         if bot_count:
             parts.append(f"{bot_count} {'bot' if bot_count == 1 else 'bots'}")
         players_label = ", ".join(parts) if parts else "0 players"
+        activity_bits: list[str] = []
+        own_seats = sorted(own_seats_by_match.get(g.id, []))
+        if own_seats:
+            activity_bits.append(f"Playing as {', '.join(own_seats)}")
+        if g.created_by_user_id == user.id:
+            activity_bits.append("Created by you")
 
         entry = {
             "id": g.id,
             "name": g.name,
             "state": g.state,
-            "agent_id": p.seat_name,
             "watch_url": f"/games/{g.game}/matches/{g.id}",
+            "activity_label": " · ".join(activity_bits),
             "players_label": players_label,
+            "can_delete": user.role == UserRole.ADMIN
+            or (g.created_by_user_id == user.id and g.state in (GameState.SCHEDULED, GameState.REGISTERING)),
+            "delete_url": f"/matches/{g.id}/delete",
         }
         if g.state == GameState.COMPLETED:
             sections_map[slug]["completed"].append(entry)

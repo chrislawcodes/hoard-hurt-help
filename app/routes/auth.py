@@ -1,5 +1,7 @@
 """Google OAuth + sign-out routes."""
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
@@ -10,8 +12,10 @@ from app.auth.session import clear_session, set_session_user
 from app.config import settings
 from app.deps import DbSession
 from app.models.agent import Agent, AgentKind
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.auth import GoogleUserInfo
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -24,6 +28,11 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
     filled on the user's next login; a name that's already set is never
     overwritten.
     """
+    role = (
+        UserRole.ADMIN
+        if userinfo.email.lower() in settings.platform_admin_emails_set
+        else UserRole.USER
+    )
     user = (
         await db.execute(select(User).where(User.google_sub == userinfo.sub))
     ).scalar_one_or_none()
@@ -34,14 +43,38 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
             name=userinfo.name,
             given_name=userinfo.given_name,
             family_name=userinfo.family_name,
+            role=role,
         )
         db.add(user)
         await db.flush()
         return user
+    if user.email != userinfo.email:
+        # users.email is unique; another row could already hold this address
+        # (e.g. an orphaned/duplicate row). google_sub is the real identity key,
+        # so on collision keep the stored email and log rather than raise. Role
+        # is seeded from the live userinfo.email above, so it stays correct
+        # regardless of whether the stored email is refreshed.
+        clash = (
+            await db.execute(
+                select(User.id).where(
+                    User.email == userinfo.email, User.id != user.id
+                )
+            )
+        ).scalar_one_or_none()
+        if clash is None:
+            user.email = userinfo.email
+        else:
+            logger.warning(
+                "skipping email refresh for user %s: %s already in use by user %s",
+                user.id,
+                userinfo.email,
+                clash,
+            )
     if user.given_name is None and userinfo.given_name is not None:
         user.given_name = userinfo.given_name
     if user.family_name is None and userinfo.family_name is not None:
         user.family_name = userinfo.family_name
+    user.role = role
     return user
 
 

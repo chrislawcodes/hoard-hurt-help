@@ -41,6 +41,11 @@ class Match(Base):
     game: Mapped[str] = mapped_column(
         String(64), nullable=False, default="hoard-hurt-help", index=True
     )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
     state: Mapped[GameState] = mapped_column(
         FlexibleEnumType(GameState, length=32),
         nullable=False,

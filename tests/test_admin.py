@@ -13,7 +13,9 @@ from starlette.requests import Request
 
 from app.config import settings
 from app.main import app
-from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
+from app.engine.match_deletion import delete_match
+from app.models import Base, GameState, Match, Player, RequestIncident, Turn, TurnSubmission, User
+from app.models.user import UserRole
 from app.routes import admin_web
 from app.routes import game_admin_web
 from tests.factories import make_agent
@@ -52,7 +54,16 @@ def _cookies(user_id: int) -> dict:
 
 async def _seed_user(reset_db, email: str) -> User:
     async with reset_db() as db:
-        u = User(google_sub=f"sub-{email}", email=email, name=email)
+        u = User(
+            google_sub=f"sub-{email}",
+            email=email,
+            name=email,
+            role=(
+                UserRole.ADMIN
+                if email.lower() in settings.platform_admin_emails_set
+                else UserRole.USER
+            ),
+        )
         db.add(u)
         await db.commit()
         await db.refresh(u)
@@ -106,7 +117,7 @@ async def test_dashboard_prompts_link_is_game_scoped(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_admin_creates_game_via_api(client, reset_db):
+async def test_game_admin_api_records_creator(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
@@ -124,6 +135,31 @@ async def test_admin_creates_game_via_api(client, reset_db):
     body = r.json()
     assert body["id"].startswith("M_")
     assert body["state"] == "registering"
+    async with reset_db() as db:
+        match = (await db.execute(select(Match).where(Match.id == body["id"]))).scalar_one()
+        assert match.created_by_user_id == admin.id
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_api_records_creator(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    r = await client.post(
+        "/api/admin/matches",
+        json={
+            "name": "Platform QA",
+            "scheduled_start": when,
+            "min_players": 6,
+            "max_players": 10,
+            "per_turn_deadline_seconds": 30,
+        },
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    async with reset_db() as db:
+        match = (await db.execute(select(Match).where(Match.id == body["id"]))).scalar_one()
+        assert match.created_by_user_id == admin.id
 
 
 @pytest.mark.asyncio
@@ -207,6 +243,11 @@ async def test_create_game_via_web_form(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303  # redirect on success
+    async with reset_db() as db:
+        match = (
+            await db.execute(select(Match).where(Match.name == "Web Night"))
+        ).scalar_one()
+        assert match.created_by_user_id == admin.id
 
 
 @pytest.mark.asyncio
@@ -683,3 +724,121 @@ async def test_delete_active_match_succeeds(client, reset_db):
             await db.execute(sa_select(Match).where(Match.id == "G_ACTIVE"))
         ).scalar_one_or_none()
     assert remaining is None
+
+
+@pytest.mark.asyncio
+async def test_delete_cascade_handles_in_flight_submission(reset_db, monkeypatch):
+    """The shared delete cascade must stop the scheduler before row cleanup.
+
+    An existing turn submission should be removed by the cascade, and the
+    cascade should clear the winner pointer before deleting players.
+    """
+    order: list[str] = []
+
+    async with reset_db() as db:
+        user = User(google_sub="u1", email="p1@t.com")
+        db.add(user)
+        await db.flush()
+        agent, _ = await make_agent(db, user, name="AI_0")
+        g = Match(
+            id="G_RACE",
+            name="Race Game",
+            state=GameState.ACTIVE,
+            scheduled_start=datetime.now(timezone.utc),
+            per_turn_deadline_seconds=60,
+        )
+        db.add(g)
+        await db.flush()
+        player = Player(
+            match_id="G_RACE",
+            user_id=user.id,
+            agent_id=agent.id,
+            seat_name="AI_0",
+        )
+        db.add(player)
+        await db.flush()
+        g.winner_player_id = player.id
+        turn = Turn(
+            match_id="G_RACE",
+            round=1,
+            turn=1,
+            turn_token="tk_race",
+            opened_at=datetime.now(timezone.utc),
+            deadline_at=datetime.now(timezone.utc),
+            resolved_at=datetime.now(timezone.utc),
+        )
+        db.add(turn)
+        await db.flush()
+        db.add(
+            TurnSubmission(
+                turn_id=turn.id,
+                player_id=player.id,
+                action="HOARD",
+                message="early",
+                points_delta=2,
+                round_score_after=2,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        db.add(
+            RequestIncident(
+                request_id="req-race",
+                method="POST",
+                path="/admin/matches/G_RACE/delete",
+                error_type="test",
+                error_message="boom",
+                stacktrace="trace",
+                match_id="G_RACE",
+                player_id=player.id,
+            )
+        )
+        await db.commit()
+        turn_id = turn.id
+
+    async with reset_db() as db:
+        original_execute = db.execute
+
+        async def wrapped_execute(statement, *args, **kwargs):
+            sql = str(statement)
+            if "DELETE FROM turn_submissions" in sql and "turn_submissions.turn_id" in sql:
+                order.append("turn_submission_turn_delete")
+            if "DELETE FROM turn_submissions" in sql and "turn_submissions.player_id" in sql:
+                order.append("turn_submission_player_delete")
+            if sql.startswith("UPDATE matches SET") and "winner_player_id" in sql:
+                order.append("winner_pointer_cleared")
+            if sql.startswith("DELETE FROM players"):
+                order.append("player_delete")
+            return await original_execute(statement, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", wrapped_execute)
+        monkeypatch.setattr(
+            "app.engine.match_deletion.registry.stop",
+            lambda match_id: order.append("stop"),
+        )
+
+        await delete_match(db, "G_RACE")
+
+    assert order[0] == "stop"
+    assert order.index("turn_submission_turn_delete") < order.index(
+        "turn_submission_player_delete"
+    )
+    assert order.index("winner_pointer_cleared") < order.index("player_delete")
+
+    async with reset_db() as db:
+        assert (
+            await db.execute(select(Match).where(Match.id == "G_RACE"))
+        ).scalar_one_or_none() is None
+        assert (
+            await db.execute(select(Player).where(Player.match_id == "G_RACE"))
+        ).scalars().all() == []
+        assert (
+            await db.execute(select(Turn).where(Turn.match_id == "G_RACE"))
+        ).scalars().all() == []
+        assert (
+            await db.execute(select(TurnSubmission).where(TurnSubmission.turn_id == turn_id))
+        ).scalars().all() == []
+        assert (
+            await db.execute(
+                select(RequestIncident).where(RequestIncident.match_id == "G_RACE")
+            )
+        ).scalars().all() == []

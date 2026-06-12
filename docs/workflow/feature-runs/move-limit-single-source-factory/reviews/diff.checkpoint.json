@@ -1,0 +1,25 @@
+{
+  "feature_slug": "move-limit-single-source-factory",
+  "stage": "diff",
+  "artifact_path": "docs/workflow/feature-runs/move-limit-single-source-factory/reviews/implementation.diff.patch",
+  "git_base_ref": "origin/main",
+  "allowed_dirty_paths": [
+    "app/agent_prompt.py",
+    "app/schemas/agent.py",
+    "docs/workflow/feature-runs/move-limit-single-source-factory",
+    "scripts/agentludum_connector.py"
+  ],
+  "required_reviews": [
+    {
+      "reviewer": "gemini",
+      "lens": "regression-adversarial",
+      "stage": "diff",
+      "path": "docs/workflow/feature-runs/move-limit-single-source-factory/reviews/diff.gemini.regression-adversarial.review.md",
+      "context_paths": [],
+      "model": "gemini-3.1-flash-lite"
+    }
+  ],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

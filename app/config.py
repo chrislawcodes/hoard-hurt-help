@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     # Game admin: per-game match creation, strategy prompts, export.
     # Set GAME_ADMIN_EMAILS__HOARD_HURT_HELP=alice@example.com for each game.
     # (Populated at construction time via _collect_game_admin_emails below.)
+    user_active_match_limit: int = Field(default=3)
 
     # Compatibility: legacy single-role admin list. Kept as fallback while
     # PLATFORM_ADMIN_EMAILS / GAME_ADMIN_EMAILS__* are being rolled out.

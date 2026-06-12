@@ -1,0 +1,50 @@
+{
+  "feature_slug": "user-roles",
+  "stage": "spec",
+  "artifact_path": "docs/workflow/feature-runs/user-roles/spec.md",
+  "git_base_ref": "",
+  "allowed_dirty_paths": [],
+  "required_reviews": [
+    {
+      "reviewer": "codex",
+      "lens": "feasibility-adversarial",
+      "stage": "spec",
+      "path": "docs/workflow/feature-runs/user-roles/reviews/spec.codex.feasibility-adversarial.review.md",
+      "context_paths": [
+        "app/models/user.py",
+        "app/models/match.py",
+        "app/routes/auth.py",
+        "app/deps.py",
+        "app/engine/arena.py",
+        "app/routes/web_lobby.py",
+        "app/config.py",
+        "tests/test_auth_user_sync.py",
+        "tests/test_admin.py",
+        "tests/test_config_admin.py"
+      ],
+      "model": "gpt-5.4-mini"
+    },
+    {
+      "reviewer": "gemini",
+      "lens": "requirements-adversarial",
+      "stage": "spec",
+      "path": "docs/workflow/feature-runs/user-roles/reviews/spec.gemini.requirements-adversarial.review.md",
+      "context_paths": [
+        "app/models/user.py",
+        "app/models/match.py",
+        "app/routes/auth.py",
+        "app/deps.py",
+        "app/engine/arena.py",
+        "app/routes/web_lobby.py",
+        "app/config.py",
+        "tests/test_auth_user_sync.py",
+        "tests/test_admin.py",
+        "tests/test_config_admin.py"
+      ],
+      "model": "gemini-3.1-flash-lite"
+    }
+  ],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

@@ -1,0 +1,13 @@
+{
+  "paths": [
+    "app/agent_prompt.py",
+    "app/schemas/agent.py",
+    "scripts/agentludum_connector.py"
+  ],
+  "allowed_dirty_paths": [
+    "app/agent_prompt.py",
+    "app/schemas/agent.py",
+    "docs/workflow/feature-runs/move-limit-single-source-factory",
+    "scripts/agentludum_connector.py"
+  ]
+}
