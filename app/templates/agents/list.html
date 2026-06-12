@@ -11,24 +11,18 @@
 </div>
 
 {% if agents %}
-    {% for row in agents %}
-    <article class="game-card">
-        <div class="game-card-info">
-            <h3><a href="/me/agents/{{ row.agent.id }}">{{ row.agent.name }}</a></h3>
-            <p class="meta">
-                {{ row.agent.game }}
-                {% if row.version %} · {{ row.version.model }} · v{{ row.version.version_no }}{% endif %}
-                · <span class="{{ row.health.badge_class }}">{{ row.health.label }}</span>
-                {% if row.agent.provider %}
-                    · {{ row.agent.provider.value | title }}
-                {% endif %}
-                · {{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}
-            </p>
-        </div>
-        <div class="game-card-action">
-            <a class="btn btn-primary" href="/me/agents/{{ row.agent.id }}">Manage →</a>
-        </div>
-    </article>
+    {% for game_name, game_agents in agents | groupby('agent.game') %}
+    <section class="agent-group">
+        <h2 class="agent-group-title">{{ game_name | replace('-', ' ') | title }}</h2>
+        {% for row in game_agents %}
+        <a class="agent-row" href="/me/agents/{{ row.agent.id }}">
+            <span class="badge {{ row.health.badge_class }}">{% if row.health.pulse %}<span class="dot"></span>{% elif row.health.state.value == 'ready' %}<span class="dot dot-still"></span>{% endif %}{{ row.health.label }}</span>
+            <span class="agent-row-name">{{ row.agent.name }}</span>
+            <span class="agent-row-meta">{% if row.version %}{{ row.version.model }} · v{{ row.version.version_no }} · {% endif %}{% if row.agent.provider %}{{ row.agent.provider.value | title }} · {% endif %}{{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}</span>
+            <span class="agent-row-chevron">›</span>
+        </a>
+        {% endfor %}
+    </section>
     {% endfor %}
 {% else %}
     <p class="empty">No agents yet. Create one above.</p>
