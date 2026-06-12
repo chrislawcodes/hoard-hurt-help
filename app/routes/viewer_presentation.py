@@ -417,6 +417,7 @@ def _build_rc_data(
     scoreboard: list[dict[str, Any]],
     history: list[dict[str, Any]],
     turns_per_round: int = 7,
+    viewer_seat: str | None = None,
 ) -> str:
     """Serialize game history as the robot-circle viewer JSON format."""
     agents = [r["agent_id"] for r in scoreboard]
@@ -507,15 +508,15 @@ def _build_rc_data(
             }
         )
 
-    return json.dumps(
-        {
-            "agents": agents,
-            "labels": labels,
-            "bots": bots,
-            "owners": owners,
-            "turns": turns,
-            "max_round": max((t["round"] for t in turns), default=0),
-            "sample": False,
-        },
-        ensure_ascii=False,
-    )
+    payload: dict[str, object] = {
+        "agents": agents,
+        "labels": labels,
+        "bots": bots,
+        "owners": owners,
+        "turns": turns,
+        "max_round": max((t["round"] for t in turns), default=0),
+        "sample": False,
+    }
+    if viewer_seat is not None:
+        payload["viewer_seat"] = viewer_seat
+    return json.dumps(payload, ensure_ascii=False)

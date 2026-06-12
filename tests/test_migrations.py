@@ -85,7 +85,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0029",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0030",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -410,6 +410,33 @@ def test_0029_adds_admin_audit_log_and_disabled_at(tmp_path: Path) -> None:
             ("actor_user_id", "RESTRICT"),
             ("target_user_id", "RESTRICT"),
         ]
+    finally:
+        conn.close()
+
+
+# --- feature: sideline coach (migration 0030) --------------------------------
+
+
+def test_0030_adds_coach_note_and_coaching_flag(tmp_path: Path) -> None:
+    """0030 adds coach_note/coach_note_round to players and coaching to matches."""
+    db_path = tmp_path / "sideline_coach.db"
+
+    up = _run_alembic(["upgrade", "0029"], db_path)
+    assert up.returncode == 0, f"upgrade 0029 failed:\n{up.stdout}\n{up.stderr}"
+
+    up = _run_alembic(["upgrade", "0030"], db_path)
+    assert up.returncode == 0, f"upgrade 0030 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0030",)]
+
+        player_cols = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
+        assert "coach_note" in player_cols
+        assert "coach_note_round" in player_cols
+
+        match_cols = {row[1] for row in conn.execute("PRAGMA table_info(matches)")}
+        assert "coaching" in match_cols
     finally:
         conn.close()
 

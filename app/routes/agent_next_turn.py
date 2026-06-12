@@ -314,6 +314,9 @@ async def _build_turn_payload(
         "all_agent_ids": all_agent_ids,
         "your_strategy": version.strategy_text,
     }
+    # Attach the operator's sideline note when it's targeted at this round.
+    if player.coach_note and player.coach_note_round == match.current_round:
+        static["coach_note"] = player.coach_note
     current = await _build_current_turn(db, turn)
     return {
         "status": "your_turn",

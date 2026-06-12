@@ -48,3 +48,8 @@ class Player(Base):
     total_round_wins: Mapped[float] = mapped_column(default=0.0, nullable=False)
     total_round_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_round_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Operator sideline-coaching: free-text note (≤280 chars) queued for a
+    # specific round. Included in the next-turn payload whenever
+    # match.current_round == coach_note_round. One active note per player slot.
+    coach_note: Mapped[str | None] = mapped_column(String(280), nullable=True)
+    coach_note_round: Mapped[int | None] = mapped_column(Integer, nullable=True)

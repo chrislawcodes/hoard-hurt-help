@@ -352,6 +352,7 @@
   var LABELS = DATA.labels || {};
   var BOTS = DATA.bots || {};
   var OWNERS = DATA.owners || {};
+  var VIEWER_SEAT = DATA.viewer_seat || null;
   // Taller rail rows whenever the owner byline is shown.
   var RAIL_ROW_H = Object.keys(OWNERS).length ? 60 : 52;
   var TURNS = DATA.turns || [];
@@ -468,7 +469,7 @@
       var isBot = !!BOTS[id];
       var owner = OWNERS[id] || null;
       var li=document.createElement('li');
-      li.className='rc-rail-row'; li.style.setProperty('--c', colorOf[id]);
+      li.className='rc-rail-row'+(id===VIEWER_SEAT?' rc-you':''); li.style.setProperty('--c', colorOf[id]);
       li.style.height=RAIL_ROW_H+'px';
       li.innerHTML='<span class="rk">1</span>'
         +'<span class="nm"><span class="nm-name" title="'+esc(label)+'"><span class="nm-name-text">'+esc(label)+'</span>'
