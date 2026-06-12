@@ -6,6 +6,8 @@ Tracking whether adversarial reviews (Feature Factory pipeline) actually change 
 
 **How to run one:** use the `experiment` skill (`.claude/skills/experiment/`). It builds the same feature both ways in parallel worktrees, hashes each artifact before/after review, counts tokens, and appends a verdict here.
 
+**Token cost — how to read it:** quote the cost gap as **real-work = billed input + output** (the full-price tokens), NOT cache reads. Cache reads are ~10× cheaper per token and balloon on longer Feature Factory sessions, so a "9× cache read" gap can sit next to a real cost gap of only ~2.5× (Experiment 7). Also note: these Claude token counts **exclude the Codex/Gemini review calls** Feature Factory makes, so the Claude-only multiple is a *floor* on the true cost — the real bill is higher.
+
 **Pattern hypothesis:** Feature Factory has an edge on backend/algorithmic work. Direct Path has an edge on UI/nav work where codebase context eliminates false assumptions.
 
 > **Data provenance.** Experiments **1–6 were run in the ValueRank project**
