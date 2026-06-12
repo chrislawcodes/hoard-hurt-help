@@ -69,6 +69,32 @@ def _sha_is_valid_ancestor(sha: str) -> bool:
         return False
 
 
+_DEFAULT_BASE_BRANCH_CANDIDATES = ("origin/main", "origin/master", "main", "master")
+
+
+def merge_base_with_default_branch() -> str | None:
+    """SHA of the fork point between HEAD and the integration branch (origin/main).
+
+    Anchors a diff to where the feature branch diverged from main, independent of
+    ``@{upstream}`` or any recorded base ref — both of which a push or mid-run
+    rebase can repoint at a stale remote *feature* branch, which would sweep
+    unrelated commits into the reviewed diff. Tries origin/main, origin/master,
+    then the local main/master as a last resort. Returns None if none resolve
+    (e.g. no integration branch fetched), so callers can fall back gracefully.
+    """
+    for candidate in _DEFAULT_BASE_BRANCH_CANDIDATES:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "merge-base", candidate, "HEAD"],
+                capture_output=True, text=True, timeout=60,
+            )
+        except (subprocess.SubprocessError, FileNotFoundError, OSError):
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    return None
+
+
 def _git_head_sha(repo: Path) -> str | None:
     """Return the current HEAD SHA for repo, or None if unavailable."""
     try:
