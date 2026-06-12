@@ -89,6 +89,15 @@ BOT_PRESETS: tuple[BotPreset, ...] = (
         trust_model="careful",
         seed_offset=7,
     ),
+    BotPreset(
+        id="coin_flip",
+        name="Coin Flip",
+        description="Picks a random legal move each turn and says whatever comes to mind.",
+        strategy="coin_flip",
+        truthfulness=50,
+        trust_model="even",
+        seed_offset=8,
+    ),
 )
 
 HISTORICAL_BOT_NAME_POOL: tuple[str, ...] = (

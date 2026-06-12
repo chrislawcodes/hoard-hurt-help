@@ -30,6 +30,7 @@ _LEAN: dict[str, str] = {
     "endgame_sniper": "hurt",
     "opportunist": "hoard",
     "crowd_follower": "hoard",
+    "coin_flip": "hoard",
 }
 
 
