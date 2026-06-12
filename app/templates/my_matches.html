@@ -3,52 +3,70 @@
 {% block content %}
 <div class="page-head"><h1>My matches</h1></div>
 {% if not game_sections %}
-    <p class="empty">You haven't joined any matches yet. <a href="/play">Find a match →</a></p>
+    <p class="empty">You haven't joined or created any matches yet. <a href="/play">Find a match →</a></p>
 {% else %}
     {% for section in game_sections %}
     <div class="section-head"><h2>{{ section.title }}</h2></div>
 
     {% for g in section.active %}
-    <a class="game-card-link" href="{{ g.watch_url }}">
     <article class="game-card">
         <div class="game-card-info">
-            <h3>{{ g.name }}</h3>
-            <p class="meta">Playing as {{ g.agent_id }} · {{ g.players_label }}</p>
+            <h3><a href="{{ g.watch_url }}">{{ g.name }}</a></h3>
+            <p class="meta">{{ g.activity_label }}{% if g.activity_label %} · {% endif %}{{ g.players_label }}</p>
         </div>
-        {% if g.state.value == 'active' %}
-        <div class="game-card-action"><span class="badge badge-live">Live</span></div>
-        {% elif g.state.value in ['scheduled', 'registering'] %}
-        <div class="game-card-action"><span class="badge badge-soon">{{ g.state.value | capitalize }}</span></div>
-        {% endif %}
+        <div class="game-card-action">
+            {% if g.state.value == 'active' %}
+            <span class="badge badge-live">Live</span>
+            {% elif g.state.value in ['scheduled', 'registering'] %}
+            <span class="badge badge-soon">{{ g.state.value | capitalize }}</span>
+            {% endif %}
+            <a class="btn btn-ghost" href="{{ g.watch_url }}">Open →</a>
+            {% if g.can_delete %}
+            <form method="post" action="{{ g.delete_url }}" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+                <button type="submit" class="danger">Delete</button>
+            </form>
+            {% endif %}
+        </div>
     </article>
-    </a>
     {% endfor %}
 
     {% if section.completed %}
     <div class="section-head"><h3>Completed</h3></div>
     {% for g in section.completed %}
-    <a class="game-card-link" href="{{ g.watch_url }}">
     <article class="game-card">
         <div class="game-card-info">
-            <h3>{{ g.name }}</h3>
-            <p class="meta">Playing as {{ g.agent_id }} · {{ g.players_label }}</p>
+            <h3><a href="{{ g.watch_url }}">{{ g.name }}</a></h3>
+            <p class="meta">{{ g.activity_label }}{% if g.activity_label %} · {% endif %}{{ g.players_label }}</p>
+        </div>
+        <div class="game-card-action">
+            <a class="btn btn-ghost" href="{{ g.watch_url }}">Open →</a>
+            {% if g.can_delete %}
+            <form method="post" action="{{ g.delete_url }}" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+                <button type="submit" class="danger">Delete</button>
+            </form>
+            {% endif %}
         </div>
     </article>
-    </a>
     {% endfor %}
     {% endif %}
 
     {% if section.cancelled %}
     <div class="section-head"><h3>Cancelled</h3></div>
     {% for g in section.cancelled %}
-    <a class="game-card-link" href="{{ g.watch_url }}">
     <article class="game-card">
         <div class="game-card-info">
-            <h3>{{ g.name }}</h3>
-            <p class="meta">Playing as {{ g.agent_id }} · {{ g.players_label }}</p>
+            <h3><a href="{{ g.watch_url }}">{{ g.name }}</a></h3>
+            <p class="meta">{{ g.activity_label }}{% if g.activity_label %} · {% endif %}{{ g.players_label }}</p>
+        </div>
+        <div class="game-card-action">
+            <a class="btn btn-ghost" href="{{ g.watch_url }}">Open →</a>
+            {% if g.can_delete %}
+            <form method="post" action="{{ g.delete_url }}" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+                <button type="submit" class="danger">Delete</button>
+            </form>
+            {% endif %}
         </div>
     </article>
-    </a>
     {% endfor %}
     {% endif %}
 

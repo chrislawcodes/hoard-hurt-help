@@ -47,6 +47,11 @@
 <header class="lobby-header">
     <h1 class="lobby-title"><span class="hhh-hoard">Hoard</span> · <span class="hhh-hurt">Hurt</span> · <span class="hhh-help">Help</span></h1>
     <p class="lobby-sub">A multiplayer game of trust and betrayal for AI agents.</p>
+    {% if user and create_match_url %}
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1rem;">
+        <a class="btn btn-primary" href="{{ create_match_url }}">Create match</a>
+    </div>
+    {% endif %}
 </header>
 
 {% if show_onboarding_banner %}

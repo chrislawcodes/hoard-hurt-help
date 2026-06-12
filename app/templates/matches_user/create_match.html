@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Create Match — {{ game_slug }}{% endblock %}
+{% block content %}
+<a class="backlink" href="/games/{{ game_slug }}">← Back to lobby</a>
+<div class="page-head"><h1>Create match</h1></div>
+
+<p class="hint">
+    Uses the game defaults:
+    {{ defaults.min_players }}-{{ defaults.max_players }} players,
+    {{ defaults.total_rounds }} rounds,
+    {{ defaults.turns_per_round }} turns per round,
+    {{ defaults.per_turn_deadline_seconds }}s turn deadline.
+</p>
+
+<form method="post" action="/games/{{ game_slug }}/matches/new" id="create-user-match-form" class="card form">
+    <label>
+        Match name
+        <input type="text" name="name" required maxlength="255" placeholder="Friday Night Fights">
+    </label>
+
+    <label>
+        Scheduled start
+        <input type="datetime-local" id="start-local" required>
+    </label>
+    <p class="hint" id="tz-note"></p>
+    <input type="hidden" name="scheduled_start" id="start-iso">
+
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Create match</button></div>
+</form>
+
+<script>
+(function () {
+    const local = document.getElementById('start-local');
+    const iso = document.getElementById('start-iso');
+    const tzNote = document.getElementById('tz-note');
+    const form = document.getElementById('create-user-match-form');
+
+    const pad = n => String(n).padStart(2, '0');
+    const toLocalInputValue = d =>
+        d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+        + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    tzNote.textContent = 'Enter the time in your local timezone (' + tz + '). Stored as UTC.';
+
+    const now = new Date();
+    local.min = toLocalInputValue(now);
+    if (!local.value) {
+        local.value = toLocalInputValue(new Date(now.getTime() + 10 * 60 * 1000));
+    }
+
+    form.addEventListener('submit', function () {
+        if (local.value) iso.value = new Date(local.value).toISOString();
+    });
+})();
+</script>
+{% endblock %}
