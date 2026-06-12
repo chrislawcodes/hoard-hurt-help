@@ -153,6 +153,21 @@ Run: `python3 /tmp/count_tokens.py <direct-jsonl> <factory-jsonl>`
 Record `billed_input`, `cache_read`, and `output` for each path in the
 Token Efficiency table below.
 
+**How to read the cost (don't quote the wrong multiple).** When you state a
+"Feature Factory cost N× Direct" figure, base it on **real-work = billed_input +
+output** — those are the full-price tokens (fresh input, cache *writes*, and
+generated output). Do NOT base the multiple on `cache_read`: cached reads are
+~10× cheaper per token and a longer Feature Factory session re-reads its prompt
+many times, so its `cache_read` ratio looks huge (often ~9×) while the actual
+cost ratio is far smaller (~2.5× in Experiment 7). Quote the real-work ratio,
+and mention the cache_read ratio only as cheap context.
+
+**These Claude totals UNDERCOUNT Feature Factory.** Its adversarial reviews run
+on the **Codex and Gemini** CLIs, whose tokens are NOT in any of these JSONL
+files. So Feature Factory's true cost is *higher* than the Claude-only multiple
+shows. Always note this caveat next to the Token Efficiency table — the Claude
+real-work ratio is a floor on the cost gap, not the whole bill.
+
 ### Write the comparison file
 
 Write `docs/workflow/feature-runs/<slug>-comparison.md`:
