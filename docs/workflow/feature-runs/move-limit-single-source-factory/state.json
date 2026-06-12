@@ -46,7 +46,16 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "app/agent_prompt.py",
+      "app/schemas/agent.py",
+      "docs/workflow/feature-runs/move-limit-single-source-factory",
+      "scripts/agentludum_connector.py"
+    ],
+    "used": true,
+    "updated_at": 1781225687
+  },
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -328,6 +337,24 @@
       "duration_seconds": 10.165177,
       "agent_id": null,
       "artifact_sha_at_time": "7238d78add43022a37634164f5033561f73eaafed1cb546a1d03c85098056894"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 7634,
+      "prompt_cap": 250000,
+      "input_tokens": 14138,
+      "output_tokens": 419,
+      "cost_usd_estimate": 0.004163,
+      "timestamp": "2026-06-12T00:54:55.626794Z",
+      "started_at": "2026-06-12T00:54:48.019727Z",
+      "ended_at": "2026-06-12T00:54:55.626794Z",
+      "duration_seconds": 7.606959,
+      "agent_id": null,
+      "artifact_sha_at_time": "adfbf673138127e7729e28f7f46a6172b3163ac41fd1bf71d5fdd5d88c2280b3"
     }
   ],
   "command_telemetry": [
@@ -594,6 +621,30 @@
       "files_written": 5,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-12T00:54:56Z",
+      "wall_seconds": 8.64,
+      "input_bytes_read": 270784,
+      "output_bytes_written": 113339,
+      "files_read": 28,
+      "files_written": 6,
+      "subprocess_invocations": 56,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-12T00:55:17Z",
+      "wall_seconds": 0.445,
+      "input_bytes_read": 66802,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -626,6 +677,14 @@
         "adbee215385d55306c07463c27a3d38a179bc2f534e513d2330663345d89007a"
       ],
       "initial_sha": "adbee215385d55306c07463c27a3d38a179bc2f534e513d2330663345d89007a"
+    },
+    "diff": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "adfbf673138127e7729e28f7f46a6172b3163ac41fd1bf71d5fdd5d88c2280b3"
+      ],
+      "initial_sha": "adfbf673138127e7729e28f7f46a6172b3163ac41fd1bf71d5fdd5d88c2280b3"
     }
   },
   "invariant_warnings": [],
@@ -637,8 +696,8 @@
   },
   "spec_adversarial_rounds": 2,
   "last_action_result": {
-    "next": "dispatch_next_slice_to_codex",
-    "reason": "tasks checkpoint completed",
+    "next": "reconcile_reviews",
+    "reason": "diff checkpoint completed",
     "blockers": []
   },
   "arch_docs": {
@@ -647,5 +706,6 @@
     "updated_at": 1781224009
   },
   "plan_adversarial_rounds": 4,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 1
 }
