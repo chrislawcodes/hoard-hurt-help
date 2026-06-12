@@ -13,6 +13,13 @@ from app.models.match import Match, GameState
 from app.models.request_incident import RequestIncident
 from app.models.user import User
 from app.routes.web_support import _seated_player_count
+from app.services.admin_user_actions import (
+    demote_user,
+    disable_user,
+    enable_user,
+    promote_user,
+    reset_handle,
+)
 from app.templating import templates  # shared instance with custom filters
 
 router = APIRouter(tags=["admin"])
@@ -100,21 +107,67 @@ async def admin_handles(
 @router.post("/admin/users/{user_id}/handle/reset")
 async def admin_reset_handle(
     user_id: Annotated[int, Path()],
-    request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_platform_admin)],
 ):
     """Clear a user's handle. The string is freed immediately; the user picks a
     new one the next time they need it. Identity is keyed on users.id, so all
     leaderboard history is preserved."""
-    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if target is None:
-        raise HTTPException(404, detail="User not found.")
-    target.handle = None
-    target.handle_key = None
-    target.handle_changed_at = None
+    await reset_handle(db, actor=user, target_id=user_id)
     await db.commit()
     return RedirectResponse(url="/admin/handles", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/admin/users/{user_id}/disable")
+async def admin_disable_user(
+    user_id: Annotated[int, Path()],
+    db: DbSession,
+    actor: Annotated[User, Depends(require_platform_admin)],
+):
+    await disable_user(db, actor=actor, target_id=user_id)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/admin/users/{user_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post("/admin/users/{user_id}/enable")
+async def admin_enable_user(
+    user_id: Annotated[int, Path()],
+    db: DbSession,
+    actor: Annotated[User, Depends(require_platform_admin)],
+):
+    await enable_user(db, actor=actor, target_id=user_id)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/admin/users/{user_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post("/admin/users/{user_id}/promote")
+async def admin_promote_user(
+    user_id: Annotated[int, Path()],
+    db: DbSession,
+    actor: Annotated[User, Depends(require_platform_admin)],
+):
+    await promote_user(db, actor=actor, target_id=user_id)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/admin/users/{user_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post("/admin/users/{user_id}/demote")
+async def admin_demote_user(
+    user_id: Annotated[int, Path()],
+    db: DbSession,
+    actor: Annotated[User, Depends(require_platform_admin)],
+):
+    await demote_user(db, actor=actor, target_id=user_id)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/admin/users/{user_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 @router.get("/admin/incidents", response_class=HTMLResponse)
