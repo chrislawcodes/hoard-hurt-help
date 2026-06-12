@@ -54,8 +54,10 @@
                    marketing home can drop it — there the hero is already the CTA, and
                    a second copy in the nav (plus the adjacent "Sign in") just adds
                    noise. #}
-                {% block nav_cta %}{% if nav_cta %}<a href="{{ nav_cta.href }}" class="al-nav-cta">{{ nav_cta.label }}</a>{% endif %}{% endblock %}
-                {% if user %}
+                {% block nav_cta %}{% if nav_cta and not (user and user.disabled_at) %}<a href="{{ nav_cta.href }}" class="al-nav-cta">{{ nav_cta.label }}</a>{% endif %}{% endblock %}
+                {% if user and user.disabled_at %}
+                    <span class="mono" style="opacity:0.5;padding:0.4rem 0.8rem;">Account disabled</span>
+                {% elif user %}
                     {# Account lives behind one control so the bar stays calm —
                        a native <details> menu, no JS framework. On a phone this
                        is THE menu: the summary grows a ☰ half (the Airbnb-style
@@ -81,7 +83,7 @@
                             <a href="/me/connections" role="menuitem">Connections{% if live_connection_count > 0 %}<span class="al-acct-badge al-acct-badge-live"><span class="al-acct-dot"></span>{{ live_connection_count }}</span>{% endif %}{% if disconnected_connection_count > 0 %}<span class="al-acct-badge al-acct-badge-off"><span class="al-acct-dot"></span>{{ disconnected_connection_count }}</span>{% endif %}</a>
                             <a href="/me/agents" role="menuitem">Agents</a>
                             <a href="/me/matches" role="menuitem">My matches</a>
-                            {% if is_admin %}<a href="/admin" role="menuitem">Platform admin</a>{% endif %}
+                            {% if is_admin %}<a href="/admin" role="menuitem">Platform admin</a><a href="/admin/users" role="menuitem">Users</a>{% endif %}
                             <form method="post" action="/auth/logout" class="al-acct-form">
                                 <button type="submit" class="al-acct-signout">Sign out</button>
                             </form>

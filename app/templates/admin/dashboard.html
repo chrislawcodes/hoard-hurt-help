@@ -3,6 +3,7 @@
 {% block content %}
 <div class="toolbar">
     <h1>Platform dashboard</h1>
+    <a class="btn btn-ghost" href="/admin/users">Users</a>
     <a class="btn btn-ghost" href="/admin/handles">Handles</a>
     {% if game_types | length == 1 %}
     <a class="btn btn-primary" href="/games/{{ game_types[0] }}/admin/matches/new">+ Create game</a>

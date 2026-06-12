@@ -3,6 +3,7 @@
 from app.models.base import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
+from app.models.admin_audit_log import AdminAction, AdminAuditLog
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
@@ -23,6 +24,8 @@ __all__ = [
     "AgentKind",
     "AgentStatus",
     "AgentVersion",
+    "AdminAction",
+    "AdminAuditLog",
     "User",
     "Match",
     "GameState",

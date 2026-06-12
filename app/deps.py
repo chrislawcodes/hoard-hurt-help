@@ -8,6 +8,7 @@ from urllib.parse import quote
 from fastapi import Depends, Header, HTTPException, Path, Query, Request, status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.config import settings
 from app.auth.session import get_user_from_session
@@ -45,6 +46,10 @@ async def require_user(request: Request, db: DbSession) -> User:
                 }
             },
         )
+    if user.disabled_at is not None:
+        from app.auth.session import raise_account_disabled
+
+        raise_account_disabled(request)
     return user
 
 
@@ -169,7 +174,9 @@ async def require_connection(
     key_hash = bot_key_lookup(x_connection_key)
     connection = (
         await db.execute(
-            select(Connection).where(
+            select(Connection)
+            .options(joinedload(Connection.user).load_only(User.disabled_at))
+            .where(
                 or_(
                     Connection.key_lookup == key_hash,
                     Connection.prev_key_lookup == key_hash,
@@ -212,6 +219,13 @@ async def require_connection(
         await db.flush()
         setup.connection_id = connection.id
         setup.completed_at = datetime.now(timezone.utc)
+        connection = (
+            await db.execute(
+                select(Connection)
+                .options(joinedload(Connection.user).load_only(User.disabled_at))
+                .where(Connection.id == connection.id)
+            )
+        ).scalar_one()
     if connection.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
@@ -230,6 +244,17 @@ async def require_connection(
                 "error": {
                     "code": "CONNECTION_PAUSED",
                     "message": "This connection is paused; resume it to play.",
+                    "details": {},
+                }
+            },
+        )
+    if connection.user.disabled_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "ACCOUNT_DISABLED",
+                    "message": "This account has been disabled.",
                     "details": {},
                 }
             },

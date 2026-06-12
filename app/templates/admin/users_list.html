@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Users — Admin{% endblock %}
+{% block content %}
+<a class="backlink" href="/admin">← Admin</a>
+<div class="page-head">
+    <h1>Users</h1>
+    <p class="sub">{{ total }} total</p>
+</div>
+
+<form method="get" action="/admin/users" style="margin-bottom:1.2rem;display:flex;gap:0.5rem;">
+    <input class="mono" type="search" name="q" value="{{ q }}" placeholder="email or handle" style="flex:1;padding:0.4rem 0.6rem;">
+    <button type="submit">Search</button>
+    {% if q %}<a class="btn btn-ghost" href="/admin/users">Clear</a>{% endif %}
+</form>
+
+<table>
+    <tr>
+        <th>Email</th>
+        <th>Handle</th>
+        <th>Joined</th>
+        <th>Agents</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th></th>
+    </tr>
+    {% for u in rows %}
+    <tr>
+        <td class="mono">{{ u.email }}</td>
+        <td class="mono">{% if u.handle %}@{{ u.handle }}{% else %}<span style="opacity:0.4">—</span>{% endif %}</td>
+        <td>{{ u.created_at | localdt }}</td>
+        <td>{{ agent_counts.get(u.id, 0) }}</td>
+        <td>
+            {% if u.role.value == 'admin' %}<span class="badge badge-ok">admin</span>{% else %}<span style="opacity:0.5">user</span>{% endif %}
+        </td>
+        <td>
+            {% if u.disabled_at %}<span class="badge badge-alert">disabled</span>{% else %}<span style="opacity:0.5">active</span>{% endif %}
+        </td>
+        <td><a href="/admin/users/{{ u.id }}">Details →</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No users found.</td></tr>
+    {% endfor %}
+</table>
+
+{% if total > page_size %}
+<div style="margin-top:1rem;display:flex;gap:0.5rem;">
+    {% if page > 1 %}
+    <a class="btn btn-ghost" href="/admin/users?q={{ q | urlencode }}&page={{ page - 1 }}">← Prev</a>
+    {% endif %}
+    <span class="mono" style="padding:0.4rem 0.8rem;">Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+    {% if page * page_size < total %}
+    <a class="btn btn-ghost" href="/admin/users?q={{ q | urlencode }}&page={{ page + 1 }}">Next →</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}
