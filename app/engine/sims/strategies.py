@@ -9,8 +9,11 @@ from typing import Sequence
 from app.engine.game_records import ActionRecord
 from app.schemas.agent import ScoreboardRow
 
+from .phrases import PHRASES
 from .signals import TalkSignal
 from .types import SimContext, SimPlan, SimProfile
+
+_PHRASE_INTENTS: tuple[str, ...] = tuple(PHRASES.keys())
 
 STRATEGY_ALIASES: dict[str, str] = {
     "builder": "coalition_seeker",
@@ -33,6 +36,7 @@ VALID_STRATEGIES = {
     "endgame_sniper",
     "diplomat",
     "crowd_follower",
+    "coin_flip",
 }
 
 TALK_INTENTS = {
@@ -44,6 +48,7 @@ TALK_INTENTS = {
     "endgame_sniper",
     "diplomat",
     "crowd_follower",
+    "coin_flip",
 }
 
 ACTION_INTENTS = {
@@ -134,6 +139,16 @@ def choose_talk_plan(
         if leader is not None and _leader_gap(context, leader) >= 8:
             return SimPlan("warn_leader", leader, "table pressure")
         return SimPlan("observe_table", None, "watching momentum")
+
+    if strategy == "coin_flip":
+        others = [aid for aid in context.all_agent_ids if aid != context.your_agent_id]
+        intent = _PHRASE_INTENTS[_seed_int(profile, context, "coin_flip_talk_intent") % len(_PHRASE_INTENTS)]
+        talk_target: str | None = (
+            others[_seed_int(profile, context, "coin_flip_talk_target") % len(others)]
+            if others
+            else None
+        )
+        return SimPlan(intent, talk_target, "coin flip")
 
     return SimPlan("observe_table", None, "fallback")
 
@@ -227,6 +242,24 @@ def choose_action_plan(
     if strategy == "crowd_follower":
         copied = _copy_crowd_action(context)
         return [copied] if copied is not None else [SimPlan("hoard_protect_score", None, "no crowd signal")]
+
+    if strategy == "coin_flip":
+        others = [aid for aid in context.all_agent_ids if aid != context.your_agent_id]
+        scores = {row.agent_id: row.round_score for row in context.scoreboard}
+        hurtable = [aid for aid in others if scores.get(aid, 0) > 0]
+        options: list[str] = ["HOARD"]
+        if others:
+            options.append("HELP")
+        if hurtable:
+            options.append("HURT")
+        action = options[_seed_int(profile, context, "coin_flip_action") % len(options)]
+        if action == "HELP":
+            target = others[_seed_int(profile, context, "coin_flip_target") % len(others)]
+            return [SimPlan("test_offer", target, "coin flip")]
+        if action == "HURT":
+            target = hurtable[_seed_int(profile, context, "coin_flip_target") % len(hurtable)]
+            return [SimPlan("punish_attacker", target, "coin flip")]
+        return [SimPlan("hoard_protect_score", None, "coin flip")]
 
     return [SimPlan("hoard_protect_score", None, "fallback")]
 
