@@ -54,9 +54,8 @@ def _std(values: list[float]) -> float:
 async def export(db_path: str, out_path: str) -> int:
     _setup(db_path)
 
-    from sqlalchemy import select
+    from sqlalchemy import select, text
     from app.db import make_engine
-    from app.models.match import Match, GameState
     from app.models.player import Player
     from app.models.agent import Agent
     from app.models.turn import Turn, TurnSubmission
@@ -65,16 +64,31 @@ async def export(db_path: str, out_path: str) -> int:
     from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
+    # Named tuple stand-in so the rest of the code can use m.id, m.total_rounds etc.
+    from typing import NamedTuple
+
+    class MatchRow(NamedTuple):
+        id: str
+        total_rounds: int
+        turns_per_round: int
+        winner_player_id: int | None
+
     async with factory() as db:
-        matches = (
-            await db.execute(select(Match).where(Match.state == GameState.COMPLETED))
-        ).scalars().all()
-        if not matches:
+        raw_matches = (
+            await db.execute(
+                text(
+                    "SELECT id, total_rounds, turns_per_round, winner_player_id"
+                    " FROM matches WHERE state = 'completed'"
+                )
+            )
+        ).fetchall()
+        if not raw_matches:
             print("No completed matches found.")
             return 0
 
+        matches = [MatchRow(*r) for r in raw_matches]
         match_ids = [m.id for m in matches]
-        match_by_id: dict[str, Match] = {m.id: m for m in matches}
+        match_by_id: dict[str, MatchRow] = {m.id: m for m in matches}
         winner_by_match: dict[str, int | None] = {m.id: m.winner_player_id for m in matches}
 
         # strategy + match per player_id
@@ -196,6 +210,7 @@ async def export(db_path: str, out_path: str) -> int:
         "round_wins_mean",
         # action
         "action",
+        "target_player_id",
         "target_strategy",
         # outcomes
         "points_delta",
@@ -219,6 +234,7 @@ async def export(db_path: str, out_path: str) -> int:
                 continue
 
             strategy = player_strategy.get(sub.player_id, "unknown")
+            target_pid = sub.target_player_id if sub.target_player_id else ""
             target_strategy = (
                 player_strategy.get(sub.target_player_id, "")
                 if sub.target_player_id
@@ -282,6 +298,7 @@ async def export(db_path: str, out_path: str) -> int:
                 "round_wins_leader": round(rwins_leader, 3),
                 "round_wins_mean": round(_mean(all_rwins), 3),
                 "action": sub.action,
+                "target_player_id": target_pid,
                 "target_strategy": target_strategy,
                 "points_delta": sub.points_delta,
                 "round_score_after": sub.round_score_after,
