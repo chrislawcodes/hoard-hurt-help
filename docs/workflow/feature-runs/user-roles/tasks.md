@@ -39,7 +39,7 @@ S1, but each is implemented as its own checkpoint slice (see Parallel analysis).
 **Verify:** `alembic upgrade head` + `downgrade` round-trips on SQLite; backfill
 test passes.
 
-- [ ] Slice 1 checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
+- [x] Slice 1 checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 
@@ -71,7 +71,7 @@ test passes.
 
 **Verify:** full `pytest -q` green.
 
-- [ ] Slice 2 checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
+- [x] Slice 2 checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 
@@ -99,7 +99,7 @@ test passes.
 **Verify:** `pytest -q`; grep confirms no residual inline `max+1` in the four
 human creators.
 
-- [ ] Slice 3a checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
+- [x] Slice 3a checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 
@@ -125,7 +125,7 @@ human creators.
 **Verify:** `pytest -q`; the cascade regression reproduces the two-pass-sweep
 scenario.
 
-- [ ] Slice 3b checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
+- [x] Slice 3b checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 
@@ -161,7 +161,7 @@ scenario.
 If this slice exceeds ~300 lines, split 4a (routes + read model) from 4b
 (templates) at the router-registered boundary.
 
-- [ ] Slice 4 checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
+- [x] Slice 4 checkpoint — Preflight Gate (ruff + mypy + pytest) green, then diff checkpoint. [CHECKPOINT]
 
 ---
 

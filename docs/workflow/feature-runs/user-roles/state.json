@@ -64,34 +64,29 @@
     "unresolved": []
   },
   "delivery": {
-    "branch": "claude/admin-regular-user-roles-cp0y4g",
-    "head_sha": "ab1c11e2fb0118162a9313006516ce0736a3ae1f",
-    "updated_at": 1781223748,
-    "pr_number": 318,
     "pr_url": "https://github.com/chrislawcodes/hoard-hurt-help/pull/318",
-    "pr_state": "OPEN",
-    "pr_is_draft": false,
-    "pr_head_branch": "claude/admin-regular-user-roles-cp0y4g",
-    "pr_head_sha": "ab1c11e2fb0118162a9313006516ce0736a3ae1f",
-    "pr_base_branch": "main",
-    "mergeable": "UNKNOWN",
-    "merge_state_status": "UNKNOWN",
-    "checks_summary": "pending",
-    "required_checks": [
-      {
-        "bucket": "pending",
-        "link": "https://github.com/chrislawcodes/hoard-hurt-help/actions/runs/27386088512/job/80933299828",
-        "name": "Lint, type-check, test",
-        "state": "IN_PROGRESS",
-        "workflow": "CI"
-      }
-    ],
-    "merge_wait_state": "waiting",
-    "merged_sha": "",
-    "merged_at_iso8601": "",
-    "upstream": "origin/claude/admin-regular-user-roles-cp0y4g",
-    "checks_detail": "",
-    "head_mismatch": false
+    "pr_number": 318,
+    "merge_sha": "",
+    "closed_at": "2026-06-12T00:29:43+00:00",
+    "operator_note": "All 5 slices shipped; PR #318 open, CI pending. Codex implemented the bulk; Claude completed 3 gaps (each Gemini-reviewed + test-covered). Diff-checkpoint engine bug (PR #832 new-file expansion) worked around \u2014 tracked separately.",
+    "review_coverage_summary": {
+      "spec_lenses_run": [
+        "codex:feasibility-adversarial",
+        "gemini:requirements-adversarial"
+      ],
+      "spec_lenses_skipped": [],
+      "plan_lenses_run": [
+        "codex:implementation-adversarial",
+        "gemini:testability-adversarial"
+      ],
+      "plan_lenses_skipped": [],
+      "tasks_lenses_run": [],
+      "tasks_lenses_skipped": [],
+      "diff_lenses_run": [
+        "gemini:regression-adversarial"
+      ],
+      "diff_lenses_skipped": []
+    }
   },
   "checkpoint_fallback": {},
   "parallel_analysis": {
