@@ -315,67 +315,56 @@ async def _seed_match(reset_db, *, match_id, owner_id, state):
         await db.commit()
 
 
+# Cancel is admin-only (admins are the "organizers"). Regular users — even the
+# match owner — cannot cancel; they can only delete their own match pre-start.
+
+
 @pytest.mark.asyncio
-async def test_owner_cancel_pre_start_succeeds(client, reset_db):
+async def test_owner_cannot_cancel_their_match(client, reset_db):
     user = await _seed_user(reset_db, i=20)
     await _seed_match(reset_db, match_id="M_C1", owner_id=user.id, state=GameState.REGISTERING)
 
     r = await client.post(
         "/matches/M_C1/cancel", cookies=_cookies(user.id), follow_redirects=False
     )
-    assert r.status_code == 303
-    async with reset_db() as db:
-        assert (await db.get(Match, "M_C1")).state == GameState.CANCELLED
-
-
-@pytest.mark.asyncio
-async def test_owner_cancel_active_match_succeeds(client, reset_db):
-    # Unlike delete, cancel is allowed on a running (ACTIVE) match.
-    user = await _seed_user(reset_db, i=21)
-    await _seed_match(reset_db, match_id="M_C2", owner_id=user.id, state=GameState.ACTIVE)
-
-    r = await client.post(
-        "/matches/M_C2/cancel", cookies=_cookies(user.id), follow_redirects=False
-    )
-    assert r.status_code == 303
-    async with reset_db() as db:
-        assert (await db.get(Match, "M_C2")).state == GameState.CANCELLED
-
-
-@pytest.mark.asyncio
-async def test_non_owner_cancel_is_rejected(client, reset_db):
-    owner = await _seed_user(reset_db, i=22)
-    other = await _seed_user(reset_db, i=23)
-    await _seed_match(reset_db, match_id="M_C3", owner_id=owner.id, state=GameState.REGISTERING)
-
-    r = await client.post(
-        "/matches/M_C3/cancel", cookies=_cookies(other.id), follow_redirects=False
-    )
     assert r.status_code == 403
-    assert r.json()["detail"]["error"]["code"] == "NOT_MATCH_OWNER"
+    assert r.json()["detail"]["error"]["code"] == "NOT_PLATFORM_ADMIN"
+    async with reset_db() as db:
+        assert (await db.get(Match, "M_C1")).state == GameState.REGISTERING  # unchanged
 
 
 @pytest.mark.asyncio
-async def test_cancel_already_ended_match_is_rejected(client, reset_db):
-    user = await _seed_user(reset_db, i=24)
-    await _seed_match(reset_db, match_id="M_C4", owner_id=user.id, state=GameState.COMPLETED)
+async def test_signed_out_cannot_cancel(client, reset_db):
+    owner = await _seed_user(reset_db, i=21)
+    await _seed_match(reset_db, match_id="M_C2", owner_id=owner.id, state=GameState.ACTIVE)
 
-    r = await client.post(
-        "/matches/M_C4/cancel", cookies=_cookies(user.id), follow_redirects=False
-    )
-    assert r.status_code == 409
-    assert r.json()["detail"]["error"]["code"] == "MATCH_ALREADY_ENDED"
+    r = await client.post("/matches/M_C2/cancel", follow_redirects=False)
+    assert r.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_admin_can_cancel_active_match(client, reset_db):
-    owner = await _seed_user(reset_db, i=25)
-    admin = await _seed_user(reset_db, i=26, role=UserRole.ADMIN)
-    await _seed_match(reset_db, match_id="M_C5", owner_id=owner.id, state=GameState.ACTIVE)
+async def test_admin_can_cancel_pre_start_and_active(client, reset_db):
+    admin = await _seed_user(reset_db, i=22, role=UserRole.ADMIN)
+    owner = await _seed_user(reset_db, i=23)
+    await _seed_match(reset_db, match_id="M_C3", owner_id=owner.id, state=GameState.REGISTERING)
+    await _seed_match(reset_db, match_id="M_C4", owner_id=owner.id, state=GameState.ACTIVE)
+
+    for mid in ("M_C3", "M_C4"):
+        r = await client.post(
+            f"/matches/{mid}/cancel", cookies=_cookies(admin.id), follow_redirects=False
+        )
+        assert r.status_code == 303
+        async with reset_db() as db:
+            assert (await db.get(Match, mid)).state == GameState.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_admin_cancel_already_ended_match_is_rejected(client, reset_db):
+    admin = await _seed_user(reset_db, i=24, role=UserRole.ADMIN)
+    await _seed_match(reset_db, match_id="M_C5", owner_id=admin.id, state=GameState.COMPLETED)
 
     r = await client.post(
         "/matches/M_C5/cancel", cookies=_cookies(admin.id), follow_redirects=False
     )
-    assert r.status_code == 303
-    async with reset_db() as db:
-        assert (await db.get(Match, "M_C5")).state == GameState.CANCELLED
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"]["code"] == "MATCH_ALREADY_ENDED"
