@@ -63,7 +63,36 @@
     },
     "unresolved": []
   },
-  "delivery": {},
+  "delivery": {
+    "branch": "claude/admin-regular-user-roles-cp0y4g",
+    "head_sha": "ab1c11e2fb0118162a9313006516ce0736a3ae1f",
+    "updated_at": 1781223748,
+    "pr_number": 318,
+    "pr_url": "https://github.com/chrislawcodes/hoard-hurt-help/pull/318",
+    "pr_state": "OPEN",
+    "pr_is_draft": false,
+    "pr_head_branch": "claude/admin-regular-user-roles-cp0y4g",
+    "pr_head_sha": "ab1c11e2fb0118162a9313006516ce0736a3ae1f",
+    "pr_base_branch": "main",
+    "mergeable": "UNKNOWN",
+    "merge_state_status": "UNKNOWN",
+    "checks_summary": "pending",
+    "required_checks": [
+      {
+        "bucket": "pending",
+        "link": "https://github.com/chrislawcodes/hoard-hurt-help/actions/runs/27386088512/job/80933299828",
+        "name": "Lint, type-check, test",
+        "state": "IN_PROGRESS",
+        "workflow": "CI"
+      }
+    ],
+    "merge_wait_state": "waiting",
+    "merged_sha": "",
+    "merged_at_iso8601": "",
+    "upstream": "origin/claude/admin-regular-user-roles-cp0y4g",
+    "checks_detail": "",
+    "head_mismatch": false
+  },
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -489,6 +518,24 @@
       "duration_seconds": 9.815824,
       "agent_id": null,
       "artifact_sha_at_time": "4a3a2afc304838b6b7f6a665053e938070a1907beb0b7c6a1e3803d2026535fe"
+    },
+    {
+      "stage": "diff",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 22071,
+      "prompt_cap": 250000,
+      "input_tokens": 18529,
+      "output_tokens": 686,
+      "cost_usd_estimate": 0.00566125,
+      "timestamp": "2026-06-12T00:20:09.588229Z",
+      "started_at": "2026-06-12T00:20:00.968344Z",
+      "ended_at": "2026-06-12T00:20:09.588229Z",
+      "duration_seconds": 8.619761,
+      "agent_id": null,
+      "artifact_sha_at_time": "4a3a2afc304838b6b7f6a665053e938070a1907beb0b7c6a1e3803d2026535fe"
     }
   ],
   "command_telemetry": [
@@ -779,6 +826,66 @@
       "files_written": 0,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "deliver",
+      "stage": null,
+      "ts": "2026-06-12T00:17:56Z",
+      "wall_seconds": 0.857,
+      "input_bytes_read": 63721,
+      "output_bytes_written": 0,
+      "files_read": 8,
+      "files_written": 0,
+      "subprocess_invocations": 40,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-12T00:19:05Z",
+      "wall_seconds": 0.532,
+      "input_bytes_read": 77224,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-12T00:20:09Z",
+      "wall_seconds": 9.111,
+      "input_bytes_read": 224021,
+      "output_bytes_written": 152100,
+      "files_read": 10,
+      "files_written": 6,
+      "subprocess_invocations": 12,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-12T00:20:25Z",
+      "wall_seconds": 0.565,
+      "input_bytes_read": 78483,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
+    },
+    {
+      "command": "deliver",
+      "stage": null,
+      "ts": "2026-06-12T00:20:45Z",
+      "wall_seconds": 2.152,
+      "input_bytes_read": 67528,
+      "output_bytes_written": 32075,
+      "files_read": 8,
+      "files_written": 1,
+      "subprocess_invocations": 42,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -820,6 +927,7 @@
         "5677fb807a77386d12c40d3c5d1b6e02acff5f9a7439b6672a05947a65392d7f",
         "4c7dc82af263cfd3a6885667213d7453519aac5ec94b30a4eb91428e78f3fec6",
         "4ccbfcbf12245609394cffae704354662935bc030a0ee342800d16e105b3cef9",
+        "4a3a2afc304838b6b7f6a665053e938070a1907beb0b7c6a1e3803d2026535fe",
         "4a3a2afc304838b6b7f6a665053e938070a1907beb0b7c6a1e3803d2026535fe"
       ],
       "initial_sha": "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550"
@@ -846,6 +954,12 @@
       "docs/workflow/feature-runs/user-roles"
     ],
     "used": true,
-    "updated_at": 1781223313
+    "updated_at": 1781223600
+  },
+  "implementation_rule_override": {
+    "at": 1781223744,
+    "reason": "Codex implemented the bulk of all 5 slices via the runner implement command; Claude completed 3 well-specified gaps Codex left (email unique-constraint guard; cancel_match transition + 3-site convergence; cancel route + dashboard retarget + cancel tests), each independently Gemini diff-reviewed and test-covered. Explained in the post-mortem.",
+    "operator": "chrislaw",
+    "head_sha": "ab1c11e2fb0118162a9313006516ce0736a3ae1f"
   }
 }
