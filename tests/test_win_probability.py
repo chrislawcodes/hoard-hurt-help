@@ -265,10 +265,8 @@ def test_score_round_win_no_model(tmp_path: Any) -> None:
 
 
 def _make_mock_model(prob: float = 0.5) -> MagicMock:
-    import numpy as np
-
     m = MagicMock()
-    m.predict_proba.return_value = np.array([[1 - prob, prob]])
+    m.predict_proba.return_value = [[1 - prob, prob]]
     return m
 
 

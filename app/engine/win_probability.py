@@ -349,7 +349,7 @@ def score_match_win(
         return {}
     ctx = _Ctx(players, actions, current_round, current_turn, total_rounds, turns_per_round)
     return {
-        p.agent_id: float(model.predict_proba([ctx.match_features(p.agent_id)])[0, 1])
+        p.agent_id: float(model.predict_proba([ctx.match_features(p.agent_id)])[0][1])
         for p in players
     }
 
@@ -371,6 +371,6 @@ def score_round_win(
         return {}
     ctx = _Ctx(players, actions, current_round, current_turn, 0, turns_per_round)
     return {
-        p.agent_id: float(model.predict_proba([ctx.round_features(p.agent_id)])[0, 1])
+        p.agent_id: float(model.predict_proba([ctx.round_features(p.agent_id)])[0][1])
         for p in players
     }
