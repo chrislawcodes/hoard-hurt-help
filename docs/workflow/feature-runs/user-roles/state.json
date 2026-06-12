@@ -881,6 +881,18 @@
       "files_written": 1,
       "subprocess_invocations": 42,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "closeout",
+      "ts": "2026-06-12T00:31:37Z",
+      "wall_seconds": 1.0,
+      "input_bytes_read": 295553,
+      "output_bytes_written": 133823,
+      "files_read": 26,
+      "files_written": 5,
+      "subprocess_invocations": 50,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -926,6 +938,14 @@
         "4a3a2afc304838b6b7f6a665053e938070a1907beb0b7c6a1e3803d2026535fe"
       ],
       "initial_sha": "e292f946f05e2aee18991f9d5ae3124fbcf2fd8d6fb9d1bf3f14c27c2302f550"
+    },
+    "closeout": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "253e92ff67ea9632232ff1482593d3c1493f5451b8ddd61326d40a6617444f51"
+      ],
+      "initial_sha": "253e92ff67ea9632232ff1482593d3c1493f5451b8ddd61326d40a6617444f51"
     }
   },
   "invariant_warnings": [],
@@ -937,8 +957,8 @@
   },
   "spec_adversarial_rounds": 1,
   "last_action_result": {
-    "next": "dispatch_next_slice_to_codex",
-    "reason": "diff checkpoint completed",
+    "next": "run_diff_checkpoint",
+    "reason": "closeout checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 1,
@@ -956,5 +976,22 @@
     "reason": "Codex implemented the bulk of all 5 slices via the runner implement command; Claude completed 3 well-specified gaps Codex left (email unique-constraint guard; cancel_match transition + 3-site convergence; cancel route + dashboard retarget + cancel tests), each independently Gemini diff-reviewed and test-covered. Explained in the post-mortem.",
     "operator": "chrislaw",
     "head_sha": "ab1c11e2fb0118162a9313006516ce0736a3ae1f"
-  }
+  },
+  "closeout_adversarial_rounds": 1,
+  "heartbeats": [
+    {
+      "timestamp_pt": "2026-06-11T17:32:29.847741-07:00",
+      "timestamp_utc": "2026-06-12T00:32:29.847955+00:00",
+      "stage": "deliver",
+      "activity": "waiting for PR merge (PR #318)",
+      "elapsed_ms": 600002
+    },
+    {
+      "timestamp_pt": "2026-06-11T17:42:29.852625-07:00",
+      "timestamp_utc": "2026-06-12T00:42:29.852706+00:00",
+      "stage": "deliver",
+      "activity": "waiting for PR merge (PR #318)",
+      "elapsed_ms": 1200004
+    }
+  ]
 }
