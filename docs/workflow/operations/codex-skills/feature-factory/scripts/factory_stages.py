@@ -28,6 +28,7 @@ from factory_state import (  # noqa: E402
     load_checkpoint_manifest,
     load_scope_manifest,
     parse_review_frontmatter,
+    is_ancestor_of_head,
 )
 from factory_io import read_text  # noqa: E402
 
@@ -36,7 +37,7 @@ if str(REVIEW_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(REVIEW_SCRIPTS))
 
 from workflow_utils import normalized_artifact_hash, resolve_stored_path  # noqa: E402
-from factory_git import _git_head_sha  # noqa: E402
+from factory_git import _git_head_sha, merge_base_with_default_branch  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -197,14 +198,32 @@ def diff_review_budget_state(slug: str) -> dict[str, object]:
             state["recorded_base_sha"] = ""
             state["recorded_head_sha"] = ""
     recorded_head = str(state["recorded_head_sha"])
+    recorded_base_sha = str(state["recorded_base_sha"])
     current_head = str(state["current_head_sha"])
     state["head_mismatch"] = bool(recorded_head and current_head and recorded_head != current_head)
-    if state["head_mismatch"] and recorded_head:
+    # Pick the base for the NEXT diff. Any base we reuse from a prior diff must
+    # still be a real ancestor of HEAD: a mid-run rebase/amend can orphan the
+    # last-reviewed head or leave the recorded base ref pointing at a stale
+    # remote *feature* branch, which would silently sweep unrelated commits into
+    # the reviewed diff. We never reuse the recorded symbolic ref (the drift
+    # source) -- only validated SHAs.
+    if state["head_mismatch"] and is_ancestor_of_head(recorded_head):
         state["scope_basis"] = "last-reviewed-head"
         state["suggested_base_ref"] = recorded_head
-    elif state["recorded_base_ref"]:
+    elif recorded_base_sha and is_ancestor_of_head(recorded_base_sha):
         state["scope_basis"] = "recorded-base"
-        state["suggested_base_ref"] = str(state["recorded_base_ref"])
+        state["suggested_base_ref"] = recorded_base_sha
+    elif recorded_head or recorded_base_sha or state["recorded_base_ref"]:
+        # A prior diff recorded a base, but it no longer resolves to a valid
+        # ancestor of HEAD (the drift case above). Anchor to the merge-base with
+        # the integration branch (origin/main) instead of reusing the drifted
+        # ref. Fresh runs (no recorded base) skip this and leave the base empty
+        # so write_canonical_diff resolves the first diff's base itself -- that
+        # avoids a git call on every pre-diff status/deliver path.
+        fork_point = merge_base_with_default_branch()
+        if fork_point:
+            state["scope_basis"] = "branch-merge-base"
+            state["suggested_base_ref"] = fork_point
 
     manifest = load_checkpoint_manifest(slug, "diff")
     if not manifest:
@@ -233,7 +252,17 @@ def preferred_diff_base_ref(slug: str, requested: str | None = None) -> str | No
         return requested
     diff_budget = diff_review_budget_state(slug)
     suggested = str(diff_budget.get("suggested_base_ref", ""))
-    return suggested or None
+    if suggested:
+        return suggested
+    # Fresh run (no validated recorded base). Anchor the first diff explicitly to
+    # the merge-base with the integration branch rather than returning None:
+    # None lets write_canonical_diff resolve @{upstream} first, which a push or
+    # rebase can repoint at a stale remote feature branch. Anchoring here also
+    # records a stable base SHA (not a symbolic ref) for subsequent slices to
+    # reuse. Only called at diff-generation time, so the git lookup is not on the
+    # status/deliver hot paths. Falls back to None if no integration branch
+    # resolves, preserving write_canonical_diff's own resolution as a last resort.
+    return merge_base_with_default_branch()
 
 
 # ---------------------------------------------------------------------------
