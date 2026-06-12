@@ -24,6 +24,9 @@ env/
 *.db-journal
 *.sqlite
 *.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 
 # Logs
 *.log
