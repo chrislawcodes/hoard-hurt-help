@@ -486,12 +486,12 @@
 
   function updateRail(){
     if(!railEl) return;  // no standings component present
-    // Rank by rounds won; break ties by the live in-round score so the rail
-    // still reorders within a round before any wins are on the board.
+    // Rank by live in-round points; break ties by rounds won so season
+    // standing still separates players sitting on the same score.
     var maxw=0, maxS=0;
     AGENTS.forEach(function(id){ if(rWins[id]>maxw) maxw=rWins[id]; if((rScore[id]||0)>maxS) maxS=rScore[id]; });
     var order=AGENTS.slice().sort(function(a,b){
-      return (rWins[b]-rWins[a]) || (rScore[b]-rScore[a]) || (AGENTS.indexOf(a)-AGENTS.indexOf(b));
+      return (rScore[b]-rScore[a]) || (rWins[b]-rWins[a]) || (AGENTS.indexOf(a)-AGENTS.indexOf(b));
     });
     order.forEach(function(id,i){
       var row=railRowEl[id];
