@@ -95,6 +95,7 @@ async def admin_users_list(
     q: str | None = None,
     page: int = 1,
 ):
+    page = max(1, page)
     stmt = select(User).order_by(User.created_at.desc())
     if q and q.strip():
         pattern = f"%{q.strip().lower()}%"
