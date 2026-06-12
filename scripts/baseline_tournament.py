@@ -75,52 +75,62 @@ async def _ensure_schema() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def _run_one_match(match_index: int, *, rng: random.Random) -> str:
-    """Create one match, seat 10 randomly chosen bots, run it, return match id."""
+# Serializes match creation: match IDs derive from a row count, so two
+# concurrent creators would mint the same ID and hit the primary-key constraint.
+_CREATE_LOCK = asyncio.Lock()
+
+
+async def _run_one_match(match_index: int, strategies: list[str]) -> str:
+    """Create one match, seat the given 10 bots, run it, return match id."""
     from app.db import SessionLocal
-    from app.engine.scheduler import start_game
-    from app.engine.sims.seating import add_bots_to_game, get_or_create_bots_user
-    from app.engine.tokens import generate_game_id
+    from app.engine.sims.seating import add_bots_to_game
+    from app.engine.state_machine import assert_transition
+    from app.engine.tokens import generate_match_id
     from app.models.match import GameState, Match
 
-    strategies = [rng.choice(STRATEGIES) for _ in range(PLAYERS_PER_MATCH)]
+    async with _CREATE_LOCK:
+        async with SessionLocal() as db:
+            from sqlalchemy import select, func
+            existing_count = await db.scalar(select(func.count()).select_from(Match)) or 0
+            match_id = generate_match_id(existing_count + 1)
 
-    async with SessionLocal() as db:
-        from sqlalchemy import select, func
-        existing_count = await db.scalar(select(func.count()).select_from(Match)) or 0
-        match_id = generate_game_id(existing_count + 1)
+            now = datetime.now(timezone.utc)
+            match = Match(
+                id=match_id,
+                name=f"baseline-{match_index}",
+                game="hoard-hurt-help",
+                state=GameState.REGISTERING,
+                scheduled_start=now - timedelta(seconds=1),
+                per_turn_deadline_seconds=0,  # resolve immediately once all bots submit
+                total_rounds=7,
+                turns_per_round=7,
+                min_players=3,
+                max_players=100,
+            )
+            db.add(match)
+            await db.flush()
 
-        match = Match(
-            id=match_id,
-            name=f"baseline-{match_index}",
-            game="hoard-hurt-help",
-            state=GameState.REGISTERING,
-            scheduled_start=datetime.now(timezone.utc) - timedelta(seconds=1),
-            per_turn_deadline_seconds=0,  # resolve immediately once all bots submit
-            total_rounds=7,
-            turns_per_round=7,
-            min_players=3,
-            max_players=100,
-        )
-        db.add(match)
-        await db.flush()
+            # Build unique seat names: include strategy + index so same-strategy
+            # bots at the same table are distinguishable. Seat names allow only
+            # letters, digits, and spaces (BOT_AGENT_NAME_RE), so drop underscores.
+            seats: list[tuple[str, str]] = []
+            strategy_counts: dict[str, int] = {}
+            for strategy in strategies:
+                n = strategy_counts.get(strategy, 0) + 1
+                strategy_counts[strategy] = n
+                seat_name = f"{strategy.replace('_', ' ')[:28]} {n}"
+                seats.append((seat_name, strategy))
 
-        bots_user = await get_or_create_bots_user(db)
-        _ = bots_user  # created as side-effect; seating uses it internally
+            await add_bots_to_game(db, match, seats)
 
-        # Build unique seat names: include strategy + index so same-strategy
-        # bots at the same table are distinguishable.
-        seats: list[tuple[str, str]] = []
-        strategy_counts: dict[str, int] = {}
-        for strategy in strategies:
-            n = strategy_counts.get(strategy, 0) + 1
-            strategy_counts[strategy] = n
-            seats.append((f"{strategy[:8]}{n}", strategy))
+            # Transition to ACTIVE directly instead of scheduler.start_game():
+            # start_game also spawns the registry's own _run_game task, and we
+            # drive the loop ourselves below — two loops on one match would race.
+            assert_transition(match.state, GameState.ACTIVE)
+            match.state = GameState.ACTIVE
+            match.started_at = now
+            await db.commit()
 
-        await add_bots_to_game(db, match, seats)
-        await start_game(db, match)
-
-    # run_game consumes its own sessions internally
     from app.engine.scheduler import _run_game
     await _run_game(match_id)
     return match_id
@@ -248,12 +258,19 @@ async def run_tournament(
         batch_ids: list[str] = []
         sem = asyncio.Semaphore(concurrency)
 
-        async def _run_guarded(idx: int) -> str:
+        # Pre-draw every roster for the batch on the main coroutine so the
+        # master seed fully determines them, independent of task interleaving.
+        rosters = [
+            [rng.choice(STRATEGIES) for _ in range(PLAYERS_PER_MATCH)]
+            for _ in range(BATCH_SIZE)
+        ]
+
+        async def _run_guarded(idx: int, strategies: list[str]) -> str:
             async with sem:
-                return await _run_one_match(idx, rng=rng)
+                return await _run_one_match(idx, strategies)
 
         tasks = [
-            asyncio.create_task(_run_guarded(match_index + i))
+            asyncio.create_task(_run_guarded(match_index + i, rosters[i]))
             for i in range(BATCH_SIZE)
         ]
         match_index += BATCH_SIZE
