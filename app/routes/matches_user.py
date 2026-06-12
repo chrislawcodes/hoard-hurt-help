@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 
 from app.config import settings
-from app.deps import DbSession, require_user
+from app.deps import DbSession, require_platform_admin, require_user
 from app.engine.match_creation import create_match
 from app.engine.match_deletion import cancel_match, delete_match
 from app.games import GameError, get as get_game_module
@@ -195,23 +195,13 @@ async def delete_match_submit(
 async def cancel_match_submit(
     match_id: Annotated[str, Path()],
     db: DbSession,
-    user: Annotated[User, Depends(require_user)],
+    _: Annotated[User, Depends(require_platform_admin)],
 ):
-    match = await _load_match_or_404(db, match_id)
-    # Admins may cancel any match; owners may cancel their own.
-    if user.role != UserRole.ADMIN and match.created_by_user_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "NOT_MATCH_OWNER",
-                    "message": "You can only cancel matches you created.",
-                    "details": {},
-                }
-            },
-        )
+    # Cancel is an admin-only power (admins are the "organizers"). Regular users
+    # cannot cancel — they can only delete their own match before it starts.
     # Cancel preserves data, so it is allowed from any non-terminal state
     # (including ACTIVE); only already-ended matches are rejected.
+    match = await _load_match_or_404(db, match_id)
     if match.state in (GameState.COMPLETED, GameState.CANCELLED):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -224,4 +214,4 @@ async def cancel_match_submit(
             },
         )
     await cancel_match(db, match)
-    return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)

@@ -205,11 +205,16 @@ Poll-rate guidance for player agents: 1–5 seconds. Server should enforce a min
   (`created_by_user_id`); a per-user **active-match cap** (default 3, env
   `USER_ACTIVE_MATCH_LIMIT`) bounds LLM spend from open creation. Admins are
   exempt from the cap.
-- **Match ownership & teardown:** the creator owns the match. An owner may
-  **cancel** their match while it is non-terminal (cancel preserves data) and
-  **delete** it only before it starts (`SCHEDULED`/`REGISTERING`) — a started
-  match holds other players' turns and scores. Admins may delete or cancel any
-  match in any state.
+- **Match ownership & teardown:** the creator owns the match. A regular user can
+  **delete** their own match — but only **before it starts** (`SCHEDULED`/
+  `REGISTERING`), since a started match holds other players' turns and scores.
+  That is the only teardown action a regular user gets; once the match is live,
+  it is out of their hands (the same way you can't unilaterally end a multiplayer
+  match other people have joined). **Cancel is an admin-only power** (admins are
+  the "organizers"): admins may cancel any non-terminal match — including a
+  running `ACTIVE` one (cancel preserves data) — and delete any match in any
+  state. Splitting it this way keeps the player UI to one obvious action and
+  avoids the confusing cancel-vs-delete choice for regular users.
 - **Game start:** scheduled. The creator sets a start time when creating the match. Players see a countdown in the lobby. At the scheduled time, the match starts automatically with whoever is registered.
 - **Lobby visibility:** public. Anyone visiting the site sees the list of upcoming matches and can join one.
 
