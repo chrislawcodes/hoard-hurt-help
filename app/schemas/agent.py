@@ -13,6 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.agent_prompt import MESSAGE_MAX_LENGTH, THINKING_MAX_LENGTH
+
 # PD's (game #1, "hoard-hurt-help") move vocabulary. The platform does NOT
 # interpret these — POST /submit packs the request into a generic `move` dict and
 # routes validation/recording through that game's module (app/games/). A second
@@ -278,8 +280,8 @@ class SubmitRequest(BaseModel):
     turn_token: str
     action: Action
     target_id: str | None = None
-    message: str = Field(default="", max_length=200)
-    thinking: str = Field(default="", max_length=200)
+    message: str = Field(default="", max_length=MESSAGE_MAX_LENGTH)
+    thinking: str = Field(default="", max_length=THINKING_MAX_LENGTH)
     # Connector sets this True when the LLM failed and a default move is being
     # submitted on its behalf. The server stores it via the existing was_defaulted
     # column so fallback moves are identifiable in the DB without a migration.
@@ -288,8 +290,8 @@ class SubmitRequest(BaseModel):
 
 class MessageRequest(BaseModel):
     turn_token: str
-    message: str = Field(default="", max_length=200)
-    thinking: str = Field(default="", max_length=200)
+    message: str = Field(default="", max_length=MESSAGE_MAX_LENGTH)
+    thinking: str = Field(default="", max_length=THINKING_MAX_LENGTH)
     # Same flag as SubmitRequest — marks talk-phase messages sent as defaults
     # because the LLM process failed.
     is_connector_fallback: bool = False
