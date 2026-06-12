@@ -621,6 +621,21 @@ pre code { background: none; padding: 0; }
 .game-card-info h3 { margin: 0 0 0.2rem; }
 .game-card-action { display: flex; align-items: center; gap: 0.85rem; flex-shrink: 0; }
 
+/* Agent list — compact grouped rows */
+.agent-group { margin-bottom: 1.75rem; }
+.agent-group-title { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 0.35rem; }
+.agent-row { display: flex; align-items: center; gap: 0.65rem; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); text-decoration: none; color: inherit; transition: background 0.12s; }
+.agent-group .agent-row:first-of-type { border-top: 1px solid var(--line); }
+.agent-row:hover { background: var(--surface-2); }
+.agent-row-name { font-weight: 600; font-size: 0.9rem; flex-shrink: 0; min-width: 7rem; }
+.agent-row-meta { color: var(--ink-soft); font-size: 0.82rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-row-chevron { color: var(--ink-soft); font-size: 1.1rem; flex-shrink: 0; opacity: 0; transition: opacity 0.12s, transform 0.12s; }
+.agent-row:hover .agent-row-chevron { opacity: 1; transform: translateX(2px); }
+@media (max-width: 600px) {
+    .agent-row-meta { display: none; }
+    .agent-row-chevron { opacity: 0.4; }
+}
+
 .badge {
     display: inline-flex;
     align-items: center;
