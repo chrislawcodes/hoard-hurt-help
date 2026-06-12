@@ -440,5 +440,75 @@ class FindingsSummaryTests(unittest.TestCase):
         self.assertIn("1 HIGH", output)
 
 
+class DiffScopeAllowedDirtyPathsFlow(unittest.TestCase):
+    """scope.json's allowed_dirty_paths must flow into the diff checkpoint manifest.
+
+    save_scope_manifest records the scoped paths plus the feature-run dir as
+    expected-dirty. Previously command_checkpoint built allow_dirty_paths only
+    from the --allow-dirty-path CLI flag, so the diff manifest persisted
+    allowed_dirty_paths: [] and every diff checkpoint demanded a manual
+    --allow-dirty-path for paths the scope already declared.
+    """
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self._patches: list = []
+        for mod in list(gc.get_objects()):
+            if not isinstance(mod, types.ModuleType):
+                continue
+            if getattr(mod, "__name__", "") != "factory_state":
+                continue
+            if not hasattr(mod, "FACTORY_RUNS_ROOT"):
+                continue
+            p = patch.object(mod, "FACTORY_RUNS_ROOT", Path(self._tmpdir.name))
+            p.start()
+            self._patches.append(p)
+        self.addCleanup(lambda: [p.stop() for p in self._patches])
+
+    def test_scope_allowed_dirty_paths_flow_into_diff_manifest(self) -> None:
+        slug = "ff-checkpoint-test"
+        FACTORY_STATE.workflow_dir(slug).mkdir(parents=True, exist_ok=True)
+        # scope.json records {scoped paths} + feature-run dir as expected-dirty.
+        CHECKPOINT.save_scope_manifest(slug, ["app"])
+        artifact = CHECKPOINT.default_artifact_path(slug, "diff")
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(
+            "diff --git a/app/x.py b/app/x.py\n@@ -1 +1 @@\n-a\n+b\n", encoding="utf-8"
+        )
+
+        captured: dict[str, object] = {}
+
+        class _Stop(Exception):
+            pass
+
+        def capture_manifest(*a, **k):
+            # allow_dirty_paths is the 10th positional arg to checkpoint_manifest.
+            captured["allow_dirty_paths"] = a[9] if len(a) > 9 else k.get("allow_dirty_paths")
+            raise _Stop()
+
+        args = _args()
+        args.stage = "diff"
+        args.use_existing_artifact = True  # skip write_canonical_diff; use the artifact above
+        args.allow_dirty_path = ["custom/cli/path"]
+
+        ok_result = subprocess.CompletedProcess(args=["x"], returncode=0, stdout="", stderr="")
+        with patch.object(CHECKPOINT, "ensure_sync", return_value=None), \
+                patch.object(CHECKPOINT, "prerequisite_failure", return_value=None), \
+                patch.object(CHECKPOINT, "required_reviews", return_value=[]), \
+                patch.object(CHECKPOINT, "checkpoint_manifest", side_effect=capture_manifest), \
+                patch.object(CHECKPOINT.subprocess, "run", return_value=ok_result):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(_Stop):
+                    CHECKPOINT.command_checkpoint(args)
+
+        adp = captured["allow_dirty_paths"]
+        # scope.json's declared paths flow through...
+        self.assertIn("app", adp)
+        self.assertIn(f"docs/workflow/feature-runs/{slug}", adp)
+        # ...and the explicit CLI value still merges in.
+        self.assertIn("custom/cli/path", adp)
+
+
 if __name__ == "__main__":
     unittest.main()

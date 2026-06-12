@@ -21,6 +21,7 @@ from factory_state import (  # noqa: E402
     update_stage_state,
     with_locked_state,
     workflow_dir,
+    load_scope_manifest,
     reviews_dir,
     scope_manifest_path,
     checkpoint_manifest_path,
@@ -347,6 +348,16 @@ def command_checkpoint(args: argparse.Namespace) -> int:
     scope_manifest = scope_manifest_path(args.slug)
     if args.stage == "diff" and args.path:
         scope_manifest = save_scope_manifest(args.slug, args.path)
+
+    if args.stage == "diff":
+        # scope.json records the scoped paths plus the feature-run dir as
+        # expected-dirty (see save_scope_manifest). Flow those into the diff's
+        # dirty-tolerance and the recorded manifest. Without this they were
+        # dropped: every diff checkpoint demanded a manual --allow-dirty-path for
+        # paths the scope already declared, and the manifest persisted
+        # allowed_dirty_paths: []. CLI --allow-dirty-path values still merge in.
+        scope_dirty = load_scope_manifest(args.slug).get("allowed_dirty_paths", [])
+        allow_dirty_paths = list(dict.fromkeys([*allow_dirty_paths, *scope_dirty]))
 
     artifact_path = Path(args.artifact).resolve() if args.artifact else default_artifact_path(args.slug, args.stage)
 
