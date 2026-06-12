@@ -4,9 +4,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.config import settings
 from app.db import make_engine
 from app.models import Base
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.routes.auth import sync_google_user
 from app.schemas.auth import GoogleUserInfo
 
@@ -50,6 +51,57 @@ async def test_creates_user_with_names(session) -> None:
     await session.commit()
     assert user.given_name == "Ada"
     assert user.family_name == "Lovelace"
+
+
+@pytest.mark.asyncio
+async def test_seeds_role_from_allowlist_and_demotes_on_next_login(
+    session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "platform_admin_emails", "admin@example.com")
+
+    user = await sync_google_user(session, _info(email="admin@example.com"))
+    await session.commit()
+    assert user.role == UserRole.ADMIN
+
+    monkeypatch.setattr(settings, "platform_admin_emails", "")
+    user = await sync_google_user(session, _info(email="admin@example.com"))
+    await session.commit()
+    assert user.role == UserRole.USER
+
+
+@pytest.mark.asyncio
+async def test_refreshes_email_before_role_seeding(
+    session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session.add(User(google_sub="g-1", email="old@example.com", name="Ada Lovelace"))
+    await session.commit()
+
+    monkeypatch.setattr(settings, "platform_admin_emails", "new@example.com")
+
+    user = await sync_google_user(session, _info(email="new@example.com"))
+    await session.commit()
+    assert user.email == "new@example.com"
+    assert user.role == UserRole.ADMIN
+
+
+@pytest.mark.asyncio
+async def test_email_refresh_skips_on_unique_collision(
+    session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Another row already holds the address this login would refresh to.
+    session.add(User(google_sub="g-other", email="taken@example.com"))
+    session.add(User(google_sub="g-1", email="old@example.com"))
+    await session.commit()
+
+    monkeypatch.setattr(settings, "platform_admin_emails", "taken@example.com")
+
+    # Must not raise on the unique-constraint clash; keeps the stored email but
+    # still seeds the role from the live login email.
+    user = await sync_google_user(session, _info(email="taken@example.com"))
+    await session.commit()
+    assert user.google_sub == "g-1"
+    assert user.email == "old@example.com"  # refresh skipped, not a 500
+    assert user.role == UserRole.ADMIN  # role still seeded from the live email
 
 
 @pytest.mark.asyncio

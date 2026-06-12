@@ -16,6 +16,7 @@ from app.config import settings
 from app.main import app
 from app.identity import word_filter
 from app.models import Base, GameState, Match, Player, User
+from app.models.user import UserRole
 from tests.factories import make_agent, make_user
 
 
@@ -66,7 +67,13 @@ def test_validate_agent_name_rejects_blocked_without_echo() -> None:
 
 async def test_admin_reset_clears_handle_and_keeps_history(reset_db, client):
     async with reset_db() as db:
-        admin = User(google_sub="sub-admin", email="admin@test.com", handle="boss", handle_key="boss")
+        admin = User(
+            google_sub="sub-admin",
+            email="admin@test.com",
+            handle="boss",
+            handle_key="boss",
+            role=UserRole.ADMIN,
+        )
         db.add(admin)
         target = await make_user(db, 5)  # handle "agent5"
         target.handle = "rudeword"
@@ -102,7 +109,13 @@ async def test_admin_reset_clears_handle_and_keeps_history(reset_db, client):
 
 async def test_admin_handles_page_lists_handles(reset_db, client):
     async with reset_db() as db:
-        admin = User(google_sub="sub-admin", email="admin@test.com", handle="boss", handle_key="boss")
+        admin = User(
+            google_sub="sub-admin",
+            email="admin@test.com",
+            handle="boss",
+            handle_key="boss",
+            role=UserRole.ADMIN,
+        )
         db.add(admin)
         await db.commit()
         admin_id = admin.id

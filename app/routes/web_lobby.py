@@ -540,6 +540,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
         {
             "user": user,
             "is_admin": _is_any_admin(user),
+            "create_match_url": f"/games/{game}/matches/new",
             "live_games": live,
             "upcoming_games": upcoming,
             "recent_games": recent_games[:5] if not show_recent_all else recent_games,

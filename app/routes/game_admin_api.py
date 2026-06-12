@@ -11,7 +11,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, require_game_admin
-from app.engine.tokens import generate_match_id
+from app.engine.match_creation import create_match
+from app.engine.match_deletion import cancel_match
 from app.games import known_types
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
@@ -35,7 +36,7 @@ async def create_game(
     game: Annotated[str, Path()],
     body: CreateGameRequest,
     db: DbSession,
-    _: Annotated[User, Depends(require_game_admin)],
+    user: Annotated[User, Depends(require_game_admin)],
 ) -> GameRecord:
     if game not in known_types():
         raise HTTPException(
@@ -43,23 +44,19 @@ async def create_game(
         )
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
-    existing_ids = (await db.execute(select(Match.id))).scalars().all()
-    n = max((int(x.split("_")[1]) for x in existing_ids if x.startswith("M_")), default=0) + 1
-    g = Match(
-        id=generate_match_id(n),
+    g = await create_match(
+        db,
         game=game,
         name=body.name,
-        state=GameState.REGISTERING,
         scheduled_start=body.scheduled_start,
         min_players=body.min_players,
         max_players=body.max_players,
         per_turn_deadline_seconds=body.per_turn_deadline_seconds,
         total_rounds=body.total_rounds,
         turns_per_round=body.turns_per_round,
+        state=GameState.REGISTERING,
+        created_by_user_id=user.id,
     )
-    db.add(g)
-    await db.commit()
-    await db.refresh(g)
     return GameRecord(
         id=g.id,
         name=g.name,
@@ -89,9 +86,7 @@ async def cancel_game(
         raise HTTPException(409, detail="Match already started.")
     if g.state in (GameState.COMPLETED, GameState.CANCELLED):
         raise HTTPException(409, detail="Match already ended.")
-    g.state = GameState.CANCELLED
-    g.cancelled_at = datetime.now(timezone.utc)
-    await db.commit()
+    await cancel_match(db, g)
     return CancelResponse()
 
 

@@ -20,7 +20,7 @@ from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
 from app.models.player import Player
-from app.models.user import User
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +69,9 @@ async def require_user_with_handle(request: Request, db: DbSession) -> User:
 
 
 async def require_platform_admin(request: Request, db: DbSession) -> User:
-    """Require the user to be in PLATFORM_ADMIN_EMAILS (or legacy ADMIN_EMAILS)."""
+    """Require the user to have platform-admin role."""
     user = await require_user(request, db)
-    if user.email.lower() not in settings.platform_admin_emails_set:
+    if user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={

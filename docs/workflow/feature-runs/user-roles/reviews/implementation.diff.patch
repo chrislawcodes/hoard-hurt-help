@@ -1,0 +1,546 @@
+## New file: app/routes/matches_user.py
+
+"""User-facing match creation and ownership routes."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import func, select
+
+from app.config import settings
+from app.deps import DbSession, require_user
+from app.engine.match_creation import create_match
+from app.engine.match_deletion import cancel_match, delete_match
+from app.games import GameError, get as get_game_module
+from app.models.match import GameState, Match
+from app.models.user import User, UserRole
+from app.routes.web_support import _is_any_admin, _load_match_or_404
+from app.templating import templates
+
+router = APIRouter(tags=["web"])
+
+_CREATE_DEFAULTS = {
+    "min_players": 6,
+    "max_players": 20,
+    "per_turn_deadline_seconds": 60,
+    "total_rounds": 7,
+    "turns_per_round": 7,
+}
+
+
+def _load_game_module_or_404(game: str):
+    try:
+        return get_game_module(game)
+    except GameError as exc:
+        raise HTTPException(status_code=404, detail="Game not found.") from exc
+
+
+def _html_error(
+    request: Request,
+    user: User,
+    game: str,
+    *,
+    message: str,
+    status_code: int = 400,
+):
+    module = _load_game_module_or_404(game)
+    return templates.TemplateResponse(
+        request,
+        "matches_user/create_match.html",
+        {
+            "user": user,
+            "is_admin": _is_any_admin(user),
+            "game_slug": game,
+            "game_theme": module.theme(),
+            "defaults": _CREATE_DEFAULTS,
+            "error": message,
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/games/{game}/matches/new", response_class=HTMLResponse)
+async def create_match_form(
+    game: Annotated[str, Path()],
+    request: Request,
+    user: Annotated[User, Depends(require_user)],
+):
+    module = _load_game_module_or_404(game)
+    return templates.TemplateResponse(
+        request,
+        "matches_user/create_match.html",
+        {
+            "user": user,
+            "is_admin": _is_any_admin(user),
+            "game_slug": game,
+            "game_theme": module.theme(),
+            "defaults": _CREATE_DEFAULTS,
+            "error": None,
+        },
+    )
+
+
+@router.post("/games/{game}/matches/new")
+async def create_match_submit(
+    game: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+    name: Annotated[str, Form()],
+    scheduled_start: Annotated[str, Form()],
+):
+    _load_game_module_or_404(game)  # 404 on unknown game before doing work
+    try:
+        when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
+    except ValueError:
+        return _html_error(
+            request,
+            user,
+            game,
+            message="Could not read the start time. Please pick a date and time.",
+        )
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    if when <= datetime.now(timezone.utc):
+        return _html_error(
+            request,
+            user,
+            game,
+            message="Start time must be in the future.",
+        )
+    if user.role != UserRole.ADMIN:
+        active_count = (
+            await db.scalar(
+                select(func.count())
+                .select_from(Match)
+                .where(
+                    Match.created_by_user_id == user.id,
+                    Match.state.in_(
+                        [GameState.SCHEDULED, GameState.REGISTERING, GameState.ACTIVE]
+                    ),
+                )
+            )
+        ) or 0
+        if active_count >= settings.user_active_match_limit:
+            return _html_error(
+                request,
+                user,
+                game,
+                message=(
+                    f"You can have at most {settings.user_active_match_limit} "
+                    "active matches at once."
+                ),
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+    try:
+        await create_match(
+            db,
+            game=game,
+            name=name,
+            scheduled_start=when,
+            min_players=_CREATE_DEFAULTS["min_players"],
+            max_players=_CREATE_DEFAULTS["max_players"],
+            per_turn_deadline_seconds=_CREATE_DEFAULTS["per_turn_deadline_seconds"],
+            total_rounds=_CREATE_DEFAULTS["total_rounds"],
+            turns_per_round=_CREATE_DEFAULTS["turns_per_round"],
+            state=GameState.REGISTERING,
+            created_by_user_id=user.id,
+        )
+    except ValueError as exc:
+        return _html_error(request, user, game, message=str(exc))
+
+    return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/matches/{match_id}/delete")
+async def delete_match_submit(
+    match_id: Annotated[str, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+):
+    match = await _load_match_or_404(db, match_id)
+    if user.role != UserRole.ADMIN and match.created_by_user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "NOT_MATCH_OWNER",
+                    "message": "You can only delete matches you created.",
+                    "details": {},
+                }
+            },
+        )
+    if user.role != UserRole.ADMIN and match.state not in (
+        GameState.SCHEDULED,
+        GameState.REGISTERING,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": {
+                    "code": "MATCH_ALREADY_STARTED",
+                    "message": "Match already started.",
+                    "details": {},
+                }
+            },
+        )
+    await delete_match(db, match.id)
+    return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/matches/{match_id}/cancel")
+async def cancel_match_submit(
+    match_id: Annotated[str, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+):
+    match = await _load_match_or_404(db, match_id)
+    # Admins may cancel any match; owners may cancel their own.
+    if user.role != UserRole.ADMIN and match.created_by_user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "NOT_MATCH_OWNER",
+                    "message": "You can only cancel matches you created.",
+                    "details": {},
+                }
+            },
+        )
+    # Cancel preserves data, so it is allowed from any non-terminal state
+    # (including ACTIVE); only already-ended matches are rejected.
+    if match.state in (GameState.COMPLETED, GameState.CANCELLED):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": {
+                    "code": "MATCH_ALREADY_ENDED",
+                    "message": "Match already ended.",
+                    "details": {},
+                }
+            },
+        )
+    await cancel_match(db, match)
+    return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)
+
+diff --git a/app/routes/web.py b/app/routes/web.py
+index eb56572..46af68c 100644
+--- a/app/routes/web.py
++++ b/app/routes/web.py
+@@ -6,9 +6,10 @@ single router that app.main mounts.
+ 
+ from fastapi import APIRouter
+ 
+-from app.routes import web_analysis, web_lobby, web_player, web_viewer
++from app.routes import matches_user, web_analysis, web_lobby, web_player, web_viewer
+ 
+ router = APIRouter(tags=["web"])
++router.include_router(matches_user.router)
+ router.include_router(web_lobby.router)
+ router.include_router(web_viewer.router)
+ router.include_router(web_analysis.router)
+diff --git a/app/routes/web_lobby.py b/app/routes/web_lobby.py
+index 78118f5..68a7525 100644
+--- a/app/routes/web_lobby.py
++++ b/app/routes/web_lobby.py
+@@ -540,6 +540,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
+         {
+             "user": user,
+             "is_admin": _is_any_admin(user),
++            "create_match_url": f"/games/{game}/matches/new",
+             "live_games": live,
+             "upcoming_games": upcoming,
+             "recent_games": recent_games[:5] if not show_recent_all else recent_games,
+diff --git a/app/routes/web_player.py b/app/routes/web_player.py
+index b4f6ccc..cfdbb59 100644
+--- a/app/routes/web_player.py
++++ b/app/routes/web_player.py
+@@ -25,7 +25,7 @@ from app.models.agent import Agent, AgentKind
+ from app.models.agent_version import AgentVersion
+ from app.models.match import Match, GameState, MatchKind
+ from app.models.player import Player
+-from app.models.user import User
++from app.models.user import User, UserRole
+ from app.request_logging import set_request_trace_context
+ from app.routes.web_support import (
+     _game_theme,
+@@ -403,17 +403,36 @@ async def my_matches(
+     players = (
+         (await db.execute(select(Player).where(Player.user_id == user.id))).scalars().all()
+     )
+-    match_ids = [p.match_id for p in players]
++    owned_matches = (
++        (
++            await db.execute(
++                select(Match)
++                .where(Match.created_by_user_id == user.id)
++                .order_by(Match.scheduled_start.desc(), Match.id.desc())
++            )
++        )
++        .scalars()
++        .all()
++    )
++    match_ids = {p.match_id for p in players}
++    match_ids.update(m.id for m in owned_matches)
+     if not match_ids:
+         return templates.TemplateResponse(
+-            request, "my_matches.html", {"user": user, "is_admin": _is_any_admin(user), "game_sections": []}
++            request,
++            "my_matches.html",
++            {"user": user, "is_admin": _is_any_admin(user), "game_sections": []},
+         )
++    match_id_list = list(match_ids)
+ 
+     matches = {
+         m.id: m
+-        for m in (await db.execute(select(Match).where(Match.id.in_(match_ids)))).scalars().all()
++        for m in (await db.execute(select(Match).where(Match.id.in_(match_id_list)))).scalars().all()
+     }
+ 
++    own_seats_by_match: dict[str, list[str]] = {}
++    for p in players:
++        own_seats_by_match.setdefault(p.match_id, []).append(p.seat_name)
++
+     count_rows = (await db.execute(
+         select(
+             Player.match_id,
+@@ -421,20 +440,22 @@ async def my_matches(
+             func.sum(case((Agent.kind == AgentKind.BOT, 1), else_=0)).label("bot_count"),
+         )
+         .join(Agent, Agent.id == Player.agent_id)
+-        .where(Player.match_id.in_(match_ids))
++        .where(Player.match_id.in_(match_id_list))
+         .group_by(Player.match_id)
+     )).all()
+     counts_by_match = {row.match_id: row for row in count_rows}
+ 
+     sections_map: dict[str, dict] = {}
+-    for p in players:
+-        g = matches[p.match_id]
++    ordered_matches = sorted(
++        matches.values(), key=lambda g: (g.scheduled_start, g.id), reverse=True
++    )
++    for g in ordered_matches:
+         slug = g.game
+         if slug not in sections_map:
+             title = {"hoard-hurt-help": "Hoard Hurt Help"}.get(slug, slug.replace("-", " ").title())
+             sections_map[slug] = {"title": title, "active": [], "completed": [], "cancelled": []}
+ 
+-        row = counts_by_match.get(p.match_id)
++        row = counts_by_match.get(g.id)
+         total = int(row.total or 0) if row else 0
+         bot_count = int(row.bot_count or 0) if row else 0
+         agent_count = total - bot_count
+@@ -444,14 +465,23 @@ async def my_matches(
+         if bot_count:
+             parts.append(f"{bot_count} {'bot' if bot_count == 1 else 'bots'}")
+         players_label = ", ".join(parts) if parts else "0 players"
++        activity_bits: list[str] = []
++        own_seats = sorted(own_seats_by_match.get(g.id, []))
++        if own_seats:
++            activity_bits.append(f"Playing as {', '.join(own_seats)}")
++        if g.created_by_user_id == user.id:
++            activity_bits.append("Created by you")
+ 
+         entry = {
+             "id": g.id,
+             "name": g.name,
+             "state": g.state,
+-            "agent_id": p.seat_name,
+             "watch_url": f"/games/{g.game}/matches/{g.id}",
++            "activity_label": " · ".join(activity_bits),
+             "players_label": players_label,
++            "can_delete": user.role == UserRole.ADMIN
++            or (g.created_by_user_id == user.id and g.state in (GameState.SCHEDULED, GameState.REGISTERING)),
++            "delete_url": f"/matches/{g.id}/delete",
+         }
+         if g.state == GameState.COMPLETED:
+             sections_map[slug]["completed"].append(entry)
+diff --git a/app/templates/admin/dashboard.html b/app/templates/admin/dashboard.html
+index f9d8957..2ce8ede 100644
+--- a/app/templates/admin/dashboard.html
++++ b/app/templates/admin/dashboard.html
+@@ -49,7 +49,7 @@
+     </div>
+     <div class="game-card-action">
+         <a class="btn btn-ghost" href="/games/{{ g.game }}/admin/matches/{{ g.id }}">Open →</a>
+-        <form method="post" action="/api/admin/matches/{{ g.id }}/cancel"><button type="submit" class="secondary">Cancel</button></form>
++        <form method="post" action="/matches/{{ g.id }}/cancel"><button type="submit" class="secondary">Cancel</button></form>
+         <form method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
+             <input type="hidden" name="next" value="/admin">
+             <button type="submit" class="danger">Delete</button>
+diff --git a/app/templates/home.html b/app/templates/home.html
+index 388e8dc..22c0e57 100644
+--- a/app/templates/home.html
++++ b/app/templates/home.html
+@@ -47,6 +47,11 @@
+ <header class="lobby-header">
+     <h1 class="lobby-title"><span class="hhh-hoard">Hoard</span> · <span class="hhh-hurt">Hurt</span> · <span class="hhh-help">Help</span></h1>
+     <p class="lobby-sub">A multiplayer game of trust and betrayal for AI agents.</p>
++    {% if user and create_match_url %}
++    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1rem;">
++        <a class="btn btn-primary" href="{{ create_match_url }}">Create match</a>
++    </div>
++    {% endif %}
+ </header>
+ 
+ {% if show_onboarding_banner %}
+## New file: app/templates/matches_user/create_match.html
+
+{% extends "base.html" %}
+{% block title %}Create Match — {{ game_slug }}{% endblock %}
+{% block content %}
+<a class="backlink" href="/games/{{ game_slug }}">← Back to lobby</a>
+<div class="page-head"><h1>Create match</h1></div>
+
+<p class="hint">
+    Uses the game defaults:
+    {{ defaults.min_players }}-{{ defaults.max_players }} players,
+    {{ defaults.total_rounds }} rounds,
+    {{ defaults.turns_per_round }} turns per round,
+    {{ defaults.per_turn_deadline_seconds }}s turn deadline.
+</p>
+
+<form method="post" action="/games/{{ game_slug }}/matches/new" id="create-user-match-form" class="card form">
+    <label>
+        Match name
+        <input type="text" name="name" required maxlength="255" placeholder="Friday Night Fights">
+    </label>
+
+    <label>
+        Scheduled start
+        <input type="datetime-local" id="start-local" required>
+    </label>
+    <p class="hint" id="tz-note"></p>
+    <input type="hidden" name="scheduled_start" id="start-iso">
+
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Create match</button></div>
+</form>
+
+<script>
+(function () {
+    const local = document.getElementById('start-local');
+    const iso = document.getElementById('start-iso');
+    const tzNote = document.getElementById('tz-note');
+    const form = document.getElementById('create-user-match-form');
+
+    const pad = n => String(n).padStart(2, '0');
+    const toLocalInputValue = d =>
+        d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+        + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    tzNote.textContent = 'Enter the time in your local timezone (' + tz + '). Stored as UTC.';
+
+    const now = new Date();
+    local.min = toLocalInputValue(now);
+    if (!local.value) {
+        local.value = toLocalInputValue(new Date(now.getTime() + 10 * 60 * 1000));
+    }
+
+    form.addEventListener('submit', function () {
+        if (local.value) iso.value = new Date(local.value).toISOString();
+    });
+})();
+</script>
+{% endblock %}
+
+diff --git a/app/templates/my_matches.html b/app/templates/my_matches.html
+index 7003dc2..0bb529f 100644
+--- a/app/templates/my_matches.html
++++ b/app/templates/my_matches.html
+@@ -3,52 +3,70 @@
+ {% block content %}
+ <div class="page-head"><h1>My matches</h1></div>
+ {% if not game_sections %}
+-    <p class="empty">You haven't joined any matches yet. <a href="/play">Find a match →</a></p>
++    <p class="empty">You haven't joined or created any matches yet. <a href="/play">Find a match →</a></p>
+ {% else %}
+     {% for section in game_sections %}
+     <div class="section-head"><h2>{{ section.title }}</h2></div>
+ 
+     {% for g in section.active %}
+-    <a class="game-card-link" href="{{ g.watch_url }}">
+     <article class="game-card">
+         <div class="game-card-info">
+-            <h3>{{ g.name }}</h3>
+-            <p class="meta">Playing as {{ g.agent_id }} · {{ g.players_label }}</p>
++            <h3><a href="{{ g.watch_url }}">{{ g.name }}</a></h3>
++            <p class="meta">{{ g.activity_label }}{% if g.activity_label %} · {% endif %}{{ g.players_label }}</p>
++        </div>
++        <div class="game-card-action">
++            {% if g.state.value == 'active' %}
++            <span class="badge badge-live">Live</span>
++            {% elif g.state.value in ['scheduled', 'registering'] %}
++            <span class="badge badge-soon">{{ g.state.value | capitalize }}</span>
++            {% endif %}
++            <a class="btn btn-ghost" href="{{ g.watch_url }}">Open →</a>
++            {% if g.can_delete %}
++            <form method="post" action="{{ g.delete_url }}" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
++                <button type="submit" class="danger">Delete</button>
++            </form>
++            {% endif %}
+         </div>
+-        {% if g.state.value == 'active' %}
+-        <div class="game-card-action"><span class="badge badge-live">Live</span></div>
+-        {% elif g.state.value in ['scheduled', 'registering'] %}
+-        <div class="game-card-action"><span class="badge badge-soon">{{ g.state.value | capitalize }}</span></div>
+-        {% endif %}
+     </article>
+-    </a>
+     {% endfor %}
+ 
+     {% if section.completed %}
+     <div class="section-head"><h3>Completed</h3></div>
+     {% for g in section.completed %}
+-    <a class="game-card-link" href="{{ g.watch_url }}">
+     <article class="game-card">
+         <div class="game-card-info">
+-            <h3>{{ g.name }}</h3>
+-            <p class="meta">Playing as {{ g.agent_id }} · {{ g.players_label }}</p>
++            <h3><a href="{{ g.watch_url }}">{{ g.name }}</a></h3>
++            <p class="meta">{{ g.activity_label }}{% if g.activity_label %} · {% endif %}{{ g.players_label }}</p>
++        </div>
++        <div class="game-card-action">
++            <a class="btn btn-ghost" href="{{ g.watch_url }}">Open →</a>
++            {% if g.can_delete %}
++            <form method="post" action="{{ g.delete_url }}" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
++                <button type="submit" class="danger">Delete</button>
++            </form>
++            {% endif %}
+         </div>
+     </article>
+-    </a>
+     {% endfor %}
+     {% endif %}
+ 
+     {% if section.cancelled %}
+     <div class="section-head"><h3>Cancelled</h3></div>
+     {% for g in section.cancelled %}
+-    <a class="game-card-link" href="{{ g.watch_url }}">
+     <article class="game-card">
+         <div class="game-card-info">
+-            <h3>{{ g.name }}</h3>
+-            <p class="meta">Playing as {{ g.agent_id }} · {{ g.players_label }}</p>
++            <h3><a href="{{ g.watch_url }}">{{ g.name }}</a></h3>
++            <p class="meta">{{ g.activity_label }}{% if g.activity_label %} · {% endif %}{{ g.players_label }}</p>
++        </div>
++        <div class="game-card-action">
++            <a class="btn btn-ghost" href="{{ g.watch_url }}">Open →</a>
++            {% if g.can_delete %}
++            <form method="post" action="{{ g.delete_url }}" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
++                <button type="submit" class="danger">Delete</button>
++            </form>
++            {% endif %}
+         </div>
+     </article>
+-    </a>
+     {% endfor %}
+     {% endif %}
+ 

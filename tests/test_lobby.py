@@ -17,6 +17,7 @@ from app.engine.tokens import bot_key_lookup
 from app.main import app
 from app.models import Base, Agent, AgentKind, Connection, ConnectionSetup, Match, GameState, Player, User
 from app.models.match import MatchKind
+from app.models.user import UserRole
 from app.engine.sims import pack_profile_choices
 from tests.factories import make_agent, make_connection, make_user, seat_player
 
@@ -56,6 +57,11 @@ def _signed_in_cookies(user_id: int) -> dict:
 async def _seed_user(reset_db: async_sessionmaker) -> User:
     async with reset_db() as db:
         u = await make_user(db)
+        u.role = (
+            UserRole.ADMIN
+            if u.email.lower() in settings.platform_admin_emails_set
+            else UserRole.USER
+        )
         await db.commit()
         await db.refresh(u)
         return u
@@ -738,8 +744,8 @@ async def test_two_bots_one_game(client, reset_db):
 @pytest.mark.asyncio
 async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monkeypatch):
     """An admin can tick several of their own agents and seat them in one POST."""
-    user = await _seed_user(reset_db)  # make_user → u0@t.com
     monkeypatch.setattr(settings, "platform_admin_emails", "u0@t.com")
+    user = await _seed_user(reset_db)  # make_user → u0@t.com
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
     a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
@@ -869,8 +875,8 @@ async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
 @pytest.mark.asyncio
 async def test_admin_can_seat_agent_already_busy_at_capacity(client, reset_db, monkeypatch):
     """An admin can add an agent that is already in another match, past the cap."""
-    user = await _seed_user(reset_db)  # u0@t.com
     monkeypatch.setattr(settings, "platform_admin_emails", "u0@t.com")
+    user = await _seed_user(reset_db)  # u0@t.com
     agent_id = await _seed_agent_busy_in_active_match(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_B/join",
