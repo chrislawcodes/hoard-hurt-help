@@ -224,7 +224,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         # the live fragment carries fresh turns too — that's what lets an
         # already-open page extend the animation as new turns resolve, instead of
         # staying frozen at the turn count present when the page first loaded.
-        "rc_data": _build_rc_data(scoreboard, history),
+        "rc_data": _build_rc_data(scoreboard, history, g.turns_per_round),
         "rounds": rounds,
         "max_played_round": max_played_round,
         "winner_agent_id": winner_agent_id,
