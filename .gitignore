@@ -74,7 +74,10 @@ docs/workflow/feature-runs/*/.*.lock
 # Feature Factory shared review-attempts log (auto-generated, not per-feature)
 docs/workflow/operations/review-attempts.jsonl
 
-# Feature Factory review debug intermediates (canonical record is the .review.md)
-feature-runs/**/reviews/*.stderr.txt
-feature-runs/**/reviews/*.stdout.txt
-feature-runs/**/reviews/*.review.md.raw.txt
+# Feature Factory review debug intermediates (canonical record is the .review.md).
+# Patterns need the full docs/workflow/ prefix to match the real paths; without
+# it they were anchored to a top-level feature-runs/ that does not exist, so the
+# intermediates were committed instead of ignored.
+docs/workflow/feature-runs/**/reviews/*.stderr.txt
+docs/workflow/feature-runs/**/reviews/*.stdout.txt
+docs/workflow/feature-runs/**/reviews/*.review.md.raw.txt
