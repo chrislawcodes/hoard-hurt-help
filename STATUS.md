@@ -15,6 +15,7 @@
 
 ## Recently Shipped
 
+- **Disabled-account enforcement** — disabled users are now blocked from protected endpoints through both auth paths (web session and connection key), the app has a dedicated `/disabled` page, the nav reflects the disabled state, and Google login no longer demotes an existing in-app admin role on relogin.
 - **Admin and regular user roles** ([PR #318](https://github.com/chrislawcodes/hoard-hurt-help/pull/318), open) — the platform now has two roles. Regular signed-in users can create matches from a slim flow (name + start time) and delete/cancel their own; admins can delete/cancel any match. Matches gain an owner (`created_by_user_id`); the admin role lives on `users.role`, seeded from `PLATFORM_ADMIN_EMAILS` at login (migration 0028 backfills existing admins). A per-user active-match cap (`USER_ACTIVE_MATCH_LIMIT`, default 3) bounds open match creation; admins are exempt. Creation, deletion, and cancel logic are consolidated into shared `app/engine/match_creation.py` + `match_deletion.py` helpers (the five old `max+1` id allocators and three cancel sites converged).
 - **Baseline bot tournament** (#320) — added the `coin_flip` bot personality
   (random legal move, random table talk) as the control group, plus
@@ -69,6 +70,7 @@
 
 ## Now Unblocked
 
+- Platform admins can disable an account without leaving a session or connection-key bypass.
 - The standings rail can show the owner handle for human agents again without exposing the internal bot naming scheme.
 - Bot standings and recent-game labels can stay clean even though bot agent names remain unique internally.
 - Sim-only matches can be used for demos with less repetitive, scripted-sounding

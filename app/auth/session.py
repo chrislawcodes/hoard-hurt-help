@@ -25,6 +25,36 @@ def clear_session(request: Request) -> None:
     request.session.pop(SESSION_USER_KEY, None)
 
 
+def raise_account_disabled(request: Request) -> None:
+    """Raise the appropriate response for a disabled account.
+
+    Three branches:
+      HX-Request header  -> 200 + HX-Redirect:/disabled  (full-page nav, not swap)
+      Accept: text/html  -> 303 redirect to /disabled
+      anything else      -> 403 JSON ACCOUNT_DISABLED
+    """
+    if request.headers.get("HX-Request"):
+        raise HTTPException(
+            status_code=200,
+            headers={"HX-Redirect": "/disabled"},
+        )
+    if "text/html" in request.headers.get("Accept", ""):
+        raise HTTPException(
+            status_code=status.HTTP_303_SEE_OTHER,
+            headers={"Location": "/disabled"},
+        )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": {
+                "code": "ACCOUNT_DISABLED",
+                "message": "This account has been disabled.",
+                "details": {},
+            }
+        },
+    )
+
+
 def raise_not_signed_in() -> None:
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

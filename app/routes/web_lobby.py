@@ -614,3 +614,16 @@ async def legacy_play_upcoming_redirect(game: Annotated[str, Path()]):
     return RedirectResponse(
         url=f"/games/{game}/upcoming", status_code=status.HTTP_301_MOVED_PERMANENTLY
     )
+
+
+@router.get("/disabled", response_class=HTMLResponse)
+async def account_disabled(
+    request: Request,
+    db: DbSession,
+) -> HTMLResponse:
+    user = await get_current_user(request, db)
+    return templates.TemplateResponse(
+        request,
+        "disabled.html",
+        {"user": user, "is_admin": False},
+    )

@@ -54,8 +54,10 @@
                    marketing home can drop it — there the hero is already the CTA, and
                    a second copy in the nav (plus the adjacent "Sign in") just adds
                    noise. #}
-                {% block nav_cta %}{% if nav_cta %}<a href="{{ nav_cta.href }}" class="al-nav-cta">{{ nav_cta.label }}</a>{% endif %}{% endblock %}
-                {% if user %}
+                {% block nav_cta %}{% if nav_cta and not (user and user.disabled_at) %}<a href="{{ nav_cta.href }}" class="al-nav-cta">{{ nav_cta.label }}</a>{% endif %}{% endblock %}
+                {% if user and user.disabled_at %}
+                    <span class="mono" style="opacity:0.5;padding:0.4rem 0.8rem;">Account disabled</span>
+                {% elif user %}
                     {# Account lives behind one control so the bar stays calm —
                        a native <details> menu, no JS framework. On a phone this
                        is THE menu: the summary grows a ☰ half (the Airbnb-style

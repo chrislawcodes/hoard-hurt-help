@@ -52,8 +52,8 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
         # users.email is unique; another row could already hold this address
         # (e.g. an orphaned/duplicate row). google_sub is the real identity key,
         # so on collision keep the stored email and log rather than raise. Role
-        # is seeded from the live userinfo.email above, so it stays correct
-        # regardless of whether the stored email is refreshed.
+        # only changes for the platform-admin floor below, so an in-app role
+        # promotion is preserved unless the email itself is a floor admin.
         clash = (
             await db.execute(
                 select(User.id).where(
@@ -74,7 +74,8 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
         user.given_name = userinfo.given_name
     if user.family_name is None and userinfo.family_name is not None:
         user.family_name = userinfo.family_name
-    user.role = role
+    if userinfo.email.lower() in settings.platform_admin_emails_set:
+        user.role = UserRole.ADMIN
     return user
 
 
@@ -110,6 +111,10 @@ async def google_callback(request: Request, db: DbSession):
     await db.commit()
 
     set_session_user(request, user.id)
+
+    if user.disabled_at is not None:
+        request.session.pop("next_after_login", None)
+        return RedirectResponse(url="/disabled", status_code=status.HTTP_303_SEE_OTHER)
 
     next_url = request.session.pop("next_after_login", "/") or "/"
     if next_url == "/":

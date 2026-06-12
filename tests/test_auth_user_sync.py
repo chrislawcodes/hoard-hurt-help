@@ -54,7 +54,7 @@ async def test_creates_user_with_names(session) -> None:
 
 
 @pytest.mark.asyncio
-async def test_seeds_role_from_allowlist_and_demotes_on_next_login(
+async def test_seeds_role_from_allowlist_and_preserves_existing_admin_on_next_login(
     session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "platform_admin_emails", "admin@example.com")
@@ -66,7 +66,7 @@ async def test_seeds_role_from_allowlist_and_demotes_on_next_login(
     monkeypatch.setattr(settings, "platform_admin_emails", "")
     user = await sync_google_user(session, _info(email="admin@example.com"))
     await session.commit()
-    assert user.role == UserRole.USER
+    assert user.role == UserRole.ADMIN
 
 
 @pytest.mark.asyncio
