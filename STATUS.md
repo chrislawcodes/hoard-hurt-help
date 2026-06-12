@@ -15,6 +15,12 @@
 
 ## Recently Shipped
 
+- **Baseline bot tournament** (#320) — added the `coin_flip` bot personality
+  (random legal move, random table talk) as the control group, plus
+  `scripts/baseline_tournament.py` (headless batches of 25 matches, 10 bots per
+  table sampled with replacement from the 9 strategies, dedicated SQLite DB) and
+  `scripts/export_baseline_dataset.py` (one CSV row per player-turn). Unblocks:
+  generating the baseline dataset and training the win-probability model.
 - The standings rail now shows `by @handle` for human agents again, while bots keep their platform credit.
 - Bot names in standings and recent games now render without the internal match prefix; the UI uses the stable public bot name while keeping the per-match agent name unique behind the scenes.
 - Sim table-talk phrases now sound more like natural player messages, reference
