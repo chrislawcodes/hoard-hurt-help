@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Account Disabled — Agent Ludum{% endblock %}
+
+{% block content %}
+<div class="shell-inner" style="text-align:center;padding:4rem 1rem;">
+    <h1 style="margin-bottom:1rem;">Account Disabled</h1>
+    <p class="mono" style="margin-bottom:2rem;">
+        Your account has been disabled by a platform administrator.
+    </p>
+    <p>
+        If you believe this is an error, please contact support.
+    </p>
+    {% if user %}
+    <form method="post" action="/auth/logout" style="margin-top:2rem;">
+        <button type="submit" class="al-acct-signout">Sign out</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

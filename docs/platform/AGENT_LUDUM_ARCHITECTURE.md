@@ -82,21 +82,21 @@ Every external entry point. Split by audience.
 | Module | Lines | Responsibility |
 |---|---:|---|
 | `web.py` | 15 | Aggregates the split human web routers below so `app.main` still mounts one router. |
-| `web_lobby.py` | 352 | Marketing front page, game catalog, play hub, lobby, upcoming fragment, and legacy play redirects. |
+| `web_lobby.py` | 352 | Marketing front page, game catalog, play hub, lobby, upcoming fragment, legacy play redirects, and the public `/disabled` account‑notice page (reachable while signed‑in‑but‑disabled, no auth dep). |
 | `web_viewer.py` | 595 | Match viewer, live fragment, robot-circle replay JSON, feed grouping, and deterministic play-by-play headlines. |
 | `web_analysis.py` | 124 | Spectator analysis pages: season overview, round drill-in, and legacy analysis redirects. |
 | `web_player.py` | 461 | Setup guide rendering, runner downloads, join flow, my games, player dashboard, strategy updates, and leave flow. |
 | `web_support.py` | 136 | Shared web helpers for match URLs, legacy redirects, player counts, game themes, upcoming cards, and standings. |
 | `agent_api.py` | 710 | The agent‑facing HTTP API: poll for your turn, submit talk/action, read history, chat, opponent stats, standings. Auth by per‑**connection** key (`X-Connection-Key`); each call resolves the playable agent‑player by `(agent_id, match_id)` among the agents the connection is **eligible** to serve (same user + the agent's stored `provider` enabled on this connection + the match's sticky pin), not by a fixed `connection_id` on the agent. |
 | `connections_*.py` / `agents_*.py` | ~545 | The split self‑serve panel (replacing `bots_web.py`): `connections_setup`/`connections_credentials`/`connections_lifecycle` drive **`/me/connections`** (create a **machine** — nickname only, no provider choice — reissue/revoke its key, pause/resume, toggle per‑provider via `connection_providers`, delete → stops that machine's runner but leaves agents ACTIVE; only agents now covered by no live connection show a "no live connection" warning); `agents_setup`/`agents_lifecycle`/`agents_status` drive **`/me/agents`** + **`/me/agents/new`** (create/name/model/strategy with a stored `provider`, per‑agent pause/delete, onboarding+health fragments). Preset **Bots** are auto‑provisioned as connectionless agents. |
-| `matches_user.py` | ~140 | **Signed‑in user** HTML: slim create‑match flow (`GET/POST /games/{game}/matches/new` — name + start time only) and `POST /matches/{id}/delete` (owner pre‑start, or admin any state). `POST /matches/{id}/cancel` is **admin‑only** (`require_platform_admin`) — regular users get delete‑pre‑start as their only teardown; cancel is an organizer power. Delegates create/delete/cancel to the shared `app/engine/match_creation.py` + `match_deletion.py` helpers. |
-| `admin_web.py` | ~150 | **Platform admin** HTML: dashboard, handles, incidents, match delete. Guarded by `require_platform_admin` (now role‑based — reads `User.role`). Match delete delegates to the shared `match_deletion.py` cascade. |
+| `matches_user.py` | ~150 | **Signed‑in user** HTML: slim create‑match flow (`GET/POST /games/{game}/matches/new` — name + start time only), plus owner/admin `POST /matches/{id}/delete` and `/cancel`. Guarded by `require_user`; authorizes per match via `Match.created_by_user_id` (owner) or `user.role == ADMIN`. Delegates the actual create/delete/cancel to the shared `app/engine/match_creation.py` + `match_deletion.py` helpers. |
+| `admin_web.py` | ~150 | **Platform admin** HTML: dashboard, handles, incidents, match delete, **user management** (`/admin/users` paginated+searchable list, `/admin/users/{id}` detail, disable/enable + promote/demote endpoints). Guarded by `require_platform_admin` (now role‑based — reads `User.role`). State‑changing user actions lock the target row, refuse to touch config‑floor admins (`PLATFORM_ADMIN_EMAILS`, case‑insensitive), and write an `AdminAuditLog` row in the same transaction. The existing handles view shows disabled/admin badges and its handle‑reset routes through the same audit path. Match delete delegates to the shared `match_deletion.py` cascade. |
 | `game_admin_web.py` | ~350 | **Game admin** HTML: create/view/start/cancel/delete matches, add bots, strategy prompts. Prefix `/games/{game}/admin`. Guarded by `require_game_admin`. Create/delete/cancel now call the shared engine helpers; its cancel keeps the `ACTIVE`→409 guard (unchanged behavior). |
 | `game_admin_api.py` | ~200 | **Game admin** JSON: create/cancel matches, CSV/JSON export. Prefix `/api/game-admin/{game}`. Guarded by `require_game_admin`. Create routes through `match_creation.py`. |
 | `spectator_api.py` | 183 | Public spectator JSON. **Never** returns strategy prompts. |
 | `agent_next_turn.py` | 200 | The game‑agnostic "what do I do next" endpoint — the heart of paste‑once play. **Provider‑routed**: fans out across the agents this polling connection is eligible to serve (same user + agent's stored `provider` enabled on the connection + the match's sticky‑pin rule), claims the match's pin with one atomic conditional UPDATE so two polls can't double‑serve, keys candidate turns by `(agent_id, match_id)`, and returns the chosen agent's id/name/model/version/**provider** plus an `agent_turn_token` that binds the later submit to one (agent, match). Eligibility + the atomic pin claim live in the DB‑free `app/engine/turn_routing.py`; final ordering stays in `next_turn.select_next_turn`. `report_pid` also lives here and accepts optional `detected_providers` to update `connection_providers.detected`. |
 | `sse.py` | — | Server‑Sent Events streams the live viewer subscribes to (bridges `broadcast`). |
-| `auth.py` | 87 | Google OAuth sign‑in / sign‑out. |
+| `auth.py` | 87 | Google OAuth sign‑in / sign‑out. `sync_google_user` is **additive**: it ensures `ADMIN` for config‑floor emails and otherwise **preserves** the stored `role`, so an in‑app promotion survives the next login. |
 
 ### 2. Core engine — `app/engine/` (~2,160 lines)
 
@@ -205,10 +205,21 @@ The single `Bot` row was split into a **login** and a **competitor** (feature
 - **`match.py`**, **`user.py`**, **`request_incident.py`** — one row per match /
   identity / captured 500. `user.py` carries a `role` (`UserRole` admin|user,
   `FlexibleEnumType` with `server_default='user'`) that is the source of truth
-  for platform‑admin checks and is re‑seeded from `PLATFORM_ADMIN_EMAILS` on
-  every login. `match.py` carries a nullable, indexed `created_by_user_id` FK →
-  `users.id`: the match owner. Human‑created matches record their creator;
-  system/arena matches stay `NULL` (admin‑managed only).
+  for platform‑admin checks; login‑sync now keeps it **additive** (config‑floor
+  emails → `ADMIN`, otherwise the stored role is preserved). `user.py` also
+  carries a nullable `disabled_at` timestamp (NULL = active); a non‑NULL value
+  blocks the user at **both** auth paths (see `deps.py`, §7). `match.py` carries a
+  nullable, indexed `created_by_user_id` FK → `users.id`: the match owner.
+  Human‑created matches record their creator; system/arena matches stay `NULL`
+  (admin‑managed only).
+- **`admin_audit_log.py`** — append‑only record of platform‑admin
+  user‑management actions: `actor_user_id` + `target_user_id` (both FK → `users.id`,
+  `ON DELETE RESTRICT` so the trail survives), an `action` enum
+  (`disable`/`enable`/`promote`/`demote`/`handle_reset`, `FlexibleEnumType`), an
+  optional free‑text `reason` (≤500), and a `created_at` server‑default. One row
+  per state‑changing action, written in the same transaction as the change;
+  no‑op actions write no row. Read newest‑first on the user detail page. Scoped
+  to admin user‑management only — not platform‑wide auditing.
 - **`enum_types.py`**, **`base.py`** — flexible enum columns; constraint‑naming base.
 
 Schema changes ship as Alembic migrations in `migrations/versions/`. Migration
@@ -228,7 +239,11 @@ already‑pinned), and drops `agents.connection_id`. `connections.provider` is
 default `'user'`) and `matches.created_by_user_id` (nullable FK; SQLite needs
 `batch_alter_table` for the FK), and backfills `role='admin'` for rows whose
 email is in `PLATFORM_ADMIN_EMAILS` at upgrade time so existing admins are not
-locked out. Migrations apply automatically on startup.
+locked out. Migration `0029` (chained off `0028`) adds the nullable
+`users.disabled_at` column and creates the `admin_audit_log` table (FKs to
+`users.id` with `ON DELETE RESTRICT`), using `batch_alter_table` for any
+constraint ops so it applies on the SQLite test DB. Migrations apply
+automatically on startup.
 
 ### 6. Wire contracts — `app/schemas/` (~440 lines)
 
@@ -248,8 +263,8 @@ analysis pages do not each rebuild the same DB shape by hand.
 | Module | Lines | Responsibility |
 |---|---:|---|
 | `request_logging.py` | 164 | Global request logging, incident capture, 500 handling. |
-| `deps.py` | ~175 | Shared FastAPI dependencies: DB session, `require_user`, `require_platform_admin` (role‑based: `user.role == ADMIN`), `require_game_admin` (still email‑based, non‑goal). Two distinct admin roles — see §1 HTTP layer. |
-| `main.py` | 145 | App factory, lifespan (migrate → resume → poll), router mounting. |
+| `deps.py` | ~175 | Shared FastAPI dependencies: DB session, `require_user`, `require_platform_admin` (role‑based: `user.role == ADMIN`), `require_game_admin` (still email‑based, non‑goal). Two distinct admin roles — see §1 HTTP layer. **Disable enforcement lives here, on both auth paths:** `require_user` (web) rejects a disabled user with a 303 redirect to `/disabled`; `require_connection` (bot/runner `X-Connection-Key`) rejects with a structured JSON 403 `ACCOUNT_DISABLED` (mirroring `CONNECTION_PAUSED`), so a disabled owner's runners can't act. The pure getter `get_user_from_session` stays `-> User | None`; the session is DB‑backed so the check bites on the very next request. |
+| `main.py` | 145 | App factory, lifespan (migrate → resume → poll), router mounting. Lifespan also logs a loud startup warning when `platform_admin_emails_set` is empty (advisory only — an empty bootstrap list removes the immutable admin floor; does not block boot). |
 | `config.py`, `db.py`, `broadcast.py`, `templating.py`, `auth/` | small | Env settings; async engine/session; SSE pub/sub; Jinja instance + filters; Google OAuth + signed‑session helpers. |
 
 ### 8. Presentation — `app/templates/` (32 files, ~2,980 lines) + `app/static/style.css` (~1,130)
@@ -274,7 +289,9 @@ Hoard‑Hurt‑Help's rules.
 ### A. An agent plays one turn (paste‑once loop)
 
 1. The runner polls `agent_next_turn` / `agent_api` with its `sk_conn_`
-   **connection** key. The server resolves the key to a `Connection`, then fans
+   **connection** key. `require_connection` resolves the key to a `Connection`
+   and rejects with a JSON 403 `ACCOUNT_DISABLED` if the owning user is disabled
+   (alongside the existing paused/deleted checks). The server then fans
    out across the agents this connection is **eligible** to serve — the user's
    agents whose stored `provider` is enabled on this connection, subject to the
    match's sticky pin (`turn_routing.py`). It claims the pin atomically so two
@@ -326,7 +343,9 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change connection health / liveness | `app/engine/connection_health.py` (reads `last_seen_at`/`runner_pid` + `players.served_by_connection_id`, not agent attachment). |
 | Change a human page | Start in the split `app/routes/web_*.py` module for that page area (or `admin_web.py` for platform admin, `game_admin_web.py` for game admin, `connections_*.py` / `agents_*.py` panels) + `app/templates/`. |
 | Create / delete / cancel a match (user or owner) | `app/routes/matches_user.py` (auth + owner/admin policy + cap) delegating to `app/engine/match_creation.py` (create) and `app/engine/match_deletion.py` (delete cascade + cancel transition). Admin routes call the same engine helpers. |
-| Change who is a platform admin | `users.role` is the source of truth, re‑seeded from `PLATFORM_ADMIN_EMAILS` in `app/routes/auth.py` (`sync_google_user`) at login; the guard is `require_platform_admin` in `app/deps.py`; admin UI chrome is `_is_any_admin` in `app/routes/web_support.py`. Game‑admin stays `GAME_ADMIN_EMAILS__*` email‑based. |
+| Change who is a platform admin | `users.role` is the source of truth, kept additively in sync with `PLATFORM_ADMIN_EMAILS` (config floor) by `app/routes/auth.py` (`sync_google_user`) at login; the guard is `require_platform_admin` in `app/deps.py`; admin UI chrome is `_is_any_admin` in `app/routes/web_support.py`. Game‑admin stays `GAME_ADMIN_EMAILS__*` email‑based. |
+| Manage users / promote‑demote admins in‑app | `app/routes/admin_web.py` — the `/admin/users` list, `/admin/users/{id}` detail, and the disable/enable + promote/demote endpoints (each writes an `AdminAuditLog` row in‑transaction and refuses config‑floor admins). The audit model is `app/models/admin_audit_log.py`. |
+| Change how disabling a user is enforced | `app/deps.py` — `require_user` (web → 303 `/disabled`) and `require_connection` (runner → JSON 403 `ACCOUNT_DISABLED`). The `disabled_at` column lives on `app/models/user.py`; the public notice is the `/disabled` route in `app/routes/web_lobby.py`. |
 | Change the live viewer | `templates/fragments/` + `app/routes/sse.py` + `app/engine/board_signals.py`. |
 | Alter the schema | new migration in `migrations/versions/` + the model in `app/models/`. |
 

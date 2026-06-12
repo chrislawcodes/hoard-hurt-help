@@ -85,7 +85,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0028",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0029",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -354,6 +354,62 @@ def test_0028_adds_user_roles_and_match_owner_column(
             "INSERT INTO users(id,google_sub,email) VALUES (3,'sub-fresh','fresh@example.com')"
         )
         assert conn.execute("SELECT role FROM users WHERE id=3").fetchone()[0] == "user"
+    finally:
+        conn.close()
+
+
+# --- feature: admin user management (migration 0029) -------------------------
+
+
+_SEED_0028 = """
+INSERT INTO users(id,google_sub,email,role) VALUES
+  (1,'sub-admin','admin@example.com','admin'),
+  (2,'sub-user','user@example.com','user');
+"""
+
+
+def _seed_0028_schema(db_path: Path) -> None:
+    up = _run_alembic(["upgrade", "0028"], db_path)
+    assert up.returncode == 0, f"upgrade 0028 failed:\n{up.stdout}\n{up.stderr}"
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.executescript(_SEED_0028)
+    conn.close()
+
+
+def test_0029_adds_admin_audit_log_and_disabled_at(tmp_path: Path) -> None:
+    """0029 adds disabled_at to users and creates the admin_audit_log table."""
+    db_path = tmp_path / "admin_user_management.db"
+    _seed_0028_schema(db_path)
+
+    up = _run_alembic(["upgrade", "0029"], db_path)
+    assert up.returncode == 0, f"upgrade 0029 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0029",)]
+
+        user_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+        assert "disabled_at" in user_cols
+
+        audit_cols = {row[1] for row in conn.execute("PRAGMA table_info(admin_audit_log)")}
+        assert {
+            "actor_user_id",
+            "target_user_id",
+            "action",
+            "reason",
+            "created_at",
+        } <= audit_cols
+
+        index_names = {row[1] for row in conn.execute("PRAGMA index_list(admin_audit_log)")}
+        assert "ix_admin_audit_log_actor_user_id" in index_names
+        assert "ix_admin_audit_log_target_user_id" in index_names
+
+        fk_rows = conn.execute("PRAGMA foreign_key_list(admin_audit_log)").fetchall()
+        assert sorted((row[3], row[6]) for row in fk_rows) == [
+            ("actor_user_id", "RESTRICT"),
+            ("target_user_id", "RESTRICT"),
+        ]
     finally:
         conn.close()
 
@@ -649,3 +705,69 @@ def test_check_oauth_config_skips_under_pytest(monkeypatch) -> None:
 
     # Must not raise even though we're on Railway with missing credentials.
     app_main._check_oauth_config()
+
+
+# --- Platform-admin startup warning (_check_platform_admin_config) ---
+
+
+def test_check_platform_admin_warns_when_empty(monkeypatch) -> None:
+    """When platform_admin_emails_set is empty, a WARNING must be logged."""
+    import app.main as app_main
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    # Patch underlying string fields so the computed property returns an empty set
+    monkeypatch.setattr(app_main.settings, "platform_admin_emails", "")
+    monkeypatch.setattr(app_main.settings, "admin_emails", "")
+
+    warning_messages: list[str] = []
+    monkeypatch.setattr(
+        app_main.logger,
+        "warning",
+        lambda msg, *a, **k: warning_messages.append(msg % a if a else msg),
+    )
+
+    app_main._check_platform_admin_config()
+
+    assert any("PLATFORM_ADMIN_EMAILS" in m for m in warning_messages), (
+        f"Expected a warning mentioning PLATFORM_ADMIN_EMAILS; got: {warning_messages}"
+    )
+
+
+def test_check_platform_admin_silent_when_configured(monkeypatch) -> None:
+    """When platform_admin_emails_set is non-empty, no warning is logged."""
+    import app.main as app_main
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(app_main.settings, "platform_admin_emails", "admin@example.com")
+    monkeypatch.setattr(app_main.settings, "admin_emails", "")
+
+    warning_messages: list[str] = []
+    monkeypatch.setattr(
+        app_main.logger,
+        "warning",
+        lambda msg, *a, **k: warning_messages.append(msg % a if a else msg),
+    )
+
+    app_main._check_platform_admin_config()
+
+    assert not warning_messages, f"Unexpected warnings: {warning_messages}"
+
+
+def test_check_platform_admin_skips_under_pytest(monkeypatch) -> None:
+    """PYTEST_CURRENT_TEST suppresses the check — no warning even with empty set."""
+    import app.main as app_main
+
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "this_test")
+    monkeypatch.setattr(app_main.settings, "platform_admin_emails", "")
+    monkeypatch.setattr(app_main.settings, "admin_emails", "")
+
+    warning_messages: list[str] = []
+    monkeypatch.setattr(
+        app_main.logger,
+        "warning",
+        lambda msg, *a, **k: warning_messages.append(msg % a if a else msg),
+    )
+
+    app_main._check_platform_admin_config()
+
+    assert not warning_messages

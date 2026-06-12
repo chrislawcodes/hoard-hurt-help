@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 from app.models.enum_types import FlexibleEnumType
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class ConnectionProvider(str, enum.Enum):
@@ -88,3 +92,4 @@ class Connection(Base):
         server_default=func.now(),
         nullable=False,
     )
+    user: Mapped["User"] = relationship("User", lazy="raise")

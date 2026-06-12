@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}{{ target.email }} — Admin{% endblock %}
+{% block content %}
+<a class="backlink" href="/admin/users">← Users</a>
+<div class="page-head">
+    <h1>{{ target.email }}</h1>
+    <p class="sub">
+        {% if target.handle %}<span class="mono">@{{ target.handle }}</span> · {% endif %}
+        Joined {{ target.created_at | localdt }}
+        {% if target.role.value == 'admin' %} · <span class="badge badge-ok">admin</span>{% endif %}
+        {% if target.disabled_at %} · <span class="badge badge-alert">disabled since {{ target.disabled_at | localdt }}</span>{% endif %}
+        {% if floor_admin %} · <span class="badge badge-soon">floor admin</span>{% endif %}
+    </p>
+</div>
+
+<div class="toolbar" style="margin-bottom:1.5rem;">
+    {% if not floor_admin %}
+        {% if target.disabled_at %}
+        <form method="post" action="/admin/users/{{ target.id }}/enable">
+            <button type="submit" class="btn btn-primary">Enable account</button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/users/{{ target.id }}/disable" onsubmit="return confirm('Disable this account?')">
+            <button type="submit" class="danger">Disable account</button>
+        </form>
+        {% endif %}
+        {% if target.role.value == 'admin' %}
+        <form method="post" action="/admin/users/{{ target.id }}/demote" onsubmit="return confirm('Demote this user to regular user?')">
+            <button type="submit" class="secondary">Demote to user</button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/users/{{ target.id }}/promote">
+            <button type="submit" class="btn btn-ghost">Promote to admin</button>
+        </form>
+        {% endif %}
+        {% if target.handle %}
+        <form method="post" action="/admin/users/{{ target.id }}/handle/reset" onsubmit="return confirm('Reset this handle?')">
+            <button type="submit" class="secondary">Reset handle</button>
+        </form>
+        {% endif %}
+    {% else %}
+    <p class="mono" style="opacity:0.5;font-size:0.9rem;">Floor admin — actions disabled.</p>
+    {% endif %}
+</div>
+
+<div class="section-head"><h2>Connections</h2><span class="count">{{ connections | length }}</span></div>
+{% if connections %}
+<table>
+    <tr><th>Provider</th><th>Status</th><th>Last seen</th></tr>
+    {% for c in connections %}
+    <tr>
+        <td class="mono">{{ c.provider.value if c.provider else '—' }}</td>
+        <td>{{ c.status.value }}</td>
+        <td>{{ c.last_seen_at | localdt }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}<p class="empty">No connections.</p>{% endif %}
+
+<div class="section-head"><h2>Agents</h2><span class="count">{{ agents | length }}</span></div>
+{% if agents %}
+<table>
+    <tr><th>Name</th><th>Status</th></tr>
+    {% for a in agents %}
+    <tr>
+        <td>{{ a.name or '—' }}</td>
+        <td>{{ a.status.value }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}<p class="empty">No agents.</p>{% endif %}
+
+<div class="section-head"><h2>Recent matches</h2><span class="count">{{ recent_matches | length }}</span></div>
+{% if recent_matches %}
+<table>
+    <tr><th>Match</th><th>State</th><th>Scheduled</th></tr>
+    {% for m in recent_matches %}
+    <tr>
+        <td><a href="/games/{{ m.game }}/admin/matches/{{ m.id }}">{{ m.name }}</a></td>
+        <td>{{ m.state.value }}</td>
+        <td>{{ m.scheduled_start | localdt }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}<p class="empty">No matches.</p>{% endif %}
+
+<div class="section-head"><h2>Audit log</h2><span class="count">{{ audit_entries | length }}</span></div>
+{% if audit_entries %}
+<table>
+    <tr><th>When</th><th>Action</th><th>By</th><th>Reason</th></tr>
+    {% for entry in audit_entries %}
+    <tr>
+        <td>{{ entry.log.created_at | localdt }}</td>
+        <td class="mono">{{ entry.log.action.value }}</td>
+        <td class="mono">{{ entry.actor.email }}</td>
+        <td>{{ entry.log.reason or '—' }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}<p class="empty">No audit history.</p>{% endif %}
+
+{% endblock %}
