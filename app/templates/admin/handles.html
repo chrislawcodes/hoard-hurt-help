@@ -12,13 +12,17 @@
         <th>Handle</th>
         <th>Email</th>
         <th>Last changed</th>
+        <th>Role</th>
+        <th>Status</th>
         <th></th>
     </tr>
     {% for u in users %}
     <tr>
         <td class="mono">@{{ u.handle }}</td>
-        <td class="mono">{{ u.email }}</td>
+        <td class="mono"><a href="/admin/users/{{ u.id }}">{{ u.email }}</a></td>
         <td>{{ u.handle_changed_at | localdt }}</td>
+        <td>{% if u.role.value == 'admin' %}<span class="badge badge-ok">admin</span>{% else %}<span style="opacity:0.4">user</span>{% endif %}</td>
+        <td>{% if u.disabled_at %}<span class="badge badge-alert">disabled</span>{% else %}<span style="opacity:0.4">active</span>{% endif %}</td>
         <td>
             <form method="post" action="/admin/users/{{ u.id }}/handle/reset">
                 <button type="submit">Reset</button>
@@ -26,7 +30,7 @@
         </td>
     </tr>
     {% else %}
-    <tr><td colspan="4">No handles set yet.</td></tr>
+    <tr><td colspan="6">No handles set yet.</td></tr>
     {% endfor %}
 </table>
 {% endblock %}
