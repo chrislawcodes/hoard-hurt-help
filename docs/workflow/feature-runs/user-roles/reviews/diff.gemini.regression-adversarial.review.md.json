@@ -1,20 +1,20 @@
 {
-  "session_id": "8daec952-de6d-420b-96e1-12abb6d5395b",
-  "response": "## Findings\n\n1.  **[UNVERIFIED] Database Atomicity and Integrity Risk (High):** The `delete_match` function in `app/engine/match_deletion.py` executes multiple `await db.execute(...)` calls sequentially across many tables. Because these are individual statements without an explicit transaction block (e.g., `async with db.begin():`), any exception occurring mid-execution will leave the database in a partially deleted, inconsistent state. This breaks referential integrity and could lead to \"dangling\" records (e.g., orphans in `TurnSubmission` if `Player` deletion fails).\n\n2.  **[UNVERIFIED] Race Condition in Scheduler Teardown (Medium):** In `delete_match`, `registry.stop(match_id)` is called before executing any deletions. If a running match scheduler task is still processing in an event loop iteration, it could potentially initiate further database writes *after* `registry.stop()` has returned but *before* the deletion of `Match` is finalized. While the code attempts a \"second pass\" to catch late writes, this relies on a non-deterministic timing window rather than a robust guard against concurrent modification during destruction.\n\n3.  **[UNVERIFIED] Silently Dropped Records (Low):** `delete_match` performs wide `DELETE` operations based on `match_id` or `player_id`. If `registry.stop()` fails to stop a task or if an external process creates new related records during the deletion sequence, these records are silently orphaned or ignored. The function returns `None` (success) regardless of whether the expected rows were actually deleted, offering no audit trail or verification that the teardown was successful.\n\n## Residual Risks\n\n*   **Partial Cleanup Failures:** Since there is no atomicity, manual intervention via a database console will likely be required to fix corrupted state if the deletion process is interrupted.\n*   **Inconsistent Views:** Admin web/API interfaces may temporarily display broken links or invalid game states if they perform lookups while the multi-step `delete_match` process is mid-execution, as the state is not isolated from concurrent readers.",
+  "session_id": "720550ee-d748-4c41-b725-5caffcc8d1fc",
+  "response": "## Findings\n\n1.  **Severity: HIGH. Potential Race Condition/Inconsistent State in `create_match_submit`.**\n    The check for `active_count` (match limits) is performed *after* the `scheduled_start` date validation but *before* the call to `create_match`. Because this is not an atomic operation (the check and the create are separate DB calls), a user could bypass `settings.user_active_match_limit` by submitting multiple requests in rapid succession, resulting in a number of active matches exceeding the intended threshold.\n\n2.  **Severity: MEDIUM. [UNVERIFIED] Potential SQL Injection/Type Manipulation.**\n    The `scheduled_start` field is passed via `Form()` as a string and converted using `datetime.fromisoformat(scheduled_start.replace(\"Z\", \"+00:00\"))`. While basic validation is present, relying on client-side input for date parsing without explicit schema validation (e.g., Pydantic) is fragile. If the underlying `app.engine.match_creation.create_match` does not strictly enforce type safety on the `scheduled_start` argument, there is a risk of malformed data persistence.\n\n3.  **Severity: LOW. Inconsistent State Handling in `cancel_match_submit`.**\n    The code explicitly rejects already-ended matches (COMPLETED/CANCELLED) with `HTTP 409 Conflict`, but relies on `await cancel_match(db, match)` to perform the action. If `cancel_match` implementation is not idempotent or does not perform its own state check, and another concurrent request modifies the match state between the `_load_match_or_404` check and the `cancel_match` call, the system could enter an undefined state.\n\n## Residual Risks\n\n*   **Reliance on Implicit Dependencies:** The code relies on `app.routes.web_support` and `app.engine` modules. Failure modes within these imported utilities are not handled locally (e.g., if `create_match` raises an exception during a database commit), potentially leading to unhandled 500 errors.\n*   **HTML/JS Coupling:** The `create_match` form relies on client-side JavaScript to convert the local time to ISO format before submission. If a user bypasses the browser or runs a client that does not execute JS, the form could submit invalid data formats to the server. The server code should implement stricter validation on the raw form input beyond the current `try/except` block.",
   "stats": {
     "models": {
       "gemini-3.1-flash-lite": {
         "api": {
           "totalRequests": 1,
           "totalErrors": 0,
-          "totalLatencyMs": 3255
+          "totalLatencyMs": 3397
         },
         "tokens": {
-          "input": 1088,
-          "prompt": 14698,
-          "candidates": 453,
-          "total": 15151,
-          "cached": 13610,
+          "input": 18529,
+          "prompt": 18529,
+          "candidates": 538,
+          "total": 19067,
+          "cached": 0,
           "thoughts": 0,
           "tool": 0
         },
@@ -22,13 +22,13 @@
           "main": {
             "totalRequests": 1,
             "totalErrors": 0,
-            "totalLatencyMs": 3255,
+            "totalLatencyMs": 3397,
             "tokens": {
-              "input": 1088,
-              "prompt": 14698,
-              "candidates": 453,
-              "total": 15151,
-              "cached": 13610,
+              "input": 18529,
+              "prompt": 18529,
+              "candidates": 538,
+              "total": 19067,
+              "cached": 0,
               "thoughts": 0,
               "tool": 0
             }
