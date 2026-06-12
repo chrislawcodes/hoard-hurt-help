@@ -296,3 +296,86 @@ async def test_admin_can_delete_any_match(client, reset_db):
 
     async with reset_db() as db:
         assert await db.get(Match, "M_ADMIN") is None
+
+
+async def _seed_match(reset_db, *, match_id, owner_id, state):
+    future = datetime.now(timezone.utc) + timedelta(hours=1)
+    async with reset_db() as db:
+        db.add(
+            Match(
+                id=match_id,
+                name=match_id,
+                game="hoard-hurt-help",
+                state=state,
+                scheduled_start=future,
+                per_turn_deadline_seconds=60,
+                created_by_user_id=owner_id,
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_owner_cancel_pre_start_succeeds(client, reset_db):
+    user = await _seed_user(reset_db, i=20)
+    await _seed_match(reset_db, match_id="M_C1", owner_id=user.id, state=GameState.REGISTERING)
+
+    r = await client.post(
+        "/matches/M_C1/cancel", cookies=_cookies(user.id), follow_redirects=False
+    )
+    assert r.status_code == 303
+    async with reset_db() as db:
+        assert (await db.get(Match, "M_C1")).state == GameState.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_owner_cancel_active_match_succeeds(client, reset_db):
+    # Unlike delete, cancel is allowed on a running (ACTIVE) match.
+    user = await _seed_user(reset_db, i=21)
+    await _seed_match(reset_db, match_id="M_C2", owner_id=user.id, state=GameState.ACTIVE)
+
+    r = await client.post(
+        "/matches/M_C2/cancel", cookies=_cookies(user.id), follow_redirects=False
+    )
+    assert r.status_code == 303
+    async with reset_db() as db:
+        assert (await db.get(Match, "M_C2")).state == GameState.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_non_owner_cancel_is_rejected(client, reset_db):
+    owner = await _seed_user(reset_db, i=22)
+    other = await _seed_user(reset_db, i=23)
+    await _seed_match(reset_db, match_id="M_C3", owner_id=owner.id, state=GameState.REGISTERING)
+
+    r = await client.post(
+        "/matches/M_C3/cancel", cookies=_cookies(other.id), follow_redirects=False
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"]["error"]["code"] == "NOT_MATCH_OWNER"
+
+
+@pytest.mark.asyncio
+async def test_cancel_already_ended_match_is_rejected(client, reset_db):
+    user = await _seed_user(reset_db, i=24)
+    await _seed_match(reset_db, match_id="M_C4", owner_id=user.id, state=GameState.COMPLETED)
+
+    r = await client.post(
+        "/matches/M_C4/cancel", cookies=_cookies(user.id), follow_redirects=False
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"]["code"] == "MATCH_ALREADY_ENDED"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_cancel_active_match(client, reset_db):
+    owner = await _seed_user(reset_db, i=25)
+    admin = await _seed_user(reset_db, i=26, role=UserRole.ADMIN)
+    await _seed_match(reset_db, match_id="M_C5", owner_id=owner.id, state=GameState.ACTIVE)
+
+    r = await client.post(
+        "/matches/M_C5/cancel", cookies=_cookies(admin.id), follow_redirects=False
+    )
+    assert r.status_code == 303
+    async with reset_db() as db:
+        assert (await db.get(Match, "M_C5")).state == GameState.CANCELLED

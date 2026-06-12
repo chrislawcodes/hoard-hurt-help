@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from app.config import settings
 from app.deps import DbSession, require_user
 from app.engine.match_creation import create_match
-from app.engine.match_deletion import delete_match
+from app.engine.match_deletion import cancel_match, delete_match
 from app.games import GameError, get as get_game_module
 from app.models.match import GameState, Match
 from app.models.user import User, UserRole
@@ -91,7 +91,7 @@ async def create_match_submit(
     name: Annotated[str, Form()],
     scheduled_start: Annotated[str, Form()],
 ):
-    module = _load_game_module_or_404(game)
+    _load_game_module_or_404(game)  # 404 on unknown game before doing work
     try:
         when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
     except ValueError:
@@ -188,4 +188,40 @@ async def delete_match_submit(
             },
         )
     await delete_match(db, match.id)
+    return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/matches/{match_id}/cancel")
+async def cancel_match_submit(
+    match_id: Annotated[str, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+):
+    match = await _load_match_or_404(db, match_id)
+    # Admins may cancel any match; owners may cancel their own.
+    if user.role != UserRole.ADMIN and match.created_by_user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "NOT_MATCH_OWNER",
+                    "message": "You can only cancel matches you created.",
+                    "details": {},
+                }
+            },
+        )
+    # Cancel preserves data, so it is allowed from any non-terminal state
+    # (including ACTIVE); only already-ended matches are rejected.
+    if match.state in (GameState.COMPLETED, GameState.CANCELLED):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": {
+                    "code": "MATCH_ALREADY_ENDED",
+                    "message": "Match already ended.",
+                    "details": {},
+                }
+            },
+        )
+    await cancel_match(db, match)
     return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)
