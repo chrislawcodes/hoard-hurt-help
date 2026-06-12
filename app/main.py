@@ -105,6 +105,21 @@ def _check_oauth_config() -> None:
     )
 
 
+def _check_platform_admin_config() -> None:
+    """Warn at startup if no platform admins are configured.
+
+    Advisory only — the app still starts. Without a floor admin no one can
+    reach /admin, so operators should notice quickly. Tests are skipped.
+    """
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return
+    if not settings.platform_admin_emails_set:
+        logger.warning(
+            "No platform admins configured — set PLATFORM_ADMIN_EMAILS "
+            "to grant admin access. Without it /admin is unreachable."
+        )
+
+
 def _alembic_config() -> Config:
     cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     return cfg
@@ -143,6 +158,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         _check_oauth_config()
+        _check_platform_admin_config()
         await _upgrade_database()
         await scheduler_registry.resume_active_games_on_startup()
         scheduler_registry.start_poller()  # auto-start games when their time comes

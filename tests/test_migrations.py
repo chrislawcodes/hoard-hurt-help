@@ -705,3 +705,69 @@ def test_check_oauth_config_skips_under_pytest(monkeypatch) -> None:
 
     # Must not raise even though we're on Railway with missing credentials.
     app_main._check_oauth_config()
+
+
+# --- Platform-admin startup warning (_check_platform_admin_config) ---
+
+
+def test_check_platform_admin_warns_when_empty(monkeypatch) -> None:
+    """When platform_admin_emails_set is empty, a WARNING must be logged."""
+    import app.main as app_main
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    # Patch underlying string fields so the computed property returns an empty set
+    monkeypatch.setattr(app_main.settings, "platform_admin_emails", "")
+    monkeypatch.setattr(app_main.settings, "admin_emails", "")
+
+    warning_messages: list[str] = []
+    monkeypatch.setattr(
+        app_main.logger,
+        "warning",
+        lambda msg, *a, **k: warning_messages.append(msg % a if a else msg),
+    )
+
+    app_main._check_platform_admin_config()
+
+    assert any("PLATFORM_ADMIN_EMAILS" in m for m in warning_messages), (
+        f"Expected a warning mentioning PLATFORM_ADMIN_EMAILS; got: {warning_messages}"
+    )
+
+
+def test_check_platform_admin_silent_when_configured(monkeypatch) -> None:
+    """When platform_admin_emails_set is non-empty, no warning is logged."""
+    import app.main as app_main
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(app_main.settings, "platform_admin_emails", "admin@example.com")
+    monkeypatch.setattr(app_main.settings, "admin_emails", "")
+
+    warning_messages: list[str] = []
+    monkeypatch.setattr(
+        app_main.logger,
+        "warning",
+        lambda msg, *a, **k: warning_messages.append(msg % a if a else msg),
+    )
+
+    app_main._check_platform_admin_config()
+
+    assert not warning_messages, f"Unexpected warnings: {warning_messages}"
+
+
+def test_check_platform_admin_skips_under_pytest(monkeypatch) -> None:
+    """PYTEST_CURRENT_TEST suppresses the check — no warning even with empty set."""
+    import app.main as app_main
+
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "this_test")
+    monkeypatch.setattr(app_main.settings, "platform_admin_emails", "")
+    monkeypatch.setattr(app_main.settings, "admin_emails", "")
+
+    warning_messages: list[str] = []
+    monkeypatch.setattr(
+        app_main.logger,
+        "warning",
+        lambda msg, *a, **k: warning_messages.append(msg % a if a else msg),
+    )
+
+    app_main._check_platform_admin_config()
+
+    assert not warning_messages
