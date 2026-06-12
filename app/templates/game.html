@@ -2,14 +2,17 @@
 {% block title %}{{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
 {% if viewer_player_id %}
+{% include "fragments/coach_panel.html" %}
+{% if not (game.state.value == 'active' and coaching_enabled) %}
 <p class="hint" style="margin-bottom:0.5rem;">
     You're playing as <strong>{{ viewer_agent_name }}</strong> —
     {% if game.state.value == 'active' %}
-    <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">View strategy →</a> (opens new tab)
+    <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">View strategy →</a>
     {% else %}
-    <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">Edit strategy →</a> (opens new tab)
+    <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">Edit strategy →</a>
     {% endif %}
 </p>
+{% endif %}
 {% endif %}
 <div class="page-head page-head-row">
     <h1>{{ game.name }}</h1>

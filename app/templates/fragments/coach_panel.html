@@ -1,0 +1,62 @@
+{% if viewer_player_id and game.state.value == 'active' and coaching_enabled %}
+{# Coach panel — HTMX swaps this div in place on every POST.
+   The form targets itself (#coach-panel) with hx-swap="outerHTML" so the
+   whole panel is replaced with the server-rendered state after each save. #}
+<div id="coach-panel" class="coach-panel">
+    <div class="coach-panel-head">
+        <h3>Coach {{ viewer_agent_name }}</h3>
+    </div>
+
+    <form
+        hx-post="/games/{{ game.game }}/matches/{{ game.id }}/coach-note"
+        hx-target="#coach-panel"
+        hx-swap="outerHTML"
+        hx-indicator="#coach-panel"
+    >
+        <textarea
+            name="note"
+            maxlength="280"
+            placeholder="One coaching note for the next round… (280 chars)"
+            rows="2"
+        >{% if viewer_coach_note_round and viewer_coach_note_round > game.current_round %}{{ viewer_coach_note }}{% endif %}</textarea>
+
+        <div class="coach-chips">
+            <button type="button" class="coach-chip" onclick="fillCoachNote(this)">Play it safe</button>
+            <button type="button" class="coach-chip" onclick="fillCoachNote(this)">Go aggressive</button>
+            <button type="button" class="coach-chip" onclick="fillCoachNote(this)">Stop trusting others</button>
+            <button type="button" class="coach-chip" onclick="fillCoachNote(this)">Protect the lead</button>
+        </div>
+
+        <div class="coach-panel-actions">
+            <button type="submit" class="btn btn-primary" style="font-size:0.85rem;padding:0.35rem 0.85rem;">
+                Queue for Round {{ game.current_round + 1 }}
+            </button>
+            {% if viewer_coach_note %}
+            <button type="submit" name="note" value="" class="btn btn-ghost" style="font-size:0.82rem;padding:0.3rem 0.7rem;">
+                Clear
+            </button>
+            {% endif %}
+        </div>
+    </form>
+
+    {# State indicator — shows where the queued note currently stands #}
+    {% if viewer_coach_note %}
+        {% if viewer_coach_note_round > game.current_round %}
+        <p class="coach-status armed">→ Armed: reaches your agent at Round {{ viewer_coach_note_round }}</p>
+        {% elif viewer_coach_note_round == game.current_round %}
+        <p class="coach-status active-now">✓ Coaching your agent this round</p>
+        {% else %}
+        <p class="coach-status">Delivered in Round {{ viewer_coach_note_round }} · <em>{{ viewer_coach_note }}</em></p>
+        {% endif %}
+    {% endif %}
+</div>
+
+<script>
+function fillCoachNote(chip) {
+    var panel = chip.closest('#coach-panel');
+    if (!panel) return;
+    var ta = panel.querySelector('textarea[name="note"]');
+    if (ta) { ta.value = chip.textContent; ta.focus(); }
+}
+</script>
+{% endif %}

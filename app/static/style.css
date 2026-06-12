@@ -687,6 +687,78 @@ pre code { background: none; padding: 0; }
 .rail-row.leader .track { background: var(--bg); }
 .rail-row .bar { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 .feed .empty { padding: 1.5rem 0; }
+
+/* ---- Sideline coach panel ---- */
+.coach-panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+}
+.coach-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+}
+.coach-panel-head h3 {
+    margin: 0;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    font-weight: 700;
+}
+.coach-panel textarea {
+    width: 100%;
+    min-height: 3.5rem;
+    resize: vertical;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    font-family: var(--font-body);
+}
+.coach-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.55rem;
+}
+.coach-chip {
+    font-size: 0.78rem;
+    padding: 0.22rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--line-bold);
+    background: var(--surface-2);
+    color: var(--ink);
+    cursor: pointer;
+    line-height: 1.4;
+    font-weight: 600;
+    transition: background 0.12s, border-color 0.12s;
+}
+.coach-chip:hover { background: var(--line); border-color: var(--ink-soft); }
+.coach-panel-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+.coach-status {
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    margin-top: 0.45rem;
+}
+.coach-status.armed { color: var(--accent); font-weight: 600; }
+.coach-status.active-now { color: var(--help); font-weight: 600; }
+/* rc-rail "you" indicator */
+.rc-rail-row.rc-you .nm-name::after {
+    content: " · you";
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
 .delta { font-variant-numeric: tabular-nums; margin-left: 0.25rem; }
 .delta.pos { color: var(--help); }
 .delta.neg { color: var(--hurt); }

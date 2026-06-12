@@ -2,11 +2,11 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Path, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
-from app.deps import DbSession, get_current_user
+from app.deps import DbSession, get_current_user, require_user
 from app.models.agent import Agent, AgentKind
 from app.models.match import Match
 from app.models.player import Player
@@ -212,6 +212,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         ).scalar_one_or_none()
         winner_agent_id = winner.seat_name if winner else None
 
+    viewer_seat = viewer_player.seat_name if viewer_player else None
     return {
         "user": user,
         "is_admin": _is_any_admin(user),
@@ -224,13 +225,16 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         # the live fragment carries fresh turns too — that's what lets an
         # already-open page extend the animation as new turns resolve, instead of
         # staying frozen at the turn count present when the page first loaded.
-        "rc_data": _build_rc_data(scoreboard, history, g.turns_per_round),
+        "rc_data": _build_rc_data(scoreboard, history, g.turns_per_round, viewer_seat),
         "rounds": rounds,
         "max_played_round": max_played_round,
         "winner_agent_id": winner_agent_id,
         "winner_owner_handle": owner_handles.get(winner_agent_id) if winner_agent_id else None,
         "viewer_player_id": viewer_player.id if viewer_player else None,
         "viewer_agent_name": agent_names.get(viewer_player.seat_name) if viewer_player else None,
+        "viewer_coach_note": viewer_player.coach_note if viewer_player else None,
+        "viewer_coach_note_round": viewer_player.coach_note_round if viewer_player else None,
+        "coaching_enabled": bool(g.coaching) if hasattr(g, "coaching") else True,
     }
 
 
@@ -269,3 +273,56 @@ async def legacy_game_live_redirect(
     db: DbSession,
 ):
     return await _redirect_to_match(db, match_id, suffix="/live")
+
+
+@router.post("/games/{game}/matches/{match_id}/coach-note", response_class=HTMLResponse)
+async def post_coach_note(
+    game: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+    note: Annotated[str, Form()] = "",
+) -> HTMLResponse:
+    """Save or clear the operator's sideline coaching note for the next round."""
+    from app.read_models.agent_display import agent_display_name
+
+    match = await _load_match_or_404(db, match_id)
+    if redirect := _redirect_if_game_slug_mismatch(match, game):
+        return redirect  # type: ignore[return-value]
+    if match.state.value != "active":
+        raise HTTPException(status_code=409, detail="Match is not active.")
+    player_row = (
+        await db.execute(
+            select(Player, Agent)
+            .join(Agent, Agent.id == Player.agent_id)
+            .where(Player.match_id == match_id, Agent.user_id == user.id)
+        )
+    ).one_or_none()
+    if player_row is None:
+        raise HTTPException(status_code=403, detail="You are not a player in this match.")
+    player, agent = player_row
+
+    note = note.strip()[:280]
+    if note:
+        player.coach_note = note
+        player.coach_note_round = match.current_round + 1
+    else:
+        player.coach_note = None
+        player.coach_note_round = None
+    await db.commit()
+    await db.refresh(match)
+    await db.refresh(player)
+
+    return templates.TemplateResponse(
+        request,
+        "fragments/coach_panel.html",
+        {
+            "game": match,
+            "viewer_player_id": player.id,
+            "viewer_agent_name": agent_display_name(agent),
+            "viewer_coach_note": player.coach_note,
+            "viewer_coach_note_round": player.coach_note_round,
+            "coaching_enabled": bool(match.coaching) if hasattr(match, "coaching") else True,
+        },
+    )

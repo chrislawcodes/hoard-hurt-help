@@ -9,7 +9,7 @@ not part of the overloaded game/match vocabulary.
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -77,6 +77,11 @@ class Match(Base):
     )
     match_kind: Mapped[str] = mapped_column(
         String(32), nullable=False, default="manual", server_default="manual"
+    )
+    # Operator sideline coaching: whether coaches can post mid-game notes.
+    # Defaults True for all match types; pure-agent tournaments can turn it off.
+    coaching: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
