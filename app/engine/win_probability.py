@@ -18,6 +18,7 @@ features, matching the training data's feature semantics.
 
 from __future__ import annotations
 
+import logging
 import math
 import pickle
 from collections import defaultdict
@@ -34,12 +35,20 @@ _ROUND_MODEL_PATH = _MODEL_DIR / "round_win_prob_model.pkl"
 # Lazy-loaded model cache. Absence of a key = not yet attempted.
 _model_cache: dict[str, Any] = {}
 
+logger = logging.getLogger(__name__)
+
 
 def _load(name: str, path: Path) -> Any | None:
     if name not in _model_cache:
         if path.exists():
-            with open(path, "rb") as fh:
-                _model_cache[name] = pickle.load(fh)["model"]
+            try:
+                with open(path, "rb") as fh:
+                    _model_cache[name] = pickle.load(fh)["model"]
+            except Exception as exc:
+                # sklearn (or another dep) not installed in this environment;
+                # degrade gracefully — callers return empty dicts.
+                logger.warning("Win-probability model %r unavailable: %s", name, exc)
+                _model_cache[name] = None
         else:
             _model_cache[name] = None
     return _model_cache[name]
