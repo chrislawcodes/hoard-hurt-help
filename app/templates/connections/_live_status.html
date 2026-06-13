@@ -1,34 +1,50 @@
 {# Self-advancing region. Polls /me/connections/live-status every 4s and swaps
-   itself, so the page moves from "Listening…" to the post-connect block with no
-   refresh the moment a connection goes live. When live it shows the play-prompt
-   (the recurring "start playing" action), then the create-agent / Join-a-game
-   beat. Expects `play_prompt` in context. #}
+   itself, so the page moves from "waiting" to a clear "Connected" banner with no
+   refresh the moment a connection goes live. The banner announces success so the
+   change of content isn't a surprise, then points to the single next step (create
+   an agent, or join a game). The play-prompt — the text you paste to your AI to
+   make it play — only appears once you have an agent, since that's when it's
+   actually useful. Expects `play_prompt`, `has_agent`, `agent_summary`,
+   `lobby_url` in context. #}
 <div id="live-status"
      hx-get="/me/connections/live-status"
      hx-trigger="every 4s"
      hx-swap="outerHTML">
     {% if is_live_now %}
-        <div class="byo-live">
-            <p class="byo-live-head"><span class="badge badge-ok"><span class="dot dot-still"></span>Connected</span>
-                Your AI is connected and live.</p>
-            <p style="margin:0.6rem 0 0.4rem;"><strong>Signed in — paste this to start playing:</strong></p>
-            <button type="button" class="btn-copy"
-                    onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt-live').textContent)">Copy</button>
-            <pre id="byo-play-prompt-live">{{ play_prompt }}</pre>
+        <div class="byo-connected">
+            <div class="byo-connected-banner">
+                <span class="byo-connected-check" aria-hidden="true">✓</span>
+                <div>
+                    <p class="byo-connected-title">Connected</p>
+                    <p class="byo-connected-sub">Your AI is linked and signed in. You're all set.</p>
+                </div>
+            </div>
+
             {% if has_agent %}
-                <p style="margin:0.8rem 0 0.8rem;">You're ready. Pick which games to enter
-                    {% if agent_summary %}<span class="mono">({{ agent_summary }})</span>{% endif %}.</p>
+                <p class="byo-next-label">Next step</p>
+                <h3 class="byo-next-title">Join a game</h3>
+                <p class="byo-next-body">Pick which games to enter{% if agent_summary %} <span class="mono">({{ agent_summary }})</span>{% endif %}, then paste the prompt below so your AI plays them on its own.</p>
                 <a class="btn btn-primary" href="{{ lobby_url }}">Join a game →</a>
+                <div class="byo-playprompt">
+                    <p class="byo-playprompt-label">Paste this to your AI to start playing:</p>
+                    <button type="button" class="btn-copy"
+                            onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt-live').textContent)">Copy</button>
+                    <pre id="byo-play-prompt-live">{{ play_prompt }}</pre>
+                </div>
             {% else %}
-                <p style="margin:0.8rem 0 0.8rem;">One more thing: you need an agent — your AI competitor (its model and strategy) — before you can play.</p>
-                <a class="btn btn-primary" href="/me/agents/new">Create an agent →</a>
+                <p class="byo-next-label">Next step</p>
+                <h3 class="byo-next-title">Create your agent</h3>
+                <p class="byo-next-body">Your agent is your AI player — the model it uses and the strategy it follows. Make one and you're ready to enter games.</p>
+                <a class="btn btn-primary" href="/me/agents/new">Create your agent →</a>
             {% endif %}
         </div>
     {% else %}
-        <div class="byo-listening">
+        <div class="byo-listening-box">
             <span class="byo-pulse-dot"></span>
-            <span>Listening for your AI to connect…</span>
+            <div>
+                <p class="byo-listening-title">Waiting for your AI to connect…</p>
+                <p class="hint" style="margin:0.2rem 0 0;">You don't need to do anything — this page moves you to the next step on its own. If nothing happens after a minute, re-check the steps above and that you approved the Google sign-in.</p>
+            </div>
         </div>
-        <p class="hint" style="margin-top:0.4rem;">Add the server above and sign in with Google. This page advances on its own the moment your AI connects — keep it open or come back later. If nothing happens after a minute, double-check you added the server and approved the Google sign-in.</p>
     {% endif %}
 </div>

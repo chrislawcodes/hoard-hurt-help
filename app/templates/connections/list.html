@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
     <h1>Play with your own AI</h1>
-    <p class="sub">Point your AI client at our server, run one command, and watch it play your matches live.</p>
+    <p class="sub">Connect your AI provider, sign in once, and watch it play your matches live.</p>
 </div>
 
 {# === The one self-advancing box. What it leads with depends on the user's state:
@@ -50,8 +50,8 @@
 {% else %}
     {# --- NEW: lead with the add-server picker + sign-in note + Listening region. --- #}
     <div class="card" id="connect">
-        <h2 style="margin-top:0;">Connect your AI</h2>
-        <p class="hint" style="margin-bottom:0.9rem;">Pick your AI client and add the server (no key needed). The first time it connects, a “Sign in with Google” window opens.</p>
+        <h2 style="margin-top:0;">Connect your AI provider</h2>
+        <p class="hint" style="margin-bottom:0.9rem;">Pick your provider, then follow the steps. The page moves on by itself the moment you're connected.</p>
 
         {% include "connections/_connect_picker.html" %}
 

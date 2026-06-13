@@ -1,10 +1,10 @@
-{# CSS-only client picker (the existing byo-tabs pattern). Claude Code is checked
-   first. Each client shows how to ADD THE MCP SERVER (header-less) and a sign-in
-   note. The play-prompt is a SEPARATE block shown after connecting (see
-   _live_status.html). Three render kinds:
-     command — a copyable terminal command;
-     config  — a copyable config-file block (with an intro line);
-     steps   — numbered click-through steps for GUI clients.
+{# CSS-only provider picker (the byo-tabs pattern). Claude Code is checked first.
+   Each provider lays its "add the server" out as numbered sub-steps so the act of
+   connecting reads as a clear sequence, not a jumble:
+     command — step 1 "Paste this in your terminal" + step 2 "Sign in with Google";
+     steps   — numbered click-through steps for GUI providers (Claude Desktop).
+   The "You're connected" payoff is a separate region (see _live_status.html), not a
+   numbered step — it's the system confirming success, not an action the user takes.
    Expects `connect_options` in context. #}
 <div class="byo-tabs">
     {% for opt in connect_options %}
@@ -26,20 +26,24 @@
                 <li>{{ step }}</li>
                 {% endfor %}
             </ol>
-        {% elif opt.kind == "config" %}
-            {% if opt.intro %}
-            <p class="hint" style="margin-bottom:0.4rem;">{{ opt.intro }}</p>
+            {% if opt.note %}
+            <p class="byo-signin-note hint">{{ opt.note }}</p>
             {% endif %}
-            <button type="button" class="btn-copy"
-                    onclick="copyWithFeedback(this, document.getElementById('byo-cmd-{{ opt.client_id }}').textContent)">Copy</button>
-            <pre id="byo-cmd-{{ opt.client_id }}">{{ opt.config }}</pre>
         {% else %}
-            <button type="button" class="btn-copy"
-                    onclick="copyWithFeedback(this, document.getElementById('byo-cmd-{{ opt.client_id }}').textContent)">Copy</button>
-            <pre id="byo-cmd-{{ opt.client_id }}">{{ opt.command }}</pre>
-        {% endif %}
-        {% if opt.note %}
-        <p class="byo-signin-note hint">{{ opt.note }}</p>
+            <ol class="byo-flow">
+                <li class="byo-flow-step">
+                    <span class="byo-flow-title">Paste this in your terminal</span>
+                    <button type="button" class="btn-copy"
+                            onclick="copyWithFeedback(this, document.getElementById('byo-cmd-{{ opt.client_id }}').textContent)">Copy</button>
+                    <pre id="byo-cmd-{{ opt.client_id }}">{{ opt.command }}</pre>
+                </li>
+                <li class="byo-flow-step">
+                    <span class="byo-flow-title">Sign in with Google</span>
+                    {% if opt.note %}
+                    <p class="hint" style="margin:0;">{{ opt.note }}</p>
+                    {% endif %}
+                </li>
+            </ol>
         {% endif %}
     </section>
     {% endfor %}
