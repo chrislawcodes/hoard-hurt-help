@@ -85,36 +85,39 @@ async def test_cta_signed_out_is_get_started(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_cta_no_agent_is_connect(reset_db):
+async def test_cta_no_agent_is_create_agent(reset_db):
+    # Agent-first: a brand-new user needs a competitor before connecting one.
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Connect your AI"
-    assert cta.href == "/me/connections"
+    assert cta.label == "Create your agent"
+    assert cta.href == "/me/agents/new"
 
 
 @pytest.mark.asyncio
 async def test_cta_connection_no_agent_is_create_agent(reset_db):
+    # Has a connection but no agent yet -> still create the agent first.
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user)
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Create an Agent"
+    assert cta.label == "Create your agent"
     assert cta.href == "/me/agents/new"
 
 
 @pytest.mark.asyncio
-async def test_cta_unconnected_agent_is_create_agent(reset_db):
+async def test_cta_unconnected_agent_is_connect(reset_db):
+    # Has an agent but it has never connected -> next step is connecting the AI.
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user)
         await make_agent(db, user, name="Atlas")  # first_connected_at stays NULL
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Create an Agent"
-    assert cta.href == "/me/agents/new"
+    assert cta.label == "Connect your AI"
+    assert cta.href == "/me/connections"
 
 
 @pytest.mark.asyncio
@@ -130,15 +133,16 @@ async def test_cta_connected_agent_is_play_now(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_cta_sim_only_is_connect(reset_db):
-    # A connected Sim doesn't count — Sims aren't the visitor's own external agent.
+async def test_cta_sim_only_is_create_agent(reset_db):
+    # A Sim (house bot) isn't the visitor's own AI agent, so they still need to
+    # create one before anything else.
     async with reset_db() as db:
         user = await make_user(db)
         await make_agent(db, user, name="Sable", kind=AgentKind.BOT, connection=None)
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Connect your AI"
-    assert cta.href == "/me/connections"
+    assert cta.label == "Create your agent"
+    assert cta.href == "/me/agents/new"
 
 
 # ── rendered nav ────────────────────────────────────────────────────────────
@@ -198,7 +202,7 @@ async def test_nav_renders_play_now_for_connected_user(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_nav_renders_connect_your_ai_for_user_without_agent(client, reset_db):
+async def test_nav_renders_create_your_agent_for_user_without_agent(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -206,8 +210,8 @@ async def test_nav_renders_connect_your_ai_for_user_without_agent(client, reset_
 
     r = await client.get("/games", cookies=_signed_in_cookies(user_id))
     assert r.status_code == 200
-    assert "Connect your AI" in r.text
-    assert 'href="/me/connections"' in r.text
+    assert "Create your agent" in r.text
+    assert 'href="/me/agents/new"' in r.text
     assert "Play now" not in r.text
 
 
@@ -221,7 +225,7 @@ async def test_nav_renders_create_an_agent_for_user_with_connection_no_agent(cli
 
     r = await client.get("/games", cookies=_signed_in_cookies(user_id))
     assert r.status_code == 200
-    assert "Create an Agent" in r.text
+    assert "Create your agent" in r.text
     assert 'href="/me/agents/new"' in r.text
     assert "Connect your AI" not in r.text
 
