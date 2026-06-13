@@ -208,6 +208,19 @@ async def test_homepage_falls_back_to_sample_replay(client, reset_db):
 
 
 @pytest.mark.asyncio
+async def test_homepage_renders_with_live_and_finished_games(client, reset_db):
+    # Regression guard for the homepage's per-game data. It now gathers player
+    # counts, agent counts, and winners in three bulk queries instead of an N+1
+    # loop; this confirms the live + finished-with-winner views still build.
+    await _seed_completed_showcase(reset_db)  # G_DONE, COMPLETED, winner = AI_0
+    await _seed_game(reset_db, state=GameState.ACTIVE)  # a live game in the mix
+    r = await client.get("/")
+    assert r.status_code == 200
+    assert 'id="rc-data"' in r.text
+    assert "AI_0" in r.text  # the finished showcase and its winner are rendered
+
+
+@pytest.mark.asyncio
 async def test_quiet_lobby_falls_back_to_sample_replay(client, reset_db):
     # No live and no finished showcase game: the quiet lobby plays the sample
     # replay instead of the "No game running" empty state.

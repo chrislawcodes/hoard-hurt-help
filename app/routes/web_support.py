@@ -2,6 +2,8 @@
 
 from fastapi import HTTPException, status
 from fastapi.responses import RedirectResponse
+from collections.abc import Sequence
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +39,27 @@ async def _agent_count(db, match_id: str) -> int:
         .where(Player.match_id == match_id, Agent.kind != AgentKind.BOT)
     )
     return int(result or 0)
+
+
+async def _agent_counts(db, match_ids: Sequence[str]) -> dict[str, int]:
+    """Non-SIM (real agent) player counts for many matches in one grouped query.
+
+    Returns a {match_id: count} map; matches with no real agents are absent and
+    should be read as 0. Batched form of _agent_count to avoid an N+1 query when
+    rendering lists of finished matches.
+    """
+    if not match_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(Player.match_id, func.count())
+            .select_from(Player)
+            .join(Agent, Agent.id == Player.agent_id)
+            .where(Player.match_id.in_(match_ids), Agent.kind != AgentKind.BOT)
+            .group_by(Player.match_id)
+        )
+    ).all()
+    return {match_id: int(count) for match_id, count in rows}
 
 
 async def _seated_player_count(db, match_id: str) -> int:

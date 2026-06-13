@@ -2,21 +2,48 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.models import Base, GameState, Match, Turn, TurnMessage, TurnSubmission
+from app.models.agent import AgentKind
+from app.models.player import Player
 from app.read_models.matches import (
     count_players,
+    count_players_by_match,
     load_action_records,
     load_match_timeline,
     load_player_records,
     load_scoreboard,
+    winner_agent_id_by_player,
 )
-from tests.factories import seat_player
+from app.routes.web_support import _agent_counts
+from tests.factories import make_agent, make_user, seat_player
+
+
+@contextmanager
+def _count_selects(engine: AsyncEngine) -> Iterator[dict[str, int]]:
+    """Count SELECT statements issued on the engine inside the block.
+
+    Lets a test assert that a batch helper makes ONE grouped query instead of
+    one query per match (the N+1 it was written to replace).
+    """
+    counter = {"n": 0}
+
+    def _on_exec(conn, cursor, statement, params, context, executemany) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            counter["n"] += 1
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _on_exec)
+    try:
+        yield counter
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _on_exec)
 
 
 @pytest.fixture
@@ -190,3 +217,92 @@ async def test_player_read_models_make_active_filter_explicit(db: AsyncSession) 
     assert [(row.agent_id, row.round_score) for row in active_scoreboard] == [
         ("Active", 7)
     ]
+
+
+async def _seat_bot(db: AsyncSession, match_id: str, seat_name: str, i: int) -> Player:
+    """Seat a built-in BOT player (kind=BOT) — excluded from real-agent counts."""
+    user = await make_user(db, i)
+    agent, _ = await make_agent(db, user, name=seat_name, kind=AgentKind.BOT)
+    player = Player(
+        match_id=match_id,
+        user_id=user.id,
+        agent_id=agent.id,
+        seat_name=seat_name,
+    )
+    db.add(player)
+    await db.flush()
+    return player
+
+
+@pytest.mark.asyncio
+async def test_count_players_by_match_batches_matches_and_filters(
+    db: AsyncSession, engine: AsyncEngine
+) -> None:
+    await _match(db, "M_001")
+    await _match(db, "M_002")
+    await _match(db, "M_003")  # a match with no players at all
+    await seat_player(db, "M_001", "A1", i=1)
+    left = await seat_player(db, "M_001", "A2", i=2)
+    await seat_player(db, "M_002", "B1", i=3)
+    left.left_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    match_ids = ["M_001", "M_002", "M_003"]
+
+    # Same numbers the per-match helper gives, for every match at once. A match
+    # with no rows is simply absent — callers read a missing id as 0.
+    all_counts = await count_players_by_match(db, match_ids)
+    assert all_counts == {"M_001": 2, "M_002": 1}
+    assert all_counts.get("M_003", 0) == 0
+
+    active = await count_players_by_match(db, match_ids, active_only=True)
+    assert active == {"M_001": 1, "M_002": 1}  # A2 left M_001
+
+    assert await count_players_by_match(db, []) == {}
+
+    # The whole point: one grouped query no matter how many matches are asked for.
+    with _count_selects(engine) as counter:
+        await count_players_by_match(db, match_ids)
+    assert counter["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_winner_agent_id_by_player_batches(
+    db: AsyncSession, engine: AsyncEngine
+) -> None:
+    await _match(db, "M_001")
+    p1 = await seat_player(db, "M_001", "A1", i=1)
+    p2 = await seat_player(db, "M_001", "A2", i=2)
+    await db.commit()
+
+    mapping = await winner_agent_id_by_player(db, [p1.id, p2.id])
+    assert mapping == {p1.id: p1.agent_id, p2.id: p2.agent_id}
+    assert await winner_agent_id_by_player(db, []) == {}
+
+    with _count_selects(engine) as counter:
+        await winner_agent_id_by_player(db, [p1.id, p2.id])
+    assert counter["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_counts_excludes_bots_and_batches(
+    db: AsyncSession, engine: AsyncEngine
+) -> None:
+    await _match(db, "M_001")
+    await _match(db, "M_002")
+    await _match(db, "M_003")  # bots only — should be absent (count 0)
+    await seat_player(db, "M_001", "A1", i=1)  # real agent (kind=AI)
+    await seat_player(db, "M_001", "A2", i=2)  # real agent
+    await _seat_bot(db, "M_001", "Bot1", i=3)  # bot — not counted
+    await seat_player(db, "M_002", "B1", i=4)  # real agent
+    await _seat_bot(db, "M_003", "Bot2", i=5)  # bot — match has no real agents
+    await db.commit()
+
+    match_ids = ["M_001", "M_002", "M_003"]
+    counts = await _agent_counts(db, match_ids)
+    assert counts == {"M_001": 2, "M_002": 1}  # bots excluded, M_003 absent
+    assert await _agent_counts(db, []) == {}
+
+    with _count_selects(engine) as counter:
+        await _agent_counts(db, match_ids)
+    assert counter["n"] == 1

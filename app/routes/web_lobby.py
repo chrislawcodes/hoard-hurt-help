@@ -24,12 +24,13 @@ from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.read_models.leaderboard import load_leaderboard_sections
 from app.read_models.agent_display import agent_display_name
+from app.read_models.matches import count_players_by_match, winner_agent_id_by_player
 from app.routes.web_support import (
     _TEST_NAME_PREFIX,
+    _agent_counts,
     _is_any_admin,
     _is_showcase,
     _load_match_or_404,
-    _agent_count,
     _player_count,
     _redirect_to_match,
     _top_standings,
@@ -231,6 +232,18 @@ async def home(request: Request, db: DbSession):
     all_games = (
         (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
+
+    # Gather the per-game counts in bulk: three grouped queries instead of one
+    # query per game (the old loop was an N+1 that grew with every match played).
+    completed_games = [g for g in all_games if g.state == GameState.COMPLETED]
+    player_counts = await count_players_by_match(
+        db, [g.id for g in all_games], active_only=True
+    )
+    agent_counts = await _agent_counts(db, [g.id for g in completed_games])
+    winner_agent_ids = await winner_agent_id_by_player(
+        db, [g.winner_player_id for g in completed_games if g.winner_player_id]
+    )
+
     live: list[dict] = []
     completed: list[dict] = []
     for g in all_games:
@@ -242,17 +255,14 @@ async def home(request: Request, db: DbSession):
             "current_round": g.current_round,
             "current_turn": g.current_turn,
             "winner_agent_id": None,
-            "player_count": await _player_count(db, g.id),
+            "player_count": player_counts.get(g.id, 0),
         }
         if g.state == GameState.ACTIVE:
             live.append(view)
         elif g.state == GameState.COMPLETED:
-            view["agent_count"] = await _agent_count(db, g.id)
+            view["agent_count"] = agent_counts.get(g.id, 0)
             if g.winner_player_id:
-                winner = (
-                    await db.execute(select(Player).where(Player.id == g.winner_player_id))
-                ).scalar_one_or_none()
-                view["winner_agent_id"] = winner.agent_id if winner else None
+                view["winner_agent_id"] = winner_agent_ids.get(g.winner_player_id)
             completed.append(view)
 
     # Robot-circle animation: most-recent completed showcase game — consistent

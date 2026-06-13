@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
@@ -74,6 +75,50 @@ async def count_players(
     if active_only:
         stmt = stmt.where(Player.left_at.is_(None))
     return int(await db.scalar(stmt) or 0)
+
+
+async def count_players_by_match(
+    db: AsyncSession,
+    match_ids: Sequence[str],
+    *,
+    active_only: bool = False,
+) -> dict[str, int]:
+    """Seated-player counts for many matches in a single grouped query.
+
+    Returns a {match_id: count} map. Matches with no rows are absent from the
+    map; callers should treat a missing id as 0. This replaces calling
+    count_players() once per match (an N+1 query) when rendering list pages.
+    """
+
+    if not match_ids:
+        return {}
+    stmt = (
+        select(Player.match_id, func.count())
+        .where(Player.match_id.in_(match_ids))
+        .group_by(Player.match_id)
+    )
+    if active_only:
+        stmt = stmt.where(Player.left_at.is_(None))
+    rows = (await db.execute(stmt)).all()
+    return {match_id: int(count) for match_id, count in rows}
+
+
+async def winner_agent_id_by_player(
+    db: AsyncSession,
+    player_ids: Sequence[int],
+) -> dict[int, int]:
+    """Map each winning player's id to its agent id in a single query.
+
+    Returns a {player_id: agent_id} map for the given player ids, so a list
+    page can resolve every match winner at once instead of one lookup per match.
+    """
+
+    if not player_ids:
+        return {}
+    rows = (
+        await db.execute(select(Player.id, Player.agent_id).where(Player.id.in_(player_ids)))
+    ).all()
+    return {player_id: agent_id for player_id, agent_id in rows}
 
 
 async def load_players(
