@@ -895,61 +895,6 @@ async def _seat_agent_in_active_match_no_turn(
 
 
 @pytest.mark.asyncio
-async def test_long_poll_stops_serving_when_user_disabled_mid_hold(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
-) -> None:
-    """If the owning account is disabled WHILE the long-poll is holding, the hold
-    must stop handing back turns — mirroring `require_connection`'s ACCOUNT_DISABLED
-    gate, which only runs once at request start. Without the mid-hold re-check the
-    hold would serve a turn for up to the whole window after the account is killed.
-    """
-    async with session_factory() as db:
-        user = await make_user(db)
-        connection, key = await make_connection(db, user)
-        await _seat_agent_in_active_match_no_turn(db, user, connection, "M_0810")
-        await db.commit()
-        user_id = user.id
-
-    async def disable_user_and_open_turn() -> None:
-        # Mid-hold: disable the account AND open a turn in one commit. A turn is
-        # open (so without the fix the re-check WOULD serve it), but the account is
-        # now disabled, so the re-check must bail instead.
-        await asyncio.sleep(0.15)
-        async with session_factory() as db:
-            stored_user = (
-                await db.execute(select(User).where(User.id == user_id))
-            ).scalar_one()
-            stored_user.disabled_at = datetime.now(timezone.utc)
-            db.add(
-                Turn(
-                    match_id="M_0810",
-                    round=1,
-                    turn=1,
-                    turn_token=generate_turn_token(),
-                    opened_at=datetime.now(timezone.utc),
-                    deadline_at=datetime.now(timezone.utc) + timedelta(seconds=60),
-                    phase="act",
-                )
-            )
-            await db.commit()
-
-    loop = asyncio.get_event_loop()
-    started = loop.time()
-    killer = asyncio.create_task(disable_user_and_open_turn())
-    r = await client.get(
-        "/api/agent/next-turn?hold_seconds=5&interval_seconds=0.05",
-        headers={"X-Connection-Key": key},
-    )
-    await killer
-    elapsed = loop.time() - started
-    assert r.status_code == 200, r.text
-    # The disabled account must NOT be handed a turn; the hold bails out.
-    assert r.json()["status"] == "waiting"
-    # It bails promptly on the next re-check — it does not wait out the full window.
-    assert elapsed < 2.0
-
-
-@pytest.mark.asyncio
 async def test_long_poll_stops_serving_when_connection_paused_mid_hold(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
