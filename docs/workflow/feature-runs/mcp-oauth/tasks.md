@@ -95,6 +95,12 @@ Est. diff: ~150 lines (+docs). Depends on: Slice 4.
       add MCP `base_url`, JWT signing key, extra redirect URIs). No secret committed.
 - [ ] Extend `_check_oauth_config` in `app/main.py` to fail loud in a real deployment when
       the new required vars are missing; warn-but-run in local dev.
+- [ ] **Close the Slice-4 HIGH finding:** `_check_oauth_config` MUST also require the new MCP
+      OAuth vars (base_url + JWT signing key, alongside the Google client id/secret) and exit
+      before serving when `RAILWAY_ENVIRONMENT_ID` is set — so the `dev-google-client-id`
+      placeholder fallback in `mcp_server/server.py::_build_auth_provider` can NEVER run in a
+      real deployment (it stays a local-dev-only convenience). Add a test asserting prod-missing
+      vars raises at startup.
 - [ ] Rewrite `docs/setup-mcp.md`: per-client **OAuth** connect snippets for Claude Code,
       Claude Desktop, Codex, Gemini CLI; add the `get_game_state` deprecation note (now
       auth-required; public reads via the spectator endpoint); **fix the doc drift**
