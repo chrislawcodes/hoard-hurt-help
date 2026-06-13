@@ -1,0 +1,27 @@
+{
+  "paths": [
+    "app/deps.py",
+    "app/engine",
+    "app/models",
+    "app/routes",
+    "app/schemas",
+    "app/templates",
+    "docs/platform",
+    "docs/setup-mcp.md",
+    "mcp_server",
+    "migrations"
+  ],
+  "allowed_dirty_paths": [
+    "app/deps.py",
+    "app/engine",
+    "app/models",
+    "app/routes",
+    "app/schemas",
+    "app/templates",
+    "docs/platform",
+    "docs/setup-mcp.md",
+    "docs/workflow/feature-runs/byo-terminal-mode-a",
+    "mcp_server",
+    "migrations"
+  ]
+}

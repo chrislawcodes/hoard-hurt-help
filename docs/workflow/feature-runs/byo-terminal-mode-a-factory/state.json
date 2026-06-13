@@ -1,0 +1,336 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 6,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [],
+    "summary": "6-question scoping pass completed with Chris before FF. v1 is the idle-cost + cost-visibility + connect-onboarding plumbing around the already-working MCP path; risk concentrated in the long-poll (hot path) and the counter (auth choke point).",
+    "updated_at": 1781334927,
+    "answers": {
+      "Silent-agent detection": "Deferred."
+    },
+    "non_goals": [
+      "Front-door positioning / UI reshuffle (deferred)",
+      "In-terminal session_usage relay and pre-play cost heads-up (deferred)",
+      "Silent-agent detection (deferred)",
+      "Strategy-input box UX fix (separate task)",
+      "No-MCP raw-HTTP fallback (keeps keys out of chat history)",
+      "Replacing the connector (the two coexist)"
+    ],
+    "acceptance_criteria": [
+      "A player on any tier-1 client goes from logged-in to watching their agent play via a universal play-prompt plus a one-time connect step, verified end-to-end on Claude Code, Desktop, Codex, Gemini, and Cursor.",
+      "Idle token burn while waiting is cut substantially: next-turn supports a bounded 25-30s long-poll and the idle poll interval is raised, so there is no model call every few seconds while waiting.",
+      "The dashboard shows a per-connection usage figure: exact call and turn counts immediately, with a token estimate once calibration exists.",
+      "A player who closes their terminal mid-match auto-defaults to Hoard and can rejoin, verified with no new engine code.",
+      "No regression to the connector path (shared next-turn endpoint); Preflight Gate green."
+    ],
+    "checklist": {
+      "goal": "Make interactive Mode A play (a player runs their own AI against our existing /mcp server and watches it) cheap enough to leave running and transparent about token cost, so a trust-wary player can play without installing the background connector. v1 = idle-cost reduction (poll-interval bump + bounded long-poll) + a per-connection usage counter on the dashboard + a universal play-prompt and per-client connect snippets, reusing the existing MCP / agent-API / turn-routing stack.",
+      "audience": "New or trust-wary players who will not install the background connector (including the alpha user blocked by corporate DNS and by their own AI refusing the install), on any MCP-capable client: Claude Code, Claude Desktop, Codex, Gemini, Cursor. Plus us internally, who need the cost calibration.",
+      "constraints": "Long-poll is hot-path concurrency shared with the connector on a single-instance async app (a prior mid-deploy freeze was a turn-routing concurrency bug): must not pin a DB connection while held, must stay under each client request timeout, must interact correctly with the existing atomic sticky-pin claim, and must fall back to the poll-interval hint on timeout or expiry. The usage counter sits on mark_seen, the universal auth choke point, so watch write-amplification (last_seen_at is already throttled). Counter storage likely needs a migration. Interactive Mode A exposes no real token count to the server, so the dashboard figure is an estimate and the players own /cost reading is ground truth; calibration is a one-time internal lab step. Chris executes the per-client verification matrix."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "2f67a923b1ce93b73459ff683ae2f4f3e3e5c504",
+  "token_usage": [
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 86810,
+      "prompt_cap": 250000,
+      "input_tokens": 95492,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.095492,
+      "timestamp": "2026-06-13T07:20:59.236981Z",
+      "started_at": "2026-06-13T07:18:07.600746Z",
+      "ended_at": "2026-06-13T07:20:59.236981Z",
+      "duration_seconds": 171.634439,
+      "agent_id": null,
+      "artifact_sha_at_time": "5b84338323516b89fd65684131378c7d63e7f6d7a9c33bffd2f8a4aa11ffd70b"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 86695,
+      "prompt_cap": 250000,
+      "input_tokens": 36942,
+      "output_tokens": 656,
+      "cost_usd_estimate": 0.0102195,
+      "timestamp": "2026-06-13T07:21:10.400233Z",
+      "started_at": "2026-06-13T07:20:59.456884Z",
+      "ended_at": "2026-06-13T07:21:10.400233Z",
+      "duration_seconds": 10.943129,
+      "agent_id": null,
+      "artifact_sha_at_time": "5b84338323516b89fd65684131378c7d63e7f6d7a9c33bffd2f8a4aa11ffd70b"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 120376,
+      "prompt_cap": 250000,
+      "input_tokens": 122949,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.122949,
+      "timestamp": "2026-06-13T07:27:54.203189Z",
+      "started_at": "2026-06-13T07:24:48.132714Z",
+      "ended_at": "2026-06-13T07:27:54.203189Z",
+      "duration_seconds": 186.068598,
+      "agent_id": null,
+      "artifact_sha_at_time": "9d82e83ad25958775f6d85ddc703587cf5536429dbff17c9f337f11b471feb64"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 120261,
+      "prompt_cap": 250000,
+      "input_tokens": 45098,
+      "output_tokens": 734,
+      "cost_usd_estimate": 0.0123755,
+      "timestamp": "2026-06-13T07:28:03.104037Z",
+      "started_at": "2026-06-13T07:27:54.358268Z",
+      "ended_at": "2026-06-13T07:28:03.104037Z",
+      "duration_seconds": 8.745646,
+      "agent_id": null,
+      "artifact_sha_at_time": "9d82e83ad25958775f6d85ddc703587cf5536429dbff17c9f337f11b471feb64"
+    },
+    {
+      "stage": "plan",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "implementation-adversarial",
+      "prompt_chars": 43352,
+      "prompt_cap": 250000,
+      "input_tokens": 77369,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.077369,
+      "timestamp": "2026-06-13T07:34:10.762624Z",
+      "started_at": "2026-06-13T07:31:10.330789Z",
+      "ended_at": "2026-06-13T07:34:10.762624Z",
+      "duration_seconds": 180.429985,
+      "agent_id": null,
+      "artifact_sha_at_time": "be7992eef870a82ce8db6a1e6c789c890c337c50026a019aeaa205f410f45da4"
+    },
+    {
+      "stage": "plan",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "testability-adversarial",
+      "prompt_chars": 43233,
+      "prompt_cap": 250000,
+      "input_tokens": 24003,
+      "output_tokens": 737,
+      "cost_usd_estimate": 0.00710625,
+      "timestamp": "2026-06-13T07:34:18.589502Z",
+      "started_at": "2026-06-13T07:34:10.941966Z",
+      "ended_at": "2026-06-13T07:34:18.589502Z",
+      "duration_seconds": 7.647342,
+      "agent_id": null,
+      "artifact_sha_at_time": "be7992eef870a82ce8db6a1e6c789c890c337c50026a019aeaa205f410f45da4"
+    },
+    {
+      "stage": "plan",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "implementation-adversarial",
+      "prompt_chars": 44867,
+      "prompt_cap": 250000,
+      "input_tokens": 79081,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.079081,
+      "timestamp": "2026-06-13T07:44:05.750710Z",
+      "started_at": "2026-06-13T07:40:55.478953Z",
+      "ended_at": "2026-06-13T07:44:05.750710Z",
+      "duration_seconds": 190.270865,
+      "agent_id": null,
+      "artifact_sha_at_time": "81641ce86d8582a9feaad1866480df16a0b7a0ee9434b8628d98e7de6a641ad6"
+    },
+    {
+      "stage": "plan",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "testability-adversarial",
+      "prompt_chars": 44748,
+      "prompt_cap": 250000,
+      "input_tokens": 24349,
+      "output_tokens": 773,
+      "cost_usd_estimate": 0.00724675,
+      "timestamp": "2026-06-13T07:44:14.338331Z",
+      "started_at": "2026-06-13T07:44:05.900128Z",
+      "ended_at": "2026-06-13T07:44:14.338331Z",
+      "duration_seconds": 8.43807,
+      "agent_id": null,
+      "artifact_sha_at_time": "81641ce86d8582a9feaad1866480df16a0b7a0ee9434b8628d98e7de6a641ad6"
+    }
+  ],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-13T07:21:10Z",
+      "wall_seconds": 183.395,
+      "input_bytes_read": 67706,
+      "output_bytes_written": 19675,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-13T07:24:05Z",
+      "wall_seconds": 0.295,
+      "input_bytes_read": 21017,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-13T07:24:05Z",
+      "wall_seconds": 0.302,
+      "input_bytes_read": 21914,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-13T07:28:03Z",
+      "wall_seconds": 195.478,
+      "input_bytes_read": 95595,
+      "output_bytes_written": 29777,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-13T07:34:19Z",
+      "wall_seconds": 188.933,
+      "input_bytes_read": 130719,
+      "output_bytes_written": 36736,
+      "files_read": 19,
+      "files_written": 5,
+      "subprocess_invocations": 28,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-13T07:40:29Z",
+      "wall_seconds": 0.368,
+      "input_bytes_read": 35319,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-13T07:40:30Z",
+      "wall_seconds": 0.352,
+      "input_bytes_read": 36094,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-13T07:44:14Z",
+      "wall_seconds": 199.519,
+      "input_bytes_read": 155259,
+      "output_bytes_written": 46314,
+      "files_read": 19,
+      "files_written": 5,
+      "subprocess_invocations": 28,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 2,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "5b84338323516b89fd65684131378c7d63e7f6d7a9c33bffd2f8a4aa11ffd70b",
+        "9d82e83ad25958775f6d85ddc703587cf5536429dbff17c9f337f11b471feb64"
+      ],
+      "initial_sha": "5b84338323516b89fd65684131378c7d63e7f6d7a9c33bffd2f8a4aa11ffd70b"
+    },
+    "plan": {
+      "adversarial_rounds": 2,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "be7992eef870a82ce8db6a1e6c789c890c337c50026a019aeaa205f410f45da4",
+        "81641ce86d8582a9feaad1866480df16a0b7a0ee9434b8628d98e7de6a641ad6"
+      ],
+      "initial_sha": "be7992eef870a82ce8db6a1e6c789c890c337c50026a019aeaa205f410f45da4"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 2,
+  "last_action_result": {
+    "next": "author_tasks",
+    "reason": "plan checkpoint completed",
+    "blockers": []
+  },
+  "plan_adversarial_rounds": 2
+}

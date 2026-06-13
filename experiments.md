@@ -20,6 +20,27 @@ Tracking whether adversarial reviews (Feature Factory pipeline) actually change 
 
 ---
 
+## Experiment 8 — `byo-terminal-mode-a` (hoard-hurt-help, 2026-06-13)
+
+**Feature:** Interactive "Mode A" MCP play — bounded long-poll on next-turn, per-connection usage counters (dashboard), connect docs; built on the existing MCP/agent stack.
+
+**Direct PR:** #NNN (merged) | **Feature Factory PR:** — (not built; spec+plan+reviews only, record under `feature-runs/byo-terminal-mode-a-factory/`)
+
+| | Direct Path | Feature Factory |
+|--|--------------|---------|
+| Reviews that changed code | 1/1 self-review changed the implementation | 2/2 design stages changed (spec + plan); code never built |
+| Critical catch | Caught pool-pinning (surfaced as a test slowdown) + correct turns attribution + opt-in design — all on its own | disabled-user mid-hold revalidation (minor, ≤25s self-correcting) — only thing it caught that Direct missed |
+| False positives | Low | 1 (`session_usage` field — conflicted with the explicit dashboard-only scope decision) |
+| Tests | 3 new (long-poll, counter, migration) | 0 (no code) |
+| Claude tokens (billed input / cache read / output) | ~212k total (subagent lump) | review-only: Codex 375k + Gemini 130k/2.9k; orchestrator tokens large & excluded |
+| Human interruptions | 0 | 0 (but heavy orchestrator involvement across 4 review rounds) |
+
+**Verdict:** Direct Path won decisively. FF's spec/plan reviews raised real, code-confirmed risks, but the Direct build independently handled every critical one (DB pinning, turns attribution, write-amplification, two-phase prompt) AND made a better core design choice (opt-in long-poll) the FF plan got wrong. FF's sole unique catch was a minor, self-correcting edge. Decisive factor: the biggest risk (DB pinning) was test-visible — it slowed the suite — so one self-review caught it, making FF's extra rounds redundant. FF also cost far more and never produced code.
+
+**Lesson:** The predictor for FF value is **silent vs. test-visible risk**, not backend-vs-UI. This backend feature contradicts the "backend → Feature Factory" lean: its risks surfaced in the test suite, so Direct + one self-review sufficed. Reserve FF for failure modes that are *silent* (pass tests, break in prod) — data-model/semantics bugs — not perf/concurrency a test run exposes.
+
+---
+
 ## Experiment 7 — `move-limit-single-source` (hoard-hurt-help, 2026-06-11)
 
 **Feature:** Make the public-`message` (200) and private-`thinking` (200) char caps a single source of truth across the server schema, the standalone connector, and the model-facing prompt — so they can't silently drift apart again (the drift had 422-dropped oversized moves). No value change; core deliverable is a regression test that fails on divergence.
@@ -174,13 +195,15 @@ Tracking whether adversarial reviews (Feature Factory pipeline) actually change 
 | 5 — provider-budget | valuerank | Full-stack feature | Partial | Feature Factory enforced test discipline; both caught same correctness bugs; Feature Factory needed 2 human interventions |
 | 6 — per-model-coverage | valuerank | Full-stack feature | Yes | Caught 2 real UI bugs (color threshold, label) that Direct Path shipped silently |
 | 7 — move-limit-single-source | hoard-hurt-help | Backend refactor + test | Partial | Plan review upgraded a structural test to a behavioral one; both paths otherwise correct; ~2.5× tokens / ~6.5× time |
+| 8 — byo-terminal-mode-a | hoard-hurt-help | Backend / hot-path concurrency | No | Direct caught the critical risks itself (DB-pin showed as a test slowdown) + chose a better opt-in design; FF's lone unique catch was minor; FF cost far more and never built code |
 
-**Pattern (7 data points — 6 ValueRank, 1 hoard-hurt-help):** Feature Factory 2/2 on backend/algorithmic work. Direct Path 2/2 on UI/nav work. Full-stack features: Feature Factory 2/2 on catching real bugs (though Experiment 5 was partial on process friction). First hoard-hurt-help point (backend refactor) agrees with the backend lean: Feature Factory found a real test-coverage gap Direct missed — but on a low-risk refactor the win was test robustness, not correctness, so it was only partially worth the steep cost.
+**Pattern (8 data points — 6 ValueRank, 2 hoard-hurt-help):** Feature Factory 2/2 on backend/algorithmic work. Direct Path 2/2 on UI/nav work. Full-stack features: Feature Factory 2/2 on catching real bugs (though Experiment 5 was partial on process friction). First hoard-hurt-help point (backend refactor) agrees with the backend lean: Feature Factory found a real test-coverage gap Direct missed — but on a low-risk refactor the win was test robustness, not correctness, so it was only partially worth the steep cost. **Experiment 8 (backend, hot-path concurrency) contradicts the backend lean:** Direct won outright — its critical risks were test-visible (a DB-pin that slowed the suite), so one self-review caught them and FF's extra rounds were redundant at far higher cost. The emerging better predictor is **silent vs. test-visible risk**, not backend-vs-UI.
 
 **Recommendation:** Route features by type before choosing pipeline:
 - Backend algorithmic / Python worker internals → Feature Factory
 - UI / nav / component refactors → Direct Path
 - Full-stack features → Feature Factory; it consistently catches display-logic bugs that are hard to unit-test
 - Low-risk mechanical refactor where you just need it done → Direct Path (~6× faster); but if the deliverable IS a safety-net test, Feature Factory's reviews reliably upgrade a structural test into a behavioral one (Experiment 7)
+- **Better predictor than feature-type (Experiment 8):** route by *failure-mode visibility*. If the main risk is **silent** (passes tests, breaks in prod — data-model/semantics, wrong-key) → Feature Factory. If it's **test-visible** (perf/concurrency that slows or fails the suite; UI you can see) → Direct Path + one self-review, at a fraction of the cost. Mode A's worst risk (DB-pin) was test-visible, so Direct sufficed despite being "backend."
 
 _Next hoard-hurt-help experiments append above as Experiment 7+ (tagged `hoard-hurt-help`). Re-check whether the ValueRank pattern holds on this codebase as local data accumulates._

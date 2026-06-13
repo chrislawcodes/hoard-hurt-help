@@ -15,6 +15,7 @@
 
 ## Recently Shipped
 
+- **BYO Terminal: Mode A v1** (interactive MCP play) — players can point any MCP client at `/mcp` and watch their own AI play, nothing installed. `GET /api/agent/next-turn` gains an **opt-in bounded long-poll** (`hold_seconds`, default off → connector unaffected) so idle waiting stops burning model calls; per-connection `turns_played` + `api_call_count` counters (migration `0031`) show on the connection detail page; `setup-mcp.md` corrected (`X-Connection-Key`/`sk_conn_`) with a universal play-prompt + per-client connect snippets. Shipped via the **Direct arm of Experiment 8** (Direct beat Feature Factory — see `experiments.md`; lesson: route by silent-vs-test-visible risk, not backend-vs-UI). Follow-up filed: revalidate disabled-user / paused-connection mid-long-poll.
 - **Practice Arena coach panel polish** — the sideline coach box now sits under the game title, uses a tighter layout, and opens a prompt window for course correction instead of the old chips.
 - **Local migration unblocker** — Alembic migration `0023` now drops the historical winner FK on either `fk_games_winner_player_id_players` or `fk_matches_winner_player_id_players`, so the dev DB can upgrade cleanly again.
 - **Reporting date filter** — the platform admin reporting page now accepts start and end dates, so admins can narrow turn-time distribution and slowest-match analysis to a completion-date window.
