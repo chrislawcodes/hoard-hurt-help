@@ -12,13 +12,14 @@ from typing import Any, cast
 from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentAccessToken, Depends
 from fastmcp.server.auth.providers.google import GoogleProvider
-from fastmcp.server.dependencies import AccessToken
+from fastmcp.server.dependencies import AccessToken, get_access_token
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db import get_session
+from app.db import SessionLocal, get_session
 from app.deps import assert_connection_usable, require_agent_player
 from app.engine.agent_play import (
     chat_transcript,
@@ -157,17 +158,76 @@ def _google_userinfo_from_token(token: AccessToken) -> GoogleUserInfo:
     )
 
 
-async def _resolve_oauth_connection(
+async def _connection_from_token(
     db: AsyncSession,
     token: object,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
+    """Resolve a verified OAuth token to the caller's Mode A connection.
+
+    Creates the connection on first sight (ACTIVE, every provider enabled) and
+    reuses it thereafter. Does NOT record the call — see ``mark_seen`` for the
+    heartbeat / usage-count side of an authenticated request.
+    """
     access_token = _require_access_token(token)
     userinfo = _google_userinfo_from_token(access_token)
     user = await sync_google_user(db, userinfo)
     connection = await mode_a_connection_for(db, user)
     assert_connection_usable(connection)
+    return access_token, userinfo, connection
+
+
+async def _resolve_oauth_connection(
+    db: AsyncSession,
+    token: object,
+) -> tuple[AccessToken, GoogleUserInfo, Connection]:
+    access_token, userinfo, connection = await _connection_from_token(db, token)
     await mark_seen(db, connection, key_hash=connection.key_lookup)
     return access_token, userinfo, connection
+
+
+async def _bootstrap_signin_connection(token: object) -> None:
+    """Create/resume the caller's Mode A connection when their session starts.
+
+    Runs once per MCP session, on the ``initialize`` handshake, so the
+    /me/connections page flips to "connected" as soon as the client signs in —
+    instead of only after the first tool call. The handshake is not a paid model
+    inference, so this deliberately skips ``mark_seen`` (which bumps the
+    ``api_call_count`` cost counter) and only writes the connection's existence
+    and connected timestamps via ``mode_a_connection_for``.
+
+    fail-open: advisory only — if this fails the session still initializes, and
+    the first tool call's ``_resolve_oauth_connection`` remains the authoritative
+    place the connection is created and recorded.
+    """
+    async with SessionLocal() as db:
+        await _connection_from_token(db, token)
+        await db.commit()
+
+
+class SigninConnectionMiddleware(Middleware):
+    """Bootstrap the Mode A connection when a client initializes a session."""
+
+    async def on_initialize(
+        self,
+        context: MiddlewareContext[Any],
+        call_next: CallNext[Any, Any],
+    ) -> Any:
+        token = get_access_token()
+        if token is not None:
+            try:
+                await _bootstrap_signin_connection(token)
+            except Exception:
+                # fail-open: advisory only — the first tool call still creates and
+                # records the connection (see _bootstrap_signin_connection).
+                logger.warning(
+                    "sign-in connection bootstrap failed; the connection will be "
+                    "created on the first tool call instead",
+                    exc_info=True,
+                )
+        return await call_next(context)
+
+
+mcp_app.add_middleware(SigninConnectionMiddleware())
 
 
 async def _resolve_oauth_player(
