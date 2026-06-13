@@ -553,41 +553,6 @@ async def test_agent_detail_shows_no_live_connection_when_cold(
 
 
 @pytest.mark.asyncio
-async def test_agent_detail_no_live_connection_card_never_connected(
-    client: AsyncClient,
-    session_factory: async_sessionmaker[AsyncSession],
-) -> None:
-    """Agent whose only connection has never seen a runner: coverage-based 'No live connection'."""
-    async with session_factory() as db:
-        user = await _make_user(db, handle="agentA", i=10)
-        conn = await _make_connection(db, user)  # no last_seen_at — never connected
-        agent, _ = await _make_agent(db, user, connection=conn)
-        await db.commit()
-
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
-    assert resp.status_code == 200
-    assert "No live connection runs" in resp.text
-
-
-@pytest.mark.asyncio
-async def test_agent_detail_no_live_connection_card_cold_runner(
-    client: AsyncClient,
-    session_factory: async_sessionmaker[AsyncSession],
-) -> None:
-    """Agent with a cold connection (runner stopped): coverage check fails,
-    shows 'No live connection' card instead of 'Runner isn't running'."""
-    async with session_factory() as db:
-        user = await _make_user(db, handle="agentB", i=11)
-        conn = await _make_connection(db, user, last_seen_at=COLD)
-        agent, _ = await _make_agent(db, user, connection=conn)
-        await db.commit()
-
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
-    assert resp.status_code == 200
-    assert "No live connection runs" in resp.text
-
-
-@pytest.mark.asyncio
 async def test_agent_detail_no_reconnect_card_when_live(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],

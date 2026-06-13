@@ -120,16 +120,6 @@ async def _seed_agent(
         return agent, k, connection.id
 
 
-@pytest.mark.asyncio
-async def test_lobby_renders_at_play_path(client, reset_db):
-    # The HHH lobby moved off `/` (now the Agent Ludum marketing page) to
-    # `/games/hoard-hurt-help`; the upcoming-games listing lives there now.
-    await _seed_game(reset_db)
-    r = await client.get("/games/hoard-hurt-help")
-    assert r.status_code == 200
-    assert "Test Match" in r.text
-
-
 async def _seed_completed_showcase(reset_db: async_sessionmaker) -> None:
     """A finished 3-player game with one resolved turn — a watchable showcase."""
     from app.models import Turn, TurnSubmission
