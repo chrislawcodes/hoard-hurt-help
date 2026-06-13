@@ -71,11 +71,31 @@ async def _seed_user(reset_db, email: str) -> User:
         return u
 
 
-async def _seed_turn_timing_match(reset_db) -> str:
+async def _seed_turn_timing_match(
+    reset_db,
+    *,
+    match_id: str = "M_turn_report",
+    name: str = "Report Match",
+    completed_at: datetime | None = None,
+) -> str:
     async with reset_db() as db:
-        owner1 = User(google_sub="sub-turn-1", email="turn1@test.com", name="turn1@test.com")
-        owner2 = User(google_sub="sub-turn-2", email="turn2@test.com", name="turn2@test.com")
-        owner3 = User(google_sub="sub-turn-3", email="turn3@test.com", name="turn3@test.com")
+        completed_at = completed_at or datetime.now(timezone.utc)
+        seed_tag = match_id.lower().replace(" ", "-")
+        owner1 = User(
+            google_sub=f"sub-{seed_tag}-1",
+            email=f"turn1+{seed_tag}@test.com",
+            name=f"turn1+{seed_tag}@test.com",
+        )
+        owner2 = User(
+            google_sub=f"sub-{seed_tag}-2",
+            email=f"turn2+{seed_tag}@test.com",
+            name=f"turn2+{seed_tag}@test.com",
+        )
+        owner3 = User(
+            google_sub=f"sub-{seed_tag}-3",
+            email=f"turn3+{seed_tag}@test.com",
+            name=f"turn3+{seed_tag}@test.com",
+        )
         db.add_all([owner1, owner2, owner3])
         await db.flush()
 
@@ -83,10 +103,9 @@ async def _seed_turn_timing_match(reset_db) -> str:
         agent2, version2 = await make_agent(db, owner2, name="AI_2")
         agent3, version3 = await make_agent(db, owner3, name="AI_3")
 
-        completed_at = datetime.now(timezone.utc)
         match = Match(
-            id="M_turn_report",
-            name="Report Match",
+            id=match_id,
+            name=name,
             game="hoard-hurt-help",
             state=GameState.COMPLETED,
             scheduled_start=completed_at - timedelta(hours=1),
@@ -129,7 +148,7 @@ async def _seed_turn_timing_match(reset_db) -> str:
             match_id=match.id,
             round=1,
             turn=1,
-            turn_token="tk-1",
+            turn_token=f"{seed_tag}-tk-1",
             opened_at=turn1_opened,
             deadline_at=turn1_opened + timedelta(seconds=30),
             resolved_at=turn1_opened + timedelta(seconds=31),
@@ -138,7 +157,7 @@ async def _seed_turn_timing_match(reset_db) -> str:
             match_id=match.id,
             round=1,
             turn=2,
-            turn_token="tk-2",
+            turn_token=f"{seed_tag}-tk-2",
             opened_at=turn2_opened,
             deadline_at=turn2_opened + timedelta(seconds=30),
             resolved_at=turn2_opened + timedelta(seconds=31),
@@ -291,10 +310,52 @@ async def test_turn_timing_report_counts_and_buckets(client, reset_db):
     assert "Reporting" in r.text
     assert "Report Match" in r.text
     assert "0-10s" in r.text
+    assert 'name="start_date"' in r.text
+    assert 'name="end_date"' in r.text
     assert "Matches scanned" not in r.text
     assert "Turns scanned" not in r.text
     assert "Timed submissions" not in r.text
     assert "Defaulted rows" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_turn_timing_report_date_filter_limits_matches(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    included_at = datetime(2026, 6, 12, 6, 30, tzinfo=timezone.utc)
+    excluded_at = datetime(2026, 6, 12, 8, 30, tzinfo=timezone.utc)
+    await _seed_turn_timing_match(
+        reset_db,
+        match_id="M_turn_report_in_range",
+        name="In Range",
+        completed_at=included_at,
+    )
+    await _seed_turn_timing_match(
+        reset_db,
+        match_id="M_turn_report_out_of_range",
+        name="Out of Range",
+        completed_at=excluded_at,
+    )
+
+    async with reset_db() as db:
+        report = await load_turn_timing_report(
+            db,
+            completed_after=datetime(2026, 6, 11, 7, tzinfo=timezone.utc),
+            completed_before=datetime(2026, 6, 12, 7, tzinfo=timezone.utc),
+        )
+    assert report.matches_scanned == 1
+    assert report.sample_count == 5
+    assert [row.name for row in report.matches] == ["In Range"]
+
+    r = await client.get(
+        "/admin/reports?start_date=2026-06-11&end_date=2026-06-11&tz=America/Los_Angeles",
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 200
+    assert "In Range" in r.text
+    assert "Out of Range" not in r.text
+    assert 'value="2026-06-11"' in r.text
+    assert 'name="tz"' in r.text
+    assert 'value="America/Los_Angeles"' in r.text
 
 
 @pytest.mark.asyncio

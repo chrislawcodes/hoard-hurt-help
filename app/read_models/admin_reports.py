@@ -101,17 +101,28 @@ def _bucket_label(seconds: float) -> str:
     return _BUCKETS[-1][0]
 
 
-async def load_turn_timing_report(db: AsyncSession) -> TurnTimingReport:
+async def load_turn_timing_report(
+    db: AsyncSession,
+    *,
+    completed_after: datetime | None = None,
+    completed_before: datetime | None = None,
+) -> TurnTimingReport:
     """Load the platform-admin response-time report."""
+
+    filters = [
+        Match.state == GameState.COMPLETED,
+        ~Match.name.ilike(f"{_TEST_NAME_PREFIX}%"),
+    ]
+    if completed_after is not None:
+        filters.append(Match.completed_at >= completed_after)
+    if completed_before is not None:
+        filters.append(Match.completed_at < completed_before)
 
     matches = list(
         (
             await db.execute(
                 select(Match)
-                .where(
-                    Match.state == GameState.COMPLETED,
-                    ~Match.name.ilike(f"{_TEST_NAME_PREFIX}%"),
-                )
+                .where(*filters)
                 .order_by(Match.completed_at.desc(), Match.scheduled_start.desc())
             )
         )

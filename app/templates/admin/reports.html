@@ -7,6 +7,27 @@
     <p class="sub">Agent response times across completed matches.</p>
 </div>
 
+<form class="card form" method="get">
+    <input type="hidden" name="tz" id="report-tz" value="{{ tz }}">
+    <div class="form-row">
+        <label>
+            <span class="field-label">Start date</span>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </label>
+        <label>
+            <span class="field-label">End date</span>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </label>
+    </div>
+    <p class="hint">Filters by match completion date in your browser timezone.</p>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Apply filter</button>
+        {% if start_date or end_date %}
+        <a class="btn btn-ghost" href="/admin/reports">Clear</a>
+        {% endif %}
+    </div>
+</form>
+
 <div class="section-head"><h2>Turn-time distribution</h2><span class="count">{{ report.sample_count }} samples</span></div>
 <div class="report-table-wrap">
     <table>
@@ -60,4 +81,13 @@
         {% endfor %}
     </table>
 </div>
+
+<script>
+(function () {
+    var tz = document.getElementById('report-tz');
+    if (!tz) return;
+    var browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (browserTz) tz.value = browserTz;
+})();
+</script>
 {% endblock %}

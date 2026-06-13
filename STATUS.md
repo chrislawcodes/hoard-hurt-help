@@ -17,6 +17,7 @@
 
 - **Practice Arena coach panel polish** — the sideline coach box now sits under the game title, uses a tighter layout, and opens a prompt window for course correction instead of the old chips.
 - **Local migration unblocker** — Alembic migration `0023` now drops the historical winner FK on either `fk_games_winner_player_id_players` or `fk_matches_winner_player_id_players`, so the dev DB can upgrade cleanly again.
+- **Reporting date filter** — the platform admin reporting page now accepts start and end dates, so admins can narrow turn-time distribution and slowest-match analysis to a completion-date window.
 - **Sideline coach deploy fix** — migration `0030` now backfills `matches.coaching` with a dialect-safe boolean update, so PostgreSQL deploys no longer crash on `boolean = 0`.
 - **Platform admin split** — the account-menu `Platform admin` entry now opens a hoverable submenu with `Match Admin` and `Reporting`, the match admin page lives at `/admin/matches`, the reporting page lives at `/admin/reports`, and the turn-time report summarizes completed match response times with per-match and bucket breakdowns.
 - **Admin user management UI** — added `/admin/users` and `/admin/users/{user_id}` for platform admins, with search, pagination, role/status badges, connection and agent summaries, recent matches, audit history, and direct nav from the admin dashboard and handles page.
@@ -77,6 +78,7 @@
 
 - The match viewer can start locally again on the current SQLite DB without a 0023 batch-migration crash.
 - The Practice Arena coach box now has a tighter, title-adjacent layout and a prompt window for course correction.
+- Platform admins can narrow the response-time report to a completion-date window when they want a shorter slice of production data.
 - PR #334 can finish deploying cleanly after the sideline coach migration lands on production.
 - Platform admins can jump from the top-right menu into match admin or reporting without hunting for a second screen.
 - Platform admins can browse, inspect, and manage users from one dedicated admin screen instead of jumping between handles and incidents.
