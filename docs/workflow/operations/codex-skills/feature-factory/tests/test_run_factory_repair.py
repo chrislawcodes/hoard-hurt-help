@@ -2739,14 +2739,19 @@ class TestWorktreeHelpers(unittest.TestCase):
 
 
 class TestCommandImplement(unittest.TestCase):
+    def setUp(self) -> None:
+        # The clean-tree gate and orphan-worktree prune now live in factory_git
+        # and use its own subprocess, so stub them at the implement module's
+        # binding rather than patching CMD_IMPLEMENT_MODULE.subprocess.
+        prune_patch = patch.object(CMD_IMPLEMENT_MODULE, "prune_orphaned_worktrees", return_value=[])
+        prune_patch.start()
+        self.addCleanup(prune_patch.stop)
+
     def _args(self, slug: str = "test-slug", max_workers: int = 4):
         return SimpleNamespace(slug=slug, max_workers=max_workers)
 
-    def _clean_status(self) -> MagicMock:
-        return MagicMock(returncode=0, stdout="", stderr="")
-
     def test_serial_path_calls_run_serial(self) -> None:
-        with patch.object(CMD_IMPLEMENT_MODULE.subprocess, "run", return_value=self._clean_status()), patch.object(
+        with patch.object(CMD_IMPLEMENT_MODULE, "check_clean_tree", return_value=(True, "")), patch.object(
             CMD_IMPLEMENT_MODULE,
             "parse_parallel_task_groups",
             return_value=[{"tasks": ["T001"], "parallel": False, "files": [], "overlap_warning": None}],
@@ -2759,7 +2764,7 @@ class TestCommandImplement(unittest.TestCase):
 
     def test_parallel_path_calls_run_parallel(self) -> None:
         group = {"tasks": ["T001", "T002"], "parallel": True, "files": ["a.ts", "b.ts"], "overlap_warning": None}
-        with patch.object(CMD_IMPLEMENT_MODULE.subprocess, "run", return_value=self._clean_status()), patch.object(
+        with patch.object(CMD_IMPLEMENT_MODULE, "check_clean_tree", return_value=(True, "")), patch.object(
             CMD_IMPLEMENT_MODULE, "parse_parallel_task_groups", return_value=[group]
         ), patch.object(CMD_IMPLEMENT_MODULE, "_run_parallel", return_value=0) as mock_run_parallel:
             result = MODULE.command_implement(self._args())
@@ -2778,7 +2783,7 @@ class TestCommandImplement(unittest.TestCase):
             "overlap_warning": "tasks 1,2 share file foo.ts",
         }
         stderr = io.StringIO()
-        with patch.object(CMD_IMPLEMENT_MODULE.subprocess, "run", return_value=self._clean_status()), patch.object(
+        with patch.object(CMD_IMPLEMENT_MODULE, "check_clean_tree", return_value=(True, "")), patch.object(
             CMD_IMPLEMENT_MODULE, "parse_parallel_task_groups", return_value=[group]
         ), patch.object(CMD_IMPLEMENT_MODULE, "_run_serial", return_value=0) as mock_run_serial, redirect_stderr(stderr):
             result = MODULE.command_implement(self._args())
@@ -2788,8 +2793,11 @@ class TestCommandImplement(unittest.TestCase):
         mock_run_serial.assert_called_once_with("test-slug", ["T001", "T002"])
 
     def test_dirty_working_tree_exits_1_without_codex(self) -> None:
-        dirty_status = MagicMock(returncode=0, stdout="M foo.ts\n", stderr="")
-        with patch.object(CMD_IMPLEMENT_MODULE.subprocess, "run", return_value=dirty_status), patch.object(
+        with patch.object(
+            CMD_IMPLEMENT_MODULE,
+            "check_clean_tree",
+            return_value=(False, "working tree must be clean before implement"),
+        ), patch.object(
             CMD_IMPLEMENT_MODULE, "_run_serial", return_value=0
         ) as mock_run_serial:
             result = MODULE.command_implement(self._args())
@@ -2799,7 +2807,7 @@ class TestCommandImplement(unittest.TestCase):
 
     def test_empty_groups_prints_nothing_to_implement_and_exits_0(self) -> None:
         stdout = io.StringIO()
-        with patch.object(CMD_IMPLEMENT_MODULE.subprocess, "run", return_value=self._clean_status()), patch.object(
+        with patch.object(CMD_IMPLEMENT_MODULE, "check_clean_tree", return_value=(True, "")), patch.object(
             CMD_IMPLEMENT_MODULE, "parse_parallel_task_groups", return_value=[]
         ), redirect_stdout(stdout):
             result = MODULE.command_implement(self._args())
@@ -2812,7 +2820,7 @@ class TestCommandImplement(unittest.TestCase):
             {"tasks": ["T001"], "parallel": False, "files": [], "overlap_warning": None},
             {"tasks": ["T002"], "parallel": False, "files": [], "overlap_warning": None},
         ]
-        with patch.object(CMD_IMPLEMENT_MODULE.subprocess, "run", return_value=self._clean_status()), patch.object(
+        with patch.object(CMD_IMPLEMENT_MODULE, "check_clean_tree", return_value=(True, "")), patch.object(
             CMD_IMPLEMENT_MODULE, "parse_parallel_task_groups", return_value=groups
         ), patch.object(CMD_IMPLEMENT_MODULE, "_run_serial", side_effect=[1, 0]) as mock_run_serial:
             result = MODULE.command_implement(self._args())

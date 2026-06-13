@@ -159,3 +159,34 @@ If the answer to any of those is unclear, the workflow still has a usability pro
 ## One-Sentence Recommendation
 
 Make feature factory more like a small state machine and less like a guided conversation.
+
+---
+
+## 2026-06-13 — Fix: implement Codex hang (idle watchdog + shared runner)
+
+**Incident:** During the `mcp-oauth` run, `implement` slice 3 hung 45 min with zero
+output and no alert; an identical retry worked, so the stall was transient. Root
+cause: `_run_codex_command` wrapped `codex exec` in `subprocess.run(timeout=3600)`
+— a 60-min blocking wall with no idle/no-output detection.
+
+**What changed:**
+- New `factory_codex_runner.py` — one shared `codex exec` runner with an idle/
+  no-output watchdog (kill + retryable sentinel after N idle seconds), an overall
+  hard cap, process-group kill (no orphans), a per-60s liveness line, and a PATH
+  preflight. Tunable via `FF_CODEX_IDLE_TIMEOUT` (default 300s), `FF_CODEX_HARD_TIMEOUT`
+  (3600s), `FF_CODEX_MAX_ATTEMPTS` (2).
+- `implement` now uses it with auto-retry-once on a transient idle stall; a
+  persistent stall fails the slice fast instead of hanging.
+- `dispatch-codex` now uses the SAME runner — collapsing the duplicate "run codex"
+  core that had drifted (dispatch was already better: 600s cap, process-group kill,
+  artifacts out of /tmp). One implementation, two call sites.
+- Prompt/transcript moved out of `/tmp` into `feature-runs/<slug>/codex-specs/`
+  (SKILL Rule 2). The verbose `.codex.log` is gitignored; the spec is kept.
+- Hard-kill recovery: `command_implement` prunes orphaned per-slice worktrees from
+  a prior killed run (the flock already auto-releases, so no manual lock `rm`).
+- Deduped the clean-tree gate into `factory_git.check_clean_tree`.
+
+**Stale brief claims corrected:** the heartbeat *does* print to stdout (just too
+coarse); the `/tmp` prompt file was never read by Codex (passed inline), so its GC
+was not a hang cause; the flock already auto-releases, so the manual lock `rm` was
+unnecessary — the real recovery gap was orphaned worktrees.

@@ -219,9 +219,14 @@ class DispatchCodexE2ETests(unittest.TestCase):
                     self._stdout = ""
                     self._stderr = ""
                     self._real = None
+                    # The shared runner streams stdout/stderr line-by-line.
+                    self.stdout = io.StringIO(self._stdout)
+                    self.stderr = io.StringIO(self._stderr)
                 else:
                     self._is_mock = False
                     self._real = captured_real(*args, **kwargs)
+                    self.stdout = self._real.stdout
+                    self.stderr = self._real.stderr
 
             def communicate(self, input=None, timeout=None):
                 if self._is_mock:
