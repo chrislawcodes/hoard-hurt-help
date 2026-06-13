@@ -111,15 +111,35 @@ async def user_disconnected_connection_count(db: AsyncSession, user_id: int) -> 
     return (await db.scalar(stmt)) or 0
 
 
+async def user_has_agent(db: AsyncSession, user_id: int) -> bool:
+    """True if the user owns at least one real (non-bot) AI agent."""
+    stmt = (
+        select(func.count())
+        .select_from(Agent)
+        .where(
+            Agent.user_id == user_id,
+            Agent.archived_at.is_(None),
+            Agent.kind == AgentKind.AI,
+        )
+    )
+    return bool(await db.scalar(stmt))
+
+
 async def compute_nav_cta(db: AsyncSession, user: User | None) -> NavCta:
-    """Resolve the Play CTA for this visitor."""
+    """Resolve the Play CTA for this visitor.
+
+    Agent-first ordering, matching how a player actually gets into a game:
+    create an agent (the competitor) -> connect your AI -> play. A brand-new
+    user is pointed at agent creation, NOT at the connector — you need a
+    competitor before connecting one makes any sense.
+    """
     if user is None:
         return NavCta(label="Get started", href="/play")
     if await user_has_connected_agent(db, user.id):
         return NavCta(label="Play now", href="/games/hoard-hurt-help#lobby-upcoming")
-    if await user_connection_count(db, user.id) > 0:
-        return NavCta(label="Create an Agent", href="/me/agents/new")
-    return NavCta(label="Connect your AI", href="/me/connections")
+    if await user_has_agent(db, user.id):
+        return NavCta(label="Connect your AI", href="/me/connections")
+    return NavCta(label="Create your agent", href="/me/agents/new")
 
 
 async def populate_nav_cta(request: Request, db: DbSession) -> None:

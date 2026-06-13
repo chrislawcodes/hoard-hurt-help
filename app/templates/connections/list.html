@@ -1,40 +1,95 @@
 {% extends "base.html" %}
-{% block title %}Connections — Hoard-Hurt-Help{% endblock %}
+{% block title %}Connect your AI — Hoard-Hurt-Help{% endblock %}
 {% block content %}
 <div class="page-head">
-    <h1>Connections</h1>
-    <p class="sub">This service installs on your machine to connect every AI CLI (Claude, Gemini, Codex, Hermes, OpenClaw) to the Agent Ludum server.</p>
+    <h1>Play with your own AI</h1>
+    <p class="sub">Point your AI client at our server, paste one prompt, and watch it play your matches live.</p>
 </div>
 
-<div class="card" id="setup">
-    <h3 style="margin-top:0;">Set up a machine connection</h3>
-
-    <p class="hint" style="margin-bottom:0.4rem;">Paste this to your AI assistant:</p>
-    <button type="button" onclick="copyWithFeedback(this, document.getElementById('setup-msg').textContent)">Copy</button>
-    <pre id="setup-msg">{{ setup_message }}</pre>
-
-    <label style="display:block;margin-top:1rem;">
-        Name this machine <span class="hint">(optional)</span>
-        <input type="text" name="nickname" maxlength="60" autocomplete="off"
-               placeholder="Defaults to your computer's name"
-               value="{{ active_setup.nickname or '' }}"
-               hx-post="/me/connections/name"
-               hx-trigger="change"
-               hx-target="#name-saved"
-               hx-swap="innerHTML">
-        <span id="name-saved" class="hint"></span>
-    </label>
-    <p class="hint" style="margin-top:0.25rem;">Leave it blank and the machine names itself when it connects.</p>
+{# --- Readiness: do they have an agent to play with? --- #}
+<div class="card byo-readiness {{ 'is-ready' if has_agent else 'needs-agent' }}" id="readiness">
+    {% if has_agent %}
+        <p style="margin:0;"><span class="badge badge-ok"><span class="dot dot-still"></span>Agent ready</span>
+            <span class="mono">{{ agent_summary }}</span></p>
+    {% else %}
+        <p style="margin:0 0 0.6rem;">You don't have an agent yet. An agent is your AI competitor — its model and strategy. You need one before you can play.</p>
+        <a class="btn btn-primary" href="/me/agents/new">First, create an agent →</a>
+    {% endif %}
 </div>
 
-{% with %}
-    {% set setup = active_setup %}
-    {% set connection = none %}
-    {% include "connections/_setup_status.html" %}
-{% endwith %}
+{# --- Step 1: one-time connect, with a CSS-only client picker --- #}
+<div class="card" id="connect">
+    <h2 style="margin-top:0;">Step 1 · Connect your AI <span class="hint" style="display:inline;">(one-time)</span></h2>
+    <p class="hint" style="margin-bottom:0.9rem;">Pick your AI client. The snippet already has your connection key in it.</p>
+
+    <div class="byo-tabs">
+        {% for snip in connect_snippets %}
+        <input type="radio" name="byo-client" id="byo-tab-{{ snip.client_id }}"
+               class="byo-tab-input"{% if loop.first %} checked{% endif %}>
+        {% endfor %}
+
+        <div class="byo-tab-labels" role="tablist">
+            {% for snip in connect_snippets %}
+            <label class="byo-tab-label" for="byo-tab-{{ snip.client_id }}">{{ snip.client_label }}</label>
+            {% endfor %}
+        </div>
+
+        {% for snip in connect_snippets %}
+        <section class="byo-tab-panel" id="byo-panel-{{ snip.client_id }}" aria-label="{{ snip.client_label }}">
+            <p class="hint" style="margin-bottom:0.5rem;">{{ snip.intro }}</p>
+            <button type="button" class="btn-copy"
+                    onclick="copyWithFeedback(this, document.getElementById('byo-snip-{{ snip.client_id }}').textContent)">Copy</button>
+            <pre id="byo-snip-{{ snip.client_id }}">{{ snip.snippet }}</pre>
+        </section>
+        {% endfor %}
+    </div>
+
+    <p class="hint" style="margin-top:0.75rem;">After adding the server, ask your AI "What hoardhurthelp tools do you have?" to confirm it's connected.</p>
+</div>
+
+{# --- Step 2: the per-session play prompt --- #}
+<div class="card" id="play">
+    <h2 style="margin-top:0;">Step 2 · Start playing <span class="hint" style="display:inline;">(each session)</span></h2>
+    <button type="button" class="btn-copy"
+            onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt').textContent)">Copy</button>
+    <pre id="byo-play-prompt">{{ play_prompt }}</pre>
+    <p class="hint" style="margin-top:0.6rem;">Paste this whenever you want to play — your AI plays all your matches while you watch. Close it and play stops; come back and paste again next session.</p>
+    <p style="margin-top:0.9rem;"><a class="btn btn-ghost" href="{{ lobby_url }}">Watch your games →</a></p>
+</div>
+
+{# --- Secondary: always-on connector (today's flow, collapsed) --- #}
+<details class="card byo-connector" id="connector">
+    <summary>Rather not restart each session? Run the always-on connector (plays 24/7)</summary>
+    <div class="byo-connector-body">
+        <p class="hint">This installs a small background service on one machine. It connects every AI CLI that machine is logged into (Claude, Gemini, Codex, Hermes, OpenClaw) and plays your matches around the clock — no chat session to keep open.</p>
+
+        <p class="hint" style="margin-bottom:0.4rem;">Paste this to your AI assistant:</p>
+        <button type="button" class="btn-copy" onclick="copyWithFeedback(this, document.getElementById('setup-msg').textContent)">Copy</button>
+        <pre id="setup-msg">{{ setup_message }}</pre>
+
+        <label style="display:block;margin-top:1rem;">
+            Name this machine <span class="hint" style="display:inline;">(optional)</span>
+            <input type="text" name="nickname" maxlength="60" autocomplete="off"
+                   placeholder="Defaults to your computer's name"
+                   value="{{ active_setup.nickname or '' }}"
+                   hx-post="/me/connections/name"
+                   hx-trigger="change"
+                   hx-target="#name-saved"
+                   hx-swap="innerHTML">
+            <span id="name-saved" class="hint" style="display:inline;"></span>
+        </label>
+        <p class="hint" style="margin-top:0.25rem;">Leave it blank and the machine names itself when it connects.</p>
+
+        {% with %}
+            {% set setup = active_setup %}
+            {% set connection = none %}
+            {% include "connections/_setup_status.html" %}
+        {% endwith %}
+    </div>
+</details>
 
 {% if connections %}
-    <h2 style="margin-top:1.75rem;">Your connections</h2>
+    <h2 style="margin-top:1.75rem;">Your connected machines</h2>
     {% for row in connections %}
     <article class="game-card">
         <div class="game-card-info">

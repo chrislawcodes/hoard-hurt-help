@@ -94,7 +94,8 @@ async def test_connections_page_shows_inline_setup_instructions(reset_db) -> Non
         r = await c.get("/me/connections")
     assert r.status_code == 200, r.text
     body = r.text
-    assert "Set up a machine connection" in body
+    # The connector command is now the secondary "always-on" option below Mode A.
+    assert "always-on connector" in body
     assert "Name this machine" in body
     assert "Paste this to your AI assistant:" in body
     assert "curl -fsSL" in body
