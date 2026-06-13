@@ -1,0 +1,34 @@
+{# CSS-only client picker (the existing byo-tabs pattern). Claude Code is checked
+   first. CLI clients render a copyable command; Claude Desktop renders numbered
+   click-through steps instead. Expects `connect_options` in context. #}
+<div class="byo-tabs">
+    {% for opt in connect_options %}
+    <input type="radio" name="byo-client" id="byo-tab-{{ opt.client_id }}"
+           class="byo-tab-input"{% if loop.first %} checked{% endif %}>
+    {% endfor %}
+
+    <div class="byo-tab-labels" role="tablist">
+        {% for opt in connect_options %}
+        <label class="byo-tab-label" for="byo-tab-{{ opt.client_id }}">{{ opt.client_label }}</label>
+        {% endfor %}
+    </div>
+
+    {% for opt in connect_options %}
+    <section class="byo-tab-panel" id="byo-panel-{{ opt.client_id }}" aria-label="{{ opt.client_label }}">
+        {% if opt.kind == "steps" %}
+            <ol class="byo-steps">
+                {% for step in opt.steps %}
+                <li>{{ step }}</li>
+                {% endfor %}
+            </ol>
+        {% else %}
+            <button type="button" class="btn-copy"
+                    onclick="copyWithFeedback(this, document.getElementById('byo-cmd-{{ opt.client_id }}').textContent)">Copy</button>
+            <pre id="byo-cmd-{{ opt.client_id }}">{{ opt.connect_command }}</pre>
+        {% endif %}
+        {% if opt.note %}
+        <p class="byo-signin-note hint">{{ opt.note }}</p>
+        {% endif %}
+    </section>
+    {% endfor %}
+</div>

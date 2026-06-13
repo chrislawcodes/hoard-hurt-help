@@ -618,25 +618,64 @@ pre code { background: none; padding: 0; }
 .byo-tab-label:hover { border-color: var(--accent); }
 .byo-tab-panel { display: none; }
 /* Map each checked radio to its label (highlight) and its panel (show). The
- * order matches the template's loop: Claude Code, Claude Desktop, Codex, Gemini, Cursor. */
+ * order matches the template's loop: Claude Code, Codex, Gemini, Claude Desktop. */
 #byo-tab-claude-code:checked ~ .byo-tab-labels label[for="byo-tab-claude-code"],
-#byo-tab-claude-desktop:checked ~ .byo-tab-labels label[for="byo-tab-claude-desktop"],
 #byo-tab-codex:checked ~ .byo-tab-labels label[for="byo-tab-codex"],
 #byo-tab-gemini:checked ~ .byo-tab-labels label[for="byo-tab-gemini"],
-#byo-tab-cursor:checked ~ .byo-tab-labels label[for="byo-tab-cursor"] {
+#byo-tab-claude-desktop:checked ~ .byo-tab-labels label[for="byo-tab-claude-desktop"] {
     background: var(--accent);
     color: var(--accent-ink);
     border-color: var(--accent);
 }
 #byo-tab-claude-code:checked ~ #byo-panel-claude-code,
-#byo-tab-claude-desktop:checked ~ #byo-panel-claude-desktop,
 #byo-tab-codex:checked ~ #byo-panel-codex,
 #byo-tab-gemini:checked ~ #byo-panel-gemini,
-#byo-tab-cursor:checked ~ #byo-panel-cursor { display: block; }
+#byo-tab-claude-desktop:checked ~ #byo-panel-claude-desktop { display: block; }
+
+/* Numbered click-through steps for GUI clients (Claude Desktop). */
+.byo-steps { margin: 0 0 0.4rem; padding-left: 1.3rem; }
+.byo-steps li { margin-bottom: 0.35rem; }
+
+/* Short "Sign in with Google" note shown under a command / steps. */
+.byo-signin-note { margin-top: 0.5rem; }
 
 .byo-connector summary { cursor: pointer; font-weight: 700; }
 .byo-connector summary:hover { color: var(--accent); }
 .byo-connector-body { margin-top: 0.9rem; }
+
+/* Collapsed secondary blocks (returning "✓ Set up", reconnect). */
+.byo-collapsed summary { cursor: pointer; font-weight: 700; }
+.byo-collapsed summary:hover { color: var(--accent); }
+.byo-tick { color: var(--help); }
+
+/* Listening region: a pulsing dot while we wait for the AI to connect. */
+.byo-listening {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    font-weight: 600;
+}
+.byo-pulse-dot {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
+    animation: byo-pulse 1.6s ease-out infinite;
+}
+@keyframes byo-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+    70% { box-shadow: 0 0 0 0.6rem color-mix(in srgb, var(--accent) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .byo-pulse-dot { animation: none; }
+}
+
+/* Post-connect "you're live" block. */
+.byo-live { margin-top: 1rem; }
+.byo-live-head { margin: 0; font-weight: 600; }
 
 
 /* ---- Lobby ---- */
