@@ -50,15 +50,25 @@ command + one-click "Sign in with Google"**. No `sk_conn_` key in the paste, eve
 
 **Clients:** Claude Code (default/hero), Codex, Gemini, and Claude Desktop. Cursor dropped.
 
-- **CLI clients** — one chained terminal command. New user (wire + play):
-  `claude mcp add --transport http hoardhurthelp <url> --scope user && claude "Connect to
-  Hoard Hurt Help and play all my games."` Returning user (already wired): just the
-  `claude "…"` line. The chain works because a fresh `claude` launch loads the just-added
-  tools at startup (a running session can't hot-load them). On first connect a "Sign in
-  with Google" window opens.
-- **Claude Desktop** — click-through, not a command: Settings → Connectors → Add custom
-  connector → paste the `/mcp` URL → Sign in with Google. Labeled: great for trying it out;
-  CLI or the always-on connector is steadier for long unattended play.
+The real OAuth connect is **multi-step**, not one paste (a chained one-liner can't work —
+the client needs an interactive Google sign-in and a reload before the tools load). The
+flow, matching `mcp-oauth`'s `docs/setup-mcp.md` exactly: **add the server → sign in with
+Google → paste the play-prompt.**
+
+- **Claude Code** — `claude mcp add --transport http hoardhurthelp <url>`, then run `/mcp`
+  → Authenticate (browser opens for Google). No `--header`.
+- **Codex** — a `~/.codex/config.toml` block (`[mcp_servers.hoardhurthelp]` / `url = …`, no
+  `http_headers`); browser sign-in on first use.
+- **Gemini** — `gemini mcp add hoardhurthelp <url> --transport http`; browser sign-in on
+  first connect.
+- **Claude Desktop** — Settings → Connectors → Add custom connector → paste the `/mcp` URL
+  → enable it → sign in with Google. Labeled: great for trying it out; CLI or the always-on
+  connector is steadier for long unattended play.
+
+The **play-prompt** (the full talk/act loop, identical across clients) is pasted *after*
+sign-in; the page shows it in the live + returning states. The exact command/prompt text
+is owned by `mcp-oauth`'s `docs/setup-mcp.md` and mirrored in `_connect_options()` /
+`_play_prompt()` — keep them in sync.
 
 The **always-on connector** stays as the collapsed secondary option (true set-and-forget).
 

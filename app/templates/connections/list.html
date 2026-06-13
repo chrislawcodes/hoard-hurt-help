@@ -7,9 +7,9 @@
 </div>
 
 {# === The one self-advancing box. What it leads with depends on the user's state:
-   NEW (never connected) → the connect command + Listening region.
-   RETURNING (connected before, nothing live now) → the short "start playing" command.
-   ALREADY PLAYING (a connection is live now) → Join a game, everything else collapsed. === #}
+   NEW (never connected) → the add-server picker + Listening region.
+   RETURNING (connected before, nothing live now) → the play-prompt to start playing again.
+   ALREADY PLAYING (a connection is live now) → play-prompt + Join a game. === #}
 
 {% if is_live_now %}
     {# --- ALREADY PLAYING: lead with the post-connect block (play-prompt +

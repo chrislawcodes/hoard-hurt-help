@@ -13,8 +13,8 @@
                 Your AI is connected and live.</p>
             <p style="margin:0.6rem 0 0.4rem;"><strong>Signed in — paste this to start playing:</strong></p>
             <button type="button" class="btn-copy"
-                    onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt').textContent)">Copy</button>
-            <pre id="byo-play-prompt">{{ play_prompt }}</pre>
+                    onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt-live').textContent)">Copy</button>
+            <pre id="byo-play-prompt-live">{{ play_prompt }}</pre>
             {% if has_agent %}
                 <p style="margin:0.8rem 0 0.8rem;">You're ready. Pick which games to enter
                     {% if agent_summary %}<span class="mono">({{ agent_summary }})</span>{% endif %}.</p>
