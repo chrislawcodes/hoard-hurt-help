@@ -1,34 +1,34 @@
 {
-  "session_id": "278b950a-9805-4352-a5cb-df5b1f7ad36e",
-  "response": "## Findings\n\n1.  **[CRITICAL] Unchecked Subprocess/Resource Lifetime:** In `app/engine/mode_a_connection.py`, the resurrection of a previously deleted `Connection` (`deleted_connection.runner_pid = None`) implicitly disconnects the previous runner. There is no logic here to signal, terminate, or verify the status of the process previously identified by `runner_pid`. This creates a dangling process scenario where an old, potentially authenticated, runner might still be operating in the background, unaware that its connection has been re-bound to a new context.\n2.  **[HIGH] Silent Failure on Resurrected Connection:** In `_mode_a_connection_once`, if a `deleted_connection` is found, it is resurrected without verifying if the original associated account state (or external auth provider state) remains valid. The function assumes that clearing `deleted_at` and resetting status to `ACTIVE` is sufficient for a \"resurrected\" connection, which may be an insecure assumption if the previous deletion was triggered by security or compliance events.\n3.  **[MEDIUM] `mode_a_connection_for` Retry Loop Exhaustion:** The loop in `mode_a_connection_for` raises `RuntimeError` if the retry limit is hit. While the `_is_retryable_db_error` filter attempts to identify legitimate race conditions, any non-retryable `IntegrityError` (such as a logic error where an unexpected constraint is violated) will result in a hard failure, which is appropriate, but the lack of logging or diagnostic context in the `except` block makes debugging such failures in production extremely difficult.\n4.  **[LOW] [UNVERIFIED] Potential Partial Updates:** In `_mode_a_connection_once`, the code performs multiple attribute assignments on `Connection` objects (e.g., `deleted_connection.provider = None`, `deleted_connection.status = ConnectionStatus.ACTIVE`, etc.) before calling `await db.flush()`. Depending on the SQLAlchemy session state and the nature of the ORM identity map, an interrupted execution could theoretically lead to an inconsistent state if these updates are partially committed or if an exception triggers a rollback before completion, especially given the complex nested logic.\n\n## Residual Risks\n\n*   **Race Conditions on Re-use:** Even with the partial unique index and the `_USER_LOCKS` mechanism, if the application is deployed in a multi-worker environment (multiple distinct OS processes), the in-memory `_USER_LOCKS` dictionary will be local to each worker. This provides no concurrency control across processes, potentially leading to multiple workers attempting to create or resurrect connections simultaneously, relying entirely on the DB-level uniqueness constraint.\n*   **State Drift:** The `_ensure_mode_a_providers` function iterates through known providers and forces `enabled=True`. If an external administrative action disables specific providers for a user, this \"Mode A\" bootstrap logic will silently overwrite those settings upon connection use, effectively granting unauthorized access to previously disabled provider integrations.",
+  "session_id": "efe62d5e-a808-4e2c-b41a-e3251633ad2e",
+  "response": "## Findings\n\n1.  **[UNVERIFIED] Missing Dependency Injection Error Handling (`mcp_server/server.py`):**\n    The code assumes `CurrentAccessToken()` and `Depends(get_session)` will always return a valid object. If the dependency injection container fails to resolve these or if `get_session` raises a connection error during setup, the MCP tools will fail with an unhandled exception. While `fastmcp` might handle some of this, relying on implicit success here is a risky design pattern when auth or DB access is involved.\n\n2.  **[UNVERIFIED] Placeholder Credential Risk (`mcp_server/server.py`):**\n    `_build_auth_provider` uses placeholder values (`dev-google-client-id`/`dev-google-client-secret`) if env vars are missing. While it logs a warning, the system proceeds to initialize the `GoogleProvider` with these insecure defaults. If these env vars are missing in a production environment (due to configuration drift or misconfiguration), the MCP server will start in an insecure \"fail-open\" state where OAuth might behave unexpectedly or block all authentication, depending on how `GoogleProvider` handles invalid secrets.\n\n3.  **[UNVERIFIED] `_resolve_oauth_connection` and `_resolve_oauth_player` Failure Modes (`mcp_server/server.py`):**\n    These helper functions raise `RuntimeError` on authentication failure. If `fastmcp` doesn't explicitly catch `RuntimeError` and return it as a structured MCP error, these tools will raise unhandled exceptions in the server process, potentially leading to 500-type errors or process-level instability depending on the underlying ASGI/fast## Findings\n\n### 1. Insecure/Placeholder Default Credentials [HIGH]\nIn `mcp_server/server.py`, the `_build_auth_provider` function falls back to insecure placeholder strings (`dev-google-client-id`, `dev-google-client-secret`) if the environment variables are missing. While it logs a warning, this fail-open behavior allows the OAuth provider to initialize in a broken state rather than failing startup, potentially leading to hard-to-debug runtime issues for end users who fail to configure their environment.\n\n### 2. Lack of Explicit Check for `email_verified` [MEDIUM]\nIn `_google_userinfo_from_token`, the code extracts `email_verified` from the claims but does not enforce that it is `True`. While it includes a comment-implied logic to cast string values to booleans, it does not explicitly raise an error or return a failure if the email is unverified. Depending on how `sync_google_user` consumes this `GoogleUserInfo`, this could allow unverified identity claims to be associated with an account.\n\n### 3. Swallowed Error/Fallback in `_unwrap` Removal [LOW]\nThe previous implementation of `_unwrap` (which was removed) included a `try-except` block around `r.json()` that could lead to an empty dictionary being returned if JSON parsing failed. While the new implementation uses direct service calls (`play_get_next_turn`, etc.), ensuring that these service-layer functions (e.g., `app.engine.agent_play`) do not silently swallow exceptions or return default empty states when an underlying DB or logic operation fails is critical.\n\n### 4. Unchecked Result of `assert_connection_usable` [UNVERIFIED]\nIn `_resolve_oauth_connection`, `assert_connection_usable(connection)` is called. If this function is designed to raise an exception upon failure, it is correctly handled. However, if it relies on logging or returning a boolean without enforcing control flow, it might lead to a silent failure where a blocked/disabled connection is treated as active.\n\n## Residual Risks\n\n*   **OAuth Lifecycle Mismanagement:** The use of `MemoryStore()` for `client_storage` in the OAuth provider means that in a multi-process or containerized deployment, token state will not be persisted across restarts or shared between processes, leading to frequent re-authentication requirements or potential race conditions if the server processes are scaled.\n*   **Root Mount Collision:** Mounting the MCP app at `/` in `app/main.py` is a significant change. While the code attempts to manage this via the `mcp_app.http_app` path configuration, there is a risk that the MCP catch-all route could shadow future FastAPI routes if they are added at the root level, creating a silent regression where new routes appear broken or unrouted.",
   "stats": {
     "models": {
       "gemini-3.1-flash-lite": {
         "api": {
-          "totalRequests": 1,
+          "totalRequests": 2,
           "totalErrors": 0,
-          "totalLatencyMs": 4189
+          "totalLatencyMs": 9493
         },
         "tokens": {
-          "input": 15384,
-          "prompt": 15384,
-          "candidates": 643,
-          "total": 16027,
-          "cached": 0,
+          "input": 544,
+          "prompt": 20261,
+          "candidates": 609,
+          "total": 20870,
+          "cached": 19717,
           "thoughts": 0,
           "tool": 0
         },
         "roles": {
           "main": {
-            "totalRequests": 1,
+            "totalRequests": 2,
             "totalErrors": 0,
-            "totalLatencyMs": 4189,
+            "totalLatencyMs": 9493,
             "tokens": {
-              "input": 15384,
-              "prompt": 15384,
-              "candidates": 643,
-              "total": 16027,
-              "cached": 0,
+              "input": 544,
+              "prompt": 20261,
+              "candidates": 609,
+              "total": 20870,
+              "cached": 19717,
               "thoughts": 0,
               "tool": 0
             }

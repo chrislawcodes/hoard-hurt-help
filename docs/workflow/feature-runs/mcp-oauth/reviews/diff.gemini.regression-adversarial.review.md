@@ -3,14 +3,14 @@ reviewer: "gemini"
 lens: "regression-adversarial"
 stage: "diff"
 artifact_path: "docs/workflow/feature-runs/mcp-oauth/reviews/implementation.diff.patch"
-artifact_sha256: "8921a3fb1e15417b3b2eebb764ea512098aad5f1d45cf584841e1e2f1d10c0a9"
+artifact_sha256: "9630a33a1179b5b009efeb78985afa0a4e6313615e91f131ae02a83b2571086a"
 repo_root: "."
-git_head_sha: "8f1cc1a0342fa69643b542b885a93918477f2d5a"
-git_base_ref: "ebdd5d67924b4932914f894c9eeb536e5d50e13d"
-git_base_sha: "ebdd5d67924b4932914f894c9eeb536e5d50e13d"
+git_head_sha: "4e0163eecb11830659a38d9dc3a0acf9fa45348e"
+git_base_ref: "8f1cc1a0342fa69643b542b885a93918477f2d5a"
+git_base_sha: "8f1cc1a0342fa69643b542b885a93918477f2d5a"
 generation_method: "gemini-cli"
 resolution_status: "accepted"
-resolution_note: "CRITICAL (dangling runner on resurrection): FALSE POSITIVE — verified mode_a_connection.py only sets runner_pid=None; a Mode A connection has NO connector daemon (runner_pid is vestigial for OAuth connections, which play in-process via /mcp), so there is no process to terminate. HIGH (resurrect skips security re-check): mitigated by design — assert_connection_usable re-checks deleted(410)/paused(403)/disabled-account(403) on EVERY use (verified in app/deps.py), and Slice 4 re-verifies the OAuth token + calls assert_connection_usable per tool call (AD-7; Slice 4 verification: disabled-user token rejected). Resurrection reuses the row; authorization happens at use time, not creation. MEDIUM (retry-exhaustion lacks logging): minor observability nit — it already fails loud via RuntimeError (CLAUDE.md-compliant); an optional log line can fold into a later slice. LOW (partial updates before flush): unfounded — the assignments are within one transaction; an exception rolls back, no partial commit. No real regression or security hole."
+resolution_note: "HIGH (fail-open placeholder Google creds in _build_auth_provider): VALID — local dev warn-but-run is intended (FR-013), but a real deployment MUST fail loud. BINDING Slice 5 requirement: extend _check_oauth_config to require the new OAuth vars (Google client id/secret already checked; ADD mcp base_url + JWT signing key) and exit before serving when RAILWAY_ENVIRONMENT_ID is set, so the dev-placeholder path can never run in prod. MEDIUM (email_verified not enforced): minor — identity is keyed on google_sub (not email), consistent with the existing human sync_google_user posture; Google returns verified emails for normal accounts; optional hardening follow-up. LOW (_unwrap removal / service swallowing): non-issue — the in-process agent_play.* raise structured _err (verified Slice 2), no silent default returns. UNVERIFIED (assert_connection_usable control flow): VERIFIED in app/deps.py — it RAISES HTTPException 410/403 (enforced via exception, not a boolean). DI/RuntimeError from _resolve_oauth_*: fastmcp surfaces tool exceptions as structured MCP errors (consistent with the prior _connection_key_from_ctx RuntimeError pattern), not a process crash."
 raw_output_path: "docs/workflow/feature-runs/mcp-oauth/reviews/diff.gemini.regression-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,23 +22,39 @@ coverage_note: ""
 
 ## Findings
 
-1.  **[CRITICAL] Unchecked Subprocess/Resource Lifetime:** In `app/engine/mode_a_connection.py`, the resurrection of a previously deleted `Connection` (`deleted_connection.runner_pid = None`) implicitly disconnects the previous runner. There is no logic here to signal, terminate, or verify the status of the process previously identified by `runner_pid`. This creates a dangling process scenario where an old, potentially authenticated, runner might still be operating in the background, unaware that its connection has been re-bound to a new context.
-2.  **[HIGH] Silent Failure on Resurrected Connection:** In `_mode_a_connection_once`, if a `deleted_connection` is found, it is resurrected without verifying if the original associated account state (or external auth provider state) remains valid. The function assumes that clearing `deleted_at` and resetting status to `ACTIVE` is sufficient for a "resurrected" connection, which may be an insecure assumption if the previous deletion was triggered by security or compliance events.
-3.  **[MEDIUM] `mode_a_connection_for` Retry Loop Exhaustion:** The loop in `mode_a_connection_for` raises `RuntimeError` if the retry limit is hit. While the `_is_retryable_db_error` filter attempts to identify legitimate race conditions, any non-retryable `IntegrityError` (such as a logic error where an unexpected constraint is violated) will result in a hard failure, which is appropriate, but the lack of logging or diagnostic context in the `except` block makes debugging such failures in production extremely difficult.
-4.  **[LOW] [UNVERIFIED] Potential Partial Updates:** In `_mode_a_connection_once`, the code performs multiple attribute assignments on `Connection` objects (e.g., `deleted_connection.provider = None`, `deleted_connection.status = ConnectionStatus.ACTIVE`, etc.) before calling `await db.flush()`. Depending on the SQLAlchemy session state and the nature of the ORM identity map, an interrupted execution could theoretically lead to an inconsistent state if these updates are partially committed or if an exception triggers a rollback before completion, especially given the complex nested logic.
+1.  **[UNVERIFIED] Missing Dependency Injection Error Handling (`mcp_server/server.py`):**
+    The code assumes `CurrentAccessToken()` and `Depends(get_session)` will always return a valid object. If the dependency injection container fails to resolve these or if `get_session` raises a connection error during setup, the MCP tools will fail with an unhandled exception. While `fastmcp` might handle some of this, relying on implicit success here is a risky design pattern when auth or DB access is involved.
+
+2.  **[UNVERIFIED] Placeholder Credential Risk (`mcp_server/server.py`):**
+    `_build_auth_provider` uses placeholder values (`dev-google-client-id`/`dev-google-client-secret`) if env vars are missing. While it logs a warning, the system proceeds to initialize the `GoogleProvider` with these insecure defaults. If these env vars are missing in a production environment (due to configuration drift or misconfiguration), the MCP server will start in an insecure "fail-open" state where OAuth might behave unexpectedly or block all authentication, depending on how `GoogleProvider` handles invalid secrets.
+
+3.  **[UNVERIFIED] `_resolve_oauth_connection` and `_resolve_oauth_player` Failure Modes (`mcp_server/server.py`):**
+    These helper functions raise `RuntimeError` on authentication failure. If `fastmcp` doesn't explicitly catch `RuntimeError` and return it as a structured MCP error, these tools will raise unhandled exceptions in the server process, potentially leading to 500-type errors or process-level instability depending on the underlying ASGI/fast## Findings
+
+### 1. Insecure/Placeholder Default Credentials [HIGH]
+In `mcp_server/server.py`, the `_build_auth_provider` function falls back to insecure placeholder strings (`dev-google-client-id`, `dev-google-client-secret`) if the environment variables are missing. While it logs a warning, this fail-open behavior allows the OAuth provider to initialize in a broken state rather than failing startup, potentially leading to hard-to-debug runtime issues for end users who fail to configure their environment.
+
+### 2. Lack of Explicit Check for `email_verified` [MEDIUM]
+In `_google_userinfo_from_token`, the code extracts `email_verified` from the claims but does not enforce that it is `True`. While it includes a comment-implied logic to cast string values to booleans, it does not explicitly raise an error or return a failure if the email is unverified. Depending on how `sync_google_user` consumes this `GoogleUserInfo`, this could allow unverified identity claims to be associated with an account.
+
+### 3. Swallowed Error/Fallback in `_unwrap` Removal [LOW]
+The previous implementation of `_unwrap` (which was removed) included a `try-except` block around `r.json()` that could lead to an empty dictionary being returned if JSON parsing failed. While the new implementation uses direct service calls (`play_get_next_turn`, etc.), ensuring that these service-layer functions (e.g., `app.engine.agent_play`) do not silently swallow exceptions or return default empty states when an underlying DB or logic operation fails is critical.
+
+### 4. Unchecked Result of `assert_connection_usable` [UNVERIFIED]
+In `_resolve_oauth_connection`, `assert_connection_usable(connection)` is called. If this function is designed to raise an exception upon failure, it is correctly handled. However, if it relies on logging or returning a boolean without enforcing control flow, it might lead to a silent failure where a blocked/disabled connection is treated as active.
 
 ## Residual Risks
 
-*   **Race Conditions on Re-use:** Even with the partial unique index and the `_USER_LOCKS` mechanism, if the application is deployed in a multi-worker environment (multiple distinct OS processes), the in-memory `_USER_LOCKS` dictionary will be local to each worker. This provides no concurrency control across processes, potentially leading to multiple workers attempting to create or resurrect connections simultaneously, relying entirely on the DB-level uniqueness constraint.
-*   **State Drift:** The `_ensure_mode_a_providers` function iterates through known providers and forces `enabled=True`. If an external administrative action disables specific providers for a user, this "Mode A" bootstrap logic will silently overwrite those settings upon connection use, effectively granting unauthorized access to previously disabled provider integrations.
+*   **OAuth Lifecycle Mismanagement:** The use of `MemoryStore()` for `client_storage` in the OAuth provider means that in a multi-process or containerized deployment, token state will not be persisted across restarts or shared between processes, leading to frequent re-authentication requirements or potential race conditions if the server processes are scaled.
+*   **Root Mount Collision:** Mounting the MCP app at `/` in `app/main.py` is a significant change. While the code attempts to manage this via the `mcp_app.http_app` path configuration, there is a risk that the MCP catch-all route could shadow future FastAPI routes if they are added at the root level, creating a silent regression where new routes appear broken or unrouted.
 
 ## Token Stats
 
-- total_input=15384
-- total_output=643
-- total_tokens=16027
-- `gemini-3.1-flash-lite`: input=15384, output=643, total=16027
+- total_input=544
+- total_output=609
+- total_tokens=20870
+- `gemini-3.1-flash-lite`: input=544, output=609, total=20870
 
 ## Resolution
 - status: accepted
-- note: CRITICAL (dangling runner on resurrection): FALSE POSITIVE — verified mode_a_connection.py only sets runner_pid=None; a Mode A connection has NO connector daemon (runner_pid is vestigial for OAuth connections, which play in-process via /mcp), so there is no process to terminate. HIGH (resurrect skips security re-check): mitigated by design — assert_connection_usable re-checks deleted(410)/paused(403)/disabled-account(403) on EVERY use (verified in app/deps.py), and Slice 4 re-verifies the OAuth token + calls assert_connection_usable per tool call (AD-7; Slice 4 verification: disabled-user token rejected). Resurrection reuses the row; authorization happens at use time, not creation. MEDIUM (retry-exhaustion lacks logging): minor observability nit — it already fails loud via RuntimeError (CLAUDE.md-compliant); an optional log line can fold into a later slice. LOW (partial updates before flush): unfounded — the assignments are within one transaction; an exception rolls back, no partial commit. No real regression or security hole.
+- note: HIGH (fail-open placeholder Google creds in _build_auth_provider): VALID — local dev warn-but-run is intended (FR-013), but a real deployment MUST fail loud. BINDING Slice 5 requirement: extend _check_oauth_config to require the new OAuth vars (Google client id/secret already checked; ADD mcp base_url + JWT signing key) and exit before serving when RAILWAY_ENVIRONMENT_ID is set, so the dev-placeholder path can never run in prod. MEDIUM (email_verified not enforced): minor — identity is keyed on google_sub (not email), consistent with the existing human sync_google_user posture; Google returns verified emails for normal accounts; optional hardening follow-up. LOW (_unwrap removal / service swallowing): non-issue — the in-process agent_play.* raise structured _err (verified Slice 2), no silent default returns. UNVERIFIED (assert_connection_usable control flow): VERIFIED in app/deps.py — it RAISES HTTPException 410/403 (enforced via exception, not a boolean). DI/RuntimeError from _resolve_oauth_*: fastmcp surfaces tool exceptions as structured MCP errors (consistent with the prior _connection_key_from_ctx RuntimeError pattern), not a process crash.

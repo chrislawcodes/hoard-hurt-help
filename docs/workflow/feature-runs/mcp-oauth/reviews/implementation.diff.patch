@@ -1,361 +1,696 @@
-diff --git a/app/deps.py b/app/deps.py
-index 8a394c8..e29d0e5 100644
---- a/app/deps.py
-+++ b/app/deps.py
-@@ -111,6 +111,43 @@ async def require_game_admin(
-     return user
+diff --git a/app/main.py b/app/main.py
+index 6986302..c6df86d 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -219,9 +219,6 @@ def create_app() -> FastAPI:
+     app.include_router(sse_routes.router)
+     app.include_router(spectator_api.router)
+ 
+-    if mcp_asgi_app is not None:
+-        app.mount("/mcp", mcp_asgi_app, name="mcp")
+-
+     @app.get("/healthz", tags=["ops"])
+     async def healthz() -> dict[str, str]:
+         return {"status": "ok"}
+@@ -230,6 +227,11 @@ def create_app() -> FastAPI:
+     async def favicon() -> FileResponse:
+         return FileResponse("app/static/favicon.svg", media_type="image/svg+xml")
+ 
++    if mcp_asgi_app is not None:
++        # Mount the FastMCP app last so its catch-all root mount does not shadow
++        # the rest of the FastAPI routes.
++        app.mount("/", mcp_asgi_app, name="mcp")
++
+     return app
  
  
-+def assert_connection_usable(connection: Connection) -> None:
-+    """Raise the same lifecycle errors that guard direct connection auth."""
-+    if connection.deleted_at is not None:
-+        raise HTTPException(
-+            status_code=status.HTTP_410_GONE,
-+            detail={
-+                "error": {
-+                    "code": "CONNECTION_DELETED",
-+                    "message": "This connection was deleted. Stop the runner.",
-+                    "details": {},
-+                }
-+            },
-+        )
-+    if connection.status == ConnectionStatus.PAUSED:
-+        raise HTTPException(
-+            status_code=status.HTTP_403_FORBIDDEN,
-+            detail={
-+                "error": {
-+                    "code": "CONNECTION_PAUSED",
-+                    "message": "This connection is paused; resume it to play.",
-+                    "details": {},
-+                }
-+            },
-+        )
-+    if connection.user.disabled_at is not None:
-+        raise HTTPException(
-+            status_code=status.HTTP_403_FORBIDDEN,
-+            detail={
-+                "error": {
-+                    "code": "ACCOUNT_DISABLED",
-+                    "message": "This account has been disabled.",
-+                    "details": {},
-+                }
-+            },
-+        )
-+
-+
- def _parse_agent_turn_token(agent_turn_token: str) -> tuple[str, int, str]:
-     """Decode `turn_token:agent_id:match_id`."""
-     try:
-@@ -226,39 +263,7 @@ async def require_connection(
-                 .where(Connection.id == connection.id)
-             )
-         ).scalar_one()
--    if connection.deleted_at is not None:
--        raise HTTPException(
--            status_code=status.HTTP_410_GONE,
--            detail={
--                "error": {
--                    "code": "CONNECTION_DELETED",
--                    "message": "This connection was deleted. Stop the runner.",
--                    "details": {},
--                }
--            },
--        )
--    if connection.status == ConnectionStatus.PAUSED:
--        raise HTTPException(
--            status_code=status.HTTP_403_FORBIDDEN,
--            detail={
--                "error": {
--                    "code": "CONNECTION_PAUSED",
--                    "message": "This connection is paused; resume it to play.",
--                    "details": {},
--                }
--            },
--        )
--    if connection.user.disabled_at is not None:
--        raise HTTPException(
--            status_code=status.HTTP_403_FORBIDDEN,
--            detail={
--                "error": {
--                    "code": "ACCOUNT_DISABLED",
--                    "message": "This account has been disabled.",
--                    "details": {},
--                }
--            },
--        )
-+    assert_connection_usable(connection)
+diff --git a/mcp_server/server.py b/mcp_server/server.py
+index f90004a..508d0e1 100644
+--- a/mcp_server/server.py
++++ b/mcp_server/server.py
+@@ -1,25 +1,76 @@
+-"""MCP server wrapping our HTTP API.
++"""MCP server for Hoard Hurt Help.
  
-     await mark_seen(db, connection, key_hash=key_hash)
-     return connection
-diff --git a/app/engine/mode_a_connection.py b/app/engine/mode_a_connection.py
-new file mode 100644
-index 0000000..9687392
---- /dev/null
-+++ b/app/engine/mode_a_connection.py
-@@ -0,0 +1,181 @@
-+"""Mode A connection bootstrap helpers for OAuth/MCP play."""
-+
+-Hosted at /mcp on the same FastAPI app. Nine tools:
+-- get_turn(match_id): poll for the agent's turn payload
+-- submit_action(match_id, action, target_id, message, turn_token): submit
+-- get_game_state(match_id): public snapshot
+-
+-Auth: the connection sets the `X-Connection-Key` header on the MCP connection itself
+-(Hermes `config.yaml` `headers:`, `claude mcp add --header`, etc.). The
+-authenticated tools read that header off each request's context, so the key
+-stays in the client config and never has to appear in the chat prompt.
++The MCP layer uses Google OAuth, resolves the signed-in user to the canonical
++Mode A connection, and calls the shared play service in-process.
+ """
+ 
+-from typing import Any
 +from __future__ import annotations
 +
-+import asyncio
-+from datetime import datetime, timezone
-+
-+from sqlalchemy import select
-+from sqlalchemy.exc import IntegrityError, OperationalError
++import logging
++from typing import Any, cast
+ 
+-import httpx
+-from fastmcp import Context, FastMCP
++from fastmcp import FastMCP
++from fastmcp.dependencies import CurrentAccessToken, Depends
++from fastmcp.server.auth.providers.google import GoogleProvider
++from fastmcp.server.dependencies import AccessToken
++from key_value.aio.stores.memory import MemoryStore
 +from sqlalchemy.ext.asyncio import AsyncSession
-+from sqlalchemy.orm import joinedload
+ 
+ from app.config import settings
++from app.db import get_session
++from app.deps import assert_connection_usable, require_agent_player
++from app.engine.agent_play import (
++    chat_transcript,
++    get_next_turn as play_get_next_turn,
++    opponent_history,
++    poll_turn,
++    standings,
++    submit_action as play_submit_action,
++    submit_talk as play_submit_talk,
++    turn_detail,
++)
++from app.engine.connection_activity import mark_seen
++from app.engine.mode_a_connection import mode_a_connection_for
++from app.models.connection import Connection
++from app.models.player import Player
++from app.routes.auth import sync_google_user
++from app.routes.spectator_api import public_state
++from app.schemas.auth import GoogleUserInfo
 +
-+from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
-+from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
-+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
-+from app.models.user import User
++logger = logging.getLogger(__name__)
 +
-+_MAX_ATTEMPTS = 3
-+# Serializes one user's bootstrap path inside this process; the partial unique
-+# index is still the source of truth for live-row uniqueness.
-+_USER_LOCKS: dict[int, asyncio.Lock] = {}
++def _build_auth_provider() -> GoogleProvider:
++    """Create the OAuth proxy used for MCP client sign-in.
 +
-+
-+def _is_retryable_db_error(exc: Exception) -> bool:
-+    """True for the unique/locking races this helper is expected to absorb."""
-+    if isinstance(exc, IntegrityError):
-+        return True
-+    if isinstance(exc, OperationalError):
-+        return "locked" in str(getattr(exc, "orig", exc)).lower()
-+    return False
-+
-+
-+async def _ensure_mode_a_providers(db: AsyncSession, connection: Connection) -> None:
-+    """Enable every known provider row for this connection.
-+
-+    The Mode A connection is provider-agnostic: all of the user's AI agents
-+    should resolve through it, so every provider is enabled here and kept
-+    enabled on reuse.
++    In local dev and tests we keep the app importable even when Google creds are
++    absent by using placeholder values. The startup config check in app.main.py
++    still fails loud in real deployments.
 +    """
-+    rows = (
-+        (
-+            await db.execute(
-+                select(ConnectionProviderRow).where(
-+                    ConnectionProviderRow.connection_id == connection.id
-+                )
-+            )
++    client_id = settings.google_client_id.strip() or "dev-google-client-id"
++    client_secret = settings.google_client_secret.strip() or "dev-google-client-secret"
++    if not settings.google_client_id.strip() or not settings.google_client_secret.strip():
++        logger.warning(
++            "MCP OAuth is using placeholder Google credentials; sign-in will not work "
++            "until GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are configured."
 +        )
-+        .scalars()
-+        .all()
-+    )
-+    by_provider = {row.provider: row for row in rows}
-+    for provider in ConnectionProvider:
-+        row = by_provider.get(provider)
-+        if row is None:
-+            db.add(
-+                ConnectionProviderRow(
-+                    connection_id=connection.id,
-+                    provider=provider,
-+                    enabled=True,
-+                    detected=False,
-+                )
-+            )
-+        else:
-+            row.enabled = True
-+
-+
-+async def _mode_a_connection_once(
-+    db: AsyncSession, user_id: int, *, now: datetime
-+) -> Connection:
-+    """Return the user's live Mode A connection or create/resurrect it."""
-+    live_connection = (
-+        (
-+            await db.execute(
-+                select(Connection)
-+                .options(joinedload(Connection.user).load_only(User.disabled_at))
-+                .where(
-+                    Connection.user_id == user_id,
-+                    Connection.mode_a_at.is_not(None),
-+                    Connection.deleted_at.is_(None),
-+                )
-+                .order_by(Connection.id.desc())
-+                .limit(1)
-+            )
-+        )
-+        .scalar_one_or_none()
-+    )
-+    if live_connection is not None:
-+        live_connection.provider = None
-+        if live_connection.status != ConnectionStatus.PAUSED:
-+            live_connection.last_seen_at = now
-+            if live_connection.first_connected_at is None:
-+                live_connection.first_connected_at = now
-+            if live_connection.status == ConnectionStatus.PENDING:
-+                live_connection.status = ConnectionStatus.ACTIVE
-+        await _ensure_mode_a_providers(db, live_connection)
-+        return live_connection
-+
-+    deleted_connection = (
-+        (
-+            await db.execute(
-+                select(Connection)
-+                .options(joinedload(Connection.user).load_only(User.disabled_at))
-+                .where(
-+                    Connection.user_id == user_id,
-+                    Connection.mode_a_at.is_not(None),
-+                    Connection.deleted_at.is_not(None),
-+                )
-+                .order_by(Connection.deleted_at.desc(), Connection.id.desc())
-+                .limit(1)
-+            )
-+        )
-+        .scalar_one_or_none()
-+    )
-+    if deleted_connection is not None:
-+        deleted_connection.provider = None
-+        deleted_connection.deleted_at = None
-+        deleted_connection.status = ConnectionStatus.ACTIVE
-+        deleted_connection.paused_at = None
-+        deleted_connection.paused_reason = None
-+        deleted_connection.runner_pid = None
-+        if deleted_connection.first_connected_at is None:
-+            deleted_connection.first_connected_at = now
-+        deleted_connection.last_seen_at = now
-+        await _ensure_mode_a_providers(db, deleted_connection)
-+        return deleted_connection
-+
-+    raw_key = generate_connection_key()
-+    connection = Connection(
-+        user_id=user_id,
-+        provider=None,
-+        key_lookup=bot_key_lookup(raw_key),
-+        key_hint=bot_key_hint(raw_key),
-+        status=ConnectionStatus.ACTIVE,
-+        mode_a_at=now,
-+        first_connected_at=now,
-+        last_seen_at=now,
-+    )
-+    db.add(connection)
-+    await db.flush()
-+    await _ensure_mode_a_providers(db, connection)
-+    return (
-+        (
-+            await db.execute(
-+                select(Connection)
-+                .options(joinedload(Connection.user).load_only(User.disabled_at))
-+                .where(Connection.id == connection.id)
-+            )
-+        )
-+        .scalar_one()
++    return GoogleProvider(
++        client_id=client_id,
++        client_secret=client_secret,
++        base_url=settings.base_url.rstrip("/"),
++        resource_base_url=settings.base_url.rstrip("/"),
++        issuer_url=settings.base_url.rstrip("/"),
++        required_scopes=["openid", "email", "profile"],
++        extra_authorize_params={
++            "access_type": "offline",
++            "prompt": "consent",
++        },
++        client_storage=MemoryStore(),
 +    )
 +
+ 
+ mcp_app = FastMCP(
+     "hoardhurthelp",
++    auth=_build_auth_provider(),
+ )
+ 
+ 
+@@ -27,18 +78,8 @@ mcp_app = FastMCP(
+ # turn (Mode A: interactive play). Kept under typical MCP client request timeouts
+ # (commonly ~30s) and matched to the API's MCP_LONG_POLL_HOLD_SECONDS default.
+ _NEXT_TURN_HOLD_SECONDS = 25.0
+-
+-
+-def _client() -> httpx.AsyncClient:
+-    """HTTP client pre-configured to hit our own API."""
+-    return httpx.AsyncClient(
+-        base_url=settings.base_url,
+-        timeout=httpx.Timeout(30.0),
+-    )
+-
+-
+-def _headers(connection_key: str) -> dict[str, str]:
+-    return {"X-Connection-Key": connection_key, "Content-Type": "application/json"}
++_LAST_POLL: dict[int, float] = {}
++_LAST_PULL: dict[tuple[int, str], float] = {}
+ 
+ 
+ def _resolve_match_id(match_id: str | None, game_id: str | None) -> str:
+@@ -50,22 +91,63 @@ def _resolve_match_id(match_id: str | None, game_id: str | None) -> str:
+     return resolved
+ 
+ 
+-def _connection_key_from_ctx(ctx: Context) -> str:
+-    """Pull the per-connection key off the MCP connection's HTTP headers.
++def _require_access_token(token: object) -> AccessToken:
++    if not isinstance(token, AccessToken):
++        raise RuntimeError("MCP tool auth requires a verified access token.")
++    return token
 +
-+async def mode_a_connection_for(
++
++def _google_userinfo_from_token(token: AccessToken) -> GoogleUserInfo:
++    claims = token.claims or {}
++    sub = claims.get("sub") or token.subject or token.client_id
++    email = claims.get("email")
++    if not isinstance(sub, str) or not sub.strip():
++        raise RuntimeError("Google access token is missing the subject claim.")
++    if not isinstance(email, str) or not email.strip():
++        raise RuntimeError("Google access token is missing the email claim.")
++    email_verified = claims.get("email_verified", True)
++    if isinstance(email_verified, str):
++        email_verified = email_verified.strip().lower() == "true"
++    return GoogleUserInfo(
++        sub=sub,
++        email=email,
++        name=claims.get("name"),
++        given_name=claims.get("given_name"),
++        family_name=claims.get("family_name"),
++        email_verified=bool(email_verified),
++    )
+ 
+-    For the streamable-HTTP transport the SDK sets `request_context.request`
+-    to the Starlette request for each tool-call POST, so the `X-Connection-Key`
+-    header the client was configured with rides along on every call.
+-    """
+-    request = getattr(ctx.request_context, "request", None)
+-    key = request.headers.get("x-connection-key") if request is not None else None
+-    if not key:
+-        raise RuntimeError(
+-            "Missing X-Connection-Key. Set your connection's stable key as a header on the MCP "
+-            "connection — e.g. Hermes config.yaml `headers: {X-Connection-Key: sk_conn_...}` "
+-            'or claude mcp add hoardhurthelp <url> --header "X-Connection-Key: sk_conn_...".'
+-        )
+-    return key
++
++async def _resolve_oauth_connection(
 +    db: AsyncSession,
-+    user: User,
++    token: object,
++) -> tuple[AccessToken, GoogleUserInfo, Connection]:
++    access_token = _require_access_token(token)
++    userinfo = _google_userinfo_from_token(access_token)
++    user = await sync_google_user(db, userinfo)
++    connection = await mode_a_connection_for(db, user)
++    assert_connection_usable(connection)
++    await mark_seen(db, connection, key_hash=connection.key_lookup)
++    return access_token, userinfo, connection
++
++
++async def _resolve_oauth_player(
++    db: AsyncSession,
++    token: object,
 +    *,
-+    now: datetime | None = None,
-+    max_attempts: int = _MAX_ATTEMPTS,
-+) -> Connection:
-+    """Return the canonical per-user Mode A connection.
-+
-+    The helper is safe to call from concurrent OAuth callbacks or parallel
-+    first tool calls. A partial unique index keeps only one live row per user;
-+    retryable integrity/lock races are re-read and converge on the same row.
-+    """
-+    resolved_now = now or datetime.now(timezone.utc)
-+    user_id = user.id
-+    lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
-+    async with lock:
-+        for attempt in range(max_attempts):
-+            try:
-+                async with db.begin_nested():
-+                    connection = await _mode_a_connection_once(
-+                        db, user_id, now=resolved_now
-+                    )
-+                    await db.flush()
-+                    return connection
-+            except (IntegrityError, OperationalError) as exc:
-+                if not _is_retryable_db_error(exc) or attempt + 1 == max_attempts:
-+                    raise
-+    raise RuntimeError("mode_a_connection_for retry loop exhausted")
-diff --git a/app/models/connection.py b/app/models/connection.py
-index eb353c6..0f7cdb7 100644
---- a/app/models/connection.py
-+++ b/app/models/connection.py
-@@ -6,7 +6,7 @@ import enum
- from datetime import datetime
- from typing import TYPE_CHECKING
++    match_id: str,
++    agent_id: int | None = None,
++    agent_turn_token: str | None = None,
++) -> tuple[AccessToken, GoogleUserInfo, Connection, Player]:
++    access_token, userinfo, connection = await _resolve_oauth_connection(db, token)
++    player = await require_agent_player(
++        match_id=match_id,
++        db=db,
++        connection=connection,
++        agent_id=agent_id,
++        agent_turn_token=agent_turn_token,
++    )
++    return access_token, userinfo, connection, player
  
--from sqlalchemy import DateTime, ForeignKey, Integer, String, func
-+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func, text
- from sqlalchemy.orm import Mapped, mapped_column, relationship
  
- from app.models.base import Base
-@@ -32,6 +32,15 @@ class ConnectionStatus(str, enum.Enum):
- 
- class Connection(Base):
-     __tablename__ = "connections"
-+    __table_args__ = (
-+        Index(
-+            "uq_connections_mode_a_user_id_live",
-+            "user_id",
-+            unique=True,
-+            sqlite_where=text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
-+            postgresql_where=text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
-+        ),
+ @mcp_app.tool()
+@@ -73,84 +155,38 @@ async def get_turn(
+     *,
+     match_id: str | None = None,
+     game_id: str | None = None,
+-    ctx: Context | None = None,
+-) -> dict[str, Any]:
+-    """Poll for the current turn.
+-
+-    Your key is read from the connection's X-Connection-Key header — do not ask the
+-    user for it and do not pass it as an argument.
+-
+-    Args:
+-        match_id: The canonical match identifier (e.g. "M_001"). Prefer this.
+-        game_id: Legacy alias accepted for backwards compatibility.
+-
+-    Returns:
+-        The turn payload — the raw record, nothing pre-digested. Key fields:
+-          - `status`: waiting / your_turn / game_completed
+-          - `static`: rules + game info, identical across all turns
+-          - `history`: every resolved turn so far, oldest→newest, each with every
+-            agent's action, target, message, and points. READ it — the chat and the
+-            move patterns are here; spot alliances and betrayals yourself, and reply
+-            to what was aimed at you to negotiate and make your case.
+-          - `scoreboard`: current running scores for every agent
+-          - `current`: this turn's round, turn, deadline, and turn_token (for submit)
+-        Field order is cache-friendly (static + history are an append-only prefix).
+-        If your client trims old history, re-fetch with get_opponent_history,
+-        get_chat, get_turn_detail, or get_standings.
+-    """
+-    if ctx is None:
+-        raise ValueError("ctx is required")
++    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
++    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
++) -> Any:
++    """Poll for the current turn."""
+     resolved_match_id = _resolve_match_id(match_id, game_id)
+-    agent_key = _connection_key_from_ctx(ctx)
+-    async with _client() as c:
+-        r = await c.get(
+-            f"/api/matches/{resolved_match_id}/turn", headers=_headers(agent_key)
+-        )
+-        return _unwrap(r)
++    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
++        db,
++        token,
++        match_id=resolved_match_id,
++    )
++    return await poll_turn(
++        db,
++        match_id=resolved_match_id,
++        player=player,
++        rate_state=_LAST_POLL,
 +    )
  
-     id: Mapped[int] = mapped_column(primary_key=True)
-     user_id: Mapped[int] = mapped_column(
-@@ -68,6 +77,10 @@ class Connection(Base):
-         DateTime(timezone=True),
-         nullable=True,
+ 
+ @mcp_app.tool()
+-async def get_next_turn(ctx: Context) -> dict[str, Any]:
+-    """Get your most urgent pending turn across ALL your games. This is the loop.
+-
+-    You connect once; this finds what needs you next without you tracking game
+-    ids. Call it repeatedly. Your key rides on the connection's X-Connection-Key
+-    header — do not pass it as an argument.
+-
+-    Returns one of:
+-      - status "your_turn": the single most urgent turn (nearest deadline). Key fields:
+-          `match_id`, `agent_turn_token` (save this — both submit tools need it),
+-          `static` (rules + your strategy), `history` (every resolved turn: each
+-          agent's action, target, message, and points — read it and reply to what
+-          was aimed at you), `scoreboard`, and `current` (round, turn, deadline,
+-          turn_token, phase).
+-        Two-phase flow per turn:
+-          1. current.phase == "talk": call submit_talk(..., turn_token=current.turn_token,
+-             agent_turn_token=<top-level agent_turn_token>). Then poll again — the
+-             server advances to act phase after all agents talk (or the deadline).
+-          2. current.phase == "act": call submit_action(..., turn_token=current.turn_token,
+-             agent_turn_token=<top-level agent_turn_token>).
+-      - status "waiting": nothing needs you right now. `reason` is one of
+-        no_active_games, no_open_turns, or bot_paused. Sleep
+-        `next_poll_after_seconds`, then call get_next_turn again.
+-
+-    You may be in several games at once; this always hands back the one whose
+-    deadline is soonest. Loop until your games are over.
+-    """
+-    agent_key = _connection_key_from_ctx(ctx)
+-    async with _client() as c:
+-        # Interactive (Mode A) play is the cost-sensitive caller: ask the server to
+-        # bounded-long-poll so an idle game holds ONE request open instead of firing
+-        # a fresh paid model call every few seconds. The server holds up to
+-        # _NEXT_TURN_HOLD_SECONDS and returns the instant a turn opens; we give the
+-        # HTTP read a little more headroom than the hold so it never times out mid-wait.
+-        r = await c.get(
+-            "/api/agent/next-turn",
+-            params={"hold_seconds": _NEXT_TURN_HOLD_SECONDS},
+-            headers=_headers(agent_key),
+-            timeout=httpx.Timeout(_NEXT_TURN_HOLD_SECONDS + 15.0),
+-        )
+-        return _unwrap(r)
++async def get_next_turn(
++    *,
++    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
++    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
++) -> Any:
++    """Get the most urgent pending turn across all of the user's games."""
++    _access_token, _userinfo, connection = await _resolve_oauth_connection(db, token)
++    return await play_get_next_turn(
++        db,
++        connection,
++        hold_seconds=_NEXT_TURN_HOLD_SECONDS,
++        interval_seconds=1.0,
++    )
+ 
+ 
+ @mcp_app.tool()
+@@ -162,47 +198,27 @@ async def submit_talk(
+     thinking: str = "",
+     turn_token: str,
+     agent_turn_token: str,
+-    ctx: Context | None = None,
+-) -> dict[str, Any]:
+-    """Submit your talk-phase message for the current turn.
+-
+-    Call this when get_next_turn returns current.phase == "talk". Submit before the
+-    talk deadline — the game waits for all agents, then opens the act phase with a
+-    fresh turn_token. Your message is public; everyone reads it before acting.
+-
+-    Your key is read from the connection's X-Connection-Key header — do not ask the
+-    user for it and do not pass it as an argument.
+-
+-    Args:
+-        match_id: The canonical match identifier. Prefer this.
+-        game_id: Legacy alias accepted for backwards compatibility.
+-        message: Your public message to other agents. Use it to negotiate, propose
+-            deals, and persuade — this is the only signal others see about your
+-            intentions before the act phase.
+-        thinking: Your private reasoning (not shown to other agents).
+-        turn_token: The turn_token from get_next_turn's current object.
+-        agent_turn_token: The agent_turn_token from get_next_turn's top-level response.
+-
+-    Returns:
+-        Acceptance confirmation with received_at and phase_resolves_at.
+-    """
+-    if ctx is None:
+-        raise ValueError("ctx is required")
++    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
++    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
++) -> Any:
++    """Submit the talk-phase message for the current turn."""
+     resolved_match_id = _resolve_match_id(match_id, game_id)
+-    agent_key = _connection_key_from_ctx(ctx)
+-    body = {
+-        "turn_token": turn_token,
+-        "message": message,
+-        "thinking": thinking,
+-    }
+-    async with _client() as c:
+-        r = await c.post(
+-            f"/api/matches/{resolved_match_id}/message",
+-            headers=_headers(agent_key),
+-            params={"agent_turn_token": agent_turn_token},
+-            json=body,
+-        )
+-        return _unwrap(r)
++    _access_token, _userinfo, connection, player = await _resolve_oauth_player(
++        db,
++        token,
++        match_id=resolved_match_id,
++        agent_turn_token=agent_turn_token,
++    )
++    return await play_submit_talk(
++        db,
++        match_id=resolved_match_id,
++        player=player,
++        agent_turn_token=agent_turn_token,
++        turn_token=turn_token,
++        message=message,
++        thinking=thinking,
++        is_connector_fallback=False,
++    )
+ 
+ 
+ @mcp_app.tool()
+@@ -215,46 +231,30 @@ async def submit_action(
+     message: str,
+     turn_token: str,
+     agent_turn_token: str,
+-    ctx: Context | None = None,
+-) -> dict[str, Any]:
+-    """Submit your action for the current turn.
+-
+-    Call this when get_next_turn returns current.phase == "act". Only valid after the
+-    talk phase resolves and the turn_token has been refreshed.
+-
+-    Your key is read from the connection's X-Connection-Key header — do not ask the
+-    user for it and do not pass it as an argument.
+-
+-    Args:
+-        match_id: The canonical match identifier. Prefer this.
+-        game_id: Legacy alias accepted for backwards compatibility.
+-        action: One of "HOARD", "HELP", "HURT".
+-        target_id: The other agent's ID. Required for HELP and HURT, null for HOARD.
+-        message: Your public reasoning for this action (shown after turn resolves).
+-        turn_token: The turn_token from get_next_turn's current object (the act-phase token).
+-        agent_turn_token: The agent_turn_token from get_next_turn's top-level response.
+-
+-    Returns:
+-        Acceptance confirmation with received_at and turn_will_resolve_at.
+-    """
+-    if ctx is None:
+-        raise ValueError("ctx is required")
++    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
++    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
++) -> Any:
++    """Submit the act-phase move for the current turn."""
+     resolved_match_id = _resolve_match_id(match_id, game_id)
+-    agent_key = _connection_key_from_ctx(ctx)
+-    body = {
+-        "turn_token": turn_token,
+-        "action": action,
+-        "target_id": target_id,
+-        "message": message,
+-    }
+-    async with _client() as c:
+-        r = await c.post(
+-            f"/api/matches/{resolved_match_id}/submit",
+-            headers=_headers(agent_key),
+-            params={"agent_turn_token": agent_turn_token},
+-            json=body,
+-        )
+-        return _unwrap(r)
++    _access_token, _userinfo, connection, player = await _resolve_oauth_player(
++        db,
++        token,
++        match_id=resolved_match_id,
++        agent_turn_token=agent_turn_token,
++    )
++    return await play_submit_action(
++        db,
++        match_id=resolved_match_id,
++        player=player,
++        connection=connection,
++        agent_turn_token=agent_turn_token,
++        turn_token=turn_token,
++        action=action,
++        target_id=target_id,
++        message=message,
++        thinking="",
++        is_connector_fallback=False,
++    )
+ 
+ 
+ @mcp_app.tool()
+@@ -262,21 +262,13 @@ async def get_game_state(
+     *,
+     match_id: str | None = None,
+     game_id: str | None = None,
+-) -> dict[str, Any]:
+-    """Get the public state of any game. No auth needed.
+-
+-    Useful for checking on games other than your own (e.g. before joining).
+-
+-    Args:
+-        match_id: The game identifier.
+-
+-    Returns:
+-        Public game state including scoreboard and history (no strategy prompts).
+-    """
++    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
++    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
++) -> Any:
++    """Get the public state of any game."""
++    _require_access_token(token)
+     resolved_match_id = _resolve_match_id(match_id, game_id)
+-    async with _client() as c:
+-        r = await c.get(f"/api/spectator/matches/{resolved_match_id}/state")
+-        return _unwrap(r)
++    return await public_state(match_id=resolved_match_id, db=db)
+ 
+ 
+ @mcp_app.tool()
+@@ -285,27 +277,23 @@ async def get_opponent_history(
+     match_id: str | None = None,
+     game_id: str | None = None,
+     opponent_id: str,
+-    ctx: Context | None = None,
+-) -> dict[str, Any]:
+-    """Pull the full move history between you and one opponent (grouped by turn).
+-
+-    Use when the summary's short opponent list isn't enough and you want to study a
+-    specific rival deeply. Your key rides on the connection's X-Connection-Key header.
+-
+-    Args:
+-        match_id: The game identifier.
+-        opponent_id: The other agent's ID to pull history against.
+-    """
+-    if ctx is None:
+-        raise ValueError("ctx is required")
++    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
++    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
++) -> Any:
++    """Pull the full move history between the user and one opponent."""
+     resolved_match_id = _resolve_match_id(match_id, game_id)
+-    agent_key = _connection_key_from_ctx(ctx)
+-    async with _client() as c:
+-        r = await c.get(
+-            f"/api/matches/{resolved_match_id}/history/opponents/{opponent_id}",
+-            headers=_headers(agent_key),
+-        )
+-        return _unwrap(r)
++    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
++        db,
++        token,
++        match_id=resolved_match_id,
++    )
++    return await opponent_history(
++        db,
++        match_id=resolved_match_id,
++        opponent_id=opponent_id,
++        player=player,
++        rate_state=_LAST_PULL,
++    )
+ 
+ 
+ @mcp_app.tool()
+@@ -313,30 +301,24 @@ async def get_chat(
+     *,
+     match_id: str | None = None,
+     game_id: str | None = None,
+-    ctx: Context | None = None,
+     since: str | None = None,
+-) -> dict[str, Any]:
+-    """Pull the full public chat transcript (every agent's messages).
+-
+-    The summary only includes messages aimed at you plus a few recent broadcasts;
+-    use this to read the whole conversation. Your key rides on the X-Connection-Key header.
+-
+-    Args:
+-        match_id: The game identifier.
+-        since: Optional "round.turn" cursor (e.g. "2.5"); returns only messages after it.
+-    """
+-    if ctx is None:
+-        raise ValueError("ctx is required")
++    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
++    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
++) -> Any:
++    """Pull the full public chat transcript."""
+     resolved_match_id = _resolve_match_id(match_id, game_id)
+-    agent_key = _connection_key_from_ctx(ctx)
+-    params = {"since": since} if since else None
+-    async with _client() as c:
+-        r = await c.get(
+-            f"/api/matches/{resolved_match_id}/chat",
+-            headers=_headers(agent_key),
+-            params=params,
+-        )
+-        return _unwrap(r)
++    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
++        db,
++        token,
++        match_id=resolved_match_id,
++    )
++    return await chat_transcript(
++        db,
++        match_id=resolved_match_id,
++        player=player,
++        rate_state=_LAST_PULL,
++        since=since,
++    )
+ 
+ 
+ @mcp_app.tool()
+@@ -346,27 +328,24 @@ async def get_turn_detail(
+     game_id: str | None = None,
+     round: int,
+     turn: int,
+-    ctx: Context | None = None,
+-) -> dict[str, Any]:
+-    """Pull one resolved turn in full — every player's action, message, and points.
+-
+-    Your key rides on the connection's X-Connection-Key header.
+-
+-    Args:
+-        match_id: The game identifier.
+-        round: The round number (1-based).
+-        turn: The turn number within the round (1-based).
+-    """
+-    if ctx is None:
+-        raise ValueError("ctx is required")
++    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
++    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
++) -> Any:
++    """Pull one resolved turn in full."""
+     resolved_match_id = _resolve_match_id(match_id, game_id)
+-    agent_key = _connection_key_from_ctx(ctx)
+-    async with _client() as c:
+-        r = await c.get(
+-            f"/api/matches/{resolved_match_id}/turns/{round}/{turn}",
+-            headers=_headers(agent_key),
+-        )
+-        return _unwrap(r)
++    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
++        db,
++        token,
++        match_id=resolved_match_id,
++    )
++    return await turn_detail(
++        db,
++        match_id=resolved_match_id,
++        round=round,
++        turn=turn,
++        player=player,
++        rate_state=_LAST_PULL,
++    )
+ 
+ 
+ @mcp_app.tool()
+@@ -374,42 +353,25 @@ async def get_standings(
+     *,
+     match_id: str | None = None,
+     game_id: str | None = None,
+-    ctx: Context | None = None,
+-) -> dict[str, Any]:
+-    """Pull the full standings — every active player ranked by round score.
+-
+-    The summary only shows the leaders and your nearest rivals; use this for the
+-    whole board. Your key rides on the connection's X-Connection-Key header.
+-
+-    Args:
+-        match_id: The game identifier.
+-    """
+-    if ctx is None:
+-        raise ValueError("ctx is required")
++    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
++    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
++) -> Any:
++    """Pull the full standings."""
+     resolved_match_id = _resolve_match_id(match_id, game_id)
+-    agent_key = _connection_key_from_ctx(ctx)
+-    async with _client() as c:
+-        r = await c.get(
+-            f"/api/matches/{resolved_match_id}/standings", headers=_headers(agent_key)
+-        )
+-        return _unwrap(r)
+-
+-
+-def _unwrap(r: httpx.Response) -> dict[str, Any]:
+-    """Return JSON body, or raise the error envelope as an MCP-visible error."""
+-    try:
+-        data = r.json()
+-    except Exception:
+-        r.raise_for_status()
+-        return {}
+-    if r.is_success:
+-        return data
+-    # FastAPI nests our error envelope under 'detail'.
+-    err = data.get("detail", data)
+-    raise RuntimeError(
+-        f"HTTP {r.status_code}: {err.get('error', err) if isinstance(err, dict) else err}"
++    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
++        db,
++        token,
++        match_id=resolved_match_id,
++    )
++    return await standings(
++        db,
++        match_id=resolved_match_id,
++        player=player,
++        rate_state=_LAST_PULL,
      )
-+    mode_a_at: Mapped[datetime | None] = mapped_column(
-+        DateTime(timezone=True),
-+        nullable=True,
-+    )
-     first_connected_at: Mapped[datetime | None] = mapped_column(
-         DateTime(timezone=True),
-         nullable=True,
-diff --git a/migrations/versions/0032_mode_a_connections.py b/migrations/versions/0032_mode_a_connections.py
-new file mode 100644
-index 0000000..1b17910
---- /dev/null
-+++ b/migrations/versions/0032_mode_a_connections.py
-@@ -0,0 +1,39 @@
-+"""Add Mode A connection marker and live-only uniqueness.
-+
-+Revision ID: 0032
-+Revises: 0031
-+Create Date: 2026-06-13
-+"""
-+
-+from __future__ import annotations
-+
-+from typing import Sequence, Union
-+
-+import sqlalchemy as sa
-+from alembic import op
-+
-+revision: str = "0032"
-+down_revision: Union[str, None] = "0031"
-+branch_labels: Union[str, Sequence[str], None] = None
-+depends_on: Union[str, Sequence[str], None] = None
-+
-+
-+def upgrade() -> None:
-+    op.add_column(
-+        "connections",
-+        sa.Column("mode_a_at", sa.DateTime(timezone=True), nullable=True),
-+    )
-+    op.create_index(
-+        "uq_connections_mode_a_user_id_live",
-+        "connections",
-+        ["user_id"],
-+        unique=True,
-+        sqlite_where=sa.text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
-+        postgresql_where=sa.text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
-+    )
-+
-+
-+def downgrade() -> None:
-+    op.drop_index("uq_connections_mode_a_user_id_live", table_name="connections")
-+    with op.batch_alter_table("connections") as batch_op:
-+        batch_op.drop_column("mode_a_at")
+ 
+ 
+-# The FastAPI app mounts this at /mcp via mcp_app.http_app(...)
+-asgi_app = mcp_app.http_app(path="/", transport="streamable-http")
++# The parent FastAPI app mounts this at the public root so the auth discovery
++# URLs stay rooted at `/.well-known/...` while the MCP endpoint itself remains
++# `/mcp`.
++asgi_app = mcp_app.http_app(path="/mcp", transport="streamable-http")
