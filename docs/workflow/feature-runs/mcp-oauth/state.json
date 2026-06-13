@@ -313,6 +313,24 @@
       "duration_seconds": 301.091808,
       "agent_id": null,
       "artifact_sha_at_time": "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
+    },
+    {
+      "stage": "tasks",
+      "round": 1,
+      "activity_type": "implementation",
+      "model": "gpt-5.4-mini",
+      "lens": null,
+      "prompt_chars": 43412,
+      "prompt_cap": null,
+      "input_tokens": 151163,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.151163,
+      "timestamp": "2026-06-13T17:20:46.583037Z",
+      "started_at": "2026-06-13T17:10:40.321013Z",
+      "ended_at": "2026-06-13T17:20:46.583037Z",
+      "duration_seconds": 606.258383,
+      "agent_id": null,
+      "artifact_sha_at_time": "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
     }
   ],
   "command_telemetry": [
@@ -622,5 +640,14 @@
   },
   "plan_adversarial_rounds": 3,
   "tasks_adversarial_rounds": 1,
-  "diff_adversarial_rounds": 1
+  "diff_adversarial_rounds": 1,
+  "heartbeats": [
+    {
+      "timestamp_pt": "2026-06-13T10:20:40.328535-07:00",
+      "timestamp_utc": "2026-06-13T17:20:40.328724+00:00",
+      "stage": "implement",
+      "activity": "codex exec running",
+      "elapsed_ms": 600004
+    }
+  ]
 }
