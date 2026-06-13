@@ -1,0 +1,18 @@
+{
+  "feature_slug": "mcp-oauth",
+  "stage": "diff",
+  "artifact_path": "docs/workflow/feature-runs/mcp-oauth/reviews/implementation.diff.patch",
+  "git_base_ref": "cfba823dfdbcc3dac260c611e20110c267590dee",
+  "allowed_dirty_paths": [
+    "app/deps.py",
+    "app/main.py",
+    "app/routes",
+    "docs/workflow/feature-runs/mcp-oauth",
+    "mcp_server",
+    "pyproject.toml"
+  ],
+  "required_reviews": [],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

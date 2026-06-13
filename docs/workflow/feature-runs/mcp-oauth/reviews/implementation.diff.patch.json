@@ -1,0 +1,24 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "cd5b19055f0e900cec0937f00c6ac7ec9ac7df46",
+  "git_base_ref": "cfba823dfdbcc3dac260c611e20110c267590dee",
+  "git_base_sha": "cfba823dfdbcc3dac260c611e20110c267590dee",
+  "paths": [
+    "app/deps.py",
+    "app/main.py",
+    "app/routes",
+    "mcp_server",
+    "pyproject.toml"
+  ],
+  "allowed_dirty_paths": [
+    "app/deps.py",
+    "app/main.py",
+    "app/routes",
+    "docs/workflow/feature-runs/mcp-oauth",
+    "mcp_server",
+    "pyproject.toml"
+  ],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/mcp-oauth/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}

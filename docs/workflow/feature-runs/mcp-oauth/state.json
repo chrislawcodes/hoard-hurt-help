@@ -77,7 +77,18 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "app/deps.py",
+      "app/main.py",
+      "app/routes",
+      "docs/workflow/feature-runs/mcp-oauth",
+      "mcp_server",
+      "pyproject.toml"
+    ],
+    "used": true,
+    "updated_at": 1781370037
+  },
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -284,6 +295,24 @@
       "duration_seconds": 14.073794,
       "agent_id": null,
       "artifact_sha_at_time": "5de4697ebcc2b757a32c1268898d39d5ba5834d97afd95bae1be19a72f71fa06"
+    },
+    {
+      "stage": "tasks",
+      "round": 1,
+      "activity_type": "implementation",
+      "model": "gpt-5.4-mini",
+      "lens": null,
+      "prompt_chars": 45073,
+      "prompt_cap": null,
+      "input_tokens": 197892,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.197892,
+      "timestamp": "2026-06-13T16:58:35.825559Z",
+      "started_at": "2026-06-13T16:53:34.712009Z",
+      "ended_at": "2026-06-13T16:58:35.825559Z",
+      "duration_seconds": 301.091808,
+      "agent_id": null,
+      "artifact_sha_at_time": "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
     }
   ],
   "command_telemetry": [
@@ -502,6 +531,18 @@
       "files_written": 5,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-13T17:00:38Z",
+      "wall_seconds": 1.172,
+      "input_bytes_read": 301463,
+      "output_bytes_written": 114595,
+      "files_read": 28,
+      "files_written": 6,
+      "subprocess_invocations": 62,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -532,6 +573,14 @@
         "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
       ],
       "initial_sha": "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
+    },
+    "diff": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "fbee2e892feb2da032337d751d600798bd6800065b37a85d8d4e2f43336249cc"
+      ],
+      "initial_sha": "fbee2e892feb2da032337d751d600798bd6800065b37a85d8d4e2f43336249cc"
     }
   },
   "invariant_warnings": [],
@@ -544,9 +593,10 @@
   "spec_adversarial_rounds": 2,
   "last_action_result": {
     "next": "dispatch_next_slice_to_codex",
-    "reason": "tasks checkpoint completed",
+    "reason": "diff checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 3,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 1
 }
