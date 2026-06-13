@@ -90,7 +90,7 @@
       "pyproject.toml"
     ],
     "used": true,
-    "updated_at": 1781376224
+    "updated_at": 1781378340
   },
   "checkpoint_fallback": {},
   "parallel_analysis": {
@@ -793,6 +793,18 @@
       "files_written": 0,
       "subprocess_invocations": 38,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-13T19:19:00Z",
+      "wall_seconds": 0.932,
+      "input_bytes_read": 476965,
+      "output_bytes_written": 223515,
+      "files_read": 35,
+      "files_written": 8,
+      "subprocess_invocations": 64,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -825,14 +837,15 @@
       "initial_sha": "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
     },
     "diff": {
-      "adversarial_rounds": 4,
+      "adversarial_rounds": 5,
       "annotations": [],
       "adversarial_sha_history": [
         "fbee2e892feb2da032337d751d600798bd6800065b37a85d8d4e2f43336249cc",
         "ddd698fe67548a504592d11b7ff4d190e0b37109772d018c0aac592755322d30",
         "ddd698fe67548a504592d11b7ff4d190e0b37109772d018c0aac592755322d30",
         "8921a3fb1e15417b3b2eebb764ea512098aad5f1d45cf584841e1e2f1d10c0a9",
-        "9630a33a1179b5b009efeb78985afa0a4e6313615e91f131ae02a83b2571086a"
+        "9630a33a1179b5b009efeb78985afa0a4e6313615e91f131ae02a83b2571086a",
+        "cb6e439dda0a34d7e1b6e29c4e0acd8fe31688008e57da02479fe04cc8565368"
       ],
       "initial_sha": "fbee2e892feb2da032337d751d600798bd6800065b37a85d8d4e2f43336249cc"
     }
@@ -840,19 +853,19 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 4,
-    "markers_sha": "e94ebe26fee80c6a4850814015a4e88b4fd6b4153ee439c8c801f0428c6bf576",
-    "last_diff_head_sha": "4e0163eecb11830659a38d9dc3a0acf9fa45348e"
+    "index": 5,
+    "markers_sha": "78a763a3e59dee24575ffdfbf7d577a0098a4c2fe920af63e126d0cd7c82095a",
+    "last_diff_head_sha": "91b9bbd0462011124f3953ac361535ce4cb672df"
   },
   "spec_adversarial_rounds": 2,
   "last_action_result": {
-    "next": "reconcile_reviews",
+    "next": "dispatch_next_slice_to_codex",
     "reason": "diff checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 3,
   "tasks_adversarial_rounds": 1,
-  "diff_adversarial_rounds": 4,
+  "diff_adversarial_rounds": 5,
   "heartbeats": [
     {
       "timestamp_pt": "2026-06-13T10:20:40.328535-07:00",
