@@ -20,6 +20,8 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 import app.config as app_config
 from app.db_bootstrap import detect_legacy_revision, prepare_database_for_upgrade, verify_required_tables
@@ -415,6 +417,20 @@ def test_0029_adds_admin_audit_log_and_disabled_at(tmp_path: Path) -> None:
 
 
 # --- feature: sideline coach (migration 0030) --------------------------------
+
+
+def test_0030_coaching_backfill_compiles_boolean_sql() -> None:
+    """0030 must backfill with a real boolean literal on PostgreSQL."""
+    matches = sa.table("matches", sa.column("coaching", sa.Boolean()))
+    stmt = (
+        sa.update(matches)
+        .where(sa.or_(matches.c.coaching.is_(None), matches.c.coaching.is_(False)))
+        .values(coaching=sa.true())
+    )
+
+    compiled = str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert "coaching=true" in compiled
+    assert "coaching = 0" not in compiled
 
 
 def test_0030_adds_coach_note_and_coaching_flag(tmp_path: Path) -> None:
