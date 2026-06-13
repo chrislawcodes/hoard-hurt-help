@@ -401,13 +401,22 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     assert "X-Connection-Key" not in connect_block
     assert "sk_conn_" not in connect_block
     assert "--header" not in connect_block
-    # Codex renders as a copyable terminal command (add + login), not a file edit.
+    # Codex renders as one copyable terminal command (add + login in a single
+    # paste), not a file edit and not two blocks — its sign-in is bundled in.
     codex_block = text.split("byo-panel-codex", 1)[1].split("</section>", 1)[0]
     assert "codex mcp add hoardhurthelp --url" in codex_block
     assert "codex mcp login hoardhurthelp" in codex_block
     assert "config.toml" not in codex_block
     assert "X-Connection-Key" not in codex_block
     assert "sk_conn_" not in codex_block
+    assert "byo-signin-codex" not in codex_block  # no separate sign-in block
+    # The Copy button sits to the RIGHT of the command text (text before button).
+    assert codex_block.index("byo-cmd-text") < codex_block.index("byo-cmd-btn")
+    # Codex is the default (first) tab — the only zero-click sign-in.
+    assert text.index('for="byo-tab-codex"') < text.index('for="byo-tab-claude-code"')
+    # Claude Code needs a second paste to sign in: the /mcp block.
+    assert "byo-signin-claude-code" in connect_block
+    assert "/mcp" in connect_block
     # All four clients are offered; Cursor dropped.
     assert 'for="byo-tab-claude-code"' in text
     assert 'for="byo-tab-codex"' in text

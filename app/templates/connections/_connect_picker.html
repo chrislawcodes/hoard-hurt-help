@@ -1,10 +1,12 @@
-{# CSS-only provider picker (the byo-tabs pattern). Claude Code is checked first.
-   Each provider lays its "add the server" out as numbered sub-steps so the act of
-   connecting reads as a clear sequence, not a jumble:
-     command — step 1 "Paste this in your terminal" + step 2 "Sign in with Google";
-     steps   — numbered click-through steps for GUI providers (Claude Desktop).
-   The "You're connected" payoff is a separate region (see _live_status.html), not a
-   numbered step — it's the system confirming success, not an action the user takes.
+{# CSS-only provider picker (the byo-tabs pattern). Codex is checked first — it's
+   the only fully copy-paste, zero-click sign-in. Each command provider lays the
+   act of connecting out as numbered sub-steps so it reads as a sequence:
+     step 1 "Paste this in your terminal" — the add command (one paste);
+     step 2 "Sign in with Google" — a second paste block if the provider needs one
+       (e.g. Claude Code's /mcp), otherwise just what to expect.
+   GUI providers (Claude Desktop) render as numbered click-through steps. Every
+   copyable block puts the Copy button to the RIGHT of the text, not above it.
+   The "You're connected" payoff is a separate region (see _live_status.html).
    Expects `connect_options` in context. #}
 <div class="byo-tabs">
     {% for opt in connect_options %}
@@ -33,14 +35,23 @@
             <ol class="byo-flow">
                 <li class="byo-flow-step">
                     <span class="byo-flow-title">Paste this in your terminal</span>
-                    <button type="button" class="btn-copy"
-                            onclick="copyWithFeedback(this, document.getElementById('byo-cmd-{{ opt.client_id }}').textContent)">Copy</button>
-                    <pre id="byo-cmd-{{ opt.client_id }}">{{ opt.command }}</pre>
+                    <div class="byo-cmd">
+                        <pre id="byo-cmd-{{ opt.client_id }}" class="byo-cmd-text">{{ opt.command }}</pre>
+                        <button type="button" class="btn-copy byo-cmd-btn"
+                                onclick="copyWithFeedback(this, document.getElementById('byo-cmd-{{ opt.client_id }}').textContent)">Copy</button>
+                    </div>
                 </li>
                 <li class="byo-flow-step">
                     <span class="byo-flow-title">Sign in with Google</span>
-                    {% if opt.note %}
-                    <p class="hint" style="margin:0;">{{ opt.note }}</p>
+                    {% if opt.signin_command %}
+                    <div class="byo-cmd">
+                        <pre id="byo-signin-{{ opt.client_id }}" class="byo-cmd-text">{{ opt.signin_command }}</pre>
+                        <button type="button" class="btn-copy byo-cmd-btn"
+                                onclick="copyWithFeedback(this, document.getElementById('byo-signin-{{ opt.client_id }}').textContent)">Copy</button>
+                    </div>
+                    {% endif %}
+                    {% if opt.signin_note %}
+                    <p class="hint" style="margin:0.5rem 0 0;">{{ opt.signin_note }}</p>
                     {% endif %}
                 </li>
             </ol>
