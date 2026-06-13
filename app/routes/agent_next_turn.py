@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import false, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 import app.db as db_module
 from app.deps import DbSession, require_connection
@@ -37,6 +38,7 @@ from app.models.connection_provider import ConnectionProvider as ConnectionProvi
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
+from app.models.user import User
 from app.routes.agent_api import (
     _build_current_turn,
     _group_into_turns,
@@ -450,12 +452,27 @@ async def next_turn(
         async with db_module.SessionLocal() as check_db:
             fresh = (
                 await check_db.execute(
-                    select(Connection).where(Connection.id == connection_id)
+                    select(Connection)
+                    .options(joinedload(Connection.user).load_only(User.disabled_at))
+                    .where(Connection.id == connection_id)
                 )
             ).scalar_one_or_none()
-            # The connection was deleted mid-hold (or somehow vanished): stop
-            # holding and let the client re-poll, which will hit the auth gate.
-            if fresh is None:
+            # Re-validate the same gates `require_connection` enforces once at
+            # request start. Without this the hold can keep serving turns for up
+            # to the whole window after the connection is revoked or the owning
+            # account is disabled mid-hold. On any of these, stop holding and let
+            # the client re-poll — the next request hits the auth gate (410/403).
+            #   - row gone: connection vanished entirely.
+            #   - deleted_at set: soft-deleted (the row still exists, so the
+            #     `fresh is None` check above never catches this case).
+            #   - PAUSED: operator paused this connection.
+            #   - owning user disabled: the account-disable guarantee.
+            if (
+                fresh is None
+                or fresh.deleted_at is not None
+                or fresh.status == ConnectionStatus.PAUSED
+                or fresh.user.disabled_at is not None
+            ):
                 break
             served = await _serve_one_turn(check_db, fresh, datetime.now(timezone.utc))
         if served is not None:
