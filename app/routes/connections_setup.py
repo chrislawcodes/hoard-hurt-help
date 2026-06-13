@@ -110,84 +110,96 @@ class AgentRow:
 
 @dataclass(frozen=True)
 class ConnectOption:
-    """One client's "add the server" instructions for the state-aware connect box.
+    """One provider's "add the server + sign in" instructions for the connect box.
 
-    A client renders one of three ways:
-      - ``kind="command"`` — a copyable terminal command in ``command``;
-      - ``kind="config"`` — a copyable config-file block in ``config`` (with an
-        ``intro`` saying which file it goes in);
-      - ``kind="steps"`` — numbered click-through ``steps`` for GUI clients.
-    The play-prompt is the SAME for every client and is a separate block shown
+    A provider renders one of two ways:
+      - ``kind="command"`` — step 1 is a copyable terminal command in ``command``
+        (one paste, even if it's several lines). Sign-in is step 2: if
+        ``signin_command`` is set it's a second copyable block (e.g. Claude Code's
+        ``/mcp``); otherwise sign-in is automatic and ``signin_note`` just says
+        what to expect.
+      - ``kind="steps"`` — numbered click-through ``steps`` for GUI providers.
+    The play-prompt is the SAME for every provider and is a separate block shown
     after connecting (see ``_play_prompt``), so it is not carried here.
     """
 
     client_id: str  # stable slug for the CSS-tabs radio inputs
     client_label: str  # human-facing name
-    kind: str  # "command" | "config" | "steps"
-    command: str | None  # kind="command": copyable terminal command
-    config: str | None  # kind="config": copyable config-file block
-    intro: str | None  # kind="config": where the block goes (file path)
+    kind: str  # "command" | "steps"
+    command: str | None  # kind="command": step 1 copyable terminal command
+    signin_title: str | None  # kind="command": step 2 heading (the action, not the effect)
+    signin_command: str | None  # kind="command": step 2 copyable command, if any
+    signin_note: str | None  # kind="command": what to expect / do for sign-in
     steps: tuple[str, ...]  # kind="steps": numbered click-through steps
-    note: str | None  # short note shown under the command/config/steps
+    note: str | None  # kind="steps": short footnote under the steps
 
 
 def _connect_options() -> list[ConnectOption]:
     """Per-client "add the server" options for the state-aware connect box.
 
     See the AUTH-AGNOSTIC SEAM note above: these mirror ``docs/setup-mcp.md`` from
-    the mcp-oauth workstream and are header-less (no key, no ``--header``). Clients,
-    in display order: Claude Code (default/first), Codex, Gemini, Claude Desktop.
+    the mcp-oauth workstream and are header-less (no key, no ``--header``).
+    Providers, in display order: Codex first (the only fully copy-paste, zero-click
+    sign-in), then Claude Code, Gemini, Claude Desktop.
     """
     mcp_url = f"{settings.base_url}/mcp"
     return [
+        ConnectOption(
+            client_id="codex",
+            client_label="Codex",
+            kind="command",
+            # One paste does both: add the server and trigger the sign-in. Pasting
+            # both lines into a shell runs them in order, so there's no second step.
+            command=(
+                f"codex mcp add hoardhurthelp --url {mcp_url}\n"
+                "codex mcp login hoardhurthelp"
+            ),
+            # Codex's one paste does the sign-in too, so step 2 is just the
+            # browser approval — "Sign in with Google" is the real action here.
+            signin_title="Sign in with Google",
+            signin_command=None,
+            signin_note="A browser opens — approve the Google sign-in. No key needed.",
+            steps=(),
+            note=None,
+        ),
         ConnectOption(
             client_id="claude-code",
             client_label="Claude Code",
             kind="command",
             command=f"claude mcp add --transport http hoardhurthelp {mcp_url}",
-            config=None,
-            intro=None,
+            # Claude Code's sign-in has no shell command — it's the interactive
+            # /mcp menu, so /mcp is its own paste (into Claude Code, not the shell).
+            # The step's real action is pasting /mcp, so the heading says so.
+            signin_title="Paste this into Claude Code",
+            signin_command="/mcp",
+            signin_note=(
+                "Then pick hoardhurthelp and choose Authenticate. A browser opens "
+                "— approve the Google sign-in. No key needed."
+            ),
             steps=(),
-            note=(
-                "In Claude Code, run /mcp, pick hoardhurthelp, and choose "
-                "Authenticate. A browser opens — approve it. No key needed."
-            ),
-        ),
-        ConnectOption(
-            client_id="codex",
-            client_label="Codex",
-            kind="command",
-            command=(
-                f"codex mcp add hoardhurthelp --url {mcp_url}\n"
-                "codex mcp login hoardhurthelp"
-            ),
-            config=None,
-            intro=None,
-            steps=(),
-            note=(
-                "The second line opens a browser — approve it. No key needed."
-            ),
+            note=None,
         ),
         ConnectOption(
             client_id="gemini",
             client_label="Gemini",
             kind="command",
             command=f"gemini mcp add hoardhurthelp {mcp_url} --transport http",
-            config=None,
-            intro=None,
-            steps=(),
-            note=(
-                "Open Gemini once — it pops up a browser to approve. No key "
-                "needed."
+            signin_title="Sign in with Google",
+            signin_command=None,
+            signin_note=(
+                "Open Gemini once — it opens a browser to approve. No key needed."
             ),
+            steps=(),
+            note=None,
         ),
         ConnectOption(
             client_id="claude-desktop",
             client_label="Claude Desktop",
             kind="steps",
             command=None,
-            config=None,
-            intro=None,
+            signin_title=None,
+            signin_command=None,
+            signin_note=None,
             steps=(
                 "Settings → Connectors → Add custom connector.",
                 f"URL: {mcp_url}",
