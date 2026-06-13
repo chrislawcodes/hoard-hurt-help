@@ -2,27 +2,20 @@
 
 Source of truth: `spec.md` + `plan.md` (architecture decisions AD-1..AD-9, residual risks
 RR-1..RR-9). Slices are a **dependency chain** — see "Parallelization" at the end.
-Each slice ends at a `[CHECKPOINT]` (≤ ~300 changed lines); the diff checkpoint reviews
-only that slice's diff. Preflight (`ruff` + `mypy app/ mcp_server/` + `pytest`) must be
-green before advancing any slice.
+Each slice ends at a single-line `[CHECKPOINT]` marker (≤ ~300 changed lines); the diff
+checkpoint reviews only that slice's diff. Preflight (`ruff` + `mypy app/ mcp_server/` +
+`pytest`) must be green before advancing any slice.
 
 ---
 
 ## Slice 1 — fastmcp v3 migration, no behavior change (AD-4, RR-3, RR-4)
-Est. diff: ~120 lines. Depends on: none.
+Est. diff: ~120 lines. Depends on: none. **DONE** (`cd5b190`).
 
-- [ ] Add standalone `fastmcp` v3 to `pyproject.toml`; pin the exact version; resolve the
-      dependency alongside the existing `mcp>=1.0.0` (or replace it if `fastmcp` vendors it).
-- [ ] Migrate `mcp_server/server.py` imports from `mcp.server.fastmcp` to standalone
-      `fastmcp`; keep all 9 `@tool()` definitions, the `streamable_http_path="/"` mount,
-      and the `TransportSecuritySettings`/host behavior equivalent.
-- [ ] Confirm `app/main.py` can still drive the MCP sub-app lifespan (the parent runs it at
-      `app/main.py:158-172`); adjust the `asgi_app`/lifespan wiring only as the new API requires.
-- [ ] Keep `X-Connection-Key` header auth working **temporarily** this slice (OAuth lands in Slice 4).
-- [ ] **[CHECKPOINT]** *Verify (RR-3/RR-4):* run the app; `tools/list` over `/mcp` returns all
-      9 tools; one header-authed `get_next_turn`/`get_game_state` call works; an idle
-      `get_next_turn` still returns `waiting` + `next_poll_after_seconds` (no busy-loop).
-      Preflight green.
+- [x] Add standalone `fastmcp` v3 to `pyproject.toml`; pin the version; resolve alongside `mcp`.
+- [x] Migrate `mcp_server/server.py` to standalone `fastmcp` (`http_app(path="/", transport="streamable-http")`); keep all 9 tools + the `/mcp` mount + lifespan driving in `app/main.py`.
+- [x] Keep `X-Connection-Key` header auth working **temporarily** (OAuth lands in Slice 4).
+- [x] Verify (RR-3/RR-4): tools list returns 9 tools; header-authed call works; idle `get_next_turn` returns `waiting`; no host-validation regression (fastmcp v3 has none). Preflight green (758 passed).
+- [x] Slice 1 complete — preflight green, committed. [CHECKPOINT]
 
 ---
 
@@ -41,9 +34,10 @@ Est. diff: ~280 lines. Depends on: Slice 1.
       service so both adapters get them.
 - [ ] Rewrite the HTTP routes as thin adapters that call the service (auth + parse via
       existing `deps.py`, then delegate). No change to the HTTP request/response contract.
-- [ ] **[CHECKPOINT]** *Verify:* existing `tests/` agent-API + connector tests pass
-      **unchanged**; add direct unit tests on `agent_play.*` (incl. a rate-limit hit and a
-      submit that increments `turns_played` + marks first move). Preflight green.
+- [ ] Verify: existing agent-API + connector tests pass **unchanged**; add direct unit tests
+      on `agent_play.*` (incl. a rate-limit hit and a submit that increments `turns_played` +
+      marks first move).
+- [ ] Slice 2 complete — preflight green, commit. [CHECKPOINT]
 
 ---
 
@@ -64,11 +58,11 @@ Est. diff: ~280 lines. Depends on: Slice 2.
       store hash, discard raw key; enable **all** `ConnectionProvider` rows (reuse the
       `connections_lifecycle.py` upsert helper); **call `mark_seen` on creation** so the row
       is live immediately (plan-review HIGH).
-- [ ] **[CHECKPOINT]** *Verify (SC-004/RR-7/RR-9):* N concurrent `mode_a_connection_for`
-      calls for one user → exactly one row, no unhandled lock error (SQLite async test DB);
-      `assert_connection_usable` raises the right 410/403; resurrect-after-delete works;
-      `alembic upgrade head` green; `assert_connection_usable` parity test on `require_connection`.
-      Preflight green.
+- [ ] Verify (SC-004/RR-7/RR-9): N concurrent `mode_a_connection_for` calls → exactly one row,
+      no unhandled lock error (SQLite async test DB); `assert_connection_usable` raises the
+      right 410/403; resurrect-after-delete works; `alembic upgrade head` green; parity test
+      that `require_connection` still gates identically.
+- [ ] Slice 3 complete — preflight green, commit. [CHECKPOINT]
 
 ---
 
@@ -84,13 +78,13 @@ Est. diff: ~300 lines. Depends on: Slices 1–3.
       → resolve player → call `agent_play.<fn>` in-process.
 - [ ] `get_game_state` becomes auth-required; update `tests/test_mcp.py` to expect that
       (no per-tool public exemption under the gate).
-- [ ] **[CHECKPOINT]** *Verify (R1/RR-2/RR-8):* `curl -i /mcp` (no token) → 401 +
-      `WWW-Authenticate`; PRM + AS metadata fetch and advertise the public host (no Invalid
-      Host / redirect loop); a wrong-audience token is rejected; a disabled-user token is
-      rejected; **connectorless flow** — a user whose only connection is the Mode A row
-      reads as covered, can join + play a turn; pausing/deleting the Mode A connection stops
-      `/mcp` (FR-011); connector regression green; HTTP-vs-MCP parity test (same
-      `TurnSubmission` for equivalent inputs). Preflight green.
+- [ ] Verify (R1/RR-2/RR-8): `curl -i /mcp` (no token) → 401 + `WWW-Authenticate`; PRM + AS
+      metadata fetch and advertise the public host (no Invalid Host / redirect loop);
+      wrong-audience token rejected; disabled-user token rejected; **connectorless flow** — a
+      user whose only connection is the Mode A row reads as covered, can join + play a turn;
+      pausing/deleting the Mode A connection stops `/mcp` (FR-011); connector regression green;
+      HTTP-vs-MCP parity (same `TurnSubmission` for equivalent inputs).
+- [ ] Slice 4 complete — preflight green, commit. [CHECKPOINT]
 
 ---
 
@@ -105,7 +99,8 @@ Est. diff: ~150 lines (+docs). Depends on: Slice 4.
       Claude Desktop, Codex, Gemini CLI; add the `get_game_state` deprecation note (now
       auth-required; public reads via the spectator endpoint); **fix the doc drift**
       (`X-Agent-Key`/`sk_bot_` → `X-Connection-Key`/`sk_conn_`).
-- [ ] **[CHECKPOINT]** *Verify:* preflight green; docs reviewed.
+- [ ] Verify: preflight green; docs reviewed.
+- [ ] Slice 5 complete — preflight green, commit. [CHECKPOINT]
 
 ---
 
