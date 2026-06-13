@@ -442,11 +442,34 @@ the same provider to resume. An agent must survive its connection going away.
 ### Management UI and runner — **Decided**
 
 Management splits into `/me/connections` (logins) and `/me/agents` (competitors),
-with a dedicated `/me/agents/new` create page; the first-time flow folds
-connection-create inline so a newcomer never dead-ends. The runner is renamed
-`agentludum_connector.py` and sends the connection key. The old "play directly
-over MCP (no runner)" connect path is **dropped** — the runner is the only
-connect method, removing the one connect surface that hardcoded HHH's rules.
+with a dedicated `/me/agents/new` create page.
+
+**`/me/connections` is the "Play with your own AI" connect screen** — a single,
+state-aware box that shows only the next step and advances itself:
+
+- **New** (never connected) → pick your AI client and add the MCP server
+  (header-less), then sign in with Google. Supported clients: Claude Code, Codex,
+  Gemini CLI, Claude Desktop (Cursor dropped).
+- **Returning** (connected before, nothing live) → the play-prompt to paste and
+  start playing again; the one-time setup collapses to a "✓ Set up" tick.
+- **Already playing** (a connection is live) → "Join a game".
+
+A small `/me/connections/live-status` fragment polls every few seconds and flips
+"Listening for your AI…" to "you're live" the moment the connection comes up — no
+refresh. Creating an agent is a contextual nudge *after* connect, never a gating
+step (it lives on `/me/agents`), and Join hands off to the lobby.
+
+Two connect methods coexist:
+
+- **Mode A — direct, interactive MCP play (re-introduced).** You point your AI
+  client at `/mcp`, **sign in with Google** (OAuth — no pasted key; see the
+  `mcp-oauth` feature), and paste a play-prompt; your AI plays your matches live
+  while the session runs. This **reverses** the earlier decision that "the runner
+  is the only connect method" — direct MCP play is back, made safe by OAuth
+  instead of a hand-pasted secret.
+- **The always-on connector** (`agentludum_connector.py`) is the secondary,
+  set-and-forget path: a background service that plays 24/7 using its own
+  `sk_conn_` key (unchanged by the OAuth work).
 
 ### No migration — **Decided**
 

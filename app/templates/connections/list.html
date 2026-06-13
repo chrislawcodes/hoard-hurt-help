@@ -3,63 +3,65 @@
 {% block content %}
 <div class="page-head">
     <h1>Play with your own AI</h1>
-    <p class="sub">Point your AI client at our server, paste one prompt, and watch it play your matches live.</p>
+    <p class="sub">Point your AI client at our server, run one command, and watch it play your matches live.</p>
 </div>
 
-{# --- Readiness: do they have an agent to play with? --- #}
-<div class="card byo-readiness {{ 'is-ready' if has_agent else 'needs-agent' }}" id="readiness">
-    {% if has_agent %}
-        <p style="margin:0;"><span class="badge badge-ok"><span class="dot dot-still"></span>Agent ready</span>
-            <span class="mono">{{ agent_summary }}</span></p>
-    {% else %}
-        <p style="margin:0 0 0.6rem;">You don't have an agent yet. An agent is your AI competitor — its model and strategy. You need one before you can play.</p>
-        <a class="btn btn-primary" href="/me/agents/new">First, create an agent →</a>
-    {% endif %}
-</div>
+{# === The one self-advancing box. What it leads with depends on the user's state:
+   NEW (never connected) → the add-server picker + Listening region.
+   RETURNING (connected before, nothing live now) → the play-prompt to start playing again.
+   ALREADY PLAYING (a connection is live now) → play-prompt + Join a game. === #}
 
-{# --- Step 1: one-time connect, with a CSS-only client picker --- #}
-<div class="card" id="connect">
-    <h2 style="margin-top:0;">Step 1 · Connect your AI <span class="hint" style="display:inline;">(one-time)</span></h2>
-    <p class="hint" style="margin-bottom:0.9rem;">Pick your AI client. The snippet already has your connection key in it.</p>
-
-    <div class="byo-tabs">
-        {% for snip in connect_snippets %}
-        <input type="radio" name="byo-client" id="byo-tab-{{ snip.client_id }}"
-               class="byo-tab-input"{% if loop.first %} checked{% endif %}>
-        {% endfor %}
-
-        <div class="byo-tab-labels" role="tablist">
-            {% for snip in connect_snippets %}
-            <label class="byo-tab-label" for="byo-tab-{{ snip.client_id }}">{{ snip.client_label }}</label>
-            {% endfor %}
-        </div>
-
-        {% for snip in connect_snippets %}
-        <section class="byo-tab-panel" id="byo-panel-{{ snip.client_id }}" aria-label="{{ snip.client_label }}">
-            <p class="hint" style="margin-bottom:0.5rem;">{{ snip.intro }}</p>
-            <button type="button" class="btn-copy"
-                    onclick="copyWithFeedback(this, document.getElementById('byo-snip-{{ snip.client_id }}').textContent)">Copy</button>
-            <pre id="byo-snip-{{ snip.client_id }}">{{ snip.snippet }}</pre>
-        </section>
-        {% endfor %}
+{% if is_live_now %}
+    {# --- ALREADY PLAYING: lead with the post-connect block (play-prompt +
+       Join/Create-agent), which lives in _live_status.html. --- #}
+    <div class="card" id="connect">
+        {% include "connections/_live_status.html" %}
     </div>
 
-    <p class="hint" style="margin-top:0.75rem;">After adding the server, ask your AI "What hoardhurthelp tools do you have?" to confirm it's connected.</p>
-</div>
+    <details class="card byo-collapsed" id="setup">
+        <summary><span class="byo-tick">✓ Set up</span> — switching computers? Add the server again</summary>
+        <div class="byo-connector-body">
+            <p class="hint" style="margin-bottom:0.6rem;">On a new machine, add the MCP server and sign in with Google again, then paste the play-prompt above.</p>
+            {% include "connections/_connect_picker.html" %}
+        </div>
+    </details>
 
-{# --- Step 2: the per-session play prompt --- #}
-<div class="card" id="play">
-    <h2 style="margin-top:0;">Step 2 · Start playing <span class="hint" style="display:inline;">(each session)</span></h2>
-    <button type="button" class="btn-copy"
-            onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt').textContent)">Copy</button>
-    <pre id="byo-play-prompt">{{ play_prompt }}</pre>
-    <p class="hint" style="margin-top:0.6rem;">Paste this whenever you want to play — your AI plays all your matches while you watch. Close it and play stops; come back and paste again next session.</p>
-    <p style="margin-top:0.9rem;"><a class="btn btn-ghost" href="{{ lobby_url }}">Watch your games →</a></p>
-</div>
+{% elif has_connected_before %}
+    {# --- RETURNING: lead with the play-prompt (the recurring action); the full
+       add-server picker is collapsed behind "✓ Set up". --- #}
+    <div class="card" id="connect">
+        <h2 style="margin-top:0;">Start playing</h2>
+        <p class="hint" style="margin-bottom:0.9rem;">You've connected before. Paste this to your AI to start playing again:</p>
+        <button type="button" class="btn-copy"
+                onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt').textContent)">Copy</button>
+        <pre id="byo-play-prompt">{{ play_prompt }}</pre>
+        <p class="hint" style="margin-top:0.6rem;">If your client asks, sign in with Google again. Switching computers or clients? Open the full setup below and add the server.</p>
 
-{# --- Secondary: always-on connector (today's flow, collapsed) --- #}
+        {% include "connections/_live_status.html" %}
+    </div>
+
+    <details class="card byo-collapsed" id="setup">
+        <summary><span class="byo-tick">✓ Set up</span> — switching computers? Add the server again</summary>
+        <div class="byo-connector-body">
+            {% include "connections/_connect_picker.html" %}
+        </div>
+    </details>
+
+{% else %}
+    {# --- NEW: lead with the add-server picker + sign-in note + Listening region. --- #}
+    <div class="card" id="connect">
+        <h2 style="margin-top:0;">Connect your AI</h2>
+        <p class="hint" style="margin-bottom:0.9rem;">Pick your AI client and add the server (no key needed). The first time it connects, a “Sign in with Google” window opens.</p>
+
+        {% include "connections/_connect_picker.html" %}
+
+        {% include "connections/_live_status.html" %}
+    </div>
+{% endif %}
+
+{# --- Secondary: always-on connector (set-and-forget), collapsed. --- #}
 <details class="card byo-connector" id="connector">
-    <summary>Rather not restart each session? Run the always-on connector (plays 24/7)</summary>
+    <summary>Want it to play 24/7? Run the always-on connector</summary>
     <div class="byo-connector-body">
         <p class="hint">This installs a small background service on one machine. It connects every AI CLI that machine is logged into (Claude, Gemini, Codex, Hermes, OpenClaw) and plays your matches around the clock — no chat session to keep open.</p>
 

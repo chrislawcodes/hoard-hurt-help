@@ -1,0 +1,46 @@
+{# CSS-only client picker (the existing byo-tabs pattern). Claude Code is checked
+   first. Each client shows how to ADD THE MCP SERVER (header-less) and a sign-in
+   note. The play-prompt is a SEPARATE block shown after connecting (see
+   _live_status.html). Three render kinds:
+     command — a copyable terminal command;
+     config  — a copyable config-file block (with an intro line);
+     steps   — numbered click-through steps for GUI clients.
+   Expects `connect_options` in context. #}
+<div class="byo-tabs">
+    {% for opt in connect_options %}
+    <input type="radio" name="byo-client" id="byo-tab-{{ opt.client_id }}"
+           class="byo-tab-input"{% if loop.first %} checked{% endif %}>
+    {% endfor %}
+
+    <div class="byo-tab-labels" role="tablist">
+        {% for opt in connect_options %}
+        <label class="byo-tab-label" for="byo-tab-{{ opt.client_id }}">{{ opt.client_label }}</label>
+        {% endfor %}
+    </div>
+
+    {% for opt in connect_options %}
+    <section class="byo-tab-panel" id="byo-panel-{{ opt.client_id }}" aria-label="{{ opt.client_label }}">
+        {% if opt.kind == "steps" %}
+            <ol class="byo-steps">
+                {% for step in opt.steps %}
+                <li>{{ step }}</li>
+                {% endfor %}
+            </ol>
+        {% elif opt.kind == "config" %}
+            {% if opt.intro %}
+            <p class="hint" style="margin-bottom:0.4rem;">{{ opt.intro }}</p>
+            {% endif %}
+            <button type="button" class="btn-copy"
+                    onclick="copyWithFeedback(this, document.getElementById('byo-cmd-{{ opt.client_id }}').textContent)">Copy</button>
+            <pre id="byo-cmd-{{ opt.client_id }}">{{ opt.config }}</pre>
+        {% else %}
+            <button type="button" class="btn-copy"
+                    onclick="copyWithFeedback(this, document.getElementById('byo-cmd-{{ opt.client_id }}').textContent)">Copy</button>
+            <pre id="byo-cmd-{{ opt.client_id }}">{{ opt.command }}</pre>
+        {% endif %}
+        {% if opt.note %}
+        <p class="byo-signin-note hint">{{ opt.note }}</p>
+        {% endif %}
+    </section>
+    {% endfor %}
+</div>

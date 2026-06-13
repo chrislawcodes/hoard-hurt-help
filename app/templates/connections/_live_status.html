@@ -1,0 +1,34 @@
+{# Self-advancing region. Polls /me/connections/live-status every 4s and swaps
+   itself, so the page moves from "Listening…" to the post-connect block with no
+   refresh the moment a connection goes live. When live it shows the play-prompt
+   (the recurring "start playing" action), then the create-agent / Join-a-game
+   beat. Expects `play_prompt` in context. #}
+<div id="live-status"
+     hx-get="/me/connections/live-status"
+     hx-trigger="every 4s"
+     hx-swap="outerHTML">
+    {% if is_live_now %}
+        <div class="byo-live">
+            <p class="byo-live-head"><span class="badge badge-ok"><span class="dot dot-still"></span>Connected</span>
+                Your AI is connected and live.</p>
+            <p style="margin:0.6rem 0 0.4rem;"><strong>Signed in — paste this to start playing:</strong></p>
+            <button type="button" class="btn-copy"
+                    onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt-live').textContent)">Copy</button>
+            <pre id="byo-play-prompt-live">{{ play_prompt }}</pre>
+            {% if has_agent %}
+                <p style="margin:0.8rem 0 0.8rem;">You're ready. Pick which games to enter
+                    {% if agent_summary %}<span class="mono">({{ agent_summary }})</span>{% endif %}.</p>
+                <a class="btn btn-primary" href="{{ lobby_url }}">Join a game →</a>
+            {% else %}
+                <p style="margin:0.8rem 0 0.8rem;">One more thing: you need an agent — your AI competitor (its model and strategy) — before you can play.</p>
+                <a class="btn btn-primary" href="/me/agents/new">Create an agent →</a>
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="byo-listening">
+            <span class="byo-pulse-dot"></span>
+            <span>Listening for your AI to connect…</span>
+        </div>
+        <p class="hint" style="margin-top:0.4rem;">Add the server above and sign in with Google. This page advances on its own the moment your AI connects — keep it open or come back later. If nothing happens after a minute, double-check you added the server and approved the Google sign-in.</p>
+    {% endif %}
+</div>

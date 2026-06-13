@@ -13,7 +13,11 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import LIVE_WINDOW_SECONDS, compute_connection_health
+from app.engine.connection_health import (
+    LIVE_WINDOW_SECONDS,
+    ConnectionHealth,
+    compute_connection_health,
+)
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
 from app.models.agent import Agent, AgentKind, AgentStatus
@@ -85,133 +89,155 @@ class AgentRow:
     version: AgentVersion | None
 
 
+# ---------------------------------------------------------------------------
+# Connect options — the single swappable auth seam.
+#
+# AUTH-AGNOSTIC SEAM (coordination with the parallel `mcp-oauth` workstream):
+# The EXACT per-client "add the server" instructions and the Mode A play-prompt
+# below MIRROR ``docs/setup-mcp.md`` from the mcp-oauth workstream (worktree
+# ``--feat-mcp-oauth``). That doc is the source of truth. The real OAuth flow is
+# multi-step, NOT a chained one-liner:
+#   1. add the MCP server (header-less — no ``sk_conn_`` key, no ``--header``);
+#   2. sign in with Google (interactive — in Claude Code run ``/mcp`` →
+#      Authenticate; other clients open a browser on first connect);
+#   3. reload;
+#   4. paste the play-prompt (``_play_prompt`` below).
+# Keep these strings in sync with ``docs/setup-mcp.md`` if that doc changes;
+# ``_connect_options`` and ``_play_prompt`` are the only places they live, so the
+# swap is a contained change and does not touch layout.
+# ---------------------------------------------------------------------------
+
+
 @dataclass(frozen=True)
-class ConnectSnippet:
-    """One client's one-time MCP-connect instructions, key already baked in."""
+class ConnectOption:
+    """One client's "add the server" instructions for the state-aware connect box.
+
+    A client renders one of three ways:
+      - ``kind="command"`` — a copyable terminal command in ``command``;
+      - ``kind="config"`` — a copyable config-file block in ``config`` (with an
+        ``intro`` saying which file it goes in);
+      - ``kind="steps"`` — numbered click-through ``steps`` for GUI clients.
+    The play-prompt is the SAME for every client and is a separate block shown
+    after connecting (see ``_play_prompt``), so it is not carried here.
+    """
 
     client_id: str  # stable slug for the CSS-tabs radio inputs
     client_label: str  # human-facing name
-    intro: str  # short "where this goes" sentence shown above the snippet
-    snippet: str  # the copyable command / config block
+    kind: str  # "command" | "config" | "steps"
+    command: str | None  # kind="command": copyable terminal command
+    config: str | None  # kind="config": copyable config-file block
+    intro: str | None  # kind="config": where the block goes (file path)
+    steps: tuple[str, ...]  # kind="steps": numbered click-through steps
+    note: str | None  # short note shown under the command/config/steps
 
 
-def _connect_snippets(key: str) -> list[ConnectSnippet]:
-    """Per-client one-time connect snippets with the user's connection key baked in.
+def _connect_options() -> list[ConnectOption]:
+    """Per-client "add the server" options for the state-aware connect box.
 
-    Mirrors the content in ``docs/setup-mcp.md`` so the in-app surface and the doc
-    stay in sync. Each snippet points the client at ``<base_url>/mcp`` with the
-    ``X-Connection-Key`` header carrying the user's ``sk_conn_`` key.
+    See the AUTH-AGNOSTIC SEAM note above: these mirror ``docs/setup-mcp.md`` from
+    the mcp-oauth workstream and are header-less (no key, no ``--header``). Clients,
+    in display order: Claude Code (default/first), Codex, Gemini, Claude Desktop.
     """
-    base = settings.base_url
-    mcp_url = f"{base}/mcp"
+    mcp_url = f"{settings.base_url}/mcp"
     return [
-        ConnectSnippet(
+        ConnectOption(
             client_id="claude-code",
             client_label="Claude Code",
-            intro="Run this once in your terminal:",
-            snippet=(
-                f'claude mcp add hoardhurthelp {mcp_url} \\\n'
-                f'  --header "X-Connection-Key: {key}"'
+            kind="command",
+            command=f"claude mcp add --transport http hoardhurthelp {mcp_url}",
+            config=None,
+            intro=None,
+            steps=(),
+            note=(
+                "Then run /mcp in Claude Code and choose Authenticate for "
+                "hoardhurthelp — a browser opens for Google sign-in. No header "
+                "needed."
             ),
         ),
-        ConnectSnippet(
-            client_id="claude-desktop",
-            client_label="Claude Desktop",
-            intro=(
-                "Open Settings → Developer → Edit Config, then add this entry under "
-                '"mcpServers" in claude_desktop_config.json and restart Claude Desktop:'
-            ),
-            snippet=(
-                "{\n"
-                '  "mcpServers": {\n'
-                '    "hoardhurthelp": {\n'
-                f'      "url": "{mcp_url}",\n'
-                '      "transport": "streamable-http",\n'
-                f'      "headers": {{ "X-Connection-Key": "{key}" }}\n'
-                "    }\n"
-                "  }\n"
-                "}"
-            ),
-        ),
-        ConnectSnippet(
+        ConnectOption(
             client_id="codex",
             client_label="Codex",
-            intro="Add this to ~/.codex/config.toml:",
-            snippet=(
+            kind="config",
+            command=None,
+            config=(
                 "[mcp_servers.hoardhurthelp]\n"
-                "enabled = true\n"
-                f'url = "{mcp_url}"\n'
-                f'http_headers = {{ "X-Connection-Key" = "{key}" }}'
+                f'url = "{mcp_url}"'
             ),
+            intro="Add to ~/.codex/config.toml (no http_headers):",
+            steps=(),
+            note="On first use, Codex opens a browser for Google sign-in.",
         ),
-        ConnectSnippet(
+        ConnectOption(
             client_id="gemini",
             client_label="Gemini",
-            intro='Add this to ~/.gemini/settings.json under "mcpServers":',
-            snippet=(
-                "{\n"
-                '  "mcpServers": {\n'
-                '    "hoardhurthelp": {\n'
-                f'      "httpUrl": "{mcp_url}",\n'
-                f'      "headers": {{ "X-Connection-Key": "{key}" }}\n'
-                "    }\n"
-                "  }\n"
-                "}"
-            ),
+            kind="command",
+            command=f"gemini mcp add hoardhurthelp {mcp_url} --transport http",
+            config=None,
+            intro=None,
+            steps=(),
+            note="Gemini opens a browser for Google sign-in on first connect.",
         ),
-        ConnectSnippet(
-            client_id="cursor",
-            client_label="Cursor",
-            intro=(
-                "Add this to ~/.cursor/mcp.json (or .cursor/mcp.json in a project) "
-                'under "mcpServers", then reload Cursor:'
+        ConnectOption(
+            client_id="claude-desktop",
+            client_label="Claude Desktop",
+            kind="steps",
+            command=None,
+            config=None,
+            intro=None,
+            steps=(
+                "Settings → Connectors → Add custom connector.",
+                f"URL: {mcp_url}",
+                "Enable it — Claude Desktop opens a browser to sign in with Google.",
             ),
-            snippet=(
-                "{\n"
-                '  "mcpServers": {\n'
-                '    "hoardhurthelp": {\n'
-                f'      "url": "{mcp_url}",\n'
-                f'      "headers": {{ "X-Connection-Key": "{key}" }}\n'
-                "    }\n"
-                "  }\n"
-                "}"
+            note=(
+                "Claude Desktop is fine for trying it out, but the CLI or the "
+                "always-on connector is steadier for long unattended play."
             ),
         ),
     ]
 
 
-def _play_prompt() -> str:
-    """The universal session play-prompt the user pastes to start a session.
+# The Mode A play-prompt. This MIRRORS the "Mode A" play-prompt block in
+# ``docs/setup-mcp.md`` (mcp-oauth workstream) EXACTLY and must stay in sync with
+# it. It is the SAME for every client — paste it after the MCP server is added and
+# you have signed in with Google. No key or token: the sign-in is on the MCP
+# connection itself.
+_PLAY_PROMPT = """You are playing Hoard Hurt Help through the hoardhurthelp MCP tools. Play all of
+my games on your own until they finish. I'm already signed in on the MCP
+connection — never ask me for a key or token.
 
-    Mirrors the play-prompt in ``docs/setup-mcp.md``: it teaches the two-phase
-    talk→act loop and to resend the agent_turn_token. No key is embedded here —
-    the key lives on the MCP connection from the one-time connect step.
+Loop:
+1. Call get_next_turn. It returns my most urgent turn across all my games (the
+   game_id/match_id, my strategy, the full move history, the scoreboard, and a
+   `current` object with the turn_token and a `phase`), OR a `waiting` status
+   with `next_poll_after_seconds`.
+2. If status is "your_turn", look at current.phase:
+   - phase == "talk": read the messages aimed at me, decide what to say, and call
+     submit_talk with that match_id, the turn_token from `current`, and the
+     agent_turn_token from the top level. Negotiate — make and answer deals.
+   - phase == "act": choose HOARD, HELP, or HURT (HELP/HURT need a target_id),
+     write a short message, and call submit_action with that match_id, the
+     turn_token, and the agent_turn_token.
+3. If status is "waiting", sleep next_poll_after_seconds, then call get_next_turn
+   again. get_next_turn long-polls, so a waiting call may take ~25s to return —
+   that's expected; just call it again.
+4. On a temporary error, wait a few seconds and retry. If a call returns 401 /
+   "unauthorized", your sign-in expired — re-authenticate with Google in your
+   client, then continue.
+
+Read the chat and history yourself: spot alliances and betrayals and play to my
+strategy. Pull get_opponent_history, get_chat, or get_standings only if you need
+older detail your client has trimmed. Keep going until every game is over."""
+
+
+def _play_prompt() -> str:
+    """The Mode A play-prompt, pasted after connecting + signing in.
+
+    Mirrors the Mode A play-prompt block in ``docs/setup-mcp.md`` exactly (see the
+    AUTH-AGNOSTIC SEAM note) and must stay in sync with it. The same prompt works
+    in Claude Code, Claude Desktop, Codex, and Gemini.
     """
-    return (
-        "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools. Play all of\n"
-        "my games on your own until they finish. Your connection key is already set on the\n"
-        "MCP connection — never ask me for it.\n\n"
-        "Loop:\n"
-        "1. Call get_next_turn. It returns my most urgent turn across all my games (the\n"
-        "   game_id/match_id, my strategy, the full move history, the scoreboard, and a\n"
-        "   `current` object with the turn_token and a `phase`), OR a `waiting` status\n"
-        "   with `next_poll_after_seconds`.\n"
-        '2. If status is "your_turn", look at current.phase:\n'
-        '   - phase == "talk": read the messages aimed at me, decide what to say, and call\n'
-        "     submit_talk with that match_id, the turn_token from `current`, and the\n"
-        "     agent_turn_token from the top level. Negotiate — make and answer deals.\n"
-        '   - phase == "act": choose HOARD, HELP, or HURT (HELP/HURT need a target_id),\n'
-        "     write a short message, and call submit_action with that match_id, the\n"
-        "     turn_token, and the agent_turn_token.\n"
-        '3. If status is "waiting", sleep next_poll_after_seconds, then call get_next_turn\n'
-        "   again. get_next_turn long-polls, so a waiting call may take ~25s to return —\n"
-        "   that's expected; just call it again.\n"
-        '4. On a temporary error, wait a few seconds and retry. If a call returns 401 /\n'
-        '   "invalid key", stop and tell me to reissue the connection code.\n\n'
-        "Read the chat and history yourself: spot alliances and betrayals and play to my\n"
-        "strategy. Pull get_opponent_history, get_chat, or get_standings only if you need\n"
-        "older detail your client has trimmed. Keep going until every game is over."
-    )
+    return _PLAY_PROMPT
 
 
 async def _load_user_agents(db: DbSession, user_id: int) -> list[AgentRow]:
@@ -465,6 +491,50 @@ async def _ensure_pending_setup_and_key(
     return setup, key
 
 
+def _summarize_agent(agents: list[AgentRow]) -> tuple[bool, str | None]:
+    """Whether the user has an AI agent and the "name · model" summary of the first."""
+    if not agents:
+        return False, None
+    first = agents[0]
+    model = first.version.model if first.version is not None else None
+    summary = f"{first.agent.name} · {model}" if model else first.agent.name
+    return True, summary
+
+
+async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
+    """Shared 'are we live + agent nudge' context for the page and the poll fragment.
+
+    A user is live now if ANY of their non-deleted connections resolves to a LIVE or
+    READY health state (running machine, idle-but-ready counts). Reuses the per-row
+    health computation so the page and the 4s poll fragment can't drift.
+    """
+    connections = (
+        (
+            await db.execute(
+                select(Connection)
+                .where(Connection.user_id == user.id, Connection.deleted_at.is_(None))
+                .order_by(Connection.created_at.desc(), Connection.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    is_live_now = False
+    for connection in connections:
+        health = await compute_connection_health(db, connection)
+        if health.state in (ConnectionHealth.LIVE, ConnectionHealth.READY):
+            is_live_now = True
+            break
+    has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
+    return {
+        "is_live_now": is_live_now,
+        "has_agent": has_agent,
+        "agent_summary": agent_summary,
+        "play_prompt": _play_prompt(),
+        "lobby_url": "/games/hoard-hurt-help",
+    }
+
+
 @router.get("", response_class=HTMLResponse)
 async def list_connections(
     request: Request,
@@ -487,8 +557,11 @@ async def list_connections(
     # one open machine setup or mint it, with a key that stays stable across loads.
     active_setup, key = await _ensure_pending_setup_and_key(request, db, user.id)
     rows = []
+    is_live_now = False
     for connection in connections:
         health = await compute_connection_health(db, connection)
+        if health.state in (ConnectionHealth.LIVE, ConnectionHealth.READY):
+            is_live_now = True
         rows.append(
             {
                 "connection": connection,
@@ -497,15 +570,12 @@ async def list_connections(
                 "agents": await _load_attached_agents(db, connection),
             }
         )
-    # Readiness line for Mode A: does the user have at least one AI agent, and what
-    # to show ("name · model") for the first one. Drives the "create an agent" nudge.
-    agents = await _load_user_agents(db, user.id)
-    has_agent = bool(agents)
-    agent_summary: str | None = None
-    if agents:
-        first = agents[0]
-        model = first.version.model if first.version is not None else None
-        agent_summary = f"{first.agent.name} · {model}" if model else first.agent.name
+    # Three user states drive what the one-box leads with (see the design doc):
+    #   NEW       — never connected (no connection rows)
+    #   RETURNING — connected before, but none live right now
+    #   LIVE      — at least one connection is LIVE or READY right now
+    has_connected_before = bool(connections)
+    has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
     return templates.TemplateResponse(
         request,
         "connections/list.html",
@@ -514,12 +584,33 @@ async def list_connections(
             "connections": rows,
             "active_setup": active_setup,
             "setup_message": _setup_message(key),
-            "connect_snippets": _connect_snippets(key),
+            "connect_options": _connect_options(),
             "play_prompt": _play_prompt(),
+            "has_connected_before": has_connected_before,
+            "is_live_now": is_live_now,
             "has_agent": has_agent,
             "agent_summary": agent_summary,
             "lobby_url": "/games/hoard-hurt-help",
         },
+    )
+
+
+@router.get("/live-status", response_class=HTMLResponse)
+async def live_status_fragment(
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> Response:
+    """The self-advancing 'Listening… → you're live' region, polled every 4s.
+
+    Not live → the pulsing "Listening for your AI to connect…" line. Live → the
+    post-connect block: a "Create an agent" nudge if the user has no agent, or a
+    "Join a game" hand-off to the lobby if they do.
+    """
+    return templates.TemplateResponse(
+        request,
+        "connections/_live_status.html",
+        await _live_status_context(db, user),
     )
 
 
