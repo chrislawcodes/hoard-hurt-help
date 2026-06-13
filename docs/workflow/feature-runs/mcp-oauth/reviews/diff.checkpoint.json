@@ -2,11 +2,12 @@
   "feature_slug": "mcp-oauth",
   "stage": "diff",
   "artifact_path": "docs/workflow/feature-runs/mcp-oauth/reviews/implementation.diff.patch",
-  "git_base_ref": "01bf188093f890bdb6f1e018dace5e23fd27e1d3",
+  "git_base_ref": "ebdd5d67924b4932914f894c9eeb536e5d50e13d",
   "allowed_dirty_paths": [
     "app/deps.py",
-    "app/engine/agent_play.py",
+    "app/engine",
     "app/main.py",
+    "app/models",
     "app/routes",
     "docs/workflow",
     "mcp_server",
@@ -23,7 +24,7 @@
       "model": "gemini-3.1-flash-lite"
     }
   ],
-  "max_artifact_chars": 600000,
+  "max_artifact_chars": 50000,
   "max_context_chars": 60000,
   "max_total_chars": 250000
 }
