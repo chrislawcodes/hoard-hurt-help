@@ -781,13 +781,15 @@ def test_check_oauth_config_warns_in_local_dev_when_missing(monkeypatch) -> None
 
 
 def test_check_oauth_config_passes_when_both_set(monkeypatch) -> None:
-    """When both OAuth vars are set, no error or warning is emitted regardless of environment."""
+    """When the OAuth vars AND a public base_url are set, no error or warning is emitted."""
     import app.main as app_main
 
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env_test")
     monkeypatch.setattr(app_main.settings, "google_client_id", "real-client-id")
     monkeypatch.setattr(app_main.settings, "google_client_secret", "real-client-secret")
+    # MCP OAuth discovery also requires a real public base_url in a deployment.
+    monkeypatch.setattr(app_main.settings, "base_url", "https://play.example.com")
 
     # Must not raise.
     app_main._check_oauth_config()

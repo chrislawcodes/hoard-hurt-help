@@ -91,22 +91,21 @@ Est. diff: ~300 lines. Depends on: Slices 1–3.
 ## Slice 5 — config, startup checks, docs (AD-6, FR-013)
 Est. diff: ~150 lines (+docs). Depends on: Slice 4.
 
-- [ ] Add OAuth/MCP settings to `app/config.py` (reuse `google_client_id`/`google_client_secret`;
-      add MCP `base_url`, JWT signing key, extra redirect URIs). No secret committed.
-- [ ] Extend `_check_oauth_config` in `app/main.py` to fail loud in a real deployment when
-      the new required vars are missing; warn-but-run in local dev.
-- [ ] **Close the Slice-4 HIGH finding:** `_check_oauth_config` MUST also require the new MCP
-      OAuth vars (base_url + JWT signing key, alongside the Google client id/secret) and exit
-      before serving when `RAILWAY_ENVIRONMENT_ID` is set — so the `dev-google-client-id`
-      placeholder fallback in `mcp_server/server.py::_build_auth_provider` can NEVER run in a
-      real deployment (it stays a local-dev-only convenience). Add a test asserting prod-missing
-      vars raises at startup.
-- [ ] Rewrite `docs/setup-mcp.md`: per-client **OAuth** connect snippets for Claude Code,
-      Claude Desktop, Codex, Gemini CLI; add the `get_game_state` deprecation note (now
-      auth-required; public reads via the spectator endpoint); **fix the doc drift**
-      (`X-Agent-Key`/`sk_bot_` → `X-Connection-Key`/`sk_conn_`).
-- [ ] Verify: preflight green; docs reviewed.
-- [ ] Slice 5 complete — preflight green, commit. [CHECKPOINT]
+- [x] OAuth/MCP settings in `app/config.py` (`base_url`, `mcp_jwt_signing_key`,
+      `mcp_redirect_uris`, reusing `google_client_id`/`google_client_secret`) — added in Slice 4.
+- [x] Extended `_check_oauth_config` in `app/main.py` to fail loud in a real deployment.
+- [x] **Closed the Slice-4 HIGH finding:** `_check_oauth_config` now also requires a real public
+      `base_url` (not localhost/empty) in prod and exits before serving when
+      `RAILWAY_ENVIRONMENT_ID` is set, so the `dev-google-client-id` placeholder fallback in
+      `mcp_server/server.py::_build_auth_provider` can never run in a real deployment. Added
+      `tests/test_oauth_config_check.py` (prod-missing vars raise; dev warns). NOTE:
+      `mcp_jwt_signing_key` is not yet wired into GoogleProvider (tokens are in-memory) — tracked
+      follow-up (re-auth after deploy); not required by the check since it is currently unused.
+- [x] Rewrote `docs/setup-mcp.md`: per-client **OAuth** connect snippets (Claude Code, Claude
+      Desktop, Codex, Gemini CLI), the `get_game_state`-now-needs-auth note, removed the pasted-key
+      method and the `X-Agent-Key`/`sk_bot_` drift.
+- [x] Verify: preflight green (770 passed, ruff + mypy clean); docs reviewed.
+- [x] Slice 5 implemented by Claude (Codex implement stalled twice; probe confirmed Codex healthy — small config/docs slice done directly to unblock). Preflight green, commit. [CHECKPOINT]
 
 ---
 

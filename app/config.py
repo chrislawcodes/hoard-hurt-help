@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     google_client_secret: str = Field(default="")
     google_redirect_uri: str = Field(default="http://localhost:8000/auth/google/callback")
 
+    # MCP OAuth bridge. The server signs its own client tokens and registers
+    # one or more redirect URIs with Google.
+    mcp_jwt_signing_key: str = Field(default="")
+    mcp_redirect_uris: str = Field(default="")
+
     # Signing key for session cookies. Generate with `secrets.token_hex(32)`.
     session_secret: str = Field(default="dev-only-do-not-use-in-prod-" + "x" * 40)
 
