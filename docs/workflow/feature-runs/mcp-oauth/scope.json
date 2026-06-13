@@ -10,7 +10,7 @@
     "app/deps.py",
     "app/main.py",
     "app/routes",
-    "docs/workflow/feature-runs/mcp-oauth",
+    "docs/workflow",
     "mcp_server",
     "pyproject.toml"
   ]
