@@ -610,9 +610,9 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 0,
-    "markers_sha": "",
-    "last_diff_head_sha": ""
+    "index": 1,
+    "markers_sha": "e94ebe26fee80c6a4850814015a4e88b4fd6b4153ee439c8c801f0428c6bf576",
+    "last_diff_head_sha": "01bf188093f890bdb6f1e018dace5e23fd27e1d3"
   },
   "spec_adversarial_rounds": 2,
   "last_action_result": {
