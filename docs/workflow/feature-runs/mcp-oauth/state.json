@@ -617,6 +617,18 @@
       "files_written": 6,
       "subprocess_invocations": 18,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-13T17:23:41Z",
+      "wall_seconds": 0.118,
+      "input_bytes_read": 88174,
+      "output_bytes_written": 52118,
+      "files_read": 7,
+      "files_written": 2,
+      "subprocess_invocations": 16,
+      "ttl_crossed": false
     }
   ],
   "stages": {
