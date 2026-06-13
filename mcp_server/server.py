@@ -13,6 +13,7 @@ from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentAccessToken, Depends
 from fastmcp.server.auth.providers.google import GoogleProvider
 from fastmcp.server.dependencies import AccessToken
+from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +40,39 @@ from app.schemas.auth import GoogleUserInfo
 
 logger = logging.getLogger(__name__)
 
+def _build_client_storage() -> AsyncKeyValue:
+    """Durable storage for the OAuth proxy's client + token records.
+
+    The FastMCP access token is a *reference* token: on every authenticated call the
+    server verifies the JWT signature and then looks up server-side state (the
+    registered client record and the encrypted upstream Google token) keyed by the
+    token's JTI. So this store — not just the signing key — must survive a restart, or
+    every client has to redo the Google sign-in after each deploy.
+
+    Prod (Postgres) uses a DB-backed store (Railway's disk is wiped on deploy, so a
+    file store would not survive); dev/test (SQLite) uses in-memory, which is fine
+    because we don't deploy those.
+    """
+    db_url = settings.database_url
+    if db_url.startswith("postgresql"):
+        # Imported lazily so a missing optional backend can never break /mcp in dev.
+        from key_value.aio.stores.postgresql import PostgreSQLStore
+        from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
+
+        # PostgreSQLStore uses raw asyncpg and needs a plain postgresql:// URL;
+        # app.config rewrites DATABASE_URL to the +asyncpg SQLAlchemy form.
+        pg_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        store = PostgreSQLStore(url=pg_url, table_name="mcp_oauth_kv")
+        # Encrypt the upstream Google tokens at rest. The provider only auto-encrypts
+        # its *default* store; we pass an explicit store, so we wrap it ourselves with
+        # a key derived from a stable secret (mirrors the provider's own behavior).
+        secret = settings.mcp_jwt_signing_key.strip() or settings.google_client_secret.strip()
+        return FernetEncryptionWrapper(
+            store, source_material=secret, salt="hoardhurthelp-mcp-oauth-store"
+        )
+    return MemoryStore()
+
+
 def _build_auth_provider() -> GoogleProvider:
     """Create the OAuth proxy used for MCP client sign-in.
 
@@ -53,6 +87,10 @@ def _build_auth_provider() -> GoogleProvider:
             "MCP OAuth is using placeholder Google credentials; sign-in will not work "
             "until GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are configured."
         )
+    # A stable signing key keeps issued JWTs valid across restarts. When unset it is
+    # derived deterministically from the (stable) client secret, so this is belt-and-
+    # suspenders unless the client secret is ever rotated.
+    signing_key = settings.mcp_jwt_signing_key.strip() or None
     return GoogleProvider(
         client_id=client_id,
         client_secret=client_secret,
@@ -64,7 +102,8 @@ def _build_auth_provider() -> GoogleProvider:
             "access_type": "offline",
             "prompt": "consent",
         },
-        client_storage=MemoryStore(),
+        client_storage=_build_client_storage(),
+        jwt_signing_key=signing_key,
     )
 
 
