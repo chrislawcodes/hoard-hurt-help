@@ -18,9 +18,11 @@ from app.deps import (
     DbSession,
     _parse_agent_turn_token,
     require_agent_player,
+    require_connection,
 )
+from app.models.connection import Connection
 from app.ops_events import log_ops_event
-from app.engine.connection_activity import mark_first_move
+from app.engine.connection_activity import increment_turns_played, mark_first_move
 from app.engine.game_records import Action
 from app.games import get as get_game_module
 from app.games.base import GameError
@@ -510,6 +512,7 @@ async def agent_submit(
     agent_turn_token: Annotated[str, Query()],
     db: DbSession,
     player: Annotated[Player, Depends(require_agent_player)],
+    connection: Annotated[Connection, Depends(require_connection)],
 ) -> SubmitResponse:
     """Submit this turn's action. Idempotent on (turn_token, player_id)."""
     _validate_agent_turn_binding(
@@ -576,6 +579,12 @@ async def agent_submit(
             turn=turn.turn,
         )
     await db.commit()
+
+    # Count a real turn played on the connection that drove this move (not a
+    # connector fallback, which is stored as a default — it isn't a turn the
+    # agent actually played). Surfaced on the connection detail page.
+    if not body.is_connector_fallback:
+        await increment_turns_played(db, connection.id)
 
     # Announce the bot's first real move so an open bot-detail page lights up.
     # No-op after the first move. (MCP submit_action proxies here, so this one

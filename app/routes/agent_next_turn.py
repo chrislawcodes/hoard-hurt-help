@@ -8,6 +8,7 @@ sessions per agent without ever collapsing two agents in the same match.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,7 +18,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import false, or_, select, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.db as db_module
 from app.deps import DbSession, require_connection
 from app.engine.next_turn import TurnCandidate, select_next_turn
 from app.engine.turn_routing import (
@@ -44,7 +47,37 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
-_POLL_WHEN_WAITING = 5
+# Recommended re-poll cadence (seconds) the client honors via
+# `next_poll_after_seconds`.
+#
+# `_POLL_WHEN_WAITING` is for the PLURAL `next-turns` endpoint, which returns
+# immediately (no long-poll) and is what the concurrent connector polls. Raised
+# from 5 to 30 so an idle connector stops burning a poll every few seconds —
+# the headline idle-cost cut for the connector path.
+#
+# `_POLL_AFTER_LONG_POLL` is for the SINGULAR `next-turn` endpoint, which now
+# bounded-long-polls: a "waiting" response only comes back AFTER the server held
+# the request open for the whole window, so the wait IS the throttle. The client
+# should re-open the long-poll promptly rather than sleep again on top of it.
+_POLL_WHEN_WAITING = 30
+_POLL_AFTER_LONG_POLL = 2
+
+# Bounded long-poll: when no turn is open, the endpoint can HOLD the request and
+# re-check instead of returning "waiting" immediately. This is opt-in per request
+# via the `hold_seconds` query param, and DEFAULTS TO OFF (0.0) so the connector
+# and any existing caller keep the old immediate-return behaviour and lean on
+# their own `next_poll_after_seconds` sleep.
+#
+# Interactive MCP play (Mode A) is the caller that turns it on: the MCP
+# `get_next_turn` tool proxies this endpoint with a ~25s `hold_seconds` so an idle
+# game holds one request open instead of firing a fresh paid model call every few
+# seconds. ~25s keeps us under typical MCP/HTTP client request timeouts
+# (commonly 30s; the connector uses 40s). We re-check every
+# `_LONG_POLL_INTERVAL_SECONDS` and return the instant a turn opens. Each re-check
+# acquires its own DB session and releases it before the sleep — we never pin a
+# connection across the wait.
+_LONG_POLL_HOLD_SECONDS = 0.0  # default: off (immediate return)
+_LONG_POLL_INTERVAL_SECONDS = 1.0
 
 
 def _as_aware(dt: datetime) -> datetime:
@@ -338,10 +371,32 @@ async def _build_turn_payload(
     }
 
 
+async def _serve_one_turn(
+    db: AsyncSession, connection: Connection, now: datetime
+) -> dict[str, object] | None:
+    """One non-blocking check: claim and render the most urgent servable turn, or
+    return None when there's nothing to serve right now. Commits on a win;
+    rolls back a lost race. Does NOT sleep — the long-poll loop owns the waiting.
+    """
+    candidates, ctx = await _collect_candidates(db, connection, now)
+    chosen = select_next_turn(candidates)
+    if chosen is None:
+        return None
+    if not await _claim_pin(db, connection, chosen, ctx, now):
+        # Another live connection claimed this match first; treat as nothing to
+        # serve this check and let the caller re-poll.
+        await db.rollback()
+        return None
+    await db.commit()
+    return await _build_turn_payload(db, chosen, ctx)
+
+
 @router.get("/next-turn", response_model=None)
 async def next_turn(
     connection: Annotated[Connection, Depends(require_connection)],
     db: DbSession,
+    hold_seconds: float = _LONG_POLL_HOLD_SECONDS,
+    interval_seconds: float = _LONG_POLL_INTERVAL_SECONDS,
 ) -> dict[str, object]:
     """Return the single most urgent open turn this connection may serve.
 
@@ -350,18 +405,63 @@ async def next_turn(
     agent's provider is enabled here, and the match's sticky pin is free, ours,
     or held by a now-dead connection (failover). The pin is claimed with one
     atomic conditional UPDATE so two concurrent polls can't double-serve.
+
+    Optional bounded long-poll (opt-in via ``hold_seconds`` > 0; OFF by default):
+    if no turn is open we don't return "waiting" right away — we hold the request
+    up to ``hold_seconds``, re-checking every ``interval_seconds``, and return the
+    instant a turn opens. This collapses a tight idle polling loop (one paid model
+    call every few seconds in interactive MCP mode) into one held request per
+    window. Each re-check after the first uses its OWN short-lived DB session that
+    is released before the sleep — we never pin a connection across the wait. The
+    connector does NOT pass ``hold_seconds`` (immediate return as before); the MCP
+    ``get_next_turn`` tool passes ``MCP_LONG_POLL_HOLD_SECONDS`` so Mode A is cheap.
+
+    The connection auth (``require_connection``, which bumps the usage counter and
+    heartbeat) runs once per request via the injected ``db`` — not on every
+    re-check — so holding the request open does not inflate the call count.
     """
-    now = datetime.now(timezone.utc)
-    candidates, ctx = await _collect_candidates(db, connection, now)
-    chosen = select_next_turn(candidates)
-    if chosen is None:
-        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
-    if not await _claim_pin(db, connection, chosen, ctx, now):
-        # Another live connection claimed this match first; back off and re-poll.
-        await db.rollback()
-        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
-    await db.commit()
-    return await _build_turn_payload(db, chosen, ctx)
+    held = max(0.0, hold_seconds) > 0.0
+    # When we held the request open, the wait WAS the throttle — tell the client to
+    # re-open promptly. Otherwise (immediate return) advise the normal idle cadence.
+    waiting_poll_hint = _POLL_AFTER_LONG_POLL if held else _POLL_WHEN_WAITING
+    deadline = asyncio.get_event_loop().time() + max(0.0, hold_seconds)
+
+    # First check reuses the request-scoped session (auth already opened it).
+    served = await _serve_one_turn(db, connection, datetime.now(timezone.utc))
+    if served is not None:
+        return served
+
+    # Nothing to serve yet. Capture the primitive id and release the request-scoped
+    # session's DB connection back to the pool BEFORE we start waiting — the read
+    # above left a connection checked out, and holding it idle across a ~25s
+    # long-poll would pin a pooled connection for the whole window (the exact thing
+    # the long-poll must avoid). After this rollback the `connection` ORM object's
+    # attributes are expired, so we re-load it fresh inside each check session
+    # rather than touch the detached object.
+    connection_id = connection.id
+    await db.rollback()
+
+    # Hold the request, re-checking with fresh short-lived sessions that are each
+    # opened, used, and closed (connection returned to the pool) inside the loop
+    # body — so no DB connection is held across any sleep.
+    loop = asyncio.get_event_loop()
+    while loop.time() < deadline:
+        await asyncio.sleep(max(0.0, min(interval_seconds, deadline - loop.time())))
+        async with db_module.SessionLocal() as check_db:
+            fresh = (
+                await check_db.execute(
+                    select(Connection).where(Connection.id == connection_id)
+                )
+            ).scalar_one_or_none()
+            # The connection was deleted mid-hold (or somehow vanished): stop
+            # holding and let the client re-poll, which will hit the auth gate.
+            if fresh is None:
+                break
+            served = await _serve_one_turn(check_db, fresh, datetime.now(timezone.utc))
+        if served is not None:
+            return served
+
+    return {"status": "waiting", "next_poll_after_seconds": waiting_poll_hint}
 
 
 @router.get("/next-turns", response_model=None)

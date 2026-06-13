@@ -1,0 +1,57 @@
+{
+  "session_id": "5625bcea-d8ce-4634-96cf-0be67ff30818",
+  "response": "## Findings\n\n*   **[CODE-CONFIRMED] [HIGH SEVERITY] Potential DB Connection Exhaustion.** In `agent_next_turn.py`, `next_turn` implements a long-poll. While the spec `FR-002` claims the implementation avoids pinning a DB connection across the wait, the current `next-turn` implementation is a standard `async` FastAPI endpoint. If multiple concurrent clients hit this endpoint while no turn is available, and it were to contain a `while` loop with `await asyncio.sleep` (as per `FR-001`), every request would hold its FastAPI worker, and if the DB dependency `DbSession` is not released/closed and re-opened inside that loop, it could potentially hold connections in the pool. The current implementation does not show the \"internal periodic re-check loop\" requested in `FR-001`; it simply returns `waiting` immediately.\n*   **[CODE-CONFIRMED] [HIGH SEVERITY] Missing Implementation of Long-Poll.** The requirements in `spec.md` (FR-001) mandate a bounded long-poll with an internal re-check loop. The existing `next_turn` in `agent_next_turn.py` does not implement this; it immediately returns `{\"status\": \"waiting\", ...}` if `select_next_turn` returns `None`.\n*   **[CODE-CONFIRMED] [MEDIUM SEVERITY] Potential Race Condition in Counter Updates.** The spec `FR-006` requires incrementing \"turns played\" at the `submit_action` point. In `agent_api.py`, `agent_submit` updates the DB to record the submission and later calls `mark_first_move`. If multiple turns are submitted rapidly, and the counter increment is implemented as a simple read-modify-write without database-level atomic increment (`update(Connection).values(turns_played=Connection.turns_played + 1)`), it risks lost updates under concurrency.\n*   **[UNVERIFIED] [LOW SEVERITY] Potential Client Timeout Mismatch.** The spec assumes a ~25-30s hold is safe for typical MCP clients. If the client has a shorter default timeout, the long-poll may fail frequently, causing the client to retry and potentially leading to higher load than intended.\n\n## Residual Risks\n\n*   **Worker/Pool Starvation:** If the long-poll implementation, once added, improperly manages the `DbSession` lifecycle (i.e., holding a session open across the entire 25s wait period rather than acquiring/releasing it inside the re-check loop), a small number of idle waiting clients could exhaust the entire database connection pool or block all FastAPI workers.\n*   **Calibration Drift:** The `SC-003` criteria relies on a one-time calibration of token costs. If the underlying LLM providers (e.g., Claude, Gemini) change their internal tokenization or pricing models, the dashboard's \"approximate call count\" (if added) will become misleading, potentially causing player confusion despite the \"approximate\" label.\n*   **Jitter Implementation:** Spec `FR-013` suggests adding jitter to the polling interval. Without this, a fleet of agents that get disconnected simultaneously (e.g., due to a server restart) will synchronize their polling attempts, creating a \"thundering herd\" effect on the server every 30 seconds.",
+  "stats": {
+    "models": {
+      "gemini-3.1-flash-lite": {
+        "api": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 4814
+        },
+        "tokens": {
+          "input": 45098,
+          "prompt": 45098,
+          "candidates": 734,
+          "total": 45832,
+          "cached": 0,
+          "thoughts": 0,
+          "tool": 0
+        },
+        "roles": {
+          "main": {
+            "totalRequests": 1,
+            "totalErrors": 0,
+            "totalLatencyMs": 4814,
+            "tokens": {
+              "input": 45098,
+              "prompt": 45098,
+              "candidates": 734,
+              "total": 45832,
+              "cached": 0,
+              "thoughts": 0,
+              "tool": 0
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 0,
+      "totalSuccess": 0,
+      "totalFail": 0,
+      "totalDurationMs": 0,
+      "totalDecisions": {
+        "accept": 0,
+        "reject": 0,
+        "modify": 0,
+        "auto_accept": 0
+      },
+      "byName": {}
+    },
+    "files": {
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0
+    }
+  }
+}

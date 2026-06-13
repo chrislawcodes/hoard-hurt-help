@@ -77,6 +77,22 @@ class Connection(Base):
         nullable=True,
     )
     runner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Lifetime usage counters for this connection, surfaced on the detail page so
+    # an operator running interactive (MCP) play can see what it's costing them.
+    # `api_call_count` counts every authenticated agent call (each is a paid model
+    # call in interactive mode); `turns_played` counts real moves submitted.
+    api_call_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    turns_played: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     max_concurrent_games: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

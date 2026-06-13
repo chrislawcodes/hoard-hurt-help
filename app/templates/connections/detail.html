@@ -26,6 +26,21 @@
 
 {% include "connections/_status.html" %}
 
+<div class="card">
+    <h3 style="margin-top:0;">Usage</h3>
+    <p class="meta">How much this connection has been used. In interactive (MCP) play each API call is a model call, so this is your rough cost signal.</p>
+    <div class="usage-stats" style="display:flex;gap:2rem;flex-wrap:wrap;">
+        <div>
+            <div style="font-size:1.6rem;font-weight:600;">{{ "{:,}".format(connection.api_call_count) }}</div>
+            <div class="meta">API calls</div>
+        </div>
+        <div>
+            <div style="font-size:1.6rem;font-weight:600;">{{ "{:,}".format(connection.turns_played) }}</div>
+            <div class="meta">Turns played</div>
+        </div>
+    </div>
+</div>
+
 <details class="card">
     <summary style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;"><h3 style="margin:0;">Agent Details</h3></summary>
     <div style="margin-top:1rem;">
