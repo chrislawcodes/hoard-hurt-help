@@ -543,6 +543,30 @@
       "files_written": 6,
       "subprocess_invocations": 62,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-13T17:06:03Z",
+      "wall_seconds": 0.267,
+      "input_bytes_read": 80848,
+      "output_bytes_written": 46810,
+      "files_read": 9,
+      "files_written": 2,
+      "subprocess_invocations": 16,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-13T17:06:15Z",
+      "wall_seconds": 0.267,
+      "input_bytes_read": 81790,
+      "output_bytes_written": 47438,
+      "files_read": 9,
+      "files_written": 2,
+      "subprocess_invocations": 16,
+      "ttl_crossed": false
     }
   ],
   "stages": {
