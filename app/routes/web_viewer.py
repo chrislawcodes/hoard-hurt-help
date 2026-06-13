@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.deps import DbSession, get_current_user, require_user
 from app.models.agent import Agent, AgentKind
+from app.models.agent_version import AgentVersion
 from app.models.match import Match
 from app.models.player import Player
 from app.models.user import User
@@ -213,6 +214,13 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         winner_agent_id = winner.seat_name if winner else None
 
     viewer_seat = viewer_player.seat_name if viewer_player else None
+    viewer_prompt_text = None
+    viewer_prompt_label = None
+    if viewer_player and viewer_player.agent_version_id is not None:
+        version = await _load_viewer_prompt_version(db, viewer_player.agent_version_id)
+        if version is not None:
+            viewer_prompt_text = version.strategy_text
+            viewer_prompt_label = f"v{version.version_no} · {version.model}"
     return {
         "user": user,
         "is_admin": _is_any_admin(user),
@@ -234,8 +242,20 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         "viewer_agent_name": agent_names.get(viewer_player.seat_name) if viewer_player else None,
         "viewer_coach_note": viewer_player.coach_note if viewer_player else None,
         "viewer_coach_note_round": viewer_player.coach_note_round if viewer_player else None,
+        "viewer_prompt_text": viewer_prompt_text,
+        "viewer_prompt_label": viewer_prompt_label,
         "coaching_enabled": bool(g.coaching) if hasattr(g, "coaching") else True,
     }
+
+
+async def _load_viewer_prompt_version(
+    db: DbSession,
+    agent_version_id: int,
+) -> AgentVersion | None:
+    """Load the viewer's active prompt version for the coach modal."""
+    return (
+        await db.execute(select(AgentVersion).where(AgentVersion.id == agent_version_id))
+    ).scalar_one_or_none()
 
 
 @router.get("/games/{game}/matches/{match_id}", response_class=HTMLResponse)
@@ -302,6 +322,13 @@ async def post_coach_note(
     if player_row is None:
         raise HTTPException(status_code=403, detail="You are not a player in this match.")
     player, agent = player_row
+    viewer_prompt_text = None
+    viewer_prompt_label = None
+    if player.agent_version_id is not None:
+        version = await _load_viewer_prompt_version(db, player.agent_version_id)
+        if version is not None:
+            viewer_prompt_text = version.strategy_text
+            viewer_prompt_label = f"v{version.version_no} · {version.model}"
 
     note = note.strip()[:280]
     if note:
@@ -323,6 +350,8 @@ async def post_coach_note(
             "viewer_agent_name": agent_display_name(agent),
             "viewer_coach_note": player.coach_note,
             "viewer_coach_note_round": player.coach_note_round,
+            "viewer_prompt_text": viewer_prompt_text,
+            "viewer_prompt_label": viewer_prompt_label,
             "coaching_enabled": bool(match.coaching) if hasattr(match, "coaching") else True,
         },
     )
