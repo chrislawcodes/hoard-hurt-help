@@ -6,7 +6,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -32,6 +32,15 @@ class ConnectionStatus(str, enum.Enum):
 
 class Connection(Base):
     __tablename__ = "connections"
+    __table_args__ = (
+        Index(
+            "uq_connections_mode_a_user_id_live",
+            "user_id",
+            unique=True,
+            sqlite_where=text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
+            postgresql_where=text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -65,6 +74,10 @@ class Connection(Base):
     )
     paused_reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    mode_a_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )

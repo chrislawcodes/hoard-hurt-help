@@ -58,6 +58,26 @@ def test_sqlite_migrations_round_trip(tmp_path: Path) -> None:
     )
 
 
+def test_mode_a_migration_adds_marker_and_unique_index(tmp_path: Path) -> None:
+    """0032 must add the Mode A marker plus the live-row unique index."""
+    db_path = tmp_path / "mode_a.db"
+
+    up = _run_alembic(["upgrade", "head"], db_path)
+    assert up.returncode == 0, f"`alembic upgrade head` failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(connections)").fetchall()]
+        assert "mode_a_at" in columns
+        index_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='uq_connections_mode_a_user_id_live'"
+        ).fetchone()
+        assert index_sql is not None
+        assert "mode_a_at IS NOT NULL AND deleted_at IS NULL" in index_sql[0]
+    finally:
+        conn.close()
+
+
 def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatch) -> None:
     """A legacy DB with schema but no revision must stamp before upgrading.
 
@@ -87,7 +107,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0031",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0032",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -761,13 +781,15 @@ def test_check_oauth_config_warns_in_local_dev_when_missing(monkeypatch) -> None
 
 
 def test_check_oauth_config_passes_when_both_set(monkeypatch) -> None:
-    """When both OAuth vars are set, no error or warning is emitted regardless of environment."""
+    """When the OAuth vars AND a public base_url are set, no error or warning is emitted."""
     import app.main as app_main
 
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env_test")
     monkeypatch.setattr(app_main.settings, "google_client_id", "real-client-id")
     monkeypatch.setattr(app_main.settings, "google_client_secret", "real-client-secret")
+    # MCP OAuth discovery also requires a real public base_url in a deployment.
+    monkeypatch.setattr(app_main.settings, "base_url", "https://play.example.com")
 
     # Must not raise.
     app_main._check_oauth_config()

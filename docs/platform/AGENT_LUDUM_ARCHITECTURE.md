@@ -273,14 +273,41 @@ Server‑rendered Jinja with a fixed platform shell (`base.html`) and HTMX
 fragments (`templates/fragments/`) swapped in over SSE. **All** styling lives in
 one `style.css`; a game tints only its content region via scoped CSS variables.
 
-### 9. MCP server — `mcp_server/server.py` (276)
+### 9. MCP server — `mcp_server/` (`server.py` + OAuth bridge)
 
-Wraps the HTTP API as MCP tools and mounts at `/mcp`, so Claude/Cursor/etc. can
-play by calling tools. Its header/key are renamed to `X-Connection-Key` /
-`sk_conn_` (planned slice 4) so it auths the same way as the runner. The old
-"play directly over MCP, no runner" connect path is **dropped** — the runner is
-the only connect method, removing the one connect surface that hardcoded
-Hoard‑Hurt‑Help's rules.
+Exposes the play API as MCP tools mounted at `/mcp`, so any MCP client
+(Claude Code/Desktop, Codex, Gemini CLI — **not** Cursor) can play. Built on
+**standalone `fastmcp` v3** (migrated off the SDK‑bundled `mcp.server.fastmcp`).
+
+**Auth: OAuth‑only at `/mcp` (feat `mcp-oauth`).** `/mcp` is an OAuth 2.1
+**Resource Server**: an unauthenticated request gets `401` + `WWW‑Authenticate`,
+and the server serves RFC 9728 Protected‑Resource‑Metadata + Authorization‑Server
+metadata with DCR + PKCE. `fastmcp`'s `GoogleProvider`/`OAuthProxy` bridges to our
+existing Google app (Google has no DCR), minting a server‑issued, audience‑bound
+token — the MCP client never holds a Google token and the user never pastes a
+key. The old `X‑Connection‑Key` header path is **dropped at `/mcp`**; it remains
+the connector / direct‑HTTP auth (Flow A).
+
+**Bridge — OAuth identity → per‑user "Mode A" Connection.** After the token is
+verified, the MCP layer resolves the Google `sub` to a `User` (via
+`sync_google_user`, the same row as human login), then **finds‑or‑creates one
+canonical "Mode A" `Connection`** for that user — a real connection (pause/resume,
+concurrency, dashboard all apply), uniqueness enforced by a DB constraint + a
+transactional upsert so concurrent sign‑ins can't duplicate it. A user's agents
+resolve through this one connection because routing keys on `user + provider`, not
+connection pinning.
+
+**No loopback, no internal key.** Authenticated tools do **not** call our HTTP API
+over the network with a forwarded key. The play actions the tools use (next‑turn,
+get‑turn, submit‑talk, submit‑action, the read tools) are extracted into a
+**shared play‑service layer** (e.g. `app/engine/agent_play.py`) that **both** the
+agent HTTP routes (`agent_api.py` / `agent_next_turn.py`) and the MCP tools call.
+The HTTP route is a thin adapter (parse → `require_connection` /
+`require_agent_player` → service); the MCP tool is the other adapter (OAuth →
+resolve user → per‑user connection → same service). So the per‑user connection's
+key is never needed or stored — the key/hash machinery stays only on the
+connector/HTTP path — and there is one implementation, no drift. `get_game_state`
+keeps a **public carve‑out** so the OAuth gate doesn't hide it.
 
 ---
 
@@ -337,7 +364,9 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change Practice Arena / Auto-Match seeding | `app/engine/arena.py` + `app/engine/sim_presets.py` + `app/engine/sims/roster.py` + `app/routes/connections_*.py` / `agents_*.py`. |
 | Change an agent's model/strategy | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
 | Touch the turn lifecycle | `app/engine/scheduler.py`. |
-| Change what an agent sees/submits | `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
+| Change what an agent sees/submits | The shared play‑service layer (`app/engine/agent_play.py`) that both the HTTP routes and MCP tools call + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
+| Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata) + the OAuth‑identity→per‑user "Mode A" `Connection` bridge in `mcp_server/`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
+| Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). |
 | Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (eligibility + sticky‑pin claim) wired into `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. Pin columns live on `app/models/player.py`. |
 | Change per‑connection provider toggles / detection | `app/models/connection_providers.py` + the toggle endpoint in `app/routes/connections_setup.py`; detection flows in via `report_pid` in `app/routes/agent_next_turn.py`. |
 | Change connection health / liveness | `app/engine/connection_health.py` (reads `last_seen_at`/`runner_pid` + `players.served_by_connection_id`, not agent attachment). |
@@ -368,3 +397,12 @@ push HTML fragments into the live viewer — no client‑side state.
 - **Two‑process‑free by design.** The scheduler runs in the web process as asyncio
   tasks, not a separate worker. Simple to run; the trade‑off is that turn
   progress is tied to the process being up (hence resume‑on‑startup).
+- **Thin adapters over a shared play core (feat `mcp-oauth`).** Play logic lives in
+  one place — the shared play‑service layer (`app/engine/agent_play.py`). The agent
+  HTTP API and the MCP tools are two thin adapters over it that differ only in
+  **auth** (connector/direct uses `X‑Connection‑Key` via `require_connection`;
+  `/mcp` uses Google OAuth → a per‑user "Mode A" `Connection`). This replaced the
+  old design where the MCP server made network calls back to our own HTTP API and
+  needed a forwarded key to do so — the loopback and that internal credential are
+  gone. The tension to watch: keep new play behavior in the service layer, not in
+  one adapter, or the two paths drift.

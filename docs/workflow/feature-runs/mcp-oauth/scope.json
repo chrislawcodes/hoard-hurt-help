@@ -1,0 +1,23 @@
+{
+  "paths": [
+    "app/deps.py",
+    "app/engine",
+    "app/main.py",
+    "app/models",
+    "app/routes",
+    "mcp_server",
+    "migrations/versions",
+    "pyproject.toml"
+  ],
+  "allowed_dirty_paths": [
+    "app/deps.py",
+    "app/engine",
+    "app/main.py",
+    "app/models",
+    "app/routes",
+    "docs/workflow",
+    "mcp_server",
+    "migrations/versions",
+    "pyproject.toml"
+  ]
+}

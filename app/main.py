@@ -80,28 +80,43 @@ def _check_oauth_config() -> None:
     if os.getenv("PYTEST_CURRENT_TEST"):
         return
 
-    missing = [
-        var
+    problems = [
+        f"{var} is not set"
         for var, val in (
             ("GOOGLE_CLIENT_ID", settings.google_client_id),
             ("GOOGLE_CLIENT_SECRET", settings.google_client_secret),
         )
         if not val.strip()
     ]
-    if not missing:
+    # The MCP OAuth server advertises base_url in its discovery documents, so a
+    # localhost/empty value can't work for a remote MCP client. Validate it as
+    # part of the OAuth config check so a real deployment fails loud rather than
+    # serving broken discovery.
+    base_url = settings.base_url.strip()
+    if (
+        not base_url
+        or base_url.startswith("http://localhost")
+        or base_url.startswith("http://127.")
+    ):
+        problems.append(
+            f"BASE_URL must be your public https:// host for MCP OAuth discovery (got {settings.base_url!r})"
+        )
+
+    if not problems:
         return
 
-    missing_str = ", ".join(missing)
+    problems_str = "; ".join(problems)
     if os.getenv("RAILWAY_ENVIRONMENT_ID"):
+        # Fail loud BEFORE serving traffic so /mcp never starts in a broken,
+        # fail-open state (the GoogleProvider dev-placeholder fallback must never
+        # run in a real deployment).
         raise RuntimeError(
-            f"OAuth configuration is incomplete: the following environment "
-            f"variable(s) are not set: {missing_str}. "
+            f"OAuth configuration is incomplete: {problems_str}. "
             "Set them in your Railway service variables before deploying."
         )
     logger.warning(
-        "OAuth configuration incomplete — sign-in will not work. "
-        "Set the following environment variable(s) to enable it: %s",
-        missing_str,
+        "OAuth configuration incomplete — sign-in will not work. Fix: %s",
+        problems_str,
     )
 
 
@@ -219,9 +234,6 @@ def create_app() -> FastAPI:
     app.include_router(sse_routes.router)
     app.include_router(spectator_api.router)
 
-    if mcp_asgi_app is not None:
-        app.mount("/mcp", mcp_asgi_app, name="mcp")
-
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
@@ -229,6 +241,11 @@ def create_app() -> FastAPI:
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> FileResponse:
         return FileResponse("app/static/favicon.svg", media_type="image/svg+xml")
+
+    if mcp_asgi_app is not None:
+        # Mount the FastMCP app last so its catch-all root mount does not shadow
+        # the rest of the FastAPI routes.
+        app.mount("/", mcp_asgi_app, name="mcp")
 
     return app
 
