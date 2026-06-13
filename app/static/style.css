@@ -141,7 +141,7 @@ small, .hint { color: var(--ink-soft); font-size: 0.85rem; }
 /* Forms */
 .form label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 1rem; }
 .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; }
-input[type="text"], input[type="number"], input[type="datetime-local"],
+input[type="text"], input[type="number"], input[type="datetime-local"], input[type="date"],
 input[type="email"], textarea, select {
     display: block;
     width: 100%;

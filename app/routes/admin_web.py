@@ -1,5 +1,6 @@
 """Admin HTML pages — platform-admin only."""
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
@@ -79,12 +80,39 @@ async def admin_reports(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_platform_admin)],
+    start_date: str | None = None,
+    end_date: str | None = None,
 ):
-    report = await load_turn_timing_report(db)
+    def _parse_date(value: str | None, field_name: str) -> date | None:
+        if value is None or value.strip() == "":
+            return None
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{field_name} must use YYYY-MM-DD.",
+            ) from exc
+
+    start = _parse_date(start_date, "start_date")
+    end = _parse_date(end_date, "end_date")
+    if start is not None and end is not None and start > end:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date must be on or before end_date.",
+        )
+
+    report = await load_turn_timing_report(db, start_date=start, end_date=end)
     return templates.TemplateResponse(
         request,
         "admin/reports.html",
-        {"user": user, "is_admin": True, "report": report},
+        {
+            "user": user,
+            "is_admin": True,
+            "report": report,
+            "start_date": start.isoformat() if start else "",
+            "end_date": end.isoformat() if end else "",
+        },
     )
 
 

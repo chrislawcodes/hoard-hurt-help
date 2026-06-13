@@ -7,6 +7,26 @@
     <p class="sub">Agent response times across completed matches.</p>
 </div>
 
+<form class="card form" method="get">
+    <div class="form-row">
+        <label>
+            <span class="field-label">Start date (UTC)</span>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </label>
+        <label>
+            <span class="field-label">End date (UTC)</span>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </label>
+    </div>
+    <p class="hint">Filters by match completion date in UTC.</p>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Apply filter</button>
+        {% if start_date or end_date %}
+        <a class="btn btn-ghost" href="/admin/reports">Clear</a>
+        {% endif %}
+    </div>
+</form>
+
 <div class="section-head"><h2>Turn-time distribution</h2><span class="count">{{ report.sample_count }} samples</span></div>
 <div class="report-table-wrap">
     <table>
