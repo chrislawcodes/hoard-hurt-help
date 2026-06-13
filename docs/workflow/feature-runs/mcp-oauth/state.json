@@ -89,7 +89,7 @@
       "pyproject.toml"
     ],
     "used": true,
-    "updated_at": 1781371358
+    "updated_at": 1781371459
   },
   "checkpoint_fallback": {},
   "parallel_analysis": {
@@ -349,6 +349,24 @@
       "started_at": "2026-06-13T17:22:38.666362Z",
       "ended_at": "2026-06-13T17:22:53.378567Z",
       "duration_seconds": 14.71204,
+      "agent_id": null,
+      "artifact_sha_at_time": "ddd698fe67548a504592d11b7ff4d190e0b37109772d018c0aac592755322d30"
+    },
+    {
+      "stage": "diff",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 98068,
+      "prompt_cap": 610000,
+      "input_tokens": 41188,
+      "output_tokens": 613,
+      "cost_usd_estimate": 0.0112165,
+      "timestamp": "2026-06-13T17:24:35.572845Z",
+      "started_at": "2026-06-13T17:24:19.817485Z",
+      "ended_at": "2026-06-13T17:24:35.572845Z",
+      "duration_seconds": 15.755185,
       "agent_id": null,
       "artifact_sha_at_time": "ddd698fe67548a504592d11b7ff4d190e0b37109772d018c0aac592755322d30"
     }
@@ -629,6 +647,30 @@
       "files_written": 2,
       "subprocess_invocations": 16,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-13T17:24:36Z",
+      "wall_seconds": 16.907,
+      "input_bytes_read": 388947,
+      "output_bytes_written": 160619,
+      "files_read": 32,
+      "files_written": 7,
+      "subprocess_invocations": 64,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-13T17:25:14Z",
+      "wall_seconds": 0.464,
+      "input_bytes_read": 84123,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 38,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -661,10 +703,11 @@
       "initial_sha": "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
     },
     "diff": {
-      "adversarial_rounds": 1,
+      "adversarial_rounds": 2,
       "annotations": [],
       "adversarial_sha_history": [
         "fbee2e892feb2da032337d751d600798bd6800065b37a85d8d4e2f43336249cc",
+        "ddd698fe67548a504592d11b7ff4d190e0b37109772d018c0aac592755322d30",
         "ddd698fe67548a504592d11b7ff4d190e0b37109772d018c0aac592755322d30"
       ],
       "initial_sha": "fbee2e892feb2da032337d751d600798bd6800065b37a85d8d4e2f43336249cc"
@@ -673,19 +716,19 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 1,
+    "index": 2,
     "markers_sha": "e94ebe26fee80c6a4850814015a4e88b4fd6b4153ee439c8c801f0428c6bf576",
-    "last_diff_head_sha": "01bf188093f890bdb6f1e018dace5e23fd27e1d3"
+    "last_diff_head_sha": "ebdd5d67924b4932914f894c9eeb536e5d50e13d"
   },
   "spec_adversarial_rounds": 2,
   "last_action_result": {
-    "next": "dispatch_next_slice_to_codex",
+    "next": "reconcile_reviews",
     "reason": "diff checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 3,
   "tasks_adversarial_rounds": 1,
-  "diff_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 2,
   "heartbeats": [
     {
       "timestamp_pt": "2026-06-13T10:20:40.328535-07:00",

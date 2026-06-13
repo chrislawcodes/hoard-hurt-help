@@ -23,7 +23,7 @@
       "model": "gemini-3.1-flash-lite"
     }
   ],
-  "max_artifact_chars": 50000,
+  "max_artifact_chars": 600000,
   "max_context_chars": 60000,
   "max_total_chars": 250000
 }

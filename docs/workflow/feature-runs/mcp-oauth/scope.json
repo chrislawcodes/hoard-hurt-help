@@ -1,7 +1,7 @@
 {
   "paths": [
     "app/deps.py",
-    "app/engine/agent_play.py",
+    "app/engine",
     "app/main.py",
     "app/routes",
     "mcp_server",
@@ -10,7 +10,7 @@
   ],
   "allowed_dirty_paths": [
     "app/deps.py",
-    "app/engine/agent_play.py",
+    "app/engine",
     "app/main.py",
     "app/routes",
     "docs/workflow",
