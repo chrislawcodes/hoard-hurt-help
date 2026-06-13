@@ -33,20 +33,36 @@ from app.models.player import Player
 from tests.factories import make_agent, make_connection, make_user
 
 LIVE_WINDOW = 90  # seconds — must match LIVE_WINDOW_SECONDS in connection_health.py
-_RECENTLY = datetime.now(timezone.utc) - timedelta(seconds=20)
-_COLD = datetime.now(timezone.utc) - timedelta(minutes=10)
-_NOW = datetime.now(timezone.utc)
+
+
+# Relative times are computed at call time (not at import) so they never drift
+# outside LIVE_WINDOW as the overall suite runtime grows. See the flaky-failure
+# note: a module-level `_RECENTLY` evaluated once at import would fall outside
+# the 90s window if the suite took >~70s to reach these tests.
+def _recently() -> datetime:
+    """A check-in 20s ago — inside the live window."""
+    return datetime.now(timezone.utc) - timedelta(seconds=20)
+
+
+def _cold() -> datetime:
+    """A check-in 10 minutes ago — outside the live window."""
+    return datetime.now(timezone.utc) - timedelta(minutes=10)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 async def _make_match(db: AsyncSession, match_id: str, *, state: GameState) -> Match:
     """Create a match with a valid scheduled_start (required by schema)."""
+    now = _now()
     m = Match(
         id=match_id,
         name=f"Match {match_id}",
         game="hoard-hurt-help",
         state=state,
-        scheduled_start=_NOW - timedelta(hours=1),
-        started_at=_NOW - timedelta(hours=1) if state != GameState.SCHEDULED else None,
+        scheduled_start=now - timedelta(hours=1),
+        started_at=now - timedelta(hours=1) if state != GameState.SCHEDULED else None,
         per_turn_deadline_seconds=60,
     )
     db.add(m)
@@ -114,7 +130,7 @@ async def test_provider_is_covered_true_when_live_connection_exists(
         provider=ConnectionProvider.CLAUDE,
         status=ConnectionStatus.ACTIVE,
     )
-    conn.last_seen_at = _RECENTLY
+    conn.last_seen_at = _recently()
     await db_session.flush()
 
     result = await provider_is_covered(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -142,7 +158,7 @@ async def test_provider_is_covered_false_when_connection_cold(
         provider=ConnectionProvider.CLAUDE,
         status=ConnectionStatus.ACTIVE,
     )
-    conn.last_seen_at = _COLD
+    conn.last_seen_at = _cold()
     await db_session.flush()
 
     result = await provider_is_covered(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -160,7 +176,7 @@ async def test_provider_is_covered_false_when_connection_paused(
         provider=ConnectionProvider.CLAUDE,
         status=ConnectionStatus.PAUSED,
     )
-    conn.last_seen_at = _RECENTLY
+    conn.last_seen_at = _recently()
     await db_session.flush()
 
     result = await provider_is_covered(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -179,7 +195,7 @@ async def test_provider_is_covered_false_when_provider_not_enabled(
         provider=ConnectionProvider.CLAUDE,
         status=ConnectionStatus.ACTIVE,
     )
-    conn.last_seen_at = _RECENTLY
+    conn.last_seen_at = _recently()
     # Disable the provider row that make_connection created.
     prow = (
         await db_session.execute(
@@ -213,7 +229,7 @@ async def test_detached_covered_agent_is_ready(db_session: AsyncSession) -> None
     conn, _ = await make_connection(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE
     )
-    conn.last_seen_at = _RECENTLY
+    conn.last_seen_at = _recently()
     await db_session.flush()
 
     # Create an agent with provider=CLAUDE (derived from model).
@@ -275,7 +291,7 @@ async def test_live_provider_capacity_zero_when_no_live_connections(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=3,
     )
-    conn.last_seen_at = _COLD
+    conn.last_seen_at = _cold()
     await db_session.flush()
 
     cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -291,7 +307,7 @@ async def test_live_provider_capacity_one_live_connection(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=4,
     )
-    conn.last_seen_at = _RECENTLY
+    conn.last_seen_at = _recently()
     await db_session.flush()
 
     cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -308,12 +324,12 @@ async def test_live_provider_capacity_two_live_connections_sums(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=3,
     )
-    conn1.last_seen_at = _RECENTLY
+    conn1.last_seen_at = _recently()
     conn2, _ = await make_connection(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=5,
     )
-    conn2.last_seen_at = _RECENTLY
+    conn2.last_seen_at = _recently()
     await db_session.flush()
 
     cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -346,7 +362,7 @@ async def test_join_gate_allowed_under_capacity_one_connection(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=2,
     )
-    conn.last_seen_at = _RECENTLY
+    conn.last_seen_at = _recently()
     await db_session.flush()
 
     cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -366,7 +382,7 @@ async def test_join_gate_blocked_at_capacity_one_connection(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=1,
     )
-    conn.last_seen_at = _RECENTLY
+    conn.last_seen_at = _recently()
     await db_session.flush()
 
     agent, version = await make_agent(
@@ -403,12 +419,12 @@ async def test_join_gate_scales_with_two_live_connections(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=2,
     )
-    conn1.last_seen_at = _RECENTLY
+    conn1.last_seen_at = _recently()
     conn2, _ = await make_connection(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=2,
     )
-    conn2.last_seen_at = _RECENTLY
+    conn2.last_seen_at = _recently()
     await db_session.flush()
 
     # Create 3 active matches on a single agent.
@@ -464,7 +480,7 @@ async def test_join_gate_blocked_no_live_connection_covers_provider(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=3,
     )
-    conn.last_seen_at = _COLD
+    conn.last_seen_at = _cold()
     await db_session.flush()
 
     covered = await provider_is_covered(db_session, user.id, ConnectionProvider.CLAUDE)
