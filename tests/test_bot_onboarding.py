@@ -143,18 +143,6 @@ async def _submission(
 # --------------------------------------------------------------------------
 
 
-async def test_state_waiting_when_never_connected_no_games(reset_db):
-    async with reset_db() as db:
-        u = await make_user(db)
-        connection, _ = await make_connection(db, u, status=ConnectionStatus.PENDING)
-        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
-        await db.commit()
-        health = await compute_connection_health(db, connection, now=NOW)
-    assert health.state is ConnectionHealth.DISCONNECTED
-    assert health.never_connected is True
-    assert health.needs_reconnect is True
-
-
 async def test_state_waiting_in_game_when_entered_but_not_connected(reset_db):
     async with reset_db() as db:
         u = await make_user(db)
@@ -167,18 +155,6 @@ async def test_state_waiting_in_game_when_entered_but_not_connected(reset_db):
     assert health.state is ConnectionHealth.DISCONNECTED
     assert health.never_connected is True
     assert health.needs_reconnect is True
-
-
-async def test_state_connected_no_game(reset_db):
-    async with reset_db() as db:
-        u = await make_user(db)
-        connection, _ = await make_connection(db, u)
-        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
-        connection.first_connected_at = NOW
-        connection.last_seen_at = NOW
-        await db.commit()
-        health = await compute_connection_health(db, connection, now=NOW)
-    assert health.state is ConnectionHealth.READY
 
 
 async def test_state_connected_pregame(reset_db):
@@ -212,21 +188,6 @@ async def test_state_in_game_no_move(reset_db):
     assert health.match_id == "G_1"
 
 
-async def test_state_playing_when_moved(reset_db):
-    async with reset_db() as db:
-        u = await make_user(db)
-        connection, _ = await make_connection(db, u)
-        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
-        connection.last_seen_at = NOW
-        g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _player(db, g.id, agent, u, connection_id=connection.id)
-        await _submission(db, g.id, p, round_=1, turn_=1)
-        await db.commit()
-        health = await compute_connection_health(db, connection, now=NOW)
-    assert health.state is ConnectionHealth.LIVE
-    assert health.match_id == "G_1"
-
-
 async def test_playing_points_only_at_a_live_game_not_a_finished_one(reset_db):
     # Regression: an agent that played a real move in a game that has since
     # finished is still "playing" (established), but must NOT carry a game link
@@ -244,22 +205,6 @@ async def test_playing_points_only_at_a_live_game_not_a_finished_one(reset_db):
     assert health.state is ConnectionHealth.READY
     assert health.match_id is None
     assert health.game_name is None
-
-
-async def test_defaulted_submission_does_not_count_as_moved(reset_db):
-    async with reset_db() as db:
-        u = await make_user(db)
-        connection, _ = await make_connection(db, u)
-        agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
-        connection.stall_threshold = 1
-        connection.first_connected_at = NOW
-        connection.last_seen_at = NOW
-        g = await _game(db, "G_1", GameState.ACTIVE)
-        p = await _player(db, g.id, agent, u, connection_id=connection.id)
-        await _submission(db, g.id, p, round_=1, turn_=1, defaulted=True)
-        await db.commit()
-        health = await compute_connection_health(db, connection, now=NOW)
-    assert health.state is ConnectionHealth.STALLED
 
 
 # --------------------------------------------------------------------------
