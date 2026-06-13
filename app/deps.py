@@ -111,6 +111,43 @@ async def require_game_admin(
     return user
 
 
+def assert_connection_usable(connection: Connection) -> None:
+    """Raise the same lifecycle errors that guard direct connection auth."""
+    if connection.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error": {
+                    "code": "CONNECTION_DELETED",
+                    "message": "This connection was deleted. Stop the runner.",
+                    "details": {},
+                }
+            },
+        )
+    if connection.status == ConnectionStatus.PAUSED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "CONNECTION_PAUSED",
+                    "message": "This connection is paused; resume it to play.",
+                    "details": {},
+                }
+            },
+        )
+    if connection.user.disabled_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "ACCOUNT_DISABLED",
+                    "message": "This account has been disabled.",
+                    "details": {},
+                }
+            },
+        )
+
+
 def _parse_agent_turn_token(agent_turn_token: str) -> tuple[str, int, str]:
     """Decode `turn_token:agent_id:match_id`."""
     try:
@@ -226,39 +263,7 @@ async def require_connection(
                 .where(Connection.id == connection.id)
             )
         ).scalar_one()
-    if connection.deleted_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail={
-                "error": {
-                    "code": "CONNECTION_DELETED",
-                    "message": "This connection was deleted. Stop the runner.",
-                    "details": {},
-                }
-            },
-        )
-    if connection.status == ConnectionStatus.PAUSED:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "CONNECTION_PAUSED",
-                    "message": "This connection is paused; resume it to play.",
-                    "details": {},
-                }
-            },
-        )
-    if connection.user.disabled_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "ACCOUNT_DISABLED",
-                    "message": "This account has been disabled.",
-                    "details": {},
-                }
-            },
-        )
+    assert_connection_usable(connection)
 
     await mark_seen(db, connection, key_hash=key_hash)
     return connection
