@@ -4,30 +4,7 @@
 <a class="backlink" href="/admin/matches">← Match Admin</a>
 <div class="page-head">
     <h1>Reporting</h1>
-    <p class="sub">Turn timing across completed matches. Only non-default submissions are timed here.</p>
-</div>
-
-<div class="report-kpis">
-    <article class="card report-kpi">
-        <div class="label">Matches scanned</div>
-        <div class="value">{{ report.matches_scanned }}</div>
-        <div class="note">{{ report.matches_with_samples }} with at least one timed response</div>
-    </article>
-    <article class="card report-kpi">
-        <div class="label">Turns scanned</div>
-        <div class="value">{{ report.turn_count }}</div>
-        <div class="note">Completed turns across the sample set</div>
-    </article>
-    <article class="card report-kpi">
-        <div class="label">Timed submissions</div>
-        <div class="value">{{ report.sample_count }}</div>
-        <div class="note">Rows with a real `submitted_at` value</div>
-    </article>
-    <article class="card report-kpi">
-        <div class="label">Defaulted rows</div>
-        <div class="value">{{ report.defaulted_count }}</div>
-        <div class="note">Rows marked as defaulted or missing a timestamp</div>
-    </article>
+    <p class="sub">Agent response times across completed matches.</p>
 </div>
 
 <div class="section-head"><h2>Turn-time distribution</h2><span class="count">{{ report.sample_count }} samples</span></div>

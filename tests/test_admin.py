@@ -291,7 +291,10 @@ async def test_turn_timing_report_counts_and_buckets(client, reset_db):
     assert "Reporting" in r.text
     assert "Report Match" in r.text
     assert "0-10s" in r.text
-    assert "Defaulted rows" in r.text
+    assert "Matches scanned" not in r.text
+    assert "Turns scanned" not in r.text
+    assert "Timed submissions" not in r.text
+    assert "Defaulted rows" not in r.text
 
 
 @pytest.mark.asyncio
