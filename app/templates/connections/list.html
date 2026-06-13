@@ -12,47 +12,46 @@
    ALREADY PLAYING (a connection is live now) → Join a game, everything else collapsed. === #}
 
 {% if is_live_now %}
-    {# --- ALREADY PLAYING: lead with the post-connect block. --- #}
+    {# --- ALREADY PLAYING: lead with the post-connect block (play-prompt +
+       Join/Create-agent), which lives in _live_status.html. --- #}
     <div class="card" id="connect">
         {% include "connections/_live_status.html" %}
     </div>
 
-    <details class="card byo-collapsed" id="reconnect">
-        <summary>Start your AI again (new session) or use the full setup command</summary>
+    <details class="card byo-collapsed" id="setup">
+        <summary><span class="byo-tick">✓ Set up</span> — switching computers? Add the server again</summary>
         <div class="byo-connector-body">
-            <p class="hint" style="margin-bottom:0.5rem;">If your AI stops, relaunch it with this command:</p>
-            <button type="button" class="btn-copy"
-                    onclick="copyWithFeedback(this, document.getElementById('byo-play-cmd').textContent)">Copy</button>
-            <pre id="byo-play-cmd">{{ play_command }}</pre>
-            <p class="hint" style="margin-top:0.6rem;">Switching computers? Use the full setup command below.</p>
+            <p class="hint" style="margin-bottom:0.6rem;">On a new machine, add the MCP server and sign in with Google again, then paste the play-prompt above.</p>
+            {% include "connections/_connect_picker.html" %}
         </div>
     </details>
 
 {% elif has_connected_before %}
-    {# --- RETURNING: lead with the short play command; setup collapsed. --- #}
+    {# --- RETURNING: lead with the play-prompt (the recurring action); the full
+       add-server picker is collapsed behind "✓ Set up". --- #}
     <div class="card" id="connect">
         <h2 style="margin-top:0;">Start playing</h2>
-        <p class="hint" style="margin-bottom:0.9rem;">You've connected before. Run this to start your AI playing again:</p>
+        <p class="hint" style="margin-bottom:0.9rem;">You've connected before. Paste this to your AI to start playing again:</p>
         <button type="button" class="btn-copy"
-                onclick="copyWithFeedback(this, document.getElementById('byo-play-cmd').textContent)">Copy</button>
-        <pre id="byo-play-cmd">{{ play_command }}</pre>
-        <p class="hint" style="margin-top:0.6rem;">Using a different AI client? Open the full setup below and pick it.</p>
+                onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt').textContent)">Copy</button>
+        <pre id="byo-play-prompt">{{ play_prompt }}</pre>
+        <p class="hint" style="margin-top:0.6rem;">If your client asks, sign in with Google again. Switching computers or clients? Open the full setup below and add the server.</p>
 
         {% include "connections/_live_status.html" %}
     </div>
 
     <details class="card byo-collapsed" id="setup">
-        <summary><span class="byo-tick">✓ Set up</span> — switching computers? Use the full setup command</summary>
+        <summary><span class="byo-tick">✓ Set up</span> — switching computers? Add the server again</summary>
         <div class="byo-connector-body">
             {% include "connections/_connect_picker.html" %}
         </div>
     </details>
 
 {% else %}
-    {# --- NEW: lead with the connect command + Listening region. --- #}
+    {# --- NEW: lead with the add-server picker + sign-in note + Listening region. --- #}
     <div class="card" id="connect">
         <h2 style="margin-top:0;">Connect your AI</h2>
-        <p class="hint" style="margin-bottom:0.9rem;">Pick your AI client and run the command. The first time, a “Sign in with Google” window opens.</p>
+        <p class="hint" style="margin-bottom:0.9rem;">Pick your AI client and add the server (no key needed). The first time it connects, a “Sign in with Google” window opens.</p>
 
         {% include "connections/_connect_picker.html" %}
 

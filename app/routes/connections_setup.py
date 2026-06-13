@@ -93,49 +93,49 @@ class AgentRow:
 # Connect options — the single swappable auth seam.
 #
 # AUTH-AGNOSTIC SEAM (coordination with the parallel `mcp-oauth` workstream):
-# The EXACT per-client connect command text is owned by the mcp-oauth Slice 5,
-# which rewrites ``docs/setup-mcp.md`` to the final OAuth-shaped commands. These
-# commands are header-less (no ``sk_conn_`` key in the paste) — the user signs in
-# with Google in a browser window the first time. The placeholder commands below
-# MUST be reconciled with that doc before this branch merges. ``_connect_options``
-# is the only place those commands live, so the swap is a one-function change and
-# does not touch layout.
+# The EXACT per-client "add the server" instructions and the Mode A play-prompt
+# below MIRROR ``docs/setup-mcp.md`` from the mcp-oauth workstream (worktree
+# ``--feat-mcp-oauth``). That doc is the source of truth. The real OAuth flow is
+# multi-step, NOT a chained one-liner:
+#   1. add the MCP server (header-less — no ``sk_conn_`` key, no ``--header``);
+#   2. sign in with Google (interactive — in Claude Code run ``/mcp`` →
+#      Authenticate; other clients open a browser on first connect);
+#   3. reload;
+#   4. paste the play-prompt (``_play_prompt`` below).
+# Keep these strings in sync with ``docs/setup-mcp.md`` if that doc changes;
+# ``_connect_options`` and ``_play_prompt`` are the only places they live, so the
+# swap is a contained change and does not touch layout.
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class ConnectOption:
-    """One client's connect instructions for the state-aware connect box.
+    """One client's "add the server" instructions for the state-aware connect box.
 
-    A client is either a terminal command (``kind="command"``) with a chained
-    new-user ``connect_command`` (wire the MCP tools + start playing) and a short
-    returning-user ``play_command`` (just start playing, tools already wired), or
-    a click-through (``kind="steps"``) for GUI clients like Claude Desktop.
+    A client renders one of three ways:
+      - ``kind="command"`` — a copyable terminal command in ``command``;
+      - ``kind="config"`` — a copyable config-file block in ``config`` (with an
+        ``intro`` saying which file it goes in);
+      - ``kind="steps"`` — numbered click-through ``steps`` for GUI clients.
+    The play-prompt is the SAME for every client and is a separate block shown
+    after connecting (see ``_play_prompt``), so it is not carried here.
     """
 
     client_id: str  # stable slug for the CSS-tabs radio inputs
     client_label: str  # human-facing name
-    kind: str  # "command" (CLI, copyable) or "steps" (GUI click-through)
-    connect_command: str | None  # new user: wire + play, chained
-    play_command: str | None  # returning user: play only
-    steps: tuple[str, ...]  # GUI clients: numbered click-through steps
-    note: str | None  # short note shown under the command/steps
-
-
-# A new-user CLI session must launch fresh so it loads the just-added MCP tools at
-# startup — a running session can't hot-load them — hence the chained `add && run`.
-_SIGN_IN_NOTE = (
-    "The first time you run this, a “Sign in with Google” window opens — "
-    "approve it once and your AI is connected."
-)
-_PLAY_INTENT = "Connect to Hoard Hurt Help and play all my games until they finish."
+    kind: str  # "command" | "config" | "steps"
+    command: str | None  # kind="command": copyable terminal command
+    config: str | None  # kind="config": copyable config-file block
+    intro: str | None  # kind="config": where the block goes (file path)
+    steps: tuple[str, ...]  # kind="steps": numbered click-through steps
+    note: str | None  # short note shown under the command/config/steps
 
 
 def _connect_options() -> list[ConnectOption]:
-    """Per-client connect options for the state-aware connect box.
+    """Per-client "add the server" options for the state-aware connect box.
 
-    See the AUTH-AGNOSTIC SEAM note above: these are OAuth-shaped, header-less
-    placeholder commands owned for final text by the mcp-oauth Slice 5. Clients,
+    See the AUTH-AGNOSTIC SEAM note above: these mirror ``docs/setup-mcp.md`` from
+    the mcp-oauth workstream and are header-less (no key, no ``--header``). Clients,
     in display order: Claude Code (default/first), Codex, Gemini, Claude Desktop.
     """
     mcp_url = f"{settings.base_url}/mcp"
@@ -144,48 +144,50 @@ def _connect_options() -> list[ConnectOption]:
             client_id="claude-code",
             client_label="Claude Code",
             kind="command",
-            connect_command=(
-                f"claude mcp add --transport http hoardhurthelp {mcp_url} "
-                f'--scope user && claude "{_PLAY_INTENT}"'
-            ),
-            play_command=f'claude "{_PLAY_INTENT}"',
+            command=f"claude mcp add --transport http hoardhurthelp {mcp_url}",
+            config=None,
+            intro=None,
             steps=(),
-            note=_SIGN_IN_NOTE,
+            note=(
+                "Then run /mcp in Claude Code and choose Authenticate for "
+                "hoardhurthelp — a browser opens for Google sign-in. No header "
+                "needed."
+            ),
         ),
         ConnectOption(
             client_id="codex",
             client_label="Codex",
-            kind="command",
-            connect_command=(
-                f"codex mcp add hoardhurthelp --url {mcp_url} "
-                f'&& codex "{_PLAY_INTENT}"'
+            kind="config",
+            command=None,
+            config=(
+                "[mcp_servers.hoardhurthelp]\n"
+                f'url = "{mcp_url}"'
             ),
-            play_command=f'codex "{_PLAY_INTENT}"',
+            intro="Add to ~/.codex/config.toml (no http_headers):",
             steps=(),
-            note=_SIGN_IN_NOTE,
+            note="On first use, Codex opens a browser for Google sign-in.",
         ),
         ConnectOption(
             client_id="gemini",
             client_label="Gemini",
             kind="command",
-            connect_command=(
-                f"gemini mcp add hoardhurthelp {mcp_url} --transport http "
-                f'--scope user && gemini "{_PLAY_INTENT}"'
-            ),
-            play_command=f'gemini "{_PLAY_INTENT}"',
+            command=f"gemini mcp add hoardhurthelp {mcp_url} --transport http",
+            config=None,
+            intro=None,
             steps=(),
-            note=_SIGN_IN_NOTE,
+            note="Gemini opens a browser for Google sign-in on first connect.",
         ),
         ConnectOption(
             client_id="claude-desktop",
             client_label="Claude Desktop",
             kind="steps",
-            connect_command=None,
-            play_command=None,
+            command=None,
+            config=None,
+            intro=None,
             steps=(
-                "Open Settings → Connectors → Add custom connector.",
-                f"Paste this address: {mcp_url}",
-                "Click “Sign in with Google” and approve.",
+                "Settings → Connectors → Add custom connector.",
+                f"URL: {mcp_url}",
+                "Enable it — Claude Desktop opens a browser to sign in with Google.",
             ),
             note=(
                 "Claude Desktop is fine for trying it out, but the CLI or the "
@@ -195,14 +197,47 @@ def _connect_options() -> list[ConnectOption]:
     ]
 
 
-def _play_command() -> str:
-    """The short returning-user 'start playing' command (Claude Code hero).
+# The Mode A play-prompt. This MIRRORS the "Mode A" play-prompt block in
+# ``docs/setup-mcp.md`` (mcp-oauth workstream) EXACTLY and must stay in sync with
+# it. It is the SAME for every client — paste it after the MCP server is added and
+# you have signed in with Google. No key or token: the sign-in is on the MCP
+# connection itself.
+_PLAY_PROMPT = """You are playing Hoard Hurt Help through the hoardhurthelp MCP tools. Play all of
+my games on your own until they finish. I'm already signed in on the MCP
+connection — never ask me for a key or token.
 
-    Returning users already wired the MCP tools once, so they only need to relaunch
-    their CLI with the play intent. The per-client variants live on each
-    ``ConnectOption.play_command``; this is the default shown as the returning hero.
+Loop:
+1. Call get_next_turn. It returns my most urgent turn across all my games (the
+   game_id/match_id, my strategy, the full move history, the scoreboard, and a
+   `current` object with the turn_token and a `phase`), OR a `waiting` status
+   with `next_poll_after_seconds`.
+2. If status is "your_turn", look at current.phase:
+   - phase == "talk": read the messages aimed at me, decide what to say, and call
+     submit_talk with that match_id, the turn_token from `current`, and the
+     agent_turn_token from the top level. Negotiate — make and answer deals.
+   - phase == "act": choose HOARD, HELP, or HURT (HELP/HURT need a target_id),
+     write a short message, and call submit_action with that match_id, the
+     turn_token, and the agent_turn_token.
+3. If status is "waiting", sleep next_poll_after_seconds, then call get_next_turn
+   again. get_next_turn long-polls, so a waiting call may take ~25s to return —
+   that's expected; just call it again.
+4. On a temporary error, wait a few seconds and retry. If a call returns 401 /
+   "unauthorized", your sign-in expired — re-authenticate with Google in your
+   client, then continue.
+
+Read the chat and history yourself: spot alliances and betrayals and play to my
+strategy. Pull get_opponent_history, get_chat, or get_standings only if you need
+older detail your client has trimmed. Keep going until every game is over."""
+
+
+def _play_prompt() -> str:
+    """The Mode A play-prompt, pasted after connecting + signing in.
+
+    Mirrors the Mode A play-prompt block in ``docs/setup-mcp.md`` exactly (see the
+    AUTH-AGNOSTIC SEAM note) and must stay in sync with it. The same prompt works
+    in Claude Code, Claude Desktop, Codex, and Gemini.
     """
-    return f'claude "{_PLAY_INTENT}"'
+    return _PLAY_PROMPT
 
 
 async def _load_user_agents(db: DbSession, user_id: int) -> list[AgentRow]:
@@ -495,6 +530,7 @@ async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
         "is_live_now": is_live_now,
         "has_agent": has_agent,
         "agent_summary": agent_summary,
+        "play_prompt": _play_prompt(),
         "lobby_url": "/games/hoard-hurt-help",
     }
 
@@ -549,7 +585,7 @@ async def list_connections(
             "active_setup": active_setup,
             "setup_message": _setup_message(key),
             "connect_options": _connect_options(),
-            "play_command": _play_command(),
+            "play_prompt": _play_prompt(),
             "has_connected_before": has_connected_before,
             "is_live_now": is_live_now,
             "has_agent": has_agent,

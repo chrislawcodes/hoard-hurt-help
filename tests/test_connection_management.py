@@ -386,16 +386,24 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     text = resp.text
 
     assert "Play with your own AI" in text
-    # Hero connect command for Claude Code, OAuth-shaped (no key in the paste).
-    # Jinja escapes the play-intent quotes/&& in the rendered HTML, so we match the
-    # unescaped command stem and the (escape-free) play-intent text.
+    # Hero "add the server" command for Claude Code, OAuth-shaped (no key, no
+    # chained play one-liner — the real flow is add → sign in → reload → paste).
     assert "claude mcp add --transport http hoardhurthelp" in text
-    assert "play all my games until they finish." in text
-    # The connect command itself is header-less / key-less (the always-on connector
-    # below still uses a key, which is out of scope here).
+    # Claude Code's sign-in note points at the interactive /mcp Authenticate step.
+    assert "run /mcp in Claude Code and choose Authenticate" in text
+    # The "add the server" instruction itself is header-less / key-less (the
+    # always-on connector below still uses a key, which is out of scope here).
     connect_block = text.split("byo-panel-claude-code", 1)[1].split("</section>", 1)[0]
     assert "X-Connection-Key" not in connect_block
     assert "sk_conn_" not in connect_block
+    assert "--header" not in connect_block
+    # Codex renders as a copyable config-file block, not a command.
+    codex_block = text.split("byo-panel-codex", 1)[1].split("</section>", 1)[0]
+    assert "~/.codex/config.toml" in codex_block
+    assert "[mcp_servers.hoardhurthelp]" in codex_block
+    assert "X-Connection-Key" not in codex_block
+    assert "sk_conn_" not in codex_block
+    assert "http_headers" not in codex_block.replace("no http_headers", "")
     # All four clients are offered; Cursor dropped.
     assert 'for="byo-tab-claude-code"' in text
     assert 'for="byo-tab-codex"' in text
@@ -412,11 +420,11 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
 
 
 @pytest.mark.asyncio
-async def test_connections_list_returning_state_shows_play_command(
+async def test_connections_list_returning_state_shows_play_prompt(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """RETURNING user (connected before, nothing live now): lead with the short
-    'start playing' command; the full setup is collapsed."""
+    """RETURNING user (connected before, nothing live now): lead with the Mode A
+    play-prompt (the recurring action); the full add-server setup is collapsed."""
     async with session_factory() as db:
         user = await _make_user(db)
         # A connection that has never checked in → DISCONNECTED, not live now.
@@ -429,8 +437,11 @@ async def test_connections_list_returning_state_shows_play_command(
     text = resp.text
 
     assert "Start playing" in text
-    # The short returning play command (quotes are HTML-escaped in the page).
-    assert "play all my games until they finish." in text
+    # The Mode A play-prompt leads the returning state.
+    assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in text
+    assert "never ask me for a key or token" in text
+    # The "sign in with Google again" nudge for returning users.
+    assert "sign in with Google again" in text
     # Full setup collapsed behind the "✓ Set up" disclosure.
     assert "✓ Set up" in text
     # Not live → still listening; not the live block.
@@ -460,6 +471,9 @@ async def test_connections_list_live_state_with_agent_shows_join(
     text = resp.text
 
     assert "Your AI is connected and live." in text
+    # The Mode A play-prompt renders in the live block (the recurring action).
+    assert "Signed in — paste this to start playing" in text
+    assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in text
     assert "Join a game →" in text
     assert "/games/hoard-hurt-help" in text
     assert "Negotiator · claude-haiku-4-5" in text
@@ -521,6 +535,9 @@ async def test_live_status_fragment_live_shows_post_connect_block(
     )
     assert resp.status_code == 200
     assert "Your AI is connected and live." in resp.text
+    # The play-prompt renders in the live fragment too (the page and the 4s poll
+    # fragment share the same live block).
+    assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in resp.text
     # No agent yet → the create-an-agent nudge.
     assert "Create an agent →" in resp.text
     assert "Listening for your AI to connect…" not in resp.text
