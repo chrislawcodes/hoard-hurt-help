@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime
 from math import ceil, floor
 from statistics import mean, median
 
@@ -104,8 +104,8 @@ def _bucket_label(seconds: float) -> str:
 async def load_turn_timing_report(
     db: AsyncSession,
     *,
-    start_date: date | None = None,
-    end_date: date | None = None,
+    completed_after: datetime | None = None,
+    completed_before: datetime | None = None,
 ) -> TurnTimingReport:
     """Load the platform-admin response-time report."""
 
@@ -113,16 +113,10 @@ async def load_turn_timing_report(
         Match.state == GameState.COMPLETED,
         ~Match.name.ilike(f"{_TEST_NAME_PREFIX}%"),
     ]
-    if start_date is not None:
-        filters.append(
-            Match.completed_at
-            >= datetime.combine(start_date, time.min, tzinfo=timezone.utc)
-        )
-    if end_date is not None:
-        filters.append(
-            Match.completed_at
-            < datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
-        )
+    if completed_after is not None:
+        filters.append(Match.completed_at >= completed_after)
+    if completed_before is not None:
+        filters.append(Match.completed_at < completed_before)
 
     matches = list(
         (

@@ -321,8 +321,8 @@ async def test_turn_timing_report_counts_and_buckets(client, reset_db):
 @pytest.mark.asyncio
 async def test_turn_timing_report_date_filter_limits_matches(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    included_at = datetime(2026, 6, 12, 12, tzinfo=timezone.utc)
-    excluded_at = datetime(2026, 6, 10, 12, tzinfo=timezone.utc)
+    included_at = datetime(2026, 6, 12, 6, 30, tzinfo=timezone.utc)
+    excluded_at = datetime(2026, 6, 12, 8, 30, tzinfo=timezone.utc)
     await _seed_turn_timing_match(
         reset_db,
         match_id="M_turn_report_in_range",
@@ -338,20 +338,24 @@ async def test_turn_timing_report_date_filter_limits_matches(client, reset_db):
 
     async with reset_db() as db:
         report = await load_turn_timing_report(
-            db, start_date=included_at.date(), end_date=included_at.date()
+            db,
+            completed_after=datetime(2026, 6, 11, 7, tzinfo=timezone.utc),
+            completed_before=datetime(2026, 6, 12, 7, tzinfo=timezone.utc),
         )
     assert report.matches_scanned == 1
     assert report.sample_count == 5
     assert [row.name for row in report.matches] == ["In Range"]
 
     r = await client.get(
-        "/admin/reports?start_date=2026-06-12&end_date=2026-06-12",
+        "/admin/reports?start_date=2026-06-11&end_date=2026-06-11&tz=America/Los_Angeles",
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 200
     assert "In Range" in r.text
     assert "Out of Range" not in r.text
-    assert 'value="2026-06-12"' in r.text
+    assert 'value="2026-06-11"' in r.text
+    assert 'name="tz"' in r.text
+    assert 'value="America/Los_Angeles"' in r.text
 
 
 @pytest.mark.asyncio

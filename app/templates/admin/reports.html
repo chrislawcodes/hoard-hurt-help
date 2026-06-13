@@ -8,17 +8,18 @@
 </div>
 
 <form class="card form" method="get">
+    <input type="hidden" name="tz" id="report-tz" value="{{ tz }}">
     <div class="form-row">
         <label>
-            <span class="field-label">Start date (UTC)</span>
+            <span class="field-label">Start date</span>
             <input type="date" name="start_date" value="{{ start_date }}">
         </label>
         <label>
-            <span class="field-label">End date (UTC)</span>
+            <span class="field-label">End date</span>
             <input type="date" name="end_date" value="{{ end_date }}">
         </label>
     </div>
-    <p class="hint">Filters by match completion date in UTC.</p>
+    <p class="hint">Filters by match completion date in your browser timezone.</p>
     <div class="form-actions">
         <button type="submit" class="btn btn-primary">Apply filter</button>
         {% if start_date or end_date %}
@@ -80,4 +81,13 @@
         {% endfor %}
     </table>
 </div>
+
+<script>
+(function () {
+    var tz = document.getElementById('report-tz');
+    if (!tz) return;
+    var browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (browserTz) tz.value = browserTz;
+})();
+</script>
 {% endblock %}
