@@ -80,10 +80,10 @@
   "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
-    "reviewed": false,
+    "reviewed": true,
     "found": false,
-    "note": "",
-    "updated_at": 0
+    "note": "Slices form a dependency chain (1 fastmcp migration -> 2 service extraction -> 3 connection model/gates -> 4 OAuth gate depends on 1+2+3 -> 5 config/docs exercised by 4; 6 manual, needs deploy). No conflict-free parallel split; running sequentially. No [P:] annotations.",
+    "updated_at": 1781369336
   },
   "init_head_sha": "cfba823dfdbcc3dac260c611e20110c267590dee",
   "token_usage": [
@@ -490,6 +490,18 @@
       "files_written": 0,
       "subprocess_invocations": 26,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-13T16:48:57Z",
+      "wall_seconds": 0.625,
+      "input_bytes_read": 288325,
+      "output_bytes_written": 86061,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -512,6 +524,14 @@
         "5de4697ebcc2b757a32c1268898d39d5ba5834d97afd95bae1be19a72f71fa06"
       ],
       "initial_sha": "2648a439fa92e003ba9d9fded14e76f7014582c59d1d946bf92da8b729f4d074"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
+      ],
+      "initial_sha": "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
     }
   },
   "invariant_warnings": [],
@@ -523,9 +543,10 @@
   },
   "spec_adversarial_rounds": 2,
   "last_action_result": {
-    "next": "author_tasks",
-    "reason": "plan checkpoint completed",
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
     "blockers": []
   },
-  "plan_adversarial_rounds": 3
+  "plan_adversarial_rounds": 3,
+  "tasks_adversarial_rounds": 1
 }
