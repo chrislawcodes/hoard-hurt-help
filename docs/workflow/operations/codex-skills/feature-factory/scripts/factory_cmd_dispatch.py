@@ -13,7 +13,6 @@ import shlex
 import tempfile
 import warnings
 import shutil
-import signal
 import subprocess
 import sys
 from datetime import datetime
@@ -24,10 +23,15 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 import factory_deliver  # noqa: E402
-import factory_git  # noqa: E402
 import factory_state  # noqa: E402
 from factory_mutating import mutates_state  # noqa: E402
 from factory_io import read_text, write_text  # noqa: E402
+from factory_codex_runner import (  # noqa: E402
+    RC_HARD_TIMEOUT,
+    RC_IDLE_TIMEOUT,
+    RC_NOT_FOUND,
+    run_codex,
+)
 
 _REVIEW_LENS_DIR = factory_state.REPO_ROOT / "docs/workflow/operations/codex-skills/review-lens/scripts"
 if str(_REVIEW_LENS_DIR) not in sys.path:
@@ -40,14 +44,6 @@ _PROMPT_BYTES_LIMIT = 100_000
 _CODEX_TIMEOUT_SECONDS = 600
 _CODEX_USAGE_URL = "https://chatgpt.com/codex/settings/usage"
 _DEFAULT_MODEL = "gpt-5.4-mini"
-
-
-def _text_from_timeout_output(value: str | bytes | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value
 
 
 def _write_artifacts(dispatch_dir: Path, stdout: str, stderr: str) -> tuple[Path, Path]:
@@ -127,17 +123,6 @@ def _allocate_dispatch_dir(slug: str, base_id: str) -> Path:
     raise RuntimeError(f"could not allocate unique dispatch directory for {base_id}")
 
 
-def _kill_process_group(proc: subprocess.Popen[str], sig: signal.Signals) -> None:
-    try:
-        pgid = os.getpgid(proc.pid)
-    except ProcessLookupError:
-        return
-    try:
-        os.killpg(pgid, sig)
-    except ProcessLookupError:
-        return
-
-
 @mutates_state("dispatch-codex")
 def command_dispatch_codex(args: argparse.Namespace) -> int:
     codex_path = shutil.which("codex")
@@ -182,31 +167,32 @@ def command_dispatch_codex(args: argparse.Namespace) -> int:
             pre_dispatch_dirty = {}
             pre_dispatch_status = {}
 
-    proc = subprocess.Popen(
+    # Shared runner: idle/no-output watchdog + process-group kill. Keeps the
+    # 600s hard cap dispatch always had, and adds fast-fail on a startup stall.
+    result = run_codex(
         [codex_path, "exec", "-m", args.model, "-s", "workspace-write", prompt_text],
-        cwd=factory_state.REPO_ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
+        factory_state.REPO_ROOT,
+        hard_timeout=_CODEX_TIMEOUT_SECONDS,
+        log_path=dispatch_dir / "codex.log",
+        label=f"dispatch-codex {args.slug}",
     )
+    stdout, stderr = result.stdout, result.stderr
 
-    try:
-        stdout, stderr = proc.communicate(timeout=_CODEX_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired as exc:
-        stdout = _text_from_timeout_output(exc.stdout)
-        stderr = _text_from_timeout_output(exc.stderr)
+    if result.returncode in (RC_IDLE_TIMEOUT, RC_HARD_TIMEOUT):
         _write_artifacts(dispatch_dir, stdout, stderr)
-        _kill_process_group(proc, signal.SIGTERM)
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            _kill_process_group(proc, signal.SIGKILL)
+        reason = (
+            "stalled (no output)"
+            if result.returncode == RC_IDLE_TIMEOUT
+            else f"exceeded {_CODEX_TIMEOUT_SECONDS}s"
+        )
         print(
-            f"codex exec exceeded {_CODEX_TIMEOUT_SECONDS}s timeout — process group killed",
+            f"codex exec {reason} — process group killed",
             file=sys.stderr,
         )
         raise SystemExit(5)
+    if result.returncode == RC_NOT_FOUND:
+        print(stderr or "codex CLI not found on PATH", file=sys.stderr)
+        raise SystemExit(2)
 
     stdout_path, stderr_path = _write_artifacts(dispatch_dir, stdout, stderr)
 
@@ -340,7 +326,7 @@ def command_dispatch_codex(args: argparse.Namespace) -> int:
         "prompt_path": str(args.prompt_path),
         "prompt_sha256": prompt_sha256,
         "model": args.model,
-        "exit_code": proc.returncode,
+        "exit_code": result.returncode,
         "stdout_path": str(stdout_path.relative_to(factory_state.REPO_ROOT)),
         "stderr_path": str(stderr_path.relative_to(factory_state.REPO_ROOT)),
         "branch_base_sha": branch_base,
@@ -358,5 +344,5 @@ def command_dispatch_codex(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"[workflow] ✓ dispatch-codex ({dispatch_id}) → exit {proc.returncode}")
-    return 0 if proc.returncode == 0 else 1
+    print(f"[workflow] ✓ dispatch-codex ({dispatch_id}) → exit {result.returncode}")
+    return 0 if result.returncode == 0 else 1

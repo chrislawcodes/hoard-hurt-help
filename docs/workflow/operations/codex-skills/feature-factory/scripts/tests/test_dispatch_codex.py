@@ -4,7 +4,6 @@ import hashlib
 import importlib.util
 import io
 import json
-import signal
 import subprocess
 import sys
 import tempfile
@@ -87,16 +86,16 @@ class DispatchCodexTests(unittest.TestCase):
     def _parser(self) -> argparse.ArgumentParser:
         return self.run_factory.build_parser()
 
-    def _make_popen(self, *, returncode: int = 0, stdout: str = "codex stdout", stderr: str = "codex stderr",
-                    communicate_side_effect=None) -> Mock:
+    def _make_popen(self, *, returncode: int = 0, stdout: str = "codex stdout",
+                    stderr: str = "codex stderr") -> Mock:
+        # The shared runner streams stdout/stderr line-by-line and polls wait(),
+        # so the fake proc exposes real readable streams and an immediate wait().
         proc = Mock()
         proc.pid = 4242
         proc.returncode = returncode
         proc.wait.return_value = None
-        if communicate_side_effect is not None:
-            proc.communicate.side_effect = communicate_side_effect
-        else:
-            proc.communicate.return_value = (stdout, stderr)
+        proc.stdout = io.StringIO(stdout)
+        proc.stderr = io.StringIO(stderr)
         return proc
 
     def _invoke(
@@ -113,7 +112,7 @@ class DispatchCodexTests(unittest.TestCase):
         proc_returncode: int = 0,
         proc_stdout: str = "codex stdout",
         proc_stderr: str = "codex stderr",
-        communicate_side_effect=None,
+        run_codex_result: subprocess.CompletedProcess | None = None,
         precreate_dispatch_ids: list[str] | None = None,
     ) -> tuple[int, str, str, Mock, Mock, Mock, Mock, Mock, Mock, Path]:
         prompt_path = self._prompt_path(prompt_text, filename=prompt_filename)
@@ -134,12 +133,20 @@ class DispatchCodexTests(unittest.TestCase):
             returncode=proc_returncode,
             stdout=proc_stdout,
             stderr=proc_stderr,
-            communicate_side_effect=communicate_side_effect,
         )
         popen_mock = Mock(return_value=popen_proc)
         update_state_mock = Mock(side_effect=self._update_state_side_effect)
         getpgid_mock = Mock(return_value=popen_proc.pid)
         killpg_mock = Mock()
+
+        # The shared runner is exercised for real (via the mocked Popen above)
+        # unless a test injects a finished result to simulate a watchdog kill.
+        real_run_codex = self.dispatch.run_codex
+
+        def _run_codex_passthrough(*call_args, **call_kwargs):
+            if run_codex_result is not None:
+                return run_codex_result
+            return real_run_codex(*call_args, **call_kwargs)
 
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
@@ -147,6 +154,7 @@ class DispatchCodexTests(unittest.TestCase):
             patch.object(self.dispatch.shutil, "which", return_value=codex_path),
             patch.object(self.dispatch.subprocess, "run", run_mock),
             patch.object(self.dispatch.subprocess, "Popen", popen_mock),
+            patch.object(self.dispatch, "run_codex", side_effect=_run_codex_passthrough),
             patch.object(self.factory_deliver, "_resolve_branch_base", return_value=branch_base),
             patch.object(self.factory_deliver, "_added_code_lines", return_value=lines_added),
             patch.object(self.factory_state, "update_state", update_state_mock),
@@ -321,22 +329,22 @@ class DispatchCodexTests(unittest.TestCase):
         self.assertIsNone(record["branch_base_sha"])
         self.assertIsNone(record["lines_added_at_dispatch_time"])
 
-    def test_timeout_writes_partial_artifacts_and_sends_sigterm(self) -> None:
-        timeout = subprocess.TimeoutExpired(
-            cmd=["codex"],
-            timeout=600,
-            output=b"partial out",
-            stderr=b"partial err",
+    def test_timeout_writes_partial_artifacts_and_exits_five(self) -> None:
+        # The runner kills the process group itself and returns a timeout
+        # sentinel; dispatch writes the partial transcript and exits 5.
+        timed_out = subprocess.CompletedProcess(
+            args=["codex"],
+            returncode=self.dispatch.RC_HARD_TIMEOUT,
+            stdout="partial out",
+            stderr="partial err",
         )
-        rc, _, stderr, _, _, update_state_mock, proc, getpgid_mock, killpg_mock, _ = self._invoke(
-            communicate_side_effect=timeout,
+        rc, _, stderr, _, _, update_state_mock, _, _, _, _ = self._invoke(
+            run_codex_result=timed_out,
         )
 
         self.assertEqual(rc, 5)
         self.assertIn("process group killed", stderr)
         update_state_mock.assert_not_called()
-        getpgid_mock.assert_called_once_with(proc.pid)
-        killpg_mock.assert_any_call(proc.pid, signal.SIGTERM)
         dispatch_root = self._dispatch_root()
         artifact_dirs = list(dispatch_root.iterdir())
         self.assertEqual(len(artifact_dirs), 1)

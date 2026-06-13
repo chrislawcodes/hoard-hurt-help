@@ -101,6 +101,16 @@ class ImplementLockTests(unittest.TestCase):
             ),
             patch.object(
                 self.factory_cmd_implement,
+                "check_clean_tree",
+                return_value=(True, ""),
+            ),
+            patch.object(
+                self.factory_cmd_implement,
+                "prune_orphaned_worktrees",
+                return_value=[],
+            ),
+            patch.object(
+                self.factory_cmd_implement,
                 "parse_parallel_task_groups",
                 return_value=_ONE_SERIAL_GROUP,
             ),

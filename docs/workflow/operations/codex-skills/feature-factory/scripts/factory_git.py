@@ -5,6 +5,7 @@ Pure wrappers around git, shell commands, and filesystem scaffolding.
 No domain knowledge — just tool invocation.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -269,6 +270,76 @@ def remove_all_worktrees(paths: list[Path], run_fn=subprocess.run) -> None:
             f"warning: failed to prune worktrees: {exc.stderr or exc.stdout or exc}",
             file=sys.stderr,
         )
+
+
+def check_clean_tree(
+    repo_root: Path = REPO_ROOT, *, what: str = "this command", run_fn=subprocess.run
+) -> tuple[bool, str]:
+    """Return ``(True, "")`` if the working tree is clean, else ``(False, message)``.
+
+    The single source of truth for the "refuse to run on a dirty tree" gate that
+    several mutating commands share. ``what`` names the command for the message.
+    """
+    result = run_fn(
+        ["git", "-C", str(repo_root), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr.strip() or result.stdout.strip() or "git status failed")
+        return False, f"unable to check working tree status: {detail}"
+    if result.stdout.strip():
+        return False, f"working tree must be clean before {what}"
+    return True, ""
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Exists but owned by another user — treat as alive (do not reclaim).
+        return True
+    return True
+
+
+def prune_orphaned_worktrees(slug: str, run_fn=subprocess.run) -> list[str]:
+    """Remove leftover per-slice worktrees from a prior killed implement run.
+
+    Parallel implement creates ``/tmp/wt-<slug>-<pid>-<i>`` worktrees and removes
+    them in a ``finally`` block — which does not run on a hard kill, leaving the
+    worktrees registered with git. On the next run we reclaim any that match this
+    slug and whose owner pid is no longer alive (never one a live run owns).
+    Returns the paths that were pruned.
+    """
+    safe_slug = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in slug)
+    listing = run_fn(
+        ["git", "-C", str(REPO_ROOT), "worktree", "list", "--porcelain"],
+        capture_output=True,
+        text=True,
+    )
+    if listing.returncode != 0:
+        return []
+    prefix = f"/tmp/wt-{safe_slug}-"
+    pattern = re.compile(rf"^{re.escape(prefix)}(\d+)-\d+$")
+    pruned: list[str] = []
+    for line in listing.stdout.splitlines():
+        if not line.startswith("worktree "):
+            continue
+        path = line[len("worktree "):].strip()
+        match = pattern.match(path)
+        if not match:
+            continue
+        pid = int(match.group(1))
+        if pid == os.getpid() or _pid_alive(pid):
+            continue
+        try:
+            remove_worktree(Path(path), run_fn)
+            pruned.append(path)
+        except (RuntimeError, subprocess.CalledProcessError) as exc:
+            print(f"warning: failed to prune orphaned worktree {path}: {exc}", file=sys.stderr)
+    return pruned
 
 
 def get_new_commits(worktree_path: Path, base_sha: str, run_fn=subprocess.run) -> list[str]:

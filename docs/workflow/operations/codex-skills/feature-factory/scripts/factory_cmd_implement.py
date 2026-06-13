@@ -2,14 +2,9 @@
 """command_implement and command_parallel implementations."""
 import argparse
 import concurrent.futures
-import errno
-import fcntl
-import json
-import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -35,7 +30,18 @@ from factory_git import (  # noqa: E402
     get_changed_files,
     stage_and_commit_if_dirty,
     cherry_pick_commits,
+    check_clean_tree,
+    prune_orphaned_worktrees,
     PROTECTED_FILES,
+)
+from factory_codex_runner import (  # noqa: E402
+    RC_HARD_TIMEOUT,
+    RC_IDLE_TIMEOUT,
+    RC_NOT_FOUND,
+    DEFAULT_HARD_TIMEOUT,
+    DEFAULT_IDLE_TIMEOUT,
+    run_codex,
+    run_codex_with_retry,
 )
 
 from factory_runlock import acquire_run_lock, release_run_lock, run_lock_path  # noqa: E402
@@ -59,9 +65,19 @@ def _release_implement_lock(fd: int) -> None:
     release_run_lock(fd)
 
 
+def _codex_specs_dir(slug: str) -> Path:
+    # Per the SKILL's Background Dispatch Discipline (Rule 2): keep dispatch
+    # specs and transcripts out of /tmp (which is garbage-collected) and inside
+    # the run directory instead, for an auditable, GC-safe record per slice.
+    return workflow_dir(slug) / "codex-specs"
+
+
 def _codex_prompt_path(slug: str, i: int) -> Path:
-    safe_slug = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in slug)
-    return Path(f"/tmp/codex-impl-{safe_slug}-{os.getpid()}-{i}.txt")
+    return _codex_specs_dir(slug) / f"slice-{i}.md"
+
+
+def _codex_log_path(slug: str, i: int) -> Path:
+    return _codex_specs_dir(slug) / f"slice-{i}.codex.log"
 
 
 def _implementation_round(slug: str) -> int:
@@ -78,22 +94,43 @@ def _implementation_round(slug: str) -> int:
         return 0
 
 
-def _run_codex_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess:
-    try:
-        return subprocess.run(
-            command,
-            cwd=str(cwd),
-            timeout=3600,
-            capture_output=True,
-            text=True,
+def _run_codex_command(
+    command: list[str], cwd: Path, *, slug: str, index: int
+) -> subprocess.CompletedProcess:
+    # Delegate to the shared runner so implement and dispatch-codex use the same
+    # idle/no-output watchdog instead of a blind 60-minute blocking wall. The
+    # liveness status is forwarded to the heartbeat so a stall is visible.
+    return run_codex(
+        command,
+        cwd,
+        log_path=_codex_log_path(slug, index),
+        label=f"implement[{slug}#{index}]",
+        on_status=heartbeat_set_activity,
+    )
+
+
+def _classify_codex_rc(rc: int) -> int:
+    """Map a runner stall/not-found sentinel to a printed error + a failure rc."""
+    if rc == RC_IDLE_TIMEOUT:
+        print(
+            f"[error] codex stalled (no output for {int(DEFAULT_IDLE_TIMEOUT)}s); "
+            "retried and still stalled — failing the slice",
+            file=sys.stderr,
         )
-    except subprocess.TimeoutExpired as exc:
-        return subprocess.CompletedProcess(
-            command,
-            124,
-            stdout=exc.stdout or "",
-            stderr=exc.stderr or "",
+        return 1
+    if rc == RC_HARD_TIMEOUT:
+        print(
+            f"[error] codex exceeded the {int(DEFAULT_HARD_TIMEOUT)}s overall cap",
+            file=sys.stderr,
         )
+        return 1
+    if rc == RC_NOT_FOUND:
+        print(
+            "[error] codex CLI not found on PATH; install or activate it before implement",
+            file=sys.stderr,
+        )
+        return 1
+    return rc
 
 
 def _build_codex_prompt(slug: str, i: int, tasks: list[str], file_scope: list[str]) -> str:
@@ -107,6 +144,7 @@ def _build_codex_prompt(slug: str, i: int, tasks: list[str], file_scope: list[st
     plan_content = plan_path.read_text(encoding="utf-8") if plan_path.exists() else ""
 
     prompt_path = _codex_prompt_path(slug, i)
+    prompt_path.parent.mkdir(parents=True, exist_ok=True)
     prompt_text = (
         "# Implementation Task\n\n"
         "## Context\n"
@@ -128,36 +166,28 @@ def _build_codex_prompt(slug: str, i: int, tasks: list[str], file_scope: list[st
 
 
 def _run_serial(slug: str, tasks: list[str]) -> int:
-    prompt_path = _codex_prompt_path(slug, 0)
     prompt_text = _build_codex_prompt(slug, 0, tasks, [])
     round_number = _implementation_round(slug)
-    rc = 1
-    try:
+    command = ["codex", "exec", "-m", "gpt-5.4-mini", "-s", "workspace-write", prompt_text]
+
+    def _dispatch() -> subprocess.CompletedProcess:
         heartbeat_set_activity("codex exec running")
-        result = record_ai_call(
+        return record_ai_call(
             slug,
             "tasks",
             round_number,
             "implementation",
             "gpt-5.4-mini",
-            lambda: _run_codex_command(
-                ["codex", "exec", "-m", "gpt-5.4-mini", "-s", "workspace-write", prompt_text],
-                REPO_ROOT,
-            ),
+            lambda: _run_codex_command(command, REPO_ROOT, slug=slug, index=0),
             prompt_chars=len(prompt_text),
             prompt_cap=None,
         )
-        rc = result.returncode
-        if rc == 124:
-            print("[error] codex execution timed out after 3600 seconds", file=sys.stderr)
-            rc = 1
-    except subprocess.TimeoutExpired:
-        print("[error] codex execution timed out after 3600 seconds", file=sys.stderr)
-        rc = 1
+
+    try:
+        result = run_codex_with_retry(_dispatch, label=f"implement[{slug}#0]")
+        return _classify_codex_rc(result.returncode)
     finally:
         revert_protected_files()
-        prompt_path.unlink(missing_ok=True)
-    return rc
 
 
 def _detect_parallel_file_overlap(files_by_task: dict[int, set[str]]) -> str | None:
@@ -183,19 +213,9 @@ def _detect_parallel_file_overlap(files_by_task: dict[int, set[str]]) -> str | N
 
 
 def _run_parallel(slug: str, group: dict, max_workers: int = 4) -> int:
-    status = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "status", "--porcelain"],
-        capture_output=True,
-        text=True,
-    )
-    if status.returncode != 0:
-        print(
-            f"[error] unable to check working tree status: {status.stderr.strip() or status.stdout.strip() or 'git status failed'}",
-            file=sys.stderr,
-        )
-        return 1
-    if status.stdout.strip():
-        print("[error] working tree must be clean before implement", file=sys.stderr)
+    clean, clean_err = check_clean_tree(REPO_ROOT, what="implement")
+    if not clean:
+        print(f"[error] {clean_err}", file=sys.stderr)
         return 1
 
     head_result = subprocess.run(
@@ -213,7 +233,6 @@ def _run_parallel(slug: str, group: dict, max_workers: int = 4) -> int:
     round_number = _implementation_round(slug)
 
     worktree_paths: list[Path] = []
-    prompt_paths: list[Path] = []
     failure_message = ""
     failure = False
     commits_by_task: dict[int, list[str]] = {}
@@ -226,29 +245,26 @@ def _run_parallel(slug: str, group: dict, max_workers: int = 4) -> int:
             try:
                 worktree_path = create_worktree(slug, i)
                 worktree_paths.append(worktree_path)
-                prompt_path = _codex_prompt_path(slug, i)
-                prompt_paths.append(prompt_path)
                 prompt_text = _build_codex_prompt(slug, i, [task], file_scope)
-                def _call(worktree_path=worktree_path, prompt_text=prompt_text):
-                    heartbeat_set_activity("codex exec running")
-                    return _run_codex_command(
-                        ["codex", "exec", "-m", "gpt-5.4-mini", "-s", "workspace-write", prompt_text],
-                        worktree_path,
-                    )
-                futures[
-                    executor.submit(
-                        lambda _call=_call, prompt_text=prompt_text: record_ai_call(
+                command = ["codex", "exec", "-m", "gpt-5.4-mini", "-s", "workspace-write", prompt_text]
+
+                def _dispatch(worktree_path=worktree_path, command=command, prompt_text=prompt_text, i=i):
+                    def _once():
+                        heartbeat_set_activity("codex exec running")
+                        return record_ai_call(
                             slug,
                             "tasks",
                             round_number,
                             "implementation",
                             "gpt-5.4-mini",
-                            _call,
+                            lambda: _run_codex_command(command, worktree_path, slug=slug, index=i),
                             prompt_chars=len(prompt_text),
                             prompt_cap=None,
-                        ),
-                    )
-                ] = i
+                        )
+
+                    return run_codex_with_retry(_once, label=f"implement[{slug}#{i}]")
+
+                futures[executor.submit(_dispatch)] = i
             except Exception as exc:
                 failure = True
                 if not failure_message:
@@ -348,25 +364,20 @@ def _run_parallel(slug: str, group: dict, max_workers: int = 4) -> int:
         return 0
     finally:
         remove_all_worktrees(worktree_paths)
-        for prompt_path in prompt_paths:
-            prompt_path.unlink(missing_ok=True)
 
 
 @mutates_state("implement")
 def command_implement(args: argparse.Namespace) -> int:
-    status = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "status", "--porcelain"],
-        capture_output=True,
-        text=True,
-    )
-    if status.returncode != 0:
-        print(
-            f"[error] unable to check working tree status: {status.stderr.strip() or status.stdout.strip() or 'git status failed'}",
-            file=sys.stderr,
-        )
-        return 1
-    if status.stdout.strip():
-        print("[error] working tree must be clean before implement", file=sys.stderr)
+    # Reclaim any per-slice worktrees left registered by a prior killed run
+    # (their cleanup finally-block never ran). Safe: only prunes this slug's
+    # worktrees whose owner pid is dead.
+    reclaimed = prune_orphaned_worktrees(args.slug)
+    if reclaimed:
+        print(f"[implement] pruned {len(reclaimed)} orphaned worktree(s) from a prior run", file=sys.stderr)
+
+    clean, clean_err = check_clean_tree(REPO_ROOT, what="implement")
+    if not clean:
+        print(f"[error] {clean_err}", file=sys.stderr)
         return 1
 
     groups = parse_parallel_task_groups(args.slug)
