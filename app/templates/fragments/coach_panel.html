@@ -1,45 +1,13 @@
 {% if viewer_player_id and game.state.value == 'active' and coaching_enabled %}
 {# Coach panel — HTMX swaps this div in place on every POST.
-   The form targets itself (#coach-panel) with hx-swap="outerHTML" so the
-   whole panel is replaced with the server-rendered state after each save. #}
+   The prompt dialog lives inside the same fragment so a successful save
+   replaces the whole panel and closes the window naturally. #}
 <div id="coach-panel" class="coach-panel">
     <div class="coach-panel-head">
         <h3>Coach {{ viewer_agent_name }}</h3>
+        <button type="button" class="coach-panel-link" onclick="openCoachPromptDialog()">Open existing prompt</button>
     </div>
 
-    <form
-        hx-post="/games/{{ game.game }}/matches/{{ game.id }}/coach-note"
-        hx-target="#coach-panel"
-        hx-swap="outerHTML"
-        hx-indicator="#coach-panel"
-    >
-        <textarea
-            name="note"
-            maxlength="280"
-            placeholder="One coaching note for the next round… (280 chars)"
-            rows="2"
-        >{% if viewer_coach_note_round and viewer_coach_note_round > game.current_round %}{{ viewer_coach_note }}{% endif %}</textarea>
-
-        <div class="coach-chips">
-            <button type="button" class="coach-chip" onclick="fillCoachNote(this)">Play it safe</button>
-            <button type="button" class="coach-chip" onclick="fillCoachNote(this)">Go aggressive</button>
-            <button type="button" class="coach-chip" onclick="fillCoachNote(this)">Stop trusting others</button>
-            <button type="button" class="coach-chip" onclick="fillCoachNote(this)">Protect the lead</button>
-        </div>
-
-        <div class="coach-panel-actions">
-            <button type="submit" class="btn btn-primary" style="font-size:0.85rem;padding:0.35rem 0.85rem;">
-                Queue for Round {{ game.current_round + 1 }}
-            </button>
-            {% if viewer_coach_note %}
-            <button type="submit" name="note" value="" class="btn btn-ghost" style="font-size:0.82rem;padding:0.3rem 0.7rem;">
-                Clear
-            </button>
-            {% endif %}
-        </div>
-    </form>
-
-    {# State indicator — shows where the queued note currently stands #}
     {% if viewer_coach_note %}
         {% if viewer_coach_note_round > game.current_round %}
         <p class="coach-status armed">→ Armed: reaches your agent at Round {{ viewer_coach_note_round }}</p>
@@ -48,15 +16,101 @@
         {% else %}
         <p class="coach-status">Delivered in Round {{ viewer_coach_note_round }} · <em>{{ viewer_coach_note }}</em></p>
         {% endif %}
+    {% else %}
+    <p class="coach-status">No note queued. Open the prompt window to course-correct.</p>
     {% endif %}
+
+    <dialog id="coach-prompt-dialog" class="coach-prompt-dialog" aria-labelledby="coach-prompt-title">
+        <div class="coach-prompt-shell">
+            <div class="coach-prompt-head">
+                <div>
+                    <h4 id="coach-prompt-title">Existing prompt{% if viewer_prompt_label %} · {{ viewer_prompt_label }}{% endif %}</h4>
+                    <p class="hint">Read the current prompt, then add course correction for the next round below.</p>
+                </div>
+                <button type="button" class="coach-dialog-close" onclick="closeCoachPromptDialog()" aria-label="Close prompt window">×</button>
+            </div>
+
+            <div class="coach-prompt-grid">
+                <div class="coach-prompt-copy-wrap">
+                    <div class="coach-prompt-label">Prompt</div>
+                    <pre class="coach-prompt-copy">{{ viewer_prompt_text or "No strategy snapshot is available for this player." }}</pre>
+                    <p class="coach-prompt-footnote">
+                        If you want to rewrite the strategy itself, open <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">the strategy page</a>.
+                    </p>
+                </div>
+
+                <form
+                    class="coach-prompt-form"
+                    method="post"
+                    action="/games/{{ game.game }}/matches/{{ game.id }}/coach-note"
+                    hx-post="/games/{{ game.game }}/matches/{{ game.id }}/coach-note"
+                    hx-target="#coach-panel"
+                    hx-swap="outerHTML"
+                    hx-indicator="#coach-panel"
+                >
+                    <label class="coach-prompt-field">
+                        <span class="field-label">Course correction</span>
+                        <textarea
+                            name="note"
+                            maxlength="280"
+                            rows="5"
+                            placeholder="What should change next round?"
+                        >{% if viewer_coach_note_round and viewer_coach_note_round > game.current_round %}{{ viewer_coach_note }}{% endif %}</textarea>
+                    </label>
+
+                    <div class="coach-prompt-actions">
+                        <button type="submit" class="btn btn-primary">
+                            Queue for Round {{ game.current_round + 1 }}
+                        </button>
+                        <button type="button" class="btn btn-ghost" onclick="closeCoachPromptDialog()">
+                            Done
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </dialog>
 </div>
 
 <script>
-function fillCoachNote(chip) {
-    var panel = chip.closest('#coach-panel');
-    if (!panel) return;
-    var ta = panel.querySelector('textarea[name="note"]');
-    if (ta) { ta.value = chip.textContent; ta.focus(); }
-}
+(function () {
+    var dialog = document.getElementById('coach-prompt-dialog');
+    var textarea = dialog ? dialog.querySelector('textarea[name="note"]') : null;
+
+    function focusTextarea() {
+        if (textarea) textarea.focus();
+    }
+
+    window.openCoachPromptDialog = function () {
+        if (!dialog) return;
+        if (typeof dialog.showModal === 'function') dialog.showModal();
+        else dialog.setAttribute('open', '');
+        focusTextarea();
+    };
+
+    window.closeCoachPromptDialog = function () {
+        if (!dialog) return;
+        if (typeof dialog.close === 'function') dialog.close();
+        else dialog.removeAttribute('open');
+    };
+
+    dialog?.addEventListener('click', function (event) {
+        var rect = dialog.getBoundingClientRect();
+        if (
+            event.clientX < rect.left ||
+            event.clientX > rect.right ||
+            event.clientY < rect.top ||
+            event.clientY > rect.bottom
+        ) {
+            closeCoachPromptDialog();
+        }
+    });
+
+    dialog?.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            closeCoachPromptDialog();
+        }
+    });
+})();
 </script>
 {% endif %}

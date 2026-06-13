@@ -278,3 +278,20 @@ async def test_post_coach_note_rejects_non_player(
         cookies=_signed_in(outsider.id),
     )
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_game_view_shows_prompt_window(
+    reset_db: async_sessionmaker, client: AsyncClient
+) -> None:
+    match_id, _, user_id = await _make_active_match(reset_db)
+
+    r = await client.get(
+        f"/games/hoard-hurt-help/matches/{match_id}",
+        cookies=_signed_in(user_id),
+    )
+    assert r.status_code == 200, r.text
+    assert "Open existing prompt" in r.text
+    assert "Existing prompt" in r.text
+    assert "Course correction" in r.text
+    assert "Play to win." in r.text

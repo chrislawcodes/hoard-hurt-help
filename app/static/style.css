@@ -693,14 +693,15 @@ pre code { background: none; padding: 0; }
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    padding: 0.85rem 1rem;
+    padding: 0.65rem 0.85rem;
     margin-bottom: 1rem;
 }
 .coach-panel-head {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.6rem;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.35rem;
 }
 .coach-panel-head h3 {
     margin: 0;
@@ -710,38 +711,23 @@ pre code { background: none; padding: 0; }
     color: var(--ink-soft);
     font-weight: 700;
 }
-.coach-panel textarea {
-    width: 100%;
-    min-height: 3.5rem;
-    resize: vertical;
-    font-size: 0.9rem;
-    margin-bottom: 0.5rem;
-    font-family: var(--font-body);
-}
-.coach-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    margin-bottom: 0.55rem;
-}
-.coach-chip {
-    font-size: 0.78rem;
-    padding: 0.22rem 0.65rem;
-    border-radius: 999px;
-    border: 1px solid var(--line-bold);
-    background: var(--surface-2);
-    color: var(--ink);
+.coach-panel-link {
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 0.05rem 0;
     cursor: pointer;
-    line-height: 1.4;
-    font-weight: 600;
-    transition: background 0.12s, border-color 0.12s;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
 }
-.coach-chip:hover { background: var(--line); border-color: var(--ink-soft); }
-.coach-panel-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    flex-wrap: wrap;
+.coach-panel-link:hover { color: var(--accent-hover); }
+.coach-panel-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
 }
 .coach-status {
     font-size: 0.78rem;
@@ -750,6 +736,117 @@ pre code { background: none; padding: 0; }
 }
 .coach-status.armed { color: var(--accent); font-weight: 600; }
 .coach-status.active-now { color: var(--help); font-weight: 600; }
+.coach-prompt-dialog {
+    width: min(860px, calc(100vw - 2rem));
+    border: 1px solid var(--line);
+    border-radius: var(--al-radius-lg);
+    padding: 0;
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--al-shadow-soft);
+}
+.coach-prompt-dialog::backdrop {
+    background: rgba(36, 28, 51, 0.55);
+}
+.coach-prompt-shell {
+    padding: 1rem 1.1rem 1.05rem;
+}
+.coach-prompt-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 0.9rem;
+}
+.coach-prompt-head h4 {
+    margin: 0;
+    font-family: var(--font-head);
+    font-size: 1.05rem;
+    letter-spacing: var(--head-spacing);
+}
+.coach-dialog-close {
+    border: 0;
+    background: var(--surface-2);
+    color: var(--ink);
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    font-size: 1.1rem;
+    line-height: 1;
+    font-weight: 700;
+    cursor: pointer;
+    flex: none;
+}
+.coach-dialog-close:hover { background: var(--line); }
+.coach-prompt-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+    gap: 0.9rem;
+    align-items: start;
+}
+.coach-prompt-copy-wrap,
+.coach-prompt-form {
+    min-width: 0;
+}
+.coach-prompt-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    margin-bottom: 0.35rem;
+}
+.coach-prompt-copy {
+    margin: 0;
+    padding: 0.9rem 0.95rem;
+    min-height: 15rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+.coach-prompt-footnote {
+    margin: 0.55rem 0 0;
+    color: var(--ink-soft);
+    font-size: 0.82rem;
+}
+.coach-prompt-field textarea {
+    width: 100%;
+    min-height: 12rem;
+    resize: vertical;
+    font-size: 0.92rem;
+    font-family: var(--font-body);
+    margin-top: 0.35rem;
+}
+.coach-prompt-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    margin-top: 0.85rem;
+}
+.coach-prompt-actions .btn {
+    font-size: 0.85rem;
+    padding: 0.38rem 0.82rem;
+}
+.coach-prompt-field .field-label {
+    margin-bottom: 0;
+}
+@media (max-width: 760px) {
+    .coach-prompt-grid { grid-template-columns: 1fr; }
+    .coach-prompt-copy { min-height: 10rem; }
+}
+@media (max-width: 560px) {
+    .coach-panel-head { flex-direction: column; align-items: flex-start; }
+    .coach-panel-link { padding-left: 0; }
+    .coach-prompt-shell { padding: 0.85rem 0.85rem 0.9rem; }
+    .coach-prompt-head { flex-direction: column; }
+    .coach-prompt-actions { flex-direction: column; align-items: stretch; }
+    .coach-prompt-actions .btn { width: 100%; }
+}
 /* rc-rail "you" indicator */
 .rc-rail-row.rc-you .nm-name::after {
     content: " · you";
@@ -838,34 +935,10 @@ pre code { background: none; padding: 0; }
 .page-head .sub .badge { vertical-align: middle; }
 /* A right-aligned actions row under a title (e.g. Analysis link on the viewer). */
 .page-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.page-head .coach-panel { margin: 0.6rem 0 0.45rem; }
 /* A submit/cancel row under a form. */
 .form-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-top: 1.5rem; }
 .admin-prompts-link { margin-top: 2rem; }
-.report-kpis {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.9rem;
-    margin-bottom: 1.25rem;
-}
-.report-kpi { padding: 1rem; }
-.report-kpi .label {
-    color: var(--ink-soft);
-    font-size: 0.82rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-.report-kpi .value {
-    margin-top: 0.4rem;
-    font-size: 1.55rem;
-    font-weight: 800;
-    line-height: 1.1;
-}
-.report-kpi .note {
-    margin-top: 0.35rem;
-    color: var(--ink-soft);
-    font-size: 0.88rem;
-}
 .report-table-wrap {
     overflow-x: auto;
     border: 1px solid var(--line);
@@ -1704,7 +1777,6 @@ button.danger:hover,
     /* Drop the nav brand to the logo mark on a phone so the CTA + auth never get
        crowded off the bar. The footer keeps the full wordmark. */
     .al-nav-inner .al-wordmark { display: none; }
-    .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .al-lb-row { grid-template-columns: 40px 1fr 90px; }
     .al-lb-row > .al-num:last-child, .al-lb-head > span:last-child { display: none; }
     .lb-toolbar { padding: 14px; }

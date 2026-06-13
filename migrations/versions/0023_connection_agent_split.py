@@ -11,6 +11,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 revision: str = "0023"
 down_revision: Union[str, None] = "0022"
@@ -292,11 +293,32 @@ def _create_old_strategy_prompts_table() -> None:
     )
 
 
+def _drop_foreign_key_constraint(table_name: str, candidate_names: tuple[str, ...]) -> None:
+    """Drop the first matching FK name from a table if it exists."""
+    bind = op.get_bind()
+    existing_names = {
+        fk.get("name")
+        for fk in inspect(bind).get_foreign_keys(table_name)
+        if fk.get("name")
+    }
+    for name in candidate_names:
+        if name in existing_names:
+            with op.batch_alter_table(table_name) as batch_op:
+                batch_op.drop_constraint(name, type_="foreignkey")
+            return
+    raise ValueError(
+        f"No matching foreign key constraint found on {table_name!r}; "
+        f"looked for {candidate_names!r}"
+    )
+
+
 def upgrade() -> None:
     # matches, turn_submissions, turn_messages all have FKs into players.
     # Drop them first so we can drop and replace the players table.
-    with op.batch_alter_table("matches") as batch_op:
-        batch_op.drop_constraint("fk_games_winner_player_id_players", type_="foreignkey")
+    _drop_foreign_key_constraint(
+        "matches",
+        ("fk_games_winner_player_id_players", "fk_matches_winner_player_id_players"),
+    )
     with op.batch_alter_table("turn_submissions") as batch_op:
         batch_op.drop_constraint("fk_turn_submissions_player_id_players", type_="foreignkey")
         batch_op.drop_constraint(
@@ -375,8 +397,10 @@ def downgrade() -> None:
         )
 
     # Drop FKs from dependent tables before dropping the new players table.
-    with op.batch_alter_table("matches") as batch_op:
-        batch_op.drop_constraint("fk_games_winner_player_id_players", type_="foreignkey")
+    _drop_foreign_key_constraint(
+        "matches",
+        ("fk_games_winner_player_id_players", "fk_matches_winner_player_id_players"),
+    )
     with op.batch_alter_table("turn_submissions") as batch_op:
         batch_op.drop_constraint("fk_turn_submissions_player_id_players", type_="foreignkey")
         batch_op.drop_constraint(
