@@ -19,11 +19,11 @@ from datetime import datetime, timezone
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import broadcast
-from app.models.connection import ConnectionStatus
+from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
@@ -34,8 +34,9 @@ BotStatus = ConnectionStatus
 _PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
 
 # How long after the last authenticated call a bot still counts as "live". The
-# runner polls every few seconds (idle) up to a ~40s long-poll, so this tolerates
-# a couple of missed pings before the badge flips to disconnected.
+# runner polls on its own cadence and interactive MCP play holds each request open
+# for up to ~25s (the bounded long-poll), so this tolerates a couple of missed
+# pings before the badge flips to disconnected.
 _LIVE_WINDOW_SECONDS = 90
 # Don't rewrite last_seen_at on every fast poll — once per this interval is plenty.
 _HEARTBEAT_THROTTLE_SECONDS = 10
@@ -89,10 +90,15 @@ async def mark_seen(
 ) -> None:
     """Record an authenticated agent call: first-connect, key cutover, heartbeat.
 
-    Called from the single auth choke point (``require_bot``), so it covers every
-    connection method (runner, MCP, direct API) with one hook. Commits once if
-    anything changed, and does three things:
+    Called from the single auth choke point (``require_connection``), so it covers
+    every connection method (runner, MCP, direct API) with one hook. Does four
+    things in a single atomic UPDATE per call:
 
+      * **Usage count** — bump ``api_call_count`` by one. Every authenticated call
+        is one paid model inference in interactive (MCP) mode, so this is the raw
+        cost signal the detail page shows. Counting it here, not on a throttle,
+        keeps the count exact; folding it into the same UPDATE that already runs
+        for the heartbeat avoids a second write per call (no write amplification).
       * **First connect** — on the ``NULL -> now`` transition of
         ``first_connected_at``, set it and announce ``connected`` (once; later
         calls are no-ops here).
@@ -104,25 +110,56 @@ async def mark_seen(
     """
     now = now or datetime.now(timezone.utc)
     first = bot.first_connected_at is None
-    changed = False
-    if first:
-        bot.first_connected_at = now
-        if getattr(bot, "status", None) == ConnectionStatus.PENDING:
-            bot.status = ConnectionStatus.ACTIVE
-        changed = True
-    if key_hash == bot.key_lookup and bot.prev_key_lookup is not None:
-        bot.prev_key_lookup = None
-        changed = True
-    if (
+    cutover = key_hash == bot.key_lookup and bot.prev_key_lookup is not None
+    heartbeat_due = (
         bot.last_seen_at is None
         or (now - _as_aware(bot.last_seen_at)).total_seconds() >= _HEARTBEAT_THROTTLE_SECONDS
-    ):
-        bot.last_seen_at = now
-        changed = True
-    if changed:
-        await db.commit()
+    )
+
+    # One atomic UPDATE per call: always bump the call counter; conditionally set
+    # the first-connect / cutover / heartbeat fields in the same statement. The
+    # counter rides along with a write that (apart from the steady-state heartbeat
+    # cadence) was happening anyway, so there is no extra round-trip per call.
+    values: dict[str, object] = {
+        "api_call_count": Connection.api_call_count + 1,
+    }
+    if first:
+        values["first_connected_at"] = now
+        if getattr(bot, "status", None) == ConnectionStatus.PENDING:
+            values["status"] = ConnectionStatus.ACTIVE
+    if cutover:
+        values["prev_key_lookup"] = None
+    if heartbeat_due:
+        values["last_seen_at"] = now
+
+    await db.execute(update(Connection).where(Connection.id == bot.id).values(**values))
+    await db.commit()
+
+    # Refresh the in-memory object from what the atomic UPDATE just wrote, so
+    # callers that read these fields after auth see fresh values. We must NOT set
+    # the attributes by hand here: ``api_call_count`` was bumped with a relative
+    # ``col + 1`` expression the ORM can't track, so hand-assigning would mark the
+    # object dirty and a later commit in the same request would write it a second
+    # time (double-counting). Expiring forces a clean re-read instead.
+    await db.refresh(bot)
+
     if first:
         await broadcast.publish(bot_channel(bot.id), "connected", {})
+
+
+async def increment_turns_played(db: AsyncSession, connection_id: int) -> None:
+    """Bump a connection's lifetime ``turns_played`` by one.
+
+    Called after a real (non-defaulted) move is committed, so the detail page can
+    show how many turns this connection has actually played. One atomic UPDATE;
+    the caller's own commit (or this one) persists it.
+    """
+    await db.execute(
+        update(Connection)
+        .where(Connection.id == connection_id)
+        .values(turns_played=Connection.turns_played + 1)
+    )
+    await db.commit()
 
 
 async def mark_first_move(db: AsyncSession, bot_id: int) -> None:

@@ -87,7 +87,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0030",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0031",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -453,6 +453,42 @@ def test_0030_adds_coach_note_and_coaching_flag(tmp_path: Path) -> None:
 
         match_cols = {row[1] for row in conn.execute("PRAGMA table_info(matches)")}
         assert "coaching" in match_cols
+    finally:
+        conn.close()
+
+
+# --- feature: connection usage counters (migration 0031) ---------------------
+
+
+def test_0031_adds_connection_usage_counters(tmp_path: Path) -> None:
+    """0031 adds api_call_count + turns_played to connections, defaulting to 0."""
+    db_path = tmp_path / "usage_counters.db"
+
+    up = _run_alembic(["upgrade", "0030"], db_path)
+    assert up.returncode == 0, f"upgrade 0030 failed:\n{up.stdout}\n{up.stderr}"
+
+    up = _run_alembic(["upgrade", "0031"], db_path)
+    assert up.returncode == 0, f"upgrade 0031 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0031",)]
+        cols = {row[1]: row for row in conn.execute("PRAGMA table_info(connections)")}
+        assert "api_call_count" in cols
+        assert "turns_played" in cols
+        # NOT NULL with a 0 server default on both.
+        assert cols["api_call_count"][3] == 1  # notnull flag
+        assert cols["turns_played"][3] == 1
+    finally:
+        conn.close()
+
+    down = _run_alembic(["downgrade", "0030"], db_path)
+    assert down.returncode == 0, f"downgrade to 0030 failed:\n{down.stdout}\n{down.stderr}"
+    conn = sqlite3.connect(db_path)
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(connections)")}
+        assert "api_call_count" not in cols
+        assert "turns_played" not in cols
     finally:
         conn.close()
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
 from collections.abc import AsyncIterator
@@ -730,3 +731,194 @@ async def test_next_turns_omits_a_turn_already_submitted(
     assert batch.status_code == 200, batch.text
     body = batch.json()
     assert [t["match_id"] for t in body["turns"]] == ["M_0711"]
+
+
+@pytest.mark.asyncio
+async def test_no_hold_returns_waiting_immediately_with_idle_cadence(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Default (no hold_seconds): the connector path returns 'waiting' at once and
+    advises the slow ~30s idle cadence. The plural endpoint does the same."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        _connection, key = await make_connection(db, user)
+        await db.commit()
+
+    loop = asyncio.get_event_loop()
+    started = loop.time()
+    single = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    elapsed = loop.time() - started
+    assert single.status_code == 200, single.text
+    body = single.json()
+    assert body["status"] == "waiting"
+    # Returned immediately (no long-poll hold) and advised the slow idle cadence.
+    assert elapsed < 0.5
+    assert body["next_poll_after_seconds"] == 30
+
+    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    assert batch.status_code == 200, batch.text
+    bbody = batch.json()
+    assert bbody["status"] == "waiting"
+    assert bbody["next_poll_after_seconds"] == 30
+
+
+@pytest.mark.asyncio
+async def test_long_poll_returns_waiting_after_window_with_no_turn(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """With nothing to serve, the bounded long-poll holds for ~hold_seconds and
+    then returns 'waiting'. We use a short hold so the test stays fast and assert
+    the call actually spent close to the window before giving up."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        _connection, key = await make_connection(db, user)
+        # No match / no turn for this connection — nothing is ever servable.
+        await db.commit()
+
+    loop = asyncio.get_event_loop()
+    started = loop.time()
+    r = await client.get(
+        "/api/agent/next-turn?hold_seconds=0.4&interval_seconds=0.05",
+        headers={"X-Connection-Key": key},
+    )
+    elapsed = loop.time() - started
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "waiting"
+    # It held roughly the whole window before returning (not an instant reply).
+    assert elapsed >= 0.35
+    # After a long-poll the client should re-open promptly (the hold was the wait).
+    assert body["next_poll_after_seconds"] <= 5
+
+
+@pytest.mark.asyncio
+async def test_long_poll_returns_promptly_when_a_turn_opens(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """When a turn opens partway through the hold, the long-poll returns it the
+    moment its next re-check sees it — well before the full window elapses."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        # Seat the agent in an active match, but with NO open turn yet.
+        now = datetime.now(timezone.utc)
+        match = Match(
+            id="M_0800",
+            name="match-M_0800",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=1,
+        )
+        db.add(match)
+        await db.flush()
+        agent, _version, _player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="alpha strategy",
+        )
+        await db.commit()
+
+    async def open_turn_soon() -> None:
+        # Open the turn shortly after the long-poll begins holding.
+        await asyncio.sleep(0.15)
+        async with session_factory() as db:
+            db.add(
+                Turn(
+                    match_id="M_0800",
+                    round=1,
+                    turn=1,
+                    turn_token=generate_turn_token(),
+                    opened_at=datetime.now(timezone.utc),
+                    deadline_at=datetime.now(timezone.utc) + timedelta(seconds=60),
+                    phase="act",
+                )
+            )
+            await db.commit()
+
+    loop = asyncio.get_event_loop()
+    started = loop.time()
+    # Long hold window, fast re-check interval: the response should come back when
+    # the turn opens (~0.15s), not at the 5s window.
+    opener = asyncio.create_task(open_turn_soon())
+    r = await client.get(
+        "/api/agent/next-turn?hold_seconds=5&interval_seconds=0.05",
+        headers={"X-Connection-Key": key},
+    )
+    await opener
+    elapsed = loop.time() - started
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "your_turn"
+    assert body["match_id"] == "M_0800"
+    assert body["agent_id"] == agent.id
+    # Returned promptly after the turn opened — nowhere near the full 5s window.
+    assert elapsed < 2.0
+
+
+@pytest.mark.asyncio
+async def test_api_call_count_increments_and_turn_count_on_real_submit(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Every authenticated call bumps api_call_count; a real (non-defaulted)
+    submit bumps turns_played. The detail page reads these raw counts."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        match, turn = await _create_match_with_turn(db, "M_0900", deadline_seconds=60)
+        agent, _version, _player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="alpha strategy",
+        )
+        await db.commit()
+        connection_id = connection.id
+
+    # One poll that serves a turn.
+    served = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert served.status_code == 200, served.text
+    body = served.json()
+    assert body["status"] == "your_turn"
+    agent_turn_token = body["agent_turn_token"]
+    turn_token = body["turn_token"]
+
+    async with session_factory() as db:
+        stored = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+        assert stored.api_call_count == 1
+        assert stored.turns_played == 0
+
+    submit = await client.post(
+        f"/api/matches/M_0900/submit?agent_turn_token={agent_turn_token}",
+        headers={"X-Connection-Key": key},
+        json={
+            "turn_token": turn_token,
+            "action": "HOARD",
+            "target_id": None,
+            "message": "mine",
+            "thinking": "",
+        },
+    )
+    assert submit.status_code == 202, submit.text
+
+    async with session_factory() as db:
+        stored = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+        # The submit was one more authenticated call (count now 2) and one real
+        # turn played.
+        assert stored.api_call_count == 2
+        assert stored.turns_played == 1

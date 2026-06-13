@@ -36,6 +36,12 @@ mcp_app = FastMCP(
 )
 
 
+# How long get_next_turn asks the API to bounded-long-poll while waiting for a
+# turn (Mode A: interactive play). Kept under typical MCP client request timeouts
+# (commonly ~30s) and matched to the API's MCP_LONG_POLL_HOLD_SECONDS default.
+_NEXT_TURN_HOLD_SECONDS = 25.0
+
+
 def _client() -> httpx.AsyncClient:
     """HTTP client pre-configured to hit our own API."""
     return httpx.AsyncClient(
@@ -146,7 +152,17 @@ async def get_next_turn(ctx: Context) -> dict[str, Any]:
     """
     agent_key = _connection_key_from_ctx(ctx)
     async with _client() as c:
-        r = await c.get("/api/agent/next-turn", headers=_headers(agent_key))
+        # Interactive (Mode A) play is the cost-sensitive caller: ask the server to
+        # bounded-long-poll so an idle game holds ONE request open instead of firing
+        # a fresh paid model call every few seconds. The server holds up to
+        # _NEXT_TURN_HOLD_SECONDS and returns the instant a turn opens; we give the
+        # HTTP read a little more headroom than the hold so it never times out mid-wait.
+        r = await c.get(
+            "/api/agent/next-turn",
+            params={"hold_seconds": _NEXT_TURN_HOLD_SECONDS},
+            headers=_headers(agent_key),
+            timeout=httpx.Timeout(_NEXT_TURN_HOLD_SECONDS + 15.0),
+        )
         return _unwrap(r)
 
 

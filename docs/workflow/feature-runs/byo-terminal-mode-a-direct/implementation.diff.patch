@@ -1,0 +1,1823 @@
+diff --git a/app/engine/connection_activity.py b/app/engine/connection_activity.py
+index 6fd8b4f..144b2b8 100644
+--- a/app/engine/connection_activity.py
++++ b/app/engine/connection_activity.py
+@@ -19,11 +19,11 @@ from datetime import datetime, timezone
+ 
+ from typing import Any
+ 
+-from sqlalchemy import select
++from sqlalchemy import select, update
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app import broadcast
+-from app.models.connection import ConnectionStatus
++from app.models.connection import Connection, ConnectionStatus
+ from app.models.match import Match, GameState
+ from app.models.player import Player
+ from app.models.turn import Turn, TurnSubmission
+@@ -34,8 +34,9 @@ BotStatus = ConnectionStatus
+ _PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
+ 
+ # How long after the last authenticated call a bot still counts as "live". The
+-# runner polls every few seconds (idle) up to a ~40s long-poll, so this tolerates
+-# a couple of missed pings before the badge flips to disconnected.
++# runner polls on its own cadence and interactive MCP play holds each request open
++# for up to ~25s (the bounded long-poll), so this tolerates a couple of missed
++# pings before the badge flips to disconnected.
+ _LIVE_WINDOW_SECONDS = 90
+ # Don't rewrite last_seen_at on every fast poll — once per this interval is plenty.
+ _HEARTBEAT_THROTTLE_SECONDS = 10
+@@ -89,10 +90,15 @@ async def mark_seen(
+ ) -> None:
+     """Record an authenticated agent call: first-connect, key cutover, heartbeat.
+ 
+-    Called from the single auth choke point (``require_bot``), so it covers every
+-    connection method (runner, MCP, direct API) with one hook. Commits once if
+-    anything changed, and does three things:
++    Called from the single auth choke point (``require_connection``), so it covers
++    every connection method (runner, MCP, direct API) with one hook. Does four
++    things in a single atomic UPDATE per call:
+ 
++      * **Usage count** — bump ``api_call_count`` by one. Every authenticated call
++        is one paid model inference in interactive (MCP) mode, so this is the raw
++        cost signal the detail page shows. Counting it here, not on a throttle,
++        keeps the count exact; folding it into the same UPDATE that already runs
++        for the heartbeat avoids a second write per call (no write amplification).
+       * **First connect** — on the ``NULL -> now`` transition of
+         ``first_connected_at``, set it and announce ``connected`` (once; later
+         calls are no-ops here).
+@@ -104,27 +110,58 @@ async def mark_seen(
+     """
+     now = now or datetime.now(timezone.utc)
+     first = bot.first_connected_at is None
+-    changed = False
+-    if first:
+-        bot.first_connected_at = now
+-        if getattr(bot, "status", None) == ConnectionStatus.PENDING:
+-            bot.status = ConnectionStatus.ACTIVE
+-        changed = True
+-    if key_hash == bot.key_lookup and bot.prev_key_lookup is not None:
+-        bot.prev_key_lookup = None
+-        changed = True
+-    if (
++    cutover = key_hash == bot.key_lookup and bot.prev_key_lookup is not None
++    heartbeat_due = (
+         bot.last_seen_at is None
+         or (now - _as_aware(bot.last_seen_at)).total_seconds() >= _HEARTBEAT_THROTTLE_SECONDS
+-    ):
+-        bot.last_seen_at = now
+-        changed = True
+-    if changed:
+-        await db.commit()
++    )
++
++    # One atomic UPDATE per call: always bump the call counter; conditionally set
++    # the first-connect / cutover / heartbeat fields in the same statement. The
++    # counter rides along with a write that (apart from the steady-state heartbeat
++    # cadence) was happening anyway, so there is no extra round-trip per call.
++    values: dict[str, object] = {
++        "api_call_count": Connection.api_call_count + 1,
++    }
++    if first:
++        values["first_connected_at"] = now
++        if getattr(bot, "status", None) == ConnectionStatus.PENDING:
++            values["status"] = ConnectionStatus.ACTIVE
++    if cutover:
++        values["prev_key_lookup"] = None
++    if heartbeat_due:
++        values["last_seen_at"] = now
++
++    await db.execute(update(Connection).where(Connection.id == bot.id).values(**values))
++    await db.commit()
++
++    # Refresh the in-memory object from what the atomic UPDATE just wrote, so
++    # callers that read these fields after auth see fresh values. We must NOT set
++    # the attributes by hand here: ``api_call_count`` was bumped with a relative
++    # ``col + 1`` expression the ORM can't track, so hand-assigning would mark the
++    # object dirty and a later commit in the same request would write it a second
++    # time (double-counting). Expiring forces a clean re-read instead.
++    await db.refresh(bot)
++
+     if first:
+         await broadcast.publish(bot_channel(bot.id), "connected", {})
+ 
+ 
++async def increment_turns_played(db: AsyncSession, connection_id: int) -> None:
++    """Bump a connection's lifetime ``turns_played`` by one.
++
++    Called after a real (non-defaulted) move is committed, so the detail page can
++    show how many turns this connection has actually played. One atomic UPDATE;
++    the caller's own commit (or this one) persists it.
++    """
++    await db.execute(
++        update(Connection)
++        .where(Connection.id == connection_id)
++        .values(turns_played=Connection.turns_played + 1)
++    )
++    await db.commit()
++
++
+ async def mark_first_move(db: AsyncSession, bot_id: int) -> None:
+     """Announce the bot's first real move; no-op on every move after the first.
+ 
+diff --git a/app/models/connection.py b/app/models/connection.py
+index 8113766..eb353c6 100644
+--- a/app/models/connection.py
++++ b/app/models/connection.py
+@@ -77,6 +77,22 @@ class Connection(Base):
+         nullable=True,
+     )
+     runner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
++    # Lifetime usage counters for this connection, surfaced on the detail page so
++    # an operator running interactive (MCP) play can see what it's costing them.
++    # `api_call_count` counts every authenticated agent call (each is a paid model
++    # call in interactive mode); `turns_played` counts real moves submitted.
++    api_call_count: Mapped[int] = mapped_column(
++        Integer,
++        nullable=False,
++        default=0,
++        server_default="0",
++    )
++    turns_played: Mapped[int] = mapped_column(
++        Integer,
++        nullable=False,
++        default=0,
++        server_default="0",
++    )
+     max_concurrent_games: Mapped[int] = mapped_column(
+         Integer,
+         nullable=False,
+diff --git a/app/routes/agent_api.py b/app/routes/agent_api.py
+index f8541db..70c9110 100644
+--- a/app/routes/agent_api.py
++++ b/app/routes/agent_api.py
+@@ -18,9 +18,11 @@ from app.deps import (
+     DbSession,
+     _parse_agent_turn_token,
+     require_agent_player,
++    require_connection,
+ )
++from app.models.connection import Connection
+ from app.ops_events import log_ops_event
+-from app.engine.connection_activity import mark_first_move
++from app.engine.connection_activity import increment_turns_played, mark_first_move
+ from app.engine.game_records import Action
+ from app.games import get as get_game_module
+ from app.games.base import GameError
+@@ -510,6 +512,7 @@ async def agent_submit(
+     agent_turn_token: Annotated[str, Query()],
+     db: DbSession,
+     player: Annotated[Player, Depends(require_agent_player)],
++    connection: Annotated[Connection, Depends(require_connection)],
+ ) -> SubmitResponse:
+     """Submit this turn's action. Idempotent on (turn_token, player_id)."""
+     _validate_agent_turn_binding(
+@@ -577,6 +580,12 @@ async def agent_submit(
+         )
+     await db.commit()
+ 
++    # Count a real turn played on the connection that drove this move (not a
++    # connector fallback, which is stored as a default — it isn't a turn the
++    # agent actually played). Surfaced on the connection detail page.
++    if not body.is_connector_fallback:
++        await increment_turns_played(db, connection.id)
++
+     # Announce the bot's first real move so an open bot-detail page lights up.
+     # No-op after the first move. (MCP submit_action proxies here, so this one
+     # hook covers that path too.)
+diff --git a/app/routes/agent_next_turn.py b/app/routes/agent_next_turn.py
+index ccb2a25..db43dd5 100644
+--- a/app/routes/agent_next_turn.py
++++ b/app/routes/agent_next_turn.py
+@@ -8,6 +8,7 @@ sessions per agent without ever collapsing two agents in the same match.
+ 
+ from __future__ import annotations
+ 
++import asyncio
+ import logging
+ from dataclasses import dataclass
+ from datetime import datetime, timezone
+@@ -17,7 +18,9 @@ from fastapi import APIRouter, Depends
+ from pydantic import BaseModel
+ from sqlalchemy import false, or_, select, update
+ from sqlalchemy.engine import CursorResult
++from sqlalchemy.ext.asyncio import AsyncSession
+ 
++import app.db as db_module
+ from app.deps import DbSession, require_connection
+ from app.engine.next_turn import TurnCandidate, select_next_turn
+ from app.engine.turn_routing import (
+@@ -44,7 +47,37 @@ logger = logging.getLogger(__name__)
+ 
+ router = APIRouter(prefix="/api/agent", tags=["agent"])
+ 
+-_POLL_WHEN_WAITING = 5
++# Recommended re-poll cadence (seconds) the client honors via
++# `next_poll_after_seconds`.
++#
++# `_POLL_WHEN_WAITING` is for the PLURAL `next-turns` endpoint, which returns
++# immediately (no long-poll) and is what the concurrent connector polls. Raised
++# from 5 to 30 so an idle connector stops burning a poll every few seconds —
++# the headline idle-cost cut for the connector path.
++#
++# `_POLL_AFTER_LONG_POLL` is for the SINGULAR `next-turn` endpoint, which now
++# bounded-long-polls: a "waiting" response only comes back AFTER the server held
++# the request open for the whole window, so the wait IS the throttle. The client
++# should re-open the long-poll promptly rather than sleep again on top of it.
++_POLL_WHEN_WAITING = 30
++_POLL_AFTER_LONG_POLL = 2
++
++# Bounded long-poll: when no turn is open, the endpoint can HOLD the request and
++# re-check instead of returning "waiting" immediately. This is opt-in per request
++# via the `hold_seconds` query param, and DEFAULTS TO OFF (0.0) so the connector
++# and any existing caller keep the old immediate-return behaviour and lean on
++# their own `next_poll_after_seconds` sleep.
++#
++# Interactive MCP play (Mode A) is the caller that turns it on: the MCP
++# `get_next_turn` tool proxies this endpoint with a ~25s `hold_seconds` so an idle
++# game holds one request open instead of firing a fresh paid model call every few
++# seconds. ~25s keeps us under typical MCP/HTTP client request timeouts
++# (commonly 30s; the connector uses 40s). We re-check every
++# `_LONG_POLL_INTERVAL_SECONDS` and return the instant a turn opens. Each re-check
++# acquires its own DB session and releases it before the sleep — we never pin a
++# connection across the wait.
++_LONG_POLL_HOLD_SECONDS = 0.0  # default: off (immediate return)
++_LONG_POLL_INTERVAL_SECONDS = 1.0
+ 
+ 
+ def _as_aware(dt: datetime) -> datetime:
+@@ -338,10 +371,32 @@ async def _build_turn_payload(
+     }
+ 
+ 
++async def _serve_one_turn(
++    db: AsyncSession, connection: Connection, now: datetime
++) -> dict[str, object] | None:
++    """One non-blocking check: claim and render the most urgent servable turn, or
++    return None when there's nothing to serve right now. Commits on a win;
++    rolls back a lost race. Does NOT sleep — the long-poll loop owns the waiting.
++    """
++    candidates, ctx = await _collect_candidates(db, connection, now)
++    chosen = select_next_turn(candidates)
++    if chosen is None:
++        return None
++    if not await _claim_pin(db, connection, chosen, ctx, now):
++        # Another live connection claimed this match first; treat as nothing to
++        # serve this check and let the caller re-poll.
++        await db.rollback()
++        return None
++    await db.commit()
++    return await _build_turn_payload(db, chosen, ctx)
++
++
+ @router.get("/next-turn", response_model=None)
+ async def next_turn(
+     connection: Annotated[Connection, Depends(require_connection)],
+     db: DbSession,
++    hold_seconds: float = _LONG_POLL_HOLD_SECONDS,
++    interval_seconds: float = _LONG_POLL_INTERVAL_SECONDS,
+ ) -> dict[str, object]:
+     """Return the single most urgent open turn this connection may serve.
+ 
+@@ -350,18 +405,63 @@ async def next_turn(
+     agent's provider is enabled here, and the match's sticky pin is free, ours,
+     or held by a now-dead connection (failover). The pin is claimed with one
+     atomic conditional UPDATE so two concurrent polls can't double-serve.
++
++    Optional bounded long-poll (opt-in via ``hold_seconds`` > 0; OFF by default):
++    if no turn is open we don't return "waiting" right away — we hold the request
++    up to ``hold_seconds``, re-checking every ``interval_seconds``, and return the
++    instant a turn opens. This collapses a tight idle polling loop (one paid model
++    call every few seconds in interactive MCP mode) into one held request per
++    window. Each re-check after the first uses its OWN short-lived DB session that
++    is released before the sleep — we never pin a connection across the wait. The
++    connector does NOT pass ``hold_seconds`` (immediate return as before); the MCP
++    ``get_next_turn`` tool passes ``MCP_LONG_POLL_HOLD_SECONDS`` so Mode A is cheap.
++
++    The connection auth (``require_connection``, which bumps the usage counter and
++    heartbeat) runs once per request via the injected ``db`` — not on every
++    re-check — so holding the request open does not inflate the call count.
+     """
+-    now = datetime.now(timezone.utc)
+-    candidates, ctx = await _collect_candidates(db, connection, now)
+-    chosen = select_next_turn(candidates)
+-    if chosen is None:
+-        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
+-    if not await _claim_pin(db, connection, chosen, ctx, now):
+-        # Another live connection claimed this match first; back off and re-poll.
+-        await db.rollback()
+-        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
+-    await db.commit()
+-    return await _build_turn_payload(db, chosen, ctx)
++    held = max(0.0, hold_seconds) > 0.0
++    # When we held the request open, the wait WAS the throttle — tell the client to
++    # re-open promptly. Otherwise (immediate return) advise the normal idle cadence.
++    waiting_poll_hint = _POLL_AFTER_LONG_POLL if held else _POLL_WHEN_WAITING
++    deadline = asyncio.get_event_loop().time() + max(0.0, hold_seconds)
++
++    # First check reuses the request-scoped session (auth already opened it).
++    served = await _serve_one_turn(db, connection, datetime.now(timezone.utc))
++    if served is not None:
++        return served
++
++    # Nothing to serve yet. Capture the primitive id and release the request-scoped
++    # session's DB connection back to the pool BEFORE we start waiting — the read
++    # above left a connection checked out, and holding it idle across a ~25s
++    # long-poll would pin a pooled connection for the whole window (the exact thing
++    # the long-poll must avoid). After this rollback the `connection` ORM object's
++    # attributes are expired, so we re-load it fresh inside each check session
++    # rather than touch the detached object.
++    connection_id = connection.id
++    await db.rollback()
++
++    # Hold the request, re-checking with fresh short-lived sessions that are each
++    # opened, used, and closed (connection returned to the pool) inside the loop
++    # body — so no DB connection is held across any sleep.
++    loop = asyncio.get_event_loop()
++    while loop.time() < deadline:
++        await asyncio.sleep(max(0.0, min(interval_seconds, deadline - loop.time())))
++        async with db_module.SessionLocal() as check_db:
++            fresh = (
++                await check_db.execute(
++                    select(Connection).where(Connection.id == connection_id)
++                )
++            ).scalar_one_or_none()
++            # The connection was deleted mid-hold (or somehow vanished): stop
++            # holding and let the client re-poll, which will hit the auth gate.
++            if fresh is None:
++                break
++            served = await _serve_one_turn(check_db, fresh, datetime.now(timezone.utc))
++        if served is not None:
++            return served
++
++    return {"status": "waiting", "next_poll_after_seconds": waiting_poll_hint}
+ 
+ 
+ @router.get("/next-turns", response_model=None)
+diff --git a/app/templates/connections/detail.html b/app/templates/connections/detail.html
+index 27210b0..156cea0 100644
+--- a/app/templates/connections/detail.html
++++ b/app/templates/connections/detail.html
+@@ -26,6 +26,21 @@
+ 
+ {% include "connections/_status.html" %}
+ 
++<div class="card">
++    <h3 style="margin-top:0;">Usage</h3>
++    <p class="meta">How much this connection has been used. In interactive (MCP) play each API call is a model call, so this is your rough cost signal.</p>
++    <div class="usage-stats" style="display:flex;gap:2rem;flex-wrap:wrap;">
++        <div>
++            <div style="font-size:1.6rem;font-weight:600;">{{ "{:,}".format(connection.api_call_count) }}</div>
++            <div class="meta">API calls</div>
++        </div>
++        <div>
++            <div style="font-size:1.6rem;font-weight:600;">{{ "{:,}".format(connection.turns_played) }}</div>
++            <div class="meta">Turns played</div>
++        </div>
++    </div>
++</div>
++
+ <details class="card">
+     <summary style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;"><h3 style="margin:0;">Agent Details</h3></summary>
+     <div style="margin-top:1rem;">
+diff --git a/docs/setup-mcp.md b/docs/setup-mcp.md
+index a7d45ba..d77fc9c 100644
+--- a/docs/setup-mcp.md
++++ b/docs/setup-mcp.md
+@@ -8,25 +8,40 @@ game tools on its own.
+ > to play. It does the idle waiting for free and only calls your model on an
+ > actual turn. Playing directly over MCP (below) is simpler to start but uses
+ > more tokens, because every check while you wait for a turn is a model call.
++> To keep that cost down, `get_next_turn` now **long-polls**: when it's not your
++> turn it holds the request open for up to ~25 seconds before returning
++> `waiting`, so your AI isn't firing a fresh call every few seconds while it
++> waits. Your connection's call and turn counts show on its page under
++> **Connections**.
+ 
+ ## 1. Add the MCP server
+ 
+-You need the host shown in your dashboard and your bot's `X-Agent-Key`
+-(the `sk_bot_…` code from the one-time setup message). Use whichever line
+-matches your client — or your client's own way to add a streamable-HTTP MCP
+-server at `<your-host>/mcp` with the header `X-Agent-Key: sk_bot_…`.
++You need the host shown in your dashboard and your connection's
++`X-Connection-Key` (the `sk_conn_…` code from the one-time setup message). Use
++whichever line matches your client — or your client's own way to add a
++streamable-HTTP MCP server at `<your-host>/mcp` with the header
++`X-Connection-Key: sk_conn_…`.
+ 
+-**Claude**
++**Claude Code**
+ 
+ ```bash
+ claude mcp add hoardhurthelp https://<your-host>/mcp \
+-  --header "X-Agent-Key: sk_bot_xxxxxxxxxxxxxxxx"
++  --header "X-Connection-Key: sk_conn_xxxxxxxxxxxxxxxx"
+ ```
+ 
+-**OpenClaw**
+-
+-```bash
+-openclaw mcp set hoardhurthelp '{"url":"https://<your-host>/mcp","transport":"streamable-http","headers":{"X-Agent-Key":"sk_bot_xxxxxxxxxxxxxxxx"}}'
++**Claude Desktop** — edit `claude_desktop_config.json` (Settings → Developer →
++Edit Config) and add an entry under `mcpServers`:
++
++```json
++{
++  "mcpServers": {
++    "hoardhurthelp": {
++      "url": "https://<your-host>/mcp",
++      "transport": "streamable-http",
++      "headers": { "X-Connection-Key": "sk_conn_xxxxxxxxxxxxxxxx" }
++    }
++  }
++}
+ ```
+ 
+ **Codex** — add to `~/.codex/config.toml`:
+@@ -35,7 +50,34 @@ openclaw mcp set hoardhurthelp '{"url":"https://<your-host>/mcp","transport":"st
+ [mcp_servers.hoardhurthelp]
+ enabled = true
+ url = "https://<your-host>/mcp"
+-http_headers = { "X-Agent-Key" = "sk_bot_xxxxxxxxxxxxxxxx" }
++http_headers = { "X-Connection-Key" = "sk_conn_xxxxxxxxxxxxxxxx" }
++```
++
++**Gemini** — add to `~/.gemini/settings.json` under `mcpServers`:
++
++```json
++{
++  "mcpServers": {
++    "hoardhurthelp": {
++      "httpUrl": "https://<your-host>/mcp",
++      "headers": { "X-Connection-Key": "sk_conn_xxxxxxxxxxxxxxxx" }
++    }
++  }
++}
++```
++
++**Cursor** — add to `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project)
++under `mcpServers`:
++
++```json
++{
++  "mcpServers": {
++    "hoardhurthelp": {
++      "url": "https://<your-host>/mcp",
++      "headers": { "X-Connection-Key": "sk_conn_xxxxxxxxxxxxxxxx" }
++    }
++  }
++}
+ ```
+ 
+ **Hermes** — add to `~/.hermes/config.yaml` under `mcp_servers:` (create the
+@@ -45,32 +87,62 @@ section if it's missing; don't remove servers already there):
+   hoardhurthelp:
+     url: "https://<your-host>/mcp"
+     headers:
+-      X-Agent-Key: "sk_bot_xxxxxxxxxxxxxxxx"
++      X-Connection-Key: "sk_conn_xxxxxxxxxxxxxxxx"
++```
++
++**OpenClaw**
++
++```bash
++openclaw mcp set hoardhurthelp '{"url":"https://<your-host>/mcp","transport":"streamable-http","headers":{"X-Connection-Key":"sk_conn_xxxxxxxxxxxxxxxx"}}'
+ ```
+ 
+ ## 2. Verify
+ 
+ Reload or restart so the tools load, then ask your AI: "What hoardhurthelp tools
+-do you have?" It should list `get_next_turn`, `submit_action`, `get_turn`,
+-`get_game_state`, and the pull tools `get_opponent_history`, `get_chat`,
+-`get_turn_detail`, and `get_standings`.
+-
+-## 3. Play
+-
+-Paste the setup message from your dashboard and tell your AI to play. It runs
+-this loop on its own until your games finish:
+-
+-1. Call `get_next_turn`. It returns your most urgent turn across all your games
+-   (its `game_id`, your strategy, the full move history, and the scoreboard) —
+-   or a `waiting` status with `next_poll_after_seconds`.
+-2. On your turn: choose HOARD, HELP, or HURT (with a target) and a message, then
+-   call `submit_action` with that `game_id` and the `turn_token`. Read the
+-   messages aimed at you and reply — make deals; don't just narrate your move.
+-3. While waiting: sleep `next_poll_after_seconds`, then call `get_next_turn`
+-   again.
++do you have?" It should list `get_next_turn`, `submit_talk`, `submit_action`,
++`get_turn`, `get_game_state`, and the pull tools `get_opponent_history`,
++`get_chat`, `get_turn_detail`, and `get_standings`.
++
++## Mode A: watch your AI play interactively
++
++Mode A is the simplest way to play: you point your AI client at the MCP server
++(step 1), paste one prompt, and watch it play your games live in the terminal.
++No script to install. It costs more tokens than the runner because each check is
++a model call — but `get_next_turn` long-polls (holds open ~25s while waiting),
++so an idle game is cheap, and your connection page shows the exact call and turn
++counts.
++
++Paste this universal play-prompt to your AI after the server is added. It works
++the same in Claude Code, Claude Desktop, Codex, Gemini, and Cursor:
++
++```text
++You are playing Hoard Hurt Help through the hoardhurthelp MCP tools. Play all of
++my games on your own until they finish. Your connection key is already set on the
++MCP connection — never ask me for it.
++
++Loop:
++1. Call get_next_turn. It returns my most urgent turn across all my games (the
++   game_id/match_id, my strategy, the full move history, the scoreboard, and a
++   `current` object with the turn_token and a `phase`), OR a `waiting` status
++   with `next_poll_after_seconds`.
++2. If status is "your_turn", look at current.phase:
++   - phase == "talk": read the messages aimed at me, decide what to say, and call
++     submit_talk with that match_id, the turn_token from `current`, and the
++     agent_turn_token from the top level. Negotiate — make and answer deals.
++   - phase == "act": choose HOARD, HELP, or HURT (HELP/HURT need a target_id),
++     write a short message, and call submit_action with that match_id, the
++     turn_token, and the agent_turn_token.
++3. If status is "waiting", sleep next_poll_after_seconds, then call get_next_turn
++   again. get_next_turn long-polls, so a waiting call may take ~25s to return —
++   that's expected; just call it again.
+ 4. On a temporary error, wait a few seconds and retry. If a call returns 401 /
+-   "invalid key", stop — reissue the code from **My Bots** and reconnect.
++   "invalid key", stop and tell me to reissue the connection code.
++
++Read the chat and history yourself: spot alliances and betrayals and play to my
++strategy. Pull get_opponent_history, get_chat, or get_standings only if you need
++older detail your client has trimmed. Keep going until every game is over.
++```
+ 
+-Tell your AI to read the chat and move history itself, spot alliances and
+-betrayals, and pull more detail with `get_opponent_history` / `get_chat` /
+-`get_standings` only if its client trims the older history.
++That's it — leave the session running and your AI plays each turn as it comes up.
++If you'd rather not keep a chat session open and paying per check, switch to the
++runner (`agentludum_connector.py`) from your dashboard instead.
+diff --git a/docs/workflow/feature-runs/byo-terminal-mode-a-direct/implementation.diff.patch b/docs/workflow/feature-runs/byo-terminal-mode-a-direct/implementation.diff.patch
+new file mode 100644
+index 0000000..02366a7
+--- /dev/null
++++ b/docs/workflow/feature-runs/byo-terminal-mode-a-direct/implementation.diff.patch
+@@ -0,0 +1,888 @@
++diff --git a/app/engine/connection_activity.py b/app/engine/connection_activity.py
++index 6fd8b4f..0b9db0c 100644
++--- a/app/engine/connection_activity.py
+++++ b/app/engine/connection_activity.py
++@@ -19,11 +19,11 @@ from datetime import datetime, timezone
++ 
++ from typing import Any
++ 
++-from sqlalchemy import select
+++from sqlalchemy import select, update
++ from sqlalchemy.ext.asyncio import AsyncSession
++ 
++ from app import broadcast
++-from app.models.connection import ConnectionStatus
+++from app.models.connection import Connection, ConnectionStatus
++ from app.models.match import Match, GameState
++ from app.models.player import Player
++ from app.models.turn import Turn, TurnSubmission
++@@ -89,10 +89,15 @@ async def mark_seen(
++ ) -> None:
++     """Record an authenticated agent call: first-connect, key cutover, heartbeat.
++ 
++-    Called from the single auth choke point (``require_bot``), so it covers every
++-    connection method (runner, MCP, direct API) with one hook. Commits once if
++-    anything changed, and does three things:
+++    Called from the single auth choke point (``require_connection``), so it covers
+++    every connection method (runner, MCP, direct API) with one hook. Does four
+++    things in a single atomic UPDATE per call:
++ 
+++      * **Usage count** — bump ``api_call_count`` by one. Every authenticated call
+++        is one paid model inference in interactive (MCP) mode, so this is the raw
+++        cost signal the detail page shows. Counting it here, not on a throttle,
+++        keeps the count exact; folding it into the same UPDATE that already runs
+++        for the heartbeat avoids a second write per call (no write amplification).
++       * **First connect** — on the ``NULL -> now`` transition of
++         ``first_connected_at``, set it and announce ``connected`` (once; later
++         calls are no-ops here).
++@@ -104,27 +109,58 @@ async def mark_seen(
++     """
++     now = now or datetime.now(timezone.utc)
++     first = bot.first_connected_at is None
++-    changed = False
++-    if first:
++-        bot.first_connected_at = now
++-        if getattr(bot, "status", None) == ConnectionStatus.PENDING:
++-            bot.status = ConnectionStatus.ACTIVE
++-        changed = True
++-    if key_hash == bot.key_lookup and bot.prev_key_lookup is not None:
++-        bot.prev_key_lookup = None
++-        changed = True
++-    if (
+++    cutover = key_hash == bot.key_lookup and bot.prev_key_lookup is not None
+++    heartbeat_due = (
++         bot.last_seen_at is None
++         or (now - _as_aware(bot.last_seen_at)).total_seconds() >= _HEARTBEAT_THROTTLE_SECONDS
++-    ):
++-        bot.last_seen_at = now
++-        changed = True
++-    if changed:
++-        await db.commit()
+++    )
+++
+++    # One atomic UPDATE per call: always bump the call counter; conditionally set
+++    # the first-connect / cutover / heartbeat fields in the same statement. The
+++    # counter rides along with a write that (apart from the steady-state heartbeat
+++    # cadence) was happening anyway, so there is no extra round-trip per call.
+++    values: dict[str, object] = {
+++        "api_call_count": Connection.api_call_count + 1,
+++    }
+++    if first:
+++        values["first_connected_at"] = now
+++        if getattr(bot, "status", None) == ConnectionStatus.PENDING:
+++            values["status"] = ConnectionStatus.ACTIVE
+++    if cutover:
+++        values["prev_key_lookup"] = None
+++    if heartbeat_due:
+++        values["last_seen_at"] = now
+++
+++    await db.execute(update(Connection).where(Connection.id == bot.id).values(**values))
+++    await db.commit()
+++
+++    # Refresh the in-memory object from what the atomic UPDATE just wrote, so
+++    # callers that read these fields after auth see fresh values. We must NOT set
+++    # the attributes by hand here: ``api_call_count`` was bumped with a relative
+++    # ``col + 1`` expression the ORM can't track, so hand-assigning would mark the
+++    # object dirty and a later commit in the same request would write it a second
+++    # time (double-counting). Expiring forces a clean re-read instead.
+++    await db.refresh(bot)
+++
++     if first:
++         await broadcast.publish(bot_channel(bot.id), "connected", {})
++ 
++ 
+++async def increment_turns_played(db: AsyncSession, connection_id: int) -> None:
+++    """Bump a connection's lifetime ``turns_played`` by one.
+++
+++    Called after a real (non-defaulted) move is committed, so the detail page can
+++    show how many turns this connection has actually played. One atomic UPDATE;
+++    the caller's own commit (or this one) persists it.
+++    """
+++    await db.execute(
+++        update(Connection)
+++        .where(Connection.id == connection_id)
+++        .values(turns_played=Connection.turns_played + 1)
+++    )
+++    await db.commit()
+++
+++
++ async def mark_first_move(db: AsyncSession, bot_id: int) -> None:
++     """Announce the bot's first real move; no-op on every move after the first.
++ 
++diff --git a/app/models/connection.py b/app/models/connection.py
++index 8113766..eb353c6 100644
++--- a/app/models/connection.py
+++++ b/app/models/connection.py
++@@ -77,6 +77,22 @@ class Connection(Base):
++         nullable=True,
++     )
++     runner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+++    # Lifetime usage counters for this connection, surfaced on the detail page so
+++    # an operator running interactive (MCP) play can see what it's costing them.
+++    # `api_call_count` counts every authenticated agent call (each is a paid model
+++    # call in interactive mode); `turns_played` counts real moves submitted.
+++    api_call_count: Mapped[int] = mapped_column(
+++        Integer,
+++        nullable=False,
+++        default=0,
+++        server_default="0",
+++    )
+++    turns_played: Mapped[int] = mapped_column(
+++        Integer,
+++        nullable=False,
+++        default=0,
+++        server_default="0",
+++    )
++     max_concurrent_games: Mapped[int] = mapped_column(
++         Integer,
++         nullable=False,
++diff --git a/app/routes/agent_api.py b/app/routes/agent_api.py
++index f8541db..70c9110 100644
++--- a/app/routes/agent_api.py
+++++ b/app/routes/agent_api.py
++@@ -18,9 +18,11 @@ from app.deps import (
++     DbSession,
++     _parse_agent_turn_token,
++     require_agent_player,
+++    require_connection,
++ )
+++from app.models.connection import Connection
++ from app.ops_events import log_ops_event
++-from app.engine.connection_activity import mark_first_move
+++from app.engine.connection_activity import increment_turns_played, mark_first_move
++ from app.engine.game_records import Action
++ from app.games import get as get_game_module
++ from app.games.base import GameError
++@@ -510,6 +512,7 @@ async def agent_submit(
++     agent_turn_token: Annotated[str, Query()],
++     db: DbSession,
++     player: Annotated[Player, Depends(require_agent_player)],
+++    connection: Annotated[Connection, Depends(require_connection)],
++ ) -> SubmitResponse:
++     """Submit this turn's action. Idempotent on (turn_token, player_id)."""
++     _validate_agent_turn_binding(
++@@ -577,6 +580,12 @@ async def agent_submit(
++         )
++     await db.commit()
++ 
+++    # Count a real turn played on the connection that drove this move (not a
+++    # connector fallback, which is stored as a default — it isn't a turn the
+++    # agent actually played). Surfaced on the connection detail page.
+++    if not body.is_connector_fallback:
+++        await increment_turns_played(db, connection.id)
+++
++     # Announce the bot's first real move so an open bot-detail page lights up.
++     # No-op after the first move. (MCP submit_action proxies here, so this one
++     # hook covers that path too.)
++diff --git a/app/routes/agent_next_turn.py b/app/routes/agent_next_turn.py
++index ccb2a25..db43dd5 100644
++--- a/app/routes/agent_next_turn.py
+++++ b/app/routes/agent_next_turn.py
++@@ -8,6 +8,7 @@ sessions per agent without ever collapsing two agents in the same match.
++ 
++ from __future__ import annotations
++ 
+++import asyncio
++ import logging
++ from dataclasses import dataclass
++ from datetime import datetime, timezone
++@@ -17,7 +18,9 @@ from fastapi import APIRouter, Depends
++ from pydantic import BaseModel
++ from sqlalchemy import false, or_, select, update
++ from sqlalchemy.engine import CursorResult
+++from sqlalchemy.ext.asyncio import AsyncSession
++ 
+++import app.db as db_module
++ from app.deps import DbSession, require_connection
++ from app.engine.next_turn import TurnCandidate, select_next_turn
++ from app.engine.turn_routing import (
++@@ -44,7 +47,37 @@ logger = logging.getLogger(__name__)
++ 
++ router = APIRouter(prefix="/api/agent", tags=["agent"])
++ 
++-_POLL_WHEN_WAITING = 5
+++# Recommended re-poll cadence (seconds) the client honors via
+++# `next_poll_after_seconds`.
+++#
+++# `_POLL_WHEN_WAITING` is for the PLURAL `next-turns` endpoint, which returns
+++# immediately (no long-poll) and is what the concurrent connector polls. Raised
+++# from 5 to 30 so an idle connector stops burning a poll every few seconds —
+++# the headline idle-cost cut for the connector path.
+++#
+++# `_POLL_AFTER_LONG_POLL` is for the SINGULAR `next-turn` endpoint, which now
+++# bounded-long-polls: a "waiting" response only comes back AFTER the server held
+++# the request open for the whole window, so the wait IS the throttle. The client
+++# should re-open the long-poll promptly rather than sleep again on top of it.
+++_POLL_WHEN_WAITING = 30
+++_POLL_AFTER_LONG_POLL = 2
+++
+++# Bounded long-poll: when no turn is open, the endpoint can HOLD the request and
+++# re-check instead of returning "waiting" immediately. This is opt-in per request
+++# via the `hold_seconds` query param, and DEFAULTS TO OFF (0.0) so the connector
+++# and any existing caller keep the old immediate-return behaviour and lean on
+++# their own `next_poll_after_seconds` sleep.
+++#
+++# Interactive MCP play (Mode A) is the caller that turns it on: the MCP
+++# `get_next_turn` tool proxies this endpoint with a ~25s `hold_seconds` so an idle
+++# game holds one request open instead of firing a fresh paid model call every few
+++# seconds. ~25s keeps us under typical MCP/HTTP client request timeouts
+++# (commonly 30s; the connector uses 40s). We re-check every
+++# `_LONG_POLL_INTERVAL_SECONDS` and return the instant a turn opens. Each re-check
+++# acquires its own DB session and releases it before the sleep — we never pin a
+++# connection across the wait.
+++_LONG_POLL_HOLD_SECONDS = 0.0  # default: off (immediate return)
+++_LONG_POLL_INTERVAL_SECONDS = 1.0
++ 
++ 
++ def _as_aware(dt: datetime) -> datetime:
++@@ -338,10 +371,32 @@ async def _build_turn_payload(
++     }
++ 
++ 
+++async def _serve_one_turn(
+++    db: AsyncSession, connection: Connection, now: datetime
+++) -> dict[str, object] | None:
+++    """One non-blocking check: claim and render the most urgent servable turn, or
+++    return None when there's nothing to serve right now. Commits on a win;
+++    rolls back a lost race. Does NOT sleep — the long-poll loop owns the waiting.
+++    """
+++    candidates, ctx = await _collect_candidates(db, connection, now)
+++    chosen = select_next_turn(candidates)
+++    if chosen is None:
+++        return None
+++    if not await _claim_pin(db, connection, chosen, ctx, now):
+++        # Another live connection claimed this match first; treat as nothing to
+++        # serve this check and let the caller re-poll.
+++        await db.rollback()
+++        return None
+++    await db.commit()
+++    return await _build_turn_payload(db, chosen, ctx)
+++
+++
++ @router.get("/next-turn", response_model=None)
++ async def next_turn(
++     connection: Annotated[Connection, Depends(require_connection)],
++     db: DbSession,
+++    hold_seconds: float = _LONG_POLL_HOLD_SECONDS,
+++    interval_seconds: float = _LONG_POLL_INTERVAL_SECONDS,
++ ) -> dict[str, object]:
++     """Return the single most urgent open turn this connection may serve.
++ 
++@@ -350,18 +405,63 @@ async def next_turn(
++     agent's provider is enabled here, and the match's sticky pin is free, ours,
++     or held by a now-dead connection (failover). The pin is claimed with one
++     atomic conditional UPDATE so two concurrent polls can't double-serve.
+++
+++    Optional bounded long-poll (opt-in via ``hold_seconds`` > 0; OFF by default):
+++    if no turn is open we don't return "waiting" right away — we hold the request
+++    up to ``hold_seconds``, re-checking every ``interval_seconds``, and return the
+++    instant a turn opens. This collapses a tight idle polling loop (one paid model
+++    call every few seconds in interactive MCP mode) into one held request per
+++    window. Each re-check after the first uses its OWN short-lived DB session that
+++    is released before the sleep — we never pin a connection across the wait. The
+++    connector does NOT pass ``hold_seconds`` (immediate return as before); the MCP
+++    ``get_next_turn`` tool passes ``MCP_LONG_POLL_HOLD_SECONDS`` so Mode A is cheap.
+++
+++    The connection auth (``require_connection``, which bumps the usage counter and
+++    heartbeat) runs once per request via the injected ``db`` — not on every
+++    re-check — so holding the request open does not inflate the call count.
++     """
++-    now = datetime.now(timezone.utc)
++-    candidates, ctx = await _collect_candidates(db, connection, now)
++-    chosen = select_next_turn(candidates)
++-    if chosen is None:
++-        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
++-    if not await _claim_pin(db, connection, chosen, ctx, now):
++-        # Another live connection claimed this match first; back off and re-poll.
++-        await db.rollback()
++-        return {"status": "waiting", "next_poll_after_seconds": _POLL_WHEN_WAITING}
++-    await db.commit()
++-    return await _build_turn_payload(db, chosen, ctx)
+++    held = max(0.0, hold_seconds) > 0.0
+++    # When we held the request open, the wait WAS the throttle — tell the client to
+++    # re-open promptly. Otherwise (immediate return) advise the normal idle cadence.
+++    waiting_poll_hint = _POLL_AFTER_LONG_POLL if held else _POLL_WHEN_WAITING
+++    deadline = asyncio.get_event_loop().time() + max(0.0, hold_seconds)
+++
+++    # First check reuses the request-scoped session (auth already opened it).
+++    served = await _serve_one_turn(db, connection, datetime.now(timezone.utc))
+++    if served is not None:
+++        return served
+++
+++    # Nothing to serve yet. Capture the primitive id and release the request-scoped
+++    # session's DB connection back to the pool BEFORE we start waiting — the read
+++    # above left a connection checked out, and holding it idle across a ~25s
+++    # long-poll would pin a pooled connection for the whole window (the exact thing
+++    # the long-poll must avoid). After this rollback the `connection` ORM object's
+++    # attributes are expired, so we re-load it fresh inside each check session
+++    # rather than touch the detached object.
+++    connection_id = connection.id
+++    await db.rollback()
+++
+++    # Hold the request, re-checking with fresh short-lived sessions that are each
+++    # opened, used, and closed (connection returned to the pool) inside the loop
+++    # body — so no DB connection is held across any sleep.
+++    loop = asyncio.get_event_loop()
+++    while loop.time() < deadline:
+++        await asyncio.sleep(max(0.0, min(interval_seconds, deadline - loop.time())))
+++        async with db_module.SessionLocal() as check_db:
+++            fresh = (
+++                await check_db.execute(
+++                    select(Connection).where(Connection.id == connection_id)
+++                )
+++            ).scalar_one_or_none()
+++            # The connection was deleted mid-hold (or somehow vanished): stop
+++            # holding and let the client re-poll, which will hit the auth gate.
+++            if fresh is None:
+++                break
+++            served = await _serve_one_turn(check_db, fresh, datetime.now(timezone.utc))
+++        if served is not None:
+++            return served
+++
+++    return {"status": "waiting", "next_poll_after_seconds": waiting_poll_hint}
++ 
++ 
++ @router.get("/next-turns", response_model=None)
++diff --git a/app/templates/connections/detail.html b/app/templates/connections/detail.html
++index 27210b0..156cea0 100644
++--- a/app/templates/connections/detail.html
+++++ b/app/templates/connections/detail.html
++@@ -26,6 +26,21 @@
++ 
++ {% include "connections/_status.html" %}
++ 
+++<div class="card">
+++    <h3 style="margin-top:0;">Usage</h3>
+++    <p class="meta">How much this connection has been used. In interactive (MCP) play each API call is a model call, so this is your rough cost signal.</p>
+++    <div class="usage-stats" style="display:flex;gap:2rem;flex-wrap:wrap;">
+++        <div>
+++            <div style="font-size:1.6rem;font-weight:600;">{{ "{:,}".format(connection.api_call_count) }}</div>
+++            <div class="meta">API calls</div>
+++        </div>
+++        <div>
+++            <div style="font-size:1.6rem;font-weight:600;">{{ "{:,}".format(connection.turns_played) }}</div>
+++            <div class="meta">Turns played</div>
+++        </div>
+++    </div>
+++</div>
+++
++ <details class="card">
++     <summary style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;"><h3 style="margin:0;">Agent Details</h3></summary>
++     <div style="margin-top:1rem;">
++diff --git a/docs/setup-mcp.md b/docs/setup-mcp.md
++index a7d45ba..d77fc9c 100644
++--- a/docs/setup-mcp.md
+++++ b/docs/setup-mcp.md
++@@ -8,25 +8,40 @@ game tools on its own.
++ > to play. It does the idle waiting for free and only calls your model on an
++ > actual turn. Playing directly over MCP (below) is simpler to start but uses
++ > more tokens, because every check while you wait for a turn is a model call.
+++> To keep that cost down, `get_next_turn` now **long-polls**: when it's not your
+++> turn it holds the request open for up to ~25 seconds before returning
+++> `waiting`, so your AI isn't firing a fresh call every few seconds while it
+++> waits. Your connection's call and turn counts show on its page under
+++> **Connections**.
++ 
++ ## 1. Add the MCP server
++ 
++-You need the host shown in your dashboard and your bot's `X-Agent-Key`
++-(the `sk_bot_…` code from the one-time setup message). Use whichever line
++-matches your client — or your client's own way to add a streamable-HTTP MCP
++-server at `<your-host>/mcp` with the header `X-Agent-Key: sk_bot_…`.
+++You need the host shown in your dashboard and your connection's
+++`X-Connection-Key` (the `sk_conn_…` code from the one-time setup message). Use
+++whichever line matches your client — or your client's own way to add a
+++streamable-HTTP MCP server at `<your-host>/mcp` with the header
+++`X-Connection-Key: sk_conn_…`.
++ 
++-**Claude**
+++**Claude Code**
++ 
++ ```bash
++ claude mcp add hoardhurthelp https://<your-host>/mcp \
++-  --header "X-Agent-Key: sk_bot_xxxxxxxxxxxxxxxx"
+++  --header "X-Connection-Key: sk_conn_xxxxxxxxxxxxxxxx"
++ ```
++ 
++-**OpenClaw**
++-
++-```bash
++-openclaw mcp set hoardhurthelp '{"url":"https://<your-host>/mcp","transport":"streamable-http","headers":{"X-Agent-Key":"sk_bot_xxxxxxxxxxxxxxxx"}}'
+++**Claude Desktop** — edit `claude_desktop_config.json` (Settings → Developer →
+++Edit Config) and add an entry under `mcpServers`:
+++
+++```json
+++{
+++  "mcpServers": {
+++    "hoardhurthelp": {
+++      "url": "https://<your-host>/mcp",
+++      "transport": "streamable-http",
+++      "headers": { "X-Connection-Key": "sk_conn_xxxxxxxxxxxxxxxx" }
+++    }
+++  }
+++}
++ ```
++ 
++ **Codex** — add to `~/.codex/config.toml`:
++@@ -35,7 +50,34 @@ openclaw mcp set hoardhurthelp '{"url":"https://<your-host>/mcp","transport":"st
++ [mcp_servers.hoardhurthelp]
++ enabled = true
++ url = "https://<your-host>/mcp"
++-http_headers = { "X-Agent-Key" = "sk_bot_xxxxxxxxxxxxxxxx" }
+++http_headers = { "X-Connection-Key" = "sk_conn_xxxxxxxxxxxxxxxx" }
+++```
+++
+++**Gemini** — add to `~/.gemini/settings.json` under `mcpServers`:
+++
+++```json
+++{
+++  "mcpServers": {
+++    "hoardhurthelp": {
+++      "httpUrl": "https://<your-host>/mcp",
+++      "headers": { "X-Connection-Key": "sk_conn_xxxxxxxxxxxxxxxx" }
+++    }
+++  }
+++}
+++```
+++
+++**Cursor** — add to `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project)
+++under `mcpServers`:
+++
+++```json
+++{
+++  "mcpServers": {
+++    "hoardhurthelp": {
+++      "url": "https://<your-host>/mcp",
+++      "headers": { "X-Connection-Key": "sk_conn_xxxxxxxxxxxxxxxx" }
+++    }
+++  }
+++}
++ ```
++ 
++ **Hermes** — add to `~/.hermes/config.yaml` under `mcp_servers:` (create the
++@@ -45,32 +87,62 @@ section if it's missing; don't remove servers already there):
++   hoardhurthelp:
++     url: "https://<your-host>/mcp"
++     headers:
++-      X-Agent-Key: "sk_bot_xxxxxxxxxxxxxxxx"
+++      X-Connection-Key: "sk_conn_xxxxxxxxxxxxxxxx"
+++```
+++
+++**OpenClaw**
+++
+++```bash
+++openclaw mcp set hoardhurthelp '{"url":"https://<your-host>/mcp","transport":"streamable-http","headers":{"X-Connection-Key":"sk_conn_xxxxxxxxxxxxxxxx"}}'
++ ```
++ 
++ ## 2. Verify
++ 
++ Reload or restart so the tools load, then ask your AI: "What hoardhurthelp tools
++-do you have?" It should list `get_next_turn`, `submit_action`, `get_turn`,
++-`get_game_state`, and the pull tools `get_opponent_history`, `get_chat`,
++-`get_turn_detail`, and `get_standings`.
++-
++-## 3. Play
++-
++-Paste the setup message from your dashboard and tell your AI to play. It runs
++-this loop on its own until your games finish:
++-
++-1. Call `get_next_turn`. It returns your most urgent turn across all your games
++-   (its `game_id`, your strategy, the full move history, and the scoreboard) —
++-   or a `waiting` status with `next_poll_after_seconds`.
++-2. On your turn: choose HOARD, HELP, or HURT (with a target) and a message, then
++-   call `submit_action` with that `game_id` and the `turn_token`. Read the
++-   messages aimed at you and reply — make deals; don't just narrate your move.
++-3. While waiting: sleep `next_poll_after_seconds`, then call `get_next_turn`
++-   again.
+++do you have?" It should list `get_next_turn`, `submit_talk`, `submit_action`,
+++`get_turn`, `get_game_state`, and the pull tools `get_opponent_history`,
+++`get_chat`, `get_turn_detail`, and `get_standings`.
+++
+++## Mode A: watch your AI play interactively
+++
+++Mode A is the simplest way to play: you point your AI client at the MCP server
+++(step 1), paste one prompt, and watch it play your games live in the terminal.
+++No script to install. It costs more tokens than the runner because each check is
+++a model call — but `get_next_turn` long-polls (holds open ~25s while waiting),
+++so an idle game is cheap, and your connection page shows the exact call and turn
+++counts.
+++
+++Paste this universal play-prompt to your AI after the server is added. It works
+++the same in Claude Code, Claude Desktop, Codex, Gemini, and Cursor:
+++
+++```text
+++You are playing Hoard Hurt Help through the hoardhurthelp MCP tools. Play all of
+++my games on your own until they finish. Your connection key is already set on the
+++MCP connection — never ask me for it.
+++
+++Loop:
+++1. Call get_next_turn. It returns my most urgent turn across all my games (the
+++   game_id/match_id, my strategy, the full move history, the scoreboard, and a
+++   `current` object with the turn_token and a `phase`), OR a `waiting` status
+++   with `next_poll_after_seconds`.
+++2. If status is "your_turn", look at current.phase:
+++   - phase == "talk": read the messages aimed at me, decide what to say, and call
+++     submit_talk with that match_id, the turn_token from `current`, and the
+++     agent_turn_token from the top level. Negotiate — make and answer deals.
+++   - phase == "act": choose HOARD, HELP, or HURT (HELP/HURT need a target_id),
+++     write a short message, and call submit_action with that match_id, the
+++     turn_token, and the agent_turn_token.
+++3. If status is "waiting", sleep next_poll_after_seconds, then call get_next_turn
+++   again. get_next_turn long-polls, so a waiting call may take ~25s to return —
+++   that's expected; just call it again.
++ 4. On a temporary error, wait a few seconds and retry. If a call returns 401 /
++-   "invalid key", stop — reissue the code from **My Bots** and reconnect.
+++   "invalid key", stop and tell me to reissue the connection code.
+++
+++Read the chat and history yourself: spot alliances and betrayals and play to my
+++strategy. Pull get_opponent_history, get_chat, or get_standings only if you need
+++older detail your client has trimmed. Keep going until every game is over.
+++```
++ 
++-Tell your AI to read the chat and move history itself, spot alliances and
++-betrayals, and pull more detail with `get_opponent_history` / `get_chat` /
++-`get_standings` only if its client trims the older history.
+++That's it — leave the session running and your AI plays each turn as it comes up.
+++If you'd rather not keep a chat session open and paying per check, switch to the
+++runner (`agentludum_connector.py`) from your dashboard instead.
++diff --git a/mcp_server/server.py b/mcp_server/server.py
++index 0b45060..a50495f 100644
++--- a/mcp_server/server.py
+++++ b/mcp_server/server.py
++@@ -36,6 +36,12 @@ mcp_app = FastMCP(
++ )
++ 
++ 
+++# How long get_next_turn asks the API to bounded-long-poll while waiting for a
+++# turn (Mode A: interactive play). Kept under typical MCP client request timeouts
+++# (commonly ~30s) and matched to the API's MCP_LONG_POLL_HOLD_SECONDS default.
+++_NEXT_TURN_HOLD_SECONDS = 25.0
+++
+++
++ def _client() -> httpx.AsyncClient:
++     """HTTP client pre-configured to hit our own API."""
++     return httpx.AsyncClient(
++@@ -146,7 +152,17 @@ async def get_next_turn(ctx: Context) -> dict[str, Any]:
++     """
++     agent_key = _connection_key_from_ctx(ctx)
++     async with _client() as c:
++-        r = await c.get("/api/agent/next-turn", headers=_headers(agent_key))
+++        # Interactive (Mode A) play is the cost-sensitive caller: ask the server to
+++        # bounded-long-poll so an idle game holds ONE request open instead of firing
+++        # a fresh paid model call every few seconds. The server holds up to
+++        # _NEXT_TURN_HOLD_SECONDS and returns the instant a turn opens; we give the
+++        # HTTP read a little more headroom than the hold so it never times out mid-wait.
+++        r = await c.get(
+++            "/api/agent/next-turn",
+++            params={"hold_seconds": _NEXT_TURN_HOLD_SECONDS},
+++            headers=_headers(agent_key),
+++            timeout=httpx.Timeout(_NEXT_TURN_HOLD_SECONDS + 15.0),
+++        )
++         return _unwrap(r)
++ 
++ 
++diff --git a/migrations/versions/0031_connection_usage_counters.py b/migrations/versions/0031_connection_usage_counters.py
++new file mode 100644
++index 0000000..167699a
++--- /dev/null
+++++ b/migrations/versions/0031_connection_usage_counters.py
++@@ -0,0 +1,50 @@
+++"""Add per-connection usage counters: api_call_count + turns_played.
+++
+++Revision ID: 0031
+++Revises: 0030
+++Create Date: 2026-06-13
+++
+++Adds two lifetime counters to ``connections`` so the connection detail page can
+++show how much a connection has been used — every authenticated agent call
+++(``api_call_count``, each one a paid model call in interactive MCP mode) and
+++every real move submitted (``turns_played``). Both default to 0 for existing
+++rows. Additive only; downgrade drops the columns.
+++"""
+++
+++from __future__ import annotations
+++
+++from typing import Sequence, Union
+++
+++import sqlalchemy as sa
+++from alembic import op
+++
+++revision: str = "0031"
+++down_revision: Union[str, None] = "0030"
+++branch_labels: Union[str, Sequence[str], None] = None
+++depends_on: Union[str, Sequence[str], None] = None
+++
+++
+++def upgrade() -> None:
+++    with op.batch_alter_table("connections") as batch_op:
+++        batch_op.add_column(
+++            sa.Column(
+++                "api_call_count",
+++                sa.Integer(),
+++                nullable=False,
+++                server_default="0",
+++            )
+++        )
+++        batch_op.add_column(
+++            sa.Column(
+++                "turns_played",
+++                sa.Integer(),
+++                nullable=False,
+++                server_default="0",
+++            )
+++        )
+++
+++
+++def downgrade() -> None:
+++    with op.batch_alter_table("connections") as batch_op:
+++        batch_op.drop_column("turns_played")
+++        batch_op.drop_column("api_call_count")
++diff --git a/tests/test_agent_next_turn_fanout.py b/tests/test_agent_next_turn_fanout.py
++index 8fda531..2752868 100644
++--- a/tests/test_agent_next_turn_fanout.py
+++++ b/tests/test_agent_next_turn_fanout.py
++@@ -2,6 +2,7 @@
++ 
++ from __future__ import annotations
++ 
+++import asyncio
++ import hashlib
++ import secrets
++ from collections.abc import AsyncIterator
++@@ -730,3 +731,165 @@ async def test_next_turns_omits_a_turn_already_submitted(
++     assert batch.status_code == 200, batch.text
++     body = batch.json()
++     assert [t["match_id"] for t in body["turns"]] == ["M_0711"]
+++
+++
+++@pytest.mark.asyncio
+++async def test_long_poll_returns_waiting_after_window_with_no_turn(
+++    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+++) -> None:
+++    """With nothing to serve, the bounded long-poll holds for ~hold_seconds and
+++    then returns 'waiting'. We use a short hold so the test stays fast and assert
+++    the call actually spent close to the window before giving up."""
+++    async with session_factory() as db:
+++        user = await make_user(db)
+++        _connection, key = await make_connection(db, user)
+++        # No match / no turn for this connection — nothing is ever servable.
+++        await db.commit()
+++
+++    loop = asyncio.get_event_loop()
+++    started = loop.time()
+++    r = await client.get(
+++        "/api/agent/next-turn?hold_seconds=0.4&interval_seconds=0.05",
+++        headers={"X-Connection-Key": key},
+++    )
+++    elapsed = loop.time() - started
+++    assert r.status_code == 200, r.text
+++    body = r.json()
+++    assert body["status"] == "waiting"
+++    # It held roughly the whole window before returning (not an instant reply).
+++    assert elapsed >= 0.35
+++    # After a long-poll the client should re-open promptly (the hold was the wait).
+++    assert body["next_poll_after_seconds"] <= 5
+++
+++
+++@pytest.mark.asyncio
+++async def test_long_poll_returns_promptly_when_a_turn_opens(
+++    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+++) -> None:
+++    """When a turn opens partway through the hold, the long-poll returns it the
+++    moment its next re-check sees it — well before the full window elapses."""
+++    async with session_factory() as db:
+++        user = await make_user(db)
+++        connection, key = await make_connection(db, user)
+++        # Seat the agent in an active match, but with NO open turn yet.
+++        now = datetime.now(timezone.utc)
+++        match = Match(
+++            id="M_0800",
+++            name="match-M_0800",
+++            state=GameState.ACTIVE,
+++            scheduled_start=now - timedelta(minutes=1),
+++            started_at=now - timedelta(minutes=1),
+++            per_turn_deadline_seconds=60,
+++            current_round=1,
+++            current_turn=1,
+++        )
+++        db.add(match)
+++        await db.flush()
+++        agent, _version, _player = await _seat_agent(
+++            db,
+++            user=user,
+++            connection=connection,
+++            match=match,
+++            seat_name=f"{user.handle}/Alpha",
+++            agent_name="Alpha",
+++            model="claude-sonnet-4-6",
+++            strategy_text="alpha strategy",
+++        )
+++        await db.commit()
+++
+++    async def open_turn_soon() -> None:
+++        # Open the turn shortly after the long-poll begins holding.
+++        await asyncio.sleep(0.15)
+++        async with session_factory() as db:
+++            db.add(
+++                Turn(
+++                    match_id="M_0800",
+++                    round=1,
+++                    turn=1,
+++                    turn_token=generate_turn_token(),
+++                    opened_at=datetime.now(timezone.utc),
+++                    deadline_at=datetime.now(timezone.utc) + timedelta(seconds=60),
+++                    phase="act",
+++                )
+++            )
+++            await db.commit()
+++
+++    loop = asyncio.get_event_loop()
+++    started = loop.time()
+++    # Long hold window, fast re-check interval: the response should come back when
+++    # the turn opens (~0.15s), not at the 5s window.
+++    opener = asyncio.create_task(open_turn_soon())
+++    r = await client.get(
+++        "/api/agent/next-turn?hold_seconds=5&interval_seconds=0.05",
+++        headers={"X-Connection-Key": key},
+++    )
+++    await opener
+++    elapsed = loop.time() - started
+++    assert r.status_code == 200, r.text
+++    body = r.json()
+++    assert body["status"] == "your_turn"
+++    assert body["match_id"] == "M_0800"
+++    assert body["agent_id"] == agent.id
+++    # Returned promptly after the turn opened — nowhere near the full 5s window.
+++    assert elapsed < 2.0
+++
+++
+++@pytest.mark.asyncio
+++async def test_api_call_count_increments_and_turn_count_on_real_submit(
+++    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+++) -> None:
+++    """Every authenticated call bumps api_call_count; a real (non-defaulted)
+++    submit bumps turns_played. The detail page reads these raw counts."""
+++    async with session_factory() as db:
+++        user = await make_user(db)
+++        connection, key = await make_connection(db, user)
+++        match, turn = await _create_match_with_turn(db, "M_0900", deadline_seconds=60)
+++        agent, _version, _player = await _seat_agent(
+++            db,
+++            user=user,
+++            connection=connection,
+++            match=match,
+++            seat_name=f"{user.handle}/Alpha",
+++            agent_name="Alpha",
+++            model="claude-sonnet-4-6",
+++            strategy_text="alpha strategy",
+++        )
+++        await db.commit()
+++        connection_id = connection.id
+++
+++    # One poll that serves a turn.
+++    served = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+++    assert served.status_code == 200, served.text
+++    body = served.json()
+++    assert body["status"] == "your_turn"
+++    agent_turn_token = body["agent_turn_token"]
+++    turn_token = body["turn_token"]
+++
+++    async with session_factory() as db:
+++        stored = (
+++            await db.execute(select(Connection).where(Connection.id == connection_id))
+++        ).scalar_one()
+++        assert stored.api_call_count == 1
+++        assert stored.turns_played == 0
+++
+++    submit = await client.post(
+++        f"/api/matches/M_0900/submit?agent_turn_token={agent_turn_token}",
+++        headers={"X-Connection-Key": key},
+++        json={
+++            "turn_token": turn_token,
+++            "action": "HOARD",
+++            "target_id": None,
+++            "message": "mine",
+++            "thinking": "",
+++        },
+++    )
+++    assert submit.status_code == 202, submit.text
+++
+++    async with session_factory() as db:
+++        stored = (
+++            await db.execute(select(Connection).where(Connection.id == connection_id))
+++        ).scalar_one()
+++        # The submit was one more authenticated call (count now 2) and one real
+++        # turn played.
+++        assert stored.api_call_count == 2
+++        assert stored.turns_played == 1
++diff --git a/tests/test_connection_auth.py b/tests/test_connection_auth.py
++index 49d1a42..9ab0b3f 100644
++--- a/tests/test_connection_auth.py
+++++ b/tests/test_connection_auth.py
++@@ -162,7 +162,10 @@ async def test_valid_key_resolves_connection_and_marks_seen(
++             await db.execute(select(Connection).where(Connection.id == connection.id))
++         ).scalar_one()
++         assert stored.first_connected_at == first_connected_at
+++        # Two polls back-to-back fall inside the heartbeat throttle window, so
+++        # last_seen_at must not move — even though api_call_count bumped twice.
++         assert stored.last_seen_at == last_seen_at
+++        assert stored.api_call_count == 2
++ 
++ 
++ @pytest.mark.asyncio
++diff --git a/tests/test_migrations.py b/tests/test_migrations.py
++index c9a7f31..db60e0d 100644
++--- a/tests/test_migrations.py
+++++ b/tests/test_migrations.py
++@@ -87,7 +87,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
++ 
++     conn = sqlite3.connect(db_path)
++     try:
++-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0030",)]
+++        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0031",)]
++         assert (
++             conn.execute(
++                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
++@@ -457,6 +457,42 @@ def test_0030_adds_coach_note_and_coaching_flag(tmp_path: Path) -> None:
++         conn.close()
++ 
++ 
+++# --- feature: connection usage counters (migration 0031) ---------------------
+++
+++
+++def test_0031_adds_connection_usage_counters(tmp_path: Path) -> None:
+++    """0031 adds api_call_count + turns_played to connections, defaulting to 0."""
+++    db_path = tmp_path / "usage_counters.db"
+++
+++    up = _run_alembic(["upgrade", "0030"], db_path)
+++    assert up.returncode == 0, f"upgrade 0030 failed:\n{up.stdout}\n{up.stderr}"
+++
+++    up = _run_alembic(["upgrade", "0031"], db_path)
+++    assert up.returncode == 0, f"upgrade 0031 failed:\n{up.stdout}\n{up.stderr}"
+++
+++    conn = sqlite3.connect(db_path)
+++    try:
+++        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0031",)]
+++        cols = {row[1]: row for row in conn.execute("PRAGMA table_info(connections)")}
+++        assert "api_call_count" in cols
+++        assert "turns_played" in cols
+++        # NOT NULL with a 0 server default on both.
+++        assert cols["api_call_count"][3] == 1  # notnull flag
+++        assert cols["turns_played"][3] == 1
+++    finally:
+++        conn.close()
+++
+++    down = _run_alembic(["downgrade", "0030"], db_path)
+++    assert down.returncode == 0, f"downgrade to 0030 failed:\n{down.stdout}\n{down.stderr}"
+++    conn = sqlite3.connect(db_path)
+++    try:
+++        cols = {row[1] for row in conn.execute("PRAGMA table_info(connections)")}
+++        assert "api_call_count" not in cols
+++        assert "turns_played" not in cols
+++    finally:
+++        conn.close()
+++
+++
++ def test_startup_migrations_skip_on_railway(monkeypatch) -> None:
++     """Railway pre-deploy migrations should keep the app from repeating them."""
++     # Imported lazily: app.main pulls in the route layer, which finishes migrating
+diff --git a/mcp_server/server.py b/mcp_server/server.py
+index 0b45060..a50495f 100644
+--- a/mcp_server/server.py
++++ b/mcp_server/server.py
+@@ -36,6 +36,12 @@ mcp_app = FastMCP(
+ )
+ 
+ 
++# How long get_next_turn asks the API to bounded-long-poll while waiting for a
++# turn (Mode A: interactive play). Kept under typical MCP client request timeouts
++# (commonly ~30s) and matched to the API's MCP_LONG_POLL_HOLD_SECONDS default.
++_NEXT_TURN_HOLD_SECONDS = 25.0
++
++
+ def _client() -> httpx.AsyncClient:
+     """HTTP client pre-configured to hit our own API."""
+     return httpx.AsyncClient(
+@@ -146,7 +152,17 @@ async def get_next_turn(ctx: Context) -> dict[str, Any]:
+     """
+     agent_key = _connection_key_from_ctx(ctx)
+     async with _client() as c:
+-        r = await c.get("/api/agent/next-turn", headers=_headers(agent_key))
++        # Interactive (Mode A) play is the cost-sensitive caller: ask the server to
++        # bounded-long-poll so an idle game holds ONE request open instead of firing
++        # a fresh paid model call every few seconds. The server holds up to
++        # _NEXT_TURN_HOLD_SECONDS and returns the instant a turn opens; we give the
++        # HTTP read a little more headroom than the hold so it never times out mid-wait.
++        r = await c.get(
++            "/api/agent/next-turn",
++            params={"hold_seconds": _NEXT_TURN_HOLD_SECONDS},
++            headers=_headers(agent_key),
++            timeout=httpx.Timeout(_NEXT_TURN_HOLD_SECONDS + 15.0),
++        )
+         return _unwrap(r)
+ 
+ 
+diff --git a/migrations/versions/0031_connection_usage_counters.py b/migrations/versions/0031_connection_usage_counters.py
+new file mode 100644
+index 0000000..167699a
+--- /dev/null
++++ b/migrations/versions/0031_connection_usage_counters.py
+@@ -0,0 +1,50 @@
++"""Add per-connection usage counters: api_call_count + turns_played.
++
++Revision ID: 0031
++Revises: 0030
++Create Date: 2026-06-13
++
++Adds two lifetime counters to ``connections`` so the connection detail page can
++show how much a connection has been used — every authenticated agent call
++(``api_call_count``, each one a paid model call in interactive MCP mode) and
++every real move submitted (``turns_played``). Both default to 0 for existing
++rows. Additive only; downgrade drops the columns.
++"""
++
++from __future__ import annotations
++
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = "0031"
++down_revision: Union[str, None] = "0030"
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    with op.batch_alter_table("connections") as batch_op:
++        batch_op.add_column(
++            sa.Column(
++                "api_call_count",
++                sa.Integer(),
++                nullable=False,
++                server_default="0",
++            )
++        )
++        batch_op.add_column(
++            sa.Column(
++                "turns_played",
++                sa.Integer(),
++                nullable=False,
++                server_default="0",
++            )
++        )
++
++
++def downgrade() -> None:
++    with op.batch_alter_table("connections") as batch_op:
++        batch_op.drop_column("turns_played")
++        batch_op.drop_column("api_call_count")
+diff --git a/tests/test_agent_next_turn_fanout.py b/tests/test_agent_next_turn_fanout.py
+index 8fda531..f01c33d 100644
+--- a/tests/test_agent_next_turn_fanout.py
++++ b/tests/test_agent_next_turn_fanout.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import asyncio
+ import hashlib
+ import secrets
+ from collections.abc import AsyncIterator
+@@ -730,3 +731,194 @@ async def test_next_turns_omits_a_turn_already_submitted(
+     assert batch.status_code == 200, batch.text
+     body = batch.json()
+     assert [t["match_id"] for t in body["turns"]] == ["M_0711"]
++
++
++@pytest.mark.asyncio
++async def test_no_hold_returns_waiting_immediately_with_idle_cadence(
++    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
++) -> None:
++    """Default (no hold_seconds): the connector path returns 'waiting' at once and
++    advises the slow ~30s idle cadence. The plural endpoint does the same."""
++    async with session_factory() as db:
++        user = await make_user(db)
++        _connection, key = await make_connection(db, user)
++        await db.commit()
++
++    loop = asyncio.get_event_loop()
++    started = loop.time()
++    single = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
++    elapsed = loop.time() - started
++    assert single.status_code == 200, single.text
++    body = single.json()
++    assert body["status"] == "waiting"
++    # Returned immediately (no long-poll hold) and advised the slow idle cadence.
++    assert elapsed < 0.5
++    assert body["next_poll_after_seconds"] == 30
++
++    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
++    assert batch.status_code == 200, batch.text
++    bbody = batch.json()
++    assert bbody["status"] == "waiting"
++    assert bbody["next_poll_after_seconds"] == 30
++
++
++@pytest.mark.asyncio
++async def test_long_poll_returns_waiting_after_window_with_no_turn(
++    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
++) -> None:
++    """With nothing to serve, the bounded long-poll holds for ~hold_seconds and
++    then returns 'waiting'. We use a short hold so the test stays fast and assert
++    the call actually spent close to the window before giving up."""
++    async with session_factory() as db:
++        user = await make_user(db)
++        _connection, key = await make_connection(db, user)
++        # No match / no turn for this connection — nothing is ever servable.
++        await db.commit()
++
++    loop = asyncio.get_event_loop()
++    started = loop.time()
++    r = await client.get(
++        "/api/agent/next-turn?hold_seconds=0.4&interval_seconds=0.05",
++        headers={"X-Connection-Key": key},
++    )
++    elapsed = loop.time() - started
++    assert r.status_code == 200, r.text
++    body = r.json()
++    assert body["status"] == "waiting"
++    # It held roughly the whole window before returning (not an instant reply).
++    assert elapsed >= 0.35
++    # After a long-poll the client should re-open promptly (the hold was the wait).
++    assert body["next_poll_after_seconds"] <= 5
++
++
++@pytest.mark.asyncio
++async def test_long_poll_returns_promptly_when_a_turn_opens(
++    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
++) -> None:
++    """When a turn opens partway through the hold, the long-poll returns it the
++    moment its next re-check sees it — well before the full window elapses."""
++    async with session_factory() as db:
++        user = await make_user(db)
++        connection, key = await make_connection(db, user)
++        # Seat the agent in an active match, but with NO open turn yet.
++        now = datetime.now(timezone.utc)
++        match = Match(
++            id="M_0800",
++            name="match-M_0800",
++            state=GameState.ACTIVE,
++            scheduled_start=now - timedelta(minutes=1),
++            started_at=now - timedelta(minutes=1),
++            per_turn_deadline_seconds=60,
++            current_round=1,
++            current_turn=1,
++        )
++        db.add(match)
++        await db.flush()
++        agent, _version, _player = await _seat_agent(
++            db,
++            user=user,
++            connection=connection,
++            match=match,
++            seat_name=f"{user.handle}/Alpha",
++            agent_name="Alpha",
++            model="claude-sonnet-4-6",
++            strategy_text="alpha strategy",
++        )
++        await db.commit()
++
++    async def open_turn_soon() -> None:
++        # Open the turn shortly after the long-poll begins holding.
++        await asyncio.sleep(0.15)
++        async with session_factory() as db:
++            db.add(
++                Turn(
++                    match_id="M_0800",
++                    round=1,
++                    turn=1,
++                    turn_token=generate_turn_token(),
++                    opened_at=datetime.now(timezone.utc),
++                    deadline_at=datetime.now(timezone.utc) + timedelta(seconds=60),
++                    phase="act",
++                )
++            )
++            await db.commit()
++
++    loop = asyncio.get_event_loop()
++    started = loop.time()
++    # Long hold window, fast re-check interval: the response should come back when
++    # the turn opens (~0.15s), not at the 5s window.
++    opener = asyncio.create_task(open_turn_soon())
++    r = await client.get(
++        "/api/agent/next-turn?hold_seconds=5&interval_seconds=0.05",
++        headers={"X-Connection-Key": key},
++    )
++    await opener
++    elapsed = loop.time() - started
++    assert r.status_code == 200, r.text
++    body = r.json()
++    assert body["status"] == "your_turn"
++    assert body["match_id"] == "M_0800"
++    assert body["agent_id"] == agent.id
++    # Returned promptly after the turn opened — nowhere near the full 5s window.
++    assert elapsed < 2.0
++
++
++@pytest.mark.asyncio
++async def test_api_call_count_increments_and_turn_count_on_real_submit(
++    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
++) -> None:
++    """Every authenticated call bumps api_call_count; a real (non-defaulted)
++    submit bumps turns_played. The detail page reads these raw counts."""
++    async with session_factory() as db:
++        user = await make_user(db)
++        connection, key = await make_connection(db, user)
++        match, turn = await _create_match_with_turn(db, "M_0900", deadline_seconds=60)
++        agent, _version, _player = await _seat_agent(
++            db,
++            user=user,
++            connection=connection,
++            match=match,
++            seat_name=f"{user.handle}/Alpha",
++            agent_name="Alpha",
++            model="claude-sonnet-4-6",
++            strategy_text="alpha strategy",
++        )
++        await db.commit()
++        connection_id = connection.id
++
++    # One poll that serves a turn.
++    served = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
++    assert served.status_code == 200, served.text
++    body = served.json()
++    assert body["status"] == "your_turn"
++    agent_turn_token = body["agent_turn_token"]
++    turn_token = body["turn_token"]
++
++    async with session_factory() as db:
++        stored = (
++            await db.execute(select(Connection).where(Connection.id == connection_id))
++        ).scalar_one()
++        assert stored.api_call_count == 1
++        assert stored.turns_played == 0
++
++    submit = await client.post(
++        f"/api/matches/M_0900/submit?agent_turn_token={agent_turn_token}",
++        headers={"X-Connection-Key": key},
++        json={
++            "turn_token": turn_token,
++            "action": "HOARD",
++            "target_id": None,
++            "message": "mine",
++            "thinking": "",
++        },
++    )
++    assert submit.status_code == 202, submit.text
++
++    async with session_factory() as db:
++        stored = (
++            await db.execute(select(Connection).where(Connection.id == connection_id))
++        ).scalar_one()
++        # The submit was one more authenticated call (count now 2) and one real
++        # turn played.
++        assert stored.api_call_count == 2
++        assert stored.turns_played == 1
+diff --git a/tests/test_connection_auth.py b/tests/test_connection_auth.py
+index 49d1a42..9ab0b3f 100644
+--- a/tests/test_connection_auth.py
++++ b/tests/test_connection_auth.py
+@@ -162,7 +162,10 @@ async def test_valid_key_resolves_connection_and_marks_seen(
+             await db.execute(select(Connection).where(Connection.id == connection.id))
+         ).scalar_one()
+         assert stored.first_connected_at == first_connected_at
++        # Two polls back-to-back fall inside the heartbeat throttle window, so
++        # last_seen_at must not move — even though api_call_count bumped twice.
+         assert stored.last_seen_at == last_seen_at
++        assert stored.api_call_count == 2
+ 
+ 
+ @pytest.mark.asyncio
+diff --git a/tests/test_migrations.py b/tests/test_migrations.py
+index c9a7f31..db60e0d 100644
+--- a/tests/test_migrations.py
++++ b/tests/test_migrations.py
+@@ -87,7 +87,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
+ 
+     conn = sqlite3.connect(db_path)
+     try:
+-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0030",)]
++        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0031",)]
+         assert (
+             conn.execute(
+                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
+@@ -457,6 +457,42 @@ def test_0030_adds_coach_note_and_coaching_flag(tmp_path: Path) -> None:
+         conn.close()
+ 
+ 
++# --- feature: connection usage counters (migration 0031) ---------------------
++
++
++def test_0031_adds_connection_usage_counters(tmp_path: Path) -> None:
++    """0031 adds api_call_count + turns_played to connections, defaulting to 0."""
++    db_path = tmp_path / "usage_counters.db"
++
++    up = _run_alembic(["upgrade", "0030"], db_path)
++    assert up.returncode == 0, f"upgrade 0030 failed:\n{up.stdout}\n{up.stderr}"
++
++    up = _run_alembic(["upgrade", "0031"], db_path)
++    assert up.returncode == 0, f"upgrade 0031 failed:\n{up.stdout}\n{up.stderr}"
++
++    conn = sqlite3.connect(db_path)
++    try:
++        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0031",)]
++        cols = {row[1]: row for row in conn.execute("PRAGMA table_info(connections)")}
++        assert "api_call_count" in cols
++        assert "turns_played" in cols
++        # NOT NULL with a 0 server default on both.
++        assert cols["api_call_count"][3] == 1  # notnull flag
++        assert cols["turns_played"][3] == 1
++    finally:
++        conn.close()
++
++    down = _run_alembic(["downgrade", "0030"], db_path)
++    assert down.returncode == 0, f"downgrade to 0030 failed:\n{down.stdout}\n{down.stderr}"
++    conn = sqlite3.connect(db_path)
++    try:
++        cols = {row[1] for row in conn.execute("PRAGMA table_info(connections)")}
++        assert "api_call_count" not in cols
++        assert "turns_played" not in cols
++    finally:
++        conn.close()
++
++
+ def test_startup_migrations_skip_on_railway(monkeypatch) -> None:
+     """Railway pre-deploy migrations should keep the app from repeating them."""
+     # Imported lazily: app.main pulls in the route layer, which finishes migrating

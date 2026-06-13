@@ -162,7 +162,10 @@ async def test_valid_key_resolves_connection_and_marks_seen(
             await db.execute(select(Connection).where(Connection.id == connection.id))
         ).scalar_one()
         assert stored.first_connected_at == first_connected_at
+        # Two polls back-to-back fall inside the heartbeat throttle window, so
+        # last_seen_at must not move — even though api_call_count bumped twice.
         assert stored.last_seen_at == last_seen_at
+        assert stored.api_call_count == 2
 
 
 @pytest.mark.asyncio
