@@ -2,16 +2,27 @@
   "feature_slug": "mcp-oauth",
   "stage": "diff",
   "artifact_path": "docs/workflow/feature-runs/mcp-oauth/reviews/implementation.diff.patch",
-  "git_base_ref": "cfba823dfdbcc3dac260c611e20110c267590dee",
+  "git_base_ref": "01bf188093f890bdb6f1e018dace5e23fd27e1d3",
   "allowed_dirty_paths": [
     "app/deps.py",
+    "app/engine/agent_play.py",
     "app/main.py",
     "app/routes",
-    "docs/workflow/feature-runs/mcp-oauth",
+    "docs/workflow",
     "mcp_server",
+    "migrations/versions",
     "pyproject.toml"
   ],
-  "required_reviews": [],
+  "required_reviews": [
+    {
+      "reviewer": "gemini",
+      "lens": "regression-adversarial",
+      "stage": "diff",
+      "path": "docs/workflow/feature-runs/mcp-oauth/reviews/diff.gemini.regression-adversarial.review.md",
+      "context_paths": [],
+      "model": "gemini-3.1-flash-lite"
+    }
+  ],
   "max_artifact_chars": 50000,
   "max_context_chars": 60000,
   "max_total_chars": 250000

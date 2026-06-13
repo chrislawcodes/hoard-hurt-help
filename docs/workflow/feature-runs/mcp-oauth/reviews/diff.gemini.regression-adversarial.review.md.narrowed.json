@@ -1,0 +1,13 @@
+{
+  "source_artifact_path": "docs/workflow/feature-runs/mcp-oauth/reviews/implementation.diff.patch",
+  "source_artifact_sha256": "ddd698fe67548a504592d11b7ff4d190e0b37109772d018c0aac592755322d30",
+  "narrowed_artifact_path": "docs/workflow/feature-runs/mcp-oauth/reviews/diff.gemini.regression-adversarial.review.md.narrowed.txt",
+  "narrowed_artifact_sha256": "7f42b6be22fc1caba2798189edbd2ccc90f032119c40a1d4dbb86a8d2a914aa0",
+  "strategy": "diff-head-tail-chunks",
+  "head_chunks": [
+    "## New file: app/engine/agent_play.py"
+  ],
+  "tail_chunks": [
+    "diff --git a/app/routes/agent_next_turn.py b/app/routes/agent_next_turn.py"
+  ]
+}

@@ -80,14 +80,16 @@
   "dirty_overrides": {
     "allowed_dirty_paths": [
       "app/deps.py",
+      "app/engine/agent_play.py",
       "app/main.py",
       "app/routes",
-      "docs/workflow/feature-runs/mcp-oauth",
+      "docs/workflow",
       "mcp_server",
+      "migrations/versions",
       "pyproject.toml"
     ],
     "used": true,
-    "updated_at": 1781370037
+    "updated_at": 1781371358
   },
   "checkpoint_fallback": {},
   "parallel_analysis": {
@@ -331,6 +333,24 @@
       "duration_seconds": 606.258383,
       "agent_id": null,
       "artifact_sha_at_time": "cef9190bf191b193b939801075f28b6107432c487730448180931ba00b36af17"
+    },
+    {
+      "stage": "diff",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 51072,
+      "prompt_cap": 250000,
+      "input_tokens": 26702,
+      "output_tokens": 849,
+      "cost_usd_estimate": 0.007949,
+      "timestamp": "2026-06-13T17:22:53.378567Z",
+      "started_at": "2026-06-13T17:22:38.666362Z",
+      "ended_at": "2026-06-13T17:22:53.378567Z",
+      "duration_seconds": 14.71204,
+      "agent_id": null,
+      "artifact_sha_at_time": "ddd698fe67548a504592d11b7ff4d190e0b37109772d018c0aac592755322d30"
     }
   ],
   "command_telemetry": [
@@ -585,6 +605,18 @@
       "files_written": 2,
       "subprocess_invocations": 16,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-13T17:22:53Z",
+      "wall_seconds": 15.216,
+      "input_bytes_read": 186085,
+      "output_bytes_written": 126694,
+      "files_read": 11,
+      "files_written": 6,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -620,7 +652,8 @@
       "adversarial_rounds": 1,
       "annotations": [],
       "adversarial_sha_history": [
-        "fbee2e892feb2da032337d751d600798bd6800065b37a85d8d4e2f43336249cc"
+        "fbee2e892feb2da032337d751d600798bd6800065b37a85d8d4e2f43336249cc",
+        "ddd698fe67548a504592d11b7ff4d190e0b37109772d018c0aac592755322d30"
       ],
       "initial_sha": "fbee2e892feb2da032337d751d600798bd6800065b37a85d8d4e2f43336249cc"
     }
