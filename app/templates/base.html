@@ -83,7 +83,16 @@
                             <a href="/me/connections" role="menuitem">Connections{% if live_connection_count > 0 %}<span class="al-acct-badge al-acct-badge-live"><span class="al-acct-dot"></span>{{ live_connection_count }}</span>{% endif %}{% if disconnected_connection_count > 0 %}<span class="al-acct-badge al-acct-badge-off"><span class="al-acct-dot"></span>{{ disconnected_connection_count }}</span>{% endif %}</a>
                             <a href="/me/agents" role="menuitem">Agents</a>
                             <a href="/me/matches" role="menuitem">My matches</a>
-                            {% if is_admin %}<a href="/admin" role="menuitem">Platform admin</a><a href="/admin/users" role="menuitem">Users</a>{% endif %}
+                            {% if is_admin %}
+                            <details class="al-acct-submenu">
+                                <summary role="menuitem" aria-haspopup="menu">Platform admin <span class="al-acct-submenu-caret" aria-hidden="true">▸</span></summary>
+                                <div class="al-acct-submenu-panel" role="group" aria-label="Platform admin">
+                                    <a href="/admin/matches" role="menuitem">Match Admin</a>
+                                    <a href="/admin/reports" role="menuitem">Reporting</a>
+                                </div>
+                            </details>
+                            <a href="/admin/users" role="menuitem">Users</a>
+                            {% endif %}
                             <form method="post" action="/auth/logout" class="al-acct-form">
                                 <button type="submit" class="al-acct-signout">Sign out</button>
                             </form>

@@ -17,6 +17,7 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
 from app.models.user import User
+from app.read_models.admin_reports import load_turn_timing_report
 from app.routes.web_support import _seated_player_count
 from app.services.admin_user_actions import (
     demote_user,
@@ -31,7 +32,7 @@ router = APIRouter(tags=["admin"])
 _USERS_PAGE_SIZE = 50
 
 
-@router.get("/admin", response_class=HTMLResponse)
+@router.get("/admin/matches", response_class=HTMLResponse)
 async def admin_dashboard(
     request: Request,
     db: DbSession,
@@ -73,6 +74,20 @@ async def admin_dashboard(
     )
 
 
+@router.get("/admin/reports", response_class=HTMLResponse)
+async def admin_reports(
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_platform_admin)],
+):
+    report = await load_turn_timing_report(db)
+    return templates.TemplateResponse(
+        request,
+        "admin/reports.html",
+        {"user": user, "is_admin": True, "report": report},
+    )
+
+
 @router.post("/admin/matches/{match_id}/delete")
 async def admin_delete_match(
     match_id: Annotated[str, Path()],
@@ -84,7 +99,7 @@ async def admin_delete_match(
     ).scalar_one_or_none() is None:
         raise HTTPException(404, detail=f"Match {match_id} not found.")
     await delete_match(db, match_id)
-    return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url="/admin/matches", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/admin/users", response_class=HTMLResponse)

@@ -16,6 +16,7 @@
 ## Recently Shipped
 
 - **Sideline coach deploy fix** — migration `0030` now backfills `matches.coaching` with a dialect-safe boolean update, so PostgreSQL deploys no longer crash on `boolean = 0`.
+- **Platform admin split** — the account-menu `Platform admin` entry now opens a hoverable submenu with `Match Admin` and `Reporting`, the match admin page lives at `/admin/matches`, the reporting page lives at `/admin/reports`, and the turn-time report summarizes completed match response times with per-match and bucket breakdowns.
 - **Admin user management UI** — added `/admin/users` and `/admin/users/{user_id}` for platform admins, with search, pagination, role/status badges, connection and agent summaries, recent matches, audit history, and direct nav from the admin dashboard and handles page.
 - **Disabled-account enforcement** — disabled users are now blocked from protected endpoints through both auth paths (web session and connection key), the app has a dedicated `/disabled` page, the nav reflects the disabled state, and Google login no longer demotes an existing in-app admin role on relogin.
 - **Admin and regular user roles** ([PR #318](https://github.com/chrislawcodes/hoard-hurt-help/pull/318), open) — the platform now has two roles. Regular signed-in users can create matches from a slim flow (name + start time) and delete/cancel their own; admins can delete/cancel any match. Matches gain an owner (`created_by_user_id`); the admin role lives on `users.role`, seeded from `PLATFORM_ADMIN_EMAILS` at login (migration 0028 backfills existing admins). A per-user active-match cap (`USER_ACTIVE_MATCH_LIMIT`, default 3) bounds open match creation; admins are exempt. Creation, deletion, and cancel logic are consolidated into shared `app/engine/match_creation.py` + `match_deletion.py` helpers (the five old `max+1` id allocators and three cancel sites converged).
@@ -73,6 +74,7 @@
 ## Now Unblocked
 
 - PR #334 can finish deploying cleanly after the sideline coach migration lands on production.
+- Platform admins can jump from the top-right menu into match admin or reporting without hunting for a second screen.
 - Platform admins can browse, inspect, and manage users from one dedicated admin screen instead of jumping between handles and incidents.
 - Platform admins can disable an account without leaving a session or connection-key bypass.
 - The standings rail can show the owner handle for human agents again without exposing the internal bot naming scheme.

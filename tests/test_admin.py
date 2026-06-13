@@ -16,6 +16,7 @@ from app.main import app
 from app.engine.match_deletion import delete_match
 from app.models import Base, GameState, Match, Player, RequestIncident, Turn, TurnSubmission, User
 from app.models.user import UserRole
+from app.read_models.admin_reports import load_turn_timing_report
 from app.routes import admin_web
 from app.routes import game_admin_web
 from tests.factories import make_agent
@@ -70,19 +71,158 @@ async def _seed_user(reset_db, email: str) -> User:
         return u
 
 
+async def _seed_turn_timing_match(reset_db) -> str:
+    async with reset_db() as db:
+        owner1 = User(google_sub="sub-turn-1", email="turn1@test.com", name="turn1@test.com")
+        owner2 = User(google_sub="sub-turn-2", email="turn2@test.com", name="turn2@test.com")
+        owner3 = User(google_sub="sub-turn-3", email="turn3@test.com", name="turn3@test.com")
+        db.add_all([owner1, owner2, owner3])
+        await db.flush()
+
+        agent1, version1 = await make_agent(db, owner1, name="AI_1")
+        agent2, version2 = await make_agent(db, owner2, name="AI_2")
+        agent3, version3 = await make_agent(db, owner3, name="AI_3")
+
+        completed_at = datetime.now(timezone.utc)
+        match = Match(
+            id="M_turn_report",
+            name="Report Match",
+            game="hoard-hurt-help",
+            state=GameState.COMPLETED,
+            scheduled_start=completed_at - timedelta(hours=1),
+            started_at=completed_at - timedelta(minutes=10),
+            completed_at=completed_at,
+        )
+        db.add(match)
+        await db.flush()
+
+        player1 = Player(
+            match_id=match.id,
+            user_id=owner1.id,
+            agent_id=agent1.id,
+            seat_name="AI_1",
+            agent_version_id=version1.id if version1 is not None else None,
+            model_self_report=version1.model if version1 is not None else None,
+        )
+        player2 = Player(
+            match_id=match.id,
+            user_id=owner2.id,
+            agent_id=agent2.id,
+            seat_name="AI_2",
+            agent_version_id=version2.id if version2 is not None else None,
+            model_self_report=version2.model if version2 is not None else None,
+        )
+        player3 = Player(
+            match_id=match.id,
+            user_id=owner3.id,
+            agent_id=agent3.id,
+            seat_name="AI_3",
+            agent_version_id=version3.id if version3 is not None else None,
+            model_self_report=version3.model if version3 is not None else None,
+        )
+        db.add_all([player1, player2, player3])
+        await db.flush()
+
+        turn1_opened = completed_at - timedelta(seconds=90)
+        turn2_opened = completed_at - timedelta(seconds=40)
+        turn1 = Turn(
+            match_id=match.id,
+            round=1,
+            turn=1,
+            turn_token="tk-1",
+            opened_at=turn1_opened,
+            deadline_at=turn1_opened + timedelta(seconds=30),
+            resolved_at=turn1_opened + timedelta(seconds=31),
+        )
+        turn2 = Turn(
+            match_id=match.id,
+            round=1,
+            turn=2,
+            turn_token="tk-2",
+            opened_at=turn2_opened,
+            deadline_at=turn2_opened + timedelta(seconds=30),
+            resolved_at=turn2_opened + timedelta(seconds=31),
+        )
+        db.add_all([turn1, turn2])
+        await db.flush()
+
+        db.add_all(
+            [
+                TurnSubmission(
+                    turn_id=turn1.id,
+                    player_id=player1.id,
+                    action="HOARD",
+                    points_delta=2,
+                    round_score_after=2,
+                    submitted_at=turn1_opened + timedelta(seconds=9),
+                ),
+                TurnSubmission(
+                    turn_id=turn1.id,
+                    player_id=player2.id,
+                    action="HELP",
+                    points_delta=1,
+                    round_score_after=1,
+                    submitted_at=turn1_opened + timedelta(seconds=25),
+                ),
+                TurnSubmission(
+                    turn_id=turn1.id,
+                    player_id=player3.id,
+                    action="HURT",
+                    points_delta=-1,
+                    round_score_after=-1,
+                    submitted_at=turn1_opened + timedelta(seconds=40),
+                ),
+                TurnSubmission(
+                    turn_id=turn2.id,
+                    player_id=player1.id,
+                    action="HOARD",
+                    points_delta=2,
+                    round_score_after=4,
+                    submitted_at=turn2_opened + timedelta(seconds=15),
+                ),
+                TurnSubmission(
+                    turn_id=turn2.id,
+                    player_id=player2.id,
+                    action="HELP",
+                    points_delta=1,
+                    round_score_after=2,
+                    submitted_at=turn2_opened + timedelta(seconds=35),
+                ),
+                TurnSubmission(
+                    turn_id=turn2.id,
+                    player_id=player3.id,
+                    action="HOARD",
+                    points_delta=0,
+                    round_score_after=0,
+                    was_defaulted=True,
+                    submitted_at=None,
+                ),
+            ]
+        )
+        await db.commit()
+        return match.id
+
+
 @pytest.mark.asyncio
 async def test_non_admin_blocked(client, reset_db):
     user = await _seed_user(reset_db, "regular@test.com")
-    r = await client.get("/admin", cookies=_cookies(user.id), follow_redirects=False)
+    r = await client.get("/admin/matches", cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_admin_can_see_dashboard(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    r = await client.get("/admin", cookies=_cookies(admin.id))
+    r = await client.get("/admin/matches", cookies=_cookies(admin.id))
     assert r.status_code == 200
-    assert "Platform dashboard" in r.text
+    assert "Match Admin" in r.text
+
+
+@pytest.mark.asyncio
+async def test_old_admin_root_is_gone(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    r = await client.get("/admin", cookies=_cookies(admin.id), follow_redirects=False)
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -91,7 +231,7 @@ async def test_create_game_button_links_to_a_real_route(client, reset_db):
     # no route, so admins got a 404. It must link to the game-scoped create
     # form, and that target must actually load.
     admin = await _seed_user(reset_db, "admin@test.com")
-    r = await client.get("/admin", cookies=_cookies(admin.id))
+    r = await client.get("/admin/matches", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert 'href="/admin/matches/new"' not in r.text
     assert 'href="/games/hoard-hurt-help/admin/matches/new"' in r.text
@@ -106,7 +246,7 @@ async def test_dashboard_prompts_link_is_game_scoped(client, reset_db):
     # The "Strategy prompts" link had the same bug as the create button: it
     # pointed at /admin/prompts, which has no route. It must be game-scoped.
     admin = await _seed_user(reset_db, "admin@test.com")
-    r = await client.get("/admin", cookies=_cookies(admin.id))
+    r = await client.get("/admin/matches", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert 'href="/admin/prompts"' not in r.text
     assert 'href="/games/hoard-hurt-help/admin/prompts"' in r.text
@@ -114,6 +254,44 @@ async def test_dashboard_prompts_link_is_game_scoped(client, reset_db):
         "/games/hoard-hurt-help/admin/prompts", cookies=_cookies(admin.id)
     )
     assert prompts.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_menu_groups_platform_admin_links(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    r = await client.get("/admin/matches", cookies=_cookies(admin.id))
+    assert r.status_code == 200
+    assert 'role="menuitem">Platform admin</a>' not in r.text
+    assert 'href="/admin/matches" role="menuitem">Match Admin</a>' in r.text
+    assert 'href="/admin/reports" role="menuitem">Reporting</a>' in r.text
+
+
+@pytest.mark.asyncio
+async def test_turn_timing_report_counts_and_buckets(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    await _seed_turn_timing_match(reset_db)
+    async with reset_db() as db:
+        report = await load_turn_timing_report(db)
+    assert report.matches_scanned == 1
+    assert report.matches_with_samples == 1
+    assert report.turn_count == 2
+    assert report.sample_count == 5
+    assert report.defaulted_count == 1
+    assert report.mean_seconds == pytest.approx(24.8)
+    bucket_counts = {bucket.label: bucket.count for bucket in report.buckets}
+    assert bucket_counts["0-10s"] == 1
+    assert bucket_counts["10-20s"] == 1
+    assert bucket_counts["20-30s"] == 1
+    assert bucket_counts["30-45s"] == 2
+    assert bucket_counts["45-60s"] == 0
+    assert bucket_counts["60-90s"] == 0
+
+    r = await client.get("/admin/reports", cookies=_cookies(admin.id))
+    assert r.status_code == 200
+    assert "Reporting" in r.text
+    assert "Report Match" in r.text
+    assert "0-10s" in r.text
+    assert "Defaulted rows" in r.text
 
 
 @pytest.mark.asyncio
@@ -494,7 +672,7 @@ async def test_game_admin_only_cannot_access_platform_admin(client, reset_db, mo
     monkeypatch.setattr(settings, "admin_emails", "")
     monkeypatch.setattr(settings, "_game_admin_emails_raw", {"HOARD_HURT_HELP": "gameonly@test.com"})
     gameonly = await _seed_user(reset_db, "gameonly@test.com")
-    r = await client.get("/admin", cookies=_cookies(gameonly.id), follow_redirects=False)
+    r = await client.get("/admin/matches", cookies=_cookies(gameonly.id), follow_redirects=False)
     assert r.status_code == 403
 
 
@@ -624,7 +802,7 @@ async def test_platform_admin_dashboard_handles_missing_start_time(monkeypatch):
         {
             "type": "http",
             "method": "GET",
-            "path": "/admin",
+            "path": "/admin/matches",
             "headers": [],
             "query_string": b"",
         },

@@ -109,14 +109,14 @@ def _check_platform_admin_config() -> None:
     """Warn at startup if no platform admins are configured.
 
     Advisory only — the app still starts. Without a floor admin no one can
-    reach /admin, so operators should notice quickly. Tests are skipped.
+    reach /admin/matches, so operators should notice quickly. Tests are skipped.
     """
     if os.getenv("PYTEST_CURRENT_TEST"):
         return
     if not settings.platform_admin_emails_set:
         logger.warning(
             "No platform admins configured — set PLATFORM_ADMIN_EMAILS "
-            "to grant admin access. Without it /admin is unreachable."
+            "to grant admin access. Without it /admin/matches is unreachable."
         )
 
 
