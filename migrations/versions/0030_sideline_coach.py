@@ -34,8 +34,14 @@ def upgrade() -> None:
         )
 
     # Backfill existing match rows so coaching=True (server_default only applies
-    # to new INSERTs, not existing rows).
-    op.execute(sa.text("UPDATE matches SET coaching = 1 WHERE coaching IS NULL OR coaching = 0"))
+    # to new INSERTs, not existing rows). Use SQLAlchemy so boolean literals are
+    # rendered correctly on both PostgreSQL and SQLite.
+    matches = sa.table("matches", sa.column("coaching", sa.Boolean()))
+    op.execute(
+        sa.update(matches)
+        .where(sa.or_(matches.c.coaching.is_(None), matches.c.coaching.is_(False)))
+        .values(coaching=sa.true())
+    )
 
 
 def downgrade() -> None:
