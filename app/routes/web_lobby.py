@@ -31,7 +31,6 @@ from app.routes.web_support import (
     _is_any_admin,
     _is_showcase,
     _load_match_or_404,
-    _player_count,
     _redirect_to_match,
     _top_standings,
     _upcoming_views,
@@ -449,29 +448,34 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     all_games = (
         (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
+    # Only live games feed the marquee. Upcoming is built separately via
+    # _upcoming_views, and finished/cancelled via _lobby_recent_views — so the
+    # old "loop every game and compute a player_count" was pure waste for every
+    # finished/cancelled match (its view was discarded). Active games carry their
+    # standings, and their player counts come from one grouped query.
+    active_games = [g for g in all_games if g.state == GameState.ACTIVE]
+    active_player_counts = await count_players_by_match(
+        db, [g.id for g in active_games], active_only=True
+    )
     live = []
-    for g in all_games:
-        # Upcoming is built separately via _upcoming_views (shared with the polled
-        # /upcoming fragment), so skip those states here.
-        if g.state in (GameState.SCHEDULED, GameState.REGISTERING):
-            continue
-        view = {
-            "id": g.id,
-            "game_type": g.game,
-            "name": g.name,
-            "scheduled_start": g.scheduled_start,
-            "state": g.state,
-            "min_players": g.min_players,
-            "max_players": g.max_players,
-            "current_round": g.current_round,
-            "current_turn": g.current_turn,
-            "winner_agent_id": None,
-            "player_count": await _player_count(db, g.id),
-        }
-        if g.state == GameState.ACTIVE:
-            # The marquee shows "who's leading", so a live game carries its top-3.
-            view["standings"] = await _top_standings(db, g.id, 3)
-            live.append(view)
+    for g in active_games:
+        live.append(
+            {
+                "id": g.id,
+                "game_type": g.game,
+                "name": g.name,
+                "scheduled_start": g.scheduled_start,
+                "state": g.state,
+                "min_players": g.min_players,
+                "max_players": g.max_players,
+                "current_round": g.current_round,
+                "current_turn": g.current_turn,
+                "winner_agent_id": None,
+                # The marquee shows "who's leading", so a live game carries its top-3.
+                "standings": await _top_standings(db, g.id, 3),
+                "player_count": active_player_counts.get(g.id, 0),
+            }
+        )
     upcoming = await _upcoming_views(db)
     finished_views = await _lobby_recent_views(db)
     show_recent_all = request.query_params.get("recent") == "all"

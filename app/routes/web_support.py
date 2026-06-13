@@ -15,7 +15,7 @@ from app.models.agent import Agent, AgentKind
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User, UserRole
-from app.read_models.matches import count_players
+from app.read_models.matches import count_players, count_players_by_match
 
 _GENERAL_NAMES: tuple[str, ...] = (
     "Napoleon", "Hannibal", "Caesar", "Wellington", "Patton",
@@ -97,6 +97,9 @@ async def _upcoming_views(db) -> list[dict]:
         .scalars()
         .all()
     )
+    # Active-player counts for every upcoming game in one grouped query (matches
+    # _player_count's active_only filter), instead of a query per game.
+    player_counts = await count_players_by_match(db, [g.id for g in games], active_only=True)
     views: list[dict] = []
     for g in games:
         views.append(
@@ -107,7 +110,7 @@ async def _upcoming_views(db) -> list[dict]:
                 "match_kind": g.match_kind,
                 "scheduled_start": g.scheduled_start,
                 "max_players": g.max_players,
-                "player_count": await _player_count(db, g.id),
+                "player_count": player_counts.get(g.id, 0),
             }
         )
     return views

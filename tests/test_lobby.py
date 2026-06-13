@@ -2,14 +2,18 @@
 
 import base64
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker
+
+import app.db as app_db
 
 from app.config import settings
 from app.engine.bot_presets import bot_presets
@@ -218,6 +222,64 @@ async def test_homepage_renders_with_live_and_finished_games(client, reset_db):
     assert r.status_code == 200
     assert 'id="rc-data"' in r.text
     assert "AI_0" in r.text  # the finished showcase and its winner are rendered
+
+
+@contextmanager
+def _count_selects() -> Iterator[dict[str, int]]:
+    """Count SELECTs the app issues against the patched test engine in-block."""
+    counter = {"n": 0}
+
+    def _on_exec(conn, cursor, statement, params, context, executemany) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            counter["n"] += 1
+
+    engine = app_db.engine
+    event.listen(engine.sync_engine, "before_cursor_execute", _on_exec)
+    try:
+        yield counter
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _on_exec)
+
+
+async def _seed_extra_completed(reset_db: async_sessionmaker, n: int) -> None:
+    """A finished 3-agent game with a winner — adds to the lobby's recent list."""
+    async with reset_db() as db:
+        g = Match(
+            id=f"G_EX{n}",
+            name=f"Extra Match {n}",
+            state=GameState.COMPLETED,
+            scheduled_start=datetime.now(timezone.utc) - timedelta(hours=2 + n),
+            per_turn_deadline_seconds=60,
+        )
+        db.add(g)
+        await db.flush()
+        base = 100 + n * 3
+        players = [await seat_player(db, g.id, f"EX{n}_{j}", i=base + j) for j in range(3)]
+        g.winner_player_id = players[0].id
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_lobby_query_count_flat_as_finished_games_grow(client, reset_db):
+    # The lobby's live loop used to run a query per game for EVERY finished and
+    # cancelled match, then throw the result away. Now it only touches live games
+    # and reads finished matches in one grouped query. Proof: the number of DB
+    # SELECTs for the lobby must not grow as finished games pile up.
+    await _seed_game(reset_db, state=GameState.ACTIVE)  # keeps showcase-replay off
+    await _seed_extra_completed(reset_db, 0)
+    with _count_selects() as first:
+        r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 200
+    baseline = first["n"]
+
+    for n in range(1, 7):  # six more finished games
+        await _seed_extra_completed(reset_db, n)
+    with _count_selects() as second:
+        r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 200
+
+    # Same query count with 7 finished games as with 1 — no per-game N+1.
+    assert second["n"] == baseline
 
 
 @pytest.mark.asyncio
