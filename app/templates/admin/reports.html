@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Reporting — Match Admin{% endblock %}
+{% block content %}
+<a class="backlink" href="/admin/matches">← Match Admin</a>
+<div class="page-head">
+    <h1>Reporting</h1>
+    <p class="sub">Turn timing across completed matches. Only non-default submissions are timed here.</p>
+</div>
+
+<div class="report-kpis">
+    <article class="card report-kpi">
+        <div class="label">Matches scanned</div>
+        <div class="value">{{ report.matches_scanned }}</div>
+        <div class="note">{{ report.matches_with_samples }} with at least one timed response</div>
+    </article>
+    <article class="card report-kpi">
+        <div class="label">Turns scanned</div>
+        <div class="value">{{ report.turn_count }}</div>
+        <div class="note">Completed turns across the sample set</div>
+    </article>
+    <article class="card report-kpi">
+        <div class="label">Timed submissions</div>
+        <div class="value">{{ report.sample_count }}</div>
+        <div class="note">Rows with a real `submitted_at` value</div>
+    </article>
+    <article class="card report-kpi">
+        <div class="label">Defaulted rows</div>
+        <div class="value">{{ report.defaulted_count }}</div>
+        <div class="note">Rows marked as defaulted or missing a timestamp</div>
+    </article>
+</div>
+
+<div class="section-head"><h2>Turn-time distribution</h2><span class="count">{{ report.sample_count }} samples</span></div>
+<div class="report-table-wrap">
+    <table>
+        <tr>
+            <th>Bucket</th>
+            <th>Count</th>
+            <th>Share</th>
+        </tr>
+        {% for bucket in report.buckets %}
+        <tr>
+            <td>{{ bucket.label }}</td>
+            <td>{{ bucket.count }}</td>
+            <td>{% if report.sample_count %}{{ ((bucket.count / report.sample_count) * 100) | round(1) }}%{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="report-empty">No completed matches yet.</td></tr>
+        {% endfor %}
+    </table>
+</div>
+
+<div class="section-head"><h2>Slowest matches</h2><span class="count">{{ report.matches | length }}</span></div>
+<div class="report-table-wrap">
+    <table>
+        <tr>
+            <th>Match</th>
+            <th>Game</th>
+            <th>Completed</th>
+            <th>Turns</th>
+            <th>Timed</th>
+            <th>Defaulted</th>
+            <th>Mean</th>
+            <th>Median</th>
+            <th>P95</th>
+            <th>Max</th>
+        </tr>
+        {% for row in report.matches %}
+        <tr>
+            <td><a href="/games/{{ row.game }}/admin/matches/{{ row.match_id }}">{{ row.name }}</a></td>
+            <td class="mono">{{ row.game }}</td>
+            <td>{{ row.completed_at | localdt }}</td>
+            <td>{{ row.turn_count }}</td>
+            <td>{{ row.sample_count }}</td>
+            <td>{{ row.defaulted_count }}</td>
+            <td>{% if row.mean_seconds is not none %}{{ row.mean_seconds | round(1) }}s{% else %}—{% endif %}</td>
+            <td>{% if row.median_seconds is not none %}{{ row.median_seconds | round(1) }}s{% else %}—{% endif %}</td>
+            <td>{% if row.p95_seconds is not none %}{{ row.p95_seconds | round(1) }}s{% else %}—{% endif %}</td>
+            <td>{% if row.max_seconds is not none %}{{ row.max_seconds | round(1) }}s{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="report-empty">No completed matches yet.</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

@@ -214,4 +214,4 @@ async def cancel_match_submit(
             },
         )
     await cancel_match(db, match)
-    return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url="/admin/matches", status_code=status.HTTP_303_SEE_OTHER)

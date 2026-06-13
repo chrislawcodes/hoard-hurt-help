@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Admin — Hoard-Hurt-Help{% endblock %}
+{% block title %}Match Admin — Hoard-Hurt-Help{% endblock %}
 {% block content %}
 <div class="toolbar">
-    <h1>Platform dashboard</h1>
+    <h1>Match Admin</h1>
     <a class="btn btn-ghost" href="/admin/users">Users</a>
     <a class="btn btn-ghost" href="/admin/handles">Handles</a>
     {% if game_types | length == 1 %}
@@ -30,7 +30,7 @@
         <span class="badge badge-live"><span class="dot"></span> Live</span>
         <a class="btn btn-ghost" href="/games/{{ g.game }}/admin/matches/{{ g.id }}">Open →</a>
         <form method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
-            <input type="hidden" name="next" value="/admin">
+            <input type="hidden" name="next" value="/admin/matches">
             <button type="submit" class="danger">Delete</button>
         </form>
     </div>
@@ -52,7 +52,7 @@
         <a class="btn btn-ghost" href="/games/{{ g.game }}/admin/matches/{{ g.id }}">Open →</a>
         <form method="post" action="/matches/{{ g.id }}/cancel"><button type="submit" class="secondary">Cancel</button></form>
         <form method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
-            <input type="hidden" name="next" value="/admin">
+            <input type="hidden" name="next" value="/admin/matches">
             <button type="submit" class="danger">Delete</button>
         </form>
     </div>
@@ -71,7 +71,7 @@
         <a href="/api/admin/matches/{{ g.id }}/export.csv">CSV</a>
         <a href="/api/admin/matches/{{ g.id }}/export.json">JSON</a>
         <form method="post" action="/admin/matches/{{ g.id }}/delete" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
-            <input type="hidden" name="next" value="/admin">
+            <input type="hidden" name="next" value="/admin/matches">
             <button type="submit" class="danger">Delete</button>
         </form>
     </div>
