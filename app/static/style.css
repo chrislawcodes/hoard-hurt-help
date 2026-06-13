@@ -636,6 +636,45 @@ pre code { background: none; padding: 0; }
 .byo-steps { margin: 0 0 0.4rem; padding-left: 1.3rem; }
 .byo-steps li { margin-bottom: 0.35rem; }
 
+/* Numbered sub-steps for the act of connecting (paste / sign in), tied together
+ * by a rail down the left so they read as one sequence, not stray boxes. */
+.byo-flow { list-style: none; counter-reset: byoflow; margin: 0.6rem 0 0; padding: 0; }
+.byo-flow-step {
+    counter-increment: byoflow;
+    position: relative;
+    padding-left: 2.3rem;
+    padding-bottom: 1.1rem;
+}
+.byo-flow-step:last-child { padding-bottom: 0; }
+.byo-flow-step::before {
+    content: counter(byoflow);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1.65rem;
+    height: 1.65rem;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+.byo-flow-step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: calc(0.825rem - 1px);
+    top: 1.95rem;
+    bottom: 0.2rem;
+    width: 2px;
+    background: var(--line);
+}
+.byo-flow-title { display: block; font-weight: 600; margin-bottom: 0.5rem; }
+.byo-flow-step .btn-copy { margin-bottom: 0.4rem; }
+.byo-flow-step pre { margin: 0; }
+
 /* Short "Sign in with Google" note shown under a command / steps. */
 .byo-signin-note { margin-top: 0.5rem; }
 
@@ -648,14 +687,18 @@ pre code { background: none; padding: 0; }
 .byo-collapsed summary:hover { color: var(--accent); }
 .byo-tick { color: var(--help); }
 
-/* Listening region: a pulsing dot while we wait for the AI to connect. */
-.byo-listening {
+/* Waiting region: a pulsing dot in a calm box while we wait for the AI. */
+.byo-listening-box {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 1rem;
-    font-weight: 600;
+    align-items: flex-start;
+    gap: 0.65rem;
+    margin-top: 1.2rem;
+    padding: 0.85rem 1rem;
+    background: var(--surface-2);
+    border-radius: var(--radius);
 }
+.byo-listening-box .byo-pulse-dot { margin-top: 0.35rem; flex: none; }
+.byo-listening-title { margin: 0; font-weight: 600; }
 .byo-pulse-dot {
     width: 0.6rem;
     height: 0.6rem;
@@ -673,9 +716,46 @@ pre code { background: none; padding: 0; }
     .byo-pulse-dot { animation: none; }
 }
 
-/* Post-connect "you're live" block. */
-.byo-live { margin-top: 1rem; }
-.byo-live-head { margin: 0; font-weight: 600; }
+/* Post-connect: a clear green "Connected" banner so the content swap is a payoff,
+ * not a surprise — then the single next step. */
+.byo-connected { margin-top: 1.2rem; }
+.byo-connected-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--help) 12%, var(--surface));
+    border: 1.5px solid color-mix(in srgb, var(--help) 40%, var(--line));
+}
+.byo-connected-check {
+    flex: none;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    background: var(--help);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+.byo-connected-title { margin: 0; font-weight: 700; }
+.byo-connected-sub { margin: 0.1rem 0 0; color: var(--ink-soft); font-size: 0.9rem; }
+.byo-next-label {
+    margin: 1.3rem 0 0.2rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+}
+.byo-next-title { margin: 0 0 0.3rem; }
+.byo-next-body { margin: 0 0 0.9rem; color: var(--ink-soft); }
+.byo-playprompt { margin-top: 1.2rem; }
+.byo-playprompt-label { margin: 0 0 0.4rem; font-weight: 600; font-size: 0.9rem; }
+.byo-playprompt pre { margin: 0; }
 
 
 /* ---- Lobby ---- */

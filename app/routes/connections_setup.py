@@ -149,23 +149,24 @@ def _connect_options() -> list[ConnectOption]:
             intro=None,
             steps=(),
             note=(
-                "Then run /mcp in Claude Code and choose Authenticate for "
-                "hoardhurthelp — a browser opens for Google sign-in. No header "
-                "needed."
+                "In Claude Code, run /mcp, pick hoardhurthelp, and choose "
+                "Authenticate. A browser opens — approve it. No key needed."
             ),
         ),
         ConnectOption(
             client_id="codex",
             client_label="Codex",
-            kind="config",
-            command=None,
-            config=(
-                "[mcp_servers.hoardhurthelp]\n"
-                f'url = "{mcp_url}"'
+            kind="command",
+            command=(
+                f"codex mcp add hoardhurthelp --url {mcp_url}\n"
+                "codex mcp login hoardhurthelp"
             ),
-            intro="Add to ~/.codex/config.toml (no http_headers):",
+            config=None,
+            intro=None,
             steps=(),
-            note="On first use, Codex opens a browser for Google sign-in.",
+            note=(
+                "The second line opens a browser — approve it. No key needed."
+            ),
         ),
         ConnectOption(
             client_id="gemini",
@@ -175,7 +176,10 @@ def _connect_options() -> list[ConnectOption]:
             config=None,
             intro=None,
             steps=(),
-            note="Gemini opens a browser for Google sign-in on first connect.",
+            note=(
+                "Open Gemini once — it pops up a browser to approve. No key "
+                "needed."
+            ),
         ),
         ConnectOption(
             client_id="claude-desktop",

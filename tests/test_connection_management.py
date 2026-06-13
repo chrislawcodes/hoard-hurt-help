@@ -386,32 +386,36 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     text = resp.text
 
     assert "Play with your own AI" in text
+    # The connect step reads as numbered sub-steps (paste in terminal / sign in).
+    assert "Connect your AI provider" in text
+    assert "Paste this in your terminal" in text
+    assert "Sign in with Google" in text
     # Hero "add the server" command for Claude Code, OAuth-shaped (no key, no
     # chained play one-liner — the real flow is add → sign in → reload → paste).
     assert "claude mcp add --transport http hoardhurthelp" in text
     # Claude Code's sign-in note points at the interactive /mcp Authenticate step.
-    assert "run /mcp in Claude Code and choose Authenticate" in text
+    assert "choose Authenticate" in text
     # The "add the server" instruction itself is header-less / key-less (the
     # always-on connector below still uses a key, which is out of scope here).
     connect_block = text.split("byo-panel-claude-code", 1)[1].split("</section>", 1)[0]
     assert "X-Connection-Key" not in connect_block
     assert "sk_conn_" not in connect_block
     assert "--header" not in connect_block
-    # Codex renders as a copyable config-file block, not a command.
+    # Codex renders as a copyable terminal command (add + login), not a file edit.
     codex_block = text.split("byo-panel-codex", 1)[1].split("</section>", 1)[0]
-    assert "~/.codex/config.toml" in codex_block
-    assert "[mcp_servers.hoardhurthelp]" in codex_block
+    assert "codex mcp add hoardhurthelp --url" in codex_block
+    assert "codex mcp login hoardhurthelp" in codex_block
+    assert "config.toml" not in codex_block
     assert "X-Connection-Key" not in codex_block
     assert "sk_conn_" not in codex_block
-    assert "http_headers" not in codex_block.replace("no http_headers", "")
     # All four clients are offered; Cursor dropped.
     assert 'for="byo-tab-claude-code"' in text
     assert 'for="byo-tab-codex"' in text
     assert 'for="byo-tab-gemini"' in text
     assert 'for="byo-tab-claude-desktop"' in text
     assert 'for="byo-tab-cursor"' not in text
-    # The self-advancing Listening region with its 4s poll.
-    assert "Listening for your AI to connect…" in text
+    # The self-advancing waiting region with its 4s poll.
+    assert "Waiting for your AI to connect…" in text
     assert 'hx-get="/me/connections/live-status"' in text
     assert 'hx-trigger="every 4s"' in text
     # Always-on connector kept as the collapsed secondary option.
@@ -444,8 +448,8 @@ async def test_connections_list_returning_state_shows_play_prompt(
     assert "sign in with Google again" in text
     # Full setup collapsed behind the "✓ Set up" disclosure.
     assert "✓ Set up" in text
-    # Not live → still listening; not the live block.
-    assert "Listening for your AI to connect…" in text
+    # Not live → still waiting; not the live block.
+    assert "Waiting for your AI to connect…" in text
     assert "Join a game →" not in text
     # The user's machine still shows below.
     assert "My Mac" in text
@@ -470,15 +474,17 @@ async def test_connections_list_live_state_with_agent_shows_join(
     assert resp.status_code == 200
     text = resp.text
 
-    assert "Your AI is connected and live." in text
-    # The Mode A play-prompt renders in the live block (the recurring action).
-    assert "Signed in — paste this to start playing" in text
+    # Clear "Connected" success banner.
+    assert "Connected" in text
+    assert "Your AI is linked and signed in." in text
+    # With an agent, the Mode A play-prompt renders (now it's actually useful).
+    assert "Paste this to your AI to start playing:" in text
     assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in text
     assert "Join a game →" in text
     assert "/games/hoard-hurt-help" in text
     assert "Negotiator · claude-haiku-4-5" in text
     # Not nudging to create an agent — they already have one.
-    assert "Create an agent →" not in text
+    assert "Create your agent →" not in text
 
 
 @pytest.mark.asyncio
@@ -497,10 +503,13 @@ async def test_connections_list_live_state_without_agent_nudges_create(
     assert resp.status_code == 200
     text = resp.text
 
-    assert "Your AI is connected and live." in text
-    assert "Create an agent →" in text
+    assert "Connected" in text
+    assert "Your AI is linked and signed in." in text
+    assert "Create your agent →" in text
     assert "/me/agents/new" in text
     assert "Join a game →" not in text
+    # No agent yet → the play-prompt is deferred until they have one.
+    assert "Paste this to your AI to start playing:" not in text
 
 
 @pytest.mark.asyncio
@@ -515,9 +524,9 @@ async def test_live_status_fragment_not_live_shows_listening(
         "/me/connections/live-status", cookies=_signed_in_cookies(user.id)
     )
     assert resp.status_code == 200
-    assert "Listening for your AI to connect…" in resp.text
+    assert "Waiting for your AI to connect…" in resp.text
     assert "Join a game →" not in resp.text
-    assert "Create an agent →" not in resp.text
+    assert "Create your agent →" not in resp.text
 
 
 @pytest.mark.asyncio
@@ -534,13 +543,14 @@ async def test_live_status_fragment_live_shows_post_connect_block(
         "/me/connections/live-status", cookies=_signed_in_cookies(user.id)
     )
     assert resp.status_code == 200
-    assert "Your AI is connected and live." in resp.text
-    # The play-prompt renders in the live fragment too (the page and the 4s poll
-    # fragment share the same live block).
-    assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in resp.text
-    # No agent yet → the create-an-agent nudge.
-    assert "Create an agent →" in resp.text
-    assert "Listening for your AI to connect…" not in resp.text
+    # Clear "Connected" banner in the poll fragment too.
+    assert "Connected" in resp.text
+    assert "Your AI is linked and signed in." in resp.text
+    # No agent yet → the create-an-agent nudge; the play-prompt is deferred until
+    # they have an agent (it isn't useful before then).
+    assert "Create your agent →" in resp.text
+    assert "Paste this to your AI to start playing:" not in resp.text
+    assert "Waiting for your AI to connect…" not in resp.text
 
 
 @pytest.mark.asyncio
