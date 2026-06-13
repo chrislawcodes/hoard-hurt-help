@@ -219,9 +219,6 @@ def create_app() -> FastAPI:
     app.include_router(sse_routes.router)
     app.include_router(spectator_api.router)
 
-    if mcp_asgi_app is not None:
-        app.mount("/mcp", mcp_asgi_app, name="mcp")
-
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
@@ -229,6 +226,11 @@ def create_app() -> FastAPI:
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> FileResponse:
         return FileResponse("app/static/favicon.svg", media_type="image/svg+xml")
+
+    if mcp_asgi_app is not None:
+        # Mount the FastMCP app last so its catch-all root mount does not shadow
+        # the rest of the FastAPI routes.
+        app.mount("/", mcp_asgi_app, name="mcp")
 
     return app
 
