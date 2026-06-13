@@ -31,7 +31,7 @@ async def test_authed_tools_hide_key_from_schema():
     """The key is a connection header, never an LLM-visible parameter."""
     from mcp_server.server import mcp_app
 
-    schemas = {t.name: (t.inputSchema or {}).get("properties", {}) for t in await mcp_app.list_tools()}
+    schemas = {t.name: (t.parameters or {}).get("properties", {}) for t in await mcp_app.list_tools()}
     for name in ("get_turn", "submit_talk", "submit_action"):
         assert "agent_key" not in schemas[name], f"{name} still exposes agent_key"
         assert "ctx" not in schemas[name], f"{name} leaks the injected context"
@@ -157,7 +157,7 @@ async def test_missing_connection_key_raises(monkeypatch):
 
 
 def test_mcp_asgi_app_constructed():
-    """The streamable_http_app is built and importable."""
+    """The HTTP app is built and importable."""
     from mcp_server.server import asgi_app
 
     assert asgi_app is not None

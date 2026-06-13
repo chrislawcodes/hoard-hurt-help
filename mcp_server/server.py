@@ -1,6 +1,6 @@
 """MCP server wrapping our HTTP API.
 
-Hosted at /mcp on the same FastAPI app. Three tools:
+Hosted at /mcp on the same FastAPI app. Nine tools:
 - get_turn(match_id): poll for the agent's turn payload
 - submit_action(match_id, action, target_id, message, turn_token): submit
 - get_game_state(match_id): public snapshot
@@ -14,25 +14,12 @@ stays in the client config and never has to appear in the chat prompt.
 from typing import Any
 
 import httpx
-from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
+from fastmcp import Context, FastMCP
 
 from app.config import settings
 
-# streamable_http_path="/" so that when app.main mounts this whole app at
-# "/mcp", the real endpoint is exactly "/mcp" (not "/mcp/mcp", which is what
-# the default inner path of "/mcp" would produce under the mount).
-#
-# transport_security: FastMCP's host defaults to 127.0.0.1, which makes it
-# auto-enable localhost-only DNS-rebinding protection. Served on a public
-# domain behind Railway's TLS proxy that rejects every real request with
-# 421 "Invalid Host header". We authenticate each tool call with X-Connection-Key
-# and clients connect by hostname (incl. future custom domains), so disable the
-# Host/Origin check rather than pin an allow-list. (Content-Type is still validated.)
 mcp_app = FastMCP(
     "hoardhurthelp",
-    streamable_http_path="/",
-    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
 
@@ -424,5 +411,5 @@ def _unwrap(r: httpx.Response) -> dict[str, Any]:
     )
 
 
-# The FastAPI app mounts this at /mcp via mcp_app.streamable_http_app()
-asgi_app = mcp_app.streamable_http_app()
+# The FastAPI app mounts this at /mcp via mcp_app.http_app(...)
+asgi_app = mcp_app.http_app(path="/", transport="streamable-http")
