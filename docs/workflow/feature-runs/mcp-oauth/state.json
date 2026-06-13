@@ -1,0 +1,273 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 4,
+    "asked_count": 4,
+    "questions": [
+      {
+        "question": "Framework/approach for /mcp OAuth",
+        "recommendation": "fastmcp v3 GoogleProvider (OAuthProxy)",
+        "rationale": "Purpose-built for 'I have Google creds, hand MCP clients tokens'; ships PRM + AS metadata + DCR shim + PKCE; reuses our Google app; no external billing. Cost is the SDK->standalone fastmcp migration (mostly imports).",
+        "updated_at": 1781365761
+      },
+      {
+        "question": "Bridge: OAuth-user -> Connection mapping",
+        "recommendation": "A: OAuth establishes a per-user 'Mode A' Connection",
+        "rationale": "A Connection is the unit of a playing session (pause/concurrency/stall/dashboard). Mapping OAuth -> per-user connection keeps one unified model and leaves require_connection/play API/connector untouched. Lowest risk, coherent long-term.",
+        "updated_at": 1781365761
+      },
+      {
+        "question": "/mcp back-compat for X-Connection-Key header",
+        "recommendation": "Keep header fallback (operator chose OAuth-only)",
+        "rationale": "Operator chose OAuth-only at /mcp; it is also the simpler implementation since the FastMCP OAuth provider gates all /mcp traffic by default. Raw sk_conn_ HTTP API stays as the non-/mcp fallback.",
+        "updated_at": 1781365762
+      },
+      {
+        "question": "Client scope for v1 'done'",
+        "recommendation": "Claude required; Codex/Gemini best-effort (operator chose all four)",
+        "rationale": "Operator requires all four clients to pass before shipping. Risk: Codex/Gemini MCP-OAuth maturity is outside our control with no /mcp header fallback; verify each client early, escalate via block if a client cannot do spec OAuth.",
+        "updated_at": 1781365762
+      }
+    ],
+    "assumptions": [
+      "We reuse the existing Google OAuth app/credentials (client_id/secret) already used for human login; the MCP OAuth proxy is an additional consumer of the same Google app, with its own redirect URIs registered.",
+      "Each client's current MCP-OAuth support is verified early in the plan stage; a client that cannot do spec OAuth is escalated via block, not worked around in code."
+    ],
+    "summary": "Replace the X-Connection-Key paste step at /mcp with one-click Google OAuth via fastmcp v3 GoogleProvider (OAuthProxy). Bridge = OAuth establishes a per-user 'Mode A' Connection (Option A); require_connection/play API/connector untouched. /mcp becomes OAuth-only; raw sk_conn_ HTTP API remains the non-/mcp fallback. All four clients (Claude Code/Desktop, Codex, Gemini CLI) must pass before shipping.",
+    "updated_at": 1781365766,
+    "answers": {
+      "Framework/approach for /mcp OAuth": "fastmcp v3 GoogleProvider (OAuthProxy); migrate from SDK-bundled FastMCP to standalone fastmcp; reuse existing Google client_id/secret; we own a JWT signing key.",
+      "Bridge: OAuth-user -> Connection mapping": "A: OAuth establishes a real per-user 'Mode A' Connection. /mcp doorway resolves the Google token -> find-or-create that user's canonical connection -> forward its sk_conn_ key to the internal API. require_connection + play API + connector UNCHANGED. Treated as a durable connection (pause/resume/concurrency/dashboard apply). HTTP-loopback-with-minted-key is an isolated impl detail that can later be refactored to an in-process call independently.",
+      "/mcp back-compat for X-Connection-Key header": "OAuth-only at /mcp. Drop the X-Connection-Key header path AT /mcp; /mcp clients must connect via OAuth. The raw sk_conn_ HTTP API (connector) still works as the non-/mcp fallback. Note: this is also the simpler implementation (FastMCP OAuth provider gates all /mcp traffic by default). The CLAUDE-constraint 'play API accepts BOTH' refers to the internal HTTP API, not /mcp \u2014 no conflict.",
+      "Client scope for v1 'done'": "All four (Claude Code, Claude Desktop, Codex, Gemini CLI) must pass real end-to-end OAuth connect before shipping. RISK: Codex/Gemini MCP-OAuth maturity is outside our control and there is no header fallback at /mcp; if a client genuinely cannot do spec OAuth (DCR/PKCE discovery) it is a block-to-human decision, not an implementation fix. Mitigation: verify each client's MCP-OAuth support EARLY (plan stage), per the 'validate against real clients early' constraint."
+    },
+    "non_goals": [
+      "Changing the connector's auth (it keeps using raw sk_conn_).",
+      "Removing the sk_conn_ / require_connection auth path on the internal HTTP API.",
+      "Refactoring require_connection to accept OAuth identity directly (Option B was rejected).",
+      "Cursor support (explicitly dropped).",
+      "MCP-driven new-user onboarding/agent creation: a user with zero agents who completes OAuth simply gets a 'waiting/no agent' state and still creates agents on the web.",
+      "The in-process loopback refactor: v1 may call the internal HTTP API with the minted key; replacing that with an in-process service call is deferred."
+    ],
+    "acceptance_criteria": [
+      "A player connects each of Claude Code, Claude Desktop, Codex, and Gemini CLI to /mcp via a one-click Google OAuth flow with NO pasted key, no secret in URL, no key in chat, and plays a full turn end-to-end.",
+      "An unauthenticated request to /mcp returns a spec-compliant 401 with WWW-Authenticate pointing at the RFC 9728 Protected Resource Metadata; the AS metadata, DCR shim, and PKCE flow complete and the client retries with a Bearer token successfully.",
+      "After OAuth, the user's MCP tool calls act for ANY of that user's agents (resolved by Agent.user_id) via a single per-user 'Mode A' connection that the /mcp layer finds-or-creates.",
+      "The connector (raw sk_conn_ on the HTTP API) and the existing require_connection play API continue to work unchanged.",
+      "Preflight Gate is green: ruff + mypy app/ mcp_server/ + pytest, with no suppressions."
+    ],
+    "checklist": {
+      "goal": "Replace the 'paste sk_conn_ key as X-Connection-Key header' MCP connect step with a true one-click, secure OAuth flow (Google-backed) so players connect their AI client to /mcp with no long-lived secret to copy, no key in URL, no key in chat.",
+      "audience": "Players connecting an AI client (Claude Code, Claude Desktop, Codex, Gemini CLI; NOT Cursor) to /mcp for Mode A interactive play.",
+      "constraints": "MCP auth-spec compliance (RFC 9728 PRM + 401 challenge + AS metadata + DCR shim + PKCE); Google has no DCR so a proxy/bridge is mandatory; play API must accept BOTH OAuth and raw sk_conn_ (connector keeps using sk_conn_, never touched /mcp); no key in URL, avoid key-in-chat, tokens narrow+rotatable; repo standards (no suppressions, type annotations, async, Preflight green); validate against REAL clients (Claude Code + Claude Desktop) early, not at the end."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "cfba823dfdbcc3dac260c611e20110c267590dee",
+  "token_usage": [
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 123559,
+      "prompt_cap": 250000,
+      "input_tokens": 82812,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.082812,
+      "timestamp": "2026-06-13T15:56:05.386677Z",
+      "started_at": "2026-06-13T15:53:55.915544Z",
+      "ended_at": "2026-06-13T15:56:05.386677Z",
+      "duration_seconds": 129.469773,
+      "agent_id": null,
+      "artifact_sha_at_time": "2005e1762d8276126f8e5125f59571f20e84433ab4efaaabcf4fa3d2cb883546"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 123444,
+      "prompt_cap": 250000,
+      "input_tokens": 46187,
+      "output_tokens": 617,
+      "cost_usd_estimate": 0.01247225,
+      "timestamp": "2026-06-13T15:56:16.527849Z",
+      "started_at": "2026-06-13T15:56:05.574717Z",
+      "ended_at": "2026-06-13T15:56:16.527849Z",
+      "duration_seconds": 10.952927,
+      "agent_id": null,
+      "artifact_sha_at_time": "2005e1762d8276126f8e5125f59571f20e84433ab4efaaabcf4fa3d2cb883546"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 124450,
+      "prompt_cap": 250000,
+      "input_tokens": 88237,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.088237,
+      "timestamp": "2026-06-13T16:00:43.435675Z",
+      "started_at": "2026-06-13T15:58:02.766833Z",
+      "ended_at": "2026-06-13T16:00:43.435675Z",
+      "duration_seconds": 160.667142,
+      "agent_id": null,
+      "artifact_sha_at_time": "4f2b7a50cab09b51633ed703355abe532fe2feb615b812aef277577000f33adc"
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 124335,
+      "prompt_cap": 250000,
+      "input_tokens": 46789,
+      "output_tokens": 858,
+      "cost_usd_estimate": 0.01298425,
+      "timestamp": "2026-06-13T16:00:55.564917Z",
+      "started_at": "2026-06-13T16:00:43.612824Z",
+      "ended_at": "2026-06-13T16:00:55.564917Z",
+      "duration_seconds": 11.951901,
+      "agent_id": null,
+      "artifact_sha_at_time": "4f2b7a50cab09b51633ed703355abe532fe2feb615b812aef277577000f33adc"
+    }
+  ],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-13T15:56:16Z",
+      "wall_seconds": 141.094,
+      "input_bytes_read": 118385,
+      "output_bytes_written": 33896,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-13T15:57:39Z",
+      "wall_seconds": 0.28,
+      "input_bytes_read": 31852,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-13T15:57:40Z",
+      "wall_seconds": 0.268,
+      "input_bytes_read": 32866,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-13T16:00:56Z",
+      "wall_seconds": 173.42,
+      "input_bytes_read": 141980,
+      "output_bytes_written": 43882,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-13T16:00:56Z",
+      "wall_seconds": 0.062,
+      "input_bytes_read": 43997,
+      "output_bytes_written": 11984,
+      "files_read": 3,
+      "files_written": 1,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-13T16:01:56Z",
+      "wall_seconds": 0.284,
+      "input_bytes_read": 35266,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 22,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-13T16:01:57Z",
+      "wall_seconds": 0.273,
+      "input_bytes_read": 35632,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 22,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 2,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "2005e1762d8276126f8e5125f59571f20e84433ab4efaaabcf4fa3d2cb883546",
+        "4f2b7a50cab09b51633ed703355abe532fe2feb615b812aef277577000f33adc"
+      ],
+      "initial_sha": "2005e1762d8276126f8e5125f59571f20e84433ab4efaaabcf4fa3d2cb883546"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 2,
+  "last_action_result": {
+    "next": "run_plan_checkpoint",
+    "reason": "spec checkpoint completed",
+    "blockers": []
+  }
+}

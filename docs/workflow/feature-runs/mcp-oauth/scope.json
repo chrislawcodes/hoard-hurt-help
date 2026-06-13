@@ -1,0 +1,17 @@
+{
+  "paths": [
+    "app/deps.py",
+    "app/main.py",
+    "app/routes",
+    "mcp_server",
+    "pyproject.toml"
+  ],
+  "allowed_dirty_paths": [
+    "app/deps.py",
+    "app/main.py",
+    "app/routes",
+    "docs/workflow/feature-runs/mcp-oauth",
+    "mcp_server",
+    "pyproject.toml"
+  ]
+}
