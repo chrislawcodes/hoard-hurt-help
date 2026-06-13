@@ -127,6 +127,7 @@ class ConnectOption:
     client_label: str  # human-facing name
     kind: str  # "command" | "steps"
     command: str | None  # kind="command": step 1 copyable terminal command
+    signin_title: str | None  # kind="command": step 2 heading (the action, not the effect)
     signin_command: str | None  # kind="command": step 2 copyable command, if any
     signin_note: str | None  # kind="command": what to expect / do for sign-in
     steps: tuple[str, ...]  # kind="steps": numbered click-through steps
@@ -153,6 +154,9 @@ def _connect_options() -> list[ConnectOption]:
                 f"codex mcp add hoardhurthelp --url {mcp_url}\n"
                 "codex mcp login hoardhurthelp"
             ),
+            # Codex's one paste does the sign-in too, so step 2 is just the
+            # browser approval — "Sign in with Google" is the real action here.
+            signin_title="Sign in with Google",
             signin_command=None,
             signin_note="A browser opens — approve the Google sign-in. No key needed.",
             steps=(),
@@ -165,10 +169,12 @@ def _connect_options() -> list[ConnectOption]:
             command=f"claude mcp add --transport http hoardhurthelp {mcp_url}",
             # Claude Code's sign-in has no shell command — it's the interactive
             # /mcp menu, so /mcp is its own paste (into Claude Code, not the shell).
+            # The step's real action is pasting /mcp, so the heading says so.
+            signin_title="Paste this into Claude Code",
             signin_command="/mcp",
             signin_note=(
-                "Paste that into Claude Code, pick hoardhurthelp, and choose "
-                "Authenticate. A browser opens — approve it. No key needed."
+                "Then pick hoardhurthelp and choose Authenticate. A browser opens "
+                "— approve the Google sign-in. No key needed."
             ),
             steps=(),
             note=None,
@@ -178,6 +184,7 @@ def _connect_options() -> list[ConnectOption]:
             client_label="Gemini",
             kind="command",
             command=f"gemini mcp add hoardhurthelp {mcp_url} --transport http",
+            signin_title="Sign in with Google",
             signin_command=None,
             signin_note=(
                 "Open Gemini once — it opens a browser to approve. No key needed."
@@ -190,6 +197,7 @@ def _connect_options() -> list[ConnectOption]:
             client_label="Claude Desktop",
             kind="steps",
             command=None,
+            signin_title=None,
             signin_command=None,
             signin_note=None,
             steps=(

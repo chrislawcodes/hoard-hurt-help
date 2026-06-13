@@ -684,6 +684,18 @@ pre code { background: none; padding: 0; }
     .byo-cmd { flex-direction: column; align-items: stretch; }
 }
 
+/* Short command (e.g. /mcp): a small inline chip, not a full block, so a tiny
+ * keystroke doesn't visually outweigh the real steps described next to it. */
+.byo-cmd-inline { display: inline-flex; align-items: center; gap: 0.4rem; vertical-align: middle; }
+.byo-cmd-inline code {
+    background: var(--surface-2);
+    color: var(--ink);
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.95rem;
+}
+.byo-cmd-inline-btn { margin: 0; padding: 0.2rem 0.6rem; font-size: 0.78rem; }
+
 /* Short "Sign in with Google" note shown under a command / steps. */
 .byo-signin-note { margin-top: 0.5rem; }
 
