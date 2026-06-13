@@ -268,16 +268,16 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
         cookies=_signed_in_cookies(user.id),
     )
     assert resp.status_code == 200
-    # The connections page shows the ready-to-run setup command inline (no provider
-    # picker, no second page) and mints the pending machine setup on load.
-    assert "Set up a machine connection" in resp.text
+    # The connections page shows the ready-to-run connector command inline (now the
+    # secondary "always-on" option) and mints the pending machine setup on load.
+    assert "always-on connector" in resp.text
     assert "Name this machine" in resp.text
     assert "Paste this to your AI assistant:" in resp.text
     assert "agentludum_connector.py" in resp.text
     assert "setup-files/agentludum_connector.py" in resp.text
     assert "--install" in resp.text
+    # The old per-provider agent header is gone (machines are provider-agnostic).
     assert "X-Agent-Key" not in resp.text
-    assert "mcp" not in resp.text.lower()
 
     async with session_factory() as db:
         setup = (
@@ -351,8 +351,9 @@ async def test_connections_list_shows_inline_setup_and_no_provider_picker(
 
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
-    # One unified setup prompt, inline, using the single connector download.
-    assert "Set up a machine connection" in resp.text
+    # One unified setup prompt, inline, using the single connector download. The
+    # connector is now the secondary "always-on" option below the Mode A flow.
+    assert "always-on connector" in resp.text
     assert "Name this machine" in resp.text
     assert "Paste this to your AI assistant:" in resp.text
     assert "setup-files/agentludum_connector.py" in resp.text
@@ -361,6 +362,71 @@ async def test_connections_list_shows_inline_setup_and_no_provider_picker(
     assert 'name="provider"' not in resp.text
     assert "agentludum_setup_hermes.py" not in resp.text
     assert "agentludum_setup_openclaw.py" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_connections_list_leads_with_byo_mode_a(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The hub leads with Mode A: a connect snippet carrying the user's key, the
+    universal play-prompt, the agent-readiness line, plus the connector kept as a
+    secondary always-on option."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, plain_key = await _make_connection(db, user, nickname="My Mac")
+        await db.commit()
+
+    # Use the client jar so the session-stored one-time key stays stable across the
+    # request (the key baked into the connect snippet comes from the open setup).
+    client.cookies.update(_signed_in_cookies(user.id))
+    resp = await client.get("/me/connections")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # Lead heading + readiness line. No agent here, so we nudge to create one.
+    assert "Play with your own AI" in text
+    assert "First, create an agent →" in text
+    assert "/me/agents/new" in text
+
+    # The per-session play-prompt is present (Mode A step 2).
+    assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools" in text
+    assert "your AI plays all your matches while you watch" in text
+
+    # At least one connect snippet carries this user's key + /mcp + the header.
+    key_match = re.search(r"sk_conn_[a-f0-9]+", text)
+    assert key_match is not None
+    snippet_key = key_match.group(0)
+    assert f'X-Connection-Key: {snippet_key}' in text
+    assert "/mcp" in text
+    assert 'claude mcp add hoardhurthelp' in text
+
+    # "Watch your games" link to the lobby.
+    assert "/games/hoard-hurt-help" in text
+
+    # The connector flow is still present, now secondary/collapsed.
+    assert "always-on connector" in text
+    assert "setup-files/agentludum_connector.py" in text
+    # And the user's machine still shows below.
+    assert "My Mac" in text
+
+
+@pytest.mark.asyncio
+async def test_connections_list_shows_agent_ready_when_user_has_agent(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user)
+        await _make_agent(
+            db, user, connection=connection, name="Negotiator", model="claude-haiku-4-5"
+        )
+        await db.commit()
+
+    resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
+    assert resp.status_code == 200
+    assert "Agent ready" in resp.text
+    assert "Negotiator · claude-haiku-4-5" in resp.text
+    assert "First, create an agent →" not in resp.text
 
 
 @pytest.mark.asyncio
@@ -374,7 +440,7 @@ async def test_connections_list_renders_existing_connection(
 
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
-    assert "Your connections" in resp.text
+    assert "Your connected machines" in resp.text
     assert "My Claude" in resp.text
     assert "Manage →" in resp.text
     assert "Disconnected" in resp.text

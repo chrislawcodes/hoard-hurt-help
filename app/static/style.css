@@ -582,6 +582,63 @@ pre code { background: none; padding: 0; }
 .auth { text-align: center; margin: 4rem auto; }
 
 
+/* ---- Connect-your-AI (BYO Mode A) ---- */
+/* Readiness banner: green-tinted when an agent exists, accent-nudge when not. */
+.byo-readiness.is-ready { border-color: color-mix(in srgb, var(--help) 45%, var(--line)); }
+.byo-readiness.needs-agent { border-color: var(--accent); }
+
+/* Copy button: smaller than the big .btn, sits above its <pre>. */
+.btn-copy {
+    color: var(--ink);
+    background: var(--surface);
+    border: 1.5px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    margin-bottom: 0.4rem;
+}
+.btn-copy:hover { border-color: var(--accent); }
+.btn-copy:disabled { color: var(--ink-soft); cursor: default; }
+
+/* CSS-only client picker: hidden radios drive which panel shows via :checked. */
+.byo-tab-input { position: absolute; opacity: 0; pointer-events: none; }
+.byo-tab-labels { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.9rem; }
+.byo-tab-label {
+    display: inline-block;
+    padding: 0.4rem 0.85rem;
+    border: 1.5px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--ink-soft);
+    font-size: 0.9rem;
+    cursor: pointer;
+    user-select: none;
+}
+.byo-tab-label:hover { border-color: var(--accent); }
+.byo-tab-panel { display: none; }
+/* Map each checked radio to its label (highlight) and its panel (show). The
+ * order matches the template's loop: Claude Code, Claude Desktop, Codex, Gemini, Cursor. */
+#byo-tab-claude-code:checked ~ .byo-tab-labels label[for="byo-tab-claude-code"],
+#byo-tab-claude-desktop:checked ~ .byo-tab-labels label[for="byo-tab-claude-desktop"],
+#byo-tab-codex:checked ~ .byo-tab-labels label[for="byo-tab-codex"],
+#byo-tab-gemini:checked ~ .byo-tab-labels label[for="byo-tab-gemini"],
+#byo-tab-cursor:checked ~ .byo-tab-labels label[for="byo-tab-cursor"] {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-color: var(--accent);
+}
+#byo-tab-claude-code:checked ~ #byo-panel-claude-code,
+#byo-tab-claude-desktop:checked ~ #byo-panel-claude-desktop,
+#byo-tab-codex:checked ~ #byo-panel-codex,
+#byo-tab-gemini:checked ~ #byo-panel-gemini,
+#byo-tab-cursor:checked ~ #byo-panel-cursor { display: block; }
+
+.byo-connector summary { cursor: pointer; font-weight: 700; }
+.byo-connector summary:hover { color: var(--accent); }
+.byo-connector-body { margin-top: 0.9rem; }
+
+
 /* ---- Lobby ---- */
 .hero { margin-bottom: 2.5rem; }
 .hero h1 { margin-bottom: 0.5rem; }
