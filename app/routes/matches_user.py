@@ -13,7 +13,7 @@ from app.config import settings
 from app.deps import DbSession, require_platform_admin, require_user
 from app.engine.match_creation import create_match
 from app.engine.match_deletion import cancel_match, delete_match
-from app.games import GameError, get as get_game_module
+from app.games import GameError, get as get_game_module, is_admin_only
 from app.models.match import GameState, Match
 from app.models.user import User, UserRole
 from app.routes.web_support import _is_any_admin, _load_match_or_404
@@ -35,6 +35,15 @@ def _load_game_module_or_404(game: str):
         return get_game_module(game)
     except GameError as exc:
         raise HTTPException(status_code=404, detail="Game not found.") from exc
+
+
+def _load_visible_game_module_or_404(game: str, user: User | None):
+    """Like `_load_game_module_or_404`, but an admin-only (under-construction)
+    game is invisible (404) to non-admins so they can't create matches for it."""
+    module = _load_game_module_or_404(game)
+    if is_admin_only(game) and not _is_any_admin(user):
+        raise HTTPException(status_code=404, detail="Game not found.")
+    return module
 
 
 def _html_error(
@@ -67,7 +76,7 @@ async def create_match_form(
     request: Request,
     user: Annotated[User, Depends(require_user)],
 ):
-    module = _load_game_module_or_404(game)
+    module = _load_visible_game_module_or_404(game, user)
     return templates.TemplateResponse(
         request,
         "matches_user/create_match.html",
@@ -91,7 +100,7 @@ async def create_match_submit(
     name: Annotated[str, Form()],
     scheduled_start: Annotated[str, Form()],
 ):
-    _load_game_module_or_404(game)  # 404 on unknown game before doing work
+    _load_visible_game_module_or_404(game, user)  # 404 on unknown/hidden game
     try:
         when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
     except ValueError:

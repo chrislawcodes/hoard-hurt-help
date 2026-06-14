@@ -16,6 +16,7 @@ from app.deps import DbSession, get_current_user
 from app.engine.connection_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
+from app.games import is_admin_only
 from app.games.base import GameError
 from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection
@@ -228,9 +229,13 @@ async def home(request: Request, db: DbSession):
     lobby itself lives one level down at `/games/hoard-hurt-help`.
     """
     user = await get_current_user(request, db)
+    viewer_is_admin = _is_any_admin(user)
     all_games = (
         (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
+    # Hide matches of admin-only (under-construction) games from non-admins.
+    if not viewer_is_admin:
+        all_games = [g for g in all_games if not is_admin_only(g.game)]
 
     # Gather the per-game counts in bulk: three grouped queries instead of one
     # query per game (the old loop was an N+1 that grew with every match played).
@@ -273,6 +278,8 @@ async def home(request: Request, db: DbSession):
     # sliced to the top 8 per game section for the home page teaser.
     lb_sections_full = await load_leaderboard_sections(db, included="all")
     lb_sections = [dataclasses.replace(s, rows=s.rows[:8]) for s in lb_sections_full]
+    if not viewer_is_admin:
+        lb_sections = [s for s in lb_sections if not is_admin_only(s.game_type)]
 
     return templates.TemplateResponse(
         request,
@@ -325,6 +332,9 @@ async def leaderboard_page(
     )
     if hide_sim_games:
         sections = [section for section in sections if not section.has_sims]
+    # Hide admin-only (under-construction) game sections from non-admins.
+    if not _is_any_admin(user):
+        sections = [s for s in sections if not is_admin_only(s.game_type)]
     return templates.TemplateResponse(
         request,
         "leaderboard.html",
@@ -430,6 +440,10 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     except GameError:
         return await _redirect_to_match(db, game)
     user = await get_current_user(request, db)
+    # Hide an admin-only (under-construction) game from non-admins: 404 so its
+    # existence isn't even revealed.
+    if is_admin_only(game) and not _is_any_admin(user):
+        raise HTTPException(status_code=404, detail="Game not found.")
     # Self-heal before reading: a game past its start time with too few players
     # should show as cancelled, not linger as "Upcoming" with a live Join button.
     # The background poller normally does this within seconds, but the lobby must
@@ -601,6 +615,8 @@ async def game_upcoming(request: Request, db: DbSession, game: Annotated[str, Pa
     try:
         module = get_game_module(game)
     except GameError:
+        raise HTTPException(404)
+    if is_admin_only(game) and not _is_any_admin(user):
         raise HTTPException(404)
     try:
         await cancel_overdue_unfilled_games(db)
