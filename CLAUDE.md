@@ -108,24 +108,58 @@ Diagnose before fixing. Find the smallest reproducing case. Fix the root cause. 
 - Update `STATUS.md` (if it exists) when a meaningful task is complete.
 - Mark work done and note what is now unblocked.
 
-## Parallel Agents — One Worktree Each
+## How We Work — Worktrees, Clean Main, Prune On Merge
+
+The goal: the main checkout always sits on a fresh `main`, every task gets its own
+isolated worktree, and branches never pile up. Skipping the prune step is what
+silently rots the repo — dozens of merged and abandoned branches accumulate until
+sessions start landing on stale branches with bad assumptions.
+
+### Keep the main checkout pristine
+
+The primary repo folder (`hoard-hurt-help/`) stays on `main`, always fast-forwarded
+to `origin/main`. Treat it as read-only: explore, read, and answer questions here
+freely. Create your worktree at the moment you are about to make your first change —
+not at session start (a worktree per question just breeds new clutter), and never
+after the first edit (writing in `main` is the bug we are preventing). It is the
+trunk — branches grow *off* it, not *in* it. If you find it parked on a feature
+branch, that is the bug: return it to `main` first.
+
+### One worktree per task
 
 Multiple agent sessions (Claude, Codex, Gemini) must never edit the same working
 directory at once. Concurrent edits clobber each other — a file flips between
 half-finished states between commands, and one session's work gets swept into
-another's commit.
-
-Before starting work that another agent might also be doing, give yourself an
-isolated git worktree:
+another's commit. Give every task its own isolated worktree, branched fresh off
+`origin/main` (never reuse an old branch as a starting point):
 
 ```bash
 scripts/agent-worktree.sh new <branch-name>   # fresh worktree off origin/main
 scripts/agent-worktree.sh list                # show all worktrees
-scripts/agent-worktree.sh rm <branch-name>    # remove it + delete the branch after merge
+scripts/agent-worktree.sh rm <branch-name>    # remove worktree + delete branch after merge
 ```
 
-Work, commit, push, and open the PR from inside that worktree. Tear it down once
-the PR is squash-merged.
+Work, commit, push, and open the PR from inside that worktree.
+
+### Rebase each session
+
+If work spans more than one sitting, sync before continuing so you never build on a
+stale base:
+
+```bash
+git fetch origin main && git rebase origin/main
+```
+
+### Prune the moment it's done — this is the rule that keeps the repo clean
+
+- When a PR squash-merges, tear the branch down immediately: `scripts/agent-worktree.sh rm <branch-name>`.
+- When an A/B experiment ends, delete the loser's branch the same day.
+- When you stop using a Codex/Gemini branch, delete it. "I might look later" is not a
+  reason to keep it — the branch is already on GitHub, so deleting the local copy
+  loses nothing.
+
+Many branches is fine and expected (one feature per branch, phased work, experiments).
+The mess is *un-pruned* branches, not many branches. Prune as you go.
 
 ## Read First
 
