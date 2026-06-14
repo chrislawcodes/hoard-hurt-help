@@ -60,11 +60,13 @@ Touched platform files. Each change is guarded so PD's path is unchanged.
 | Area | File(s) | Change |
 |---|---|---|
 | Turn loop | `app/engine/scheduler.py` | Add a **sequential mode**: when `GameConfig.simultaneous` is false, drive the hand by `next_actor` (open a single-actor turn) → resolve on that one submission → repeat until `next_actor` returns `None` (hand over) → `award_round` → `on_round_start`; end the match on `is_match_over`. Simultaneous mode = today's fixed grid. |
-| Contract | `app/games/base.py` | Add the new loop hooks (`next_actor`, `is_round_over`, `is_match_over`, `on_round_start`), the payload hooks (`private_state_for`, `public_state_for`), `final_placement`, and `match_placement_key` — all with **default impls** that reproduce PD behavior. The existing contract already includes `agent_base_prompt`, `record_message`, `move_effect`, and `theme`; these are not new. |
-| Agent payload | `app/engine/agent_play.py` (`poll_turn` builds `YourTurnResponse`; `submit_action` builds the move dict and calls `validate_move` + `record_submission`; `_build_turn_payload` for the next-turn loop), `app/schemas/agent.py` | "Your turn" only when you are the active actor; add `your_private_state` + a game-supplied `public_state` block; everyone else gets `waiting (not your turn)` carrying public state. **`app/routes/agent_api.py` and `app/routes/agent_next_turn.py` are thin HTTP adapters** that delegate all business logic to `app/engine/agent_play.py`; the MCP tools share the same service. |
+| Contract | `app/games/base.py` | Add the new loop hooks (`next_actor`, `is_round_over`, `is_match_over`, `on_round_start`), the payload hooks (`private_state_for`, `public_state_for`), `final_placement`, `match_placement_key`, a **bot-move hook** (`bot_move`), and a **validation-snapshot hook** — all with **default impls** that reproduce PD behavior. `BaseGameModule.bot_move` defaults to `default_move`; the validation-snapshot hook defaults to a no-op (`{}`). The existing contract already includes `agent_base_prompt`, `record_message`, `move_effect`, and `theme`; these are not new. |
+| Agent payload | `app/engine/agent_play.py` (`poll_turn` builds `YourTurnResponse`; `submit_action` builds the move dict and calls `validate_move` + `record_submission`; `_build_turn_payload` for the next-turn loop), `app/schemas/agent.py` | "Your turn" only when you are the active actor; add `your_private_state` + a game-supplied `public_state` block; everyone else gets `waiting (not your turn)` carrying public state. The submit path merges a read-only validation snapshot (`{standing_bid, dice_counts, active_actor, total_dice, wild}`) into the move dict **before** `validate_move`, so the validator stays pure; PD's default snapshot is a no-op and LD's `record_submission` strips the keys before persisting. **`app/routes/agent_api.py` and `app/routes/agent_next_turn.py` are thin HTTP adapters** that delegate all business logic to `app/engine/agent_play.py`; the MCP tools share the same service. |
 | Wire format | `app/schemas/agent.py` (`SubmitRequest`) | Add optional free-form `move: dict`; keep PD's `action`/`target_id` for back-compat. Platform passes `move` through untouched (it already packs a `move` dict). |
+| Public action schema | `HistoryAction` (`app/schemas/agent.py`), `TimelineAction` (`app/read_models/matches.py`), `SpectatorAction` (`app/schemas/spectator.py`) | Widen each public action shape with nullable `quantity`/`face` so a bid's numbers have a structured home on the agent history, the timeline read-model, and the spectator JSON. Additive + nullable; PD leaves them null. |
 | State storage | `app/models/` + a migration | Generic per-title state (see Data Structures): a `match_state` row and per-player private `player_state` rows, plus `quantity`/`face` columns on `turn_submissions` (D-3 rec). |
-| Finish order | `app/read_models/leaderboard.py` (groups participants by `(round_wins, total_score)` inside `load_leaderboard_sections`), `app/routes/web_viewer.py` | Read placement from `module.final_placement(...)` instead of assuming PD round-wins (design D-4). Note: `app/engine/game_records.py` contains only pure DB-free dataclasses (`PlayerRecord`, `ActionRecord`) and does not contain placement or Elo logic. |
+| Admin create | `app/routes/admin_api.py`, `app/routes/game_admin_api.py`, `app/routes/game_admin_web.py` (+ `app/schemas/admin.py`, templates) | All **three** create paths gain a `game_type` selector and LD-only fields (**wild on/off**, **dice per player**). **Game-aware player bounds** (the module's `config_defaults().min_players..max_players`) are enforced in the **route validators only** — `create_match()` and `arena.py` keep their loose 1..20 bounds so shared/Practice-Arena callers are unaffected. The per-match LD config (`{wild, dice}`) is seeded into `MatchState.state_json["config"]` at create time. |
+| Finish order | `app/read_models/leaderboard.py` (groups participants by `(round_wins, total_score)` inside `load_leaderboard_sections`, and ranks via `match_placement_key`), `app/routes/web_viewer.py` | LD overrides **both** `final_placement` (elimination order) **and** `match_placement_key` (so the leaderboard ranks by finish order, not PD's round-wins proxy) — overriding `final_placement` alone leaves LD ranked by the PD proxy (design D-4). Note: `app/engine/game_records.py` contains only pure DB-free dataclasses (`PlayerRecord`, `ActionRecord`) and does not contain placement or Elo logic. |
 
 ### 3. Bots — Liar's Dice computer players (D-9)
 
@@ -73,9 +75,14 @@ and no-wild modes, wired into the Practice Arena + auto-matches. These are Bots 
 `Agent` rows with `kind=AgentKind.BOT` (`app/models/agent.py`). They reuse the
 existing Bot plumbing:
 
-- `app/engine/sims/service.py` already auto-submits each Bot per phase from the
-  scheduler via `auto_submit_sim_phase` (also exported as `auto_submit_bot_phase`,
-  its alias). In sequential mode it auto-submits **only the active Bot's** move.
+- In **sequential** play the bot seam is the module's `bot_move(db, match, player)` hook:
+  `SequentialDriver._drive_actor_turn` calls `module.bot_move(...)` for the active bot
+  actor instead of `default_move`. `BaseGameModule.bot_move` defaults to `default_move`
+  (so PD and other sequential games keep working); LD overrides it with the real
+  bid/bluff/challenge logic. The simultaneous PD path still auto-submits every Bot per
+  phase via `app/engine/sims/service.py:auto_submit_sim_phase` (also exported as
+  `auto_submit_bot_phase`) — that service is wired only into the simultaneous scheduler,
+  not the sequential driver.
 - `app/engine/arena.py` / `app/engine/sims/presets.py` / `app/engine/sims/seating.py`
   seed Bots into a match — reused as-is, with a Liar's-Dice Bot roster.
 - The Bot decision logic calls the **same pure `engine.py`** the real game uses
@@ -86,7 +93,10 @@ existing Bot plumbing:
 
 A text feed of bids + the showdown reveal + per-player dice-count bars, themed via
 the module's `theme()`. Lives in `templates/fragments/` + `app/routes/web_viewer.py`
-+ SSE. Fancy dice-table animation is deferred to the `game-art` skill.
++ `app/routes/spectator_api.py` + SSE. Both the HTML viewer and the spectator JSON
+source LD public state from **`module.public_state_for()`** — not generic timeline/player
+reads — and a **per-game template fragment** renders it, so we avoid a `game_type` switch
+inside `_game_view_context`. Fancy dice-table animation is deferred to the `game-art` skill.
 
 ---
 
@@ -167,8 +177,10 @@ safe to add:
 3. **Storage** — PD-shaped `turn_submissions` columns → generic `match_state` /
    `player_state` (see Data structures).
 4. **Placement** — `app/read_models/leaderboard.py` (`load_leaderboard_sections`)
-   derives placement from PD-shaped `(round_wins, total_score)` grouping → read
-   `module.final_placement(...)` instead so each game controls its own finish order.
+   derives placement from PD-shaped `(round_wins, total_score)` grouping and ranks via
+   `match_placement_key` → LD overrides **both** `final_placement(...)` and
+   `match_placement_key(...)` so each game controls its own finish order (overriding only
+   `final_placement` leaves LD ranked by the PD proxy).
 
 Hotspots 2–4 are the contract additions already listed under *Platform extensions*;
 hotspot 1 is the `TurnDriver` split.
@@ -206,6 +218,7 @@ match_state
 For Liar's Dice `state_json` holds:
 ```json
 {
+  "config": { "wild": true, "dice": 5 },   // seeded at create by the admin route; read by on_round_start(round=1)
   "hand": 6,
   "standing_bid": { "by": "P2", "quantity": 4, "face": 5 },
   "active_actor": "P3",
@@ -368,17 +381,19 @@ appear on any channel another player can read.
 ### E. Bots in the sequential loop
 
 ```
-scheduler (sequential mode)
+SequentialDriver (sequential mode)
    │ next_actor ─▶ "P3"
-   │ is P3 a Bot?  ── yes ─▶ sims.service.auto_submit_sim_phase(match, P3, phase="act")
+   │ is P3 a Bot?  ── yes ─▶ _drive_actor_turn calls module.bot_move(db, match, P3)
    │                              └─ Bot logic decides via pure engine.py
    │                                 (truth-prob of standing bid given P3's cup + unknown dice)
-   │                              └─ submit BID or CHALLENGE (+ a canned taunt for message)
+   │                              └─ returns a move dict: BID or CHALLENGE (+ a canned taunt)
    │ resolve as in flow A
 ```
 Only the active Bot acts per turn (contrast PD, where every Bot acts each turn).
-`auto_submit_sim_phase` is the real function name in `app/engine/sims/service.py`;
-`auto_submit_bot_phase` is its alias. There is no `auto_submit_active` function.
+`SequentialDriver._drive_actor_turn` calls `module.bot_move(...)` for bot actors instead
+of `default_move`; `BaseGameModule.bot_move` defaults to `default_move`. PD's simultaneous
+path keeps auto-submitting every Bot via `auto_submit_sim_phase` in
+`app/engine/sims/service.py` (alias `auto_submit_bot_phase`).
 
 ---
 
@@ -390,10 +405,11 @@ Only the active Bot acts per turn (contrast PD, where every Bot acts each turn).
 | Change the move shape / validation | `engine.py` + `game.py:validate_move` + `SubmitRequest` |
 | Change what an actor sees | `game.py:private_state_for` / `public_state_for` + `app/engine/agent_play.py` (`poll_turn` / `_build_turn_payload`) |
 | Touch the sequential loop | `app/engine/scheduler.py` (sequential mode) + the loop hooks in `base.py` |
-| Add/adjust a Liar's Dice Bot | `app/games/liars_dice/sims.py` (or `app/engine/sims/`) |
+| Add/adjust a Liar's Dice Bot | `app/games/liars_dice/sims.py` (or `app/engine/sims/`) + `game.py:bot_move` |
 | Change the dice/bid storage | `match_state` / `player_state` models + migration |
-| Change the viewer | `templates/fragments/` + `web_viewer.py` + SSE |
-| Wire placement into Elo | `module.final_placement` + `app/read_models/leaderboard.py` (`load_leaderboard_sections`) |
+| Change the viewer | `templates/fragments/` (per-game LD fragment) + `web_viewer.py` + `spectator_api.py` + SSE, sourced from `public_state_for()` |
+| Change the admin create form / LD config | `admin_api.py` + `game_admin_api.py` + `game_admin_web.py` (+ `app/schemas/admin.py`); seeds `MatchState.config` |
+| Wire placement into Elo | `module.final_placement` + `module.match_placement_key` + `app/read_models/leaderboard.py` (`load_leaderboard_sections`) |
 
 ---
 

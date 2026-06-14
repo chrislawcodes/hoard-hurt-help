@@ -1,34 +1,34 @@
 {
-  "session_id": "48ce1a8a-847d-4b20-98f7-44e0a9049f6e",
-  "response": "## Findings\n\n1. **Hardcoded Player Range Validation** [CODE-CONFIRMED]\n   - **Severity:** HIGH\n   - **Evidence:** `app/schemas/admin.py` defines `CreateGameRequest` with `min_players` and `max_players` capped by `Field(ge=6, le=10)`. The `spec.md` states Liar's Dice (LD) supports 3\u20136 players. These hardcoded constants in the schema currently prevent creating valid LD matches. This confirms a mismatch between the current platform design and the requirements defined in the spec.\n\n2. **Insecure Exposure of Private State** [UNVERIFIED]\n   - **Severity:** HIGH\n   - **Evidence:** The current implementation of `app/routes/spectator_api.py` and `app/routes/web_viewer.py` uses `load_players` and `load_match_timeline` which rely on generic reads. The spec explicitly requires sourcing LD public state from the module's `public_state_for()` and warns about potential leaks of dice faces. As the provided code for `spectator_api.py` shows no call to `public_state_for()`, it is highly probable that LD, if implemented per the spec, would leak hidden dice faces to spectators if not explicitly restricted.\n\n3. **Inconsistent Per-Match Configuration Persistence** [CODE-CONFIRMED]\n   - **Severity:** HIGH\n   - **Evidence:** The admin API (`app/routes/admin_api.py`) and `app/engine/match_creation.py` only initialize the `Match` table. No code exists to initialize `MatchState` or `PlayerState` records for a new match. The spec requires persisting LD-specific \"wild on/off\" and \"dice per player\" settings. Failure to persist this configuration at creation time means these variables will be missing or default-initialized inconsistently when the match begins.\n\n## Residual Risks\n\n*   **Concurrency/Persistence Race:** The architecture relies on `MatchState` and `PlayerState` using `MutableDict` for dirty-tracking. While this is standard for SQLAlchemy, if multiple asynchronous tasks attempt to modify the `state_json` simultaneously, it may lead to lost updates. The current implementation relies on single-writer sequential turns per match, but this assumption must be strictly enforced across all game modules.\n*   **Validator Parity:** The \"validation snapshot\" requirement involves merging read-only state into a `move` dictionary before `validate_move` is called. If the snapshot logic is not perfectly synchronized with the actual state persisted during `record_submission`, the validator will reject legitimate moves or accept illegal ones, creating a mismatch between logic and persistence.\n*   **Sequential Bot Seam Integration:** The `SequentialDriver` currently records `default_move` for bots. Replacing this with a module-level `bot_move` hook introduces a new dependency in the sequential loop. If this hook fails to account for the deterministic requirement (using provided seeds), bot behavior will become inconsistent during re-runs or test replays.",
+  "session_id": "8bc8ba90-111f-4b25-a1b3-fd6c61b79983",
+  "response": "## Findings\n\n1.  **HIGH: Missing \"Last-Elimination\" End-Game Edge Case in `SequentialDriver`**\n    The `SequentialDriver` breaks from the loop when `is_match_over` is True. In Liar's Dice, a match ends when exactly one player has dice. However, the driver logic calls `on_round_start` at the beginning of *every* loop iteration after a round ends. If the \"match over\" state is reached exactly as the last player is eliminated, the platform must finalize the match without attempting to \"start\" a final round that should never exist. The current `run_match` logic (`if await module.is_match_over(db, game): break`) happens *after* `award_round`, which is correct, but there is a risk that `on_round_start` is triggered for a round that shouldn't happen if `is_match_over` isn't checked precisely at the transition.\n    [CODE-CONFIRMED] \u2014 `SequentialDriver.run_match` (app/engine/turn_drivers.py) does check `is_match_over` after `award_round` and before the next `on_round_start`. The implementation looks robust, but this is a critical dependency on the `is_match_over` implementation in the module.\n\n2.  **MEDIUM: Potential `MutableDict` Persistence Failures**\n    The spec relies on `MutableDict` in `MatchState` and `PlayerState` to handle JSON persistence. While `MutableDict` tracks in-place mutations, it requires careful usage of session commit/flush cycles. If the game module performs complex state manipulations without intermediate flushes, there is a risk that the state is not dirtied correctly or the JSON blob is overwritten incorrectly.\n    [CODE-CONFIRMED] \u2014 `app/models/game_state.py` defines `state_json` using `MutableDict.as_mutable(JSON)`. The spec correctly identifies this as a potential failure point (\"AC8\") and requires an round-trip test, which mitigates the risk.\n\n3.  **MEDIUM: Bot Seam Integration Complexity**\n    The spec requires adding a `bot_move` hook to `BaseGameModule` that `SequentialDriver` must call for bots, replacing `default_move`. The spec review notes that `sims/service.py` is simultaneous-only. There is a risk that the `SequentialDriver` implementation will have to duplicate or diverge from bot-routing logic, leading to two disparate paths for \"bot decision making.\"\n    [CODE-CONFIRMED] \u2014 `SequentialDriver._drive_actor_turn` (app/engine/turn_drivers.py) currently checks `_is_bot` and calls `module.default_move`. Adding a new `bot_move` hook is necessary but introduces complexity in how bot decisions are orchestrated across the two drivers (simultaneous vs. sequential).\n\n4.  **LOW: Ambiguity in Admin API Player Bounds**\n    The spec calls for game-aware player bounds in admin create paths. While it correctly suggests validating at the request schema layer, the implementation of \"game-aware\" validation in `admin_api.py` could become brittle if new games are added with widely different constraints.\n    [CODE-CONFIRMED] \u2014 `app/admin.py` defines `CreateGameRequest` with hardcoded bounds `ge=6, le=10`. This will indeed require refactoring as identified in the spec.\n\n## Residual Risks\n\n1.  **Race Conditions in Turn Finalization:** There is a narrow risk that a turn resolve/award could race with a late submission if `resolve_turn` or `award_round` takes significant time, especially if not wrapped in proper transactional boundaries. The current sequential driver's approach to polling (`_SUBMIT_POLL_SECONDS`) and resolving is well-intentioned, but high-latency environments might trigger edge cases in turn advancement.\n2.  **Incomplete Visibility State:** The `admin_only` flag is a powerful tool, but if the UI layer (which is not fully covered by the back-end-centric spec) does not respect this flag in all contexts (leaderboards, match lists), private games could inadvertently leak to non-admins.\n3.  **State-Blob \"Smearing\":** Since `MatchState` and `PlayerState` are opaque JSON blobs, there is no structural validation of the state schema. If the module code evolves and changes the shape of the JSON without an explicit migration, old matches in the database will cause runtime errors in the module, potentially bricking active games. The platform provides no tooling for \"schema-aware\" JSON state management.",
   "stats": {
     "models": {
       "gemini-3.1-flash-lite": {
         "api": {
-          "totalRequests": 1,
+          "totalRequests": 2,
           "totalErrors": 0,
-          "totalLatencyMs": 4075
+          "totalLatencyMs": 7557
         },
         "tokens": {
-          "input": 46428,
-          "prompt": 46428,
-          "candidates": 654,
-          "total": 47082,
-          "cached": 0,
+          "input": 47355,
+          "prompt": 93656,
+          "candidates": 1166,
+          "total": 94822,
+          "cached": 46301,
           "thoughts": 0,
           "tool": 0
         },
         "roles": {
           "main": {
-            "totalRequests": 1,
+            "totalRequests": 2,
             "totalErrors": 0,
-            "totalLatencyMs": 4075,
+            "totalLatencyMs": 7557,
             "tokens": {
-              "input": 46428,
-              "prompt": 46428,
-              "candidates": 654,
-              "total": 47082,
-              "cached": 0,
+              "input": 47355,
+              "prompt": 93656,
+              "candidates": 1166,
+              "total": 94822,
+              "cached": 46301,
               "thoughts": 0,
               "tool": 0
             }
@@ -37,17 +37,30 @@
       }
     },
     "tools": {
-      "totalCalls": 0,
-      "totalSuccess": 0,
+      "totalCalls": 1,
+      "totalSuccess": 1,
       "totalFail": 0,
-      "totalDurationMs": 0,
+      "totalDurationMs": 5,
       "totalDecisions": {
-        "accept": 0,
+        "accept": 1,
         "reject": 0,
         "modify": 0,
         "auto_accept": 0
       },
-      "byName": {}
+      "byName": {
+        "update_topic": {
+          "count": 1,
+          "success": 1,
+          "fail": 0,
+          "durationMs": 5,
+          "decisions": {
+            "accept": 1,
+            "reject": 0,
+            "modify": 0,
+            "auto_accept": 0
+          }
+        }
+      }
     },
     "files": {
       "totalLinesAdded": 0,
