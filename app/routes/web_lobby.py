@@ -1,5 +1,6 @@
 """Marketing, game catalog, play hub, and lobby web routes."""
 
+import asyncio
 import dataclasses
 import logging
 from datetime import datetime
@@ -12,6 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+import app.db as app_db
 from app.deps import DbSession, get_current_user
 from app.engine.connection_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
@@ -24,11 +26,15 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.read_models.leaderboard_cache import load_leaderboard_sections_cached
+from app.read_models.leaderboard import LeaderboardSection
+from app.routes.showcase_replay import (
+    ShowcaseReplay,
+    load_showcase_replay_cached,
+)
 from app.read_models.agent_display import agent_display_name
-from app.read_models.matches import count_players_by_match, winner_agent_id_by_player
+from app.read_models.matches import count_players_by_match
 from app.routes.web_support import (
     _TEST_NAME_PREFIX,
-    _agent_counts,
     _is_any_admin,
     _is_showcase,
     _load_match_or_404,
@@ -218,65 +224,46 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
     }
 
 
+async def _home_showcase_branch(request: Request) -> ShowcaseReplay:
+    """Load the cached showcase replay on its own session (for concurrent fan-out).
+
+    A single AsyncSession can't run two queries at once, so each parallel branch
+    of the home page gets its own. On a cache hit no query runs, so no DB
+    connection is acquired — the session open/close is cheap. SessionLocal is
+    referenced via the module (not imported by name) so tests that swap in an
+    in-memory factory are honoured.
+    """
+    async with app_db.SessionLocal() as session:
+        return await load_showcase_replay_cached(request, session)
+
+
+async def _home_leaderboard_branch() -> list[LeaderboardSection]:
+    """Load the cached leaderboard on its own session (for concurrent fan-out)."""
+    async with app_db.SessionLocal() as session:
+        return await load_leaderboard_sections_cached(session, included="all")
+
+
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: DbSession):
     """Agent Ludum platform front page (marketing).
 
     Static explainer + funnel, plus two real-data regions: the hero match card
-    (a real finished game's final-round replay) and the leaderboard band (real
-    standings from the most-progressed live game, else the most-recent finished
-    showcase game). Both fall back to honest empty states. The Hoard·Hurt·Help
-    lobby itself lives one level down at `/games/hoard-hurt-help`.
+    (a real finished game's replay) and the leaderboard band (real standings).
+    Both are cached (the showcase game and the standings are the same for every
+    visitor for a minute at a time) and both fall back to honest empty states.
+    The two cached reads are independent, so we run them concurrently. The
+    Hoard·Hurt·Help lobby itself lives one level down at `/games/hoard-hurt-help`.
     """
     user = await get_current_user(request, db)
     viewer_is_admin = _is_any_admin(user)
-    all_games = (
-        (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
-    )
-    # Hide matches of admin-only (under-construction) games from non-admins.
-    if not viewer_is_admin:
-        all_games = [g for g in all_games if not is_admin_only(g.game)]
 
-    # Gather the per-game counts in bulk: three grouped queries instead of one
-    # query per game (the old loop was an N+1 that grew with every match played).
-    completed_games = [g for g in all_games if g.state == GameState.COMPLETED]
-    player_counts = await count_players_by_match(
-        db, [g.id for g in all_games], active_only=True
-    )
-    agent_counts = await _agent_counts(db, [g.id for g in completed_games])
-    winner_agent_ids = await winner_agent_id_by_player(
-        db, [g.winner_player_id for g in completed_games if g.winner_player_id]
+    # Two independent cached reads, run concurrently — each on its own session.
+    (rc_game_id, rc_data, rc_game_type), lb_sections_full = await asyncio.gather(
+        _home_showcase_branch(request),
+        _home_leaderboard_branch(),
     )
 
-    live: list[dict] = []
-    completed: list[dict] = []
-    for g in all_games:
-        view = {
-            "id": g.id,
-            "game_type": g.game,
-            "name": g.name,
-            "state": g.state,
-            "current_round": g.current_round,
-            "current_turn": g.current_turn,
-            "winner_agent_id": None,
-            "player_count": player_counts.get(g.id, 0),
-        }
-        if g.state == GameState.ACTIVE:
-            live.append(view)
-        elif g.state == GameState.COMPLETED:
-            view["agent_count"] = agent_counts.get(g.id, 0)
-            if g.winner_player_id:
-                view["winner_agent_id"] = winner_agent_ids.get(g.winner_player_id)
-            completed.append(view)
-
-    # Robot-circle animation: most-recent completed showcase game — consistent
-    # across page loads so the viewer always sees the same game.
-    rc_game_id, rc_data = await _showcase_replay_data(request, db, completed)
-    rc_game_type = next((v["game_type"] for v in completed if v["id"] == rc_game_id), None)
-
-    # Leaderboard band: real ELO standings across all competitors (agents + sims),
-    # sliced to the top 8 per game section for the home page teaser.
-    lb_sections_full = await load_leaderboard_sections_cached(db, included="all")
+    # Leaderboard band: top 8 per game section for the home page teaser.
     lb_sections = [dataclasses.replace(s, rows=s.rows[:8]) for s in lb_sections_full]
     if not viewer_is_admin:
         lb_sections = [s for s in lb_sections if not is_admin_only(s.game_type)]
@@ -286,12 +273,11 @@ async def home(request: Request, db: DbSession):
         "agent_ludum.html",
         {
             "user": user,
-            "is_admin": _is_any_admin(user),
+            "is_admin": viewer_is_admin,
             "rc_data": rc_data,
             "rc_game_id": rc_game_id,
             "rc_game_type": rc_game_type,
             "lb_sections": lb_sections,
-            "has_live": bool(live),
         },
     )
 
