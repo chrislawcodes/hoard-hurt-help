@@ -49,6 +49,14 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Optional deep logging for the MCP OAuth auth layer (FastMCP token swap and
+# upstream validation). Off by default; set MCP_AUTH_DEBUG=1 to surface the
+# precise reason a bearer token is rejected on /mcp, without flooding normal
+# request logs. Safe to leave wired in — it only raises one sub-logger's level.
+if os.getenv("MCP_AUTH_DEBUG", "").strip() == "1":
+    logging.getLogger("fastmcp.server.auth").setLevel(logging.DEBUG)
+    logger.warning("MCP_AUTH_DEBUG=1: fastmcp auth-layer DEBUG logging is ON")
+
 
 def _should_run_startup_migrations() -> bool:
     """Skip automatic migrations in tests and on Railway; run them elsewhere."""
