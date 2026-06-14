@@ -412,9 +412,16 @@ def command_checkpoint(args: argparse.Namespace) -> int:
             capture_output=True,
         )
         if write_diff_result.returncode != 0:
-            detail = trim_detail(write_diff_result.stderr or write_diff_result.stdout or "diff generation failed")
+            # Surface the FULL underlying error (e.g. "Canonical diff is empty for
+            # the requested scope", or a real traceback) instead of trimming it to
+            # a generic dirty-path hint — the true cause is often not a dirty path.
+            detail = (write_diff_result.stderr or write_diff_result.stdout or "diff generation failed").strip()
             raise SystemExit(
-                f"{detail} Re-run with checkpoint --slug {args.slug} --stage diff --allow-dirty-path <path> for each path that is intentionally dirty outside the diff scope."
+                "Diff generation failed:\n"
+                f"{detail}\n\n"
+                "If a path outside the diff scope is intentionally dirty, re-run with "
+                f"checkpoint --slug {args.slug} --stage diff --allow-dirty-path <path> "
+                "for each such path."
             )
         diff_meta_path = artifact_path.with_suffix(artifact_path.suffix + ".json")
         if diff_meta_path.exists():
@@ -452,6 +459,19 @@ def command_checkpoint(args: argparse.Namespace) -> int:
             print(
                 "warning: large diff artifact detected; future diff reruns will regenerate "
                 "the Codex review unless the artifact stays unchanged. Batch follow-up fixes when possible.",
+                file=sys.stderr,
+            )
+        # Partial-review guard: the reviewer truncates the artifact to
+        # --max-artifact-chars. If the diff is bigger, the adversarial review only
+        # sees the first N chars — a partial review that otherwise passes silently
+        # (this is what let an oversized extraction slice slip through). Warn loudly.
+        review_budget = args.max_artifact_chars
+        if review_budget and len(diff_text) > review_budget:
+            print(
+                f"warning: diff artifact is {len(diff_text)} chars but the review budget "
+                f"(--max-artifact-chars) is {review_budget}; the adversarial review will only "
+                f"see the first {review_budget} chars — a PARTIAL review. Split the scope into "
+                f"smaller slices, or pass --max-artifact-chars {len(diff_text)} to review the whole diff.",
                 file=sys.stderr,
             )
 
