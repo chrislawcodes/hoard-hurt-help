@@ -379,3 +379,50 @@ async def test_default_move_opening_and_ceiling(reset_db) -> None:
         state.state_json["standing_bid"] = {"by": "A", "quantity": 3, "face": 6}
         await db.commit()
         assert await module.default_move(db, match, players[0]) == {"type": "CHALLENGE"}
+
+
+@pytest.mark.asyncio
+async def test_sc_hd_no_dice_faces_leak_to_spectator_or_mcp(reset_db) -> None:
+    """SC-HD: a player's dice FACES must not reach the spectator JSON or the MCP
+    `get_game_state` tool before the showdown. Both channels go through the same
+    `app.routes.spectator_api.public_state` (mcp_server imports it directly), so
+    one sweep covers both. After a showdown, the revealed dice DO become public."""
+    import json
+
+    from app.routes.spectator_api import public_state
+
+    module = LiarsDice()
+    async with reset_db() as db:
+        match, _players = await _seed_match(
+            db,
+            wild_ones=False,
+            dice_by_seat={"A": [5, 5, 2], "B": [1, 3, 4], "C": [6, 6, 6]},
+        )
+        state = (
+            await db.execute(select(MatchState).where(MatchState.match_id == match.id))
+        ).scalar_one()
+        state.state_json["standing_bid"] = {"by": "A", "quantity": 2, "face": 5}
+        await db.commit()
+
+        # Pre-showdown: only dice COUNTS are public; no faces anywhere.
+        before = (await public_state(match.id, db)).model_dump()
+        ps = before["public_state"]
+        assert ps["dice_counts"] == {"A": 3, "B": 3, "C": 3}
+        assert ps.get("last_showdown") is None
+        assert ps.get("showdowns") == []
+        blob = json.dumps(before, default=str)
+        for hand in ([5, 5, 2], [1, 3, 4], [6, 6, 6]):
+            assert json.dumps(hand) not in blob, f"dice {hand} leaked pre-showdown"
+
+        # Showdown reveals every hand publicly.
+        state = (
+            await db.execute(select(MatchState).where(MatchState.match_id == match.id))
+        ).scalar_one()
+        state.state_json["challenge_pending"] = True
+        state.state_json["challenger"] = "B"
+        await db.commit()
+        await module.award_round(db, match, 1)
+
+        after = (await public_state(match.id, db)).model_dump()
+        revealed = after["public_state"]["last_showdown"]["revealed"]
+        assert revealed == {"A": [5, 5, 2], "B": [1, 3, 4], "C": [6, 6, 6]}
