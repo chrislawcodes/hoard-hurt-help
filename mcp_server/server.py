@@ -9,7 +9,8 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from typing import Any, cast
 
 from fastmcp import FastMCP
@@ -22,7 +23,7 @@ from key_value.aio.stores.memory import MemoryStore
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db import SessionLocal, get_session
+from app.db import SessionLocal
 from app.deps import assert_connection_usable, require_agent_player
 from app.engine.agent_play import (
     chat_transcript,
@@ -229,6 +230,21 @@ _LAST_POLL: dict[int, float] = {}
 _LAST_PULL: dict[tuple[int, str], float] = {}
 
 
+@asynccontextmanager
+async def _session_scope() -> AsyncIterator[AsyncSession]:
+    """Per-call DB session for MCP tools, as an async context manager.
+
+    FastMCP's DI (uncalled_for) resolves a ``Depends()`` value by entering it as
+    an async context manager; unlike FastAPI it does NOT iterate a bare async
+    generator. The app's ``get_session`` is a generator, so passing it to
+    ``Depends`` would leave each tool with the raw generator object instead of a
+    session (``'async_generator' object has no attribute 'execute'``). Wrapping
+    in ``@asynccontextmanager`` gives uncalled_for something it can enter.
+    """
+    async with SessionLocal() as session:
+        yield session
+
+
 def _resolve_match_id(match_id: str | None, game_id: str | None) -> str:
     if match_id and game_id and match_id != game_id:
         raise ValueError("match_id and game_id must match when both are provided")
@@ -347,7 +363,7 @@ async def get_turn(
     match_id: str | None = None,
     game_id: str | None = None,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
     """Poll for the current turn."""
     resolved_match_id = _resolve_match_id(match_id, game_id)
@@ -368,7 +384,7 @@ async def get_turn(
 async def get_next_turn(
     *,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
     """Get the most urgent pending turn across all of the user's games."""
     _access_token, _userinfo, connection = await _resolve_oauth_connection(db, token)
@@ -390,7 +406,7 @@ async def submit_talk(
     turn_token: str,
     agent_turn_token: str,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
     """Submit the talk-phase message for the current turn."""
     resolved_match_id = _resolve_match_id(match_id, game_id)
@@ -423,7 +439,7 @@ async def submit_action(
     turn_token: str,
     agent_turn_token: str,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
     """Submit the act-phase move for the current turn."""
     resolved_match_id = _resolve_match_id(match_id, game_id)
@@ -454,7 +470,7 @@ async def get_game_state(
     match_id: str | None = None,
     game_id: str | None = None,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
     """Get the public state of any game."""
     _require_access_token(token)
@@ -469,7 +485,7 @@ async def get_opponent_history(
     game_id: str | None = None,
     opponent_id: str,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
     """Pull the full move history between the user and one opponent."""
     resolved_match_id = _resolve_match_id(match_id, game_id)
@@ -494,7 +510,7 @@ async def get_chat(
     game_id: str | None = None,
     since: str | None = None,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
     """Pull the full public chat transcript."""
     resolved_match_id = _resolve_match_id(match_id, game_id)
@@ -520,7 +536,7 @@ async def get_turn_detail(
     round: int,
     turn: int,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
     """Pull one resolved turn in full."""
     resolved_match_id = _resolve_match_id(match_id, game_id)
@@ -545,7 +561,7 @@ async def get_standings(
     match_id: str | None = None,
     game_id: str | None = None,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(get_session)),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
     """Pull the full standings."""
     resolved_match_id = _resolve_match_id(match_id, game_id)
