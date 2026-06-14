@@ -7,8 +7,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import String, select
+from starlette import status
 from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, settings
@@ -26,6 +27,7 @@ from app.models.connection import Connection, ConnectionProvider, ConnectionStat
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
+from app.routes.web_support import safe_internal_next
 from app.templating import templates
 
 router = APIRouter()
@@ -517,7 +519,9 @@ def _summarize_agent(agents: list[AgentRow]) -> tuple[bool, str | None]:
     return True, summary
 
 
-async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
+async def _live_status_context(
+    db: DbSession, user: User, *, next_url: str | None = None
+) -> dict[str, object]:
     """Shared 'are we live + agent nudge' context for the page and the poll fragment.
 
     A user is live now if ANY of their non-deleted connections resolves to a LIVE or
@@ -556,6 +560,9 @@ async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
         "agent_summary": agent_summary,
         "play_prompt": _play_prompt(),
         "lobby_url": "/games/hoard-hurt-help",
+        # When set, the connect→play flow forwards here the moment the AI is live
+        # (a join hub sent the user to start their machine). None = stay put.
+        "next_url": next_url,
     }
 
 
@@ -564,7 +571,9 @@ async def list_connections(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
+    next: str | None = None,
 ) -> Response:
+    next_url = safe_internal_next(next)
     await gc_pending_connections(db)
     connections = (
         (
@@ -603,6 +612,11 @@ async def list_connections(
     #   LIVE      — at least one connection is LIVE or READY right now
     has_connected_before = bool(connections)
     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
+    # Hub forward: if a join page sent the user here to start their AI and a
+    # connection is already live, jump straight back instead of making them read
+    # the "Connected" box. The 4s poll covers the case where it goes live later.
+    if next_url and is_live_now:
+        return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(
         request,
         "connections/list.html",
@@ -619,6 +633,7 @@ async def list_connections(
             "has_agent": has_agent,
             "agent_summary": agent_summary,
             "lobby_url": "/games/hoard-hurt-help",
+            "next_url": next_url,
         },
     )
 
@@ -628,6 +643,7 @@ async def live_status_fragment(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
+    next: str | None = None,
 ) -> Response:
     """The self-advancing connect → play region, polled every 4s.
 
@@ -635,11 +651,21 @@ async def live_status_fragment(
     live but not yet playing → "Connected", leading with the play-prompt code block
     to paste (a "Create an agent" nudge first if the user has no agent); playing →
     a "Your AI is playing" success box once the AI has made a real game call.
+
+    Hub forward: when called with a validated ?next and the AI has just gone live,
+    answer the HTMX poll with an HX-Redirect so the browser jumps back to the join
+    hub — the same auto-advance the page does on load, but for the poll path.
     """
+    next_url = safe_internal_next(next)
+    context = await _live_status_context(db, user, next_url=next_url)
+    if next_url and context["is_live_now"]:
+        # HTMX honors HX-Redirect by navigating the whole page. An empty body is
+        # fine since the redirect replaces this fragment's container entirely.
+        return HTMLResponse("", headers={"HX-Redirect": next_url})
     return templates.TemplateResponse(
         request,
         "connections/_live_status.html",
-        await _live_status_context(db, user),
+        context,
     )
 
 

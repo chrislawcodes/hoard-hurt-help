@@ -17,6 +17,7 @@ from app.engine.connection_health import (
     active_matches_for_provider,
     is_join_blocked,
     live_provider_capacity,
+    provider_enabled_on_any_connection,
     provider_is_covered,
 )
 from app.engine.scheduler import start_game
@@ -148,6 +149,63 @@ async def _load_user_agents(
     return [(agent, version) for agent, version in rows]
 
 
+async def _join_setup_redirect(
+    db: DbSession, user: User, join_url: str
+) -> RedirectResponse | None:
+    """Return the redirect to the FIRST missing setup step, or None when ready.
+
+    The join page is the hub for getting an operator's AI seated. This runs the
+    two setup gates that come AFTER sign-in + handle (those are handled inline in
+    ``join_form`` and stay there). In order:
+
+    1. No seatable AI agent — the user has no live (non-archived) AI agent whose
+       provider is enabled on one of their connections. Send them to create an
+       agent; the create-agent page itself nudges them to turn a machine on if
+       none runs that provider. We carry ``?next`` so finishing there returns
+       here.
+    2. A seatable agent exists, but NO live connection currently runs its
+       provider (never connected, or connected-but-stale = "not running"). Send
+       them to the connections page to start their AI; it auto-advances to
+       ``?next`` the moment the AI is live.
+
+    Each redirect carries ``?next=<join_url>`` so the existing page forwards back
+    here when its job is done. Returns None when at least one of the user's AI
+    agents has a live connection — the caller then renders the join form.
+    """
+    next_param = quote(join_url, safe="")
+    agents = await _load_user_agents(db, user.id)
+    # Distinct providers across the user's live AI agents. An AI agent always has
+    # a provider (DB CHECK), but guard the None case for the type-checker.
+    agent_providers = {
+        agent.provider
+        for agent, _version in agents
+        if agent.kind == AgentKind.AI and agent.provider is not None
+    }
+
+    # Gate 1 — does the user have any agent that COULD be seated (its provider is
+    # enabled on a connection, live or not)? If not, they need to create one.
+    seatable_providers = {
+        provider
+        for provider in agent_providers
+        if await provider_enabled_on_any_connection(db, user.id, provider)
+    }
+    if not seatable_providers:
+        return RedirectResponse(
+            url=f"/me/agents/new?next={next_param}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    # Gate 2 — a seatable agent exists; is at least one provider backed by a LIVE
+    # connection right now? If none is live, send them to start their AI.
+    for provider in seatable_providers:
+        if await provider_is_covered(db, user.id, provider):
+            return None
+    return RedirectResponse(
+        url=f"/me/connections?next={next_param}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
 async def join_form(
     game: Annotated[str, Path()],
@@ -175,6 +233,14 @@ async def join_form(
         return redirect
     if is_admin_only(match.game) and not _is_any_admin(user):
         raise HTTPException(status_code=404, detail="Game not found.")
+
+    # Smart hub: if the operator is missing setup, walk them through ONLY the
+    # missing step on the existing pages, carrying ?next back to this join URL.
+    # Returns None once they have a live, seatable AI agent — then we render the
+    # join form below. No Player is seated here; backing out leaves no half-join.
+    join_url = f"/games/{game}/matches/{match_id}/join"
+    if redirect := await _join_setup_redirect(db, user, join_url):
+        return redirect
 
     agents = await _load_user_agents(db, user.id)
     # Agents already seated in this match can't join again — hide them so adding

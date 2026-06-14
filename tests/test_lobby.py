@@ -586,6 +586,9 @@ async def test_practice_arena_join_copy_mentions_join_start(client, reset_db):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
     await _seed_practice_arena(reset_db)
+    # The join page is now a smart hub: it only renders the join form when the
+    # user has a live, seatable agent. Give them one so we reach the copy below.
+    await _seed_agent(reset_db, user)
 
     r = await client.get("/games/hoard-hurt-help/matches/G_PA/join", cookies=cookies)
     assert r.status_code == 200

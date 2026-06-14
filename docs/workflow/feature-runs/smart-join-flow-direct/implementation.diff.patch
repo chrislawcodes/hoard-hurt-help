@@ -1,0 +1,1075 @@
+diff --git a/app/engine/connection_health.py b/app/engine/connection_health.py
+index 53aa569..98d4abf 100644
+--- a/app/engine/connection_health.py
++++ b/app/engine/connection_health.py
+@@ -295,6 +295,35 @@ async def provider_is_covered(
+     return any(_connection_is_live(c, now) for c in rows)
+ 
+ 
++async def provider_enabled_on_any_connection(
++    db: AsyncSession, user_id: int, provider: ConnectionProvider
++) -> bool:
++    """True when *provider* is enabled on at least one of the user's connections.
++
++    Liveness is NOT required — this answers "could this agent ever be served from
++    a machine I've set up?", which is the gate for whether a seatable agent
++    exists. A connection that is merely stale (not seen recently) still counts;
++    bringing it back online is the *next* step. Deleted connections are excluded.
++    """
++    row = (
++        await db.execute(
++            select(Connection.id)
++            .join(
++                ConnectionProviderRow,
++                ConnectionProviderRow.connection_id == Connection.id,
++            )
++            .where(
++                Connection.user_id == user_id,
++                Connection.deleted_at.is_(None),
++                ConnectionProviderRow.provider == provider,
++                ConnectionProviderRow.enabled.is_(True),
++            )
++            .limit(1)
++        )
++    ).first()
++    return row is not None
++
++
+ async def active_matches_for_provider(
+     db: AsyncSession, user_id: int, provider: ConnectionProvider
+ ) -> int:
+diff --git a/app/routes/agents_setup.py b/app/routes/agents_setup.py
+index 0f20004..5241bd6 100644
+--- a/app/routes/agents_setup.py
++++ b/app/routes/agents_setup.py
+@@ -33,6 +33,7 @@ from app.models.user import User
+ from app.routes.connections_setup import (
+     _provider_label,
+ )
++from app.routes.web_support import safe_internal_next
+ from app.templating import templates
+ 
+ router = APIRouter()
+@@ -469,6 +470,7 @@ async def new_agent_form(
+     db: DbSession,
+     user: Annotated[User, Depends(require_user_with_handle)],
+     provider: str | None = None,
++    next: str | None = None,
+ ) -> Response:
+     await gc_pending_connections(db)
+     connections = await _load_user_connections(db, user.id)
+@@ -507,6 +509,9 @@ async def new_agent_form(
+             if strategy_presets
+             else get_game_module(_DEFAULT_GAME).default_strategy()
+         ),
++        # Carry a validated ?next through the form so creating the agent here can
++        # forward back to where the user came from (e.g. a join page hub).
++        "next_url": safe_internal_next(next),
+     }
+     return templates.TemplateResponse(request, "agents/new.html", context)
+ 
+@@ -519,6 +524,9 @@ async def create_agent_or_connection(
+     model: Annotated[str | None, Form()] = None,
+     strategy_text: Annotated[str | None, Form()] = None,
+     strategy_preset: Annotated[str | None, Form()] = None,
++    # Aliased to the "next" form field but named to avoid shadowing the next()
++    # builtin used below for the strategy-preset lookup.
++    next_after: Annotated[str | None, Form(alias="next")] = None,
+ ) -> RedirectResponse:
+     if name is not None:
+         clean_name = clean_agent_name(name)
+@@ -581,7 +589,10 @@ async def create_agent_or_connection(
+         await db.flush()
+         agent.current_version_id = version.id
+         await db.commit()
+-        return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
++        # If a join hub (or other page) sent the user here with ?next, forward
++        # back there now that the agent exists, instead of the agent detail page.
++        destination = safe_internal_next(next_after) or f"/me/agents/{agent.id}"
++        return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
+ 
+     raise HTTPException(status_code=400, detail="Agent name is required.")
+ 
+diff --git a/app/routes/connections_setup.py b/app/routes/connections_setup.py
+index 661b39a..5bb2d46 100644
+--- a/app/routes/connections_setup.py
++++ b/app/routes/connections_setup.py
+@@ -7,8 +7,9 @@ from datetime import datetime, timedelta, timezone
+ from typing import Annotated
+ 
+ from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request
+-from fastapi.responses import HTMLResponse
++from fastapi.responses import HTMLResponse, RedirectResponse
+ from sqlalchemy import String, select
++from starlette import status
+ from starlette.responses import Response
+ 
+ from app.config import PROVIDER_MODELS, settings
+@@ -26,6 +27,7 @@ from app.models.connection import Connection, ConnectionProvider, ConnectionStat
+ from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+ from app.models.connection_setup import ConnectionSetup
+ from app.models.user import User
++from app.routes.web_support import safe_internal_next
+ from app.templating import templates
+ 
+ router = APIRouter()
+@@ -517,7 +519,9 @@ def _summarize_agent(agents: list[AgentRow]) -> tuple[bool, str | None]:
+     return True, summary
+ 
+ 
+-async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
++async def _live_status_context(
++    db: DbSession, user: User, *, next_url: str | None = None
++) -> dict[str, object]:
+     """Shared 'are we live + agent nudge' context for the page and the poll fragment.
+ 
+     A user is live now if ANY of their non-deleted connections resolves to a LIVE or
+@@ -556,6 +560,9 @@ async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
+         "agent_summary": agent_summary,
+         "play_prompt": _play_prompt(),
+         "lobby_url": "/games/hoard-hurt-help",
++        # When set, the connect→play flow forwards here the moment the AI is live
++        # (a join hub sent the user to start their machine). None = stay put.
++        "next_url": next_url,
+     }
+ 
+ 
+@@ -564,7 +571,9 @@ async def list_connections(
+     request: Request,
+     db: DbSession,
+     user: Annotated[User, Depends(require_user_with_handle)],
++    next: str | None = None,
+ ) -> Response:
++    next_url = safe_internal_next(next)
+     await gc_pending_connections(db)
+     connections = (
+         (
+@@ -603,6 +612,11 @@ async def list_connections(
+     #   LIVE      — at least one connection is LIVE or READY right now
+     has_connected_before = bool(connections)
+     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
++    # Hub forward: if a join page sent the user here to start their AI and a
++    # connection is already live, jump straight back instead of making them read
++    # the "Connected" box. The 4s poll covers the case where it goes live later.
++    if next_url and is_live_now:
++        return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
+     return templates.TemplateResponse(
+         request,
+         "connections/list.html",
+@@ -619,6 +633,7 @@ async def list_connections(
+             "has_agent": has_agent,
+             "agent_summary": agent_summary,
+             "lobby_url": "/games/hoard-hurt-help",
++            "next_url": next_url,
+         },
+     )
+ 
+@@ -628,6 +643,7 @@ async def live_status_fragment(
+     request: Request,
+     db: DbSession,
+     user: Annotated[User, Depends(require_user_with_handle)],
++    next: str | None = None,
+ ) -> Response:
+     """The self-advancing connect → play region, polled every 4s.
+ 
+@@ -635,11 +651,21 @@ async def live_status_fragment(
+     live but not yet playing → "Connected", leading with the play-prompt code block
+     to paste (a "Create an agent" nudge first if the user has no agent); playing →
+     a "Your AI is playing" success box once the AI has made a real game call.
++
++    Hub forward: when called with a validated ?next and the AI has just gone live,
++    answer the HTMX poll with an HX-Redirect so the browser jumps back to the join
++    hub — the same auto-advance the page does on load, but for the poll path.
+     """
++    next_url = safe_internal_next(next)
++    context = await _live_status_context(db, user, next_url=next_url)
++    if next_url and context["is_live_now"]:
++        # HTMX honors HX-Redirect by navigating the whole page. An empty body is
++        # fine since the redirect replaces this fragment's container entirely.
++        return HTMLResponse("", headers={"HX-Redirect": next_url})
+     return templates.TemplateResponse(
+         request,
+         "connections/_live_status.html",
+-        await _live_status_context(db, user),
++        context,
+     )
+ 
+ 
+diff --git a/app/routes/handle_web.py b/app/routes/handle_web.py
+index 2a7cc8b..7211c33 100644
+--- a/app/routes/handle_web.py
++++ b/app/routes/handle_web.py
+@@ -21,7 +21,7 @@ from app.identity import handle as handle_mod
+ from app.identity import word_filter
+ from app.identity.handle import HandleError
+ from app.models.user import User
+-from app.routes.web_support import _is_any_admin
++from app.routes.web_support import _is_any_admin, safe_internal_next
+ from app.templating import templates
+ 
+ router = APIRouter()
+@@ -30,10 +30,8 @@ _DEFAULT_NEXT = "/me/agents"
+ 
+ 
+ def _safe_next(raw: str | None) -> str:
+-    """Only allow a local path, to avoid an open redirect."""
+-    if raw and raw.startswith("/") and not raw.startswith("//"):
+-        return raw
+-    return _DEFAULT_NEXT
++    """Only allow a local path, to avoid an open redirect; else the default."""
++    return safe_internal_next(raw) or _DEFAULT_NEXT
+ 
+ 
+ async def _taken_keys(db: DbSession) -> set[str]:
+diff --git a/app/routes/web_player.py b/app/routes/web_player.py
+index 7fcb645..c4dfce8 100644
+--- a/app/routes/web_player.py
++++ b/app/routes/web_player.py
+@@ -17,6 +17,7 @@ from app.engine.connection_health import (
+     active_matches_for_provider,
+     is_join_blocked,
+     live_provider_capacity,
++    provider_enabled_on_any_connection,
+     provider_is_covered,
+ )
+ from app.engine.scheduler import start_game
+@@ -148,6 +149,63 @@ async def _load_user_agents(
+     return [(agent, version) for agent, version in rows]
+ 
+ 
++async def _join_setup_redirect(
++    db: DbSession, user: User, join_url: str
++) -> RedirectResponse | None:
++    """Return the redirect to the FIRST missing setup step, or None when ready.
++
++    The join page is the hub for getting an operator's AI seated. This runs the
++    two setup gates that come AFTER sign-in + handle (those are handled inline in
++    ``join_form`` and stay there). In order:
++
++    1. No seatable AI agent — the user has no live (non-archived) AI agent whose
++       provider is enabled on one of their connections. Send them to create an
++       agent; the create-agent page itself nudges them to turn a machine on if
++       none runs that provider. We carry ``?next`` so finishing there returns
++       here.
++    2. A seatable agent exists, but NO live connection currently runs its
++       provider (never connected, or connected-but-stale = "not running"). Send
++       them to the connections page to start their AI; it auto-advances to
++       ``?next`` the moment the AI is live.
++
++    Each redirect carries ``?next=<join_url>`` so the existing page forwards back
++    here when its job is done. Returns None when at least one of the user's AI
++    agents has a live connection — the caller then renders the join form.
++    """
++    next_param = quote(join_url, safe="")
++    agents = await _load_user_agents(db, user.id)
++    # Distinct providers across the user's live AI agents. An AI agent always has
++    # a provider (DB CHECK), but guard the None case for the type-checker.
++    agent_providers = {
++        agent.provider
++        for agent, _version in agents
++        if agent.kind == AgentKind.AI and agent.provider is not None
++    }
++
++    # Gate 1 — does the user have any agent that COULD be seated (its provider is
++    # enabled on a connection, live or not)? If not, they need to create one.
++    seatable_providers = {
++        provider
++        for provider in agent_providers
++        if await provider_enabled_on_any_connection(db, user.id, provider)
++    }
++    if not seatable_providers:
++        return RedirectResponse(
++            url=f"/me/agents/new?next={next_param}",
++            status_code=status.HTTP_303_SEE_OTHER,
++        )
++
++    # Gate 2 — a seatable agent exists; is at least one provider backed by a LIVE
++    # connection right now? If none is live, send them to start their AI.
++    for provider in seatable_providers:
++        if await provider_is_covered(db, user.id, provider):
++            return None
++    return RedirectResponse(
++        url=f"/me/connections?next={next_param}",
++        status_code=status.HTTP_303_SEE_OTHER,
++    )
++
++
+ @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
+ async def join_form(
+     game: Annotated[str, Path()],
+@@ -176,6 +234,14 @@ async def join_form(
+     if is_admin_only(match.game) and not _is_any_admin(user):
+         raise HTTPException(status_code=404, detail="Game not found.")
+ 
++    # Smart hub: if the operator is missing setup, walk them through ONLY the
++    # missing step on the existing pages, carrying ?next back to this join URL.
++    # Returns None once they have a live, seatable AI agent — then we render the
++    # join form below. No Player is seated here; backing out leaves no half-join.
++    join_url = f"/games/{game}/matches/{match_id}/join"
++    if redirect := await _join_setup_redirect(db, user, join_url):
++        return redirect
++
+     agents = await _load_user_agents(db, user.id)
+     # Agents already seated in this match can't join again — hide them so adding
+     # more (the admin multi-seat flow) only ever shows agents still available.
+diff --git a/app/routes/web_support.py b/app/routes/web_support.py
+index c9a6787..59c6eb6 100644
+--- a/app/routes/web_support.py
++++ b/app/routes/web_support.py
+@@ -25,6 +25,25 @@ _GENERAL_NAMES: tuple[str, ...] = (
+ )
+ 
+ 
++def safe_internal_next(raw: str | None) -> str | None:
++    """Accept a `?next` value only when it's an internal path; else return None.
++
++    Guards against an open redirect: the value must be a same-site absolute path
++    (starts with a single "/"). A "//host" or "/\\host" prefix is a
++    protocol-relative URL that browsers treat as external, and anything with a
++    scheme ("http:", "javascript:") is external too — all are rejected. Callers
++    decide their own fallback when this returns None.
++    """
++    if not raw:
++        return None
++    if not raw.startswith("/"):
++        return None
++    # "//" and "/\" are protocol-relative (external) — reject both.
++    if raw.startswith("//") or raw.startswith("/\\"):
++        return None
++    return raw
++
++
+ async def _player_count(db, match_id: str) -> int:
+     """Active players only — a pulled-out (left) bot frees its seat."""
+     return await count_players(db, match_id, active_only=True)
+diff --git a/app/templates/agents/new.html b/app/templates/agents/new.html
+index 7135b4b..ce53e2d 100644
+--- a/app/templates/agents/new.html
++++ b/app/templates/agents/new.html
+@@ -10,6 +10,7 @@
+ <div class="card agent-setup-card">
+     <h3 style="margin-top:0;">Create the agent</h3>
+     <form method="post" action="/me/agents/new" class="form agent-setup-form">
++        {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+         <label>
+             AI model
+             <select name="model" id="agent-model" required>
+diff --git a/app/templates/connections/_live_status.html b/app/templates/connections/_live_status.html
+index 85b7350..e36f58c 100644
+--- a/app/templates/connections/_live_status.html
++++ b/app/templates/connections/_live_status.html
+@@ -10,7 +10,7 @@
+    has an agent, since that's when there are games to play. Expects `play_prompt`,
+    `has_agent`, `agent_summary`, `is_live_now`, `is_playing_now`, `lobby_url`. #}
+ <div id="live-status"
+-     hx-get="/me/connections/live-status"
++     hx-get="/me/connections/live-status{% if next_url %}?next={{ next_url | urlencode }}{% endif %}"
+      hx-trigger="every 4s"
+      hx-swap="outerHTML">
+     {% if is_playing_now %}
+diff --git a/docs/workflow/feature-runs/smart-join-flow-direct/implementation.diff.patch b/docs/workflow/feature-runs/smart-join-flow-direct/implementation.diff.patch
+new file mode 100644
+index 0000000..d25cb8b
+--- /dev/null
++++ b/docs/workflow/feature-runs/smart-join-flow-direct/implementation.diff.patch
+@@ -0,0 +1,286 @@
++diff --git a/app/engine/connection_health.py b/app/engine/connection_health.py
++index 53aa569..98d4abf 100644
++--- a/app/engine/connection_health.py
+++++ b/app/engine/connection_health.py
++@@ -295,6 +295,35 @@ async def provider_is_covered(
++     return any(_connection_is_live(c, now) for c in rows)
++ 
++ 
+++async def provider_enabled_on_any_connection(
+++    db: AsyncSession, user_id: int, provider: ConnectionProvider
+++) -> bool:
+++    """True when *provider* is enabled on at least one of the user's connections.
+++
+++    Liveness is NOT required — this answers "could this agent ever be served from
+++    a machine I've set up?", which is the gate for whether a seatable agent
+++    exists. A connection that is merely stale (not seen recently) still counts;
+++    bringing it back online is the *next* step. Deleted connections are excluded.
+++    """
+++    row = (
+++        await db.execute(
+++            select(Connection.id)
+++            .join(
+++                ConnectionProviderRow,
+++                ConnectionProviderRow.connection_id == Connection.id,
+++            )
+++            .where(
+++                Connection.user_id == user_id,
+++                Connection.deleted_at.is_(None),
+++                ConnectionProviderRow.provider == provider,
+++                ConnectionProviderRow.enabled.is_(True),
+++            )
+++            .limit(1)
+++        )
+++    ).first()
+++    return row is not None
+++
+++
++ async def active_matches_for_provider(
++     db: AsyncSession, user_id: int, provider: ConnectionProvider
++ ) -> int:
++diff --git a/app/routes/agents_setup.py b/app/routes/agents_setup.py
++index 0f20004..5241bd6 100644
++--- a/app/routes/agents_setup.py
+++++ b/app/routes/agents_setup.py
++@@ -33,6 +33,7 @@ from app.models.user import User
++ from app.routes.connections_setup import (
++     _provider_label,
++ )
+++from app.routes.web_support import safe_internal_next
++ from app.templating import templates
++ 
++ router = APIRouter()
++@@ -469,6 +470,7 @@ async def new_agent_form(
++     db: DbSession,
++     user: Annotated[User, Depends(require_user_with_handle)],
++     provider: str | None = None,
+++    next: str | None = None,
++ ) -> Response:
++     await gc_pending_connections(db)
++     connections = await _load_user_connections(db, user.id)
++@@ -507,6 +509,9 @@ async def new_agent_form(
++             if strategy_presets
++             else get_game_module(_DEFAULT_GAME).default_strategy()
++         ),
+++        # Carry a validated ?next through the form so creating the agent here can
+++        # forward back to where the user came from (e.g. a join page hub).
+++        "next_url": safe_internal_next(next),
++     }
++     return templates.TemplateResponse(request, "agents/new.html", context)
++ 
++@@ -519,6 +524,9 @@ async def create_agent_or_connection(
++     model: Annotated[str | None, Form()] = None,
++     strategy_text: Annotated[str | None, Form()] = None,
++     strategy_preset: Annotated[str | None, Form()] = None,
+++    # Aliased to the "next" form field but named to avoid shadowing the next()
+++    # builtin used below for the strategy-preset lookup.
+++    next_after: Annotated[str | None, Form(alias="next")] = None,
++ ) -> RedirectResponse:
++     if name is not None:
++         clean_name = clean_agent_name(name)
++@@ -581,7 +589,10 @@ async def create_agent_or_connection(
++         await db.flush()
++         agent.current_version_id = version.id
++         await db.commit()
++-        return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+++        # If a join hub (or other page) sent the user here with ?next, forward
+++        # back there now that the agent exists, instead of the agent detail page.
+++        destination = safe_internal_next(next_after) or f"/me/agents/{agent.id}"
+++        return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
++ 
++     raise HTTPException(status_code=400, detail="Agent name is required.")
++ 
++diff --git a/app/routes/connections_setup.py b/app/routes/connections_setup.py
++index 661b39a..5bb2d46 100644
++--- a/app/routes/connections_setup.py
+++++ b/app/routes/connections_setup.py
++@@ -7,8 +7,9 @@ from datetime import datetime, timedelta, timezone
++ from typing import Annotated
++ 
++ from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request
++-from fastapi.responses import HTMLResponse
+++from fastapi.responses import HTMLResponse, RedirectResponse
++ from sqlalchemy import String, select
+++from starlette import status
++ from starlette.responses import Response
++ 
++ from app.config import PROVIDER_MODELS, settings
++@@ -26,6 +27,7 @@ from app.models.connection import Connection, ConnectionProvider, ConnectionStat
++ from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
++ from app.models.connection_setup import ConnectionSetup
++ from app.models.user import User
+++from app.routes.web_support import safe_internal_next
++ from app.templating import templates
++ 
++ router = APIRouter()
++@@ -517,7 +519,9 @@ def _summarize_agent(agents: list[AgentRow]) -> tuple[bool, str | None]:
++     return True, summary
++ 
++ 
++-async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
+++async def _live_status_context(
+++    db: DbSession, user: User, *, next_url: str | None = None
+++) -> dict[str, object]:
++     """Shared 'are we live + agent nudge' context for the page and the poll fragment.
++ 
++     A user is live now if ANY of their non-deleted connections resolves to a LIVE or
++@@ -556,6 +560,9 @@ async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
++         "agent_summary": agent_summary,
++         "play_prompt": _play_prompt(),
++         "lobby_url": "/games/hoard-hurt-help",
+++        # When set, the connect→play flow forwards here the moment the AI is live
+++        # (a join hub sent the user to start their machine). None = stay put.
+++        "next_url": next_url,
++     }
++ 
++ 
++@@ -564,7 +571,9 @@ async def list_connections(
++     request: Request,
++     db: DbSession,
++     user: Annotated[User, Depends(require_user_with_handle)],
+++    next: str | None = None,
++ ) -> Response:
+++    next_url = safe_internal_next(next)
++     await gc_pending_connections(db)
++     connections = (
++         (
++@@ -603,6 +612,11 @@ async def list_connections(
++     #   LIVE      — at least one connection is LIVE or READY right now
++     has_connected_before = bool(connections)
++     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
+++    # Hub forward: if a join page sent the user here to start their AI and a
+++    # connection is already live, jump straight back instead of making them read
+++    # the "Connected" box. The 4s poll covers the case where it goes live later.
+++    if next_url and is_live_now:
+++        return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
++     return templates.TemplateResponse(
++         request,
++         "connections/list.html",
++@@ -619,6 +633,7 @@ async def list_connections(
++             "has_agent": has_agent,
++             "agent_summary": agent_summary,
++             "lobby_url": "/games/hoard-hurt-help",
+++            "next_url": next_url,
++         },
++     )
++ 
++@@ -628,6 +643,7 @@ async def live_status_fragment(
++     request: Request,
++     db: DbSession,
++     user: Annotated[User, Depends(require_user_with_handle)],
+++    next: str | None = None,
++ ) -> Response:
++     """The self-advancing connect → play region, polled every 4s.
++ 
++@@ -635,11 +651,21 @@ async def live_status_fragment(
++     live but not yet playing → "Connected", leading with the play-prompt code block
++     to paste (a "Create an agent" nudge first if the user has no agent); playing →
++     a "Your AI is playing" success box once the AI has made a real game call.
+++
+++    Hub forward: when called with a validated ?next and the AI has just gone live,
+++    answer the HTMX poll with an HX-Redirect so the browser jumps back to the join
+++    hub — the same auto-advance the page does on load, but for the poll path.
++     """
+++    next_url = safe_internal_next(next)
+++    context = await _live_status_context(db, user, next_url=next_url)
+++    if next_url and context["is_live_now"]:
+++        # HTMX honors HX-Redirect by navigating the whole page. An empty body is
+++        # fine since the redirect replaces this fragment's container entirely.
+++        return HTMLResponse("", headers={"HX-Redirect": next_url})
++     return templates.TemplateResponse(
++         request,
++         "connections/_live_status.html",
++-        await _live_status_context(db, user),
+++        context,
++     )
++ 
++ 
++diff --git a/app/routes/handle_web.py b/app/routes/handle_web.py
++index 2a7cc8b..7211c33 100644
++--- a/app/routes/handle_web.py
+++++ b/app/routes/handle_web.py
++@@ -21,7 +21,7 @@ from app.identity import handle as handle_mod
++ from app.identity import word_filter
++ from app.identity.handle import HandleError
++ from app.models.user import User
++-from app.routes.web_support import _is_any_admin
+++from app.routes.web_support import _is_any_admin, safe_internal_next
++ from app.templating import templates
++ 
++ router = APIRouter()
++@@ -30,10 +30,8 @@ _DEFAULT_NEXT = "/me/agents"
++ 
++ 
++ def _safe_next(raw: str | None) -> str:
++-    """Only allow a local path, to avoid an open redirect."""
++-    if raw and raw.startswith("/") and not raw.startswith("//"):
++-        return raw
++-    return _DEFAULT_NEXT
+++    """Only allow a local path, to avoid an open redirect; else the default."""
+++    return safe_internal_next(raw) or _DEFAULT_NEXT
++ 
++ 
++ async def _taken_keys(db: DbSession) -> set[str]:
++diff --git a/app/routes/web_player.py b/app/routes/web_player.py
++index 7fcb645..c4dfce8 100644
++--- a/app/routes/web_player.py
+++++ b/app/routes/web_player.py
++@@ -17,6 +17,7 @@ from app.engine.connection_health import (
++     active_matches_for_provider,
++     is_join_blocked,
++     live_provider_capacity,
+++    provider_enabled_on_any_connection,
++     provider_is_covered,
++ )
++ from app.engine.scheduler import start_game
++@@ -148,6 +149,63 @@ async def _load_user_agents(
++     return [(agent, version) for agent, version in rows]
++ 
++ 
+++async def _join_setup_redirect(
+++    db: DbSession, user: User, join_url: str
+++) -> RedirectResponse | None:
+++    """Return the redirect to the FIRST missing setup step, or None when ready.
+++
+++    The join page is the hub for getting an operator's AI seated. This runs the
+++    two setup gates that come AFTER sign-in + handle (those are handled inline in
+++    ``join_form`` and stay there). In order:
+++
+++    1. No seatable AI agent — the user has no live (non-archived) AI agent whose
+++       provider is enabled on one of their connections. Send them to create an
+++       agent; the create-agent page itself nudges them to turn a machine on if
+++       none runs that provider. We carry ``?next`` so finishing there returns
+++       here.
+++    2. A seatable agent exists, but NO live connection currently runs its
+++       provider (never connected, or connected-but-stale = "not running"). Send
+++       them to the connections page to start their AI; it auto-advances to
+++       ``?next`` the moment the AI is live.
+++
+++    Each redirect carries ``?next=<join_url>`` so the existing page forwards back
+++    here when its job is done. Returns None when at least one of the user's AI
+++    agents has a live connection — the caller then renders the join form.
+++    """
+++    next_param = quote(join_url, safe="")
+++    agents = await _load_user_agents(db, user.id)
+++    # Distinct providers across the user's live AI agents. An AI agent always has
+++    # a provider (DB CHECK), but guard the None case for the type-checker.
+++    agent_providers = {
+++        agent.provider
+++        for agent, _version in agents
+++        if agent.kind == AgentKind.AI and agent.provider is not None
+++    }
+++
+++    # Gate 1 — does the user have any agent that COULD be seated (its provider is
+++    # enabled on a connection, live or not)? If not, they need to create one.
+++    seatable_providers = {
+++        provider
+++        for provider in agent_providers
+++        if await provider_enabled_on_any_connection(db, user.id, provider)
+++    }
+++    if not seatable_providers:
+++        return RedirectResponse(
+++            url=f"/me/agents/new?next={next_param}",
+++            status_code=status.HTTP_303_SEE_OTHER,
+++        )
+++
+++    # Gate 2 — a seatable agent exists; is at least one provider back
+\ No newline at end of file
+diff --git a/tests/test_lobby.py b/tests/test_lobby.py
+index 24479d5..d7672f4 100644
+--- a/tests/test_lobby.py
++++ b/tests/test_lobby.py
+@@ -586,6 +586,9 @@ async def test_practice_arena_join_copy_mentions_join_start(client, reset_db):
+     user = await _seed_user(reset_db)
+     cookies = _signed_in_cookies(user.id)
+     await _seed_practice_arena(reset_db)
++    # The join page is now a smart hub: it only renders the join form when the
++    # user has a live, seatable agent. Give them one so we reach the copy below.
++    await _seed_agent(reset_db, user)
+ 
+     r = await client.get("/games/hoard-hurt-help/matches/G_PA/join", cookies=cookies)
+     assert r.status_code == 200
+diff --git a/tests/test_smart_join_flow.py b/tests/test_smart_join_flow.py
+new file mode 100644
+index 0000000..1bbbccb
+--- /dev/null
++++ b/tests/test_smart_join_flow.py
+@@ -0,0 +1,393 @@
++"""Tests for the smart gated Join flow.
++
++The join page is the HUB. On GET it checks setup state in order and redirects to
++the FIRST missing thing, carrying ?next back to the join URL:
++
++  1. Not signed in        → /auth/google/login?next=<join>
++  2. No handle            → /me/handle?next=<join>
++  3. No seatable AI agent → /me/agents/new?next=<join>
++  4. No LIVE connection   → /me/connections?next=<join>
++  5. All set              → render the join form (no Player seated)
++
++It also tests that each existing page HONORS ?next (forwards on completion) and
++that ?next is validated as an internal path (no open redirect).
++"""
++
++from __future__ import annotations
++
++import base64
++import json
++from datetime import datetime, timedelta, timezone
++from urllib.parse import quote
++
++import pytest
++from httpx import ASGITransport, AsyncClient
++from itsdangerous import TimestampSigner
++from sqlalchemy import select
++from sqlalchemy.ext.asyncio import async_sessionmaker
++
++from app.config import settings
++from app.main import app
++from app.models import Base, GameState, Match, Player, User
++from app.routes.web_support import safe_internal_next
++from tests.factories import make_agent, make_connection, make_user
++
++JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
++JOIN_NEXT = quote(JOIN_URL, safe="")
++
++
++@pytest.fixture(autouse=True)
++async def reset_db(monkeypatch):
++    from app.db import make_engine
++
++    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
++    async with test_engine.begin() as conn:
++        await conn.run_sync(Base.metadata.create_all)
++
++    test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
++    monkeypatch.setattr("app.db.SessionLocal", test_factory)
++    monkeypatch.setattr("app.db.engine", test_engine)
++
++    yield test_factory
++    await test_engine.dispose()
++
++
++@pytest.fixture
++async def client():
++    transport = ASGITransport(app=app)
++    async with AsyncClient(transport=transport, base_url="http://test") as c:
++        yield c
++
++
++def _cookies(user_id: int) -> dict:
++    signer = TimestampSigner(settings.session_secret)
++    data = {"user_id": user_id, "next_after_login": None}
++    payload = base64.b64encode(json.dumps(data).encode()).decode()
++    return {"hhh_session": signer.sign(payload).decode()}
++
++
++async def _seed_match(reset_db, state: GameState = GameState.REGISTERING) -> None:
++    async with reset_db() as db:
++        db.add(
++            Match(
++                id="G_001",
++                name="Test Match",
++                state=state,
++                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
++                per_turn_deadline_seconds=60,
++            )
++        )
++        await db.commit()
++
++
++async def _user_with_handle(reset_db, *, i: int = 0) -> User:
++    async with reset_db() as db:
++        user = await make_user(db, i)
++        await db.commit()
++        await db.refresh(user)
++        return user
++
++
++async def _seated_players(reset_db) -> int:
++    async with reset_db() as db:
++        rows = (await db.execute(select(Player).where(Player.match_id == "G_001"))).all()
++        return len(rows)
++
++
++# ---------------------------------------------------------------------------
++# safe_internal_next — open-redirect guard
++# ---------------------------------------------------------------------------
++
++
++@pytest.mark.parametrize(
++    "raw,expected",
++    [
++        ("/games/hoard-hurt-help/matches/G_001/join", "/games/hoard-hurt-help/matches/G_001/join"),
++        ("/me/agents", "/me/agents"),
++        (None, None),
++        ("", None),
++        ("https://evil.example.com", None),
++        ("http://evil.example.com", None),
++        ("//evil.example.com", None),
++        (r"/\evil.example.com", None),
++        ("javascript:alert(1)", None),
++        ("relative/path", None),
++    ],
++)
++def test_safe_internal_next_rejects_external(raw, expected) -> None:
++    assert safe_internal_next(raw) == expected
++
++
++# ---------------------------------------------------------------------------
++# Gate ordering on the join hub
++# ---------------------------------------------------------------------------
++
++
++@pytest.mark.asyncio
++async def test_not_signed_in_redirects_to_login_with_next(client, reset_db):
++    await _seed_match(reset_db)
++    r = await client.get(JOIN_URL, follow_redirects=False)
++    assert r.status_code == 303
++    assert r.headers["location"] == f"/auth/google/login?next={JOIN_URL}"
++
++
++@pytest.mark.asyncio
++async def test_no_handle_redirects_to_handle_with_next(client, reset_db):
++    await _seed_match(reset_db)
++    async with reset_db() as db:
++        user = await make_user(db, 0)
++        user.handle = None
++        user.handle_key = None
++        await db.commit()
++        await db.refresh(user)
++    r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
++    assert r.status_code == 303
++    loc = r.headers["location"]
++    assert loc.startswith("/me/handle?next=")
++    assert JOIN_NEXT in loc
++
++
++@pytest.mark.asyncio
++async def test_no_agent_redirects_to_create_agent_with_next(client, reset_db):
++    await _seed_match(reset_db)
++    user = await _user_with_handle(reset_db)  # handle, but no agent at all
++    r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
++    assert r.status_code == 303
++    loc = r.headers["location"]
++    assert loc.startswith("/me/agents/new?next=")
++    assert JOIN_NEXT in loc
++
++
++@pytest.mark.asyncio
++async def test_agent_without_any_connection_redirects_to_create_agent(client, reset_db):
++    # An agent whose provider is enabled on NO connection is not seatable yet:
++    # the hub treats this as "go make a usable agent" (the create page nudges to
++    # turn a machine on), not "go to connections".
++    await _seed_match(reset_db)
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        await make_agent(db, u, name="Atlas")  # no connection => provider covered nowhere
++        await db.commit()
++    r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
++    assert r.status_code == 303
++    assert r.headers["location"].startswith("/me/agents/new?next=")
++
++
++@pytest.mark.asyncio
++async def test_agent_but_stale_connection_redirects_to_connections(client, reset_db):
++    # Seatable agent (provider enabled on a connection) but the connection is
++    # stale (never seen / heartbeat old) => not LIVE => go start the AI.
++    await _seed_match(reset_db)
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        connection, _ = await make_connection(db, u)
++        await make_agent(db, u, connection=connection, name="Atlas")
++        connection.last_seen_at = None  # never heartbeated => not live
++        await db.commit()
++    r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
++    assert r.status_code == 303
++    loc = r.headers["location"]
++    assert loc.startswith("/me/connections?next=")
++    assert JOIN_NEXT in loc
++
++
++@pytest.mark.asyncio
++async def test_hub_chains_from_create_agent_to_connections_no_loop(client, reset_db):
++    # End-to-end of the gate chain with no loop: a user who has a (live) machine
++    # but no agent hits gate 1 (create agent); creating it forwards back to the
++    # hub, which now finds a seatable + live agent and renders the join form.
++    await _seed_match(reset_db)
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        connection, _ = await make_connection(db, u)
++        connection.last_seen_at = datetime.now(timezone.utc)  # LIVE machine, no agent yet
++        await db.commit()
++    cookies = _cookies(user.id)
++
++    # Gate 1: no seatable agent -> create-agent, carrying next.
++    r1 = await client.get(JOIN_URL, cookies=cookies, follow_redirects=False)
++    assert r1.status_code == 303
++    assert r1.headers["location"].startswith("/me/agents/new?next=")
++
++    # Create the agent with that next -> forwards straight back to the join hub.
++    r2 = await client.post(
++        "/me/agents/new",
++        data={
++            "name": "Atlas",
++            "model": "claude-haiku-4-5",
++            "strategy_text": "Play to win.",
++            "next": JOIN_URL,
++        },
++        cookies=cookies,
++        follow_redirects=False,
++    )
++    assert r2.status_code == 303
++    assert r2.headers["location"] == JOIN_URL
++
++    # Back at the hub: now seatable AND live -> the join form renders (no loop).
++    r3 = await client.get(JOIN_URL, cookies=cookies, follow_redirects=False)
++    assert r3.status_code == 200
++    assert "Atlas" in r3.text
++    assert await _seated_players(reset_db) == 0
++
++
++@pytest.mark.asyncio
++async def test_all_set_renders_join_form_and_seats_nothing(client, reset_db):
++    await _seed_match(reset_db)
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        connection, _ = await make_connection(db, u)
++        await make_agent(db, u, connection=connection, name="Atlas")
++        connection.last_seen_at = datetime.now(timezone.utc)  # LIVE
++        await db.commit()
++    r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
++    assert r.status_code == 200
++    assert "Atlas" in r.text
++    # Visiting the hub never seats a Player — no half-join when backing out.
++    assert await _seated_players(reset_db) == 0
++
++
++# ---------------------------------------------------------------------------
++# Existing pages HONOR ?next
++# ---------------------------------------------------------------------------
++
++
++@pytest.mark.asyncio
++async def test_create_agent_form_carries_next_hidden_field(client, reset_db):
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        await make_connection(db, u)  # so a provider is enabled (model is creatable)
++        await db.commit()
++    r = await client.get(
++        f"/me/agents/new?next={JOIN_NEXT}", cookies=_cookies(user.id)
++    )
++    assert r.status_code == 200
++    assert 'name="next"' in r.text
++    assert JOIN_URL in r.text
++
++
++@pytest.mark.asyncio
++async def test_create_agent_post_forwards_to_next(client, reset_db):
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        await make_connection(db, u)  # enables the claude provider for creation
++        await db.commit()
++    r = await client.post(
++        "/me/agents/new",
++        data={
++            "name": "Atlas",
++            "model": "claude-haiku-4-5",
++            "strategy_text": "Play to win.",
++            "next": JOIN_URL,
++        },
++        cookies=_cookies(user.id),
++        follow_redirects=False,
++    )
++    assert r.status_code == 303
++    assert r.headers["location"] == JOIN_URL
++
++
++@pytest.mark.asyncio
++async def test_create_agent_post_rejects_external_next(client, reset_db):
++    # An external next is dropped; we fall back to the agent detail page.
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        await make_connection(db, u)
++        await db.commit()
++    r = await client.post(
++        "/me/agents/new",
++        data={
++            "name": "Atlas",
++            "model": "claude-haiku-4-5",
++            "strategy_text": "Play to win.",
++            "next": "https://evil.example.com",
++        },
++        cookies=_cookies(user.id),
++        follow_redirects=False,
++    )
++    assert r.status_code == 303
++    assert r.headers["location"].startswith("/me/agents/")
++    assert "evil.example.com" not in r.headers["location"]
++
++
++@pytest.mark.asyncio
++async def test_connections_page_forwards_to_next_when_already_live(client, reset_db):
++    # Reaching /me/connections?next=... while a connection is already live jumps
++    # straight back to the join hub instead of showing the "Connected" box.
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        connection, _ = await make_connection(db, u)
++        connection.last_seen_at = datetime.now(timezone.utc)  # LIVE
++        await db.commit()
++    r = await client.get(
++        f"/me/connections?next={JOIN_NEXT}",
++        cookies=_cookies(user.id),
++        follow_redirects=False,
++    )
++    assert r.status_code == 303
++    assert r.headers["location"] == JOIN_URL
++
++
++@pytest.mark.asyncio
++async def test_connections_page_waits_when_not_live(client, reset_db):
++    # Not live yet: render the page (no forward), and the poll fragment carries
++    # ?next so it can forward once the AI connects.
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        connection, _ = await make_connection(db, u)
++        connection.last_seen_at = None  # not live
++        await db.commit()
++    r = await client.get(
++        f"/me/connections?next={JOIN_NEXT}",
++        cookies=_cookies(user.id),
++        follow_redirects=False,
++    )
++    assert r.status_code == 200
++    # The polled fragment carries next so it can forward later.
++    assert "/me/connections/live-status?next=" in r.text
++
++
++@pytest.mark.asyncio
++async def test_live_status_fragment_hx_redirects_when_live(client, reset_db):
++    # The 4s poll: once live, it answers with HX-Redirect to ?next so HTMX
++    # navigates the whole page back to the join hub.
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        connection, _ = await make_connection(db, u)
++        connection.last_seen_at = datetime.now(timezone.utc)  # LIVE
++        await db.commit()
++    r = await client.get(
++        f"/me/connections/live-status?next={JOIN_NEXT}",
++        cookies=_cookies(user.id),
++        follow_redirects=False,
++    )
++    assert r.status_code == 200
++    assert r.headers.get("HX-Redirect") == JOIN_URL
++
++
++@pytest.mark.asyncio
++async def test_live_status_fragment_external_next_is_ignored(client, reset_db):
++    # An external next is dropped: no HX-Redirect leaks an open redirect.
++    user = await _user_with_handle(reset_db)
++    async with reset_db() as db:
++        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
++        connection, _ = await make_connection(db, u)
++        connection.last_seen_at = datetime.now(timezone.utc)  # LIVE
++        await db.commit()
++    r = await client.get(
++        "/me/connections/live-status?next=https://evil.example.com",
++        cookies=_cookies(user.id),
++        follow_redirects=False,
++    )
++    assert r.status_code == 200
++    assert "HX-Redirect" not in r.headers

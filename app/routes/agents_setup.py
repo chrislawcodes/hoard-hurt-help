@@ -33,6 +33,7 @@ from app.models.user import User
 from app.routes.connections_setup import (
     _provider_label,
 )
+from app.routes.web_support import safe_internal_next
 from app.templating import templates
 
 router = APIRouter()
@@ -469,6 +470,7 @@ async def new_agent_form(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     provider: str | None = None,
+    next: str | None = None,
 ) -> Response:
     await gc_pending_connections(db)
     connections = await _load_user_connections(db, user.id)
@@ -507,6 +509,9 @@ async def new_agent_form(
             if strategy_presets
             else get_game_module(_DEFAULT_GAME).default_strategy()
         ),
+        # Carry a validated ?next through the form so creating the agent here can
+        # forward back to where the user came from (e.g. a join page hub).
+        "next_url": safe_internal_next(next),
     }
     return templates.TemplateResponse(request, "agents/new.html", context)
 
@@ -519,6 +524,9 @@ async def create_agent_or_connection(
     model: Annotated[str | None, Form()] = None,
     strategy_text: Annotated[str | None, Form()] = None,
     strategy_preset: Annotated[str | None, Form()] = None,
+    # Aliased to the "next" form field but named to avoid shadowing the next()
+    # builtin used below for the strategy-preset lookup.
+    next_after: Annotated[str | None, Form(alias="next")] = None,
 ) -> RedirectResponse:
     if name is not None:
         clean_name = clean_agent_name(name)
@@ -581,7 +589,10 @@ async def create_agent_or_connection(
         await db.flush()
         agent.current_version_id = version.id
         await db.commit()
-        return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+        # If a join hub (or other page) sent the user here with ?next, forward
+        # back there now that the agent exists, instead of the agent detail page.
+        destination = safe_internal_next(next_after) or f"/me/agents/{agent.id}"
+        return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
 
     raise HTTPException(status_code=400, detail="Agent name is required.")
 

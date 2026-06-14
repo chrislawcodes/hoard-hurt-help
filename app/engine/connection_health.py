@@ -295,6 +295,35 @@ async def provider_is_covered(
     return any(_connection_is_live(c, now) for c in rows)
 
 
+async def provider_enabled_on_any_connection(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when *provider* is enabled on at least one of the user's connections.
+
+    Liveness is NOT required — this answers "could this agent ever be served from
+    a machine I've set up?", which is the gate for whether a seatable agent
+    exists. A connection that is merely stale (not seen recently) still counts;
+    bringing it back online is the *next* step. Deleted connections are excluded.
+    """
+    row = (
+        await db.execute(
+            select(Connection.id)
+            .join(
+                ConnectionProviderRow,
+                ConnectionProviderRow.connection_id == Connection.id,
+            )
+            .where(
+                Connection.user_id == user_id,
+                Connection.deleted_at.is_(None),
+                ConnectionProviderRow.provider == provider,
+                ConnectionProviderRow.enabled.is_(True),
+            )
+            .limit(1)
+        )
+    ).first()
+    return row is not None
+
+
 async def active_matches_for_provider(
     db: AsyncSession, user_id: int, provider: ConnectionProvider
 ) -> int:

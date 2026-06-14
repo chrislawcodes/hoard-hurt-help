@@ -10,6 +10,7 @@
 <div class="card agent-setup-card">
     <h3 style="margin-top:0;">Create the agent</h3>
     <form method="post" action="/me/agents/new" class="form agent-setup-form">
+        {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
         <label>
             AI model
             <select name="model" id="agent-model" required>

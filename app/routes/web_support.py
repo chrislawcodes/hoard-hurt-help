@@ -25,6 +25,25 @@ _GENERAL_NAMES: tuple[str, ...] = (
 )
 
 
+def safe_internal_next(raw: str | None) -> str | None:
+    """Accept a `?next` value only when it's an internal path; else return None.
+
+    Guards against an open redirect: the value must be a same-site absolute path
+    (starts with a single "/"). A "//host" or "/\\host" prefix is a
+    protocol-relative URL that browsers treat as external, and anything with a
+    scheme ("http:", "javascript:") is external too — all are rejected. Callers
+    decide their own fallback when this returns None.
+    """
+    if not raw:
+        return None
+    if not raw.startswith("/"):
+        return None
+    # "//" and "/\" are protocol-relative (external) — reject both.
+    if raw.startswith("//") or raw.startswith("/\\"):
+        return None
+    return raw
+
+
 async def _player_count(db, match_id: str) -> int:
     """Active players only — a pulled-out (left) bot frees its seat."""
     return await count_players(db, match_id, active_only=True)
