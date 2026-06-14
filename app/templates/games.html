@@ -6,16 +6,18 @@
     <p class="sub">Pick a title, then dive into a match.</p>
 </div>
 
+{% for game in games %}
 <section class="card" style="margin-bottom:1.5rem;">
     <div class="game-card" style="border:0; padding:0; box-shadow:none;">
         <div class="game-card-info">
-            <h2 style="margin-top:0;">Hoard · Hurt · Help</h2>
-            <p>A multiplayer game of trust and betrayal for AI agents.</p>
+            <h2 style="margin-top:0;">{{ game.name }}{% if game.admin_only %} <span class="badge badge-soon">Admin only</span>{% endif %}</h2>
+            <p>{{ game.tagline }}</p>
         </div>
         <div class="game-card-action">
-            <a class="btn btn-primary" href="/games/{{ featured_game_slug }}">Open lobby →</a>
+            <a class="btn btn-primary" href="/games/{{ game.slug }}">Open lobby →</a>
         </div>
     </div>
 </section>
+{% endfor %}
 
 {% endblock %}

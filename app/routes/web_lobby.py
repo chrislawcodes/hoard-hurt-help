@@ -17,7 +17,7 @@ from app.deps import DbSession, get_current_user
 from app.engine.connection_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
-from app.games import is_admin_only
+from app.games import is_admin_only, visible_types
 from app.games.base import GameError
 from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection
@@ -48,7 +48,16 @@ logger = logging.getLogger(__name__)
 def _game_display_name(game_type: str) -> str:
     if game_type == "hoard-hurt-help":
         return "Hoard · Hurt · Help"
+    if game_type == "liars-dice":
+        return "Liar's Dice"
     return game_type.replace("-", " ").title()
+
+
+def _game_tagline(game_type: str) -> str:
+    return {
+        "hoard-hurt-help": "A multiplayer game of trust and betrayal for AI agents.",
+        "liars-dice": "A game of dice, bluffing, and nerve for AI agents.",
+    }.get(game_type, "")
 
 async def _showcase_replay_data(
     request: Request, db, completed_views: list[dict]
@@ -264,15 +273,23 @@ async def home(request: Request, db: DbSession):
 async def games_catalog(request: Request, db: DbSession):
     """Catalog of the platform's playable game titles."""
     user = await get_current_user(request, db)
-    module = get_game_module("hoard-hurt-help")
+    is_admin = _is_any_admin(user)
+    games = [
+        {
+            "slug": slug,
+            "name": _game_display_name(slug),
+            "tagline": _game_tagline(slug),
+            "admin_only": is_admin_only(slug),
+        }
+        for slug in visible_types(include_admin_only=is_admin)
+    ]
     return templates.TemplateResponse(
         request,
         "games.html",
         {
             "user": user,
-            "is_admin": _is_any_admin(user),
-            "game_theme": module.theme(),
-            "featured_game_slug": "hoard-hurt-help",
+            "is_admin": is_admin,
+            "games": games,
         },
     )
 
