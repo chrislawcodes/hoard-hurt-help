@@ -695,7 +695,8 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
 
     resp = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": plain_key})
     assert resp.status_code == 200
-    assert resp.json()["status"] == "waiting"
+    # No game seated yet, so the call succeeds with the idle "no_game" status.
+    assert resp.json()["status"] == "no_game"
 
     banner = await client.get(
         f"/me/connections/setup/{setup.id}/status",
@@ -772,11 +773,12 @@ async def test_rotate_overlap_keeps_old_key_until_new_key_used(
 
     old_ok = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": old_key})
     assert old_ok.status_code == 200
-    assert old_ok.json()["status"] == "waiting"
+    # No game seated, so both keys succeed with the idle "no_game" status.
+    assert old_ok.json()["status"] == "no_game"
 
     new_ok = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": new_key})
     assert new_ok.status_code == 200
-    assert new_ok.json()["status"] == "waiting"
+    assert new_ok.json()["status"] == "no_game"
 
     async with session_factory() as db:
         stored = (

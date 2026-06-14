@@ -22,6 +22,7 @@ from sqlalchemy.orm import joinedload
 
 import app.db as db_module
 from app.deps import _parse_agent_turn_token
+from app.engine.agent_idle import IdleStatus, compute_idle_status
 from app.engine.connection_activity import increment_turns_played, mark_first_move
 from app.engine.next_turn import TurnCandidate, select_next_turn
 from app.engine.turn_routing import (
@@ -1124,6 +1125,28 @@ async def _serve_one_turn(
     return await _build_turn_payload(db, chosen, ctx)
 
 
+def _idle_payload(idle: IdleStatus, *, waiting_poll_hint: int) -> dict[str, object]:
+    """Build the response for a poll that has no turn to serve.
+
+    When the caller has a live or upcoming game, this is a plain ``waiting`` reply
+    (a turn is coming; keep polling). When the caller has NO game at all, it's a
+    ``no_game`` reply that carries ``idle_seconds`` and, once the idle window has
+    elapsed, ``should_stop`` so an interactive client can stop polling. The
+    always-on connector ignores ``should_stop`` and keeps running by design.
+    """
+    if idle.has_game:
+        return {"status": "waiting", "next_poll_after_seconds": waiting_poll_hint}
+    payload: dict[str, object] = {
+        "status": "no_game",
+        "next_poll_after_seconds": waiting_poll_hint,
+        "idle_seconds": idle.idle_seconds,
+        "should_stop": idle.should_stop,
+    }
+    if idle.stop_reason is not None:
+        payload["stop_reason"] = idle.stop_reason
+    return payload
+
+
 async def get_next_turn(
     db: AsyncSession,
     connection: Connection,
@@ -1135,9 +1158,18 @@ async def get_next_turn(
     waiting_poll_hint = 2 if held else 30
     deadline = asyncio.get_event_loop().time() + max(0.0, hold_seconds)
 
-    served = await _serve_one_turn(db, connection, datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+    served = await _serve_one_turn(db, connection, now)
     if served is not None:
         return served
+
+    # No turn right now: decide between "waiting" (game coming) and "no_game"
+    # (nothing coming) BEFORE the long-poll hold. If the caller has no game at all
+    # there's nothing to long-poll for, so reply at once with the idle hint.
+    idle = await compute_idle_status(db, connection, now=now)
+    if not idle.has_game:
+        await db.rollback()
+        return _idle_payload(idle, waiting_poll_hint=waiting_poll_hint)
 
     connection_id = connection.id
     await db.rollback()
@@ -1177,6 +1209,7 @@ async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, 
     claimed = [cand for cand in ordered if await _claim_pin(db, connection, cand, ctx, now)]
     await db.commit()
     if not claimed:
-        return {"status": "waiting", "next_poll_after_seconds": 30}
+        idle = await compute_idle_status(db, connection, now=now)
+        return _idle_payload(idle, waiting_poll_hint=30)
     turns = [await _build_turn_payload(db, cand, ctx) for cand in claimed]
     return {"status": "your_turn", "turns": turns}
