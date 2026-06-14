@@ -21,6 +21,7 @@ from app.engine.connection_health import (
 )
 from app.engine.scheduler import start_game
 from app.games import get as get_game_module
+from app.games import is_admin_only
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState, MatchKind
@@ -172,6 +173,8 @@ async def join_form(
     match = await _load_match_or_404(db, match_id)
     if redirect := _redirect_if_game_slug_mismatch(match, game, "/join"):
         return redirect
+    if is_admin_only(match.game) and not _is_any_admin(user):
+        raise HTTPException(status_code=404, detail="Game not found.")
 
     agents = await _load_user_agents(db, user.id)
     # Agents already seated in this match can't join again — hide them so adding
@@ -369,6 +372,8 @@ async def join_submit(
         status_code=status.HTTP_308_PERMANENT_REDIRECT,
     ):
         return redirect
+    if is_admin_only(match.game) and not is_admin:
+        raise HTTPException(status_code=404, detail="Game not found.")
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Match not open for registration.")
 

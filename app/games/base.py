@@ -45,6 +45,10 @@ class GameConfig:
     min_players: int
     max_players: int
     simultaneous: bool = True
+    # When True the game is hidden from non-admins everywhere a user could
+    # encounter it (lobby, match lists, leaderboard, create/join) — used to keep a
+    # game under construction out of sight until it's ready. Admins still see it.
+    admin_only: bool = False
 
 
 @dataclass(frozen=True)

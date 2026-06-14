@@ -80,6 +80,14 @@ def _is_game_admin(user: User | None, game: str) -> bool:
     return user is not None and user.email.lower() in settings.game_admin_emails_for(game)
 
 
+def _can_view_game(user: User | None, game: str) -> bool:
+    """Whether this viewer may see a game. Admin-only (under-construction) games
+    are hidden from everyone except admins."""
+    from app.games import is_admin_only
+
+    return not is_admin_only(game) or _is_any_admin(user)
+
+
 async def _upcoming_views(db) -> list[dict]:
     """Scheduled/registering games as the lobby's 'Upcoming' cards.
 

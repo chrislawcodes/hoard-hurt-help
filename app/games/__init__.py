@@ -31,7 +31,33 @@ def known_types() -> list[str]:
     return sorted(_REGISTRY)
 
 
+def is_admin_only(game_type: str) -> bool:
+    """True if this game is hidden from non-admins (under construction).
+
+    Unknown types are treated as not admin-only (callers that care about
+    existence validate it separately); a known game reports its config flag.
+    """
+    module = _REGISTRY.get(game_type)
+    return module is not None and module.config_defaults().admin_only
+
+
+def visible_types(*, include_admin_only: bool) -> list[str]:
+    """Registered game types, optionally excluding admin-only (hidden) games."""
+    if include_admin_only:
+        return known_types()
+    return sorted(t for t in _REGISTRY if not is_admin_only(t))
+
+
 # Built-in games register themselves at import time.
 register(HoardHurtHelp())
 
-__all__ = ["GameConfig", "GameError", "GameModule", "get", "known_types", "register"]
+__all__ = [
+    "GameConfig",
+    "GameError",
+    "GameModule",
+    "get",
+    "is_admin_only",
+    "known_types",
+    "register",
+    "visible_types",
+]
