@@ -7,8 +7,8 @@ new platform seam ships a PD-reproducing default; PD parity is the merge gate.
 
 - review: reviews/spec.codex.feasibility-adversarial.review.md | status: accepted | note: Round 5 accepted; addressed in plan.md (not spec, to keep spec checkpoint healthy). Plan decision 7: bot seed derived from persisted state (match_id,hand,seat,bid_index) so resume re-decides identically. Plan decision 8: public_state carries wild_ones + full §7.2 shape. Plan reconciles §2-vs-§9: game-aware bounds in route validators only; plan is authoritative for the implementer.
 - review: reviews/spec.gemini.requirements-adversarial.review.md | status: accepted | note: Round 5: no new material gaps; viewer/spectator hidden-info + MatchState/PlayerState key layout verified by tests once files exist (plan slices 7/10, R1/R3/R5).
-- review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: Accepted all. Fixed: bot seed uses hashlib (stable), not Python hash() (decision 7 + restart verification); MatchState seeded atomically in the create transaction (decision 3); fourth create flow matches_user.py added to slice 9 and must reject admin_only LD; SC-HD covers the MCP path (R1). PD JSON byte-identical assertion added (R2/slice 4).
-- review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: Accepted: stable hashlib seed (decision 7); atomic MatchState write (decision 3); SC-HD MCP-path coverage (R1); PD JSON byte-identical test for new nullable keys (R2/slice 4). GameConfig.simultaneous is static per module (not mutated mid-match), so the mid-match-switch concern is a non-issue.
+- review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: Re-synced plan checkpoint clean (no actionable findings); all prior findings already folded into plan (decisions 3/7, slices 4/9, R1/R2).
+- review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: Re-synced plan checkpoint clean; testability findings folded in (atomic MatchState, stable seed, SC-HD MCP coverage, PD byte-identical test).
 
 ## Architecture decisions
 

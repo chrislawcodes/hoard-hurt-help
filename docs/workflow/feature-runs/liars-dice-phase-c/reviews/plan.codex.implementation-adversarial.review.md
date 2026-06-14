@@ -9,8 +9,8 @@ git_head_sha: "c2a95bd672a7ad771f3d2835e8ab5c984d205530"
 git_base_ref: "origin/main"
 git_base_sha: "ab0afa5788a8b6a8eef3c83ad594fc5de508848a"
 generation_method: "codex-runner"
-resolution_status: "open"
-resolution_note: ""
+resolution_status: "accepted"
+resolution_note: "Re-synced plan checkpoint clean (no actionable findings); all prior findings already folded into plan (decisions 3/7, slices 4/9, R1/R2)."
 raw_output_path: "docs/workflow/feature-runs/liars-dice-phase-c/reviews/plan.codex.implementation-adversarial.review.md.raw.txt"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -42,5 +42,5 @@ coverage_note: ""
 - total_tokens=0
 
 ## Resolution
-- status: open
-- note: 
+- status: accepted
+- note: Re-synced plan checkpoint clean (no actionable findings); all prior findings already folded into plan (decisions 3/7, slices 4/9, R1/R2).

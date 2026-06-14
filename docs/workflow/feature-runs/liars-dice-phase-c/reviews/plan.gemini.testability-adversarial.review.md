@@ -9,8 +9,8 @@ git_head_sha: "c2a95bd672a7ad771f3d2835e8ab5c984d205530"
 git_base_ref: "origin/main"
 git_base_sha: "ab0afa5788a8b6a8eef3c83ad594fc5de508848a"
 generation_method: "gemini-cli"
-resolution_status: "open"
-resolution_note: ""
+resolution_status: "accepted"
+resolution_note: "Re-synced plan checkpoint clean; testability findings folded in (atomic MatchState, stable seed, SC-HD MCP coverage, PD byte-identical test)."
 raw_output_path: "docs/workflow/feature-runs/liars-dice-phase-c/reviews/plan.gemini.testability-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -40,5 +40,5 @@ coverage_note: ""
 - `gemini-3.1-flash-lite`: input=23970, output=641, total=24611
 
 ## Resolution
-- status: open
-- note:
+- status: accepted
+- note: Re-synced plan checkpoint clean; testability findings folded in (atomic MatchState, stable seed, SC-HD MCP coverage, PD byte-identical test).
