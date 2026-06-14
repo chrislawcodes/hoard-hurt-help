@@ -23,7 +23,7 @@ from app.models.connection import Connection
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.ops_events import log_ops_event
-from app.read_models.leaderboard import load_leaderboard_sections
+from app.read_models.leaderboard_cache import load_leaderboard_sections_cached
 from app.read_models.agent_display import agent_display_name
 from app.read_models.matches import count_players_by_match, winner_agent_id_by_player
 from app.routes.web_support import (
@@ -276,7 +276,7 @@ async def home(request: Request, db: DbSession):
 
     # Leaderboard band: real ELO standings across all competitors (agents + sims),
     # sliced to the top 8 per game section for the home page teaser.
-    lb_sections_full = await load_leaderboard_sections(db, included="all")
+    lb_sections_full = await load_leaderboard_sections_cached(db, included="all")
     lb_sections = [dataclasses.replace(s, rows=s.rows[:8]) for s in lb_sections_full]
     if not viewer_is_admin:
         lb_sections = [s for s in lb_sections if not is_admin_only(s.game_type)]
@@ -325,7 +325,7 @@ async def leaderboard_page(
     user = await get_current_user(request, db)
     rating_mode = "bonus" if rating == "bonus" else "standard"
     included_mode = "sims" if included == "sims" else "all" if included == "all" else "agents"
-    sections = await load_leaderboard_sections(
+    sections = await load_leaderboard_sections_cached(
         db,
         rating_mode=rating_mode,
         included=included_mode,
