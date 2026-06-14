@@ -2,11 +2,13 @@
 
 This is a **map of the code we will add**: the modules, the data structures, and
 the data flows for Liar's Dice on the Agent Ludum platform. It is the companion to
-`specs/014-liars-dice/design.md` (the *why* and the product decisions) and follows
-the same altitude as the repo-wide `ARCHITECTURE.md` (the *where*).
+`docs/games/liars-dice/LIARS_DICE_DESIGN.md` (the *why* and the product decisions)
+and follows the same altitude as `docs/platform/AGENT_LUDUM_ARCHITECTURE.md` (the
+*where*). Cross-references in this doc: `LIARS_DICE_DECOUPLING_TECH_SPEC.md` (the
+decoupling tech spec); `LIARS_DICE_*.md` in this folder (other Liar's Dice docs).
 
-Read `design.md` first for the rules and the locked decisions (D-1…D-11). This doc
-assumes them.
+Read `LIARS_DICE_DESIGN.md` first for the rules and the locked decisions (D-1…D-11).
+This doc assumes them.
 
 > **One-line summary:** Liar's Dice is a *sequential, hidden-information,
 > elimination* game added behind the existing `GameModule` contract. PD is
@@ -49,7 +51,7 @@ The game itself. Self-contained; the only new file area that is Liar's-Dice-spec
 | `engine.py` | **Pure** Liar's Dice rules. No DB. The heart: legal-raise check (incl. ace rules), challenge resolution (count face + wilds), smallest-legal-raise computation (missed-turn default), elimination + winner detection. Mirrors how PD keeps `app/engine/resolver.py` pure. Fully unit-testable. |
 | `rules_text.py` | The plain-text ruleset sent to each AI, parameterized by wild on/off, dice count, and table size. |
 | `strategy.py` | Strategy presets + default pre-fill prompt a human picks at join (like PD's `hoard_hurt_help/strategy.py`). |
-| `sims.py` | The Liar's Dice Sim personalities (deterministic bidders/bluffers/challengers) — see §Sims below. May live under `app/engine/sims/` instead; placement is a tech-spec call. |
+| `sims.py` | The Liar's Dice Bot personalities (deterministic bidders/bluffers/challengers) — see §Bots below. May live under `app/engine/sims/` instead; placement is a tech-spec call. |
 
 ### 2. Platform extensions (additive, gated)
 
@@ -58,23 +60,25 @@ Touched platform files. Each change is guarded so PD's path is unchanged.
 | Area | File(s) | Change |
 |---|---|---|
 | Turn loop | `app/engine/scheduler.py` | Add a **sequential mode**: when `GameConfig.simultaneous` is false, drive the hand by `next_actor` (open a single-actor turn) → resolve on that one submission → repeat until `next_actor` returns `None` (hand over) → `award_round` → `on_round_start`; end the match on `is_match_over`. Simultaneous mode = today's fixed grid. |
-| Contract | `app/games/base.py` | Add the loop hooks (`next_actor`, `is_round_over`, `is_match_over`, `on_round_start`), the payload hooks (`private_state_for`, `public_state_for`), and `final_placement` — all with **default impls** that reproduce PD behavior. |
-| Agent payload | `app/routes/agent_api.py`, `app/routes/agent_next_turn.py`, `app/schemas/agent.py` | "Your turn" only when you are the active actor; add `your_private_state` + a game-supplied `public_state` block; everyone else gets `waiting (not your turn)` carrying public state. |
+| Contract | `app/games/base.py` | Add the new loop hooks (`next_actor`, `is_round_over`, `is_match_over`, `on_round_start`), the payload hooks (`private_state_for`, `public_state_for`), `final_placement`, and `match_placement_key` — all with **default impls** that reproduce PD behavior. The existing contract already includes `agent_base_prompt`, `record_message`, `move_effect`, and `theme`; these are not new. |
+| Agent payload | `app/engine/agent_play.py` (`poll_turn` builds `YourTurnResponse`; `submit_action` builds the move dict and calls `validate_move` + `record_submission`; `_build_turn_payload` for the next-turn loop), `app/schemas/agent.py` | "Your turn" only when you are the active actor; add `your_private_state` + a game-supplied `public_state` block; everyone else gets `waiting (not your turn)` carrying public state. **`app/routes/agent_api.py` and `app/routes/agent_next_turn.py` are thin HTTP adapters** that delegate all business logic to `app/engine/agent_play.py`; the MCP tools share the same service. |
 | Wire format | `app/schemas/agent.py` (`SubmitRequest`) | Add optional free-form `move: dict`; keep PD's `action`/`target_id` for back-compat. Platform passes `move` through untouched (it already packs a `move` dict). |
 | State storage | `app/models/` + a migration | Generic per-title state (see Data Structures): a `match_state` row and per-player private `player_state` rows, plus `quantity`/`face` columns on `turn_submissions` (D-3 rec). |
-| Finish order | `app/engine/game_records.py`, the Elo reader (feature 013), `app/routes/web_viewer.py` | Read placement from `module.final_placement(...)` instead of assuming PD round-wins (design D-4). |
+| Finish order | `app/read_models/leaderboard.py` (groups participants by `(round_wins, total_score)` inside `load_leaderboard_sections`), `app/routes/web_viewer.py` | Read placement from `module.final_placement(...)` instead of assuming PD round-wins (design D-4). Note: `app/engine/game_records.py` contains only pure DB-free dataclasses (`PlayerRecord`, `ActionRecord`) and does not contain placement or Elo logic. |
 
-### 3. Sims — Liar's Dice computer players (D-9)
+### 3. Bots — Liar's Dice computer players (D-9)
 
 Deterministic, no-LLM players that bid/bluff/challenge sensibly in **both** wild
-and no-wild modes, wired into the Practice Arena + auto-matches. They reuse the
-existing Sim plumbing:
+and no-wild modes, wired into the Practice Arena + auto-matches. These are Bots —
+`Agent` rows with `kind=AgentKind.BOT` (`app/models/agent.py`). They reuse the
+existing Bot plumbing:
 
-- `app/engine/sims/service.py` already auto-submits each Sim per phase from the
-  scheduler. In sequential mode it auto-submits **only the active Sim's** move.
-- `app/engine/arena.py` / `sim_presets.py` / `sims/seating.py` seed Sims into a
-  match — reused as-is, with a Liar's-Dice Sim roster.
-- The Sim decision logic calls the **same pure `engine.py`** the real game uses
+- `app/engine/sims/service.py` already auto-submits each Bot per phase from the
+  scheduler via `auto_submit_sim_phase` (also exported as `auto_submit_bot_phase`,
+  its alias). In sequential mode it auto-submits **only the active Bot's** move.
+- `app/engine/arena.py` / `app/engine/sims/presets.py` / `app/engine/sims/seating.py`
+  seed Bots into a match — reused as-is, with a Liar's-Dice Bot roster.
+- The Bot decision logic calls the **same pure `engine.py`** the real game uses
   (probability of a bid being true given your own dice + total unknown dice). This
   shared core is the forcing function that keeps the engine honest.
 
@@ -108,7 +112,7 @@ conditions, and *what a player sees*). The anti-pattern we refuse: a shared
 
 | Concern | Share? | Shared (platform) | Per-game (its own layer) |
 |---|---|---|---|
-| Agents / bots | ✅ fully | identity, keys, auth, poll/submit/next-turn | — (already game-agnostic) |
+| Agents / Bots | ✅ fully | **Connection** (login/keys/auth/runner — `app/models/connection.py`) + **Agent** (per-game competitor, `kind=AgentKind.AI` or `kind=AgentKind.BOT` — `app/models/agent.py`), poll/submit/next-turn via `app/engine/agent_play.py` | — (already game-agnostic) |
 | Leaderboard / Elo | ✅ core + seam | Elo math, leaderboard page, rating storage | how a match yields a finish order (`final_placement`) |
 | Strategy | ✅ mechanism | prompt storage, join form, presets framework | the presets + default prompt (on the module) |
 | Communication | ✅ transport | message/thinking storage, broadcast/SSE | phase structure (PD talk→act vs. LD message-with-bid) |
@@ -157,12 +161,14 @@ safe to add:
 1. **Turn loop** — `scheduler.py` hard-codes simultaneous + fixed grid + two-phase
    talk/act → split into the `TurnDriver`s above.
 2. **Agent payload** — `turn_summary.py` / `board_signals.py` / `opponent_stats.py`
-   are PD-shaped but built by the *shared* agent API → move payload-building behind
+   are PD-shaped but built by the *shared* agent play service (`app/engine/agent_play.py`,
+   functions `poll_turn` and `_build_turn_payload`) → move payload-building behind
    `private_state_for` / `public_state_for`.
 3. **Storage** — PD-shaped `turn_submissions` columns → generic `match_state` /
    `player_state` (see Data structures).
-4. **Placement** — Elo/records derive placement from PD round-wins → read
-   `module.final_placement(...)`.
+4. **Placement** — `app/read_models/leaderboard.py` (`load_leaderboard_sections`)
+   derives placement from PD-shaped `(round_wins, total_score)` grouping → read
+   `module.final_placement(...)` instead so each game controls its own finish order.
 
 Hotspots 2–4 are the contract additions already listed under *Platform extensions*;
 hotspot 1 is the `TurnDriver` split.
@@ -229,11 +235,13 @@ For Liar's Dice:
 action            "BID" | "CHALLENGE"        (reuses the action column)
 quantity          INT  NULL   ← new (D-3)    # bid quantity
 face              INT  NULL   ← new (D-3)    # bid face
-message           the public table-talk (D-5)
-thinking          the private reasoning (D-5)
 target_player_id  unused for Liar's Dice
 points_delta      unused (dice, not points)
 ```
+
+Talk-phase messages and thinking persist in the separate **`turn_messages`** table
+(via the `record_message` contract member), not as columns on `turn_submissions`.
+This is existing platform behavior — do not add `message`/`thinking` columns here.
 
 Storage we **do not** rebuild: `players` score columns are repurposed for display
 only — `total_round_wins` = hands you won (challenges won), `total_round_score` =
@@ -297,10 +305,11 @@ scheduler                         module                     agent
    │ _open_turn (single-actor, token, 30s deadline)
    │ broadcast turn_opened ─────────────────────────────────▶ (SSE viewer)
    │                                            poll /turn ◀── P3
-   │                            build payload  ─────────────▶ your_turn + your_private_state
-   │                                                          (others: waiting/not_your_turn)
+   │                agent_play.poll_turn /  ─────────────────▶ your_turn + your_private_state
+   │                _build_turn_payload                        (others: waiting/not_your_turn)
+   │                (routes are thin adapters to agent_play.py; MCP tools share same service)
    │                                            submit move ◀─ {BID 5x5, message,...}
-   │ validate_move(move) ────────▶ legal? (strictly-higher + ace rules)
+   │ agent_play.submit_action → validate_move(move) ──────▶ legal? (strictly-higher + ace rules)
    │ record_submission ──────────▶ write TurnSubmission(BID,5,5) + update match_state(standing=5x5, active→P4)
    │ _wait_for_turn (quorum = the 1 actor) → returns on submit
    │ resolve_turn ───────────────▶ bid turn = no dice change; mark resolved_at
@@ -337,7 +346,7 @@ the default (opening = min bid; ceiling = challenge) (D-11).
    │ final_placement(match) ─────▶ [winner, last-eliminated, ... , first-eliminated]
    │ broadcast game_completed ───────────────────────────────▶ (SSE viewer)
         │
-   records/Elo (feature 013) reads final_placement (not round-wins) → pairwise Elo updates
+   app/read_models/leaderboard.py reads final_placement (not round-wins) → pairwise Elo updates
 ```
 
 ### D. Hidden-information enforcement (the security flow)
@@ -356,18 +365,20 @@ player_state.dice
 A multi-channel leak test (like SC-002 in feature 007) asserts no pre-reveal dice
 appear on any channel another player can read.
 
-### E. Sims in the sequential loop
+### E. Bots in the sequential loop
 
 ```
 scheduler (sequential mode)
    │ next_actor ─▶ "P3"
-   │ is P3 a Sim?  ── yes ─▶ sims.service.auto_submit_active(match, P3)
-   │                              └─ sims.py decides via pure engine.py
+   │ is P3 a Bot?  ── yes ─▶ sims.service.auto_submit_sim_phase(match, P3, phase="act")
+   │                              └─ Bot logic decides via pure engine.py
    │                                 (truth-prob of standing bid given P3's cup + unknown dice)
    │                              └─ submit BID or CHALLENGE (+ a canned taunt for message)
    │ resolve as in flow A
 ```
-Only the active Sim acts per turn (contrast PD, where every Sim acts each turn).
+Only the active Bot acts per turn (contrast PD, where every Bot acts each turn).
+`auto_submit_sim_phase` is the real function name in `app/engine/sims/service.py`;
+`auto_submit_bot_phase` is its alias. There is no `auto_submit_active` function.
 
 ---
 
@@ -377,12 +388,12 @@ Only the active Sim acts per turn (contrast PD, where every Sim acts each turn).
 |---|---|
 | Change a Liar's Dice rule (raise/ace/showdown) | `app/games/liars_dice/engine.py` (pure) |
 | Change the move shape / validation | `engine.py` + `game.py:validate_move` + `SubmitRequest` |
-| Change what an actor sees | `game.py:private_state_for` / `public_state_for` + `agent_api.py` |
+| Change what an actor sees | `game.py:private_state_for` / `public_state_for` + `app/engine/agent_play.py` (`poll_turn` / `_build_turn_payload`) |
 | Touch the sequential loop | `app/engine/scheduler.py` (sequential mode) + the loop hooks in `base.py` |
-| Add/adjust a Liar's Dice Sim | `app/games/liars_dice/sims.py` (or `app/engine/sims/`) |
+| Add/adjust a Liar's Dice Bot | `app/games/liars_dice/sims.py` (or `app/engine/sims/`) |
 | Change the dice/bid storage | `match_state` / `player_state` models + migration |
 | Change the viewer | `templates/fragments/` + `web_viewer.py` + SSE |
-| Wire placement into Elo | `module.final_placement` + the feature-013 reader |
+| Wire placement into Elo | `module.final_placement` + `app/read_models/leaderboard.py` (`load_leaderboard_sections`) |
 
 ---
 
@@ -396,10 +407,10 @@ Only the active Sim acts per turn (contrast PD, where every Sim acts each turn).
   JSON-shaped so game #3 reuses it.
 - **State lives in generic JSON, not PD columns.** `match_state` / `player_state`
   are deliberately opaque to the platform — the deferred "per-title state storage"
-  from `DESIGN.md` §11, done minimally.
+  from `docs/platform/AGENT_LUDUM_DESIGN.md` §8, done minimally.
 - **Pure engine, DB-thin module.** Same split PD uses (`resolver.py` pure,
   `game.py` thin). The Sims share the pure engine, so a rules bug shows up in both
-  real play and Sim play — one place to fix.
+  real play and Bot play — one place to fix.
 - **Sequential cost.** A hand is many short turns instead of one big simultaneous
   turn, so wall-clock and AI-call counts scale with table size — the 6-player cap
   (D-7) and 30s deadline (D-8) keep this in check.
