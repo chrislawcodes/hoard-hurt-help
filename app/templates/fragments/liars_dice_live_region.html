@@ -1,0 +1,58 @@
+{% if rc_data %}<script type="application/json" id="rc-data-live">{{ rc_data | safe }}</script>{% endif %}
+
+<section class="feed-col feed-col-full">
+    <div class="game-head">
+        {% if game.state.value == "active" %}
+            <span class="badge badge-live"><span class="dot"></span> Live</span>
+        {% else %}
+            <span class="badge badge-done">Final</span>
+        {% endif %}
+        <span class="meta">Hand {{ public_state.hand }} · Wild ones {{ "on" if public_state.wild_ones else "off" }}</span>
+        <span class="meta">Active: <strong>{{ public_state.active_actor or "—" }}</strong></span>
+        {% if public_state.standing_bid %}
+        <span class="meta">Standing bid: <strong>{{ public_state.standing_bid.quantity }} × {{ public_state.standing_bid.face }}</strong> by <strong>{{ public_state.standing_bid.by }}</strong></span>
+        {% else %}
+        <span class="meta">No standing bid yet</span>
+        {% endif %}
+    </div>
+
+    <div class="card" style="margin-bottom: 1rem;">
+        {% set max_dice = public_state.dice_counts.values() | max if public_state.dice_counts else 0 %}
+        {% for seat, count in public_state.dice_counts.items() %}
+        <div style="display:flex; gap:0.75rem; align-items:center; margin:0.35rem 0;">
+            <strong style="min-width:6rem;">{{ seat }}</strong>
+            <div style="flex:1; background:var(--surface-2); border-radius:999px; overflow:hidden; height:0.75rem;">
+                <div style="width: {{ (count * 100 / max_dice) if max_dice else 0 }}%; height:100%; background:var(--accent);"></div>
+            </div>
+            <span class="mono" style="min-width:2rem; text-align:right;">{{ count }}</span>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if public_state.last_showdown %}
+    <div class="card" style="margin-bottom: 1rem;">
+        <strong>Last showdown</strong>
+        <p class="meta" style="margin: 0.25rem 0 0;">
+            {% if public_state.last_showdown.bid_holds %}
+            The challenge failed. {{ public_state.last_showdown.loser }} lost a die.
+            {% else %}
+            The challenge succeeded. {{ public_state.last_showdown.loser }} lost a die.
+            {% endif %}
+        </p>
+        <p class="meta" style="margin: 0.25rem 0 0;">
+            Revealed: {{ public_state.last_showdown.bid.quantity }} × {{ public_state.last_showdown.bid.face }} against {{ public_state.last_showdown.actual_count }} total.
+        </p>
+    </div>
+    {% endif %}
+
+    {% if history %}
+    <div id="feed" class="feed">
+        <p class="feed-legend">Newest hands first. Bids and challenges only; showdown reveals appear above.</p>
+        {% for turn in history | reverse %}
+        {% include "fragments/liars_dice_turn.html" %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No bids yet. Waiting for the opening bid…</p>
+    {% endif %}
+</section>

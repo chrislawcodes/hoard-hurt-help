@@ -14,7 +14,7 @@ from starlette.requests import Request
 from app.config import settings
 from app.main import app
 from app.engine.match_deletion import delete_match
-from app.models import Base, GameState, Match, Player, RequestIncident, Turn, TurnSubmission, User
+from app.models import Base, GameState, Match, MatchState, Player, RequestIncident, Turn, TurnSubmission, User
 from app.models.user import UserRole
 from app.read_models.admin_reports import load_turn_timing_report
 from app.routes import admin_web
@@ -413,13 +413,14 @@ async def test_admin_api_rejects_games_over_twenty_players(client, reset_db):
         json={
             "name": "Too Big",
             "scheduled_start": when,
-            "min_players": 3,
-            "max_players": 21,
+            "min_players": 5,
+            "max_players": 10,
             "per_turn_deadline_seconds": 30,
         },
         cookies=_cookies(admin.id),
     )
-    assert r.status_code == 422
+    assert r.status_code == 400
+    assert "supports 6-100 players" in r.text
 
 
 @pytest.mark.asyncio
@@ -477,7 +478,7 @@ async def test_create_game_via_web_form(client, reset_db):
         data={
             "name": "Web Night",
             "scheduled_start": future,
-            "min_players": "3",
+            "min_players": "6",
             "max_players": "10",
             "per_turn_deadline_seconds": "60",
         },
@@ -503,15 +504,15 @@ async def test_web_form_rejects_games_over_twenty_players(client, reset_db):
         data={
             "name": "Too Big",
             "scheduled_start": future,
-            "min_players": "3",
-            "max_players": "21",
+            "min_players": "5",
+            "max_players": "10",
             "per_turn_deadline_seconds": "60",
         },
         cookies=_cookies(admin.id),
         follow_redirects=False,
     )
     assert r.status_code == 400
-    assert "3 to 20" in r.text
+    assert "6 to 100" in r.text
 
 
 @pytest.mark.asyncio
@@ -534,6 +535,71 @@ async def test_web_form_rejects_past_time(client, reset_db):
     )
     assert r.status_code == 400
     assert "must be in the future" in r.text
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_api_creates_liars_dice_match_and_persists_config(
+    client, reset_db
+):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    r = await client.post(
+        "/api/admin/matches",
+        json={
+            "name": "LD API",
+            "scheduled_start": when,
+            "game_type": "liars-dice",
+            "min_players": 3,
+            "max_players": 6,
+            "per_turn_deadline_seconds": 30,
+            "wild_ones": False,
+            "dice_per_player": 4,
+        },
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    async with reset_db() as db:
+        match = (await db.execute(select(Match).where(Match.id == body["id"]))).scalar_one()
+        state = (
+            await db.execute(select(MatchState).where(MatchState.match_id == match.id))
+        ).scalar_one()
+        assert match.game == "liars-dice"
+        assert state.state_json["config"] == {"wild_ones": False, "dice_per_player": 4}
+
+
+@pytest.mark.asyncio
+async def test_game_admin_web_form_creates_liars_dice_match_and_persists_config(
+    client, reset_db
+):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
+        "%Y-%m-%dT%H:%M:00.000Z"
+    )
+    r = await client.post(
+        "/games/liars-dice/admin/matches/new",
+        data={
+            "name": "LD Web",
+            "scheduled_start": future,
+            "min_players": "3",
+            "max_players": "6",
+            "per_turn_deadline_seconds": "60",
+            "total_rounds": "7",
+            "turns_per_round": "7",
+            "wild_ones": "on",
+            "dice_per_player": "4",
+        },
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303, r.text
+    async with reset_db() as db:
+        match = (await db.execute(select(Match).where(Match.name == "LD Web"))).scalar_one()
+        state = (
+            await db.execute(select(MatchState).where(MatchState.match_id == match.id))
+        ).scalar_one()
+        assert match.game == "liars-dice"
+        assert state.state_json["config"] == {"wild_ones": True, "dice_per_player": 4}
 
 
 @pytest.mark.asyncio

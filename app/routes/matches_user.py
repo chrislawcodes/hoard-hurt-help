@@ -101,6 +101,15 @@ async def create_match_submit(
     scheduled_start: Annotated[str, Form()],
 ):
     _load_visible_game_module_or_404(game, user)  # 404 on unknown/hidden game
+    # Admin-only games (e.g. Liar's Dice) carry per-match config that only the
+    # admin create paths seed into MatchState. The generic user flow has no way
+    # to capture or persist that config, so it must not create these matches at
+    # all — even for an admin who can otherwise see the game.
+    if is_admin_only(game):
+        raise HTTPException(
+            status_code=404,
+            detail="This game can't be created here.",
+        )
     try:
         when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
     except ValueError:

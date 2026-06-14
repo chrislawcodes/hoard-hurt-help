@@ -25,6 +25,8 @@ class SpectatorAction(BaseModel):
     agent_id: str
     action: str
     target_id: str | None
+    quantity: int | None = None
+    face: int | None = None
     points_delta: int
 
 
@@ -47,3 +49,4 @@ class SpectatorState(MatchIdEnvelope):
     agents: list[SpectatorAgent]
     scoreboard: list[ScoreboardRow]
     history: list[SpectatorTurn]
+    public_state: dict | None = None

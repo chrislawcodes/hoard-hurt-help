@@ -8,11 +8,14 @@ from pydantic import BaseModel, Field, field_validator
 class CreateGameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     scheduled_start: datetime
-    min_players: int = Field(default=6, ge=6, le=10)
-    max_players: int = Field(default=10, ge=6, le=10)
+    game_type: str = Field(default="hoard-hurt-help", max_length=64)
+    min_players: int = Field(default=6, ge=3, le=100)
+    max_players: int = Field(default=10, ge=3, le=100)
     per_turn_deadline_seconds: int = Field(default=60, ge=5, le=600)
     total_rounds: int = Field(default=7, ge=3, le=20)
     turns_per_round: int = Field(default=7, ge=3, le=20)
+    wild_ones: bool = True
+    dice_per_player: int = Field(default=5, ge=1, le=20)
 
     @field_validator("max_players")
     @classmethod
