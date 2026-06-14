@@ -164,6 +164,89 @@ async def test_submit_action_service_updates_turn_count_and_first_move(
 
 
 @pytest.mark.asyncio
+async def test_submit_action_merges_validation_snapshot_and_strips_it_before_recording(
+    reset_db, monkeypatch
+):
+    seed = await _seed_turn(reset_db, match_id="M_SERVICE_4")
+
+    seen: dict[str, dict[str, object]] = {}
+
+    class _SnapshotModule:
+        async def validation_snapshot(self, db, match, player):  # noqa: ANN001
+            return {
+                "standing_bid": {"by": "AI_0", "quantity": 1, "face": 2},
+                "dice_counts": {"AI_0": 3},
+                "active_actor": "AI_0",
+                "total_dice": 3,
+                "wild": True,
+            }
+
+        def validate_move(self, move, *, your_agent_id, all_agent_ids):  # noqa: ANN001
+            seen["validated"] = dict(move)
+            assert move["standing_bid"] == {"by": "AI_0", "quantity": 1, "face": 2}
+            assert move["active_actor"] == "AI_0"
+            assert move["total_dice"] == 3
+            assert move["wild"] is True
+            assert your_agent_id == "AI_0"
+            assert all_agent_ids == ["AI_0"]
+
+        async def record_submission(
+            self,
+            db,
+            turn,
+            player,
+            move,
+            *,
+            existing,
+            is_connector_fallback=False,
+        ):  # noqa: ANN001
+            seen["recorded"] = dict(move)
+            assert "standing_bid" not in move
+            assert "dice_counts" not in move
+            assert "active_actor" not in move
+            assert "total_dice" not in move
+            assert "wild" not in move
+
+    async def fake_increment_turns_played(db, connection_id):  # noqa: ANN001
+        return None
+
+    async def fake_mark_first_move(db, agent_id):  # noqa: ANN001
+        return None
+
+    monkeypatch.setattr(agent_play, "get_game_module", lambda _game: _SnapshotModule())
+    monkeypatch.setattr(agent_play, "increment_turns_played", fake_increment_turns_played)
+    monkeypatch.setattr(agent_play, "mark_first_move", fake_mark_first_move)
+
+    async with reset_db() as db:
+        player = (
+            await db.execute(select(Player).where(Player.id == seed["player_id"]))
+        ).scalar_one()
+        connection = (
+            await db.execute(
+                select(Connection).where(Connection.id == seed["connection_id"])
+            )
+        ).scalar_one()
+
+        response = await agent_play.submit_action(
+            db,
+            match_id=seed["match_id"],
+            player=player,
+            connection=connection,
+            agent_turn_token=seed["agent_turn_token"],
+            turn_token=seed["turn_token"],
+            action=None,
+            target_id=None,
+            message="snapshot move",
+            thinking="",
+            is_connector_fallback=False,
+            move={"type": "BID", "quantity": 2, "face": 3},
+        )
+        assert response.status == "accepted"
+        assert "standing_bid" in seen["validated"]
+        assert "standing_bid" not in seen["recorded"]
+
+
+@pytest.mark.asyncio
 async def test_next_turn_service_returns_payload(reset_db):
     seed = await _seed_turn(reset_db, match_id="M_SERVICE_3")
 

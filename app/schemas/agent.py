@@ -222,6 +222,8 @@ class HistoryAction(BaseModel):
     agent_id: str
     action: Action
     target_id: str | None
+    quantity: int | None = None
+    face: int | None = None
     message: str
     points_delta: int
 

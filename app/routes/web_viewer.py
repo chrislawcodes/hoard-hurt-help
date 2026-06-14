@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, get_current_user, require_user
+from app.games import get as get_game_module
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import Match
@@ -38,6 +39,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     """Build the shared context for the game viewer page and its live fragment."""
     user = await get_current_user(request, db)
     g = match
+    module = get_game_module(g.game)
     players = await load_players(db, g.id)
     timeline = await load_match_timeline(db, g.id)
 
@@ -82,6 +84,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
 
     history: list[dict[str, Any]] = []
     viewer_player = next((p for p in players if user and p.user_id == user.id), None)
+    public_state = await module.public_state_for(db, g, viewer_player)
 
     # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
     # the same turn; a "betrayal" is a HURT aimed at last turn's pact partner.
@@ -109,6 +112,8 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
                     "agent_id": action.agent_id,
                     "action": action.action,
                     "target_id": action.target_id,
+                    "quantity": action.quantity,
+                    "face": action.face,
                     # Nominal per-move effect, attributed to who it lands on.
                     "actor_delta": actor_delta,
                     "target_delta": target_delta,
@@ -245,6 +250,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         "viewer_prompt_text": viewer_prompt_text,
         "viewer_prompt_label": viewer_prompt_label,
         "coaching_enabled": bool(g.coaching) if hasattr(g, "coaching") else True,
+        "public_state": public_state,
     }
 
 

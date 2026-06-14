@@ -86,6 +86,8 @@ class _PublicActionRecord:
     actor_id: str
     action: Action
     target_id: str | None
+    quantity: int | None
+    face: int | None
     message: str
     points_delta: int
     was_defaulted: bool
@@ -217,6 +219,8 @@ async def _load_public_action_records(
                         if submission.target_player_id is not None
                         else None
                     ),
+                    quantity=submission.quantity,
+                    face=submission.face,
                     message=message_by_player_id.get(player_id, submission.message),
                     points_delta=submission.points_delta,
                     was_defaulted=submission.was_defaulted,
@@ -353,6 +357,8 @@ def _group_into_turns(actions: Sequence[_PublicActionRecord]) -> list[HistoryTur
                 agent_id=action.actor_id,
                 action=action.action,
                 target_id=action.target_id,
+                quantity=action.quantity,
+                face=action.face,
                 message=action.message,
                 points_delta=action.points_delta,
             )
@@ -554,6 +560,15 @@ def _pack_move(
     }
 
 
+_LD_VALIDATION_SNAPSHOT_KEYS = {
+    "standing_bid",
+    "dice_counts",
+    "active_actor",
+    "total_dice",
+    "wild",
+}
+
+
 async def submit_action(
     db: AsyncSession,
     *,
@@ -596,6 +611,9 @@ async def submit_action(
         thinking=word_filter.mask(thinking),
         move=move,
     )
+    snapshot = await module.validation_snapshot(db, game, player)
+    if snapshot:
+        built_move = {**built_move, **snapshot}
     try:
         module.validate_move(
             built_move, your_agent_id=player.seat_name, all_agent_ids=all_agent_ids
@@ -604,7 +622,9 @@ async def submit_action(
         raise _err(
             exc.code, exc.message, status.HTTP_400_BAD_REQUEST, exc.details
         ) from exc
-    internal_move: dict[str, object] = {**built_move}
+    internal_move: dict[str, object] = {
+        key: value for key, value in built_move.items() if key not in _LD_VALIDATION_SNAPSHOT_KEYS
+    }
     if move is None and target_id is not None:
         target_player = next(
             (candidate for candidate in all_players if candidate.seat_name == target_id),
