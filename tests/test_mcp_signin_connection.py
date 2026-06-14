@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 
 import pytest
 from fastmcp.server.dependencies import AccessToken
@@ -16,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.models import Base
-from app.models.connection import Connection, ConnectionStatus
+from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from mcp_server import server
 
@@ -52,7 +53,9 @@ async def test_signin_creates_active_connection_without_counting_a_call(
     """A fresh sign-in yields a live, agent-ready connection — and the handshake
     is not billed as an API call (that is what separates it from a tool call)."""
     async with db_session_factory() as db:
-        _access, _userinfo, connection = await server._connection_from_token(db, _token())
+        _access, _userinfo, connection = await server._connection_from_token(
+            db, _token(), provider=ConnectionProvider.GEMINI
+        )
         await db.commit()
 
         # Live + connected -> the page shows "connected", not "waiting".
@@ -61,7 +64,8 @@ async def test_signin_creates_active_connection_without_counting_a_call(
         # The handshake is not a paid model inference.
         assert connection.api_call_count == 0
 
-        # Every provider is enabled, so the user can create agents right away.
+        # Only the connecting client's provider is enabled (one client ==
+        # one provider), so the user can create that provider's agents.
         provider_rows = (
             (
                 await db.execute(
@@ -73,8 +77,9 @@ async def test_signin_creates_active_connection_without_counting_a_call(
             .scalars()
             .all()
         )
-        assert provider_rows
-        assert all(row.enabled for row in provider_rows)
+        assert {(r.provider, r.enabled) for r in provider_rows} == {
+            (ConnectionProvider.GEMINI, True)
+        }
 
 
 @pytest.mark.asyncio
@@ -99,9 +104,13 @@ async def test_signin_is_idempotent_one_connection_per_user(
     """Repeated sign-ins (e.g. reconnects) reuse the same connection, never
     spawning duplicates."""
     async with db_session_factory() as db:
-        _a1, _u1, first = await server._connection_from_token(db, _token())
+        _a1, _u1, first = await server._connection_from_token(
+            db, _token(), provider=ConnectionProvider.GEMINI
+        )
         await db.commit()
-        _a2, _u2, second = await server._connection_from_token(db, _token())
+        _a2, _u2, second = await server._connection_from_token(
+            db, _token(), provider=ConnectionProvider.GEMINI
+        )
         await db.commit()
 
         assert first.id == second.id
@@ -125,7 +134,7 @@ async def test_initialize_middleware_is_fail_open(monkeypatch: pytest.MonkeyPatc
     """A bootstrap failure must not break the session — initialize still runs."""
     monkeypatch.setattr(server, "get_access_token", lambda: _token())
 
-    async def _boom(token: object) -> None:
+    async def _boom(token: object, provider: object) -> None:
         raise RuntimeError("db unavailable")
 
     monkeypatch.setattr(server, "_bootstrap_signin_connection", _boom)
@@ -136,8 +145,11 @@ async def test_initialize_middleware_is_fail_open(monkeypatch: pytest.MonkeyPatc
         seen["called"] = True
         return "initialized"
 
+    class _Ctx:
+        message = None
+
     middleware = server.SigninConnectionMiddleware()
-    result = await middleware.on_initialize(object(), _call_next)  # type: ignore[arg-type]
+    result = await middleware.on_initialize(_Ctx(), _call_next)  # type: ignore[arg-type]
 
     assert result == "initialized"
     assert seen["called"] is True
@@ -152,7 +164,7 @@ async def test_initialize_middleware_skips_when_unauthenticated(
 
     bootstrap_called = {"value": False}
 
-    async def _bootstrap(token: object) -> None:
+    async def _bootstrap(token: object, provider: object) -> None:
         bootstrap_called["value"] = True
 
     monkeypatch.setattr(server, "_bootstrap_signin_connection", _bootstrap)
@@ -198,8 +210,13 @@ def test_userinfo_from_claims_requires_email() -> None:
 async def test_signin_hook_creates_active_connection_from_id_token(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The token-exchange hook turns a Google id_token into a live, agent-ready
-    connection — with no MCP session or tool call, and no billed API call."""
+    """The token-exchange hook turns a Google id_token into a live connection —
+    with no MCP session or tool call, and no billed API call.
+
+    Bare sign-in (``... mcp login``) does not yet know which client connected,
+    so it enables NO provider. The client names itself later on the MCP
+    handshake, which is when its one provider gets enabled.
+    """
     async with db_session_factory() as db:
         connection = await server._create_signin_connection(
             db, {"id_token": _make_id_token()}
@@ -211,6 +228,7 @@ async def test_signin_hook_creates_active_connection_from_id_token(
         assert connection.first_connected_at is not None
         assert connection.api_call_count == 0
 
+        # No provider enabled yet — sign-in alone does not claim a provider.
         provider_rows = (
             (
                 await db.execute(
@@ -222,8 +240,7 @@ async def test_signin_hook_creates_active_connection_from_id_token(
             .scalars()
             .all()
         )
-        assert provider_rows
-        assert all(row.enabled for row in provider_rows)
+        assert provider_rows == []
 
 
 @pytest.mark.asyncio
@@ -234,6 +251,28 @@ async def test_signin_hook_skips_when_no_id_token(
     async with db_session_factory() as db:
         result = await server._create_signin_connection(db, {"access_token": "x"})
         assert result is None
+
+
+def _initialize_message(name: str | None) -> SimpleNamespace:
+    """A stand-in for the MCP initialize request carrying a client's name."""
+    return SimpleNamespace(params=SimpleNamespace(clientInfo=SimpleNamespace(name=name)))
+
+
+def test_client_provider_from_initialize_maps_the_connecting_client() -> None:
+    # The real string Gemini CLI sends on the handshake -> the Gemini provider.
+    msg = _initialize_message("gemini-cli-mcp-client")
+    assert server._client_provider_from_initialize(msg) is ConnectionProvider.GEMINI
+
+
+def test_client_provider_from_initialize_unknown_client_is_none() -> None:
+    msg = _initialize_message("some-other-client")
+    assert server._client_provider_from_initialize(msg) is None
+
+
+def test_client_provider_from_initialize_is_fail_open_on_bad_message() -> None:
+    # A message without clientInfo must not raise — it yields None (enable none).
+    assert server._client_provider_from_initialize(object()) is None
+    assert server._client_provider_from_initialize(_initialize_message(None)) is None
 
 
 def test_auth_provider_skips_consent_and_hooks_signin() -> None:

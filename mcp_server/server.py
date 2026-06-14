@@ -16,7 +16,7 @@ from typing import Any, cast
 from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentAccessToken, Depends
 from fastmcp.server.auth.providers.google import GoogleProvider
-from fastmcp.server.dependencies import AccessToken, get_access_token
+from fastmcp.server.dependencies import AccessToken, get_access_token, get_context
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
@@ -36,8 +36,9 @@ from app.engine.agent_play import (
     turn_detail,
 )
 from app.engine.connection_activity import mark_seen
+from app.engine.mcp_client_identity import provider_from_client_name
 from app.engine.mode_a_connection import mode_a_connection_for
-from app.models.connection import Connection
+from app.models.connection import Connection, ConnectionProvider
 from app.models.player import Player
 from app.routes.auth import sync_google_user
 from app.routes.spectator_api import public_state
@@ -266,20 +267,57 @@ def _google_userinfo_from_token(token: AccessToken) -> GoogleUserInfo:
     )
 
 
+def _client_provider_from_context() -> ConnectionProvider | None:
+    """Which AI provider does the live MCP client speak for? Best-effort.
+
+    Reads the client's self-reported ``clientInfo.name`` from the active MCP
+    session and maps it to a provider (one MCP client == one provider). Used on
+    tool calls, where the session's ``client_params`` is already populated.
+
+    fail-open: advisory only — any problem returns ``None`` and the caller
+    enables no provider rather than guessing one.
+    """
+    try:
+        ctx = get_context()
+        params = getattr(ctx.session, "client_params", None)
+        client_info = getattr(params, "clientInfo", None)
+        name = getattr(client_info, "name", None)
+    except Exception:
+        return None
+    return provider_from_client_name(name)
+
+
+def _client_provider_from_initialize(message: object) -> ConnectionProvider | None:
+    """Provider for the client in an ``initialize`` handshake message.
+
+    The initialize request carries ``clientInfo`` directly, so this is reliable
+    even before the session's ``client_params`` has been populated. fail-open:
+    advisory only — unrecognized/missing names yield ``None``.
+    """
+    params = getattr(message, "params", message)
+    client_info = getattr(params, "clientInfo", None)
+    name = getattr(client_info, "name", None)
+    return provider_from_client_name(name)
+
+
 async def _connection_from_token(
     db: AsyncSession,
     token: object,
+    *,
+    provider: ConnectionProvider | None,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
     """Resolve a verified OAuth token to the caller's Mode A connection.
 
-    Creates the connection on first sight (ACTIVE, every provider enabled) and
-    reuses it thereafter. Does NOT record the call — see ``mark_seen`` for the
-    heartbeat / usage-count side of an authenticated request.
+    Creates the connection on first sight and reuses it thereafter. ``provider``
+    is the single provider the connecting MCP client speaks for; it is enabled
+    on the connection (others are left as-is). ``None`` enables nothing — used
+    when we cannot tell which client connected. Does NOT record the call — see
+    ``mark_seen`` for the heartbeat / usage-count side of a request.
     """
     access_token = _require_access_token(token)
     userinfo = _google_userinfo_from_token(access_token)
     user = await sync_google_user(db, userinfo)
-    connection = await mode_a_connection_for(db, user)
+    connection = await mode_a_connection_for(db, user, provider=provider)
     assert_connection_usable(connection)
     return access_token, userinfo, connection
 
@@ -288,27 +326,35 @@ async def _resolve_oauth_connection(
     db: AsyncSession,
     token: object,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
-    access_token, userinfo, connection = await _connection_from_token(db, token)
+    provider = _client_provider_from_context()
+    access_token, userinfo, connection = await _connection_from_token(
+        db, token, provider=provider
+    )
     await mark_seen(db, connection, key_hash=connection.key_lookup)
     return access_token, userinfo, connection
 
 
-async def _bootstrap_signin_connection(token: object) -> None:
+async def _bootstrap_signin_connection(
+    token: object, provider: ConnectionProvider | None
+) -> None:
     """Create/resume the caller's Mode A connection when their session starts.
 
     Runs once per MCP session, on the ``initialize`` handshake, so the
     /me/connections page flips to "connected" as soon as the client signs in —
-    instead of only after the first tool call. The handshake is not a paid model
-    inference, so this deliberately skips ``mark_seen`` (which bumps the
-    ``api_call_count`` cost counter) and only writes the connection's existence
-    and connected timestamps via ``mode_a_connection_for``.
+    instead of only after the first tool call. ``provider`` is the single
+    provider the connecting client speaks for (from its ``clientInfo``); it is
+    enabled on the connection so the page reflects which client really connected.
+    The handshake is not a paid model inference, so this deliberately skips
+    ``mark_seen`` (which bumps the ``api_call_count`` cost counter) and only
+    writes the connection's existence and connected timestamps via
+    ``mode_a_connection_for``.
 
     fail-open: advisory only — if this fails the session still initializes, and
     the first tool call's ``_resolve_oauth_connection`` remains the authoritative
     place the connection is created and recorded.
     """
     async with SessionLocal() as db:
-        await _connection_from_token(db, token)
+        await _connection_from_token(db, token, provider=provider)
         await db.commit()
 
 
@@ -323,7 +369,8 @@ class SigninConnectionMiddleware(Middleware):
         token = get_access_token()
         if token is not None:
             try:
-                await _bootstrap_signin_connection(token)
+                provider = _client_provider_from_initialize(context.message)
+                await _bootstrap_signin_connection(token, provider)
             except Exception:
                 # fail-open: advisory only — the first tool call still creates and
                 # records the connection (see _bootstrap_signin_connection).

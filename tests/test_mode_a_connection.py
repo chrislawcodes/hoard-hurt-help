@@ -114,7 +114,9 @@ async def test_mode_a_connection_for_concurrent_calls_create_one_row(
             stored_user = (
                 await db.execute(select(User).where(User.id == user_id))
             ).scalar_one()
-            connection = await mode_a_connection_for(db, stored_user)
+            connection = await mode_a_connection_for(
+                db, stored_user, provider=ConnectionProvider.GEMINI
+            )
             await db.commit()
             return connection.id
 
@@ -140,6 +142,8 @@ async def test_mode_a_connection_for_concurrent_calls_create_one_row(
         assert connection.status is ConnectionStatus.ACTIVE
         assert connection.mode_a_at is not None
 
+        # One MCP client == one provider: only the connecting client's provider
+        # (GEMINI here) is enabled, not the whole set.
         provider_rows = (
             await db.execute(
                 select(ConnectionProviderRow)
@@ -147,9 +151,77 @@ async def test_mode_a_connection_for_concurrent_calls_create_one_row(
                 .order_by(ConnectionProviderRow.provider)
             )
         ).scalars().all()
-        assert len(provider_rows) == len(ConnectionProvider)
-        assert {row.provider for row in provider_rows} == set(ConnectionProvider)
-        assert all(row.enabled for row in provider_rows)
+        assert len(provider_rows) == 1
+        assert provider_rows[0].provider is ConnectionProvider.GEMINI
+        assert provider_rows[0].enabled is True
+
+
+@pytest.mark.asyncio
+async def test_mode_a_connection_enables_only_the_connecting_provider(
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with db_session_factory() as db:
+        user = await _make_user(db, suffix="prov")
+        connection = await mode_a_connection_for(
+            db, user, provider=ConnectionProvider.CLAUDE
+        )
+        await db.commit()
+        rows = (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == connection.id
+                )
+            )
+        ).scalars().all()
+        assert {(r.provider, r.enabled) for r in rows} == {
+            (ConnectionProvider.CLAUDE, True)
+        }
+
+
+@pytest.mark.asyncio
+async def test_mode_a_connection_without_provider_enables_nothing(
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    # The bare sign-in token exchange does not know which client connected, so
+    # it passes no provider — nothing should be enabled until a real handshake.
+    async with db_session_factory() as db:
+        user = await _make_user(db, suffix="noprov")
+        connection = await mode_a_connection_for(db, user)
+        await db.commit()
+        rows = (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == connection.id
+                )
+            )
+        ).scalars().all()
+        assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_mode_a_connection_accumulates_providers_across_clients(
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    # Connecting a second client later enables its provider too, without
+    # disabling the first — the enabled set is an honest list of real clients.
+    async with db_session_factory() as db:
+        user = await _make_user(db, suffix="accum")
+        await mode_a_connection_for(db, user, provider=ConnectionProvider.GEMINI)
+        connection = await mode_a_connection_for(
+            db, user, provider=ConnectionProvider.CLAUDE
+        )
+        await db.commit()
+        rows = (
+            await db.execute(
+                select(ConnectionProviderRow).where(
+                    ConnectionProviderRow.connection_id == connection.id
+                )
+            )
+        ).scalars().all()
+        assert {(r.provider, r.enabled) for r in rows} == {
+            (ConnectionProvider.GEMINI, True),
+            (ConnectionProvider.CLAUDE, True),
+        }
 
 
 @pytest.mark.asyncio
