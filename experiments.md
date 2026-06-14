@@ -20,6 +20,27 @@ Tracking whether adversarial reviews (Feature Factory pipeline) actually change 
 
 ---
 
+## Experiment 9 — `smart-join-flow` (hoard-hurt-help, 2026-06-14)
+
+**Feature:** Turn the join page into a setup hub — one **Join** on a lobby game seats the operator's AI agent, and when setup is missing it redirects to the *existing* page for the first missing step (create-agent → connect/start your AI), threading `?next=` back to the join URL. No new page; reuse + glue across the join route, connections page, create-agent route, and the live-status auto-advance.
+
+**Direct PR:** #372 (merged `98ccb7a`) | **Feature Factory PR:** none (branch `factory/smart-join-flow`, local `720d5de`, not shipped)
+
+| | Direct Path | Feature Factory |
+|--|--------------|---------|
+| Reviews that changed code | 1/1 stages (Implement self-review added a chained-flow test + caught the open-redirect risk → `safe_internal_next` guard) | Spec review ran (Codex feasibility + Gemini requirements); independently flagged the same open-redirect → its own `safe_redirect.py`. Implement produced no tests. |
+| Critical catch | — | — (both caught the open-redirect; FF found nothing unique) |
+| False positives | None | Low / unrecorded |
+| Tests | 24 new (`tests/test_smart_join_flow.py`), preflight green | 0 new (new hub logic untested) |
+| Claude tokens (real-work billed+output) | ~149k | ~282k (143k planning + 139k implement) plus uncounted Codex+Gemini |
+| Human interruptions | 0 | 1 (stalled after the planning ceremony; re-launched to implement) |
+
+**Verdict:** Direct won cleanly. It shipped a complete, tested (24 tests), committed, preflight-green hub and added an open-redirect guard its self-review flagged. Feature Factory spent ~2× the Claude tokens on the spec/plan/tasks ceremony + spec-stage adversarial reviews, stalled before writing code (needed a re-launch), and produced untested, uncommitted code — and its reviews surfaced nothing Direct missed (both independently added the open-redirect guard). No post-merge bugs.
+
+**Lesson:** When the design is already settled going in (the UX was designed up front, before the build), Feature Factory's plan/spec ceremony re-derives work you already have, and its review edge surfaced nothing new. UI/flow + settled design → Direct Path. Consistent with the silent-vs-test-visible-risk predictor from Experiment 8: this feature's one real risk (open-redirect) was catchable by a single self-review, so the extra rounds were redundant.
+
+---
+
 ## Experiment 8 — `byo-terminal-mode-a` (hoard-hurt-help, 2026-06-13)
 
 **Feature:** Interactive "Mode A" MCP play — bounded long-poll on next-turn, per-connection usage counters (dashboard), connect docs; built on the existing MCP/agent stack.
@@ -196,8 +217,9 @@ Tracking whether adversarial reviews (Feature Factory pipeline) actually change 
 | 6 — per-model-coverage | valuerank | Full-stack feature | Yes | Caught 2 real UI bugs (color threshold, label) that Direct Path shipped silently |
 | 7 — move-limit-single-source | hoard-hurt-help | Backend refactor + test | Partial | Plan review upgraded a structural test to a behavioral one; both paths otherwise correct; ~2.5× tokens / ~6.5× time |
 | 8 — byo-terminal-mode-a | hoard-hurt-help | Backend / hot-path concurrency | No | Direct caught the critical risks itself (DB-pin showed as a test slowdown) + chose a better opt-in design; FF's lone unique catch was minor; FF cost far more and never built code |
+| 9 — smart-join-flow | hoard-hurt-help | UI/flow (settled design) | No | Both caught the lone risk (open-redirect); FF cost ~2×, shipped untested + uncommitted code, and stalled before implementing; design was settled up front, so the planning ceremony was pure overhead |
 
-**Pattern (8 data points — 6 ValueRank, 2 hoard-hurt-help):** Feature Factory 2/2 on backend/algorithmic work. Direct Path 2/2 on UI/nav work. Full-stack features: Feature Factory 2/2 on catching real bugs (though Experiment 5 was partial on process friction). First hoard-hurt-help point (backend refactor) agrees with the backend lean: Feature Factory found a real test-coverage gap Direct missed — but on a low-risk refactor the win was test robustness, not correctness, so it was only partially worth the steep cost. **Experiment 8 (backend, hot-path concurrency) contradicts the backend lean:** Direct won outright — its critical risks were test-visible (a DB-pin that slowed the suite), so one self-review caught them and FF's extra rounds were redundant at far higher cost. The emerging better predictor is **silent vs. test-visible risk**, not backend-vs-UI.
+**Pattern (9 data points — 6 ValueRank, 3 hoard-hurt-help):** Feature Factory 2/2 on backend/algorithmic work. Direct Path 2/2 on UI/nav work. Full-stack features: Feature Factory 2/2 on catching real bugs (though Experiment 5 was partial on process friction). First hoard-hurt-help point (backend refactor) agrees with the backend lean: Feature Factory found a real test-coverage gap Direct missed — but on a low-risk refactor the win was test robustness, not correctness, so it was only partially worth the steep cost. **Experiment 8 (backend, hot-path concurrency) contradicts the backend lean:** Direct won outright — its critical risks were test-visible (a DB-pin that slowed the suite), so one self-review caught them and FF's extra rounds were redundant at far higher cost. The emerging better predictor is **silent vs. test-visible risk**, not backend-vs-UI. **Experiment 9 (UI/flow, settled design) reinforces it:** the one real risk (an open-redirect on the `?next=` param) was catchable by a single self-review — Direct caught it without help — so FF's spec/plan ceremony added nothing at ~2× cost. A second signal also showed up: when the design is **settled before the build** (the UX was designed up front), FF's planning stages just re-derive a plan you already have.
 
 **Recommendation:** Route features by type before choosing pipeline:
 - Backend algorithmic / Python worker internals → Feature Factory
