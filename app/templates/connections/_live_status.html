@@ -10,7 +10,7 @@
    has an agent, since that's when there are games to play. Expects `play_prompt`,
    `has_agent`, `agent_summary`, `is_live_now`, `is_playing_now`, `lobby_url`. #}
 <div id="live-status"
-     hx-get="/me/connections/live-status"
+     hx-get="/me/connections/live-status{% if next_url %}?next={{ next_url | urlencode }}{% endif %}"
      hx-trigger="every 4s"
      hx-swap="outerHTML">
     {% if is_playing_now %}

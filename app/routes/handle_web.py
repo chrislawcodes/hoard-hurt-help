@@ -21,7 +21,7 @@ from app.identity import handle as handle_mod
 from app.identity import word_filter
 from app.identity.handle import HandleError
 from app.models.user import User
-from app.routes.web_support import _is_any_admin
+from app.routes.web_support import _is_any_admin, safe_internal_next
 from app.templating import templates
 
 router = APIRouter()
@@ -30,10 +30,8 @@ _DEFAULT_NEXT = "/me/agents"
 
 
 def _safe_next(raw: str | None) -> str:
-    """Only allow a local path, to avoid an open redirect."""
-    if raw and raw.startswith("/") and not raw.startswith("//"):
-        return raw
-    return _DEFAULT_NEXT
+    """Only allow a local path, to avoid an open redirect; else the default."""
+    return safe_internal_next(raw) or _DEFAULT_NEXT
 
 
 async def _taken_keys(db: DbSession) -> set[str]:
