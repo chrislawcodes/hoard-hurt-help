@@ -246,8 +246,11 @@ def test_mcp_root_mount_and_public_mcp_route() -> None:
     from app.main import app as fastapi_app
     from mcp_server.server import asgi_app
 
-    paths = {getattr(r, "path", None) for r in fastapi_app.routes}
-    assert "/" in paths
+    # Use the public url_path_for() rather than scanning app.routes for a flat
+    # "/" entry: FastAPI >=0.137 registers sub-routers lazily (_IncludedRouter),
+    # so the home route is not a flat list entry until the app is built.
+    # url_path_for() resolves through lazy includes and works on both behaviours.
+    assert fastapi_app.url_path_for("home") == "/"
     assert any(getattr(route, "path", None) == "/mcp" for route in asgi_app.routes)
 
 
