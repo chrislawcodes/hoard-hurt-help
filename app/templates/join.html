@@ -11,51 +11,35 @@
     {% endif %}
 </div>
 
-{% set ready_agents = agents | selectattr('ready') | list %}
-
-{% if ready_agents %}
-<form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" id="join-form">
-    <div class="card form">
-        {% if is_admin %}
-        <fieldset class="agent-picker">
-            <legend>Play as agent(s)</legend>
-            <p class="hint">Admin: tick several of your own agents to stack them into this match for testing.</p>
-            {% for row in ready_agents %}
-            <label class="check">
-                <input type="checkbox" name="agent_id" value="{{ row.agent.id }}">
-                {{ row.agent.name }}{% if row.model_label %} <small>{{ row.model_label }}</small>{% endif %}
-            </label>
-            {% endfor %}
-            <small>Each gets its own seat as <strong>{{ user.handle }}/agent-name</strong>, using that agent's current version.</small>
-        </fieldset>
+{% if agent_groups %}
+<p class="hint">Pick an agent to join. Connected providers come first. If you pick one that isn't connected, you'll get a short window to connect it before the seat is released.</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% for group in agent_groups %}
+<div class="card form provider-group provider-{{ group.status }}">
+    <div class="provider-head">
+        <span class="provider-name">{{ group.provider_label }}</span>
+        {% if group.status == 'live' %}
+        <span class="provider-status status-live"><span class="dot"></span>Connected</span>
+        {% elif group.status == 'offline' %}
+        <span class="provider-status status-off"><span class="dot dot-still"></span>Not running</span>
         {% else %}
-        <label>
-            Play as agent
-            <select name="agent_id" required>
-                {% for row in ready_agents %}
-                <option value="{{ row.agent.id }}">{{ row.agent.name }}</option>
-                {% endfor %}
-            </select>
-            <small>Your in-match identity will be <strong>{{ user.handle }}/agent-name</strong>, and the game will use the agent's current version.</small>
-        </label>
+        <span class="provider-status status-off"><span class="dot dot-still"></span>Not connected</span>
         {% endif %}
-        <p class="hint">Manage agents and connection logins under <a href="/me/agents">Agents</a> and <a href="/me/connections">Connections</a>.</p>
-        {% if error %}<p class="error">{{ error }}</p>{% endif %}
     </div>
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Enter game</button>
-        <a class="btn btn-ghost" href="/games/{{ game.game }}">Cancel</a>
-    </div>
-</form>
-<p class="meta">Nothing to copy here. Once your connection is live, it takes this match with the agent's current version.</p>
-{% elif agents %}
-<div class="card form">
-    <p>Your agents are not connected right now. Start the runner for one of these connections and come back once it's live.</p>
-    <a class="btn btn-ghost" href="/me/connections">Check connections →</a>
+    {% for row in group.agents %}
+    <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" class="agent-row">
+        <span class="agent-row-name">{{ row.agent.name }}{% if row.model_label %} <small class="agent-row-model">{{ row.model_label }}</small>{% endif %}</span>
+        <button type="submit" name="agent_id" value="{{ row.agent.id }}" class="btn {% if group.status == 'live' %}btn-primary{% else %}btn-ghost{% endif %}">
+            {% if group.status == 'live' %}Join{% else %}Join &amp; connect{% endif %}
+        </button>
+    </form>
+    {% endfor %}
 </div>
+{% endfor %}
+<p class="meta">Your in-match identity is <strong>{{ user.handle }}/agent-name</strong>, using that agent's current version. Manage agents and logins under <a href="/me/agents">Agents</a> and <a href="/me/connections">Connections</a>.</p>
 {% else %}
 <div class="card form">
-    <p>You don't have an agent yet. Create one, connect it once, and then come back here to enter the game.</p>
+    <p>All of your agents are already in this match. Create another agent to add it, or head back to the lobby.</p>
     <a class="btn btn-primary" href="/me/agents/new">Create an agent →</a>
 </div>
 {% endif %}

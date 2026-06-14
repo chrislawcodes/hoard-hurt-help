@@ -1,0 +1,113 @@
+"""Seat-hold logic for join-before-connect.
+
+When a user joins a match with an agent whose AI provider isn't live yet, the
+seat is *held*: ``players.seat_reserved_until`` is set to a deadline. The user
+has ``SEAT_HOLD_SECONDS`` to bring the provider online. This module:
+
+- confirms a held seat (clears the deadline) the moment its provider goes live,
+- releases (deletes) a held seat whose deadline has passed before it went live,
+- releases all still-held seats when a match starts.
+
+A held seat never counts as a real player — see ``_active_player_count`` in the
+scheduler, which excludes rows with a non-NULL ``seat_reserved_until``.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.db import SessionLocal
+from app.engine.connection_health import provider_is_covered
+from app.models.agent import Agent
+from app.models.player import Player
+
+# How long a held seat is kept while the user brings their AI online. Matches
+# LIVE_WINDOW_SECONDS so "you have 90 seconds" lines up with how long a
+# connection is considered live after its last heartbeat.
+SEAT_HOLD_SECONDS = 90
+
+
+def _as_aware(dt: datetime) -> datetime:
+    """SQLite drops tz info on read; normalize to UTC-aware for comparisons."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def hold_deadline(now: datetime) -> datetime:
+    """The deadline for a seat held starting at *now*."""
+    return now + timedelta(seconds=SEAT_HOLD_SECONDS)
+
+
+async def confirm_seat_if_live(db: AsyncSession, player: Player) -> bool:
+    """Clear the hold on *player* if its agent's provider is now live.
+
+    Returns True when the seat was confirmed. Does not commit — the caller owns
+    the transaction.
+    """
+    if player.seat_reserved_until is None:
+        return False
+    provider = await db.scalar(select(Agent.provider).where(Agent.id == player.agent_id))
+    if provider is None:
+        return False
+    if await provider_is_covered(db, player.user_id, provider):
+        player.seat_reserved_until = None
+        return True
+    return False
+
+
+async def release_held_seats(db: AsyncSession, match_id: str) -> None:
+    """Delete every still-held seat in *match_id* (used at match start).
+
+    Does not commit — the caller owns the transaction.
+    """
+    held = list(
+        (
+            await db.execute(
+                select(Player).where(
+                    Player.match_id == match_id,
+                    Player.seat_reserved_until.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for player in held:
+        await db.delete(player)
+
+
+async def sweep_held_seats(session_factory: async_sessionmaker | None = None) -> None:
+    """Poller subsystem: confirm held seats that went live; release expired ones.
+
+    Runs each poll tick. For every held seat (deadline set, not yet left):
+    confirm it if its provider is now live, otherwise delete it once its
+    deadline has passed.
+    """
+    factory = session_factory or SessionLocal
+    async with factory() as db:
+        now = datetime.now(timezone.utc)
+        held = list(
+            (
+                await db.execute(
+                    select(Player).where(
+                        Player.seat_reserved_until.is_not(None),
+                        Player.left_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        changed = False
+        for player in held:
+            if await confirm_seat_if_live(db, player):
+                changed = True
+                continue
+            deadline = player.seat_reserved_until
+            if deadline is not None and _as_aware(deadline) <= now:
+                await db.delete(player)
+                changed = True
+        if changed:
+            await db.commit()

@@ -1,0 +1,10 @@
+{% if state == 'released' %}
+<div class="card form" id="seat-status">
+    <p>Seat released — {{ provider_label }} didn't connect in time. Connect it, then join again.</p>
+    <a class="btn btn-ghost" href="{{ join_url }}">Back to join →</a>
+</div>
+{% else %}
+<div id="seat-status" hx-get="{{ status_url }}" hx-trigger="every 3s" hx-swap="outerHTML">
+    <p class="hint">Waiting for {{ provider_label }} to come online…</p>
+</div>
+{% endif %}
