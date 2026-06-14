@@ -13,7 +13,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-import app.db as app_db
 from app.deps import DbSession, get_current_user
 from app.engine.connection_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
@@ -26,11 +25,7 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.read_models.leaderboard_cache import load_leaderboard_sections_cached
-from app.read_models.leaderboard import LeaderboardSection
-from app.routes.showcase_replay import (
-    ShowcaseReplay,
-    load_showcase_replay_cached,
-)
+from app.routes.showcase_replay import load_showcase_replay_cached
 from app.read_models.agent_display import agent_display_name
 from app.read_models.matches import count_players_by_match
 from app.routes.web_support import (
@@ -224,43 +219,26 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
     }
 
 
-async def _home_showcase_branch(request: Request) -> ShowcaseReplay:
-    """Load the cached showcase replay on its own session (for concurrent fan-out).
-
-    A single AsyncSession can't run two queries at once, so each parallel branch
-    of the home page gets its own. On a cache hit no query runs, so no DB
-    connection is acquired — the session open/close is cheap. SessionLocal is
-    referenced via the module (not imported by name) so tests that swap in an
-    in-memory factory are honoured.
-    """
-    async with app_db.SessionLocal() as session:
-        return await load_showcase_replay_cached(request, session)
-
-
-async def _home_leaderboard_branch() -> list[LeaderboardSection]:
-    """Load the cached leaderboard on its own session (for concurrent fan-out)."""
-    async with app_db.SessionLocal() as session:
-        return await load_leaderboard_sections_cached(session, included="all")
-
-
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: DbSession):
     """Agent Ludum platform front page (marketing).
 
     Static explainer + funnel, plus two real-data regions: the hero match card
     (a real finished game's replay) and the leaderboard band (real standings).
-    Both are cached (the showcase game and the standings are the same for every
-    visitor for a minute at a time) and both fall back to honest empty states.
-    The two cached reads are independent, so we run them concurrently. The
-    Hoard·Hurt·Help lobby itself lives one level down at `/games/hoard-hurt-help`.
+    Both come from stale-while-revalidate caches — the showcase game and the
+    standings are the same for every visitor, so a stale request is served the
+    cached copy instantly while a background refresh runs. Both fall back to
+    honest empty states. The two cached reads are independent, so we run them
+    concurrently (each manages its own session). The Hoard·Hurt·Help lobby
+    itself lives one level down at `/games/hoard-hurt-help`.
     """
     user = await get_current_user(request, db)
     viewer_is_admin = _is_any_admin(user)
 
-    # Two independent cached reads, run concurrently — each on its own session.
+    # Two independent cached reads, run concurrently.
     (rc_game_id, rc_data, rc_game_type), lb_sections_full = await asyncio.gather(
-        _home_showcase_branch(request),
-        _home_leaderboard_branch(),
+        load_showcase_replay_cached(),
+        load_leaderboard_sections_cached(included="all"),
     )
 
     # Leaderboard band: top 8 per game section for the home page teaser.
@@ -312,7 +290,6 @@ async def leaderboard_page(
     rating_mode = "bonus" if rating == "bonus" else "standard"
     included_mode = "sims" if included == "sims" else "all" if included == "all" else "agents"
     sections = await load_leaderboard_sections_cached(
-        db,
         rating_mode=rating_mode,
         included=included_mode,
     )

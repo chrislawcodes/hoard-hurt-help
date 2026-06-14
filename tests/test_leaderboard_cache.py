@@ -77,15 +77,13 @@ async def test_hit_within_ttl_serves_cached_copy(reset_db):
     clear_leaderboard_cache()
     await _seed_completed_match(reset_db, match_id="M_c1", user_index=1)
 
-    async with reset_db() as db:
-        first = await load_leaderboard_sections_cached(db, included="all")
+    first = await load_leaderboard_sections_cached(included="all")
     assert _row_count(first) == 2
 
-    # Add a second match, then call again with the same params. The cache should
-    # still serve the original computation — same object, stale row count.
+    # Add a second match, then call again. Inside the TTL the cache still serves
+    # the original computation — same object, stale row count.
     await _seed_completed_match(reset_db, match_id="M_c2", user_index=2)
-    async with reset_db() as db:
-        second = await load_leaderboard_sections_cached(db, included="all")
+    second = await load_leaderboard_sections_cached(included="all")
 
     assert second is first
     assert _row_count(second) == 2
@@ -95,29 +93,13 @@ async def test_clear_forces_recompute(reset_db):
     """After clear_leaderboard_cache(), the next call reflects current data."""
     clear_leaderboard_cache()
     await _seed_completed_match(reset_db, match_id="M_c1", user_index=1)
-    async with reset_db() as db:
-        await load_leaderboard_sections_cached(db, included="all")
+    await load_leaderboard_sections_cached(included="all")
 
     await _seed_completed_match(reset_db, match_id="M_c2", user_index=2)
     clear_leaderboard_cache()
-    async with reset_db() as db:
-        fresh = await load_leaderboard_sections_cached(db, included="all")
+    fresh = await load_leaderboard_sections_cached(included="all")
 
     assert _row_count(fresh) == 4
-
-
-async def test_zero_ttl_always_recomputes(reset_db):
-    """ttl_seconds=0 disables caching: each call sees the latest data."""
-    clear_leaderboard_cache()
-    await _seed_completed_match(reset_db, match_id="M_c1", user_index=1)
-    async with reset_db() as db:
-        first = await load_leaderboard_sections_cached(db, included="all", ttl_seconds=0)
-    assert _row_count(first) == 2
-
-    await _seed_completed_match(reset_db, match_id="M_c2", user_index=2)
-    async with reset_db() as db:
-        second = await load_leaderboard_sections_cached(db, included="all", ttl_seconds=0)
-    assert _row_count(second) == 4
 
 
 async def test_distinct_params_cached_separately(reset_db):
@@ -125,8 +107,7 @@ async def test_distinct_params_cached_separately(reset_db):
     clear_leaderboard_cache()
     await _seed_completed_match(reset_db, match_id="M_c1", user_index=1)
 
-    async with reset_db() as db:
-        agents_view = await load_leaderboard_sections_cached(db, included="agents")
-        all_view = await load_leaderboard_sections_cached(db, included="all")
+    agents_view = await load_leaderboard_sections_cached(included="agents")
+    all_view = await load_leaderboard_sections_cached(included="all")
 
     assert agents_view is not all_view

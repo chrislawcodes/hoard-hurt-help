@@ -8,23 +8,25 @@ replay for a short TTL and serve the cached copy in between.
 
 The selection is public-only (admin-only / under-construction games never
 showcase) and viewer-independent, so one global cached value serves everyone.
-On a cache miss we scan only the most-recent completed games, not the whole
-table.
+The replay is served from a stale-while-revalidate cache (see `app.swr_cache`):
+no request waits for the rebuild — a stale visitor gets the cached copy instantly
+while a single background refresh runs. On a cache miss the build scans only the
+most-recent completed games, not the whole table.
 
-Single-process app (one Railway instance), so a module-level dict is the whole
-cache. The returned replay JSON is an immutable string, safe to share.
+Single-process app (one Railway instance), so a module-level instance is the
+whole cache. The returned replay JSON is an immutable string, safe to share.
 """
 
 from __future__ import annotations
 
 import logging
-import time
 
 from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.db as app_db
 from app.games import is_admin_only
 from app.models.match import GameState, Match
 from app.ops_events import log_ops_event
@@ -32,6 +34,7 @@ from app.read_models.matches import count_players_by_match
 from app.routes.viewer_presentation import _build_rc_data, sample_replay_data
 from app.routes.web_support import _agent_counts, _is_showcase
 from app.routes.web_viewer import _game_view_context
+from app.swr_cache import SwrCache
 
 logger = logging.getLogger(__name__)
 
@@ -43,33 +46,50 @@ _SHOWCASE_SCAN_LIMIT = 25
 # (rc_game_id, rc_data_json, rc_game_type)
 ShowcaseReplay = tuple[str | None, str, str | None]
 
-# key -> (expires_at_monotonic, replay)
-_cache: dict[str, tuple[float, ShowcaseReplay]] = {}
+_cache: SwrCache[str, ShowcaseReplay] = SwrCache(SHOWCASE_CACHE_TTL_SECONDS)
 _CACHE_KEY = "home"
 
 
-async def load_showcase_replay_cached(
-    request: Request,
-    db: AsyncSession,
-    *,
-    ttl_seconds: float = SHOWCASE_CACHE_TTL_SECONDS,
-) -> ShowcaseReplay:
-    """Return the showcase replay, rebuilding at most once per ``ttl_seconds``.
+def _anonymous_request() -> Request:
+    """A minimal anonymous request for the (viewer-independent) replay build.
 
-    Pass ``ttl_seconds=0`` to force a fresh build.
+    The showcase replay is the same for every visitor, and a background refresh
+    has no real request to borrow, so the build always runs as anonymous.
     """
-    now = time.monotonic()
-    cached = _cache.get(_CACHE_KEY)
-    if cached is not None and cached[0] > now:
-        return cached[1]
-    replay = await _build_showcase_replay(request, db)
-    _cache[_CACHE_KEY] = (now + ttl_seconds, replay)
-    return replay
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+            "session": {},
+        }
+    )
+
+
+async def load_showcase_replay_cached() -> ShowcaseReplay:
+    """Return the showcase replay from a stale-while-revalidate cache.
+
+    The build opens its own session and uses an anonymous request, so it can run
+    as a background refresh after the triggering request has ended.
+    """
+
+    async def _build() -> ShowcaseReplay:
+        async with app_db.SessionLocal() as session:
+            return await _build_showcase_replay(_anonymous_request(), session)
+
+    return await _cache.get(_CACHE_KEY, _build)
 
 
 def clear_showcase_replay_cache() -> None:
     """Drop the cached showcase replay. Used by tests for isolation."""
     _cache.clear()
+
+
+async def wait_for_showcase_refreshes() -> None:
+    """Await any in-flight background refreshes. For tests and shutdown."""
+    await _cache.wait_for_refreshes()
 
 
 async def _build_showcase_replay(request: Request, db: AsyncSession) -> ShowcaseReplay:
