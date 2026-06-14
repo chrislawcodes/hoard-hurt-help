@@ -92,7 +92,7 @@
 </details>
 
 {% if connections %}
-    <h2 style="margin-top:1.75rem;">Your connected machines</h2>
+    <h2 style="margin-top:1.75rem;">Your connections</h2>
     {% for row in connections %}
     <article class="game-card">
         <div class="game-card-info">
@@ -100,7 +100,8 @@
             <p class="meta">
                 {% set connection = row.connection %}
                 {% set health = row.health %}
-                <span class="bot-health-live" hx-get="/me/connections/{{ row.connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
+                {% if row.connection.mode_a_at %}MCP connection{% else %}Machine connection{% endif %}
+                · <span class="bot-health-live" hx-get="/me/connections/{{ row.connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
                     {% include "connections/_health_badge.html" %}
                 </span>
                 {% if row.connection.runner_pid and row.health.state.value != 'paused' and row.health.state.value != 'disconnected' %}
