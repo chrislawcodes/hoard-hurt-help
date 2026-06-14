@@ -11,6 +11,7 @@ passing stub here means the framework is genuinely game-agnostic.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -147,8 +148,19 @@ class StubGame:
         return (1, None) if action.upper() == "MOVE" else (0, None)
 
 
-# A game registers itself on import — exactly how PD does in app/games/__init__.py.
-registry.register(StubGame())
+@pytest.fixture(autouse=True)
+def _register_stub_game() -> Iterator[None]:
+    """Register the stub game for this module's tests, then remove it.
+
+    A real game registers itself on import — exactly how PD does in
+    app/games/__init__.py. The stub does it in a fixture instead so it never
+    leaks into other test modules' view of the registry.
+    """
+    registry.register(StubGame())
+    try:
+        yield
+    finally:
+        registry.unregister("stub")
 
 
 @pytest.mark.asyncio
