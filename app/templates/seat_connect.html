@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}One step left — {{ game.name }}{% endblock %}
+{% block content %}
+<a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
+<div class="page-head">
+    <h1>You're in — one step left</h1>
+    <p class="sub">{{ player.seat_name }} has a seat in "{{ game.name }}". {{ provider_label }} isn't connected yet — connect it before the clock runs out or the seat is released.</p>
+</div>
+<div class="card form seat-connect">
+    <div class="seat-countdown">
+        <span id="seat-cd" class="seat-countdown-time">--:--</span>
+        <span class="seat-countdown-label">time to connect</span>
+    </div>
+    <p>We'll lock in your seat the moment {{ provider_label }} comes online.</p>
+    <div class="form-actions">
+        <a class="btn btn-primary" href="{{ connect_url }}">Connect {{ provider_label }} →</a>
+        <a class="btn btn-ghost" href="/games/{{ game.game }}">Cancel</a>
+    </div>
+</div>
+<div id="seat-status" hx-get="{{ status_url }}" hx-trigger="every 3s" hx-swap="outerHTML">
+    <p class="hint">Waiting for {{ provider_label }} to come online…</p>
+</div>
+<script>
+(function () {
+    var el = document.getElementById('seat-cd');
+    if (!el) return;
+    var t = {{ remaining }};
+    function fmt(s) { var m = Math.floor(s / 60), ss = s % 60; return m + ':' + (ss < 10 ? '0' : '') + ss; }
+    el.textContent = fmt(t);
+    var iv = setInterval(function () {
+        t--; if (t < 0) { t = 0; }
+        el.textContent = fmt(t);
+        if (t <= 0) { clearInterval(iv); }
+    }, 1000);
+})();
+</script>
+{% endblock %}

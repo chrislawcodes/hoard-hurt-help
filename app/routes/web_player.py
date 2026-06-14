@@ -21,6 +21,7 @@ from app.engine.connection_health import (
     provider_is_covered,
 )
 from app.engine.scheduler import start_game
+from app.engine.seat_hold import confirm_seat_if_live, hold_deadline
 from app.games import get as get_game_module
 from app.games import is_admin_only
 from app.models.agent import Agent, AgentKind
@@ -44,6 +45,25 @@ router = APIRouter(tags=["web"])
 
 _DOCS_DIR = FsPath("docs")
 _GUIDE_NAME = re.compile(r"^[a-z0-9-]+$")
+
+# Human-friendly provider names for the grouped join picker and connect page.
+_PROVIDER_LABELS = {
+    "claude": "Claude",
+    "gemini": "Gemini",
+    "openai": "OpenAI",
+    "hermes": "Hermes",
+    "openclaw": "OpenClaw",
+}
+
+
+def _aware(dt: datetime) -> datetime:
+    """SQLite returns naive datetimes; treat them as UTC for arithmetic."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _hx_redirect(url: str) -> HTMLResponse:
+    """An empty 200 that tells HTMX to navigate the whole page to *url*."""
+    return HTMLResponse("", headers={"HX-Redirect": url})
 
 
 def _seat_name(handle: str, agent_name: str, existing: set[str]) -> str:
@@ -152,58 +172,24 @@ async def _load_user_agents(
 async def _join_setup_redirect(
     db: DbSession, user: User, join_url: str
 ) -> RedirectResponse | None:
-    """Return the redirect to the FIRST missing setup step, or None when ready.
+    """Redirect to create-agent only when the user has no AI agent to pick.
 
-    The join page is the hub for getting an operator's AI seated. This runs the
-    two setup gates that come AFTER sign-in + handle (those are handled inline in
-    ``join_form`` and stay there). In order:
-
-    1. No seatable AI agent — the user has no live (non-archived) AI agent whose
-       provider is enabled on one of their connections. Send them to create an
-       agent; the create-agent page itself nudges them to turn a machine on if
-       none runs that provider. We carry ``?next`` so finishing there returns
-       here.
-    2. A seatable agent exists, but NO live connection currently runs its
-       provider (never connected, or connected-but-stale = "not running"). Send
-       them to the connections page to start their AI; it auto-advances to
-       ``?next`` the moment the AI is live.
-
-    Each redirect carries ``?next=<join_url>`` so the existing page forwards back
-    here when its job is done. Returns None when at least one of the user's AI
-    agents has a live connection — the caller then renders the join form.
+    The join form now shows ALL of the user's AI agents, grouped by provider —
+    including ones whose provider is offline or not set up. Picking one of those
+    still seats them (held), and the next screen walks them through connecting
+    before a short countdown runs out. So the only thing that blocks the form is
+    having nothing to pick at all. We carry ``?next`` so finishing on the
+    create-agent page returns here.
     """
-    next_param = quote(join_url, safe="")
     agents = await _load_user_agents(db, user.id)
-    # Distinct providers across the user's live AI agents. An AI agent always has
-    # a provider (DB CHECK), but guard the None case for the type-checker.
-    agent_providers = {
-        agent.provider
-        for agent, _version in agents
-        if agent.kind == AgentKind.AI and agent.provider is not None
-    }
-
-    # Gate 1 — does the user have any agent that COULD be seated (its provider is
-    # enabled on a connection, live or not)? If not, they need to create one.
-    seatable_providers = {
-        provider
-        for provider in agent_providers
-        if await provider_enabled_on_any_connection(db, user.id, provider)
-    }
-    if not seatable_providers:
+    has_ai_agent = any(agent.kind == AgentKind.AI for agent, _version in agents)
+    if not has_ai_agent:
+        next_param = quote(join_url, safe="")
         return RedirectResponse(
             url=f"/me/agents/new?next={next_param}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
-
-    # Gate 2 — a seatable agent exists; is at least one provider backed by a LIVE
-    # connection right now? If none is live, send them to start their AI.
-    for provider in seatable_providers:
-        if await provider_is_covered(db, user.id, provider):
-            return None
-    return RedirectResponse(
-        url=f"/me/connections?next={next_param}",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    return None
 
 
 @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
@@ -256,31 +242,49 @@ async def join_form(
         .scalars()
         .all()
     )
-    joinable_agents = []
+    # Group the user's AI agents by provider so connected providers float to the
+    # top and the operator sees, per provider, whether it's live. Status is one
+    # of: "live" (a connection running this provider is online now), "offline"
+    # (set up on a connection but not seen recently), or "unconfigured" (not
+    # enabled on any connection yet). Picking any agent seats it — a not-live one
+    # is held and the next screen walks the user through connecting.
+    provider_status: dict[str, str] = {}
+    groups: dict[str, dict] = {}
     for agent, version in agents:
         if agent.kind != AgentKind.AI:
             continue
         if agent.id in seated_agent_ids:
             continue
+        if version is None:
+            continue
         provider = agent.provider
-        covered = (
-            await provider_is_covered(db, user.id, provider)
-            if provider is not None
-            else False
+        if provider is None:
+            continue
+        pv = provider.value
+        if pv not in provider_status:
+            if await provider_is_covered(db, user.id, provider):
+                provider_status[pv] = "live"
+            elif await provider_enabled_on_any_connection(db, user.id, provider):
+                provider_status[pv] = "offline"
+            else:
+                provider_status[pv] = "unconfigured"
+        group = groups.setdefault(
+            pv,
+            {
+                "provider": pv,
+                "provider_label": _PROVIDER_LABELS.get(pv, pv.title()),
+                "status": provider_status[pv],
+                "agents": [],
+            },
         )
-        provider_label = provider.value if provider is not None else None
-        model_label = (
-            f"{provider.value}/{version.model}"
-            if provider is not None and version is not None
-            else None
+        group["agents"].append(
+            {"agent": agent, "version": version, "model_label": f"{pv}/{version.model}"}
         )
-        joinable_agents.append({
-            "agent": agent,
-            "version": version,
-            "provider_label": provider_label,
-            "model_label": model_label,
-            "ready": covered and version is not None,
-        })
+    status_rank = {"live": 0, "offline": 1, "unconfigured": 2}
+    agent_groups = sorted(
+        groups.values(),
+        key=lambda g: (status_rank.get(g["status"], 9), g["provider_label"]),
+    )
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -290,8 +294,8 @@ async def join_form(
             "game": match,
             "game_theme": _game_theme(match),
             "player_count": await _player_count(db, match.id),
-            "agents": joinable_agents,
-            "any_agents": bool(joinable_agents),
+            "agent_groups": agent_groups,
+            "any_agents": bool(agent_groups),
             "base_url": settings.base_url,
             "error": None,
         },
@@ -346,29 +350,32 @@ async def _seat_user_agent(
         raise HTTPException(
             status_code=409, detail=f"{selected_agent.name} has no provider configured."
         )
-    covered = await provider_is_covered(db, user.id, provider)
-    if not covered:
-        raise HTTPException(
-            status_code=409,
-            detail=f"No live connection runs {provider.value}. Start a machine first.",
-        )
     allowed_models = PROVIDER_MODELS.get(provider.value, [])
     if allowed_models and version.model not in allowed_models:
         raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
-    # SUM-based join gate: active count vs. sum of capacities over live
-    # connections. Admins bypass it so they can seat an agent that is already
-    # busy in another match (e.g. for testing).
-    if not bypass_capacity:
-        active_match_count = await active_matches_for_provider(db, user.id, provider)
-        capacity_sum = await live_provider_capacity(db, user.id, provider)
-        if is_join_blocked(active_match_count, capacity_sum):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"Your machines are at capacity for {provider.value} "
-                    f"({active_match_count}/{capacity_sum} active matches)."
-                ),
-            )
+    covered = await provider_is_covered(db, user.id, provider)
+    reserved_until: datetime | None = None
+    if covered:
+        # Live now — a confirmed seat. SUM-based join gate: active count vs. sum
+        # of capacities over live connections. Admins bypass it so they can seat
+        # an agent already busy in another match (e.g. for testing).
+        if not bypass_capacity:
+            active_match_count = await active_matches_for_provider(db, user.id, provider)
+            capacity_sum = await live_provider_capacity(db, user.id, provider)
+            if is_join_blocked(active_match_count, capacity_sum):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Your machines are at capacity for {provider.value} "
+                        f"({active_match_count}/{capacity_sum} active matches)."
+                    ),
+                )
+    else:
+        # Not live yet — hold the seat. The user has SEAT_HOLD_SECONDS to bring
+        # this provider online (the next screen walks them through it); if they
+        # don't, the seat is released. The capacity cap is about live machines,
+        # so it doesn't apply to a seat that isn't being served yet.
+        reserved_until = hold_deadline(datetime.now(timezone.utc))
     already_in = (
         await db.execute(
             select(Player.id).where(
@@ -392,6 +399,7 @@ async def _seat_user_agent(
         agent_version_id=version.id,
         seat_name=seat_name,
         model_self_report=model_label,
+        seat_reserved_until=reserved_until,
     )
 
 
@@ -457,11 +465,153 @@ async def join_submit(
     db.add_all(players)
     await db.commit()
 
-    if match.match_kind == MatchKind.PRACTICE_ARENA.value:
+    held = [p for p in players if p.seat_reserved_until is not None]
+
+    # Practice arena starts the moment you join — but only if the seat is live.
+    # A held seat would just be released at start, so don't auto-start on one.
+    if match.match_kind == MatchKind.PRACTICE_ARENA.value and not held:
         await start_game(db, match)
+
+    if held:
+        # At least one seat is waiting on its AI. Send the user to the connect
+        # countdown for the first held seat so they can bring it online in time.
+        return RedirectResponse(
+            url=f"/games/{match.game}/matches/{match.id}/connect/{held[0].id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
 
     return RedirectResponse(
         url=f"/games/{match.game}/matches/{match.id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.get(
+    "/games/{game}/matches/{match_id}/connect/{player_id}",
+    response_class=HTMLResponse,
+)
+async def seat_connect(
+    game: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
+    player_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+):
+    """Post-join 'one step left' page: the seat-hold countdown + connect the AI.
+
+    Shown right after joining with an agent whose provider wasn't live. It counts
+    down the hold window and offers a Connect button; an HTMX poll auto-locks the
+    seat (and navigates to the match) the moment the AI comes online.
+    """
+    player, match = await _load_owned_player_match_or_404(
+        db, player_id, user.id, missing_detail="Seat not found."
+    )
+    match_url = f"/games/{match.game}/matches/{match.id}"
+    if player.seat_reserved_until is None:
+        # Already confirmed (or never held) — nothing to wait for.
+        return RedirectResponse(url=match_url, status_code=status.HTTP_303_SEE_OTHER)
+
+    now = datetime.now(timezone.utc)
+    remaining = max(0, int((_aware(player.seat_reserved_until) - now).total_seconds()))
+    provider = await db.scalar(select(Agent.provider).where(Agent.id == player.agent_id))
+    provider_label = (
+        _PROVIDER_LABELS.get(provider.value, provider.value.title())
+        if provider is not None
+        else "your AI"
+    )
+    status_url = f"{match_url}/connect/{player.id}/status"
+    connect_next = quote(f"{match_url}/connect/{player.id}", safe="")
+    return templates.TemplateResponse(
+        request,
+        "seat_connect.html",
+        {
+            "user": user,
+            "is_admin": _is_any_admin(user),
+            "game": match,
+            "game_theme": _game_theme(match),
+            "player": player,
+            "provider_label": provider_label,
+            "remaining": remaining,
+            "connect_url": f"/me/connections?next={connect_next}",
+            "status_url": status_url,
+        },
+    )
+
+
+@router.get(
+    "/games/{game}/matches/{match_id}/connect/{player_id}/status",
+    response_class=HTMLResponse,
+)
+async def seat_connect_status(
+    game: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
+    player_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+):
+    """HTMX poll for the connect countdown.
+
+    Confirms the seat on the spot if the AI just came online (and HX-redirects to
+    the match), releases it if the deadline passed, else keeps the user waiting.
+    """
+    row = (
+        await db.execute(
+            select(Player, Match)
+            .join(Match, Match.id == Player.match_id)
+            .where(Player.id == player_id, Player.user_id == user.id)
+        )
+    ).one_or_none()
+    if row is None:
+        # Seat already released (row deleted) — show how to get back in.
+        return templates.TemplateResponse(
+            request,
+            "fragments/seat_connect_status.html",
+            {
+                "state": "released",
+                "provider_label": "your AI",
+                "join_url": f"/games/{game}/matches/{match_id}/join",
+            },
+        )
+    player, match = row
+    match_url = f"/games/{match.game}/matches/{match.id}"
+    if player.seat_reserved_until is None:
+        return _hx_redirect(match_url)
+
+    provider = await db.scalar(select(Agent.provider).where(Agent.id == player.agent_id))
+    provider_label = (
+        _PROVIDER_LABELS.get(provider.value, provider.value.title())
+        if provider is not None
+        else "your AI"
+    )
+    # Confirm on the spot if the provider just came online — don't wait for the
+    # background poller, so the page reacts the instant the AI connects.
+    if await confirm_seat_if_live(db, player):
+        await db.commit()
+        return _hx_redirect(match_url)
+
+    now = datetime.now(timezone.utc)
+    if _aware(player.seat_reserved_until) <= now:
+        # Deadline passed and still not live — release the seat now.
+        await db.delete(player)
+        await db.commit()
+        return templates.TemplateResponse(
+            request,
+            "fragments/seat_connect_status.html",
+            {
+                "state": "released",
+                "provider_label": provider_label,
+                "join_url": f"/games/{match.game}/matches/{match.id}/join",
+            },
+        )
+    return templates.TemplateResponse(
+        request,
+        "fragments/seat_connect_status.html",
+        {
+            "state": "held",
+            "provider_label": provider_label,
+            "status_url": f"{match_url}/connect/{player.id}/status",
+        },
     )
 
 

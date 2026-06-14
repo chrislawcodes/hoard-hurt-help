@@ -1,13 +1,16 @@
 """Tests for the smart gated Join flow.
 
-The join page is the HUB. On GET it checks setup state in order and redirects to
-the FIRST missing thing, carrying ?next back to the join URL:
+The join page is the HUB. On GET it checks setup state and redirects to the
+FIRST missing thing, carrying ?next back to the join URL:
 
-  1. Not signed in        → /auth/google/login?next=<join>
-  2. No handle            → /me/handle?next=<join>
-  3. No seatable AI agent → /me/agents/new?next=<join>
-  4. No LIVE connection   → /me/connections?next=<join>
-  5. All set              → render the join form (no Player seated)
+  1. Not signed in   → /auth/google/login?next=<join>
+  2. No handle       → /me/handle?next=<join>
+  3. No AI agent     → /me/agents/new?next=<join>
+  4. Has an AI agent → render the join form (no Player seated)
+
+The form now shows ALL of the user's AI agents grouped by provider — including
+ones whose provider is offline or not set up — so an unconnected provider no
+longer bounces the user away; they can pick it and connect on the next screen.
 
 It also tests that each existing page HONORS ?next (forwards on completion) and
 that ?next is validated as an internal path (no open redirect).
@@ -159,25 +162,26 @@ async def test_no_agent_redirects_to_create_agent_with_next(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_agent_without_any_connection_redirects_to_create_agent(client, reset_db):
-    # An agent whose provider is enabled on NO connection is not seatable yet:
-    # the hub treats this as "go make a usable agent" (the create page nudges to
-    # turn a machine on), not "go to connections".
+async def test_agent_without_any_connection_shows_form_not_connected(client, reset_db):
+    # An agent whose provider is enabled on NO connection now SHOWS on the form,
+    # grouped under its provider as "Not connected" — the user can pick it and
+    # connect on the next screen instead of being bounced away.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        await make_agent(db, u, name="Atlas")  # no connection => provider covered nowhere
+        await make_agent(db, u, name="Atlas")  # no connection => unconfigured
         await db.commit()
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
-    assert r.status_code == 303
-    assert r.headers["location"].startswith("/me/agents/new?next=")
+    assert r.status_code == 200
+    assert "Atlas" in r.text
+    assert "Not connected" in r.text
 
 
 @pytest.mark.asyncio
-async def test_agent_but_stale_connection_redirects_to_connections(client, reset_db):
-    # Seatable agent (provider enabled on a connection) but the connection is
-    # stale (never seen / heartbeat old) => not LIVE => go start the AI.
+async def test_agent_but_stale_connection_shows_form_not_running(client, reset_db):
+    # Provider enabled on a connection but the connection is stale (never seen) =>
+    # not live. The form still renders, showing the provider as "Not running".
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
@@ -187,10 +191,9 @@ async def test_agent_but_stale_connection_redirects_to_connections(client, reset
         connection.last_seen_at = None  # never heartbeated => not live
         await db.commit()
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
-    assert r.status_code == 303
-    loc = r.headers["location"]
-    assert loc.startswith("/me/connections?next=")
-    assert JOIN_NEXT in loc
+    assert r.status_code == 200
+    assert "Atlas" in r.text
+    assert "Not running" in r.text
 
 
 @pytest.mark.asyncio

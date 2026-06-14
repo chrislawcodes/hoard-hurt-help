@@ -67,12 +67,21 @@ def _as_aware(dt: datetime) -> datetime:
 
 
 async def _active_player_count(db, match_id: str) -> int:
-    """Seats currently held in a game — a player who left frees their seat."""
+    """Confirmed seats in a game.
+
+    A player who left frees their seat. A *held* seat (join-before-connect,
+    ``seat_reserved_until`` set) is not a real player yet, so it does not count
+    toward the start floor either.
+    """
     return (
         await db.scalar(
             select(func.count())
             .select_from(Player)
-            .where(Player.match_id == match_id, Player.left_at.is_(None))
+            .where(
+                Player.match_id == match_id,
+                Player.left_at.is_(None),
+                Player.seat_reserved_until.is_(None),
+            )
         )
     ) or 0
 
@@ -213,6 +222,7 @@ class SchedulerRegistry:
             ensure_practice_arena,
             fill_and_start_auto_matches,
         )
+        from app.engine.seat_hold import sweep_held_seats
 
         factory = session_factory or SessionLocal
 
@@ -238,12 +248,19 @@ class SchedulerRegistry:
                 "ensure_auto_match", lambda: _with_db(ensure_auto_match)
             )
 
-            # 4th: existing logic — start/cancel non-arena games that are due.
+            # 4th: confirm held seats whose AI came online, release expired ones —
+            # BEFORE start_due_games counts players, so a seat that just went live
+            # counts and one that timed out does not.
+            await self._run_subsystem(
+                "sweep_held_seats", lambda: sweep_held_seats(session_factory)
+            )
+
+            # 5th: existing logic — start/cancel non-arena games that are due.
             await self._run_subsystem(
                 "start_due_games", lambda: self.start_due_games(session_factory)
             )
 
-            # 5th: watchdog — self-heal without waiting for a server restart.
+            # 6th: watchdog — self-heal without waiting for a server restart.
             #   a) Cancel ACTIVE games that have no players left (zombie games from
             #      destructive migrations that wiped the players table).  They can
             #      never make progress because _all_messaged / _all_submitted return
@@ -651,6 +668,12 @@ async def cancel_overdue_unfilled_games(db) -> int:
 
 async def start_game(db, game: Match) -> None:
     """Transition SCHEDULED/REGISTERING → ACTIVE and kick off the loop."""
+    from app.engine.seat_hold import release_held_seats
+
+    # Any seat still held (join-before-connect) at start time never came online,
+    # so drop it before the game runs — a held seat must never become a player
+    # that defaults every turn.
+    await release_held_seats(db, game.id)
     if game.state == GameState.SCHEDULED:
         # SCHEDULED can't jump straight to ACTIVE; open registration first so
         # start_due_games (which sweeps both states) doesn't throw on it.

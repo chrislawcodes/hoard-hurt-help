@@ -817,12 +817,13 @@ async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monk
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
     a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
-    # The join form offers checkboxes (multi-select) to admins.
+    # The join form lists each agent with its own Join button (grouped by
+    # provider). Admins can still stack several via repeated agent_id POSTs.
     form = await client.get(
         "/games/hoard-hurt-help/matches/G_001/join", cookies=_signed_in_cookies(user.id)
     )
-    assert 'type="checkbox"' in form.text
-    assert "tick several of your own agents" in form.text
+    assert "One" in form.text and "Two" in form.text
+    assert 'name="agent_id"' in form.text
 
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
@@ -903,12 +904,12 @@ async def test_non_admin_cannot_stack_multiple_agents(client, reset_db):
         )
     assert count == 0
     # The single-agent path is unchanged for regular users — see test_enter_bot_into_game.
-    # And their join form stays a single dropdown, not checkboxes.
+    # The form lists each agent with its own Join button, not a multi-select.
     form = await client.get(
         "/games/hoard-hurt-help/matches/G_001/join", cookies=_signed_in_cookies(user.id)
     )
     assert 'type="checkbox"' not in form.text
-    assert "<select" in form.text
+    assert 'name="agent_id"' in form.text
 
 
 async def _seed_agent_busy_in_active_match(reset_db, user) -> int:

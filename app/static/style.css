@@ -2108,3 +2108,51 @@ button.danger:hover,
     .sims-personality { grid-template-columns: 1fr auto; }
     .sims-p-desc { grid-column: 1 / -1; }
 }
+
+/* Join picker — agents grouped by provider, connected providers first. */
+.provider-group { margin-bottom: 1rem; }
+.provider-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
+    border-bottom: 1px solid var(--line);
+}
+.provider-name { font-weight: 600; }
+.provider-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+}
+.provider-status .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+.provider-status.status-live { color: var(--help); }
+.provider-status.status-live .dot { animation: hhh-pulse 1.4s ease-in-out infinite; }
+.provider-status.status-off { color: var(--ink-soft); }
+.provider-group.provider-offline,
+.provider-group.provider-unconfigured { opacity: 0.92; }
+.agent-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0;
+    margin: 0;
+    border-top: 1px solid var(--line);
+}
+.agent-row:first-of-type { border-top: 0; }
+.agent-row-name { font-weight: 500; }
+.agent-row-model { color: var(--ink-soft); font-family: var(--font-mono); font-weight: 400; }
+
+/* Post-join connect countdown. */
+.seat-countdown { text-align: center; margin: 0.5rem 0 1rem; }
+.seat-countdown-time {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 2.4rem;
+    line-height: 1;
+    color: var(--ink);
+}
+.seat-countdown-label { font-size: 0.8rem; color: var(--ink-soft); }

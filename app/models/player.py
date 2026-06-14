@@ -45,6 +45,14 @@ class Player(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Seat-hold for join-before-connect. When set, this seat is "held": the user
+    # joined with an agent whose AI provider wasn't live yet and has until this
+    # deadline to bring it online. Cleared to NULL once the provider goes live
+    # (seat confirmed). A held seat is NOT counted as a real player and is
+    # released (row deleted) if the deadline passes before the provider is live.
+    seat_reserved_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     total_round_wins: Mapped[float] = mapped_column(default=0.0, nullable=False)
     total_round_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_round_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
