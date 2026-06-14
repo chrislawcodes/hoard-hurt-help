@@ -614,7 +614,9 @@ async def test_connections_list_renders_existing_connection(
 
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
-    assert "Your connected machines" in resp.text
+    assert "Your connections" in resp.text
+    # No mode_a_at on this connection, so it reads as the always-on connector kind.
+    assert "Machine connection" in resp.text
     assert "My Claude" in resp.text
     assert "Manage →" in resp.text
     assert "Disconnected" in resp.text

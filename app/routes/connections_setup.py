@@ -291,7 +291,11 @@ def _provider_label(provider: ConnectionProvider | None) -> str:
 
 
 def _connection_display_name(connection: Connection) -> str:
-    return connection.nickname or "Machine"
+    if connection.nickname:
+        return connection.nickname
+    # A Mode A connection is an interactive MCP session, not a background
+    # machine — name it so the two kinds never read as the same thing.
+    return "MCP connection" if connection.mode_a_at else "Machine connection"
 
 
 def _setup_message(key: str) -> str:
