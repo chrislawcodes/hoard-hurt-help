@@ -1,5 +1,4 @@
 """Tests for factory_pollution_check.auto_revert_polluted_state."""
-import importlib.util
 import json
 import subprocess
 import sys
@@ -10,14 +9,10 @@ from unittest.mock import patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-POLLUTION_SPEC = importlib.util.spec_from_file_location(
-    "factory_pollution_check", SCRIPT_DIR / "factory_pollution_check.py"
-)
-assert POLLUTION_SPEC and POLLUTION_SPEC.loader
-POLLUTION_CHECK = importlib.util.module_from_spec(POLLUTION_SPEC)
-sys.modules[POLLUTION_SPEC.name] = POLLUTION_CHECK
-POLLUTION_SPEC.loader.exec_module(POLLUTION_CHECK)
+import factory_pollution_check as POLLUTION_CHECK  # noqa: E402
 
 
 def _make_porcelain_line(rel_path: str, status: str = " M") -> str:

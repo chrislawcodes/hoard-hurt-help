@@ -10,7 +10,6 @@ Covers:
 """
 import contextlib
 import fcntl
-import importlib.util
 import io
 import json
 import os
@@ -23,15 +22,12 @@ from unittest.mock import MagicMock, patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_cmd_implement as FACTORY_CMD_IMPLEMENT  # noqa: E402
+import run_factory as RUN_FACTORY  # noqa: E402
 
 
 SLUG = "impl-lock-test"
@@ -57,9 +53,9 @@ def _noop_heartbeat() -> MagicMock:
 
 class ImplementLockTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.factory_state = _load("factory_state")
-        self.factory_cmd_implement = _load("factory_cmd_implement")
-        self.run_factory = _load("run_factory")
+        self.factory_state = FACTORY_STATE
+        self.factory_cmd_implement = FACTORY_CMD_IMPLEMENT
+        self.run_factory = RUN_FACTORY
 
         self._tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmpdir.cleanup)

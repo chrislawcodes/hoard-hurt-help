@@ -2,7 +2,6 @@
 
 Pin the matcher rules so future regressions are visible immediately.
 """
-import importlib.util
 import sys
 import tempfile
 import unittest
@@ -18,16 +17,7 @@ if str(REVIEW_LENS_DIR) not in sys.path:
     sys.path.insert(0, str(REVIEW_LENS_DIR))
 
 
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, REVIEW_LENS_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-GEMINI_REVIEW = _load("run_gemini_review")
+import run_gemini_review as GEMINI_REVIEW  # noqa: E402
 
 
 class CodexQuotaClassifierTests(unittest.TestCase):

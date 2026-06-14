@@ -1,39 +1,30 @@
 import contextlib
-import importlib.util
 import io
 import json
+import sys
 import types
 import unittest
 from pathlib import Path
 from unittest import mock
 
-
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys_modules_name = spec.name
-    import sys
-    sys.modules[sys_modules_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-FACTORY_STATE = _load("factory_state")
-FACTORY_TELEMETRY_COMMANDS = _load("factory_telemetry_commands")
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_telemetry_commands as FACTORY_TELEMETRY_COMMANDS  # noqa: E402
 
 
 class CommandTelemetryTests(unittest.TestCase):
     def setUp(self) -> None:
-        import sys
         fake_state = types.ModuleType("factory_state")
         fake_state._cap_command_telemetry = FACTORY_STATE._cap_command_telemetry
         fake_state.update_workflow_state = self._update_workflow_state
-        sys.modules["factory_state"] = fake_state
-        sys.modules["factory_telemetry_commands"] = FACTORY_TELEMETRY_COMMANDS
+        # patch.dict restores sys.modules afterwards so this test can't leave a
+        # crippled fake factory_state in place for every later test.
+        patcher = mock.patch.dict(sys.modules, {"factory_state": fake_state})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.state = FACTORY_STATE._default_workflow_state()
 
     def _update_workflow_state(self, slug: str, mutator):
@@ -103,9 +94,8 @@ class CommandTelemetryTests(unittest.TestCase):
             raise RuntimeError("boom")
 
         fake_state.update_workflow_state = _raise
-        import sys
-        sys.modules["factory_state"] = fake_state
-        with contextlib.redirect_stderr(stderr):
+        with mock.patch.dict(sys.modules, {"factory_state": fake_state}), \
+                contextlib.redirect_stderr(stderr):
             FACTORY_TELEMETRY_COMMANDS.record_command_telemetry(
                 slug=slug,
                 command="dispatch-codex",

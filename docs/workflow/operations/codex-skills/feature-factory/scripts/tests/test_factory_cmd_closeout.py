@@ -8,7 +8,6 @@ Covers the four required test cases:
 """
 import argparse
 import gc
-import importlib.util
 import io
 import json
 import sys
@@ -20,19 +19,11 @@ from unittest import mock
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-FACTORY_STATE = _load("factory_state")
-FACTORY_CMD_CLOSEOUT = _load("factory_cmd_closeout")
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_cmd_closeout as FACTORY_CMD_CLOSEOUT  # noqa: E402
 
 # Shorthand
 command_standalone_closeout = FACTORY_CMD_CLOSEOUT.command_standalone_closeout

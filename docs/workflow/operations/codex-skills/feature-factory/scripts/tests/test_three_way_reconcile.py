@@ -4,7 +4,6 @@ Pre-check + sequential write of review frontmatter, body Resolution block,
 and plan.md reconciliation entry. Covers happy path, pre-check failure,
 idempotent re-run.
 """
-import importlib.util
 import os
 import stat
 import sys
@@ -18,17 +17,8 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPTS_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-FACTORY_RECONCILE = _load("factory_reconcile")
-FACTORY_REVIEW = _load("factory_review")
+import factory_reconcile as FACTORY_RECONCILE  # noqa: E402
+import factory_review as FACTORY_REVIEW  # noqa: E402
 
 
 _FRONTMATTER_TEMPLATE = """---

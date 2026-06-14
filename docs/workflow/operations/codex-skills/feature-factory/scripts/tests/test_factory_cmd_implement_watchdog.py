@@ -5,7 +5,6 @@ clears, the slice succeeds; a persistent stall fails the slice fast instead of
 hanging on a 60-minute wall.
 """
 import contextlib
-import importlib.util
 import io
 import subprocess
 import sys
@@ -14,18 +13,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-IMPL = _load("factory_cmd_implement")
+import factory_cmd_implement as IMPL  # noqa: E402
 
 
 def _passthrough_record(*args, **kwargs):

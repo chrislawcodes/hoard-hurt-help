@@ -1,4 +1,3 @@
-import importlib.util
 import io
 import json
 import sys
@@ -9,44 +8,28 @@ from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+# Import the engine modules once (no per-file reload that clobbers sys.modules
+# and makes the suite order-dependent). conftest.py already puts the scripts
+# dir on sys.path; the inserts here keep the file runnable on its own too.
+_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+_REVIEW_LENS_SCRIPTS = Path(__file__).resolve().parents[2] / "review-lens" / "scripts"
+for _p in (_SCRIPTS, _REVIEW_LENS_SCRIPTS):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_factory.py"
-SPEC = importlib.util.spec_from_file_location("run_factory", SCRIPT_PATH)
-assert SPEC and SPEC.loader
-MODULE = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = MODULE
-SPEC.loader.exec_module(MODULE)
-
-# Use the modules that run_factory actually imported (same object identity)
-# so that unittest.mock.patch.object targets the right namespace.
-FACTORY_STATE = sys.modules["factory_state"]
-STAGES_MODULE = sys.modules["factory_stages"]
-REVIEW_MODULE = sys.modules["factory_review"]
-FACTORY_GIT = sys.modules["factory_git"]
-CMD_CHECKPOINT_MODULE = sys.modules["factory_cmd_checkpoint"]
-CMD_STATUS_MODULE = sys.modules["factory_cmd_status"]
-CMD_DELIVER_MODULE = sys.modules["factory_cmd_deliver"]
-CMD_IMPLEMENT_MODULE = sys.modules["factory_cmd_implement"]
-NEXT_ACTION_MODULE = sys.modules["factory_next_action"]
-PARALLEL_MODULE = sys.modules["factory_parallel"]
-
-REVIEW_LENS_SCRIPTS = Path(__file__).resolve().parents[2] / "review-lens" / "scripts"
-if str(REVIEW_LENS_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(REVIEW_LENS_SCRIPTS))
-
-
-def load_review_lens_module(name: str):
-    path = REVIEW_LENS_SCRIPTS / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-REPAIR_MODULE = load_review_lens_module("repair_review_checkpoint")
-ATTEMPTS_MODULE = load_review_lens_module("review_attempts")
+import run_factory as MODULE  # noqa: E402
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_stages as STAGES_MODULE  # noqa: E402
+import factory_review as REVIEW_MODULE  # noqa: E402
+import factory_git as FACTORY_GIT  # noqa: E402
+import factory_cmd_checkpoint as CMD_CHECKPOINT_MODULE  # noqa: E402
+import factory_cmd_status as CMD_STATUS_MODULE  # noqa: E402
+import factory_cmd_deliver as CMD_DELIVER_MODULE  # noqa: E402
+import factory_cmd_implement as CMD_IMPLEMENT_MODULE  # noqa: E402
+import factory_next_action as NEXT_ACTION_MODULE  # noqa: E402
+import factory_parallel as PARALLEL_MODULE  # noqa: E402
+import repair_review_checkpoint as REPAIR_MODULE  # noqa: E402
+import review_attempts as ATTEMPTS_MODULE  # noqa: E402
 
 
 def stage_state(

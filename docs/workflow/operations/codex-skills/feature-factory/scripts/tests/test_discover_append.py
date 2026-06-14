@@ -2,7 +2,6 @@
 
 All tests are integration-level via argparse CLI invocation per Gemini MEDIUM F-04.
 """
-import importlib.util
 import json
 import sys
 import tempfile
@@ -15,18 +14,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPTS_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-FACTORY_STATE = _load("factory_state")
-RUN_FACTORY = _load("run_factory")
+import factory_state as FACTORY_STATE  # noqa: E402
+import run_factory as RUN_FACTORY  # noqa: E402
 
 
 class DiscoverAppendTests(unittest.TestCase):

@@ -1,5 +1,4 @@
 import contextlib
-import importlib.util
 import io
 import json
 import re
@@ -14,18 +13,11 @@ from unittest.mock import patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-STATE_SPEC = importlib.util.spec_from_file_location("factory_state", SCRIPT_DIR / "factory_state.py")
-assert STATE_SPEC and STATE_SPEC.loader
-FACTORY_STATE = importlib.util.module_from_spec(STATE_SPEC)
-sys.modules[STATE_SPEC.name] = FACTORY_STATE
-STATE_SPEC.loader.exec_module(FACTORY_STATE)
-
-HEARTBEAT_SPEC = importlib.util.spec_from_file_location("factory_heartbeat", SCRIPT_DIR / "factory_heartbeat.py")
-assert HEARTBEAT_SPEC and HEARTBEAT_SPEC.loader
-HEARTBEAT = importlib.util.module_from_spec(HEARTBEAT_SPEC)
-sys.modules[HEARTBEAT_SPEC.name] = HEARTBEAT
-HEARTBEAT_SPEC.loader.exec_module(HEARTBEAT)
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_heartbeat as HEARTBEAT  # noqa: E402
 
 
 SLUG = "ff-judge-panel"

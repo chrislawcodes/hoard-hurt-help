@@ -4,7 +4,6 @@ All subprocesses (codex, gemini, ruff, mypy, pytest, git) are mocked.
 No real I/O or network calls are made.
 """
 import argparse
-import importlib.util
 import io
 import json
 import sys
@@ -14,49 +13,32 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
-
-# ---------------------------------------------------------------------------
-# Module loading helpers — follow the pattern used by other FF test files
-# ---------------------------------------------------------------------------
-
-
-def _load(name: str, path: Path):  # type: ignore[return]
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader, f"could not load {path}"
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    return mod
-
-
-# Load dependency chain first so that autopilot's imports resolve to the
-# same objects that tests patch.
-FACTORY_IO = _load("factory_io", SCRIPT_DIR / "factory_io.py")
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 _REVIEW_SCRIPTS = SCRIPT_DIR.parents[1] / "review-lens" / "scripts"
-WORKFLOW_UTILS = _load("workflow_utils", _REVIEW_SCRIPTS / "workflow_utils.py")
+if str(_REVIEW_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_REVIEW_SCRIPTS))
 
-FACTORY_STATE = _load("factory_state", SCRIPT_DIR / "factory_state.py")
-FACTORY_HEARTBEAT = _load("factory_heartbeat", SCRIPT_DIR / "factory_heartbeat.py")
-FACTORY_TELEMETRY = _load("factory_telemetry", SCRIPT_DIR / "factory_telemetry.py")
-FACTORY_TELEMETRY_COMMANDS = _load(
-    "factory_telemetry_commands", SCRIPT_DIR / "factory_telemetry_commands.py"
-)
-FACTORY_MUTATING = _load("factory_mutating", SCRIPT_DIR / "factory_mutating.py")
-FACTORY_EMIT = _load("factory_emit", SCRIPT_DIR / "factory_emit.py")
-FACTORY_PARALLEL = _load("factory_parallel", SCRIPT_DIR / "factory_parallel.py")
-FACTORY_STAGES = _load("factory_stages", SCRIPT_DIR / "factory_stages.py")
-FACTORY_NEXT_ACTION = _load("factory_next_action", SCRIPT_DIR / "factory_next_action.py")
-FACTORY_REVIEW_SPECS = _load("factory_review_specs", SCRIPT_DIR / "factory_review_specs.py")
-FACTORY_REVIEW = _load("factory_review", SCRIPT_DIR / "factory_review.py")
-FACTORY_GIT = _load("factory_git", SCRIPT_DIR / "factory_git.py")
-FACTORY_CMD_CHECKPOINT = _load(
-    "factory_cmd_checkpoint", SCRIPT_DIR / "factory_cmd_checkpoint.py"
-)
-FACTORY_CMD_IMPLEMENT = _load(
-    "factory_cmd_implement", SCRIPT_DIR / "factory_cmd_implement.py"
-)
-AUTOPILOT = _load("factory_cmd_autopilot", SCRIPT_DIR / "factory_cmd_autopilot.py")
+# Import the dependency chain so that autopilot's imports resolve to the
+# same objects that tests patch.
+import factory_io as FACTORY_IO  # noqa: E402
+import workflow_utils as WORKFLOW_UTILS  # noqa: E402
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_heartbeat as FACTORY_HEARTBEAT  # noqa: E402
+import factory_telemetry as FACTORY_TELEMETRY  # noqa: E402
+import factory_telemetry_commands as FACTORY_TELEMETRY_COMMANDS  # noqa: E402
+import factory_mutating as FACTORY_MUTATING  # noqa: E402
+import factory_emit as FACTORY_EMIT  # noqa: E402
+import factory_parallel as FACTORY_PARALLEL  # noqa: E402
+import factory_stages as FACTORY_STAGES  # noqa: E402
+import factory_next_action as FACTORY_NEXT_ACTION  # noqa: E402
+import factory_review_specs as FACTORY_REVIEW_SPECS  # noqa: E402
+import factory_review as FACTORY_REVIEW  # noqa: E402
+import factory_git as FACTORY_GIT  # noqa: E402
+import factory_cmd_checkpoint as FACTORY_CMD_CHECKPOINT  # noqa: E402
+import factory_cmd_implement as FACTORY_CMD_IMPLEMENT  # noqa: E402
+import factory_cmd_autopilot as AUTOPILOT  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

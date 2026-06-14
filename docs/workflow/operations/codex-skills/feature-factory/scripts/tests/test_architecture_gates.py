@@ -2,7 +2,6 @@
 - reuse-report.md required before the plan checkpoint (prerequisite_failure)
 - ARCHITECTURE.md/DESIGN.md resolved before `done` (recommended_next_action)
 """
-import importlib.util
 import sys
 import tempfile
 import unittest
@@ -12,20 +11,12 @@ from unittest import mock
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-FACTORY_STATE = _load("factory_state")
-FACTORY_STAGES = _load("factory_stages")
-NEXT_ACTION = _load("factory_next_action")
+import factory_state as FACTORY_STATE  # noqa: E402,F401
+import factory_stages as FACTORY_STAGES  # noqa: E402
+import factory_next_action as NEXT_ACTION  # noqa: E402
 
 
 def _healthy_stages() -> dict:

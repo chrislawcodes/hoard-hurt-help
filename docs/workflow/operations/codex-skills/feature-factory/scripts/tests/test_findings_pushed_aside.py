@@ -1,5 +1,4 @@
 """Tests for the 'Findings Pushed Aside' PR-body section — built-in FF summary."""
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
@@ -9,13 +8,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-PR_BODY_SPEC = importlib.util.spec_from_file_location(
-    "factory_pr_body", SCRIPTS_DIR / "factory_pr_body.py"
-)
-assert PR_BODY_SPEC and PR_BODY_SPEC.loader
-FPR = importlib.util.module_from_spec(PR_BODY_SPEC)
-sys.modules[PR_BODY_SPEC.name] = FPR
-PR_BODY_SPEC.loader.exec_module(FPR)
+import factory_pr_body as FPR  # noqa: E402
 
 
 def _concern(

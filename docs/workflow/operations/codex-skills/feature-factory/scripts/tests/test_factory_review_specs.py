@@ -1,15 +1,13 @@
-import importlib.util
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "factory_review_specs.py"
-SPEC = importlib.util.spec_from_file_location("factory_review_specs", SCRIPT_PATH)
-assert SPEC and SPEC.loader
-FRS = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = FRS
-SPEC.loader.exec_module(FRS)
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import factory_review_specs as FRS  # noqa: E402
 
 
 def _review(body: str) -> Path:

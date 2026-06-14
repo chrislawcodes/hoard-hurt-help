@@ -1,8 +1,8 @@
 import argparse
 import contextlib
-import importlib.util
 import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,21 +10,11 @@ from unittest import mock
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-import sys
-
-FACTORY_STATE = _load("factory_state")
-FACTORY_CMD_REVIEW_EXTRACT = _load("factory_cmd_review_extract")
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_cmd_review_extract as FACTORY_CMD_REVIEW_EXTRACT  # noqa: E402
 
 
 class ReviewExtractTests(unittest.TestCase):

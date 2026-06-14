@@ -1,7 +1,6 @@
 import argparse
 import contextlib
 import gc
-import importlib.util
 import io
 import subprocess
 import sys
@@ -13,20 +12,12 @@ from unittest import mock
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-FACTORY_STATE = _load("factory_state")
-FACTORY_CMD_CHECKPOINT = _load("factory_cmd_checkpoint")
-FACTORY_CMD_DELIVER = _load("factory_cmd_deliver")
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_cmd_checkpoint as FACTORY_CMD_CHECKPOINT  # noqa: E402
+import factory_cmd_deliver as FACTORY_CMD_DELIVER  # noqa: E402
 
 
 class SelfDocumentingErrorTests(unittest.TestCase):
