@@ -90,6 +90,7 @@ async def agent_submit(
         turn_token=body.turn_token,
         action=body.action,
         target_id=body.target_id,
+        move=body.move,
         message=body.message,
         thinking=body.thinking,
         is_connector_fallback=body.is_connector_fallback,

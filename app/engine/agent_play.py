@@ -531,6 +531,29 @@ async def submit_talk(
     )
 
 
+def _pack_move(
+    *,
+    action: str | None,
+    target_id: str | None,
+    message: str,
+    thinking: str,
+    move: dict[str, object] | None,
+) -> dict[str, object]:
+    """Pack a submit into the generic move dict the game module validates.
+
+    A non-PD game sends a free-form `move`; PD bots send action/target_id. Either
+    way message/thinking ride along. The platform never interprets the move.
+    """
+    if move is not None:
+        return {**move, "message": message, "thinking": thinking}
+    return {
+        "action": action,
+        "target_id": target_id,
+        "message": message,
+        "thinking": thinking,
+    }
+
+
 async def submit_action(
     db: AsyncSession,
     *,
@@ -539,11 +562,12 @@ async def submit_action(
     connection: Connection,
     agent_turn_token: str,
     turn_token: str,
-    action: str,
+    action: str | None,
     target_id: str | None,
     message: str,
     thinking: str,
     is_connector_fallback: bool,
+    move: dict[str, object] | None = None,
 ) -> SubmitResponse:
     _validate_agent_turn_binding(
         agent_turn_token,
@@ -565,22 +589,23 @@ async def submit_action(
     )
     seat_name_by_agent_id = _seat_name_map(all_players)
     all_agent_ids = sorted(seat_name_by_agent_id.values())
-    move = {
-        "action": action,
-        "target_id": target_id,
-        "message": word_filter.mask(message),
-        "thinking": word_filter.mask(thinking),
-    }
+    built_move = _pack_move(
+        action=action,
+        target_id=target_id,
+        message=word_filter.mask(message),
+        thinking=word_filter.mask(thinking),
+        move=move,
+    )
     try:
         module.validate_move(
-            move, your_agent_id=player.seat_name, all_agent_ids=all_agent_ids
+            built_move, your_agent_id=player.seat_name, all_agent_ids=all_agent_ids
         )
     except GameError as exc:
         raise _err(
             exc.code, exc.message, status.HTTP_400_BAD_REQUEST, exc.details
         ) from exc
-    internal_move: dict[str, object] = {**move}
-    if target_id is not None:
+    internal_move: dict[str, object] = {**built_move}
+    if move is None and target_id is not None:
         target_player = next(
             (candidate for candidate in all_players if candidate.seat_name == target_id),
             None,
