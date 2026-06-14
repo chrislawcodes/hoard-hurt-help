@@ -30,15 +30,18 @@ def event_loop() -> asyncio.AbstractEventLoop:
 
 
 @pytest.fixture(autouse=True)
-def _clear_leaderboard_cache() -> None:
-    """Reset the process-wide leaderboard cache before each test.
+def _clear_process_caches() -> None:
+    """Reset the process-wide read caches before each test.
 
-    The cache is keyed only by (rating_mode, included), not by DB, so without
-    this a cached result from one test's in-memory DB would leak into the next.
+    These caches are keyed by query params (or a fixed key), not by DB, so
+    without this a cached result from one test's in-memory DB would leak into
+    the next.
     """
     from app.read_models.leaderboard_cache import clear_leaderboard_cache
+    from app.routes.showcase_replay import clear_showcase_replay_cache
 
     clear_leaderboard_cache()
+    clear_showcase_replay_cache()
 
 
 @pytest.fixture
