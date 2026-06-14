@@ -9,7 +9,6 @@ that save_workflow_state now acquires the same exclusive lock.
 from __future__ import annotations
 
 import fcntl
-import importlib.util
 import json
 import sys
 import tempfile
@@ -17,12 +16,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "factory_state.py"
-SPEC = importlib.util.spec_from_file_location("factory_state", SCRIPT_PATH)
-assert SPEC and SPEC.loader
-FS = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = FS
-SPEC.loader.exec_module(FS)
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import factory_state as FS  # noqa: E402
 
 
 class SaveWorkflowStateLockTests(unittest.TestCase):

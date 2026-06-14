@@ -1,7 +1,6 @@
 import argparse
 import contextlib
 import gc
-import importlib.util
 import io
 import json
 import subprocess
@@ -14,42 +13,16 @@ from unittest.mock import patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 REVIEW_LENS_SCRIPTS = Path(__file__).resolve().parents[3] / "review-lens" / "scripts"
+if str(REVIEW_LENS_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(REVIEW_LENS_SCRIPTS))
 
-
-def _load_or_reuse(name: str, path: Path):
-    """Import an engine module by canonical name, reusing any already-loaded copy.
-
-    These engine scripts are imported by bare module name across several test
-    files. Re-exec'ing a fresh copy here and overwriting ``sys.modules[name]``
-    would swap the module object out from under a sibling test that captured the
-    earlier copy -- e.g. test_run_factory_repair grabs
-    ``sys.modules['factory_cmd_checkpoint']`` at import time and then patches it.
-    When repair is collected before this file, that clobber makes its patch land
-    on a stale object while production code's lazy
-    ``from factory_cmd_checkpoint import command_checkpoint`` reads the
-    replacement -- an order-dependent failure. Reusing the existing singleton
-    keeps exactly one object per module so every test patches what runs.
-    """
-    existing = sys.modules.get(name)
-    if (
-        existing is not None
-        and getattr(existing, "__file__", None) is not None
-        and Path(existing.__file__).resolve() == Path(path).resolve()
-    ):
-        return existing
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-FACTORY_STATE = _load_or_reuse("factory_state", SCRIPT_DIR / "factory_state.py")
-CHECKPOINT = _load_or_reuse("factory_cmd_checkpoint", SCRIPT_DIR / "factory_cmd_checkpoint.py")
-WORKFLOW_UTILS = _load_or_reuse("workflow_utils", REVIEW_LENS_SCRIPTS / "workflow_utils.py")
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_cmd_checkpoint as CHECKPOINT  # noqa: E402
+import workflow_utils as WORKFLOW_UTILS  # noqa: E402
 
 
 def _base_state() -> dict:

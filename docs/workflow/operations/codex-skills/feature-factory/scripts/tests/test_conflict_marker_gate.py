@@ -7,7 +7,6 @@ underline must NOT be mistaken for a conflict separator.
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import os
 import subprocess
 import sys
@@ -16,12 +15,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "factory_deliver.py"
-SPEC = importlib.util.spec_from_file_location("factory_deliver", SCRIPT_PATH)
-assert SPEC and SPEC.loader
-FD = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = FD
-SPEC.loader.exec_module(FD)
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import factory_deliver as FD  # noqa: E402
 
 _CONFLICTED = (
     "def f():\n"

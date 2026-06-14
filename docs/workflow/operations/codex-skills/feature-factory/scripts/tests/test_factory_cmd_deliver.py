@@ -1,7 +1,6 @@
 import argparse
 import contextlib
 import gc
-import importlib.util
 import io
 import json
 import subprocess
@@ -14,18 +13,11 @@ from unittest.mock import patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-STATE_SPEC = importlib.util.spec_from_file_location("factory_state", SCRIPT_DIR / "factory_state.py")
-assert STATE_SPEC and STATE_SPEC.loader
-FACTORY_STATE = importlib.util.module_from_spec(STATE_SPEC)
-sys.modules[STATE_SPEC.name] = FACTORY_STATE
-STATE_SPEC.loader.exec_module(FACTORY_STATE)
-
-DELIVER_SPEC = importlib.util.spec_from_file_location("factory_cmd_deliver", SCRIPT_DIR / "factory_cmd_deliver.py")
-assert DELIVER_SPEC and DELIVER_SPEC.loader
-DELIVER = importlib.util.module_from_spec(DELIVER_SPEC)
-sys.modules[DELIVER_SPEC.name] = DELIVER
-DELIVER_SPEC.loader.exec_module(DELIVER)
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_cmd_deliver as DELIVER  # noqa: E402
 
 
 SLUG = "ff-deliver-test"

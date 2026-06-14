@@ -1,5 +1,4 @@
 """Unit tests for factory_size_estimate.estimate_size()."""
-import importlib.util
 import json
 import sys
 import tempfile
@@ -8,19 +7,11 @@ from pathlib import Path
 from unittest import mock
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-FACTORY_STATE = _load("factory_state")
-SIZE_EST = _load("factory_size_estimate")
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_size_estimate as SIZE_EST  # noqa: E402
 
 
 class SizeEstimateTests(unittest.TestCase):

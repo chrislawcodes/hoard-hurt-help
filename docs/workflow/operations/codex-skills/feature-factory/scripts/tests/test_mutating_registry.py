@@ -1,35 +1,17 @@
 import argparse
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-STATE_SPEC = importlib.util.spec_from_file_location("factory_state", SCRIPT_DIR / "factory_state.py")
-assert STATE_SPEC and STATE_SPEC.loader
-FACTORY_STATE = importlib.util.module_from_spec(STATE_SPEC)
-sys.modules[STATE_SPEC.name] = FACTORY_STATE
-STATE_SPEC.loader.exec_module(FACTORY_STATE)
-
-INVARIANTS_SPEC = importlib.util.spec_from_file_location("factory_invariants", SCRIPT_DIR / "factory_invariants.py")
-assert INVARIANTS_SPEC and INVARIANTS_SPEC.loader
-FACTORY_INVARIANTS = importlib.util.module_from_spec(INVARIANTS_SPEC)
-sys.modules[INVARIANTS_SPEC.name] = FACTORY_INVARIANTS
-INVARIANTS_SPEC.loader.exec_module(FACTORY_INVARIANTS)
-
-MUTATING_SPEC = importlib.util.spec_from_file_location("factory_mutating", SCRIPT_DIR / "factory_mutating.py")
-assert MUTATING_SPEC and MUTATING_SPEC.loader
-FACTORY_MUTATING = importlib.util.module_from_spec(MUTATING_SPEC)
-sys.modules[MUTATING_SPEC.name] = FACTORY_MUTATING
-MUTATING_SPEC.loader.exec_module(FACTORY_MUTATING)
-
-RUN_FACTORY_SPEC = importlib.util.spec_from_file_location("run_factory", SCRIPT_DIR / "run_factory.py")
-assert RUN_FACTORY_SPEC and RUN_FACTORY_SPEC.loader
-RUN_FACTORY = importlib.util.module_from_spec(RUN_FACTORY_SPEC)
-sys.modules[RUN_FACTORY_SPEC.name] = RUN_FACTORY
-RUN_FACTORY_SPEC.loader.exec_module(RUN_FACTORY)
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_invariants as FACTORY_INVARIANTS  # noqa: E402
+import factory_mutating as FACTORY_MUTATING  # noqa: E402
+import run_factory as RUN_FACTORY  # noqa: E402
 
 
 EXPECTED_SUBCOMMANDS = {

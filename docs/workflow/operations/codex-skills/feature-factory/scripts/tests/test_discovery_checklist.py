@@ -2,7 +2,6 @@
 checklist (goal, audience, success criteria, non-goals, constraints/risks) for
 real (required) runs; `--force-complete` bypasses it for trivial/skip-FF work.
 """
-import importlib.util
 import os
 import subprocess
 import sys
@@ -15,16 +14,7 @@ RUN = SCRIPTS / "run_factory.py"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-
-def _load(name):
-    spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-FCD = _load("factory_cmd_discover")
+import factory_cmd_discover as FCD  # noqa: E402
 
 
 class MissingChecklistHelperTests(unittest.TestCase):

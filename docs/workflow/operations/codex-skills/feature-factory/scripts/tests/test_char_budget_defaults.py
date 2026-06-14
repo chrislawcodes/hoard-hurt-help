@@ -1,5 +1,4 @@
 """Slice 1 test — argparse defaults for checkpoint character budgets."""
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
@@ -8,6 +7,8 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+
+import run_factory as RUN_FACTORY  # noqa: E402
 
 
 class CharBudgetDefaultsTests(unittest.TestCase):
@@ -18,13 +19,7 @@ class CharBudgetDefaultsTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        spec = importlib.util.spec_from_file_location(
-            "run_factory", SCRIPTS_DIR / "run_factory.py"
-        )
-        assert spec and spec.loader
-        self.run_factory = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = self.run_factory
-        spec.loader.exec_module(self.run_factory)
+        self.run_factory = RUN_FACTORY
 
     def _parse(self, argv: list[str]):
         parser = self.run_factory.build_parser()

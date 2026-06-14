@@ -3,7 +3,6 @@
 P3-7: deferred reviews appear in Findings Pushed Aside section
 P2-5: emoji headings, dash delimiters, bracket-severity shapes all match
 """
-import importlib.util
 import sys
 import tempfile
 import unittest
@@ -16,16 +15,8 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPTS_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-FACTORY_PR_BODY = _load("factory_pr_body")
+import factory_pr_body as FACTORY_PR_BODY  # noqa: E402
+import factory_review_specs as frs  # noqa: E402
 
 
 class DeferredReviewsInPushedAsideTests(unittest.TestCase):
@@ -136,7 +127,6 @@ class RegexShapeNewFindingsTests(unittest.TestCase):
     """P2-5 — emoji headings, dash delimiters, bracket-severity shapes all match."""
 
     def test_emoji_heading_via_helper(self) -> None:
-        frs = _load("factory_review_specs")
         self.assertTrue(
             bool(frs._ACTIONABLE_FINDING_RE.search("### 🚨 high: some finding\n"))
         )

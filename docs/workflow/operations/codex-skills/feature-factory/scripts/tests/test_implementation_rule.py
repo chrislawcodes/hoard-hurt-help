@@ -1,6 +1,5 @@
 """Slice 3 — implementation-rule WARN at deliver."""
 import io
-import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -15,17 +14,8 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPTS_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-FACTORY_STATE = _load("factory_state")
-FACTORY_DELIVER = _load("factory_deliver")
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_deliver as FACTORY_DELIVER  # noqa: E402
 
 
 def _mock_run_factory(*, base_succeeds: bool = True, head_sha: str = "abcdef0", added_lines: int = 0):

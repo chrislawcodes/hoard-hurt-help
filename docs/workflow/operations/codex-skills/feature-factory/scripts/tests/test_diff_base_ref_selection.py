@@ -11,7 +11,6 @@ checks (is_ancestor_of_head / merge_base_with_default_branch / _git_head_sha)
 mocked, so the branching logic is exercised deterministically. A separate test
 covers merge_base_with_default_branch against a real git repo.
 """
-import importlib.util
 import json
 import subprocess
 import sys
@@ -26,25 +25,11 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import factory_git as GIT  # noqa: E402
 import factory_stages as STAGES  # noqa: E402
-
-
-# Other FF test files reload factory_state via importlib and clobber
-# sys.modules['factory_state'], so a plain `import factory_state` can bind a
-# DIFFERENT module object than the one factory_stages actually calls into — and
-# by collection time that original module may already be evicted from
-# sys.modules entirely. factory_stages did `from factory_state import
-# default_artifact_path`, so the function still executes in its original
-# factory_state namespace (its __globals__). We patch FACTORY_RUNS_ROOT in, and
-# resolve artifact paths through, THAT namespace — immune to import-order churn.
-_FS_GLOBALS = STAGES.default_artifact_path.__globals__
-
-
-def _fs_workflow_dir(slug: str) -> Path:
-    return _FS_GLOBALS["workflow_dir"](slug)
+import factory_state as FS  # noqa: E402
 
 
 def _write_diff_meta(slug: str, *, base_ref: str, base_sha: str, head_sha: str) -> Path:
-    artifact = STAGES.default_artifact_path(slug, "diff")
+    artifact = FS.default_artifact_path(slug, "diff")
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text("diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n", encoding="utf-8")
     meta = artifact.with_suffix(artifact.suffix + ".json")
@@ -59,10 +44,10 @@ class DiffBaseRefSelection(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        p = mock.patch.dict(_FS_GLOBALS, {"FACTORY_RUNS_ROOT": Path(self._tmp.name)})
+        p = mock.patch.object(FS, "FACTORY_RUNS_ROOT", Path(self._tmp.name))
         p.start()
         self.addCleanup(p.stop)
-        _fs_workflow_dir("ff-base").mkdir(parents=True, exist_ok=True)
+        FS.workflow_dir("ff-base").mkdir(parents=True, exist_ok=True)
 
     def _budget(self, *, current_head: str, ancestors: set[str], fork_point: str | None = "FORKPOINT"):
         """Run diff_review_budget_state with ancestry checks mocked."""

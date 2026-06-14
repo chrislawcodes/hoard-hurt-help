@@ -1,37 +1,15 @@
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-STATE_SPEC = importlib.util.spec_from_file_location(
-    "factory_state",
-    SCRIPT_DIR / "factory_state.py",
-)
-assert STATE_SPEC and STATE_SPEC.loader
-FACTORY_STATE = importlib.util.module_from_spec(STATE_SPEC)
-sys.modules[STATE_SPEC.name] = FACTORY_STATE
-STATE_SPEC.loader.exec_module(FACTORY_STATE)
-
-STAGES_SPEC = importlib.util.spec_from_file_location(
-    "factory_stages",
-    SCRIPT_DIR / "factory_stages.py",
-)
-assert STAGES_SPEC and STAGES_SPEC.loader
-FACTORY_STAGES = importlib.util.module_from_spec(STAGES_SPEC)
-sys.modules[STAGES_SPEC.name] = FACTORY_STAGES
-STAGES_SPEC.loader.exec_module(FACTORY_STAGES)
-
-NEXT_ACTION_SPEC = importlib.util.spec_from_file_location(
-    "factory_next_action",
-    SCRIPT_DIR / "factory_next_action.py",
-)
-assert NEXT_ACTION_SPEC and NEXT_ACTION_SPEC.loader
-NEXT_ACTION = importlib.util.module_from_spec(NEXT_ACTION_SPEC)
-sys.modules[NEXT_ACTION_SPEC.name] = NEXT_ACTION
-NEXT_ACTION_SPEC.loader.exec_module(NEXT_ACTION)
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_stages as FACTORY_STAGES  # noqa: E402
+import factory_next_action as NEXT_ACTION  # noqa: E402
 
 
 def _base_stage_state(artifact_exists: bool, manifest_exists: bool = True, healthy: bool = True) -> dict[str, object]:

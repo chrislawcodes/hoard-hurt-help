@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import subprocess
 import sys
@@ -9,18 +8,11 @@ from unittest.mock import patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-STATE_SPEC = importlib.util.spec_from_file_location("factory_state", SCRIPT_DIR / "factory_state.py")
-assert STATE_SPEC and STATE_SPEC.loader
-FACTORY_STATE = importlib.util.module_from_spec(STATE_SPEC)
-sys.modules[STATE_SPEC.name] = FACTORY_STATE
-STATE_SPEC.loader.exec_module(FACTORY_STATE)
-
-TELEMETRY_SPEC = importlib.util.spec_from_file_location("factory_telemetry", SCRIPT_DIR / "factory_telemetry.py")
-assert TELEMETRY_SPEC and TELEMETRY_SPEC.loader
-FACTORY_TELEMETRY = importlib.util.module_from_spec(TELEMETRY_SPEC)
-sys.modules[TELEMETRY_SPEC.name] = FACTORY_TELEMETRY
-TELEMETRY_SPEC.loader.exec_module(FACTORY_TELEMETRY)
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_telemetry as FACTORY_TELEMETRY  # noqa: E402
 
 
 def _completed_process(stdout: str = "", stderr: str = "", returncode: int = 0) -> subprocess.CompletedProcess:

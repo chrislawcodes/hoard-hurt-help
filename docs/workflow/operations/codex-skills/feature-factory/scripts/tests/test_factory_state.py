@@ -7,13 +7,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "factory_state.py"
-SPEC = importlib.util.spec_from_file_location("factory_state", SCRIPT_PATH)
-assert SPEC and SPEC.loader
-FACTORY_STATE = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = FACTORY_STATE
-SPEC.loader.exec_module(FACTORY_STATE)
+import factory_state as FACTORY_STATE  # noqa: E402
+
+SCRIPT_PATH = SCRIPT_DIR / "factory_state.py"
 
 
 class FactoryStateTests(unittest.TestCase):

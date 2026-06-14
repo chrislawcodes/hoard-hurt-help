@@ -9,7 +9,6 @@ Covers:
   b. Modified file → diff format unchanged.
   c. Mixed (one new + one modified) → both formats appear, correctly separated.
 """
-import importlib.util
 import sys
 import tempfile
 import unittest
@@ -20,23 +19,8 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import run_gemini_review as RUN_GEMINI  # noqa: E402
 
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-# We need to load dependencies first so run_gemini_review imports cleanly
-try:
-    _load("workflow_utils")
-except Exception:
-    pass
-
-RUN_GEMINI = _load("run_gemini_review")
 expand_new_files_in_diff = RUN_GEMINI.expand_new_files_in_diff
 
 

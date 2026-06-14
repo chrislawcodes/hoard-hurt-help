@@ -1,6 +1,5 @@
 import argparse
 import contextlib
-import importlib.util
 import io
 import json
 import subprocess
@@ -13,15 +12,12 @@ from unittest.mock import patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+import factory_state as FACTORY_STATE  # noqa: E402
+import factory_cmd_advance as FACTORY_CMD_ADVANCE  # noqa: E402
+import run_factory as RUN_FACTORY  # noqa: E402
 
 
 SLUG = "advance-test"
@@ -31,15 +27,10 @@ FIXED_SHA = "deadbeef"
 
 
 class AdvanceSubcommandTests(unittest.TestCase):
-    def _load_modules(self) -> None:
-        if str(SCRIPT_DIR) not in sys.path:
-            sys.path.insert(0, str(SCRIPT_DIR))
-        self.factory_state = _load("factory_state")
-        self.advance = _load("factory_cmd_advance")
-        self.run_factory = _load("run_factory")
-
     def setUp(self) -> None:
-        self._load_modules()
+        self.factory_state = FACTORY_STATE
+        self.advance = FACTORY_CMD_ADVANCE
+        self.run_factory = RUN_FACTORY
         self._tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmpdir.cleanup)
         self._root_patch = patch.object(self.factory_state, "FACTORY_RUNS_ROOT", Path(self._tmpdir.name))

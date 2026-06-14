@@ -1,21 +1,14 @@
 """Tests for review-lens/scripts/workflow_utils.py."""
-import importlib.util
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parents[3] / "review-lens" / "scripts"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-WORKFLOW_UTILS_PATH = (
-    Path(__file__).resolve().parents[3] / "review-lens" / "scripts" / "workflow_utils.py"
-)
-WORKFLOW_UTILS_SPEC = importlib.util.spec_from_file_location(
-    "workflow_utils_for_tests", WORKFLOW_UTILS_PATH
-)
-assert WORKFLOW_UTILS_SPEC and WORKFLOW_UTILS_SPEC.loader
-WORKFLOW_UTILS = importlib.util.module_from_spec(WORKFLOW_UTILS_SPEC)
-sys.modules[WORKFLOW_UTILS_SPEC.name] = WORKFLOW_UTILS
-WORKFLOW_UTILS_SPEC.loader.exec_module(WORKFLOW_UTILS)
+import workflow_utils as WORKFLOW_UTILS  # noqa: E402
 
 
 class NormalizedArtifactTextTests(unittest.TestCase):
