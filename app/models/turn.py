@@ -61,6 +61,10 @@ class TurnSubmission(Base):
     target_player_id: Mapped[int | None] = mapped_column(
         ForeignKey("players.id"), nullable=True
     )
+    # Game #2+ move fields (e.g. Liar's Dice bid quantity/face). NULL for PD,
+    # whose move vocabulary is the action/target columns above.
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    face: Mapped[int | None] = mapped_column(Integer, nullable=True)
     message: Mapped[str] = mapped_column(Text, default="", nullable=False)
     thinking: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
     points_delta: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

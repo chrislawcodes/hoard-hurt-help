@@ -7,6 +7,7 @@ from app.models.admin_audit_log import AdminAction, AdminAuditLog
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
+from app.models.game_state import MatchState, PlayerState
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
@@ -29,6 +30,8 @@ __all__ = [
     "User",
     "Match",
     "GameState",
+    "MatchState",
+    "PlayerState",
     "Player",
     "RequestIncident",
     "Turn",
