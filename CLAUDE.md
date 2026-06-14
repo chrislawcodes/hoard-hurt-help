@@ -118,9 +118,12 @@ sessions start landing on stale branches with bad assumptions.
 ### Keep the main checkout pristine
 
 The primary repo folder (`hoard-hurt-help/`) stays on `main`, always fast-forwarded
-to `origin/main`. Read from it; never commit in it. It is the trunk — branches grow
-*off* it, not *in* it. If you find it parked on a feature branch, that is the bug:
-return it to `main` before starting anything.
+to `origin/main`. Treat it as read-only: explore, read, and answer questions here
+freely. Create your worktree at the moment you are about to make your first change —
+not at session start (a worktree per question just breeds new clutter), and never
+after the first edit (writing in `main` is the bug we are preventing). It is the
+trunk — branches grow *off* it, not *in* it. If you find it parked on a feature
+branch, that is the bug: return it to `main` first.
 
 ### One worktree per task
 
