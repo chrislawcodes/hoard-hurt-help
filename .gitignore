@@ -64,6 +64,13 @@ alembic/versions/__pycache__/
 # Agent / AI workspace dirs (local-only, never committed)
 .claude/
 
+# Local scratch (leading underscore = throwaway, kept out of git).
+# Scratch helper scripts — local seed/dump/smoke runs. Real scripts use normal names.
+scripts/_*.py
+# Stray wireframe / mockup images dumped at the repo root.
+/_*.png
+/_*.svg
+
 # Database backup variants with non-.bak suffixes
 *.db.*-bak
 *.db.pre*-bak
