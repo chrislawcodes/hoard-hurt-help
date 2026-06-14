@@ -29,6 +29,18 @@ def event_loop() -> asyncio.AbstractEventLoop:
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def _clear_leaderboard_cache() -> None:
+    """Reset the process-wide leaderboard cache before each test.
+
+    The cache is keyed only by (rating_mode, included), not by DB, so without
+    this a cached result from one test's in-memory DB would leak into the next.
+    """
+    from app.read_models.leaderboard_cache import clear_leaderboard_cache
+
+    clear_leaderboard_cache()
+
+
 @pytest.fixture
 async def engine() -> AsyncIterator[AsyncEngine]:
     """Fresh in-memory SQLite engine per test."""
