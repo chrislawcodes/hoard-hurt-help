@@ -436,33 +436,34 @@ class TestMinLegalRaise:
     # --- wild=True mid-range ---
 
     def test_wild_mid_face_increments(self) -> None:
-        # (2,3) -> (2,4) is smallest normal-normal successor.
+        # (2,3): smallest raise is (2,4). One ace (ceil(2/2)=1) is legal but ranks
+        # ABOVE every (2,x) — k aces sit near 2k normal dice — so it is NOT smaller.
         result = min_legal_raise(Bid(2, 3), 10, wild=True)
-        # The ace option is ceil(2/2)=1 ace; (1,aces) sorts smaller than (2,4).
-        assert result == Bid(quantity=1, face=1)
+        assert result == Bid(quantity=2, face=4)
 
     def test_wild_face5_same_q_next_face(self) -> None:
-        # (3,5): normal next is (3,6). Ace option: ceil(3/2)=2 aces.
-        # (2,1) sorts as (2, 1.5); (3,6) sorts as (3,6). Smaller = (2,1).
+        # (3,5): smallest raise is (3,6). Two aces (ceil(3/2)=2) rank above four 6s,
+        # far above (3,6), so the normal step wins.
         result = min_legal_raise(Bid(3, 5), 10, wild=True)
-        assert result == Bid(quantity=2, face=1)
+        assert result == Bid(quantity=3, face=6)
 
     def test_wild_face6_quantity_rollover(self) -> None:
-        # (4,6): normal next is (5,2). Ace option: ceil(4/2)=2 aces.
-        # (2,1) sorts as (2, 1.5); (5,2) sorts as (5,2). Smaller = (2,1).
+        # (4,6): here the ace switch IS the next step — two aces (ceil(4/2)=2) sit
+        # exactly between four 6s and five 2s, so (2,1) is genuinely the smallest.
         result = min_legal_raise(Bid(4, 6), 10, wild=True)
         assert result == Bid(quantity=2, face=1)
 
     def test_wild_aces_to_aces_next(self) -> None:
-        # prev=(2,1) aces: aces-next=(3,1), normal-next=(5,2).
-        # (3,1) sorts as (3,1.5); (5,2) sorts as (5,2). Smaller = (3,1).
+        # prev=(2,1) two aces: aces->aces is (3,1); aces->normal is (5,2)=2*2+1.
+        # Five 2s ranks below three aces, so the smallest raise is (5,2).
         result = min_legal_raise(Bid(2, 1), 10, wild=True)
-        assert result == Bid(quantity=3, face=1)
+        assert result == Bid(quantity=5, face=2)
 
     def test_wild_aces_to_aces_vs_normal(self) -> None:
-        # prev=(4,1) aces: aces-next=(5,1), normal-next=(9,2).
+        # prev=(4,1) four aces: aces->normal is (9,2)=2*4+1, which ranks below
+        # five aces, so (9,2) is the smallest raise.
         result = min_legal_raise(Bid(4, 1), 10, wild=True)
-        assert result == Bid(quantity=5, face=1)
+        assert result == Bid(quantity=9, face=2)
 
     def test_wild_aces_ceiling_only_normal_reachable(self) -> None:
         # prev=(5,1) aces with total_dice=10: aces-next=(6,1)<=10, normal-next=(11,2)>10.
@@ -543,11 +544,11 @@ class TestMinLegalRaise:
                         )
 
     def test_wild_on_normal_to_ace_ceil_large(self) -> None:
-        # prev=(10,3): normal-next=(10,4). ace option: ceil(10/2)=5 aces.
-        # (5,1) sorts as (5,1.5); (10,4) sorts as (10,4). Min = (5,1).
+        # prev=(10,3): smallest raise is (10,4). Five aces (ceil(10/2)=5) are legal
+        # but rank above ten 6s, so the normal step is smaller.
         result = min_legal_raise(Bid(10, 3), 20, wild=True)
-        assert result == Bid(quantity=5, face=1)
-        assert is_legal_raise(Bid(10, 3), Bid(5, 1), wild=True)
+        assert result == Bid(quantity=10, face=4)
+        assert is_legal_raise(Bid(10, 3), Bid(10, 4), wild=True)
 
 
 # ===========================================================================
@@ -671,10 +672,11 @@ class TestEdgeCases:
         assert is_legal_raise(Bid(1, 2), Bid(0, 3), wild=False) is False
 
     def test_min_legal_raise_face1_with_quantity_1_wild_on(self) -> None:
-        # prev=(1,1) aces: aces-next=(2,1); normal-next=(3,2).
+        # prev=(1,1) one ace: aces->normal is (3,2)=2*1+1, which ranks below two
+        # aces, so the smallest raise is (3,2).
         result = min_legal_raise(Bid(1, 1), 10, wild=True)
-        assert result == Bid(quantity=2, face=1)
-        assert is_legal_raise(Bid(1, 1), Bid(2, 1), wild=True)
+        assert result == Bid(quantity=3, face=2)
+        assert is_legal_raise(Bid(1, 1), Bid(3, 2), wild=True)
 
     def test_normal_to_aces_ceil_rounding(self) -> None:
         # prev=(7,3): ceil(7/2)=4 aces. Check boundary.
@@ -690,3 +692,55 @@ class TestEdgeCases:
         """ceil(q/2) == (q+1)//2 for all positive q."""
         for q in range(1, 50):
             assert math.ceil(q / 2) == (q + 1) // 2
+
+
+# --- min_legal_raise minimality: independent guards added with the wild-ace fix ---
+# These catch the prior bug where the wild-mode minimum jumped to an ace bid too
+# early (e.g. "one 2" -> "one ace" instead of "one 3"). The legality suite above
+# never caught it because the buggy answers were legal — just not the smallest.
+
+
+@pytest.mark.parametrize(
+    "wild,prev,expected",
+    [
+        # Smallest legal raises derived BY HAND from the Dudo rules, not from the
+        # implementation — so a wrong implementation can't make the test agree.
+        (True, (1, 2), (1, 3)),   # one 2 -> one 3 (NOT one ace)
+        (True, (1, 6), (2, 2)),   # one 6 -> two 2s (one ace ranks above every (2,x))
+        (True, (4, 3), (4, 4)),   # four 3s -> four 4s (aces sit after four 6s)
+        (True, (2, 1), (5, 2)),   # two aces -> five 2s (2*2+1), which beats three aces
+        (False, (1, 6), (2, 1)),  # no-wild: after (q,6) comes (q+1,1)
+        (False, (3, 4), (3, 5)),  # no-wild: same quantity, next face
+    ],
+)
+def test_min_legal_raise_returns_hand_verified_smallest(wild, prev, expected) -> None:
+    assert min_legal_raise(Bid(*prev), total_dice=8, wild=wild) == Bid(*expected)
+
+
+@pytest.mark.parametrize("wild", [True, False])
+@pytest.mark.parametrize("total_dice", [3, 5, 8])
+def test_min_legal_raise_is_truly_minimal(wild: bool, total_dice: int) -> None:
+    """Returned raise must be legal AND no legal bid may be smaller than it.
+    'Smaller' is measured by is_legal_raise (the rule), not by min_legal_raise's
+    own logic — a non-circular minimality check."""
+    starts: list[Bid | None] = [None]
+    starts += [Bid(q, f) for q in range(1, total_dice + 1) for f in range(1, 7)]
+    for prev in starts:
+        result = min_legal_raise(prev, total_dice, wild=wild)
+        legal = [
+            Bid(q, f)
+            for q in range(1, total_dice + 1)
+            for f in range(1, 7)
+            if is_legal_raise(prev, Bid(q, f), wild=wild)
+        ]
+        if not legal:
+            assert result is None
+            continue
+        assert result is not None and is_legal_raise(prev, result, wild=wild)
+        for other in legal:
+            if other == result:
+                continue
+            assert is_legal_raise(result, other, wild=wild), (
+                f"min_legal_raise({prev!r})={result!r} but {other!r} is legal and smaller "
+                f"(wild={wild})"
+            )
