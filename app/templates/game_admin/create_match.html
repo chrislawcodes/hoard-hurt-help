@@ -20,27 +20,40 @@
     <div class="form-row">
         <label>
             Min players
-            <input type="number" name="min_players" value="6" min="6" max="10">
+            <input type="number" name="min_players" value="{{ defaults.min_players }}" min="{{ defaults.min_players }}" max="{{ defaults.max_players }}">
         </label>
         <label>
             Max players
-            <input type="number" name="max_players" value="10" min="6" max="10">
+            <input type="number" name="max_players" value="{{ defaults.max_players }}" min="{{ defaults.min_players }}" max="{{ defaults.max_players }}">
         </label>
         <label>
             Per-turn deadline (sec)
-            <input type="number" name="per_turn_deadline_seconds" value="60" min="5" max="600">
+            <input type="number" name="per_turn_deadline_seconds" value="{{ defaults.per_turn_deadline_seconds }}" min="5" max="600">
         </label>
     </div>
     <div class="form-row">
         <label>
             Total rounds
-            <input type="number" name="total_rounds" value="10" min="3" max="20">
+            <input type="number" name="total_rounds" value="{{ defaults.total_rounds }}" min="3" max="20">
         </label>
         <label>
             Turns per round
-            <input type="number" name="turns_per_round" value="10" min="3" max="20">
+            <input type="number" name="turns_per_round" value="{{ defaults.turns_per_round }}" min="3" max="20">
         </label>
     </div>
+
+    {% if game_slug == "liars-dice" %}
+    <div class="form-row">
+        <label>
+            <input type="checkbox" name="wild_ones" checked>
+            Wild ones
+        </label>
+        <label>
+            Dice per player
+            <input type="number" name="dice_per_player" value="5" min="1" max="20">
+        </label>
+    </div>
+    {% endif %}
 
     {% if error %}<p class="error">{{ error }}</p>{% endif %}
     <div class="form-actions"><button type="submit" class="btn btn-primary">Create match</button></div>

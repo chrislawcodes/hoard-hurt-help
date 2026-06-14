@@ -13,7 +13,8 @@ from sqlalchemy import select
 from app.deps import DbSession, require_game_admin
 from app.engine.match_creation import create_match
 from app.engine.match_deletion import cancel_match
-from app.games import known_types
+from app.games import GameError, get as get_game_module, known_types
+from app.models.game_state import MatchState
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
 from app.models.player import Player
@@ -44,6 +45,23 @@ async def create_game(
         )
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
+    try:
+        module = get_game_module(game)
+    except GameError as exc:
+        raise HTTPException(404, detail="Game not found.") from exc
+    cfg = module.config_defaults()
+    if not (cfg.min_players <= body.min_players <= cfg.max_players):
+        raise HTTPException(
+            400,
+            detail=f"{game} supports {cfg.min_players}-{cfg.max_players} players.",
+        )
+    if not (cfg.min_players <= body.max_players <= cfg.max_players):
+        raise HTTPException(
+            400,
+            detail=f"{game} supports {cfg.min_players}-{cfg.max_players} players.",
+        )
+    if body.min_players > body.max_players:
+        raise HTTPException(400, detail="min_players must be <= max_players.")
     g = await create_match(
         db,
         game=game,
@@ -56,7 +74,20 @@ async def create_game(
         turns_per_round=body.turns_per_round,
         state=GameState.REGISTERING,
         created_by_user_id=user.id,
+        commit=False,
     )
+    db.add(
+        MatchState(
+            match_id=g.id,
+            state_json={
+                "config": {
+                    "wild_ones": body.wild_ones,
+                    "dice_per_player": body.dice_per_player,
+                }
+            },
+        )
+    )
+    await db.commit()
     return GameRecord(
         id=g.id,
         name=g.name,
