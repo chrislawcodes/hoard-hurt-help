@@ -11,6 +11,8 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.games import GameError
+from app.games import get as get_game_module
 from app.games import known_types
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
@@ -263,6 +265,15 @@ async def load_leaderboard_sections(
         contributed_matches = 0
         has_bots = any(bundle.has_bots for bundle in bundles)
 
+        # Placement is per-game (shared rating math, per-game finish order). PD's
+        # key is (round_wins, total_score); a game overrides match_placement_key to
+        # rank its own way. Unregistered legacy game types fall back to the default.
+        try:
+            placement_key = get_game_module(game_type).match_placement_key
+        except GameError:
+            def placement_key(*, round_wins: float, total_score: int) -> tuple[float, ...]:
+                return (round_wins, float(total_score))
+
         for bundle in bundles:
             participants = _merge_same_key_participants(
                 [p for p in bundle.participants if _is_included(p.is_bot, included_choice)]
@@ -271,22 +282,21 @@ async def load_leaderboard_sections(
                 continue
 
             contributed_matches += 1
-            group_keys = sorted(
-                {
-                    (participant.round_wins, participant.total_score)
-                    for participant in participants
-                },
-                reverse=True,
-            )
+            keys_by_competitor = {
+                participant.competitor_key: placement_key(
+                    round_wins=participant.round_wins, total_score=participant.total_score
+                )
+                for participant in participants
+            }
+            group_keys = sorted(set(keys_by_competitor.values()), reverse=True)
             placement_groups: list[list[_Participant]] = []
-            for round_wins, total_score in group_keys:
+            for gkey in group_keys:
                 placement_groups.append(
                     sorted(
                         [
                             participant
                             for participant in participants
-                            if participant.round_wins == round_wins
-                            and participant.total_score == total_score
+                            if keys_by_competitor[participant.competitor_key] == gkey
                         ],
                         key=lambda participant: participant.competitor_key,
                     )
