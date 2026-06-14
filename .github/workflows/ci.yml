@@ -34,14 +34,10 @@ jobs:
 
       # The vendored Feature Factory / review-lens engine has its own test suite
       # under docs/workflow/operations/codex-skills/. It is NOT covered by the
-      # app's `pytest -q` (testpaths = ["tests"]). Each test module importlib-loads
-      # its sibling scripts under canonical names, which collide across files in a
-      # single process, so we run each file in its own process for isolation.
-      # (Removing that per-file requirement is a separate engine-test refactor.)
-      - name: Test (Feature Factory engine, per-file isolation)
-        run: |
-          fail=0
-          for f in $(find docs/workflow/operations/codex-skills -name 'test_*.py' | sort); do
-            python -m pytest "$f" -q || fail=1
-          done
-          exit $fail
+      # app's `pytest -q` (testpaths = ["tests"]). These tests import their sibling
+      # scripts once (import-once), so the whole suite is order-independent and
+      # runs in a single process. A guardrail test (test_no_sys_modules_reload)
+      # fails if a test file reintroduces a sys.modules reload — which is what
+      # used to force the old per-file-isolation runs.
+      - name: Test (Feature Factory engine)
+        run: python -m pytest docs/workflow/operations/codex-skills -q
