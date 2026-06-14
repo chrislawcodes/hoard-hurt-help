@@ -2,8 +2,13 @@
 
 The PD-side work needed so the platform can host Liar's Dice **without changing
 how PD plays**. This is a refactor spec: its headline deliverable is *zero
-behavior change*. Read alongside `specs/014-liars-dice/tech-spec.md` (the platform
-seams) and `specs/hoard-hurt-help/architecture.md`.
+behavior change*. Read alongside `LIARS_DICE_TECH_SPEC.md` (the platform
+seams) and `docs/games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md` (the
+as-built PD description; the companion `specs/hoard-hurt-help/architecture.md`
+was deleted as redundant with that file).
+
+**PD is the default.** The `SimultaneousDriver` is the turn-loop implementation
+PD uses today; every new contract hook's default reproduces PD behavior exactly.
 
 Standards and preflight: same as the repo (CLAUDE.md). The acceptance bar is
 parity, defined in §5.
@@ -17,9 +22,9 @@ the incumbent that runs through all of it. If we are not careful, "generalize th
 platform" silently changes PD's scores, payloads, or timing. This spec pins down
 exactly what changes on the PD path (almost nothing) and how we prove it.
 
-The principle from the architecture docs: **PD is the default.** Every new contract
-hook's default implementation reproduces today's PD behavior, so inheriting the
-default and running PD must be indistinguishable from today.
+The principle from the architecture docs: every new contract hook's default
+implementation reproduces today's PD behavior, so inheriting the default and
+running PD must be indistinguishable from today.
 
 ---
 
@@ -38,7 +43,10 @@ default and running PD must be indistinguishable from today.
 
 ### 2.2 Implement the new contract hooks as PD defaults
 
-On `HoardHurtHelp` (or as protocol defaults PD inherits):
+On `HoardHurtHelp` (or as protocol defaults PD inherits). `agent_base_prompt`
+is already a `GameModule` member (defined in `app/games/base.py` and implemented
+in `app/games/hoard_hurt_help/game.py`) — it is **not** a new hook. The seven
+hooks proposed here are not yet present in `base.py`:
 
 | Hook | PD implementation |
 |---|---|
@@ -55,11 +63,18 @@ inline so the platform can ask the module instead of assuming PD.
 
 ### 2.3 Payload behind the contract
 
-- Today `app/routes/agent_api.py` builds PD's `TurnSummary` / history directly via
-  `turn_summary.py`, `board_signals.py`, `opponent_stats.py`.
+- Today the turn-payload assembly lives in `app/engine/agent_play.py`:
+  `poll_turn` builds the `YourTurnResponse` (raw `static` / `history` /
+  `scoreboard` / `current` fields — not a digested `TurnSummary`), and
+  `_build_turn_payload` builds the next-turn loop payload. The route handlers in
+  `app/routes/agent_api.py` and `app/routes/agent_next_turn.py` are already thin
+  adapters that delegate to `agent_play`; they share that service with the MCP
+  server. The builders `turn_summary.py`, `board_signals.py`, and
+  `opponent_stats.py` are called from within `agent_play`, not from the routes
+  directly.
 - Route this through `module.public_state_for` (+ `private_state_for`). PD's
-  implementation **calls the same builders**, so the bytes are identical; the agent
-  API stops hard-coding PD shapes.
+  implementation **calls the same builders inside `agent_play`**, so the bytes
+  are identical; the agent API stops hard-coding PD shapes.
 - Transitional option to lower risk: keep the existing PD payload path as the
   literal body of PD's `public_state_for`, so the diff is a move, not a rewrite.
 
@@ -82,8 +97,8 @@ inline so the platform can ask the module instead of assuming PD.
 - PD scoring (`resolver.py`), rules text (`rules.py`), and constants — untouched.
 - PD's talk→act two-phase structure and deadlines — untouched.
 - PD's storage columns and round/match scoring — untouched.
-- PD's Sims (`app/engine/sims/strategies.py`) and the Practice Arena/auto-match
-  seeding — untouched.
+- PD's Bots (`app/engine/sims/strategies.py`; a Bot is an Agent with
+  `kind=bot`) and the Practice Arena/auto-match seeding — untouched.
 
 ### Deferred (tracked, not done here)
 
@@ -91,9 +106,9 @@ inline so the platform can ask the module instead of assuming PD.
   `board_signals.py`, `opponent_stats.py`, `game_insights.py`) out of the shared
   `app/engine/` namespace into `app/games/hoard_hurt_help/`. This is the "pure"
   finish of the platform/game split. It is a large, behavior-neutral move that the
-  game framework (feature 004) intentionally deferred, and we keep deferring it: the
-  contract + driver split already decouples behavior and blast radius. Do it as its
-  own refactor PR later, never bundled with a game change.
+  game framework (feature 004) intentionally deferred, and we keep deferring it:
+  the contract + driver split already decouples behavior and blast radius. Do it
+  as its own refactor PR later, never bundled with a game change.
 
 ---
 
@@ -105,9 +120,10 @@ inline so the platform can ask the module instead of assuming PD.
 | `app/engine/turn_drivers.py` (new) | `TurnDriver`, `GameLoopContext`, `SimultaneousDriver` (moved PD loop). |
 | `app/games/base.py` | New hooks with PD-reproducing defaults. |
 | `app/games/hoard_hurt_help/game.py` | Implement the hooks (mostly defaults / thin wrappers). |
-| `app/routes/agent_api.py`, `agent_next_turn.py` | Call `public_state_for` / `private_state_for`; unchanged output for PD. |
+| `app/engine/agent_play.py` | `poll_turn` (builds `YourTurnResponse`) and `_build_turn_payload` (next-turn loop payload) route through `public_state_for` / `private_state_for`. Routes are thin adapters; payload assembly stays here. |
+| `app/routes/agent_api.py`, `agent_next_turn.py` | Thin adapters — call `public_state_for` / `private_state_for` via `agent_play`; unchanged output for PD. Shared with MCP server. |
 | `app/schemas/agent.py` | `move` on `SubmitRequest`; `your_private_state` / `public_state` (null for PD). |
-| `app/engine/game_records.py` + Elo reader | Read `final_placement` instead of assuming round-wins. |
+| `app/read_models/leaderboard.py` | `load_leaderboard_sections` groups by `(round_wins, total_score)` — the placement derivation the new `final_placement` hook must reproduce exactly. |
 
 ---
 
@@ -140,7 +156,7 @@ refactor and replay it as a golden fixture for SC-P2/SC-P3/SC-P4.
   turn loop. Mitigation: pure move (no logic edits) + SC-P4 loop parity + the
   existing resume/restart tests.
 - **Sequencing:** this spec is **Phase A** in the Liar's Dice design's phasing
-  (`specs/014-liars-dice/design.md` §11) — its **own branch + PR, merged first**.
+  (`LIARS_DICE_DESIGN.md` §11) — its **own branch + PR, merged first**.
   It lands these PD-side changes (driver split, hooks-as-defaults,
   payload-behind-contract, wire passthrough, storage migration) behind the
   unchanged PD with parity green. Only then does Phase B (the new seams, validated

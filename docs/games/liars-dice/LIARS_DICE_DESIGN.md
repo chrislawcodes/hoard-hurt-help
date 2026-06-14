@@ -21,7 +21,7 @@ platform changes** the simultaneous-only PD design never had to make:
 2. **Hidden per-player state** — your dice are secret. PD broadcasts everything.
 3. **Elimination + variable-length rounds/match** — a hand ends when someone is
    challenged (not after a fixed turn count); the match ends when one player is
-   left (not after a fixed round count). PD runs a fixed 10×10 grid.
+   left (not after a fixed round count). PD runs a fixed 7×7 grid (49 turns).
 
 So this is a real feature that grows the platform's turn loop, payload, and
 storage — not a drop-in module. It is very doable. This doc lays out the rules we
@@ -52,8 +52,8 @@ new game's rules, and it plays autonomously.
 
 - Each player starts with **5 dice** and a private cup. (Adjustable per match;
   5 is the default — see §9.)
-- Player count: **3–6** (see §9 for why not 100). Hard floor stays the
-  platform's 3.
+- Player count: **3–6** (see §9 for why not 100). This game sets a minimum floor
+  of 3 players.
 - Default per-turn deadline: **30 seconds** (adjustable per match) — a single
   bid is a quick decision and there are many turns per match.
 - At the start of each **hand**, every still-in player rolls all their remaining
@@ -87,7 +87,7 @@ A new bid is legal only if it is strictly higher than the standing bid, where
 Wild ones are **on by default**, but the match creator can turn them off when
 creating a match (a config flag, like the other match settings). Two
 consequences: the `rules_text()` sent to each AI must state which mode *this*
-match uses, and the Sims (§9, TBD-9) must play both modes correctly.
+match uses, and the Bots (§9, TBD-9) must play both modes correctly.
 
 When wild ones are **on** (standard Dudo ace rules):
 
@@ -101,14 +101,16 @@ When wild ones are **on** (standard Dudo ace rules):
   - Raising aces with aces: just increase the quantity.
 
 When wild ones are **off**, every die counts only as its own face and the special
-ace-bidding quantities above do not apply.
+ace-bidding quantities above do not apply. (When wild ones are off, also see
+§3.5 — only the bid's face counts when a challenge is resolved, not 1s.)
 
 ### 3.5 Resolving a challenge — **Decided**
 
 When a player challenges the standing bid:
 
 1. All still-in players reveal their dice.
-2. Count dice matching the bid's face, **plus all 1s** (wild), across the table.
+2. Count dice matching the bid's face, **plus all 1s** (wild, if wild ones are on)
+   across the table.
 3. If the count **is less than** the bid quantity → the **bidder** lied and
    loses one die.
 4. If the count **meets or exceeds** the bid → the **challenger** was wrong and
@@ -134,9 +136,9 @@ is a later config toggle.
 
 ## 4. Mapping Liar's Dice onto the platform model
 
-The platform thinks in **match → rounds → turns**, where today every round is a
-fixed `turns_per_round` and every turn every active player acts at once. Liar's
-Dice maps like this:
+The platform thinks in **match → rounds → turns**. The default PD config runs
+7 rounds of 7 turns each (49 turns total, 7×7 grid); every turn every active
+player acts at once. Liar's Dice maps like this:
 
 | Platform concept | Liar's Dice meaning | Fixed today? |
 |---|---|---|
@@ -302,13 +304,19 @@ agent *says* about its dice and what it actually holds is the same "say one thin
 do another" gap feature 007's `thinking` field already exposes. So talk is not a
 nice-to-have here; it is core.
 
-How we wire it, given turns are single-actor and sequential:
+The platform already runs each turn as a **talk phase then an act phase** (feature
+007: a public `talk`/message via a `record_message` hook + a TurnMessage table,
+then the "act" submission with the move). We can either **fold the message into the
+act submission** (single round-trip per turn, but the message rides with the move)
+or **reuse the existing talk-phase hook** (two round-trips, separate call per turn,
+but cleanly separated). The decision is:
 
-- **Decided**: the acting player attaches an optional **public message** (and an
-  optional private `thinking`) to its bid/challenge — same `message`/`thinking`
-  fields PD already carries, just on the one actor whose turn it is. No separate
-  talk phase. The viewer shows e.g. *"P3 bids five 5s — 'I'm swimming in fives,
-  P1.'"* with reasoning behind a per-bot toggle, exactly like 007.
+- **Decided**: fold the message into the act submission. The acting player attaches
+  an optional **public message** (and an optional private `thinking`) to its
+  bid/challenge — same `message`/`thinking` fields PD already carries, just on the
+  one actor whose turn it is. The viewer shows e.g. *"P3 bids five 5s — 'I'm
+  swimming in fives, P1.'"* with reasoning behind a per-bot toggle, exactly like
+  007.
 - **Note on the limit**: only the active player can speak each turn; others can't
   reply until their own turn. A free, everyone-can-chatter channel would model a
   real table more closely but adds a phase and cross-talk complexity.
@@ -328,13 +336,13 @@ Decisions made with Chris on 2026-06-05:
 
 | # | Question | **Decision** |
 |---|---|---|
-| D-1 | Wild ones on or off? | **On by default**, with a **match-creator toggle** to turn off. Rules text states the mode; Sims play both. (§3.4) |
+| D-1 | Wild ones on or off? | **On by default**, with a **match-creator toggle** to turn off. Rules text states the mode; Bots play both. (§3.4) |
 | D-2 | Spot-on / exact call in v1? | **Off** in v1 (bid + challenge only); later toggle. (§3.7) |
 | D-4 | Elo (feature 013) integration. | **Good fit** — 013 rates by final placement, which Liar's Dice gives natively. One small platform edit: let each game report its own finish order (elimination order) instead of assuming round-wins. (§7) |
 | D-5 | Table talk for a single-actor game. | A public **message + thinking ride with each bid/challenge** by default (no separate talk phase). Per-hand table-talk round deferred. (§8.1) |
 | D-7 | Max players. | **Cap at 6** (floor stays 3). Short, readable hands; watchable match length. (§3.1) |
 | D-8 | Per-turn deadline default. | **30s**, adjustable per match. (§3.1) |
-| D-9 | Sims / auto-match support. | **Build Sims in v1** — Liar's Dice gets a Practice Arena and auto-matches from day one. Adds a real work stream: Sims that bid, bluff, and challenge sensibly in both wild/no-wild modes. (§11) |
+| D-9 | Bots / auto-match support. | **Build Bots in v1** — Liar's Dice gets a Practice Arena and auto-matches from day one. Adds a real work stream: Bots that bid, bluff, and challenge sensibly in both wild/no-wild modes. (§11) |
 | D-10 | Dice per player. | **5 each** by default, adjustable per match. (§3.1) |
 | D-11 | Missed-turn default. | **Smallest legal raise**; opening default = minimum opening bid; ceiling fallback = challenge. (§5.1) |
 
@@ -384,7 +392,7 @@ We separate the two.
 
 ### Phase A — PD parity refactor (its own PR, merged first)
 
-The work in `specs/hoard-hurt-help/tech-spec.md`. No new behavior:
+The work in `LIARS_DICE_DECOUPLING_TECH_SPEC.md`. No new behavior:
 
 - Extract `SimultaneousDriver` from the scheduler (move PD's loop, don't rewrite).
 - Add the new contract hooks with **PD-reproducing defaults** (`is_match_over`,
@@ -396,8 +404,8 @@ The work in `specs/hoard-hurt-help/tech-spec.md`. No new behavior:
 - Additive migration: `match_state` / `player_state` tables + `quantity`/`face`
   columns (PD writes none of them).
 
-**Gate:** parity (SC-P1…SC-P5 in the HHH tech spec). PD suite + the existing stub
-test green, unmodified. If anything breaks, it is here.
+**Gate:** parity (SC-P1…SC-P5 in `LIARS_DICE_DECOUPLING_TECH_SPEC.md`). PD suite +
+the existing stub test green, unmodified. If anything breaks, it is here.
 
 ### Phase B — new seams, validated by a stub (its own PR)
 
@@ -423,11 +431,11 @@ By now the platform is proven, so a failure here is a *game-logic* bug:
    config defaults (3–6 players, 5 dice, 30s, wild on), `record_submission`,
    `resolve_turn`, the loop hooks, `award_round` showdown, `finalize`,
    `final_placement` (elimination order), `theme()`, registration.
-3. **Sims** (D-9) — Liar's Dice players that bid/bluff/challenge in both wild and
+3. **Bots** (D-9) — Liar's Dice players that bid/bluff/challenge in both wild and
    no-wild modes, on the shared pure engine; wired into the Practice Arena +
    auto-matches.
 4. **Viewer** — minimal v1 per TBD-6.
 5. **Admin create-match fields** — wild on/off, dice count.
 
-Phase C can itself be reviewed in slices (engine → module → Sims → viewer), but it
+Phase C can itself be reviewed in slices (engine → module → Bots → viewer), but it
 is one feature/branch.

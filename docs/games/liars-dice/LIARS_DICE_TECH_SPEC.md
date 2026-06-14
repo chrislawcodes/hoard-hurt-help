@@ -2,9 +2,10 @@
 
 The build contract for Liar's Dice: exact interface changes, data model and
 migration, the pure rules engine, wire schemas, payload building, hidden-info
-enforcement, Sims, and the test plan. Read `design.md` (decisions D-1…D-11) and
-`architecture.md` (modules, flows, the decoupling line) first — this spec assumes
-both.
+enforcement, Bots, and the test plan. Read `LIARS_DICE_DESIGN.md` (decisions
+D-1…D-11) and `LIARS_DICE_ARCHITECTURE.md` (modules, flows, the decoupling line)
+first — this spec assumes both. (Platform-level references: `docs/platform/AGENT_LUDUM_DESIGN.md`
+and `docs/platform/AGENT_LUDUM_ARCHITECTURE.md`.)
 
 Standards: `from __future__ import annotations`; full type annotations; `async def`
 for all DB paths; specific exceptions; no suppressions (CLAUDE.md). Preflight
@@ -16,7 +17,7 @@ for all DB paths; specific exceptions; no suppressions (CLAUDE.md). Preflight
 
 In scope:
 - A new game module `app/games/liars_dice/` (pure engine + thin DB module + rules
-  text + strategy + Sims).
+  text + strategy + Bots).
 - Four additive, gated platform seams: the `TurnDriver` split, the private/public
   payload hooks, the free-form move on the wire, and the generic per-title state
   store.
@@ -37,6 +38,9 @@ suite and `tests/test_stub_game.py` stay green unmodified. This is the merge gat
 
 New members on the `GameModule` protocol. Every one ships a **default** that
 reproduces PD, so PD opts out by inheriting defaults and LD overrides.
+
+`agent_base_prompt` already exists on the protocol (see `app/games/base.py`) and
+is not new. Only the seven methods below are net-new additions to the contract.
 
 ```python
 # Loop progression (used only when config.simultaneous is False)
@@ -67,11 +71,13 @@ async def public_state_for(self, db: AsyncSession, match: Match, viewer: Player 
 # Records / Elo
 async def final_placement(self, db: AsyncSession, match: Match) -> list[int]:
     """player_ids ranked best→worst for a completed match. Default: order by
-    (total_round_wins desc, total_round_score desc) — PD's existing tiebreaker."""
+    (total_round_wins desc, total_round_score desc) — PD's existing tiebreaker.
+    Both `total_round_wins` (float) and `total_round_score` (int) are real columns
+    on `app/models/player.py`; the default implementation sorts on those fields."""
 ```
 
 Unchanged members keep working: `config_defaults`, `rules_text`,
-`strategy_presets`, `default_strategy`, `validate_move`, `record_submission`,
+`strategy_presets`, `default_strategy`, `agent_base_prompt`, `validate_move`, `record_submission`,
 `record_message`, `resolve_turn`, `award_round`, `finalize`, `move_effect`,
 `theme`.
 
@@ -124,11 +130,11 @@ loop:
       continue
   turn = await ctx.open_turn(round=hand, turn=bid_index, actor=actor)
   await publish("turn_opened", {actor, deadline, public_state})
-  await maybe_auto_submit_sim(actor)     # if actor is a Sim
+  await maybe_auto_submit_bot(actor)     # if actor is a Bot (agent kind=bot); calls auto_submit_sim_phase
   await ctx.wait_for_turn(turn, expected={actor})
   if not submitted_by_deadline(actor):
       mv = await module.default_move(db, match, actor_player)
-      await module.record_submission(db, turn, actor_player, mv, existing=None, defaulted=True)
+      await module.record_submission(db, turn, actor_player, mv, existing=None, is_connector_fallback=True)
   await module.resolve_turn(db, turn)    # bid: no-op; challenge: marks hand over via next_actor
   await publish("turn_resolved", ...)
 ```
@@ -198,15 +204,23 @@ the form is left untouched.
 
 ### 4.4 Migration
 
-One Alembic migration: create `match_state`, `player_state`; add `quantity`,
-`face` to `turn_submissions`. **Additive and nullable** — no backfill, PD ignores
-all of it. Covered by `tests/test_migrations.py`.
+One Alembic migration: `migrations/versions/0033_liars_dice_state.py`
+(`revision="0033"`, `down_revision="0032"`). Creates `match_state`, `player_state`;
+adds `quantity` and `face` to `turn_submissions`. **Additive and nullable** — no
+backfill, PD ignores all of it.
+
+Covered by `tests/test_migrations.py`. Adding migration 0033 **requires** bumping
+the head assertion in that file from `[("0032",)]` to `[("0033",)]`
+(around line 110 of the test file) and adding coverage for the new tables/columns
+(round-trip `match_state`, `player_state`; presence of `quantity`/`face` on
+`turn_submissions`). The existing `test_mode_a_migration_adds_marker_and_unique_index`
+test (which targets 0032) must stay unchanged.
 
 ---
 
 ## 5. Pure rules engine — `app/games/liars_dice/engine.py`
 
-No DB, no async. Fully unit-tested. Shared by the module **and** the Sims.
+No DB, no async. Fully unit-tested. Shared by the module **and** the Bots.
 
 ```python
 @dataclass(frozen=True)
@@ -238,7 +252,7 @@ def min_legal_raise(prev: Bid | None, total_dice: int, *, wild: bool) -> Bid | N
     (no higher bid exists). prev None -> the minimum opening bid Bid(1, 2)."""
 
 def roll(n: int, rng: random.Random) -> list[int]:
-    """n dice in 1..6 from a seeded RNG (deterministic for Sims/tests)."""
+    """n dice in 1..6 from a seeded RNG (deterministic for Bots/tests)."""
 ```
 
 Ace rules inside `is_legal_raise` / `min_legal_raise` (wild on):
@@ -272,16 +286,24 @@ Per method:
 
 - **`rules_text(...)`** — reads `match_state.config` (wild on/off, dice count, table
   size) and renders the matching ruleset, including the exact submit JSON.
-- **`validate_move(move, *, your_agent_id, all_agent_ids)`** — pure. `parse_move`,
-  then: not your turn → `NOT_YOUR_TURN`; challenge with no standing bid →
-  `NOTHING_TO_CHALLENGE`; illegal raise → `ILLEGAL_RAISE`; quantity > total dice →
-  `BID_TOO_LARGE`; face∉1..6 → `BAD_FACE`. (Standing bid + dice totals come from
-  `match_state`; `validate_move` is pure, so the route passes the needed snapshot
-  in `move` or a sibling read — see §7.)
-- **`record_submission(...)`** — write `TurnSubmission(action="BID"|"CHALLENGE",
-  quantity, face, message, thinking)`; on a BID update `match_state` (standing bid,
-  advance `active_actor` to the next still-in seat). On CHALLENGE, set a flag so
-  `next_actor` returns `None`.
+- **`validate_move(move, *, your_agent_id, all_agent_ids)`** — pure.
+  `your_agent_id` and `all_agent_ids` are **seat names** (e.g. `"P1"`, `"P2"`) —
+  not raw integer agent ids. This matches the call in `app/engine/agent_play.py`
+  (`module.validate_move(move, your_agent_id=player.seat_name,
+  all_agent_ids=sorted_seat_names)`). Checks: `parse_move`, then: not your turn →
+  `NOT_YOUR_TURN`; challenge with no standing bid → `NOTHING_TO_CHALLENGE`; illegal
+  raise → `ILLEGAL_RAISE`; quantity > total dice → `BID_TOO_LARGE`; face∉1..6 →
+  `BAD_FACE`. (Standing bid + dice totals come from `match_state`; `validate_move`
+  is pure, so the route passes the needed snapshot in `move` or a sibling read —
+  see §7.)
+- **`record_submission(db, turn, player, move, *, existing, is_connector_fallback=False)`**
+  — signature matches the base contract in `app/games/base.py`. There is no
+  `defaulted=` kwarg; the persisted column is `was_defaulted`, which the
+  implementation sets from `is_connector_fallback`. Writes
+  `TurnSubmission(action="BID"|"CHALLENGE", quantity, face, message, thinking,
+  was_defaulted=is_connector_fallback)`; on a BID, updates `match_state` (standing
+  bid, advance `active_actor` to the next still-in seat). On CHALLENGE, sets a flag
+  so `next_actor` returns `None`.
 - **`record_message(...)`** — unused (no separate talk phase); message rides with
   the move. Keep the default/no-op to satisfy the protocol.
 - **`next_actor(...)`** — if a challenge is pending → `None`; else the
@@ -309,7 +331,19 @@ Per method:
 
 ---
 
-## 7. Wire format & payload — `app/schemas/agent.py`, `app/routes/agent_api.py`
+## 7. Wire format & payload — `app/schemas/agent.py` (shapes) + `app/engine/agent_play.py` (logic)
+
+Wire **shapes** (Pydantic models) live in `app/schemas/agent.py`. The submit and
+payload **logic** lives in the shared service `app/engine/agent_play.py`; the
+FastAPI routes in `app/routes/agent_api.py` and the MCP tools are thin adapters
+that call into it. Specifically:
+
+- `submit_action` in `agent_play.py` builds the move dict, calls
+  `module.validate_move(move, your_agent_id=player.seat_name,
+  all_agent_ids=<sorted seat_names>)`, then calls `module.record_submission(db,
+  turn, player, move, existing=existing, is_connector_fallback=...)`.
+- `poll_turn` in `agent_play.py` builds the `YourTurnResponse`.
+- `_build_turn_payload` in `agent_play.py` assembles the next-turn loop payload.
 
 ### 7.1 Submit (extended, back-compat)
 
@@ -323,10 +357,19 @@ class SubmitRequest(BaseModel):
     thinking: str = Field(default="", max_length=200)
 ```
 
-Submit route stays game-agnostic: if `move` is present, pass it through; else build
-`{"action","target_id"}` from the PD fields. The route then attaches the live
-standing-bid/dice-totals snapshot needed for `validate_move` (so the validator
-stays pure), calls `module.validate_move(...)`, then `record_submission(...)`.
+`submit_action` in `agent_play.py` stays game-agnostic: if `move` is present,
+pass it through; else build `{"action","target_id"}` from the PD fields. It then
+calls `module.validate_move(move, your_agent_id=player.seat_name,
+all_agent_ids=sorted_seat_names)` — **`your_agent_id` and `all_agent_ids` are
+seat names, not raw integer agent ids.** This matches the live call in
+`app/engine/agent_play.py`. All Liar's Dice public-state keys that identify
+players (`active_actor`, `standing_bid.by`, `dice_counts` keys) must therefore be
+keyed by seat_name to match what `validate_move` receives. After validation,
+`submit_action` calls `module.record_submission(db, turn, player, move,
+existing=existing, is_connector_fallback=<bool>)` — there is no `defaulted=` kwarg;
+the persisted column is `was_defaulted`, set from `is_connector_fallback`. (If the
+LD module needs a cleaner API, Phase A may add a proper `defaulted=` keyword that
+maps to `was_defaulted`, but the base contract uses `is_connector_fallback`.)
 
 ### 7.2 Turn payload (extended)
 
@@ -341,7 +384,7 @@ class YourTurnResponse(BaseModel):
     public_state: dict | None = None           # LD: game state block; PD: null
 ```
 
-LD `public_state` shape:
+LD `public_state` shape (all player-identifying keys are seat names):
 ```json
 { "hand": 6, "wild_ones": true,
   "standing_bid": {"by":"P2","quantity":4,"face":5},
@@ -351,8 +394,12 @@ LD `public_state` shape:
   "showdowns": [{"hand":5,"actual_count":4,"loser":"P4","revealed":{...}}] }
 ```
 
-Add `"not_your_turn"` to the `WaitingResponse` / `NextTurnWaiting` reason literals;
-the waiting payload carries `public_state` so non-active AIs can plan ahead.
+The existing `WaitingResponse` reason literals are
+`{"turn_not_open", "already_submitted", "game_not_started", "game_over"}` and the
+existing `NextTurnWaiting` reason literals are
+`{"no_open_turns", "no_active_games", "bot_paused"}` (both in `app/schemas/agent.py`).
+Add `"not_your_turn"` to `WaitingResponse`'s set for LD's sequential turns;
+the waiting payload carries `public_state` so non-active agents can plan ahead.
 
 ---
 
@@ -384,18 +431,23 @@ fields (defaults 3/6 from `config_defaults`). Deadline uses the existing field
 
 ---
 
-## 10. Sims — `app/games/liars_dice/sims.py`
+## 10. Bots — `app/games/liars_dice/sims.py`
+
+Agents with `kind=bot` (Bots) auto-submit moves without a live LLM call. The
+module file is `sims.py` and the shared infrastructure stays in `app/engine/sims/`.
 
 - Decision fn: `decide(public_state, my_dice, *, seed) -> move_dict`. Deterministic
   given seed + state. Uses the pure engine: estimate P(standing bid holds) from my
   dice + count of unknown dice; bid up when confident, challenge when the standing
   bid is improbable; bluff occasionally per personality.
 - Integration: `app/engine/sims/service.py` gains an `auto_submit_active(match,
-  actor)` path the `SequentialDriver` calls for the single active Sim (contrast
-  PD's per-phase all-Sims submit).
-- Seeding/seating reuse `arena.py` / `sims/seating.py`. A small LD Sim roster +
+  actor)` path the `SequentialDriver` calls for the single active Bot (contrast
+  PD's per-phase all-Bots submit). The canonical function name is
+  `auto_submit_sim_phase`; `auto_submit_bot_phase` is an alias defined in the same
+  file.
+- Seeding/seating reuse `arena.py` / `sims/seating.py`. A small LD Bot roster +
   canned taunts for `message`.
-- Sims must play correctly in both wild and no-wild modes (read `public_state.wild_ones`).
+- Bots must play correctly in both wild and no-wild modes (read `public_state.wild_ones`).
 
 ---
 
@@ -438,7 +490,7 @@ fields (defaults 3/6 from `config_defaults`). Deadline uses the existing field
 - Ship in the `design.md` §11 phase order: **Phase A** (PD parity refactor) merges
   first; **Phase B** (the new seams — `SequentialDriver`, private/public payload,
   generic state — validated by a sequential/hidden stub) second; **Phase C** (this
-  spec's engine → module → Sims → viewer) last. Each phase is its own branch + PR,
+  spec's engine → module → Bots → viewer) last. Each phase is its own branch + PR,
   so a regression is isolated to the layer that introduced it.
 
 ## 14. Open items
