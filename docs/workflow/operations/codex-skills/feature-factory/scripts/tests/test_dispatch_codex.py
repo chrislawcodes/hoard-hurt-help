@@ -1,7 +1,6 @@
 import argparse
 import contextlib
 import hashlib
-import importlib.util
 import io
 import json
 import subprocess
@@ -12,17 +11,14 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+import factory_state  # noqa: E402
+import factory_deliver  # noqa: E402
+import factory_cmd_dispatch  # noqa: E402
+import run_factory  # noqa: E402
 
 
 SLUG = "dispatch-test"
@@ -37,10 +33,10 @@ DEFAULT_PROMPT = "Dispatch Codex on this prompt."
 
 class DispatchCodexTests(unittest.TestCase):
     def _load_modules(self) -> None:
-        self.factory_state = _load("factory_state")
-        self.factory_deliver = _load("factory_deliver")
-        self.dispatch = _load("factory_cmd_dispatch")
-        self.run_factory = _load("run_factory")
+        self.factory_state = factory_state
+        self.factory_deliver = factory_deliver
+        self.dispatch = factory_cmd_dispatch
+        self.run_factory = run_factory
 
     def setUp(self) -> None:
         self._load_modules()

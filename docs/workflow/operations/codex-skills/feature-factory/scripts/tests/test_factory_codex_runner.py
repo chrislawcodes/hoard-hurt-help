@@ -8,7 +8,6 @@ interpreter running a tiny script) so the watchdog can be exercised for real:
 - a command not on PATH -> fast rejection, nothing launched
 - the retry helper retries an idle stall but not a hard timeout
 """
-import importlib.util
 import io
 import sys
 import time
@@ -16,18 +15,11 @@ import unittest
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
+import factory_codex_runner as RUNNER  # noqa: E402
 
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / f"{name}.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-RUNNER = _load("factory_codex_runner")
 PY = sys.executable
 
 
