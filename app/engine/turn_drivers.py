@@ -17,8 +17,9 @@ The scheduler selects a driver from the game module's
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import select
 
@@ -26,6 +27,10 @@ from app.broadcast import publish
 from app.engine.tokens import generate_turn_token
 from app.models.player import Player
 from app.models.turn import Turn
+
+# How often the sequential loop re-checks whether the active player has submitted
+# (so it resolves the turn promptly instead of waiting out the whole deadline).
+_SUBMIT_POLL_SECONDS = 0.25
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,8 +108,7 @@ class SequentialDriver:
                 "turn_opened",
                 {"round": round_num, "turn": turn_num, "phase": "act", "actor": actor},
             )
-            move = await self._obtain_move(db, game, turn, player, module)
-            await module.record_submission(db, turn, player, move, existing=None)
+            await self._drive_actor_turn(db, game, turn, player, module)
             await module.resolve_turn(db, turn)
             await publish(
                 game.id, "turn_resolved", {"round": round_num, "turn": turn_num}
@@ -115,18 +119,75 @@ class SequentialDriver:
             game.id, "game_completed", {"winner_player_id": game.winner_player_id}
         )
 
-    async def _obtain_move(
+    async def _drive_actor_turn(
         self,
         db: AsyncSession,
         game: Match,
         turn: Turn,
         player: Player,
         module: GameModule,
-    ) -> dict[str, Any]:
-        # Increment 1: record the module's default move (a placeholder for the
-        # missed-turn / bot path). The live human-API wait and sequential-bot
-        # decision wire in with the scheduler in the next increment.
-        return await module.default_move(db, game, player)
+    ) -> None:
+        """Get the active player's move onto the turn.
+
+        - **Bot** (scripted opponent): the platform submits on its behalf now.
+          (A bot's *real* sequential decision is the game's own logic, wired in
+          Phase C; until then it records the module's `default_move`.)
+        - **Human agent**: the agent submits through the HTTP API (which calls
+          `module.record_submission`), so the driver just waits for that write to
+          appear. If the deadline passes with no submission, the driver records
+          the module's `default_move` as the missed-turn move (flagged defaulted).
+        """
+        if await self._is_bot(db, player):
+            move = await module.default_move(db, game, player)
+            await module.record_submission(db, turn, player, move, existing=None)
+            return
+
+        await self._wait_for_actor(db, turn, player)
+        if not await self._has_real_submission(db, turn, player):
+            move = await module.default_move(db, game, player)
+            await module.record_submission(
+                db, turn, player, move, existing=None, is_connector_fallback=True
+            )
+
+    async def _is_bot(self, db: AsyncSession, player: Player) -> bool:
+        from app.models.agent import Agent, AgentKind
+
+        agent = (
+            await db.execute(select(Agent).where(Agent.id == player.agent_id))
+        ).scalar_one_or_none()
+        return agent is not None and agent.kind == AgentKind.BOT
+
+    async def _has_real_submission(
+        self, db: AsyncSession, turn: Turn, player: Player
+    ) -> bool:
+        from app.models.turn import TurnSubmission
+
+        sub = (
+            await db.execute(
+                select(TurnSubmission).where(
+                    TurnSubmission.turn_id == turn.id,
+                    TurnSubmission.player_id == player.id,
+                    TurnSubmission.was_defaulted.is_(False),
+                )
+            )
+        ).scalar_one_or_none()
+        return sub is not None
+
+    async def _wait_for_actor(
+        self, db: AsyncSession, turn: Turn, player: Player
+    ) -> None:
+        """Block until the active player submits (via the API) or the deadline passes."""
+        deadline = turn.deadline_at
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        while True:
+            remaining = (deadline - _now()).total_seconds()
+            if remaining <= 0:
+                return
+            if await self._has_real_submission(db, turn, player):
+                return
+            await db.commit()  # fresh read next loop (see another connection's write)
+            await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
 
     async def _open_actor_turn(
         self, db: AsyncSession, game: Match, round_num: int, turn_num: int

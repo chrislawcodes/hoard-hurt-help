@@ -21,8 +21,9 @@ from app.db import make_engine
 from app.engine.turn_drivers import SequentialDriver
 from app.games.base import BaseGameModule, GameConfig
 from app.models import Base, Match, GameState, MatchState, PlayerState, Player
+from app.models.agent import AgentKind
 from app.models.turn import TurnSubmission
-from tests.factories import seat_player
+from tests.factories import make_bot, make_user, seat_player
 
 
 def _now() -> datetime:
@@ -137,7 +138,9 @@ async def test_sequential_driver_plays_a_hidden_state_match() -> None:
             scheduled_start=_now(),
             total_rounds=1,
             turns_per_round=16,
-            per_turn_deadline_seconds=30,
+            # 0s deadline: these are AI-agent seats with no live submitter, so each
+            # turn falls straight through to the missed-turn default (no waiting).
+            per_turn_deadline_seconds=0,
             current_round=0,
             current_turn=0,
         )
@@ -167,5 +170,54 @@ async def test_sequential_driver_plays_a_hidden_state_match() -> None:
         ps_rows = (await db.execute(select(PlayerState).where(PlayerState.match_id == "M_SEQ"))).scalars().all()
         assert len(ps_rows) == 3
         assert all("secret" in ps.state_json for ps in ps_rows)
+
+    await engine.dispose()
+
+
+async def _seat_bot(db: Any, match_id: str, seat_name: str, i: int) -> Player:
+    """Seat a scripted bot (kind=bot) player — no connection, no live submitter."""
+    user = await make_user(db, 100 + i)
+    agent, _ = await make_bot(db, user, name=seat_name, kind=AgentKind.BOT)
+    player = Player(match_id=match_id, user_id=user.id, agent_id=agent.id, seat_name=seat_name)
+    db.add(player)
+    await db.flush()
+    return player
+
+
+@pytest.mark.asyncio
+async def test_sequential_driver_bots_auto_submit_without_waiting() -> None:
+    """Bot actors are submitted on the platform's behalf — no deadline wait.
+
+    The deadline is long (300s); if the driver were waiting on a live submission
+    the match would hang. Completing instantly proves the bot path does not wait.
+    """
+    engine = make_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    module = _SeqStub()
+
+    async with factory() as db:
+        match = Match(
+            id="M_SEQ_BOT", name="seqbot", game="seq-stub", state=GameState.ACTIVE,
+            scheduled_start=_now(), total_rounds=1, turns_per_round=16,
+            per_turn_deadline_seconds=300, current_round=0, current_turn=0,
+        )
+        db.add(match)
+        await db.flush()
+        for i in range(3):
+            await _seat_bot(db, match.id, f"B{i}", i)
+        await db.commit()
+
+        await SequentialDriver().run_match(db, match, module)
+
+        refreshed = (
+            (await db.execute(select(Player).where(Player.match_id == match.id)))
+            .scalars()
+            .all()
+        )
+        assert sorted(p.total_round_score for p in refreshed) == [1, 1, 1]
+        m = (await db.execute(select(Match).where(Match.id == "M_SEQ_BOT"))).scalar_one()
+        assert m.state == GameState.COMPLETED
 
     await engine.dispose()
