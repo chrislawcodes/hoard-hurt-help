@@ -1033,6 +1033,7 @@ pre code { background: none; padding: 0; }
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--surface-2);
+    color: var(--ink);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     font-size: 0.9rem;
