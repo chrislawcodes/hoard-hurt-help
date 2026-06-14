@@ -1,10 +1,13 @@
 """Sign-in connection bootstrap: the /me/connections page should flip to
-"connected" when a client initializes its MCP session, not only after the first
-tool call. See mcp_server.server.SigninConnectionMiddleware.
+"connected" as soon as a user signs in via OAuth — at the token exchange
+(_ConnectAtSignInGoogleProvider) and again when a client initializes its MCP
+session (SigninConnectionMiddleware) — not only after the first tool call.
 """
 
 from __future__ import annotations
 
+import base64
+import json
 from collections.abc import AsyncIterator
 
 import pytest
@@ -162,3 +165,80 @@ async def test_initialize_middleware_skips_when_unauthenticated(
 
     assert result == "initialized"
     assert bootstrap_called["value"] is False
+
+
+# --- connect-at-sign-in (OAuth token-exchange hook) ------------------------
+
+
+def _make_id_token(*, sub: str = "sub-777", email: str = "owner@example.com") -> str:
+    """A Google-shaped id_token. Only the payload segment is read (unsigned)."""
+
+    def seg(d: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
+
+    header = seg({"alg": "RS256", "typ": "JWT"})
+    payload = seg(
+        {"sub": sub, "email": email, "email_verified": True, "name": "Owner"}
+    )
+    return f"{header}.{payload}.signature"
+
+
+def test_decode_jwt_claims_reads_payload() -> None:
+    claims = server._decode_jwt_claims(_make_id_token(sub="abc", email="x@y.com"))
+    assert claims["sub"] == "abc"
+    assert claims["email"] == "x@y.com"
+
+
+def test_userinfo_from_claims_requires_email() -> None:
+    with pytest.raises(RuntimeError):
+        server._userinfo_from_claims({"sub": "abc"})
+
+
+@pytest.mark.asyncio
+async def test_signin_hook_creates_active_connection_from_id_token(
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The token-exchange hook turns a Google id_token into a live, agent-ready
+    connection — with no MCP session or tool call, and no billed API call."""
+    async with db_session_factory() as db:
+        connection = await server._create_signin_connection(
+            db, {"id_token": _make_id_token()}
+        )
+        assert connection is not None
+        await db.commit()
+
+        assert connection.status == ConnectionStatus.ACTIVE
+        assert connection.first_connected_at is not None
+        assert connection.api_call_count == 0
+
+        provider_rows = (
+            (
+                await db.execute(
+                    select(ConnectionProviderRow).where(
+                        ConnectionProviderRow.connection_id == connection.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert provider_rows
+        assert all(row.enabled for row in provider_rows)
+
+
+@pytest.mark.asyncio
+async def test_signin_hook_skips_when_no_id_token(
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A refresh-token exchange (no id_token) is a no-op, not an error."""
+    async with db_session_factory() as db:
+        result = await server._create_signin_connection(db, {"access_token": "x"})
+        assert result is None
+
+
+def test_auth_provider_skips_consent_and_hooks_signin() -> None:
+    """The provider is our connect-at-sign-in subclass with the consent screen
+    turned off."""
+    provider = server._build_auth_provider()
+    assert isinstance(provider, server._ConnectAtSignInGoogleProvider)
+    assert provider._require_authorization_consent is False

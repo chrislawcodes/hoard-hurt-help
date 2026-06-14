@@ -6,7 +6,10 @@ Mode A connection, and calls the shared play service in-process.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
+from collections.abc import Mapping
 from typing import Any, cast
 
 from fastmcp import FastMCP
@@ -74,6 +77,104 @@ def _build_client_storage() -> AsyncKeyValue:
     return MemoryStore()
 
 
+def _decode_jwt_claims(jwt_token: str) -> dict[str, Any]:
+    """Read a JWT's payload claims WITHOUT verifying its signature.
+
+    Only used on the Google id_token, which arrives straight from Google's token
+    endpoint over a server-to-server TLS call (never from the client), so the
+    signature is already trusted. We read identity claims (sub, email) only.
+    """
+    parts = jwt_token.split(".")
+    if len(parts) != 3:
+        raise ValueError("id_token is not a well-formed JWT")
+    payload = parts[1]
+    payload += "=" * (-len(payload) % 4)  # restore base64 padding
+    claims = json.loads(base64.urlsafe_b64decode(payload))
+    if not isinstance(claims, dict):
+        raise ValueError("id_token payload is not a JSON object")
+    return claims
+
+
+def _userinfo_from_claims(
+    claims: Mapping[str, Any], *, subject: str | None = None
+) -> GoogleUserInfo:
+    """Build a GoogleUserInfo from a claims mapping (id_token or access token)."""
+    sub = claims.get("sub") or subject
+    email = claims.get("email")
+    if not isinstance(sub, str) or not sub.strip():
+        raise RuntimeError("Google identity is missing the subject claim.")
+    if not isinstance(email, str) or not email.strip():
+        raise RuntimeError("Google identity is missing the email claim.")
+    email_verified = claims.get("email_verified", True)
+    if isinstance(email_verified, str):
+        email_verified = email_verified.strip().lower() == "true"
+    return GoogleUserInfo(
+        sub=sub,
+        email=email,
+        name=claims.get("name"),
+        given_name=claims.get("given_name"),
+        family_name=claims.get("family_name"),
+        email_verified=bool(email_verified),
+    )
+
+
+async def _bootstrap_signin_connection_from_idp(idp_tokens: Mapping[str, Any]) -> None:
+    """Create/resume the user's Mode A connection the moment sign-in completes.
+
+    Runs inside the OAuth token exchange (see _ConnectAtSignInGoogleProvider) —
+    the one server-side point that fires exactly once per sign-in AND already
+    knows who the user is. That lets /me/connections flip to "connected" right
+    after `... mcp login`, with no MCP session or tool call needed. Identity comes
+    from the Google id_token in the token response. We skip ``mark_seen`` so the
+    sign-in is not billed as a paid model call (api_call_count stays 0).
+    """
+    async with SessionLocal() as db:
+        if await _create_signin_connection(db, idp_tokens) is not None:
+            await db.commit()
+
+
+async def _create_signin_connection(
+    db: AsyncSession, idp_tokens: Mapping[str, Any]
+) -> Connection | None:
+    """Resolve the Google id_token to the user's Mode A connection (no commit).
+
+    Returns None when the token response carries no id_token (e.g. a refresh
+    exchange), in which case there is nothing to identify the user with here.
+    """
+    id_token = idp_tokens.get("id_token")
+    if not isinstance(id_token, str) or not id_token.strip():
+        return None
+    userinfo = _userinfo_from_claims(_decode_jwt_claims(id_token))
+    user = await sync_google_user(db, userinfo)
+    return await mode_a_connection_for(db, user)
+
+
+class _ConnectAtSignInGoogleProvider(GoogleProvider):
+    """GoogleProvider that records the Mode A connection as soon as sign-in
+    finishes, so the connections page does not wait for the first MCP request.
+
+    ``_extract_upstream_claims`` is FastMCP's documented override point for
+    inspecting upstream identity during the token exchange; we hang the
+    connection bootstrap off it without changing what gets embedded in the JWT.
+    """
+
+    async def _extract_upstream_claims(
+        self, idp_tokens: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        claims = await super()._extract_upstream_claims(idp_tokens)
+        try:
+            await _bootstrap_signin_connection_from_idp(idp_tokens)
+        except Exception:
+            # fail-open: advisory only — sign-in must not fail if the connection
+            # bootstrap does; the session/tool paths still create it later.
+            logger.warning(
+                "connect-at-sign-in bootstrap failed; the connection will be "
+                "created on the client's first MCP request instead",
+                exc_info=True,
+            )
+        return claims
+
+
 def _build_auth_provider() -> GoogleProvider:
     """Create the OAuth proxy used for MCP client sign-in.
 
@@ -92,7 +193,7 @@ def _build_auth_provider() -> GoogleProvider:
     # derived deterministically from the (stable) client secret, so this is belt-and-
     # suspenders unless the client secret is ever rotated.
     signing_key = settings.mcp_jwt_signing_key.strip() or None
-    return GoogleProvider(
+    return _ConnectAtSignInGoogleProvider(
         client_id=client_id,
         client_secret=client_secret,
         base_url=settings.base_url.rstrip("/"),
@@ -105,6 +206,12 @@ def _build_auth_provider() -> GoogleProvider:
         },
         client_storage=_build_client_storage(),
         jwt_signing_key=signing_key,
+        # Skip FastMCP's built-in Allow/Deny consent interstitial. It confuses
+        # non-expert users (it shows a raw 127.0.0.1 callback) and leaves dead
+        # tabs behind. Google's own sign-in/consent still gates every login, and
+        # this is a first-party CLI flow (PKCE + loopback redirect), so the
+        # "confused deputy" risk the screen guards against is low for us.
+        require_authorization_consent=False,
     )
 
 
@@ -138,23 +245,8 @@ def _require_access_token(token: object) -> AccessToken:
 
 
 def _google_userinfo_from_token(token: AccessToken) -> GoogleUserInfo:
-    claims = token.claims or {}
-    sub = claims.get("sub") or token.subject or token.client_id
-    email = claims.get("email")
-    if not isinstance(sub, str) or not sub.strip():
-        raise RuntimeError("Google access token is missing the subject claim.")
-    if not isinstance(email, str) or not email.strip():
-        raise RuntimeError("Google access token is missing the email claim.")
-    email_verified = claims.get("email_verified", True)
-    if isinstance(email_verified, str):
-        email_verified = email_verified.strip().lower() == "true"
-    return GoogleUserInfo(
-        sub=sub,
-        email=email,
-        name=claims.get("name"),
-        given_name=claims.get("given_name"),
-        family_name=claims.get("family_name"),
-        email_verified=bool(email_verified),
+    return _userinfo_from_claims(
+        token.claims or {}, subject=token.subject or token.client_id
     )
 
 
