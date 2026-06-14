@@ -775,8 +775,41 @@ pre code { background: none; padding: 0; }
 .byo-next-title { margin: 0 0 0.3rem; }
 .byo-next-body { margin: 0 0 0.9rem; color: var(--ink-soft); }
 .byo-playprompt { margin-top: 1.2rem; }
-.byo-playprompt-label { margin: 0 0 0.4rem; font-weight: 600; font-size: 0.9rem; }
 .byo-playprompt pre { margin: 0; }
+
+/* Playing: the play-prompt took — the AI is calling the game on its own. A live
+ * green banner with a pulsing dot confirms it's working so the user can move on. */
+.byo-playing { margin-top: 1.2rem; }
+.byo-playing-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--help) 14%, var(--surface));
+    border: 1.5px solid color-mix(in srgb, var(--help) 45%, var(--line));
+}
+.byo-playing-dot {
+    flex: none;
+    margin-top: 0.45rem;
+    width: 0.65rem;
+    height: 0.65rem;
+    border-radius: 50%;
+    background: var(--help);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--help) 60%, transparent);
+    animation: byo-play-pulse 1.6s ease-out infinite;
+}
+@keyframes byo-play-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--help) 55%, transparent); }
+    70% { box-shadow: 0 0 0 0.6rem color-mix(in srgb, var(--help) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--help) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .byo-playing-dot { animation: none; }
+}
+.byo-playing-title { margin: 0; font-weight: 700; }
+.byo-playing-sub { margin: 0.1rem 0 0; color: var(--ink-soft); font-size: 0.9rem; }
+.byo-playing-actions { margin: 0.9rem 0 0; }
 
 
 /* ---- Lobby ---- */

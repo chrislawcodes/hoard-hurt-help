@@ -521,8 +521,12 @@ async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
     """Shared 'are we live + agent nudge' context for the page and the poll fragment.
 
     A user is live now if ANY of their non-deleted connections resolves to a LIVE or
-    READY health state (running machine, idle-but-ready counts). Reuses the per-row
-    health computation so the page and the 4s poll fragment can't drift.
+    READY health state (running machine, idle-but-ready counts). They are *playing*
+    now if such a live connection has made at least one authenticated game call
+    (``api_call_count > 0``) — signing in does not bump that counter, so it's the
+    proof the play-prompt took and the AI is actually calling the game on its own.
+    Reuses the per-row health computation so the page and the 4s poll fragment can't
+    drift.
     """
     connections = (
         (
@@ -536,14 +540,18 @@ async def _live_status_context(db: DbSession, user: User) -> dict[str, object]:
         .all()
     )
     is_live_now = False
+    is_playing_now = False
     for connection in connections:
         health = await compute_connection_health(db, connection)
         if health.state in (ConnectionHealth.LIVE, ConnectionHealth.READY):
             is_live_now = True
-            break
+            if connection.api_call_count > 0:
+                is_playing_now = True
+                break
     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
     return {
         "is_live_now": is_live_now,
+        "is_playing_now": is_playing_now,
         "has_agent": has_agent,
         "agent_summary": agent_summary,
         "play_prompt": _play_prompt(),
@@ -574,10 +582,13 @@ async def list_connections(
     active_setup, key = await _ensure_pending_setup_and_key(request, db, user.id)
     rows = []
     is_live_now = False
+    is_playing_now = False
     for connection in connections:
         health = await compute_connection_health(db, connection)
         if health.state in (ConnectionHealth.LIVE, ConnectionHealth.READY):
             is_live_now = True
+            if connection.api_call_count > 0:
+                is_playing_now = True
         rows.append(
             {
                 "connection": connection,
@@ -604,6 +615,7 @@ async def list_connections(
             "play_prompt": _play_prompt(),
             "has_connected_before": has_connected_before,
             "is_live_now": is_live_now,
+            "is_playing_now": is_playing_now,
             "has_agent": has_agent,
             "agent_summary": agent_summary,
             "lobby_url": "/games/hoard-hurt-help",
@@ -617,11 +629,12 @@ async def live_status_fragment(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
-    """The self-advancing 'Listening… → you're live' region, polled every 4s.
+    """The self-advancing connect → play region, polled every 4s.
 
-    Not live → the pulsing "Listening for your AI to connect…" line. Live → the
-    post-connect block: a "Create an agent" nudge if the user has no agent, or a
-    "Join a game" hand-off to the lobby if they do.
+    Three states: not live → the pulsing "Waiting for your AI to connect…" line;
+    live but not yet playing → "Connected", leading with the play-prompt code block
+    to paste (a "Create an agent" nudge first if the user has no agent); playing →
+    a "Your AI is playing" success box once the AI has made a real game call.
     """
     return templates.TemplateResponse(
         request,

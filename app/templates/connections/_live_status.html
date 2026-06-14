@@ -1,16 +1,34 @@
 {# Self-advancing region. Polls /me/connections/live-status every 4s and swaps
-   itself, so the page moves from "waiting" to a clear "Connected" banner with no
-   refresh the moment a connection goes live. The banner announces success so the
-   change of content isn't a surprise, then points to the single next step (create
-   an agent, or join a game). The play-prompt — the text you paste to your AI to
-   make it play — only appears once you have an agent, since that's when it's
-   actually useful. Expects `play_prompt`, `has_agent`, `agent_summary`,
-   `lobby_url` in context. #}
+   itself, so the page moves through three states with no refresh:
+     1. WAITING   — no live connection yet ("Waiting for your AI to connect…").
+     2. CONNECTED — a connection is live but the AI hasn't made a game call yet
+        (is_playing_now is false): lead with the play-prompt code block to paste.
+        No "Join a game" button — pasting the play-prompt is what starts play.
+     3. PLAYING   — the AI has started calling the game tools (is_playing_now):
+        a success box that confirms it's working, so the user knows it took.
+   The play-prompt is the SAME for every provider and only appears once the user
+   has an agent, since that's when there are games to play. Expects `play_prompt`,
+   `has_agent`, `agent_summary`, `is_live_now`, `is_playing_now`, `lobby_url`. #}
 <div id="live-status"
      hx-get="/me/connections/live-status"
      hx-trigger="every 4s"
      hx-swap="outerHTML">
-    {% if is_live_now %}
+    {% if is_playing_now %}
+        {# --- PLAYING: the play-prompt took — the AI is calling the game on its
+           own. Confirm success so the user knows it worked before moving on. --- #}
+        <div class="byo-playing">
+            <div class="byo-playing-banner">
+                <span class="byo-playing-dot" aria-hidden="true"></span>
+                <div>
+                    <p class="byo-playing-title">Your AI is playing</p>
+                    <p class="byo-playing-sub">It worked — your AI is playing your games on its own. You can close this page; it keeps playing.</p>
+                </div>
+            </div>
+            <p class="byo-playing-actions">
+                <a class="btn" href="{{ lobby_url }}">Watch your games →</a>
+            </p>
+        </div>
+    {% elif is_live_now %}
         <div class="byo-connected">
             <div class="byo-connected-banner">
                 <span class="byo-connected-check" aria-hidden="true">✓</span>
@@ -21,16 +39,17 @@
             </div>
 
             {% if has_agent %}
-                <p class="byo-next-label">Next step</p>
-                <h3 class="byo-next-title">Join a game</h3>
-                <p class="byo-next-body">Pick which games to enter{% if agent_summary %} <span class="mono">({{ agent_summary }})</span>{% endif %}, then paste the prompt below so your AI plays them on its own.</p>
-                <a class="btn btn-primary" href="{{ lobby_url }}">Join a game →</a>
+                {# Lead with the play-prompt code block — the one thing to do now.
+                   No "Join a game" button: pasting this is what starts play. #}
+                <p class="byo-next-label">Last step</p>
+                <h3 class="byo-next-title">Tell your AI to play</h3>
+                <p class="byo-next-body">Paste this to your AI{% if agent_summary %} <span class="mono">({{ agent_summary }})</span>{% endif %}. It enters your games and plays them on its own — no key needed.</p>
                 <div class="byo-playprompt">
-                    <p class="byo-playprompt-label">Paste this to your AI to start playing:</p>
                     <button type="button" class="btn-copy"
                             onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt-live').textContent)">Copy</button>
                     <pre id="byo-play-prompt-live">{{ play_prompt }}</pre>
                 </div>
+                <p class="hint" style="margin:0.7rem 0 0;">Once your AI starts playing, this box updates on its own to confirm it's working.</p>
             {% else %}
                 <p class="byo-next-label">Next step</p>
                 <h3 class="byo-next-title">Create your agent</h3>
