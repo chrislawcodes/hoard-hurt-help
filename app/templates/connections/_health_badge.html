@@ -2,5 +2,5 @@
 {% if connection.status.value == 'pending' and health.never_connected %}
 <span class="badge badge-soon"><span class="dot dot-still"></span>Waiting to connect</span><span class="bot-health-meta"> · waiting to connect</span>
 {% else %}
-<span class="badge {{ health.badge_class }}">{% if health.pulse %}<span class="dot"></span>{% elif health.state.value == 'ready' %}<span class="dot dot-still"></span>{% endif %}{{ health.label }}</span><span class="bot-health-meta">{% if health.never_connected %} · never connected{% else %} · last connected <time datetime="{{ health.last_connected_at.isoformat() }}" title="{{ health.last_connected_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}">{{ health.last_connected_human }}</time>{% endif %}</span>
+<span class="badge {{ health.badge_class }}">{% if health.pulse %}<span class="dot"></span>{% elif health.state.value == 'ready' %}<span class="dot dot-still"></span>{% endif %}{{ health.label }}</span><span class="bot-health-meta">{% if health.never_connected %} · never connected{% else %} · last seen <time datetime="{{ health.last_connected_at.isoformat() }}" title="{{ health.last_connected_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}">{{ health.last_connected_human }}</time>{% endif %}</span>
 {% endif %}
