@@ -1,18 +1,17 @@
-"""Bot key + turn token generation.
+"""Connection key + turn token generation.
 
-Bot keys are high-entropy random tokens (192 bits), so a single sha256 is the
-correct lookup primitive — argon2's slow KDF only protects *guessable* secrets
-and buys nothing here. We store sha256(key) (unique, indexed) for O(1) auth and
-never store the plaintext.
+Connection keys are high-entropy random tokens (192 bits), so a single sha256
+is the correct lookup primitive — argon2's slow KDF only protects *guessable*
+secrets and buys nothing here. We store sha256(key) (unique, indexed) for O(1)
+auth and never store the plaintext.
+
+The `bot_key_lookup` / `bot_key_hint` helpers keep their legacy names (they
+predate the connection/agent split and are referenced widely); they operate on
+the connection key, not a bot.
 """
 
 import hashlib
 import secrets
-
-
-def generate_bot_key() -> str:
-    """Issue a stable per-bot credential. Format: sk_bot_<48 hex>."""
-    return "sk_bot_" + secrets.token_hex(24)
 
 
 def generate_connection_key() -> str:
