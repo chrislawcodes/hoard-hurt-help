@@ -11,9 +11,29 @@ this file.
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from app.agent_prompt import MESSAGE_MAX_LENGTH, THINKING_MAX_LENGTH
+
+
+def _drop_empty_game_state(data: dict) -> dict:
+    """Omit the optional per-game state keys when a game supplies none.
+
+    PD provides neither private nor public game-state, so its payload must not
+    carry these keys at all (byte-identical to before they existed). Games that
+    return state (e.g. Liar's Dice) serialize them normally.
+    """
+    for key in ("your_private_state", "public_state"):
+        if data.get(key) is None:
+            data.pop(key, None)
+    return data
 
 # PD's (game #1, "hoard-hurt-help") move vocabulary. The platform does NOT
 # interpret these — POST /submit packs the request into a generic `move` dict and
@@ -239,6 +259,14 @@ class YourTurnResponse(BaseModel):
     history: list[HistoryTurn]
     scoreboard: list[ScoreboardRow]
     current: CurrentTurn
+    # Per-game state (omitted for games that supply none, e.g. PD). Kept last so
+    # they don't disturb the cache-friendly prefix.
+    your_private_state: dict | None = None
+    public_state: dict | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict:
+        return _drop_empty_game_state(handler(self))
 
 
 class GameCompletedResponse(BaseModel):
@@ -278,8 +306,15 @@ class NextTurnYourTurn(MatchIdEnvelope):
 
 class SubmitRequest(BaseModel):
     turn_token: str
-    action: Action
+    # PD's move vocabulary. `action` is optional because a non-PD game submits a
+    # free-form `move` instead; what's required is enforced by the game module's
+    # validate_move, not the wire schema.
+    action: Action | None = None
     target_id: str | None = None
+    # Free-form move for games whose vocabulary isn't PD's HOARD/HELP/HURT (e.g.
+    # Liar's Dice {"type":"BID","quantity":3,"face":5}). The platform passes it to
+    # the game module untouched. PD bots omit it and use `action`.
+    move: dict | None = None
     message: str = Field(default="", max_length=MESSAGE_MAX_LENGTH)
     thinking: str = Field(default="", max_length=THINKING_MAX_LENGTH)
     # Connector sets this True when the LLM failed and a default move is being

@@ -14,11 +14,14 @@ A SchedulerRegistry tracks the running task per game so we can start
 new ones and resume after process restarts.
 """
 
+from __future__ import annotations
+
 import asyncio
 import functools
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -29,6 +32,7 @@ from app.engine import resolver
 from app.engine.sims.service import auto_submit_bot_phase
 from app.engine.state_machine import assert_transition
 from app.engine.tokens import generate_turn_token
+from app.engine.turn_drivers import SequentialDriver, TurnDriver
 from app.games import get as get_game_module
 from app.games.base import GameError
 from app.models.match import Match, GameState
@@ -36,6 +40,9 @@ from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.ops_events import log_ops_event
 from app.request_logging import record_background_incident
+
+if TYPE_CHECKING:
+    from app.games.base import GameModule
 
 logger = logging.getLogger(__name__)
 
@@ -312,38 +319,20 @@ class SchedulerRegistry:
 registry = SchedulerRegistry()
 
 
-async def _run_game(match_id: str) -> None:
-    """The actual loop for one game."""
-    async with SessionLocal() as db:
-        game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+class SimultaneousDriver:
+    """PD's turn loop: every active player acts each turn over a fixed rounds×turns
+    grid, talk→act per turn, resolving all submissions at once.
 
-        if game.state != GameState.ACTIVE:
-            return
+    Kept here (not in turn_drivers.py) because it is inseparable from the turn-loop
+    helpers below (`_open_turn`, `_wait_for_turn`, ...), which the rest of the
+    engine and the test suite reference at `app.engine.scheduler`. The isolated
+    sequential driver lives in `turn_drivers.py`. Behavior is unchanged from when
+    this was the body of `_run_game`.
+    """
 
-        # The platform drives the loop through the game's module — never a
-        # hard-coded resolver. Creation-time validation should already reject
-        # unknown types; this is defense in depth. If one still reaches here we
-        # must NOT leave the match ACTIVE forever (the zombie state) — cancel it
-        # loudly so it shows as terminal and stops being polled.
-        try:
-            module = get_game_module(game.game)
-        except GameError:
-            game.state = GameState.CANCELLED
-            game.cancelled_at = datetime.now(timezone.utc)
-            await db.commit()
-            log_ops_event(
-                logger,
-                logging.ERROR,
-                "match_cancelled",
-                f"Match {game.id} has unknown game_type {game.game!r} — cancelled"
-                " (cannot run its turn loop). This should have been rejected at"
-                " creation time.",
-                game_type=game.game,
-                match_id=game.id,
-                reason="unknown_game_type",
-            )
-            return
-
+    async def run_match(
+        self, db: AsyncSession, game: Match, module: GameModule
+    ) -> None:
         # Resume from current_round/current_turn — supports mid-game restart.
         start_round = game.current_round if game.current_round else 1
         start_turn = game.current_turn if game.current_turn else 1
@@ -410,6 +399,50 @@ async def _run_game(match_id: str) -> None:
 
         await module.finalize(db, game)
         await publish(game.id, "game_completed", {"winner_player_id": game.winner_player_id})
+
+
+def _select_driver(module: GameModule) -> TurnDriver:
+    """Pick the loop shape from the game's config — the previously-unused
+    GameConfig.simultaneous flag. PD is simultaneous; sequential games (Liar's
+    Dice) get the isolated SequentialDriver."""
+    if module.config_defaults().simultaneous:
+        return SimultaneousDriver()
+    return SequentialDriver()
+
+
+async def _run_game(match_id: str) -> None:
+    """Resolve the match's game module, pick its turn driver, and run the match."""
+    async with SessionLocal() as db:
+        game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+
+        if game.state != GameState.ACTIVE:
+            return
+
+        # The platform drives the loop through the game's module — never a
+        # hard-coded resolver. Creation-time validation should already reject
+        # unknown types; this is defense in depth. If one still reaches here we
+        # must NOT leave the match ACTIVE forever (the zombie state) — cancel it
+        # loudly so it shows as terminal and stops being polled.
+        try:
+            module = get_game_module(game.game)
+        except GameError:
+            game.state = GameState.CANCELLED
+            game.cancelled_at = datetime.now(timezone.utc)
+            await db.commit()
+            log_ops_event(
+                logger,
+                logging.ERROR,
+                "match_cancelled",
+                f"Match {game.id} has unknown game_type {game.game!r} — cancelled"
+                " (cannot run its turn loop). This should have been rejected at"
+                " creation time.",
+                game_type=game.game,
+                match_id=game.id,
+                reason="unknown_game_type",
+            )
+            return
+
+        await _select_driver(module).run_match(db, game, module)
 
 
 async def _run_game_guarded(match_id: str) -> None:

@@ -161,3 +161,123 @@ class GameModule(Protocol):
     def theme(self) -> GameTheme:
         """This game's content color identity (see `GameTheme`)."""
         ...
+
+    # --- Loop progression (sequential games override; simultaneous games don't) ---
+
+    async def next_actor(self, db: AsyncSession, match: Match) -> str | None:
+        """For a sequential game, the seat_name of the single player to act now,
+        or None when the current round is over. Simultaneous games never call this."""
+        ...
+
+    async def on_round_start(self, db: AsyncSession, match: Match, round_num: int) -> None:
+        """Set up a new round (e.g. deal dice). Default: nothing."""
+        ...
+
+    async def is_match_over(self, db: AsyncSession, match: Match) -> bool:
+        """True when the match should finalize. Default: the fixed-grid end."""
+        ...
+
+    async def default_move(
+        self, db: AsyncSession, match: Match, player: Player
+    ) -> dict[str, Any]:
+        """The move to record when a player misses its deadline."""
+        ...
+
+    # --- Player-facing payload (the contract owns "what a player sees") ---
+
+    async def private_state_for(
+        self, db: AsyncSession, match: Match, player: Player
+    ) -> dict[str, Any]:
+        """Per-player secret state for the turn payload. Default: none."""
+        ...
+
+    async def public_state_for(
+        self, db: AsyncSession, match: Match, viewer: Player | None
+    ) -> dict[str, Any]:
+        """Game-rendered public state block for the payload/spectator. Default: none."""
+        ...
+
+    # --- Records / Elo ---
+
+    async def final_placement(self, db: AsyncSession, match: Match) -> list[int]:
+        """player_ids ranked best→worst for a completed match."""
+        ...
+
+    def match_placement_key(
+        self, *, round_wins: float, total_score: int
+    ) -> tuple[float, ...]:
+        """Sort key (descending = better) ranking a completed match's participants
+        for the shared rating engine; equal keys are a placement tie. Default:
+        PD's (round_wins, total_score)."""
+        ...
+
+
+class BaseGameModule:
+    """Default implementations of the newer contract hooks, so a game only
+    overrides what it needs and "the platform default" stays identical to PD.
+
+    A game module subclasses this and implements the abstract members of
+    `GameModule` (config, rules, validate/record/resolve/award/finalize, move
+    display, theme). The defaults here reproduce the simultaneous, public,
+    fixed-grid behavior PD has always had. Games that need sequential turns,
+    hidden state, or a custom finish order override the relevant method.
+
+    The PD module subclasses this; the conformance stub does not (it never drives
+    the platform paths that call these hooks).
+    """
+
+    async def next_actor(self, db: AsyncSession, match: Match) -> str | None:
+        # Simultaneous games resolve every player each turn — the scheduler does
+        # not consult next_actor for them. Reaching here means a sequential loop
+        # called a module that never declared one.
+        raise NotImplementedError(
+            "next_actor is only used by sequential games; override it."
+        )
+
+    async def on_round_start(self, db: AsyncSession, match: Match, round_num: int) -> None:
+        return None
+
+    async def is_match_over(self, db: AsyncSession, match: Match) -> bool:
+        return match.rounds_awarded >= match.total_rounds
+
+    async def default_move(
+        self, db: AsyncSession, match: Match, player: Player
+    ) -> dict[str, Any]:
+        return {"action": "HOARD", "target_id": None}
+
+    async def private_state_for(
+        self, db: AsyncSession, match: Match, player: Player
+    ) -> dict[str, Any]:
+        return {}
+
+    async def public_state_for(
+        self, db: AsyncSession, match: Match, viewer: Player | None
+    ) -> dict[str, Any]:
+        return {}
+
+    async def final_placement(self, db: AsyncSession, match: Match) -> list[int]:
+        # PD's existing order: most round-wins, then highest total in-round score.
+        from sqlalchemy import select
+
+        from app.models.player import Player as PlayerModel
+
+        players = list(
+            (
+                await db.execute(
+                    select(PlayerModel).where(PlayerModel.match_id == match.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        ranked = sorted(
+            players,
+            key=lambda p: (p.total_round_wins, p.total_round_score),
+            reverse=True,
+        )
+        return [p.id for p in ranked]
+
+    def match_placement_key(
+        self, *, round_wins: float, total_score: int
+    ) -> tuple[float, ...]:
+        return (round_wins, float(total_score))

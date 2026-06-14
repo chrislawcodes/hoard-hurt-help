@@ -21,7 +21,13 @@ from app.engine.rules import (
     make_game_rules_text,
     make_rules_text,
 )
-from app.games.base import GameConfig, GameError, GameTheme, StrategyPreset
+from app.games.base import (
+    BaseGameModule,
+    GameConfig,
+    GameError,
+    GameTheme,
+    StrategyPreset,
+)
 from app.games.hoard_hurt_help.strategy import PD_DEFAULT_STRATEGY, PD_STRATEGY_PRESETS
 from app.models.player import Player
 from app.models.turn import TurnMessage, TurnSubmission
@@ -39,7 +45,7 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class HoardHurtHelp:
+class HoardHurtHelp(BaseGameModule):
     """The Prisoner's Dilemma game module."""
 
     game_type = "hoard-hurt-help"
