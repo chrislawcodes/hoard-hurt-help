@@ -408,9 +408,15 @@
   var tailSvg=document.getElementById('rc-tail-svg');
   var sayGeo={cx:0,cy:0}, saySpeaker=null;
 
+  // No resolved turns yet (a live match opened before turn 1 resolves). We must
+  // NOT bail out here: returning early skips building the rail + robots AND
+  // registering the `rc:extend` listener below, so the replay and standings
+  // would stay frozen on this caption forever while the transcript keeps
+  // updating. Instead we park on a waiting caption, build everything from
+  // AGENTS (which is always present), and let extendTurns() render the first
+  // turn once it arrives.
   if(!TURNS.length){
-    caption.innerHTML='<span class="rc-badge">Empty</span> No resolved turns yet.';
-    return;
+    caption.innerHTML='<span class="rc-badge">Live</span> Waiting for the first turn…';
   }
 
   // Per-turn in-round score at the START of each turn, plus cumulative round
@@ -817,6 +823,7 @@
 
   function renderTurn(i){
     var t=TURNS[i];
+    if(!t) return;  // nothing resolved yet (live match opened before turn 1) — stay on the waiting caption
     // Broadcast the playhead so the feed + now-strip follow. The seq is 1-based
     // (rc_data.turns are 1:1 with the server's history, whose seq starts at 1).
     // State lives on #live-region (persistent) so it survives SSE feed swaps.
@@ -1011,11 +1018,16 @@
   }
 
   var idx=0, playing=false, timer=null, stepped=false;
+  // True once the first turn has been rendered. Stays false while a live match
+  // is opened before turn 1 resolves; extendTurns() runs the deferred first
+  // render (and autoplay) the moment turns arrive.
+  var primed=false;
+  var _reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   // True only when autoplay ran out of turns at the live edge (not when the user
   // paused or stepped). extendTurns() uses it to decide whether newly-arrived
   // turns should auto-resume the replay or leave the viewer where they parked.
   var reachedEnd=false;
-  function go(i){ stepped=true; idx=(i+TURNS.length)%TURNS.length; renderTurn(idx); }
+  function go(i){ if(!TURNS.length) return; stepped=true; idx=(i+TURNS.length)%TURNS.length; renderTurn(idx); }
   function stop(){
     playing=false; clearTimeout(timer);
     var p=document.getElementById('rc-play');
@@ -1031,6 +1043,7 @@
   document.getElementById('rc-next').onclick=function(){reachedEnd=false;stop();go(idx+1);};
   document.getElementById('rc-prev').onclick=function(){reachedEnd=false;stop();go(idx-1);};
   document.getElementById('rc-play').onclick=function(){
+    if(!TURNS.length) return;  // nothing to play yet — a live match before its first turn
     if(playing){reachedEnd=false;stop();return;}
     stepped=true; reachedEnd=false;
     playing=true; this.textContent='❚❚ Pause'; this.classList.remove('btn-primary');
@@ -1049,6 +1062,9 @@
     if(!Array.isArray(newTurns) || newTurns.length<=TURNS.length) return;
     for(var k=TURNS.length;k<newTurns.length;k++){ TURNS.push(newTurns[k]); }
     computeScores();
+    // First turns for a page that opened empty (live match before turn 1): run
+    // the deferred initial render + autoplay, then we're done for this swap.
+    if(!primed){ primeFirstRender(); return; }
     updateProgress(idx);
     var _lr=document.getElementById('live-region');
     var follow = !_lr || _lr.dataset.follow!=='0';
@@ -1088,11 +1104,17 @@
   // The rail follows the playhead (animation is the clock). With reduced motion
   // we don't auto-animate — open at the LATEST turn, paused, so the rail + feed
   // show current standings. Otherwise start at turn 1 and auto-play the story.
-  var _reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if(_reduced){ idx=TURNS.length-1; }
-  renderTurn(idx);
-  if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !_reduced){
-    setTimeout(function(){ var b=document.getElementById('rc-play'); if(b) b.click(); }, 900);
+  // Deferred when the page opens with no resolved turns: extendTurns() calls
+  // this once the first turn arrives.
+  function primeFirstRender(){
+    if(primed || !TURNS.length) return;
+    primed=true;
+    if(_reduced){ idx=TURNS.length-1; }
+    renderTurn(idx);
+    if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !_reduced){
+      setTimeout(function(){ var b=document.getElementById('rc-play'); if(b) b.click(); }, 900);
+    }
   }
+  primeFirstRender();
 })();
 </script>
