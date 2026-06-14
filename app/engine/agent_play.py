@@ -470,6 +470,8 @@ async def poll_turn(
         history=history,
         scoreboard=_public_scoreboard(all_players),
         current=await _build_current_turn(db, turn),
+        your_private_state=(await module.private_state_for(db, game, player)) or None,
+        public_state=(await module.public_state_for(db, game, player)) or None,
     )
 
 
@@ -1055,7 +1057,7 @@ async def _build_turn_payload(
     if player.coach_note and player.coach_note_round == match.current_round:
         static["coach_note"] = player.coach_note
     current = await _build_current_turn(db, turn)
-    return {
+    payload: dict[str, object] = {
         "status": "your_turn",
         "match_id": match.id,
         "game": match.game,
@@ -1073,6 +1075,14 @@ async def _build_turn_payload(
         "scoreboard": scoreboard,
         "current": current,
     }
+    # Per-game state (omitted for games that supply none, e.g. PD — byte-identical).
+    private_state = await module.private_state_for(db, match, player)
+    if private_state:
+        payload["your_private_state"] = private_state
+    public_state = await module.public_state_for(db, match, player)
+    if public_state:
+        payload["public_state"] = public_state
+    return payload
 
 
 async def _serve_one_turn(
