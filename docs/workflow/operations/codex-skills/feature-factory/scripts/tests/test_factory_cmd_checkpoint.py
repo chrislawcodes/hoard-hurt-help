@@ -483,5 +483,101 @@ class DiffScopeAllowedDirtyPathsFlow(unittest.TestCase):
         self.assertIn("custom/cli/path", adp)
 
 
+class DiffCheckpointDiagnostics(unittest.TestCase):
+    """Rec F (surface the real diff-generation error) and rec E (warn when the
+    diff artifact is bigger than the review budget and the review will be partial).
+    """
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        p = patch.object(FACTORY_STATE, "FACTORY_RUNS_ROOT", Path(self._tmpdir.name))
+        p.start()
+        self.addCleanup(p.stop)
+        FACTORY_STATE.workflow_dir("ff-checkpoint-test").mkdir(parents=True, exist_ok=True)
+        CHECKPOINT.save_scope_manifest("ff-checkpoint-test", ["app"])
+
+    def test_diff_generation_failure_surfaces_full_error_not_generic_hint(self) -> None:
+        args = _args()
+        args.stage = "diff"
+        args.use_existing_artifact = False
+
+        def _run(cmd, *a, **k):
+            if any("write_canonical_diff" in str(c) for c in cmd):
+                return subprocess.CompletedProcess(
+                    cmd, 1, stdout="", stderr="Canonical diff is empty for the requested scope"
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch.object(CHECKPOINT, "ensure_sync", return_value=None), \
+                patch.object(CHECKPOINT, "prerequisite_failure", return_value=None), \
+                patch.object(CHECKPOINT, "required_reviews", return_value=[]), \
+                patch.object(CHECKPOINT.subprocess, "run", side_effect=_run):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as cm:
+                    CHECKPOINT.command_checkpoint(args)
+
+        msg = str(cm.exception)
+        # The real error is shown in full (not trimmed to a generic dirty-path hint).
+        self.assertIn("Canonical diff is empty for the requested scope", msg)
+        self.assertIn("Diff generation failed", msg)
+
+    def test_artifact_over_review_budget_warns_partial_review(self) -> None:
+        artifact = CHECKPOINT.default_artifact_path("ff-checkpoint-test", "diff")
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        # Bigger than the (tiny) review budget below, but well under the rerun-warn
+        # and hard-cap thresholds, so only the partial-review warning should fire.
+        artifact.write_text("diff --git a/app/x b/app/x\n" + ("+x\n" * 100), encoding="utf-8")
+
+        args = _args()
+        args.stage = "diff"
+        args.use_existing_artifact = True
+        args.max_artifact_chars = 50
+
+        class _Stop(Exception):
+            pass
+
+        stderr = io.StringIO()
+        ok = subprocess.CompletedProcess(args=["x"], returncode=0, stdout="", stderr="")
+        with patch.object(CHECKPOINT, "ensure_sync", return_value=None), \
+                patch.object(CHECKPOINT, "prerequisite_failure", return_value=None), \
+                patch.object(CHECKPOINT, "required_reviews", return_value=[]), \
+                patch.object(CHECKPOINT, "normalized_artifact_hash", side_effect=_Stop), \
+                patch.object(CHECKPOINT.subprocess, "run", return_value=ok):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+                with self.assertRaises(_Stop):
+                    CHECKPOINT.command_checkpoint(args)
+
+        out = stderr.getvalue()
+        self.assertIn("PARTIAL review", out)
+        self.assertIn("--max-artifact-chars", out)
+
+    def test_artifact_within_review_budget_no_partial_warning(self) -> None:
+        artifact = CHECKPOINT.default_artifact_path("ff-checkpoint-test", "diff")
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text("diff --git a/app/x b/app/x\n@@ -1 +1 @@\n-a\n+b\n", encoding="utf-8")
+
+        args = _args()
+        args.stage = "diff"
+        args.use_existing_artifact = True
+        args.max_artifact_chars = 50000  # default; artifact is tiny
+
+        class _Stop(Exception):
+            pass
+
+        stderr = io.StringIO()
+        ok = subprocess.CompletedProcess(args=["x"], returncode=0, stdout="", stderr="")
+        with patch.object(CHECKPOINT, "ensure_sync", return_value=None), \
+                patch.object(CHECKPOINT, "prerequisite_failure", return_value=None), \
+                patch.object(CHECKPOINT, "required_reviews", return_value=[]), \
+                patch.object(CHECKPOINT, "normalized_artifact_hash", side_effect=_Stop), \
+                patch.object(CHECKPOINT.subprocess, "run", return_value=ok):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+                with self.assertRaises(_Stop):
+                    CHECKPOINT.command_checkpoint(args)
+
+        self.assertNotIn("PARTIAL review", stderr.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
