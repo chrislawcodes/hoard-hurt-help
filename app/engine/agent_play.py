@@ -554,6 +554,17 @@ def _pack_move(
     }
 
 
+# Keys that a game's `validation_snapshot` may add for `validate_move` only.
+# They are stripped before `record_submission` so they never persist.
+_LD_VALIDATION_SNAPSHOT_KEYS = {
+    "standing_bid",
+    "dice_counts",
+    "active_actor",
+    "total_dice",
+    "wild",
+}
+
+
 async def submit_action(
     db: AsyncSession,
     *,
@@ -596,6 +607,9 @@ async def submit_action(
         thinking=word_filter.mask(thinking),
         move=move,
     )
+    snapshot = await module.validation_snapshot(db, game, player)
+    if snapshot:
+        built_move = {**built_move, **snapshot}
     try:
         module.validate_move(
             built_move, your_agent_id=player.seat_name, all_agent_ids=all_agent_ids
@@ -604,7 +618,9 @@ async def submit_action(
         raise _err(
             exc.code, exc.message, status.HTTP_400_BAD_REQUEST, exc.details
         ) from exc
-    internal_move: dict[str, object] = {**built_move}
+    internal_move: dict[str, object] = {
+        key: value for key, value in built_move.items() if key not in _LD_VALIDATION_SNAPSHOT_KEYS
+    }
     if move is None and target_id is not None:
         target_player = next(
             (candidate for candidate in all_players if candidate.seat_name == target_id),
