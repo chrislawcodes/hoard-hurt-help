@@ -116,6 +116,32 @@ def test_min_legal_raise_ceiling_returns_none() -> None:
     assert min_legal_raise(Bid(2, 1), 2, wild=True) is None
 
 
+def test_ace_switch_boundaries_match_canonical_dudo_rules() -> None:
+    """Independent ace-rule check — expected values come from the spec's formulas
+    (normal->aces needs ceil(q/2) aces; aces->normal needs 2*a+1), NOT from the
+    engine's internal _bid_key. This catches a wrong ace formula that a test
+    mirroring the implementation cannot."""
+    import math
+
+    # normal -> aces: the minimum legal ace quantity above (q, 6) is ceil(q/2).
+    for q in range(1, 7):
+        need = math.ceil(q / 2)
+        assert is_legal_raise(Bid(q, 6), Bid(need, 1), wild=True) is True
+        if need - 1 >= 1:
+            assert is_legal_raise(Bid(q, 6), Bid(need - 1, 1), wild=True) is False
+
+    # aces -> normal: the minimum legal normal quantity above (a, 1) is 2*a + 1.
+    for a in range(1, 4):
+        need = 2 * a + 1
+        assert is_legal_raise(Bid(a, 1), Bid(need, 2), wild=True) is True
+        # one less quantity (at the top normal face) must NOT be legal.
+        assert is_legal_raise(Bid(a, 1), Bid(need - 1, 6), wild=True) is False
+
+    # ace -> ace is plain strictly-higher quantity.
+    assert is_legal_raise(Bid(1, 1), Bid(2, 1), wild=True) is True
+    assert is_legal_raise(Bid(2, 1), Bid(2, 1), wild=True) is False
+
+
 def test_roll_is_seeded_and_bounded() -> None:
     rng = Random(123)
     assert roll(5, rng) == [1, 3, 1, 4, 3]
