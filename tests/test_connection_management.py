@@ -467,10 +467,12 @@ async def test_connections_list_returning_state_shows_play_prompt(
 
 
 @pytest.mark.asyncio
-async def test_connections_list_live_state_with_agent_shows_join(
+async def test_connections_list_connected_with_agent_leads_with_play_prompt(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """ALREADY PLAYING (a connection live now) + has an agent: lead with Join a game."""
+    """CONNECTED (a connection live now) + has an agent, but the AI has not made a
+    game call yet (api_call_count == 0): lead with the play-prompt code block and
+    do NOT show a 'Join a game' button — pasting the play-prompt is what starts play."""
     async with session_factory() as db:
         user = await _make_user(db)
         connection, _ = await _make_connection(db, user)
@@ -488,14 +490,51 @@ async def test_connections_list_live_state_with_agent_shows_join(
     # Clear "Connected" success banner.
     assert "Connected" in text
     assert "Your AI is linked and signed in." in text
-    # With an agent, the Mode A play-prompt renders (now it's actually useful).
-    assert "Paste this to your AI to start playing:" in text
+    # Leads with the play-prompt code block — the one thing to do now.
+    assert "Tell your AI to play" in text
     assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in text
-    assert "Join a game →" in text
-    assert "/games/hoard-hurt-help" in text
     assert "Negotiator · claude-haiku-4-5" in text
-    # Not nudging to create an agent — they already have one.
+    # No "Join a game" CTA — pasting the play-prompt is what starts play.
+    assert "Join a game →" not in text
+    # Not yet playing → not the success box, and not nudging to create an agent.
+    assert "Your AI is playing" not in text
     assert "Create your agent →" not in text
+
+
+@pytest.mark.asyncio
+async def test_connections_list_playing_state_shows_success(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """PLAYING (a live connection that has made a real game call, api_call_count >
+    0): show the 'Your AI is playing' success box so the user knows the play-prompt
+    took — not the play-prompt block and not a Join button."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user)
+        await _set_live(db, connection)
+        connection.api_call_count = 1  # the AI has called the game tools
+        await _make_agent(
+            db, user, connection=connection, name="Negotiator", model="claude-haiku-4-5"
+        )
+        await db.commit()
+
+    client.cookies.update(_signed_in_cookies(user.id))
+    resp = await client.get("/me/connections")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # Success confirmation that the play-prompt took.
+    assert "Your AI is playing" in text
+    assert "You can close this page" in text
+    assert "byo-playing" in text
+    assert "Watch your games →" in text
+    # The connect/play-prompt step is gone — and so is any Join button. (The
+    # always-on connector below has its own "Paste this…" copy, so check for the
+    # play-prompt block specifically, not that phrase.)
+    assert "Tell your AI to play" not in text
+    assert "byo-play-prompt-live" not in text
+    assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." not in text
+    assert "Join a game →" not in text
 
 
 @pytest.mark.asyncio

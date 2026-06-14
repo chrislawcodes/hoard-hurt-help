@@ -9,11 +9,12 @@
 {# === The one self-advancing box. What it leads with depends on the user's state:
    NEW (never connected) → the add-server picker + Listening region.
    RETURNING (connected before, nothing live now) → the play-prompt to start playing again.
-   ALREADY PLAYING (a connection is live now) → play-prompt + Join a game. === #}
+   LIVE (a connection is live now) → the connect→play block: lead with the
+     play-prompt to paste, then a "Your AI is playing" success box once it takes. === #}
 
 {% if is_live_now %}
-    {# --- ALREADY PLAYING: lead with the post-connect block (play-prompt +
-       Join/Create-agent), which lives in _live_status.html. --- #}
+    {# --- LIVE: lead with the post-connect block (Create-agent → play-prompt →
+       "playing" success), which lives in _live_status.html. --- #}
     <div class="card" id="connect">
         {% include "connections/_live_status.html" %}
     </div>
