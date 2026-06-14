@@ -1,0 +1,9 @@
+{
+  "paths": [
+    "."
+  ],
+  "allowed_dirty_paths": [
+    ".",
+    "docs/workflow/feature-runs/liars-dice-phase-c"
+  ]
+}
