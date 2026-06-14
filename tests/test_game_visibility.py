@@ -9,6 +9,10 @@ False), so existing surfaces are unaffected.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
+import pytest
+
 import app.games as registry
 from app.games.base import BaseGameModule, GameConfig
 from app.models.user import User, UserRole
@@ -25,7 +29,14 @@ class _HiddenGame(BaseGameModule):
         )
 
 
-registry.register(_HiddenGame())
+@pytest.fixture(autouse=True)
+def _register_hidden_game() -> Iterator[None]:
+    """Register the admin-only stub for this module's tests, then remove it."""
+    registry.register(_HiddenGame())
+    try:
+        yield
+    finally:
+        registry.unregister("hidden-test")
 
 
 def _admin() -> User:

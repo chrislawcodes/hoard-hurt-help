@@ -17,6 +17,15 @@ def register(module: GameModule) -> None:
     _REGISTRY[module.game_type] = module
 
 
+def unregister(game_type: str) -> None:
+    """Remove a game module from the registry; no-op if it is not registered.
+
+    Used by tests to tear down stub modules so they do not leak into later
+    tests. Built-in games stay registered for the life of the process.
+    """
+    _REGISTRY.pop(game_type, None)
+
+
 def get(game_type: str) -> GameModule:
     """Resolve a game module; raise GameError for an unregistered type."""
     module = _REGISTRY.get(game_type)
@@ -59,5 +68,6 @@ __all__ = [
     "is_admin_only",
     "known_types",
     "register",
+    "unregister",
     "visible_types",
 ]

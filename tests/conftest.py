@@ -7,7 +7,7 @@
 
 import asyncio
 import hashlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 import secrets
 
 import pytest
@@ -42,6 +42,28 @@ def _clear_process_caches() -> None:
 
     clear_leaderboard_cache()
     clear_showcase_replay_cache()
+
+
+@pytest.fixture(autouse=True)
+def _restore_game_registry() -> Iterator[None]:
+    """Snapshot the game registry and restore it after each test.
+
+    Some tests register stub game modules (e.g. inside a test body). Without
+    this, those stubs leak into every later test in the run, causing
+    order-dependent failures (a leaked stub without `config_defaults()` makes
+    registry helpers raise AttributeError). Restoring the snapshot keeps each
+    test's registry changes from escaping. Module-scoped registration fixtures
+    register before this runs, so their stubs are part of the snapshot and
+    survive until their own teardown.
+    """
+    import app.games as registry
+
+    snapshot = dict(registry._REGISTRY)
+    try:
+        yield
+    finally:
+        registry._REGISTRY.clear()
+        registry._REGISTRY.update(snapshot)
 
 
 @pytest.fixture
