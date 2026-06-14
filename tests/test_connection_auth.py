@@ -142,7 +142,7 @@ async def test_valid_key_resolves_connection_and_marks_seen(
 
     r1 = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r1.status_code == 200
-    assert r1.json()["status"] == "waiting"
+    assert r1.json()["status"] == "no_game"
 
     async with session_factory() as db:
         stored = (
@@ -155,7 +155,7 @@ async def test_valid_key_resolves_connection_and_marks_seen(
 
     r2 = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r2.status_code == 200
-    assert r2.json()["status"] == "waiting"
+    assert r2.json()["status"] == "no_game"
 
     async with session_factory() as db:
         stored = (
@@ -184,7 +184,7 @@ async def test_first_key_use_creates_connection_from_setup(
 
     r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200
-    assert r.json()["status"] == "waiting"
+    assert r.json()["status"] == "no_game"
 
     async with session_factory() as db:
         stored_setup = (

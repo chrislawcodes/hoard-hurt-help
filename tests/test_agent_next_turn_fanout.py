@@ -734,11 +734,12 @@ async def test_next_turns_omits_a_turn_already_submitted(
 
 
 @pytest.mark.asyncio
-async def test_no_hold_returns_waiting_immediately_with_idle_cadence(
+async def test_no_game_returns_no_game_immediately_with_idle_cadence(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """Default (no hold_seconds): the connector path returns 'waiting' at once and
-    advises the slow ~30s idle cadence. The plural endpoint does the same."""
+    """A connection with NO game at all gets 'no_game' (not 'waiting') at once,
+    carrying an idle count and the slow ~30s idle cadence. The plural endpoint
+    does the same. A freshly-connected caller is not told to stop yet."""
     async with session_factory() as db:
         user = await make_user(db)
         _connection, key = await make_connection(db, user)
@@ -750,29 +751,58 @@ async def test_no_hold_returns_waiting_immediately_with_idle_cadence(
     elapsed = loop.time() - started
     assert single.status_code == 200, single.text
     body = single.json()
-    assert body["status"] == "waiting"
+    assert body["status"] == "no_game"
     # Returned immediately (no long-poll hold) and advised the slow idle cadence.
     assert elapsed < 0.5
     assert body["next_poll_after_seconds"] == 30
+    # Just connected — idle clock barely started, so don't stop yet.
+    assert body["should_stop"] is False
+    assert body["idle_seconds"] < 60
+    assert "stop_reason" not in body
 
     batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
     assert batch.status_code == 200, batch.text
     bbody = batch.json()
-    assert bbody["status"] == "waiting"
+    assert bbody["status"] == "no_game"
     assert bbody["next_poll_after_seconds"] == 30
+    assert bbody["should_stop"] is False
 
 
 @pytest.mark.asyncio
-async def test_long_poll_returns_waiting_after_window_with_no_turn(
+async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """With nothing to serve, the bounded long-poll holds for ~hold_seconds and
-    then returns 'waiting'. We use a short hold so the test stays fast and assert
-    the call actually spent close to the window before giving up."""
+    """Seated in an active game but with no open turn: a turn could open any
+    moment, so the bounded long-poll holds for ~hold_seconds and then returns
+    'waiting'. We use a short hold so the test stays fast and assert the call
+    actually spent close to the window before giving up."""
     async with session_factory() as db:
         user = await make_user(db)
-        _connection, key = await make_connection(db, user)
-        # No match / no turn for this connection — nothing is ever servable.
+        connection, key = await make_connection(db, user)
+        # Active match, agent seated, but NO open turn yet — a turn is still coming.
+        now = datetime.now(timezone.utc)
+        match = Match(
+            id="M_WAIT",
+            name="match-M_WAIT",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=1,
+        )
+        db.add(match)
+        await db.flush()
+        await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
         await db.commit()
 
     loop = asyncio.get_event_loop()
@@ -922,3 +952,112 @@ async def test_api_call_count_increments_and_turn_count_on_real_submit(
         # turn played.
         assert stored.api_call_count == 2
         assert stored.turns_played == 1
+
+
+@pytest.mark.asyncio
+async def test_no_game_after_idle_window_tells_client_to_stop(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A connection with no game that has been idle past the ~10-min window gets
+    should_stop=True with a stop_reason, so an interactive client stops polling."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        # Back-date every idle anchor well past the 10-minute window.
+        long_ago = datetime.now(timezone.utc) - timedelta(minutes=20)
+        connection.first_connected_at = long_ago
+        connection.mode_a_at = long_ago
+        connection.created_at = long_ago
+        await db.commit()
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "no_game"
+    assert body["should_stop"] is True
+    assert body["stop_reason"] == "idle_timeout"
+    assert body["idle_seconds"] >= 600
+
+
+@pytest.mark.asyncio
+async def test_seated_in_active_game_is_waiting_not_no_game(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Even long after the idle window, a caller seated in an active game (turn not
+    open) is 'waiting' — a turn is coming — and is never told to stop."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        connection.first_connected_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        now = datetime.now(timezone.utc)
+        match = Match(
+            id="M_SEATED",
+            name="match-M_SEATED",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=1,
+        )
+        db.add(match)
+        await db.flush()
+        await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        await db.commit()
+
+    # No open turn yet -> waiting (not no_game), and no stop hint.
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "waiting"
+    assert "should_stop" not in body
+
+
+@pytest.mark.asyncio
+async def test_scheduled_game_keeps_caller_waiting_not_no_game(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A caller seated in a not-yet-started (scheduled) game is 'waiting' — the
+    game is about to start, so never 'no_game' and never told to stop."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        connection.first_connected_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        now = datetime.now(timezone.utc)
+        match = Match(
+            id="M_SCHED",
+            name="match-M_SCHED",
+            state=GameState.SCHEDULED,
+            scheduled_start=now + timedelta(minutes=5),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=1,
+        )
+        db.add(match)
+        await db.flush()
+        await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        await db.commit()
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "waiting"
+    assert "should_stop" not in body
