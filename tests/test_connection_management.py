@@ -981,7 +981,9 @@ async def test_detail_shows_when_connection_last_connected(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The detail page shows when the client last checked in — a relative
-    'last connected 12m ago' in the badge plus a precise timestamp line."""
+    'last seen 12m ago' in the badge plus a precise timestamp line. The wording
+    says "last seen" (an honest read of the heartbeat) rather than "connected",
+    which would overclaim a live link from a possibly-stale heartbeat."""
     async with session_factory() as db:
         user = await _make_user(db)
         connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
@@ -993,9 +995,9 @@ async def test_detail_shows_when_connection_last_connected(
         f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
-    assert "last connected" in r.text  # badge meta
+    assert "last seen" in r.text  # badge meta
     assert "12m ago" in r.text  # relative, human-readable
-    assert "Last connected" in r.text  # precise line in the status card
+    assert "Last seen" in r.text  # precise line in the status card
 
 
 @pytest.mark.asyncio
@@ -1017,7 +1019,36 @@ async def test_never_connected_shows_no_last_connected_time(
     )
     assert r.status_code == 200
     assert "never connected" in r.text
-    assert "Last connected" not in r.text  # the precise status-card line is hidden
+    assert "Last seen" not in r.text  # the precise status-card line is hidden
+
+
+@pytest.mark.asyncio
+async def test_ready_status_copy_is_honest_about_staleness(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A live-but-idle connection (READY) must not claim a guaranteed live link.
+
+    The heartbeat can be up to 90s stale, so the copy leads with the relative
+    'last seen' time and hedges ('should be ready', 'can't confirm') instead of
+    the old 'The client is connected and idle, ready for the next turn.'."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await _set_live(db, connection)  # last_seen 5s ago, no active matches → READY
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.get(
+        f"/me/connections/{conn_id}/status", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    # The honest, hedged wording is present.
+    assert "should be ready for the next turn" in r.text
+    assert "can't confirm" in r.text
+    # The relative last-seen time is surfaced next to the status copy.
+    assert "Last seen" in r.text
+    # The old over-claiming line is gone.
+    assert "connected and idle, ready for the next turn" not in r.text
 
 
 @pytest.mark.asyncio

@@ -6,13 +6,13 @@
         {% elif health.state.value == 'paused' %}
             This connection is paused.
         {% elif health.state.value == 'stalled' %}
-            The client is connected, but turns are stalling. Use Rotate Key below if it needs a fresh setup message.
+            Last seen {{ health.last_connected_human }}, but turns are stalling. Use Rotate Key below if it needs a fresh setup message.
         {% elif health.state.value == 'live' %}
-            The client is connected and playing.
+            Last seen {{ health.last_connected_human }} and taking turns.
         {% elif health.state.value == 'ready' %}
-            The client is connected and idle, ready for the next turn.
+            Last seen {{ health.last_connected_human }} — should be ready for the next turn. We can't confirm it's running right now; if turns don't get played, check the client.
         {% else %}
-            Waiting for the client to connect. Use Rotate Key below if the setup message needs to be refreshed.
+            {% if health.last_connected_human %}Last seen {{ health.last_connected_human }}. {% endif %}Looks disconnected. Make sure the client is still running, or use Rotate Key below if the setup message needs to be refreshed.
         {% endif %}
     </p>
     <p class="meta">
@@ -23,7 +23,7 @@
     </p>
     {% if not health.never_connected %}
     <p class="meta" style="margin-top:0.35rem;">
-        Last connected
+        Last seen
         <time class="localtime" datetime="{{ health.last_connected_at.isoformat() }}">{{ health.last_connected_at.strftime('%b %d, %Y, %H:%M UTC') }}</time>
         ({{ health.last_connected_human }})
     </p>
