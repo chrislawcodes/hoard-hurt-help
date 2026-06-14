@@ -1,0 +1,175 @@
+diff --git a/docs/workflow/feature-runs/liars-dice-phase-c/scope.json b/docs/workflow/feature-runs/liars-dice-phase-c/scope.json
+index 8681b0d..8db7457 100644
+--- a/docs/workflow/feature-runs/liars-dice-phase-c/scope.json
++++ b/docs/workflow/feature-runs/liars-dice-phase-c/scope.json
+@@ -3,7 +3,6 @@
+     "."
+   ],
+   "allowed_dirty_paths": [
+-    ".",
+     "docs/workflow/feature-runs/liars-dice-phase-c"
+   ]
+ }
+\ No newline at end of file
+diff --git a/docs/workflow/feature-runs/liars-dice-phase-c/state.json b/docs/workflow/feature-runs/liars-dice-phase-c/state.json
+index ec96b0b..e21eb52 100644
+--- a/docs/workflow/feature-runs/liars-dice-phase-c/state.json
++++ b/docs/workflow/feature-runs/liars-dice-phase-c/state.json
+@@ -1,6 +1,6 @@
+ {
+   "review_policy": {
+-    "sensitive": false,
++    "sensitive": true,
+     "large_structural": false,
+     "performance_sensitive": false,
+     "extra_gemini_lenses": []
+@@ -47,7 +47,13 @@
+     "unresolved": []
+   },
+   "delivery": {},
+-  "dirty_overrides": {},
++  "dirty_overrides": {
++    "allowed_dirty_paths": [
++      "docs/workflow/feature-runs/liars-dice-phase-c"
++    ],
++    "used": true,
++    "updated_at": 1781454086
++  },
+   "checkpoint_fallback": {},
+   "parallel_analysis": {
+     "reviewed": true,
+@@ -346,6 +352,42 @@
+       "duration_seconds": 8.012732,
+       "agent_id": null,
+       "artifact_sha_at_time": "a0b7965968b4510aeefdb7b03555963bd3a703586d960e015e6286208d3d0a9c"
++    },
++    {
++      "stage": "tasks",
++      "round": 1,
++      "activity_type": "implementation",
++      "model": "gpt-5.4-mini",
++      "lens": null,
++      "prompt_chars": 34998,
++      "prompt_cap": null,
++      "input_tokens": 541766,
++      "output_tokens": 0,
++      "cost_usd_estimate": 0.541766,
++      "timestamp": "2026-06-14T16:19:20.812567Z",
++      "started_at": "2026-06-14T15:39:35.514260Z",
++      "ended_at": "2026-06-14T16:19:20.812567Z",
++      "duration_seconds": 2385.287649,
++      "agent_id": null,
++      "artifact_sha_at_time": "5d0b6abcaeca0edc2326c0ffbc49704d599d40590e1860c3d0606891ee964a02"
++    },
++    {
++      "stage": "diff",
++      "round": 1,
++      "activity_type": "adversarial_review",
++      "model": "gemini-3.1-flash-lite",
++      "lens": "regression-adversarial",
++      "prompt_chars": 11727,
++      "prompt_cap": 250000,
++      "input_tokens": 15706,
++      "output_tokens": 591,
++      "cost_usd_estimate": 0.004813,
++      "timestamp": "2026-06-14T16:21:35.300042Z",
++      "started_at": "2026-06-14T16:21:26.356788Z",
++      "ended_at": "2026-06-14T16:21:35.300042Z",
++      "duration_seconds": 8.943113,
++      "agent_id": null,
++      "artifact_sha_at_time": "21a6e1867fa60fbd9d93426a8e9b79381937718d29a344694ab38bacf336313c"
+     }
+   ],
+   "command_telemetry": [
+@@ -660,6 +702,30 @@
+       "files_written": 5,
+       "subprocess_invocations": 36,
+       "ttl_crossed": false
++    },
++    {
++      "command": "checkpoint",
++      "stage": "diff",
++      "ts": "2026-06-14T16:19:55Z",
++      "wall_seconds": 0.185,
++      "input_bytes_read": 81921,
++      "output_bytes_written": 50196,
++      "files_read": 5,
++      "files_written": 2,
++      "subprocess_invocations": 14,
++      "ttl_crossed": false
++    },
++    {
++      "command": "checkpoint",
++      "stage": "diff",
++      "ts": "2026-06-14T16:21:35Z",
++      "wall_seconds": 9.585,
++      "input_bytes_read": 187004,
++      "output_bytes_written": 129638,
++      "files_read": 9,
++      "files_written": 6,
++      "subprocess_invocations": 16,
++      "ttl_crossed": false
+     }
+   ],
+   "stages": {
+@@ -693,6 +759,14 @@
+         "5d0b6abcaeca0edc2326c0ffbc49704d599d40590e1860c3d0606891ee964a02"
+       ],
+       "initial_sha": "5d0b6abcaeca0edc2326c0ffbc49704d599d40590e1860c3d0606891ee964a02"
++    },
++    "diff": {
++      "adversarial_rounds": 0,
++      "annotations": [],
++      "adversarial_sha_history": [
++        "21a6e1867fa60fbd9d93426a8e9b79381937718d29a344694ab38bacf336313c"
++      ],
++      "initial_sha": "21a6e1867fa60fbd9d93426a8e9b79381937718d29a344694ab38bacf336313c"
+     }
+   },
+   "invariant_warnings": [],
+@@ -709,5 +783,6 @@
+     "blockers": []
+   },
+   "plan_adversarial_rounds": 2,
+-  "tasks_adversarial_rounds": 1
++  "tasks_adversarial_rounds": 1,
++  "diff_adversarial_rounds": 0
+ }
+\ No newline at end of file
+diff --git a/tests/test_liars_dice_engine.py b/tests/test_liars_dice_engine.py
+index 3e3fae7..9e4dc76 100644
+--- a/tests/test_liars_dice_engine.py
++++ b/tests/test_liars_dice_engine.py
+@@ -116,6 +116,32 @@ def test_min_legal_raise_ceiling_returns_none() -> None:
+     assert min_legal_raise(Bid(2, 1), 2, wild=True) is None
+ 
+ 
++def test_ace_switch_boundaries_match_canonical_dudo_rules() -> None:
++    """Independent ace-rule check — expected values come from the spec's formulas
++    (normal->aces needs ceil(q/2) aces; aces->normal needs 2*a+1), NOT from the
++    engine's internal _bid_key. This catches a wrong ace formula that a test
++    mirroring the implementation cannot."""
++    import math
++
++    # normal -> aces: the minimum legal ace quantity above (q, 6) is ceil(q/2).
++    for q in range(1, 7):
++        need = math.ceil(q / 2)
++        assert is_legal_raise(Bid(q, 6), Bid(need, 1), wild=True) is True
++        if need - 1 >= 1:
++            assert is_legal_raise(Bid(q, 6), Bid(need - 1, 1), wild=True) is False
++
++    # aces -> normal: the minimum legal normal quantity above (a, 1) is 2*a + 1.
++    for a in range(1, 4):
++        need = 2 * a + 1
++        assert is_legal_raise(Bid(a, 1), Bid(need, 2), wild=True) is True
++        # one less quantity (at the top normal face) must NOT be legal.
++        assert is_legal_raise(Bid(a, 1), Bid(need - 1, 6), wild=True) is False
++
++    # ace -> ace is plain strictly-higher quantity.
++    assert is_legal_raise(Bid(1, 1), Bid(2, 1), wild=True) is True
++    assert is_legal_raise(Bid(2, 1), Bid(2, 1), wild=True) is False
++
++
+ def test_roll_is_seeded_and_bounded() -> None:
+     rng = Random(123)
+     assert roll(5, rng) == [1, 3, 1, 4, 3]

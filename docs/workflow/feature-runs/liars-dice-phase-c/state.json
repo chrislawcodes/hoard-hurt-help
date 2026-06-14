@@ -1,6 +1,6 @@
 {
   "review_policy": {
-    "sensitive": false,
+    "sensitive": true,
     "large_structural": false,
     "performance_sensitive": false,
     "extra_gemini_lenses": []
@@ -47,7 +47,13 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "docs/workflow/feature-runs/liars-dice-phase-c"
+    ],
+    "used": true,
+    "updated_at": 1781454392
+  },
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -346,6 +352,61 @@
       "duration_seconds": 8.012732,
       "agent_id": null,
       "artifact_sha_at_time": "a0b7965968b4510aeefdb7b03555963bd3a703586d960e015e6286208d3d0a9c"
+    },
+    {
+      "stage": "tasks",
+      "round": 1,
+      "activity_type": "implementation",
+      "model": "gpt-5.4-mini",
+      "lens": null,
+      "prompt_chars": 34998,
+      "prompt_cap": null,
+      "input_tokens": 541766,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.541766,
+      "timestamp": "2026-06-14T16:19:20.812567Z",
+      "started_at": "2026-06-14T15:39:35.514260Z",
+      "ended_at": "2026-06-14T16:19:20.812567Z",
+      "duration_seconds": 2385.287649,
+      "agent_id": null,
+      "artifact_sha_at_time": "5d0b6abcaeca0edc2326c0ffbc49704d599d40590e1860c3d0606891ee964a02"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 11727,
+      "prompt_cap": 250000,
+      "input_tokens": 15706,
+      "output_tokens": 591,
+      "cost_usd_estimate": 0.004813,
+      "timestamp": "2026-06-14T16:21:35.300042Z",
+      "started_at": "2026-06-14T16:21:26.356788Z",
+      "ended_at": "2026-06-14T16:21:35.300042Z",
+      "duration_seconds": 8.943113,
+      "agent_id": null,
+      "artifact_sha_at_time": "21a6e1867fa60fbd9d93426a8e9b79381937718d29a344694ab38bacf336313c"
+    },
+    {
+      "stage": "diff",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-pro-preview",
+      "lens": "regression-adversarial",
+      "prompt_chars": 7040,
+      "prompt_cap": 330000,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-06-14T16:28:32.331679Z",
+      "started_at": "2026-06-14T16:26:32.323564Z",
+      "ended_at": "2026-06-14T16:28:32.331679Z",
+      "duration_seconds": 120.007587,
+      "agent_id": null,
+      "artifact_sha_at_time": "45570e360ed606e8014a3cca501b8880c03484a96784db6282809eb1c0d4ca43",
+      "parse_error": "no Gemini token stats found in stdout"
     }
   ],
   "command_telemetry": [
@@ -660,6 +721,54 @@
       "files_written": 5,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-14T16:19:55Z",
+      "wall_seconds": 0.185,
+      "input_bytes_read": 81921,
+      "output_bytes_written": 50196,
+      "files_read": 5,
+      "files_written": 2,
+      "subprocess_invocations": 14,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-14T16:21:35Z",
+      "wall_seconds": 9.585,
+      "input_bytes_read": 187004,
+      "output_bytes_written": 129638,
+      "files_read": 9,
+      "files_written": 6,
+      "subprocess_invocations": 16,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-14T16:29:02Z",
+      "wall_seconds": 150.466,
+      "input_bytes_read": 198374,
+      "output_bytes_written": 135741,
+      "files_read": 13,
+      "files_written": 6,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-14T16:30:57Z",
+      "wall_seconds": 0.588,
+      "input_bytes_read": 71080,
+      "output_bytes_written": 0,
+      "files_read": 8,
+      "files_written": 0,
+      "subprocess_invocations": 34,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -693,6 +802,15 @@
         "5d0b6abcaeca0edc2326c0ffbc49704d599d40590e1860c3d0606891ee964a02"
       ],
       "initial_sha": "5d0b6abcaeca0edc2326c0ffbc49704d599d40590e1860c3d0606891ee964a02"
+    },
+    "diff": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "21a6e1867fa60fbd9d93426a8e9b79381937718d29a344694ab38bacf336313c",
+        "45570e360ed606e8014a3cca501b8880c03484a96784db6282809eb1c0d4ca43"
+      ],
+      "initial_sha": "21a6e1867fa60fbd9d93426a8e9b79381937718d29a344694ab38bacf336313c"
     }
   },
   "invariant_warnings": [],
@@ -709,5 +827,6 @@
     "blockers": []
   },
   "plan_adversarial_rounds": 2,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 0
 }
