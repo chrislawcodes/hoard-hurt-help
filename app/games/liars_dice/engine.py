@@ -216,22 +216,13 @@ def min_legal_raise(prev: Bid | None, total_dice: int, *, wild: bool) -> Bid | N
     """Return the smallest legal bid above `prev`, or None at the ceiling.
 
     INVARIANT: any non-None result satisfies is_legal_raise(prev, result, wild=wild)
-    and result.quantity <= total_dice.
+    and result.quantity <= total_dice, and NO other legal raise is smaller than it
+    (it is the minimum of the legal-raise set under the Dudo bid ordering).
 
-    Ordering notes (wild=True, normal = face in 2..6):
-      normal->normal : next is (q, face+1) if face<6, else (q+1, 2).
-      normal->aces   : minimum is (ceil(q/2), 1).
-                       But we also compare that against the next normal bid and
-                       pick the smaller one — callers should consider both paths;
-                       this function returns the absolute minimum legal bid.
-                       For a single next-step advance we always try the two
-                       successor candidates and pick the one with the smaller
-                       (quantity, face) under the Dudo ordering convention:
-                         aces at quantity k sort between normal (k-1, 6) and normal (k, 2).
-      aces->normal   : minimum quantity is 2*prev.quantity+1, face starts at 2.
-      aces->aces     : minimum quantity is prev.quantity+1.
-
-    wild=False: standard lex order; opening always returns Bid(1,2).
+    The minimum is derived directly from `is_legal_raise` (which owns the full
+    ordering, including the wild-ace switch rules) rather than a hand-rolled key,
+    so it cannot drift from the legality rules. Opening (prev is None) returns
+    Bid(1, 2); the non-wild fast path keeps the simple lexicographic step.
     """
     if prev is None:
         return Bid(quantity=1, face=2)
@@ -251,72 +242,37 @@ def min_legal_raise(prev: Bid | None, total_dice: int, *, wild: bool) -> Bid | N
             return None
         return candidate
 
-    # wild=True
-    prev_is_ace = prev.face == 1
-
-    if prev_is_ace:
-        # aces->aces: minimum is prev.quantity+1 aces.
-        aces_next = prev.quantity + 1
-        # aces->normal: minimum quantity is 2*prev.quantity+1, face=2.
-        normal_next_q = 2 * prev.quantity + 1
-
-        # Under Dudo conventions: aces at quantity k "slot in" above normal (k-1,6),
-        # below normal (k, 2).  So the global minimum between aces-next and
-        # normal-next is whichever has a smaller effective quantity.
-        # normal-next requires normal_next_q dice; aces-next requires aces_next aces.
-        # We compare raw quantities: the smallest valid bid wins.
-
-        candidates: list[Bid] = []
-        if aces_next <= total_dice:
-            candidates.append(Bid(quantity=aces_next, face=1))
-        if normal_next_q <= total_dice:
-            candidates.append(Bid(quantity=normal_next_q, face=2))
-
-        if not candidates:
-            return None
-
-        # Pick the candidate with the smaller quantity; ties break toward aces
-        # (aces at k rank above normal at k-1, so a tie in quantity means normal wins).
-        # Actually: aces(k) is ordered above normal(k-1,6) and below normal(k,2).
-        # So if both candidates have the same quantity q, normal(q,2) < aces(q).
-        # But here aces_next = prev.quantity+1 and normal_next_q = 2*prev.quantity+1
-        # which can only collide when prev.quantity=0 (impossible), so no tie in practice.
-        return min(candidates, key=lambda b: (b.quantity, 0 if b.face != 1 else 1))
-
-    # prev is normal (face in 2..6)
-    # Option 1: normal->normal next bid.
-    if prev.face < 6:
-        normal_next: Bid | None = Bid(quantity=prev.quantity, face=prev.face + 1)
-    else:
-        q = prev.quantity + 1
-        normal_next = Bid(quantity=q, face=2) if q <= total_dice else None
-
-    # Option 2: normal->aces (halve).
-    ace_q = math.ceil(prev.quantity / 2)
-    ace_candidate: Bid | None = Bid(quantity=ace_q, face=1) if ace_q <= total_dice else None
-
-    # Both are legal by construction; pick the minimum.
-    # Dudo ordering: aces(k) ranks above normal(k-1,6) and below normal(k,2).
-    # Encode: aces(k) -> sort key (k, 1.5); normal(k, f) -> sort key (k, f).
-    def _sort_key(b: Bid) -> tuple[int, float]:
-        return (b.quantity, 1.5 if b.face == 1 else float(b.face))
-
-    valid: list[Bid] = []
-    if normal_next is not None and normal_next.quantity <= total_dice:
-        valid.append(normal_next)
-    if ace_candidate is not None:
-        valid.append(ace_candidate)
-
-    if not valid:
+    # wild=True — `is_legal_raise` already encodes the full Dudo bid ordering
+    # (incl. the wild-ace switch rules), so the smallest legal raise is simply the
+    # FLOOR of the legal-raise set: the one legal bid that every other legal bid is
+    # itself a legal raise over. Deriving the minimum from `is_legal_raise` instead
+    # of a hand-rolled sort key fixes the prior bug where an ace bid of quantity k
+    # was ranked smaller than a normal bid of quantity k — even though k aces sit
+    # near 2k normal dice on the ladder, so the ace candidate was chosen far too
+    # early (e.g. "one 2" -> "one ace" instead of "one 3").
+    legal = [
+        Bid(quantity=q, face=f)
+        for q in range(1, total_dice + 1)
+        for f in range(1, 7)
+        if is_legal_raise(prev, Bid(quantity=q, face=f), wild=wild)
+    ]
+    if not legal:
         return None
 
-    result = min(valid, key=_sort_key)
+    for candidate in legal:
+        if all(
+            candidate == other or is_legal_raise(candidate, other, wild=wild)
+            for other in legal
+        ):
+            return candidate
 
-    # Paranoia guard: confirm the invariant.
-    assert is_legal_raise(prev, result, wild=wild), (
-        f"min_legal_raise invariant broken: prev={prev!r} result={result!r}"
+    # `is_legal_raise` is a strict total order over the legal set, so a unique
+    # floor always exists; reaching here means that invariant broke — fail loud
+    # rather than silently return a non-minimal (or wrong) bid.
+    raise GameError(
+        "ENGINE_INVARIANT",
+        f"no minimal legal raise found: prev={prev!r} total_dice={total_dice} wild={wild}",
     )
-    return result
 
 
 # ---------------------------------------------------------------------------
