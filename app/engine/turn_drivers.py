@@ -138,7 +138,7 @@ class SequentialDriver:
           the module's `default_move` as the missed-turn move (flagged defaulted).
         """
         if await self._is_bot(db, player):
-            move = await module.default_move(db, game, player)
+            move = await module.bot_move(db, game, player)
             await module.record_submission(db, turn, player, move, existing=None)
             return
 

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import Annotated
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,7 +17,9 @@ from app.engine.sims import validate_bot_profile_fields
 from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
 from app.engine.sims.seating import SimSeatingError, add_sims_to_game
 from app.engine.state_machine import TransitionError
-from app.games import known_types
+from app.games import GameError, get as get_game_module, known_types
+from app.games.base import GameConfig
+from app.models.game_state import MatchState
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
@@ -34,6 +37,18 @@ async def _load_game_match_or_404(db, game: str, match_id: str) -> Match:
     if g is None or g.game != game:
         raise HTTPException(404)
     return g
+
+
+def _game_defaults(game: str) -> GameConfig | SimpleNamespace:
+    if game in known_types():
+        return get_game_module(game).config_defaults()
+    return SimpleNamespace(
+        min_players=3,
+        max_players=6,
+        per_turn_deadline_seconds=30,
+        total_rounds=64,
+        turns_per_round=256,
+    )
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -91,10 +106,20 @@ async def create_match_form(
     request: Request,
     user: Annotated[User, Depends(require_game_admin)],
 ):
+    try:
+        module = get_game_module(game)
+    except GameError as exc:
+        raise HTTPException(404, detail="Game not found.") from exc
     return templates.TemplateResponse(
         request,
         "game_admin/create_match.html",
-        {"user": user, "is_admin": True, "game_slug": game, "error": None},
+        {
+            "user": user,
+            "is_admin": True,
+            "game_slug": game,
+            "defaults": module.config_defaults(),
+            "error": None,
+        },
     )
 
 
@@ -111,17 +136,26 @@ async def create_match_submit(
     per_turn_deadline_seconds: Annotated[int, Form()] = 60,
     total_rounds: Annotated[int, Form()] = 7,
     turns_per_round: Annotated[int, Form()] = 7,
+    wild_ones: Annotated[str | None, Form()] = None,
+    dice_per_player: Annotated[int, Form()] = 5,
 ):
     def _error(msg: str):
         return templates.TemplateResponse(
             request,
             "game_admin/create_match.html",
-            {"user": user, "is_admin": True, "game_slug": game, "error": msg},
+            {
+                "user": user,
+                "is_admin": True,
+                "game_slug": game,
+                "defaults": _game_defaults(game),
+                "error": msg,
+            },
             status_code=400,
         )
 
     if game not in known_types():
         return _error(f"Unknown game type {game!r}.")
+    cfg = _game_defaults(game)
     try:
         when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
     except ValueError:
@@ -130,8 +164,10 @@ async def create_match_submit(
         when = when.replace(tzinfo=timezone.utc)
     if when <= datetime.now(timezone.utc):
         return _error("Start time must be in the future.")
-    if not (3 <= min_players <= 20) or not (3 <= max_players <= 20):
-        return _error("Player counts must be 3 to 20.")
+    if not (cfg.min_players <= min_players <= cfg.max_players):
+        return _error(f"Player counts must be {cfg.min_players} to {cfg.max_players}.")
+    if not (cfg.min_players <= max_players <= cfg.max_players):
+        return _error(f"Player counts must be {cfg.min_players} to {cfg.max_players}.")
     if min_players > max_players:
         return _error("Min players cannot be greater than max players.")
     if not (3 <= total_rounds <= 20):
@@ -139,7 +175,7 @@ async def create_match_submit(
     if not (3 <= turns_per_round <= 20):
         return _error("Turns per round must be 3 to 20.")
 
-    await create_match(
+    g = await create_match(
         db,
         game=game,
         name=name,
@@ -151,7 +187,20 @@ async def create_match_submit(
         turns_per_round=turns_per_round,
         state=GameState.REGISTERING,
         created_by_user_id=user.id,
+        commit=False,
     )
+    db.add(
+        MatchState(
+            match_id=g.id,
+            state_json={
+                "config": {
+                    "wild_ones": wild_ones is not None,
+                    "dice_per_player": dice_per_player,
+                }
+            },
+        )
+    )
+    await db.commit()
     return RedirectResponse(
         url=f"/games/{game}/admin", status_code=status.HTTP_303_SEE_OTHER
     )

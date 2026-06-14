@@ -116,6 +116,15 @@ class GameModule(Protocol):
         """Raise GameError if `move` is illegal for this game. Pure (no DB)."""
         ...
 
+    async def validation_snapshot(
+        self,
+        db: AsyncSession,
+        match: Match,
+        player: Player,
+    ) -> dict[str, Any]:
+        """Optional read-only state the submit route can merge into `move`."""
+        ...
+
     async def record_submission(
         self,
         db: AsyncSession,
@@ -157,6 +166,10 @@ class GameModule(Protocol):
     async def award_round(self, db: AsyncSession, game: Match, round_num: int) -> None: ...
 
     async def finalize(self, db: AsyncSession, game: Match) -> None: ...
+
+    async def bot_move(self, db: AsyncSession, match: Match, player: Player) -> dict[str, Any]:
+        """Move to submit for a bot actor."""
+        ...
 
     def move_effect(self, action: str) -> tuple[int, int | None]:
         """Per-move display for the spectator viewer: (actor_delta, target_delta)."""
@@ -249,6 +262,14 @@ class BaseGameModule:
     ) -> dict[str, Any]:
         return {"action": "HOARD", "target_id": None}
 
+    async def validation_snapshot(
+        self,
+        db: AsyncSession,
+        match: Match,
+        player: Player,
+    ) -> dict[str, Any]:
+        return {}
+
     async def private_state_for(
         self, db: AsyncSession, match: Match, player: Player
     ) -> dict[str, Any]:
@@ -258,6 +279,9 @@ class BaseGameModule:
         self, db: AsyncSession, match: Match, viewer: Player | None
     ) -> dict[str, Any]:
         return {}
+
+    async def bot_move(self, db: AsyncSession, match: Match, player: Player) -> dict[str, Any]:
+        return await self.default_move(db, match, player)
 
     async def final_placement(self, db: AsyncSession, match: Match) -> list[int]:
         # PD's existing order: most round-wins, then highest total in-round score.

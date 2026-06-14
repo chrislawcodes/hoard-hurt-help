@@ -49,6 +49,7 @@ def _regular() -> User:
 
 def test_is_admin_only_reads_the_flag() -> None:
     assert registry.is_admin_only("hidden-test") is True
+    assert registry.is_admin_only("liars-dice") is True
     assert registry.is_admin_only("hoard-hurt-help") is False
     assert registry.is_admin_only("no-such-game") is False  # unknown → not gated
 
@@ -56,10 +57,12 @@ def test_is_admin_only_reads_the_flag() -> None:
 def test_visible_types_excludes_admin_only_unless_included() -> None:
     public = registry.visible_types(include_admin_only=False)
     assert "hidden-test" not in public
+    assert "liars-dice" not in public
     assert "hoard-hurt-help" in public
 
     everything = registry.visible_types(include_admin_only=True)
     assert "hidden-test" in everything
+    assert "liars-dice" in everything
     assert everything == registry.known_types()
 
 

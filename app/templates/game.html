@@ -26,7 +26,7 @@
 {% endif %}
 {% endif %}
 
-{% if rc_data %}
+{% if game.game != "liars-dice" and rc_data %}
 <div class="rc-layout">
     {% include "fragments/robot_circle_standings.html" %}
     <div>{% with rc_autoplay = true %}{% include "fragments/robot_circle.html" %}{% endwith %}</div>

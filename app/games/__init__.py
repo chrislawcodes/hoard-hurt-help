@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from app.games.base import GameConfig, GameError, GameModule
 from app.games.hoard_hurt_help.game import HoardHurtHelp
+from app.games.liars_dice.game import LiarsDice
 
 _REGISTRY: dict[str, GameModule] = {}
 
@@ -59,6 +60,7 @@ def visible_types(*, include_admin_only: bool) -> list[str]:
 
 # Built-in games register themselves at import time.
 register(HoardHurtHelp())
+register(LiarsDice())
 
 __all__ = [
     "GameConfig",

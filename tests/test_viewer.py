@@ -225,6 +225,8 @@ async def test_spectator_state_two_phase_shape_without_thinking(client, reset_db
                     "agent_id": "AI_0",
                     "action": "HOARD",
                     "target_id": None,
+                    "quantity": None,
+                    "face": None,
                     "points_delta": 2,
                 }
             ],

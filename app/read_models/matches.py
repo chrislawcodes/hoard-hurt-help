@@ -45,6 +45,8 @@ class TimelineAction:
     agent_id: str
     action: str
     target_id: str | None
+    quantity: int | None
+    face: int | None
     message: str
     thinking: str
     points_delta: int
@@ -299,6 +301,8 @@ async def load_match_timeline(
                     agent_id=actor.seat_name,
                     action=submission.action,
                     target_id=target.seat_name if target else None,
+                    quantity=submission.quantity,
+                    face=submission.face,
                     message=submission.message,
                     thinking=submission.thinking,
                     points_delta=submission.points_delta,

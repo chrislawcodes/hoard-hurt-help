@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Path
 from sqlalchemy import select
 
 from app.deps import DbSession
+from app.games import get as get_game_module
 from app.models.match import Match
 from app.read_models.matches import (
     count_players,
@@ -68,6 +69,7 @@ async def public_state(
     g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if g is None:
         raise HTTPException(404)
+    module = get_game_module(g.game)
     players = await load_players(db, match_id)
     timeline = await load_match_timeline(db, match_id)
 
@@ -82,6 +84,8 @@ async def public_state(
                 agent_id=action.agent_id,
                 action=action.action,
                 target_id=action.target_id,
+                quantity=action.quantity,
+                face=action.face,
                 points_delta=action.points_delta,
             )
             for action in turn.actions
@@ -110,4 +114,5 @@ async def public_state(
         ],
         scoreboard=await load_scoreboard(db, match_id),
         history=history,
+        public_state=await module.public_state_for(db, g, None),
     )

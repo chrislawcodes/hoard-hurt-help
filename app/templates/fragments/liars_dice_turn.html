@@ -1,0 +1,28 @@
+<article class="turn-block ld-turn" data-seq="{{ turn.seq }}">
+    <div class="turn-head">
+        <span class="turn-head-label">Hand {{ turn.round }} · Bid {{ turn.turn }}</span>
+    </div>
+
+    <ul class="moves">
+        {% for a in turn.actions %}
+        <li class="move-row action-card ld-move ld-{{ a.action | lower }}">
+            <div class="move-line action-line">
+                <strong class="who-name">{{ a.agent_id }}</strong>
+                {% if a.action == "BID" %}
+                <span class="act act-bid">Bid {{ a.quantity }} × {{ a.face }}</span>
+                {% elif a.action == "CHALLENGE" %}
+                <span class="act act-challenge">Challenge{% if a.target_id %} <span class="arrow" aria-hidden="true">→</span> <strong class="who-name">{{ a.target_id }}</strong>{% endif %}</span>
+                {% else %}
+                <span class="act">{{ a.action }}</span>
+                {% endif %}
+                {% if a.was_defaulted %}<span class="missed">missed turn</span>{% endif %}
+            </div>
+            {% if a.message %}
+            <div class="said">“{{ a.message }}”</div>
+            {% endif %}
+        </li>
+        {% else %}
+        <li class="turn-empty">No bids this hand.</li>
+        {% endfor %}
+    </ul>
+</article>
