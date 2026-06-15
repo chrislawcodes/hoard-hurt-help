@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.applications import Starlette
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.cache_warmup import warm_homepage_caches
 from app.config import settings
 from app.db_bootstrap import prepare_database_for_upgrade, verify_required_tables
 from app.engine.scheduler import registry as scheduler_registry
@@ -185,6 +186,11 @@ def create_app() -> FastAPI:
         await _upgrade_database()
         await scheduler_registry.resume_active_games_on_startup()
         scheduler_registry.start_poller()  # auto-start games when their time comes
+        # Pre-build the front page's caches in the background so the first
+        # visitor after a deploy isn't the one who pays the full rebuild. Kept
+        # off the startup path (a task, not an await) so it never delays the
+        # server coming up; held on app.state so it isn't garbage-collected.
+        app.state.cache_warmup_task = asyncio.create_task(warm_homepage_caches())
         try:
             if mcp_asgi_app is not None:
                 async with mcp_asgi_app.router.lifespan_context(app):
