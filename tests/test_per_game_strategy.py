@@ -287,7 +287,9 @@ async def test_create_agent_with_disconnected_provider_still_creates_agent(
         follow_redirects=False,
     )
     assert r.status_code == 303, r.text
-    assert r.headers["location"].startswith("/me/agents/")
+    # Agent is created (no connect-first block); OpenAI isn't set up, so the next
+    # step is to connect that provider.
+    assert r.headers["location"] == "/me/connections?provider=openai"
 
     async with reset_db() as db:
         agent = (
@@ -301,7 +303,8 @@ async def test_create_agent_with_disconnected_provider_still_creates_agent(
 async def test_create_agent_with_next_returns_to_next_target(
     client, reset_db
 ) -> None:
-    # When ?next is present, creation returns there after saving the agent.
+    # When ?next is present AND the agent's provider is already set up, creation
+    # returns straight there. (Claude is set up here, so it's a direct hop.)
     join_url = "/games/hoard-hurt-help/matches/G_001/join"
     async with reset_db() as db:
         user = await make_user(db)
@@ -312,7 +315,7 @@ async def test_create_agent_with_next_returns_to_next_target(
         "/me/agents/new",
         data={
             "name": "Atlas",
-            "model": "gpt-5.4-mini",
+            "model": "claude-haiku-4-5",
             "strategy_text": "CUSTOM: always cooperate.",
             "next": join_url,
         },

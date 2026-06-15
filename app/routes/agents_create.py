@@ -17,7 +17,10 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import enabled_provider_values, provider_is_covered
+from app.engine.connection_health import (
+    enabled_provider_values,
+    enabled_provider_values_on_nonpaused_connections,
+)
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
@@ -227,9 +230,15 @@ async def create_agent_or_connection(
         agent.current_version_id = version.id
         await db.commit()
         next_url = safe_internal_next(next_after)
-        # If the provider is already live, skip the connect step and continue to
-        # the next hop (or the agent detail page when no next was supplied).
-        if await provider_is_covered(db, user.id, agent_provider):
+        # If the provider is already set up (enabled on a non-paused connection),
+        # skip the connect step and continue to the next hop (or the agent detail
+        # page when no next was supplied). This matches the agent-list readiness
+        # signal (enabled, status-aware), not the stricter live-now window — a
+        # set-up-but-idle provider is woken by the Join held-seat flow, not here.
+        setup_providers = await enabled_provider_values_on_nonpaused_connections(
+            db, user.id
+        )
+        if agent_provider.value in setup_providers:
             destination = next_url or f"/me/agents/{agent.id}"
         else:
             destination = f"/me/connections?provider={agent_provider.value}"
