@@ -27,7 +27,7 @@ from app.games.liars_dice.strategy import LD_DEFAULT_STRATEGY, LD_STRATEGY_PRESE
 from app.models.game_state import MatchState, PlayerState
 from app.models.match import GameState, Match
 from app.models.player import Player
-from app.models.turn import TurnMessage, TurnSubmission
+from app.models.turn import TurnSubmission
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -641,22 +641,6 @@ class LiarsDice(BaseGameModule):
         state.state_json["active_actor"] = leader
         state.state_json["next_leader"] = None
         await db.commit()
-
-    async def record_message(
-        self,
-        db: AsyncSession,
-        turn: Any,
-        player: Player,
-        message: str,
-        thinking: str,
-        *,
-        existing: TurnMessage | None,
-        is_connector_fallback: bool = False,
-    ) -> None:
-        return None
-
-    def move_effect(self, action: str) -> tuple[int, int | None]:
-        return (0, None)
 
     def match_placement_key(
         self, *, round_wins: float, total_score: int
