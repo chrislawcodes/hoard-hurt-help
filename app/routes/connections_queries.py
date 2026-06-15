@@ -35,12 +35,30 @@ class AgentRow:
     version: AgentVersion | None
 
 
+# Friendly names for the one provider an MCP connection speaks for.
+_MODE_A_PROVIDER_LABELS = {
+    "claude": "Claude",
+    "gemini": "Gemini",
+    "openai": "OpenAI",
+    "hermes": "Hermes",
+    "openclaw": "OpenClaw",
+}
+
+
 def _connection_display_name(connection: Connection) -> str:
+    # A Mode A connection is one MCP client, which speaks for exactly one AI
+    # provider — so it is named by that provider (Claude, OpenAI…), never
+    # user-nicknamed. (Nicknaming is a machine idea: you name your computer.)
+    if connection.mode_a_at:
+        if connection.provider is not None:
+            return _MODE_A_PROVIDER_LABELS.get(
+                connection.provider.value, connection.provider.value.title()
+            )
+        return "MCP connection"
+    # A machine connection runs several CLIs at once, so the user names the box.
     if connection.nickname:
         return connection.nickname
-    # A Mode A connection is an interactive MCP session, not a background
-    # machine — name it so the two kinds never read as the same thing.
-    return "MCP connection" if connection.mode_a_at else "Machine connection"
+    return "Machine connection"
 
 
 async def _load_user_agents(db: DbSession, user_id: int) -> list[AgentRow]:

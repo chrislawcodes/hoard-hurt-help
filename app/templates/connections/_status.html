@@ -1,18 +1,32 @@
+{% set is_mcp = connection.mode_a_at %}
 <div id="connection-status" class="card" hx-get="/me/connections/{{ connection.id }}/status" hx-trigger="every 5s" hx-swap="outerHTML">
     <h3 style="margin-top:0;">Connection status</h3>
     <p class="hint" style="margin-top:0;">
         {% if connection.status.value == 'pending' and health.never_connected %}
-            Waiting for the client to connect. Paste the setup instructions above, then keep the client running.
+            {% if is_mcp %}
+                Waiting for your AI client to connect. Sign in from your client, then keep it running.
+            {% else %}
+                Waiting for the client to connect. Paste the setup instructions above, then keep the client running.
+            {% endif %}
         {% elif health.state.value == 'paused' %}
             This connection is paused.
         {% elif health.state.value == 'stalled' %}
-            Last seen {{ health.last_connected_human }}, but turns are stalling. Use Rotate Key below if it needs a fresh setup message.
+            {% if is_mcp %}
+                Last seen {{ health.last_connected_human }}, but turns are stalling. If it keeps stalling, reconnect your AI client.
+            {% else %}
+                Last seen {{ health.last_connected_human }}, but turns are stalling. Use Rotate Key below if it needs a fresh setup message.
+            {% endif %}
         {% elif health.state.value == 'live' %}
             Last seen {{ health.last_connected_human }} and taking turns.
         {% elif health.state.value == 'ready' %}
             Last seen {{ health.last_connected_human }} — should be ready for the next turn. We can't confirm it's running right now; if turns don't get played, check the client.
         {% else %}
-            {% if health.last_connected_human %}Last seen {{ health.last_connected_human }}. {% endif %}Looks disconnected. Make sure the client is still running, or use Rotate Key below if the setup message needs to be refreshed.
+            {% if health.last_connected_human %}Last seen {{ health.last_connected_human }}. {% endif %}
+            {% if is_mcp %}
+                Looks disconnected. Make sure your AI client is still running, or sign in again to reconnect it.
+            {% else %}
+                Looks disconnected. Make sure the client is still running, or use Rotate Key below if the setup message needs to be refreshed.
+            {% endif %}
         {% endif %}
     </p>
     <p class="meta">
@@ -34,9 +48,19 @@
         {% else %}
             <form method="post" action="/me/connections/{{ connection.id }}/pause"><button type="submit" class="secondary">Pause</button></form>
         {% endif %}
+        {% if not is_mcp %}
+        {# Rotate Key issues a fresh paste-in setup key — a machine-connector idea.
+           An MCP connection signs in over OAuth, so there's no key to rotate. #}
         <form method="post" action="/me/connections/{{ connection.id }}/rotate"><button type="submit" class="secondary">Rotate Key</button></form>
+        {% endif %}
+        {% if is_mcp %}
+        <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this connection? Sign in again from your AI client to reconnect. Your agents keep playing on any other live connection for their provider. Continue?');">
+            <button type="submit" class="secondary">Delete</button>
+        </form>
+        {% else %}
         <form method="post" action="/me/connections/{{ connection.id }}/delete" onsubmit="return confirm('Delete this machine? Its runner will be told to exit. Your agents keep playing on any other live connection that covers their provider; any covered by no other live connection will wait. Continue?');">
             <button type="submit" class="secondary">Delete</button>
         </form>
+        {% endif %}
     </div>
 </div>

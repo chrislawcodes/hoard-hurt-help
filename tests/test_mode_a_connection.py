@@ -179,49 +179,89 @@ async def test_mode_a_connection_enables_only_the_connecting_provider(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_connection_without_provider_enables_nothing(
+async def test_mode_a_connection_without_provider_creates_nothing(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    # The bare sign-in token exchange does not know which client connected, so
-    # it passes no provider — nothing should be enabled until a real handshake.
+    # The bare sign-in token exchange does not know which client connected, so it
+    # passes no provider. With no existing connection there is nothing to resolve,
+    # so it returns None and creates nothing — the connection is born later, at the
+    # MCP handshake, when the provider is known.
     async with db_session_factory() as db:
         user = await _make_user(db, suffix="noprov")
         connection = await mode_a_connection_for(db, user)
         await db.commit()
+        assert connection is None
         rows = (
             await db.execute(
-                select(ConnectionProviderRow).where(
-                    ConnectionProviderRow.connection_id == connection.id
-                )
+                select(Connection).where(Connection.user_id == user.id)
             )
         ).scalars().all()
         assert rows == []
 
 
 @pytest.mark.asyncio
-async def test_mode_a_connection_accumulates_providers_across_clients(
+async def test_mode_a_connection_without_provider_reuses_single_existing(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    # Connecting a second client later enables its provider too, without
-    # disabling the first — the enabled set is an honest list of real clients.
+    # When the user already has exactly one Mode A connection, a provider-less call
+    # (unidentified client) resolves to it rather than guessing or creating.
     async with db_session_factory() as db:
-        user = await _make_user(db, suffix="accum")
-        await mode_a_connection_for(db, user, provider=ConnectionProvider.GEMINI)
-        connection = await mode_a_connection_for(
-            db, user, provider=ConnectionProvider.CLAUDE
-        )
+        user = await _make_user(db, suffix="one")
+        made = await mode_a_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
-        rows = (
+        resolved = await mode_a_connection_for(db, user)
+        assert resolved is not None
+        assert resolved.id == made.id
+
+
+@pytest.mark.asyncio
+async def test_mode_a_connection_without_provider_is_none_when_ambiguous(
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    # With several connections we cannot pick safely on an unidentified client.
+    async with db_session_factory() as db:
+        user = await _make_user(db, suffix="many")
+        await mode_a_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
+        await mode_a_connection_for(db, user, provider=ConnectionProvider.GEMINI)
+        await db.commit()
+        assert await mode_a_connection_for(db, user) is None
+
+
+@pytest.mark.asyncio
+async def test_mode_a_connection_one_per_provider(
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    # Each provider the user signs in gets its OWN connection — never one
+    # connection that accumulates several.
+    async with db_session_factory() as db:
+        user = await _make_user(db, suffix="perprov")
+        gem = await mode_a_connection_for(db, user, provider=ConnectionProvider.GEMINI)
+        cla = await mode_a_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
+        await db.commit()
+        assert gem.id != cla.id
+        assert gem.provider is ConnectionProvider.GEMINI
+        assert cla.provider is ConnectionProvider.CLAUDE
+        # Each connection carries exactly its own one enabled provider row.
+        for conn, prov in [(gem, ConnectionProvider.GEMINI), (cla, ConnectionProvider.CLAUDE)]:
+            rows = (
+                await db.execute(
+                    select(ConnectionProviderRow).where(
+                        ConnectionProviderRow.connection_id == conn.id
+                    )
+                )
+            ).scalars().all()
+            assert {(r.provider, r.enabled) for r in rows} == {(prov, True)}
+        # Two live Mode A connections for the user, one per provider.
+        live = (
             await db.execute(
-                select(ConnectionProviderRow).where(
-                    ConnectionProviderRow.connection_id == connection.id
+                select(Connection).where(
+                    Connection.user_id == user.id,
+                    Connection.mode_a_at.is_not(None),
+                    Connection.deleted_at.is_(None),
                 )
             )
         ).scalars().all()
-        assert {(r.provider, r.enabled) for r in rows} == {
-            (ConnectionProvider.GEMINI, True),
-            (ConnectionProvider.CLAUDE, True),
-        }
+        assert len(live) == 2
 
 
 @pytest.mark.asyncio
@@ -230,7 +270,9 @@ async def test_mode_a_connection_for_resurrects_soft_deleted_row(
 ) -> None:
     async with db_session_factory() as db:
         user = await _make_user(db, suffix="1")
-        connection = await mode_a_connection_for(db, user)
+        connection = await mode_a_connection_for(
+            db, user, provider=ConnectionProvider.CLAUDE
+        )
         await db.commit()
         connection_id = connection.id
 
@@ -248,13 +290,16 @@ async def test_mode_a_connection_for_resurrects_soft_deleted_row(
         stored_user = (
             await db.execute(select(User).where(User.google_sub == "sub-1"))
         ).scalar_one()
-        resurrected = await mode_a_connection_for(db, stored_user)
+        # Reconnecting the SAME provider resurrects the same row.
+        resurrected = await mode_a_connection_for(
+            db, stored_user, provider=ConnectionProvider.CLAUDE
+        )
         await db.commit()
 
     assert resurrected.id == connection_id
     assert resurrected.deleted_at is None
     assert resurrected.status is ConnectionStatus.ACTIVE
-    assert resurrected.provider is None
+    assert resurrected.provider is ConnectionProvider.CLAUDE
 
     async with db_session_factory() as db:
         rows = (

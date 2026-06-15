@@ -17,6 +17,7 @@ from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentAccessToken, Depends
 from fastmcp.server.auth.providers.google import GoogleProvider
 from fastmcp.server.dependencies import AccessToken, get_access_token, get_context
+from fastapi import HTTPException, status
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
@@ -40,6 +41,7 @@ from app.engine.mcp_client_identity import provider_from_client_name
 from app.engine.mode_a_connection import mode_a_connection_for
 from app.models.connection import Connection, ConnectionProvider
 from app.models.player import Player
+from app.models.user import User
 from app.routes.auth import sync_google_user
 from app.routes.spectator_api import public_state
 from app.schemas.auth import GoogleUserInfo
@@ -121,24 +123,25 @@ def _userinfo_from_claims(
 
 
 async def _bootstrap_signin_connection_from_idp(idp_tokens: Mapping[str, Any]) -> None:
-    """Create/resume the user's Mode A connection the moment sign-in completes.
+    """Sync the signed-in user the moment the OAuth token exchange completes.
 
-    Runs inside the OAuth token exchange (see _ConnectAtSignInGoogleProvider) —
-    the one server-side point that fires exactly once per sign-in AND already
-    knows who the user is. That lets /me/connections flip to "connected" right
-    after `... mcp login`, with no MCP session or tool call needed. Identity comes
-    from the Google id_token in the token response. We skip ``mark_seen`` so the
-    sign-in is not billed as a paid model call (api_call_count stays 0).
+    Runs inside the token exchange (see _ConnectAtSignInGoogleProvider) — the one
+    server-side point that fires exactly once per sign-in AND already knows who
+    the user is. We do NOT create a connection here: each provider gets its own
+    Mode A connection, and at sign-in we don't yet know which AI client (provider)
+    is connecting. The connection is created a moment later at the MCP initialize
+    handshake, where ``clientInfo`` names the provider. Identity comes from the
+    Google id_token in the token response.
     """
     async with SessionLocal() as db:
-        if await _create_signin_connection(db, idp_tokens) is not None:
+        if await _sync_signin_user(db, idp_tokens) is not None:
             await db.commit()
 
 
-async def _create_signin_connection(
+async def _sync_signin_user(
     db: AsyncSession, idp_tokens: Mapping[str, Any]
-) -> Connection | None:
-    """Resolve the Google id_token to the user's Mode A connection (no commit).
+) -> User | None:
+    """Resolve the Google id_token to the signed-in user (no commit).
 
     Returns None when the token response carries no id_token (e.g. a refresh
     exchange), in which case there is nothing to identify the user with here.
@@ -147,8 +150,7 @@ async def _create_signin_connection(
     if not isinstance(id_token, str) or not id_token.strip():
         return None
     userinfo = _userinfo_from_claims(_decode_jwt_claims(id_token))
-    user = await sync_google_user(db, userinfo)
-    return await mode_a_connection_for(db, user)
+    return await sync_google_user(db, userinfo)
 
 
 class _ConnectAtSignInGoogleProvider(GoogleProvider):
@@ -323,15 +325,34 @@ async def _connection_from_token(
     """Resolve a verified OAuth token to the caller's Mode A connection.
 
     Creates the connection on first sight and reuses it thereafter. ``provider``
-    is the single provider the connecting MCP client speaks for; it is enabled
-    on the connection (others are left as-is). ``None`` enables nothing — used
-    when we cannot tell which client connected. Does NOT record the call — see
-    ``mark_seen`` for the heartbeat / usage-count side of a request.
+    is the single provider the connecting MCP client speaks for — each provider
+    gets its own connection (one client == one provider). When ``provider`` is
+    ``None`` (an unidentified client) we cannot create one, so we reuse the
+    caller's single existing Mode A connection if there is exactly one, otherwise
+    raise. Does NOT record the call — see ``mark_seen`` for the heartbeat /
+    usage-count side of a request.
     """
     access_token = _require_access_token(token)
     userinfo = _google_userinfo_from_token(access_token)
     user = await sync_google_user(db, userinfo)
     connection = await mode_a_connection_for(db, user, provider=provider)
+    if connection is None:
+        # No provider to key on and no single existing connection to fall back to —
+        # we genuinely can't tell which AI client this is. Fail loud rather than
+        # guess a connection that might belong to the wrong provider.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "UNKNOWN_MCP_CLIENT",
+                    "message": (
+                        "Couldn't tell which AI client connected. Reconnect from a "
+                        "supported client (Claude Code, Codex, or Gemini CLI)."
+                    ),
+                    "details": {},
+                }
+            },
+        )
     assert_connection_usable(connection)
     return access_token, userinfo, connection
 

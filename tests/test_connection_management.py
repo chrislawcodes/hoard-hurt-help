@@ -956,6 +956,34 @@ async def test_detail_renders_provider_toggles_and_install_hint(
 
 
 @pytest.mark.asyncio
+async def test_mode_a_detail_shows_read_only_provider_not_machine_toggles(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """An MCP (Mode A) connection plays one provider via the AI client you signed
+    in with — so its detail page shows that provider read-only, NOT the machine
+    multi-provider toggle box with CLI-detection language."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mode_a_at = datetime.now(timezone.utc)
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.get(
+        f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    # The provider it plays is shown read-only…
+    assert "This is an MCP connection." in r.text
+    assert "Playing" in r.text
+    assert "Claude" in r.text
+    # …and none of the machine-connector toggle/CLI machinery appears.
+    assert "toggle-switch" not in r.text
+    assert "provider-install-hint" not in r.text
+    assert "this machine should run" not in r.text
+
+
+@pytest.mark.asyncio
 async def test_connection_controls_live_in_status_card(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -982,6 +1010,34 @@ async def test_connection_controls_live_in_status_card(
     assert r.status_code == 200
     assert "connection-controls" in r.text  # present via the included status card
     assert "<h3 style=\"margin-top:0;\">Connection controls</h3>" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_mode_a_status_card_hides_rotate_key(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Rotate Key issues a fresh paste-in key — a machine idea. An MCP connection
+    signs in over OAuth, so the control is hidden and the copy talks reconnect, not
+    'rotate the setup message' or 'this machine'."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mode_a_at = datetime.now(timezone.utc)
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.get(
+        f"/me/connections/{conn_id}/status", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    assert "connection-controls" in r.text
+    # Pause + Delete stay; Rotate Key is gone.
+    assert "Rotate Key" not in r.text
+    assert f"/me/connections/{conn_id}/rotate" not in r.text
+    assert f"/me/connections/{conn_id}/delete" in r.text
+    # Machine-flavored delete copy is replaced with sign-in language.
+    assert "Delete this machine?" not in r.text
+    assert "Sign in again from your AI client" in r.text
 
 
 @pytest.mark.asyncio
