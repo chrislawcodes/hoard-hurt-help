@@ -21,6 +21,7 @@ from app.deps import DbSession, require_user_with_handle
 from app.engine.connection_health import (
     ConnectionHealth,
     compute_connection_health,
+    provider_enabled_on_any_connection,
     provider_is_covered,
 )
 from app.engine.pending_connection_gc import gc_pending_connections
@@ -125,14 +126,35 @@ async def list_connections(
     #   LIVE      — at least one connection is LIVE or READY right now
     has_connected_before = bool(connections)
     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
+    target_provider = (
+        ConnectionProvider(provider_hint) if provider_hint is not None else None
+    )
     target_provider_live = (
-        await provider_is_covered(db, user.id, ConnectionProvider(provider_hint))
-        if provider_hint is not None
+        await provider_is_covered(db, user.id, target_provider)
+        if target_provider is not None
         else False
+    )
+    target_provider_enabled = (
+        await provider_enabled_on_any_connection(db, user.id, target_provider)
+        if target_provider is not None
+        else False
+    )
+    # Came to connect a SPECIFIC provider that isn't set up yet → lead with that
+    # provider's connect steps. Without this, a different live provider (a live
+    # Claude) makes the page read as "you're all set" and bounce the user back.
+    connect_target = (
+        target_provider is not None
+        and not target_provider_live
+        and not target_provider_enabled
+    )
+    target_provider_label = (
+        _provider_label(target_provider) if target_provider is not None else None
     )
     # Hub forward: if a join page sent the user here to start their AI and a
     # connection is already live, jump straight back instead of making them read
     # the "Connected" box. The 4s poll covers the case where it goes live later.
+    # Only short-circuit on the TARGET provider (or, with no target, any live
+    # connection) — never bounce a Gemini connect just because Claude is live.
     if next_url and (
         target_provider_live or (provider_hint is None and is_live_now)
     ):
@@ -156,6 +178,8 @@ async def list_connections(
             "next_url": next_url,
             "provider_hint": provider_hint,
             "selected_client_id": selected_client_id,
+            "connect_target": connect_target,
+            "target_provider_label": target_provider_label,
         },
     )
 

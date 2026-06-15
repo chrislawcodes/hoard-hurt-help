@@ -16,15 +16,8 @@
     <button type="button" class="btn-copy"
             onclick="copyWithFeedback(this, document.getElementById('seat-play-prompt').textContent)">Copy</button>
     <pre id="seat-play-prompt">{{ play_prompt }}</pre>
-    {% set provider_hint = none %}
-    {% if provider_label == "Claude" %}
-        {% set provider_hint = "claude" %}
-    {% elif provider_label == "Gemini" %}
-        {% set provider_hint = "gemini" %}
-    {% elif provider_label == "OpenAI" %}
-        {% set provider_hint = "openai" %}
-    {% endif %}
-    <p class="hint" style="margin-top:0.6rem;">If it says it can't find the game tools, or asks you to sign in, your connection expired — <a href="{{ connect_url }}{% if provider_hint %}&provider={{ provider_hint }}{% endif %}">reconnect {{ provider_label }} →</a></p>
+    {# connect_url already carries ?provider= for this seat's provider. #}
+    <p class="hint" style="margin-top:0.6rem;">If it says it can't find the game tools, or asks you to sign in, your connection expired — <a href="{{ connect_url }}">reconnect {{ provider_label }} →</a></p>
     <div class="form-actions" style="margin-top:0.8rem;">
         <a class="btn btn-ghost" href="/games/{{ game.game }}">Leave seat</a>
     </div>

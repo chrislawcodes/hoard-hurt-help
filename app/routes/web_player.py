@@ -550,6 +550,12 @@ async def seat_connect(
     )
     status_url = f"{match_url}/connect/{player.id}/status"
     connect_next = quote(f"{match_url}/connect/{player.id}", safe="")
+    # Carry the provider so the connections page judges THIS provider (e.g. Gemini),
+    # not "is anything of mine live". Without it, a live Claude connection makes the
+    # page think we're already set up and bounce us straight back to this page.
+    connect_url = f"/me/connections?next={connect_next}"
+    if provider is not None:
+        connect_url += f"&provider={provider.value}"
     return templates.TemplateResponse(
         request,
         "seat_connect.html",
@@ -562,7 +568,7 @@ async def seat_connect(
             "provider_label": provider_label,
             "setup_state": "returning" if is_returning else "new",
             "play_prompt": _play_prompt() if is_returning else "",
-            "connect_url": f"/me/connections?next={connect_next}",
+            "connect_url": connect_url,
             "status_url": status_url,
         },
     )
