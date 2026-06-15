@@ -12,7 +12,20 @@
    LIVE (a connection is live now) → the connect→play block: lead with the
      play-prompt to paste, then a "Your AI is playing" success box once it takes. === #}
 
-{% if is_live_now %}
+{% if connect_target %}
+    {# --- TARGETED CONNECT: the user came to set up a SPECIFIC provider that isn't
+       connected yet (e.g. they hit "Connect Gemini" on a held seat). Lead with that
+       provider's connect steps — the picker preselects it via selected_client_id —
+       instead of the per-account "you're all set" view that a different live
+       provider would otherwise trigger. --- #}
+    <div class="card" id="connect">
+        <h2 style="margin-top:0;">Connect {{ target_provider_label }}</h2>
+        <p class="hint" style="margin-bottom:0.9rem;">{{ target_provider_label }} isn't connected yet. Add its server and sign in with Google — the page moves on by itself the moment it connects.</p>
+        {% include "connections/_connect_picker.html" %}
+        {% include "connections/_live_status.html" %}
+    </div>
+
+{% elif is_live_now %}
     {# --- LIVE: lead with the post-connect block (Create-agent → play-prompt →
        "playing" success), which lives in _live_status.html. --- #}
     <div class="card" id="connect">

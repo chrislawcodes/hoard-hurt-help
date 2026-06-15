@@ -366,6 +366,28 @@ async def test_connections_page_forwards_to_next_when_already_live(client, reset
 
 
 @pytest.mark.asyncio
+async def test_connect_target_provider_not_bounced_by_a_different_live_provider(
+    client, reset_db
+):
+    """The bug: hitting /me/connections?provider=gemini while a DIFFERENT provider
+    (Claude) is live must NOT bounce straight back. Gemini isn't connected, so the
+    page leads with the Gemini connect steps instead of 'you're all set'."""
+    user = await _user_with_handle(reset_db)
+    async with reset_db() as db:
+        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+        connection, _ = await make_connection(db, u)  # Claude, by default
+        connection.last_seen_at = datetime.now(timezone.utc)  # Claude is LIVE
+        await db.commit()
+    r = await client.get(
+        f"/me/connections?provider=gemini&next={JOIN_NEXT}",
+        cookies=_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 200  # rendered, NOT bounced back
+    assert "Connect Gemini" in r.text  # leads with the Gemini connect steps
+
+
+@pytest.mark.asyncio
 async def test_connections_page_waits_when_not_live(client, reset_db):
     # Not live yet: render the page (no forward), and the poll fragment carries
     # ?next so it can forward once the AI connects.
