@@ -1,15 +1,38 @@
-"""Marketing, game catalog, play hub, and lobby web routes."""
+"""Lobby + 'upcoming' fragment routes, and the aggregated human web router.
 
-import asyncio
-import dataclasses
+The human-facing web surface that used to live in this one file is now split
+into focused sibling modules:
+
+* ``web_front_page``      — the Agent Ludum marketing front page (``/``)
+* ``web_games_catalog``   — the game catalog and play hub
+* ``web_leaderboard``     — the global leaderboard
+* ``web_legacy_redirects``— legacy ``/play/...`` -> ``/games/...`` redirects
+* ``web_account_notice``  — the public ``/disabled`` account notice
+
+This module keeps the lobby board (``/games/{game}``) and its polled
+``/games/{game}/upcoming`` fragment. They stay here on purpose: tests
+monkeypatch ``app.routes.web_lobby.cancel_overdue_unfilled_games``,
+``app.routes.web_lobby._upcoming_views``, and (via ``_showcase_replay_data``)
+``app.routes.web_lobby._game_view_context``. Those handlers resolve those names
+from *this* module's namespace, so the handlers must be defined here for the
+patches to take effect.
+
+``router`` aggregates every sibling router plus the lobby routes, so
+``app.routes.web`` still mounts just ``web_lobby.router`` and the full URL
+surface is preserved unchanged. It also re-exports the moved public symbols so
+other modules and tests can keep importing them from ``app.routes.web_lobby``.
+"""
+
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from urllib.parse import urlencode
 from typing import Any
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -17,17 +40,22 @@ from app.deps import DbSession, get_current_user
 from app.engine.connection_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
-from app.games import is_admin_only, visible_types
+from app.games import is_admin_only
 from app.games.base import GameError
 from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.ops_events import log_ops_event
-from app.read_models.leaderboard_cache import load_leaderboard_sections_cached
-from app.routes.showcase_replay import load_showcase_replay_cached
 from app.read_models.agent_display import agent_display_name
 from app.read_models.matches import count_players_by_match
+from app.routes import (
+    web_account_notice,
+    web_front_page,
+    web_games_catalog,
+    web_leaderboard,
+    web_legacy_redirects,
+)
 from app.routes.web_support import (
     _TEST_NAME_PREFIX,
     _is_any_admin,
@@ -39,25 +67,27 @@ from app.routes.web_support import (
 )
 from app.routes.viewer_presentation import _build_rc_data, sample_replay_data
 from app.routes.web_viewer import _game_view_context
+
+# Re-export the moved public symbols so existing imports from this module keep
+# working without change.
+from app.routes.web_front_page import home
+from app.routes.web_games_catalog import (
+    _game_display_name,
+    _game_tagline,
+    agent_instructions_page,
+    games_catalog,
+    operator_join_page,
+)
+from app.routes.web_leaderboard import _leaderboard_url, leaderboard_page
+from app.routes.web_legacy_redirects import (
+    legacy_play_redirect,
+    legacy_play_upcoming_redirect,
+)
+from app.routes.web_account_notice import account_disabled
 from app.templating import templates
 
-router = APIRouter(tags=["web"])
 logger = logging.getLogger(__name__)
 
-
-def _game_display_name(game_type: str) -> str:
-    if game_type == "hoard-hurt-help":
-        return "Hoard · Hurt · Help"
-    if game_type == "liars-dice":
-        return "Liar's Dice"
-    return game_type.replace("-", " ").title()
-
-
-def _game_tagline(game_type: str) -> str:
-    return {
-        "hoard-hurt-help": "A multiplayer game of trust and betrayal for AI agents.",
-        "liars-dice": "A game of dice, bluffing, and nerve for AI agents.",
-    }.get(game_type, "")
 
 async def _showcase_replay_data(
     request: Request, db, completed_views: list[dict]
@@ -93,28 +123,6 @@ def _lobby_timestamp(match: Match) -> datetime:
     """Pick the timestamp we want to show for a finished or cancelled match."""
 
     return match.completed_at or match.cancelled_at or match.started_at or match.scheduled_start
-
-
-def _leaderboard_url(
-    request: Request,
-    *,
-    rating: str | None = None,
-    included: str | None = None,
-    hide_sim_games: bool | None = None,
-) -> str:
-    """Build a leaderboard link while preserving the other active filters."""
-
-    params = dict(request.query_params)
-    if rating is not None:
-        params["rating"] = rating
-    if included is not None:
-        params["included"] = included
-    if hide_sim_games is not None:
-        if hide_sim_games:
-            params["hide_sim_games"] = "1"
-        else:
-            params.pop("hide_sim_games", None)
-    return f"/leaderboard?{urlencode(params)}" if params else "/leaderboard"
 
 
 async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
@@ -228,191 +236,12 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
     }
 
 
-@router.get("/", response_class=HTMLResponse)
-async def home(request: Request, db: DbSession):
-    """Agent Ludum platform front page (marketing).
-
-    Static explainer + funnel, plus two real-data regions: the hero match card
-    (a real finished game's replay) and the leaderboard band (real standings).
-    Both come from stale-while-revalidate caches — the showcase game and the
-    standings are the same for every visitor, so a stale request is served the
-    cached copy instantly while a background refresh runs. Both fall back to
-    honest empty states. The two cached reads are independent, so we run them
-    concurrently (each manages its own session). The Hoard·Hurt·Help lobby
-    itself lives one level down at `/games/hoard-hurt-help`.
-    """
-    user = await get_current_user(request, db)
-    viewer_is_admin = _is_any_admin(user)
-
-    # Two independent cached reads, run concurrently.
-    (rc_game_id, rc_data, rc_game_type), lb_sections_full = await asyncio.gather(
-        load_showcase_replay_cached(),
-        load_leaderboard_sections_cached(included="all"),
-    )
-
-    # Leaderboard band: top 8 per game section for the home page teaser.
-    lb_sections = [dataclasses.replace(s, rows=s.rows[:8]) for s in lb_sections_full]
-    if not viewer_is_admin:
-        lb_sections = [s for s in lb_sections if not is_admin_only(s.game_type)]
-
-    return templates.TemplateResponse(
-        request,
-        "agent_ludum.html",
-        {
-            "user": user,
-            "is_admin": viewer_is_admin,
-            "rc_data": rc_data,
-            "rc_game_id": rc_game_id,
-            "rc_game_type": rc_game_type,
-            "lb_sections": lb_sections,
-        },
-    )
+# Lobby board + polled 'upcoming' fragment. Defined on a local router; spliced
+# into the aggregated `router` below in the original registration order.
+_lobby_router = APIRouter(tags=["web"])
 
 
-@router.get("/games", response_class=HTMLResponse)
-async def games_catalog(request: Request, db: DbSession):
-    """Catalog of the platform's playable game titles."""
-    user = await get_current_user(request, db)
-    is_admin = _is_any_admin(user)
-    games = [
-        {
-            "slug": slug,
-            "name": _game_display_name(slug),
-            "tagline": _game_tagline(slug),
-            "admin_only": is_admin_only(slug),
-        }
-        for slug in visible_types(include_admin_only=is_admin)
-    ]
-    return templates.TemplateResponse(
-        request,
-        "games.html",
-        {
-            "user": user,
-            "is_admin": is_admin,
-            "games": games,
-        },
-    )
-
-
-@router.get("/leaderboard", response_class=HTMLResponse)
-async def leaderboard_page(
-    request: Request,
-    db: DbSession,
-    rating: str = "standard",
-    included: str = "agents",
-    hide_sim_games: bool = False,
-):
-    """Global leaderboard, grouped by game."""
-    user = await get_current_user(request, db)
-    rating_mode = "bonus" if rating == "bonus" else "standard"
-    included_mode = "sims" if included == "sims" else "all" if included == "all" else "agents"
-    sections = await load_leaderboard_sections_cached(
-        rating_mode=rating_mode,
-        included=included_mode,
-    )
-    if hide_sim_games:
-        sections = [section for section in sections if not section.has_bots]
-    # Hide admin-only (under-construction) game sections from non-admins.
-    if not _is_any_admin(user):
-        sections = [s for s in sections if not is_admin_only(s.game_type)]
-    return templates.TemplateResponse(
-        request,
-        "leaderboard.html",
-        {
-            "user": user,
-            "is_admin": _is_any_admin(user),
-            "sections": sections,
-            "rating_mode": rating_mode,
-            "included": included_mode,
-            "hide_sim_games": hide_sim_games,
-            "rating_standard_url": _leaderboard_url(
-                request, rating="standard", included=included_mode, hide_sim_games=hide_sim_games
-            ),
-            "rating_bonus_url": _leaderboard_url(
-                request, rating="bonus", included=included_mode, hide_sim_games=hide_sim_games
-            ),
-            "included_agents_url": _leaderboard_url(
-                request, rating=rating_mode, included="agents", hide_sim_games=hide_sim_games
-            ),
-            "included_bots_url": _leaderboard_url(
-                request, rating=rating_mode, included="sims", hide_sim_games=hide_sim_games
-            ),
-            "included_all_url": _leaderboard_url(
-                request, rating=rating_mode, included="all", hide_sim_games=hide_sim_games
-            ),
-            "bot_games_show_url": _leaderboard_url(
-                request, rating=rating_mode, included=included_mode, hide_sim_games=False
-            ),
-            "bot_games_hide_url": _leaderboard_url(
-                request, rating=rating_mode, included=included_mode, hide_sim_games=True
-            ),
-        },
-    )
-
-
-@router.get("/play")
-async def operator_join_page(request: Request, db: DbSession):
-    """Smart redirect: sends each visitor to the right next step.
-
-    Not signed in → sign in (returning to agent setup).
-    No handle → pick a handle first (agent setup requires one).
-    No connected agent → the agents panel (create one, or connect it).
-    Connected agent → lobby where they can join a match.
-    """
-    user = await get_current_user(request, db)
-
-    if user is None:
-        return RedirectResponse(
-            "/auth/google/login?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
-        )
-
-    if not user.handle:
-        return RedirectResponse(
-            "/me/handle?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
-        )
-
-    return RedirectResponse("/games/hoard-hurt-help#lobby-upcoming", status_code=status.HTTP_302_FOUND)
-
-
-@router.get("/play/{game}", response_class=HTMLResponse)
-async def legacy_play_redirect(game: Annotated[str, Path()]):
-    return RedirectResponse(url=f"/games/{game}", status_code=status.HTTP_301_MOVED_PERMANENTLY)
-
-
-@router.get("/games/{game}/agent-instructions", response_class=HTMLResponse)
-async def agent_instructions_page(
-    request: Request,
-    db: DbSession,
-    game: Annotated[str, Path()],
-):
-    """Show the canonical base prompt supplied separately from agent strategy."""
-    try:
-        module = get_game_module(game)
-    except GameError as exc:
-        raise HTTPException(status_code=404, detail="Game not found.") from exc
-    user = await get_current_user(request, db)
-    defaults = module.config_defaults()
-    base_prompt = module.agent_base_prompt(
-        your_agent_id="<your agent ID>",
-        all_agent_ids=["<your agent ID>", "<other agent IDs>"],
-        total_rounds=defaults.total_rounds,
-        turns_per_round=defaults.turns_per_round,
-    )
-    return templates.TemplateResponse(
-        request,
-        "agent_instructions.html",
-        {
-            "user": user,
-            "is_admin": _is_any_admin(user),
-            "game": game,
-            "game_name": _game_display_name(game),
-            "game_theme": module.theme(),
-            "base_prompt": base_prompt,
-        },
-    )
-
-
-@router.get("/games/{game}", response_class=HTMLResponse)
+@_lobby_router.get("/games/{game}", response_class=HTMLResponse)
 async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path()]):
     """Lobby for a game title, or a legacy redirect for old match ids."""
     try:
@@ -582,7 +411,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     )
 
 
-@router.get("/games/{game}/upcoming", response_class=HTMLResponse)
+@_lobby_router.get("/games/{game}/upcoming", response_class=HTMLResponse)
 async def game_upcoming(request: Request, db: DbSession, game: Annotated[str, Path()]):
     """Polled fragment of the lobby's 'Upcoming' list, reconciled on each fetch.
 
@@ -619,21 +448,65 @@ async def game_upcoming(request: Request, db: DbSession, game: Annotated[str, Pa
     )
 
 
-@router.get("/play/{game}/upcoming", response_class=HTMLResponse)
-async def legacy_play_upcoming_redirect(game: Annotated[str, Path()]):
-    return RedirectResponse(
-        url=f"/games/{game}/upcoming", status_code=status.HTTP_301_MOVED_PERMANENTLY
-    )
+# Aggregate every human web route onto a single router so app.routes.web can
+# keep mounting just `web_lobby.router`. The front page is served at the empty
+# path (""), which `include_router` rejects when the parent prefix is also empty
+# ("Prefix and path cannot be both empty"). Splicing each sub-router's routes
+# preserves every path, method, and dependency exactly while keeping the
+# empty-path route. Order matches the original single-file registration order so
+# route matching is identical (literal `/games` and `/play` registered before
+# the `/games/{game}` and `/play/{game}` capture routes).
+def _route_by_path(sub_router: APIRouter, path: str) -> Any:
+    """Pick a single registered route from a sub-router by its exact path.
+
+    Lets us splice routes in the original single-file order regardless of how
+    they happen to sit inside each sub-router.
+    """
+    for route in sub_router.routes:
+        if getattr(route, "path", None) == path:
+            return route
+    raise RuntimeError(f"route {path!r} not found on sub-router")
 
 
-@router.get("/disabled", response_class=HTMLResponse)
-async def account_disabled(
-    request: Request,
-    db: DbSession,
-) -> HTMLResponse:
-    user = await get_current_user(request, db)
-    return templates.TemplateResponse(
-        request,
-        "disabled.html",
-        {"user": user, "is_admin": False},
-    )
+router = APIRouter(tags=["web"])
+# Original single-file registration order, preserved exactly so route matching
+# is identical (literal `/games` and `/play` registered before the
+# `/games/{game}` and `/play/{game}` capture routes).
+router.routes.extend(web_front_page.router.routes)  # /
+router.routes.append(_route_by_path(web_games_catalog.router, "/games"))
+router.routes.extend(web_leaderboard.router.routes)  # /leaderboard
+router.routes.append(_route_by_path(web_games_catalog.router, "/play"))
+router.routes.append(_route_by_path(web_legacy_redirects.router, "/play/{game}"))
+router.routes.append(
+    _route_by_path(web_games_catalog.router, "/games/{game}/agent-instructions")
+)
+router.routes.extend(_lobby_router.routes)  # /games/{game}, /games/{game}/upcoming
+router.routes.append(_route_by_path(web_legacy_redirects.router, "/play/{game}/upcoming"))
+router.routes.extend(web_account_notice.router.routes)  # /disabled
+
+
+__all__ = [
+    "router",
+    # Lobby board + fragment (defined here).
+    "game_lobby",
+    "game_upcoming",
+    "_showcase_replay_data",
+    "_lobby_timestamp",
+    "_lobby_recent_views",
+    # Names tests monkeypatch on this module; kept importable from here.
+    "cancel_overdue_unfilled_games",
+    "_upcoming_views",
+    "_game_view_context",
+    # Re-exported public symbols from the split sibling modules.
+    "home",
+    "games_catalog",
+    "operator_join_page",
+    "agent_instructions_page",
+    "_game_display_name",
+    "_game_tagline",
+    "leaderboard_page",
+    "_leaderboard_url",
+    "legacy_play_redirect",
+    "legacy_play_upcoming_redirect",
+    "account_disabled",
+]
