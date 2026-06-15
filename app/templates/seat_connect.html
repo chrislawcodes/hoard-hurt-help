@@ -8,9 +8,11 @@
 </div>
 <div class="card form seat-connect">
 {% if setup_state == "returning" %}
-    {# RETURNING: {{ provider_label }} is already set up, just not running. A light
-       nudge — paste the play-prompt to wake it — with reconnect as the fallback. #}
-    <p>Your {{ provider_label }} is already set up — it just isn't running right now. Paste this to your AI to wake it and play:</p>
+    {# RETURNING: {{ provider_label }}'s MCP server is set up, it just isn't checking
+       for turns yet. Make that explicit so the user doesn't think they need to set
+       the connection up again — they only need to tell their AI to start checking.
+       Reconnect is the fallback if the connection actually expired. #}
+    <p>✓ Your {{ provider_label }} MCP server is connected — you don't need to set it up again. {{ provider_label }} just isn't checking for your turns yet. Paste this into {{ provider_label }} to tell it to start checking and play:</p>
     <button type="button" class="btn-copy"
             onclick="copyWithFeedback(this, document.getElementById('seat-play-prompt').textContent)">Copy</button>
     <pre id="seat-play-prompt">{{ play_prompt }}</pre>

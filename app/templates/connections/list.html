@@ -32,7 +32,7 @@
        add-server picker is collapsed behind "✓ Set up". --- #}
     <div class="card" id="connect">
         <h2 style="margin-top:0;">Start playing</h2>
-        <p class="hint" style="margin-bottom:0.9rem;">You've connected before. Paste this to your AI to start playing again:</p>
+        <p class="hint" style="margin-bottom:0.9rem;">✓ Your MCP server is already connected — you don't need to set it up again. Your AI just needs to be told to start checking for your turns. Paste this to your AI:</p>
         <button type="button" class="btn-copy"
                 onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt').textContent)">Copy</button>
         <pre id="byo-play-prompt">{{ play_prompt }}</pre>
