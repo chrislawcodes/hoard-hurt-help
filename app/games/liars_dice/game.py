@@ -23,7 +23,7 @@ from app.games.liars_dice.engine import (
     roll,
 )
 from app.games.liars_dice.rules_text import make_game_rules_text, make_rules_text
-from app.games.liars_dice.strategy import LD_DEFAULT_STRATEGY
+from app.games.liars_dice.strategy import LD_DEFAULT_STRATEGY, LD_STRATEGY_PRESETS
 from app.models.game_state import MatchState, PlayerState
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -213,7 +213,7 @@ class LiarsDice(BaseGameModule):
         )
 
     def strategy_presets(self) -> list[StrategyPreset]:
-        return []
+        return LD_STRATEGY_PRESETS
 
     def default_strategy(self) -> str:
         return LD_DEFAULT_STRATEGY
