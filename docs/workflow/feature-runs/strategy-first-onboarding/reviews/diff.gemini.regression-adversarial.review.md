@@ -10,7 +10,7 @@ git_base_ref: "b1fb0c74d1323109bc3749928e2144af365cccbe"
 git_base_sha: "b1fb0c74d1323109bc3749928e2144af365cccbe"
 generation_method: "gemini-cli"
 resolution_status: "accepted"
-resolution_note: "CP2 diff: no actionable findings."
+resolution_note: "CP3 diff: no actionable findings."
 raw_output_path: "docs/workflow/feature-runs/strategy-first-onboarding/reviews/diff.gemini.regression-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -52,4 +52,4 @@ coverage_note: ""
 
 ## Resolution
 - status: accepted
-- note: CP2 diff: no actionable findings.
+- note: CP3 diff: no actionable findings.

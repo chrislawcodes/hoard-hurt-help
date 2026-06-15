@@ -1,239 +1,50 @@
-diff --git a/app/routes/agents_create.py b/app/routes/agents_create.py
-index 94d51b7..699fed5 100644
---- a/app/routes/agents_create.py
-+++ b/app/routes/agents_create.py
-@@ -8,6 +8,8 @@ creates the Agent + its first AgentVersion.
- from __future__ import annotations
+diff --git a/app/routes/web_player.py b/app/routes/web_player.py
+index 91b8903..89b694a 100644
+--- a/app/routes/web_player.py
++++ b/app/routes/web_player.py
+@@ -15,7 +15,6 @@ from app.config import PROVIDER_MODELS, settings
+ from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
+ from app.engine.connection_health import (
+     active_matches_for_provider,
+-    enabled_provider_values,
+     is_join_blocked,
+     live_provider_capacity,
+     provider_enabled_on_any_connection,
+@@ -178,30 +177,19 @@ async def _join_setup_redirect(
+     the join form. We carry ``?next`` so finishing that step returns here.
  
- from typing import Annotated
-+from urllib.parse import quote
+     Joining needs, in order:
+-      1. a connected AI client — which enables that client's provider, and
+-      2. an AI agent built on a connected provider.
+-
+-    So when the user has no agent at all, we branch on whether any provider is
+-    connected yet:
+-      - no enabled provider -> /me/connections   (connect a client first; creating
+-        an agent here would dead-end, since it requires a connected provider)
+-      - has a provider       -> /me/agents/new     (create the agent)
+-
+-    Once the user HAS an AI agent we fall through to the form, even if that
+-    agent's provider is offline: the form shows every agent grouped by provider
+-    (including "Not connected" ones), and picking one seats it held while the next
+-    screen walks them through connecting.
++      1. a handle,
++      2. an AI agent, and
++      3. a live provider for that agent.
 +
- from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
- from fastapi.responses import HTMLResponse, RedirectResponse
- from sqlalchemy import String, select
-@@ -15,7 +17,7 @@ from starlette.responses import Response
- 
- from app.config import PROVIDER_MODELS, provider_for_model
- from app.deps import DbSession, require_user_with_handle
--from app.engine.connection_health import enabled_provider_values
-+from app.engine.connection_health import enabled_provider_values, provider_is_covered
- from app.engine.pending_connection_gc import gc_pending_connections
- from app.games import get as get_game_module, known_types
- from app.models.agent import Agent, AgentKind, AgentStatus
-@@ -224,9 +226,15 @@ async def create_agent_or_connection(
-         await db.flush()
-         agent.current_version_id = version.id
-         await db.commit()
--        # If a join hub (or other page) sent the user here with ?next, forward
--        # back there now that the agent exists, instead of the agent detail page.
--        destination = safe_internal_next(next_after) or f"/me/agents/{agent.id}"
-+        next_url = safe_internal_next(next_after)
-+        # If the provider is already live, skip the connect step and continue to
-+        # the next hop (or the agent detail page when no next was supplied).
-+        if await provider_is_covered(db, user.id, agent_provider):
-+            destination = next_url or f"/me/agents/{agent.id}"
-+        else:
-+            destination = f"/me/connections?provider={agent_provider.value}"
-+            if next_url is not None:
-+                destination += f"&next={quote(next_url, safe='')}"
-         return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
- 
-     raise HTTPException(status_code=400, detail="Agent name is required.")
-diff --git a/app/routes/connections_pages.py b/app/routes/connections_pages.py
-index dc43fc2..7c03e0a 100644
---- a/app/routes/connections_pages.py
-+++ b/app/routes/connections_pages.py
-@@ -18,7 +18,11 @@ from starlette.responses import Response
- 
- from app.config import PROVIDER_MODELS, settings
- from app.deps import DbSession, require_user_with_handle
--from app.engine.connection_health import ConnectionHealth, compute_connection_health
-+from app.engine.connection_health import (
-+    ConnectionHealth,
-+    compute_connection_health,
-+    provider_is_covered,
-+)
- from app.engine.pending_connection_gc import gc_pending_connections
- from app.models.connection import Connection, ConnectionProvider
- from app.models.user import User
-@@ -45,6 +49,32 @@ from app.templating import templates
- 
- router = APIRouter()
- 
-+_PROVIDER_CLIENT_IDS = {
-+    ConnectionProvider.CLAUDE.value: "claude-code",
-+    ConnectionProvider.GEMINI.value: "gemini",
-+    ConnectionProvider.OPENAI.value: "codex",
-+}
-+
-+
-+def _normalized_provider_hint(provider: str | None) -> str | None:
-+    if provider is None:
-+        return None
-+    cleaned = provider.strip().lower()
-+    if not cleaned:
-+        return None
-+    try:
-+        ConnectionProvider(cleaned)
-+    except ValueError:
-+        return None
-+    return cleaned
-+
-+
-+def _selected_client_id(provider: str | None) -> str | None:
-+    normalized = _normalized_provider_hint(provider)
-+    if normalized is None:
-+        return None
-+    return _PROVIDER_CLIENT_IDS.get(normalized)
-+
- 
- @router.get("", response_class=HTMLResponse)
- async def list_connections(
-@@ -52,8 +82,11 @@ async def list_connections(
-     db: DbSession,
-     user: Annotated[User, Depends(require_user_with_handle)],
-     next: str | None = None,
-+    provider: str | None = None,
- ) -> Response:
-     next_url = safe_internal_next(next)
-+    provider_hint = _normalized_provider_hint(provider)
-+    selected_client_id = _selected_client_id(provider_hint)
-     await gc_pending_connections(db)
-     connections = (
-         (
-@@ -92,10 +125,17 @@ async def list_connections(
-     #   LIVE      — at least one connection is LIVE or READY right now
-     has_connected_before = bool(connections)
-     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
-+    target_provider_live = (
-+        await provider_is_covered(db, user.id, ConnectionProvider(provider_hint))
-+        if provider_hint is not None
-+        else False
-+    )
-     # Hub forward: if a join page sent the user here to start their AI and a
-     # connection is already live, jump straight back instead of making them read
-     # the "Connected" box. The 4s poll covers the case where it goes live later.
--    if next_url and is_live_now:
-+    if next_url and (
-+        target_provider_live or (provider_hint is None and is_live_now)
-+    ):
-         return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
-     return templates.TemplateResponse(
-         request,
-@@ -114,6 +154,8 @@ async def list_connections(
-             "agent_summary": agent_summary,
-             "lobby_url": "/games/hoard-hurt-help",
-             "next_url": next_url,
-+            "provider_hint": provider_hint,
-+            "selected_client_id": selected_client_id,
-         },
-     )
- 
-@@ -124,6 +166,7 @@ async def live_status_fragment(
-     db: DbSession,
-     user: Annotated[User, Depends(require_user_with_handle)],
-     next: str | None = None,
-+    provider: str | None = None,
- ) -> Response:
-     """The self-advancing connect → play region, polled every 4s.
- 
-@@ -137,8 +180,13 @@ async def live_status_fragment(
-     hub — the same auto-advance the page does on load, but for the poll path.
++    If the user has no AI agent yet, we always send them to create one first.
++    The create flow itself will decide whether the next step is connecting that
++    agent's provider or returning straight here.
      """
-     next_url = safe_internal_next(next)
-+    provider_hint = _normalized_provider_hint(provider)
-     context = await _live_status_context(db, user, next_url=next_url)
--    if next_url and context["is_live_now"]:
-+    context["provider_hint"] = provider_hint
-+    if next_url and (
-+        (provider_hint is not None and await provider_is_covered(db, user.id, ConnectionProvider(provider_hint)))
-+        or (provider_hint is None and context["is_live_now"])
-+    ):
-         # HTMX honors HX-Redirect by navigating the whole page. An empty body is
-         # fine since the redirect replaces this fragment's container entirely.
-         return HTMLResponse("", headers={"HX-Redirect": next_url})
-diff --git a/app/templates/agents/new.html b/app/templates/agents/new.html
-index f944517..c007168 100644
---- a/app/templates/agents/new.html
-+++ b/app/templates/agents/new.html
-@@ -25,7 +25,7 @@
-                 {% endfor %}
-             </select>
-             {% for note in availability_notes %}
--            <small class="hint">{{ note.provider_label }} isn't connected yet — <a href="/me/connections{% if next_url %}?next={{ next_url | urlencode }}{% endif %}">connect {{ note.provider_label }} →</a> to use {{ note.provider_label }} models.</small>
-+            <small class="hint">{{ note.provider_label }} isn't connected yet — <a href="/me/connections{% if next_url or note.provider_value %}?{% if note.provider_value %}provider={{ note.provider_value }}{% endif %}{% if next_url %}{% if note.provider_value %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}">connect {{ note.provider_label }} →</a> to use {{ note.provider_label }} models.</small>
-             {% endfor %}
-         </label>
-         <label>
-diff --git a/app/templates/connections/_connect_picker.html b/app/templates/connections/_connect_picker.html
-index 51c3044..5fd337f 100644
---- a/app/templates/connections/_connect_picker.html
-+++ b/app/templates/connections/_connect_picker.html
-@@ -1,18 +1,19 @@
- {# CSS-only provider picker (the byo-tabs pattern). Claude Code is checked first
--   (the audience default); Codex carries an "Easiest" badge as the only fully
--   copy-paste, zero-/mcp sign-in. Each command provider lays the
--   act of connecting out as numbered sub-steps so it reads as a sequence:
-+   by default; a page can pass `selected_client_id` to preselect a specific tab.
-+   Codex carries an "Easiest" badge as the only fully copy-paste, zero-/mcp
-+   sign-in. Each command provider lays the act of connecting out as numbered
-+   sub-steps so it reads as a sequence:
-      step 1 "Paste this in your terminal" — the add command (one paste);
-      step 2 "Sign in with Google" — a second paste block if the provider needs one
-        (e.g. Claude Code's /mcp), otherwise just what to expect.
-    GUI providers (Claude Desktop) render as numbered click-through steps. Every
-    copyable block puts the Copy button to the RIGHT of the text, not above it.
-    The "You're connected" payoff is a separate region (see _live_status.html).
--   Expects `connect_options` in context. #}
-+   Expects `connect_options` and optional `selected_client_id` in context. #}
- <div class="byo-tabs">
-     {% for opt in connect_options %}
-     <input type="radio" name="byo-client" id="byo-tab-{{ opt.client_id }}"
--           class="byo-tab-input"{% if loop.first %} checked{% endif %}>
-+           class="byo-tab-input"{% if opt.client_id == selected_client_id or (not selected_client_id and loop.first) %} checked{% endif %}>
-     {% endfor %}
- 
-     <div class="byo-tab-labels" role="tablist">
-diff --git a/app/templates/connections/_live_status.html b/app/templates/connections/_live_status.html
-index e43a8c6..d79ee9d 100644
---- a/app/templates/connections/_live_status.html
-+++ b/app/templates/connections/_live_status.html
-@@ -10,7 +10,7 @@
-    has an agent, since that's when there are games to play. Expects `play_prompt`,
-    `has_agent`, `agent_summary`, `is_live_now`, `is_playing_now`, `lobby_url`. #}
- <div id="live-status"
--     hx-get="/me/connections/live-status{% if next_url %}?next={{ next_url | urlencode }}{% endif %}"
-+     hx-get="/me/connections/live-status{% if next_url or provider_hint %}?{% if provider_hint %}provider={{ provider_hint }}{% endif %}{% if next_url %}{% if provider_hint %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}"
-      hx-trigger="every 4s"
-      hx-swap="outerHTML">
-     {% if is_playing_now %}
-@@ -54,7 +54,7 @@
-                 <p class="byo-next-label">Next step</p>
-                 <h3 class="byo-next-title">Create your agent</h3>
-                 <p class="byo-next-body">Your agent is your AI player — the model it uses and the strategy it follows. Make one and you're ready to enter games.</p>
--                <a class="btn btn-primary" href="/me/agents/new{% if next_url %}?next={{ next_url | urlencode }}{% endif %}">Create your agent →</a>
-+                <a class="btn btn-primary" href="/me/agents/new{% if next_url or provider_hint %}?{% if provider_hint %}provider={{ provider_hint }}{% endif %}{% if next_url %}{% if provider_hint %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}">Create your agent →</a>
-             {% endif %}
-         </div>
-     {% else %}
-diff --git a/app/templates/seat_connect.html b/app/templates/seat_connect.html
-index 5318309..d1c7a5f 100644
---- a/app/templates/seat_connect.html
-+++ b/app/templates/seat_connect.html
-@@ -14,7 +14,15 @@
-     <button type="button" class="btn-copy"
-             onclick="copyWithFeedback(this, document.getElementById('seat-play-prompt').textContent)">Copy</button>
-     <pre id="seat-play-prompt">{{ play_prompt }}</pre>
--    <p class="hint" style="margin-top:0.6rem;">If it says it can't find the game tools, or asks you to sign in, your connection expired — <a href="{{ connect_url }}">reconnect {{ provider_label }} →</a></p>
-+    {% set provider_hint = none %}
-+    {% if provider_label == "Claude" %}
-+        {% set provider_hint = "claude" %}
-+    {% elif provider_label == "Gemini" %}
-+        {% set provider_hint = "gemini" %}
-+    {% elif provider_label == "OpenAI" %}
-+        {% set provider_hint = "openai" %}
-+    {% endif %}
-+    <p class="hint" style="margin-top:0.6rem;">If it says it can't find the game tools, or asks you to sign in, your connection expired — <a href="{{ connect_url }}{% if provider_hint %}&provider={{ provider_hint }}{% endif %}">reconnect {{ provider_label }} →</a></p>
-     <div class="form-actions" style="margin-top:0.8rem;">
-         <a class="btn btn-ghost" href="/games/{{ game.game }}">Leave seat</a>
-     </div>
+     agents = await _load_user_agents(db, user.id)
+     has_ai_agent = any(agent.kind == AgentKind.AI for agent, _version in agents)
+     if has_ai_agent:
+         return None
+     next_param = quote(join_url, safe="")
+-    if not await enabled_provider_values(db, user.id):
+-        return RedirectResponse(
+-            url=f"/me/connections?next={next_param}",
+-            status_code=status.HTTP_303_SEE_OTHER,
+-        )
+     return RedirectResponse(
+         url=f"/me/agents/new?next={next_param}",
+         status_code=status.HTTP_303_SEE_OTHER,
