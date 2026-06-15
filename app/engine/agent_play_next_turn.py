@@ -21,6 +21,7 @@ from sqlalchemy.orm import joinedload
 
 import app.db as db_module
 from app.engine.agent_idle import IdleStatus, compute_idle_status
+from app.engine.connection_activity import mark_polled
 from app.engine.agent_play_guards import (
     _LONG_POLL_HOLD_SECONDS,
     _LONG_POLL_INTERVAL_SECONDS,
@@ -366,6 +367,10 @@ async def get_next_turn(
     deadline = asyncio.get_event_loop().time() + max(0.0, hold_seconds)
 
     now = datetime.now(timezone.utc)
+    # The play-loop heartbeat: reaching here means the AI is actively polling for
+    # turns. Stamp it (throttled) before serving so seating can tell a running loop
+    # from a one-off sign-in. Its own commit, so the later rollbacks don't undo it.
+    await mark_polled(db, connection, now=now)
     served = await _serve_one_turn(db, connection, now)
     if served is not None:
         return served

@@ -23,6 +23,7 @@ from app.engine.connection_health import (
     is_join_blocked,
     live_provider_capacity,
     provider_is_covered,
+    provider_loop_running,
 )
 from app.models import Base
 from app.models.agent import AgentStatus
@@ -47,6 +48,62 @@ def _recently() -> datetime:
 def _cold() -> datetime:
     """A check-in 10 minutes ago — outside the live window."""
     return datetime.now(timezone.utc) - timedelta(minutes=10)
+
+
+# ---------------------------------------------------------------------------
+# provider_loop_running — "is an AI actually playing", keyed off last_polled_at
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_loop_running_true_when_recently_polled(
+    db_session: AsyncSession,
+) -> None:
+    user = await make_user(db_session, 30)
+    conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.last_polled_at = datetime.now(timezone.utc) - timedelta(seconds=20)
+    await db_session.flush()
+    assert await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
+
+
+@pytest.mark.asyncio
+async def test_loop_running_false_when_seen_but_never_polled(
+    db_session: AsyncSession,
+) -> None:
+    """The core distinction: a connection SEEN just now (a sign-in handshake) but
+    that never polled get_next_turn is NOT running the loop — even though
+    provider_is_covered would call it 'live'."""
+    user = await make_user(db_session, 31)
+    conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.last_seen_at = datetime.now(timezone.utc)  # seen → "covered" says live
+    conn.last_polled_at = None  # but no play loop ever ran
+    await db_session.flush()
+    assert await provider_is_covered(db_session, user.id, ConnectionProvider.CLAUDE)
+    assert not await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
+
+
+@pytest.mark.asyncio
+async def test_loop_running_false_when_poll_is_stale(
+    db_session: AsyncSession,
+) -> None:
+    user = await make_user(db_session, 32)
+    conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.last_polled_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    await db_session.flush()
+    assert not await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
+
+
+@pytest.mark.asyncio
+async def test_loop_running_false_when_paused(
+    db_session: AsyncSession,
+) -> None:
+    user = await make_user(db_session, 33)
+    conn, _ = await make_connection(
+        db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.PAUSED
+    )
+    conn.last_polled_at = datetime.now(timezone.utc)
+    await db_session.flush()
+    assert not await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
 
 
 def _now() -> datetime:

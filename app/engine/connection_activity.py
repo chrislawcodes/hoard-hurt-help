@@ -40,6 +40,9 @@ _PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
 _LIVE_WINDOW_SECONDS = 90
 # Don't rewrite last_seen_at on every fast poll — once per this interval is plenty.
 _HEARTBEAT_THROTTLE_SECONDS = 10
+# Same idea for the play-loop heartbeat (last_polled_at): get_next_turn can fire
+# rapidly when idle (instant no_game reply), so throttle the write.
+_POLL_THROTTLE_SECONDS = 10
 
 
 def _as_aware(dt: datetime) -> datetime:
@@ -145,6 +148,32 @@ async def mark_seen(
 
     if first:
         await broadcast.publish(bot_channel(bot.id), "connected", {})
+
+
+async def mark_polled(
+    db: AsyncSession, connection: Connection, *, now: datetime | None = None
+) -> None:
+    """Record that the AI just polled get_next_turn — the play-loop heartbeat.
+
+    Distinct from ``mark_seen``/``last_seen_at`` (which any authenticated call,
+    even a sign-in handshake, bumps): ``last_polled_at`` only advances while an AI
+    is actually running the play loop, so it's the honest "is this agent playing"
+    signal used to gate seating. Throttled and absolute (no ``col + 1``), so a
+    later commit in the same request can't double-write — one cheap UPDATE.
+    """
+    now = now or datetime.now(timezone.utc)
+    last = connection.last_polled_at
+    if (
+        last is not None
+        and (now - _as_aware(last)).total_seconds() < _POLL_THROTTLE_SECONDS
+    ):
+        return
+    await db.execute(
+        update(Connection)
+        .where(Connection.id == connection.id)
+        .values(last_polled_at=now)
+    )
+    await db.commit()
 
 
 async def increment_turns_played(db: AsyncSession, connection_id: int) -> None:

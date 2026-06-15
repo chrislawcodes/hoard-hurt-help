@@ -96,6 +96,14 @@ class Connection(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    # The play-loop heartbeat: when the AI last polled get_next_turn. Distinct from
+    # last_seen_at (which ANY authenticated call bumps, even a one-time sign-in
+    # handshake) — this only advances while an AI is actually running the play loop.
+    # It's the honest signal for "is this agent playing", used to gate seating.
+    last_polled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     runner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Lifetime usage counters for this connection, surfaced on the detail page so
     # an operator running interactive (MCP) play can see what it's costing them.

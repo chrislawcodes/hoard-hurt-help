@@ -18,6 +18,10 @@ from app.models.turn import Turn, TurnSubmission
 
 LIVE_WINDOW_SECONDS = 90
 _HEARTBEAT_THROTTLE_SECONDS = 10
+# How recently the AI must have polled get_next_turn to count as "loop running".
+# Generous: covers the ~25s long-poll hold PLUS an LLM's think-and-submit gap
+# between polls, so a busy agent is never mistaken for a stopped one.
+LOOP_RUNNING_WINDOW_SECONDS = 120
 
 
 def _as_aware(dt: datetime) -> datetime:
@@ -322,6 +326,52 @@ async def provider_enabled_on_any_connection(
         )
     ).first()
     return row is not None
+
+
+async def provider_loop_running(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when an AI is actually *running the play loop* for *provider*.
+
+    Keys off ``last_polled_at`` (only ``get_next_turn`` bumps it) on a non-paused,
+    non-deleted connection — so this answers "is an agent playing right now",
+    unlike ``provider_is_covered`` which keys off ``last_seen_at`` and so treats a
+    one-off sign-in handshake as "live". This is the gate for confirming a seat: a
+    seat only auto-confirms when an AI is genuinely looping; otherwise it's held
+    while the user starts their AI.
+    """
+    now = datetime.now(timezone.utc)
+    polled = (
+        (
+            await db.execute(
+                select(Connection.last_polled_at)
+                .join(
+                    ConnectionProviderRow,
+                    ConnectionProviderRow.connection_id == Connection.id,
+                )
+                .where(
+                    Connection.user_id == user_id,
+                    Connection.deleted_at.is_(None),
+                    Connection.status != ConnectionStatus.PAUSED,
+                    ConnectionProviderRow.provider == provider,
+                    ConnectionProviderRow.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for last_polled in polled:
+        if last_polled is None:
+            continue
+        aware = (
+            last_polled
+            if last_polled.tzinfo is not None
+            else last_polled.replace(tzinfo=timezone.utc)
+        )
+        if (now - aware).total_seconds() <= LOOP_RUNNING_WINDOW_SECONDS:
+            return True
+    return False
 
 
 async def enabled_provider_values(db: AsyncSession, user_id: int) -> set[str]:
