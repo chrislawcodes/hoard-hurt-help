@@ -88,6 +88,7 @@ class ConnectOption:
     signin_note: str | None  # kind="command": what to expect / do for sign-in
     steps: tuple[str, ...]  # kind="steps": numbered click-through steps
     note: str | None  # kind="steps": short footnote under the steps
+    easiest: bool = False  # render an "Easiest" badge on the tab (zero-/mcp path)
 
 
 def _connect_options() -> list[ConnectOption]:
@@ -95,11 +96,29 @@ def _connect_options() -> list[ConnectOption]:
 
     See the AUTH-AGNOSTIC SEAM note above: these mirror ``docs/setup-mcp.md`` from
     the mcp-oauth workstream and are header-less (no key, no ``--header``).
-    Providers, in display order: Codex first (the only fully copy-paste, zero-click
-    sign-in), then Claude Code, Gemini, Claude Desktop.
+    Providers, in display order: Claude Code first (the audience default), then
+    Codex (tagged "Easiest" — the only fully copy-paste, zero-``/mcp`` sign-in),
+    Gemini, Claude Desktop.
     """
     mcp_url = f"{settings.base_url}/mcp"
     return [
+        ConnectOption(
+            client_id="claude-code",
+            client_label="Claude Code",
+            kind="command",
+            command=f"claude mcp add --transport http hoardhurthelp {mcp_url}",
+            # Claude Code's sign-in has no shell command — it's the interactive
+            # /mcp menu, so /mcp is its own paste (into Claude Code, not the shell).
+            # The step's real action is pasting /mcp, so the heading says so.
+            signin_title="In Claude Code, paste /mcp",
+            signin_command="/mcp",
+            signin_note=(
+                "Pick hoardhurthelp, choose Authenticate, and approve the Google "
+                "sign-in in the browser that opens. No key needed."
+            ),
+            steps=(),
+            note=None,
+        ),
         ConnectOption(
             client_id="codex",
             client_label="Codex",
@@ -117,23 +136,7 @@ def _connect_options() -> list[ConnectOption]:
             signin_note="A browser opens — approve the Google sign-in. No key needed.",
             steps=(),
             note=None,
-        ),
-        ConnectOption(
-            client_id="claude-code",
-            client_label="Claude Code",
-            kind="command",
-            command=f"claude mcp add --transport http hoardhurthelp {mcp_url}",
-            # Claude Code's sign-in has no shell command — it's the interactive
-            # /mcp menu, so /mcp is its own paste (into Claude Code, not the shell).
-            # The step's real action is pasting /mcp, so the heading says so.
-            signin_title="Paste this into Claude Code",
-            signin_command="/mcp",
-            signin_note=(
-                "Then pick hoardhurthelp and choose Authenticate. A browser opens "
-                "— approve the Google sign-in. No key needed."
-            ),
-            steps=(),
-            note=None,
+            easiest=True,
         ),
         ConnectOption(
             client_id="gemini",

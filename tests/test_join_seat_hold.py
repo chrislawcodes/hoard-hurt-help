@@ -133,6 +133,61 @@ async def test_join_offline_agent_holds_and_goes_to_countdown(client, reset_db):
 
 
 # ---------------------------------------------------------------------------
+# Held-seat page forks on setup state (new vs returning), no countdown
+# ---------------------------------------------------------------------------
+
+
+async def _held_seat_for_state(reset_db, *, model: str, with_connection: bool) -> tuple[int, int]:
+    """A held seat for an agent. with_connection enables that provider (RETURNING);
+    without one the provider is set up nowhere (NEW)."""
+    async with reset_db() as db:
+        user = await make_user(db, 0)
+        connection = None
+        if with_connection:
+            connection, _ = await make_connection(db, user)  # enabled, offline
+        agent, _v = await make_agent(db, user, connection=connection, model=model, name="Atlas")
+        player = Player(
+            match_id="G_001",
+            user_id=user.id,
+            agent_id=agent.id,
+            seat_name="Atlas",
+            seat_reserved_until=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+        db.add(player)
+        await db.flush()
+        await db.commit()
+        return user.id, player.id
+
+
+@pytest.mark.asyncio
+async def test_seat_connect_returning_state_shows_wake_prompt(client, reset_db):
+    """Provider set up but offline → wake it with the play-prompt; no countdown."""
+    await _seed_match(reset_db)
+    uid, pid = await _held_seat_for_state(reset_db, model="claude-haiku-4-5", with_connection=True)
+    r = await client.get(
+        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", cookies=_cookies(uid)
+    )
+    assert r.status_code == 200
+    assert "bringing your AI online" in r.text  # no "time to connect" countdown
+    assert "already set up" in r.text
+    assert "hoardhurthelp MCP tools" in r.text  # the play-prompt to wake it
+
+
+@pytest.mark.asyncio
+async def test_seat_connect_new_state_shows_connect_walkthrough(client, reset_db):
+    """Provider set up nowhere → full connect walkthrough, not the play-prompt."""
+    await _seed_match(reset_db)
+    uid, pid = await _held_seat_for_state(reset_db, model="gemini-3.1-flash-lite", with_connection=False)
+    r = await client.get(
+        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", cookies=_cookies(uid)
+    )
+    assert r.status_code == 200
+    assert "Let's connect Gemini" in r.text
+    assert "Connect Gemini →" in r.text
+    assert "hoardhurthelp MCP tools" not in r.text  # no play-prompt for a new setup
+
+
+# ---------------------------------------------------------------------------
 # Held seats don't count as players
 # ---------------------------------------------------------------------------
 

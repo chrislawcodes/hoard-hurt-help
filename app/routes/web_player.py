@@ -31,6 +31,7 @@ from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
 from app.models.user import User, UserRole
 from app.request_logging import set_request_trace_context
+from app.routes.connections_connect_guide import _play_prompt
 from app.routes.web_support import (
     _game_theme,
     _is_any_admin,
@@ -528,13 +529,19 @@ async def seat_connect(
         # Already confirmed (or never held) — nothing to wait for.
         return RedirectResponse(url=match_url, status_code=status.HTTP_303_SEE_OTHER)
 
-    now = datetime.now(timezone.utc)
-    remaining = max(0, int((_aware(player.seat_reserved_until) - now).total_seconds()))
     provider = await db.scalar(select(Agent.provider).where(Agent.id == player.agent_id))
     provider_label = (
         _PROVIDER_LABELS.get(provider.value, provider.value.title())
         if provider is not None
         else "your AI"
+    )
+    # Fork on setup state: a RETURNING user (this provider is set up on a
+    # connection, just not live now) only needs to wake their AI with the
+    # play-prompt; a NEW user (provider not set up anywhere) needs the full
+    # connect walkthrough. No countdown either way — the seat is held generously
+    # and the page auto-seats the moment the AI comes online.
+    is_returning = provider is not None and await provider_enabled_on_any_connection(
+        db, user.id, provider
     )
     status_url = f"{match_url}/connect/{player.id}/status"
     connect_next = quote(f"{match_url}/connect/{player.id}", safe="")
@@ -548,7 +555,8 @@ async def seat_connect(
             "game_theme": _game_theme(match),
             "player": player,
             "provider_label": provider_label,
-            "remaining": remaining,
+            "setup_state": "returning" if is_returning else "new",
+            "play_prompt": _play_prompt() if is_returning else "",
             "connect_url": f"/me/connections?next={connect_next}",
             "status_url": status_url,
         },

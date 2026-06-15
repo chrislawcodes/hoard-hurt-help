@@ -24,10 +24,13 @@ from app.engine.connection_health import provider_is_covered
 from app.models.agent import Agent
 from app.models.player import Player
 
-# How long a held seat is kept while the user brings their AI online. Matches
-# LIVE_WINDOW_SECONDS so "you have 90 seconds" lines up with how long a
-# connection is considered live after its last heartbeat.
-SEAT_HOLD_SECONDS = 90
+# How long a held seat is kept while the user brings their AI online. This is a
+# generous window, not a race: first-time setup (add the MCP server + sign in)
+# easily takes minutes, so a short timer just evicts people mid-setup. Held seats
+# are released the moment the match actually starts (see release_held_seats), so
+# a long hold never blocks a game from beginning — it only avoids punishing a
+# user who is still connecting. The connect screens no longer show a countdown.
+SEAT_HOLD_SECONDS = 15 * 60  # 15 minutes
 
 
 def _as_aware(dt: datetime) -> datetime:
