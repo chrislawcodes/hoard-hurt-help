@@ -1,0 +1,69 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [
+      "The ready-but-not-connected state can likely be derived (agent has a provider but no enabled/live connection) rather than a new DB column; confirm in plan."
+    ],
+    "summary": "Strategy-first onboarding: design agent (name+strategy+provider) -> connect that provider -> run. Decouples agent creation from connection; agent saved as ready-needs-connecting.",
+    "updated_at": 1781508515,
+    "answers": {
+      "Allow creating an agent with no connection": "Yes, decouple the gate; save as ready-not-connected."
+    },
+    "non_goals": [
+      "Reintroducing connect-once-equals-all-models (violates #392).",
+      "Auto-joining users into matches.",
+      "Changing the MCP connection/auth mechanism (settled: 90-day tokens, stable signing key).",
+      "Building a new connect screen \u2014 reuse the existing /me/connections flow."
+    ],
+    "acceptance_criteria": [
+      "A signed-in player with NO connection can create an agent (name + strategy + provider) and it saves.",
+      "A new agent with no connection shows a clear ready-needs-connecting state with a CTA to connect that specific provider.",
+      "The create-agent provider/model picker offers all providers regardless of what is connected.",
+      "A new user hitting Join with no agent is routed to design an agent first, not to connect first.",
+      "After creating an agent, the next step connects that agent provider; once connected and live the agent can be seated and play.",
+      "The PR #406 state-aware held-seat page (no countdown) still works."
+    ],
+    "checklist": {
+      "goal": "Make agent setup strategy-first: let players design their agent (name, strategy, which AI provider) BEFORE connecting an AI client, so they invest in the creative part before the technical chore. Decouple agent creation from having a connection.",
+      "audience": "New and returning human players (bot operators) who want to put their own AI agent into Hoard Hurt Help matches.",
+      "constraints": "Keep one-client-one-provider (PR #392). No auto-join (entering a match stays a deliberate Join click). Reconcile with PR #400 (currently routes no-connection users to connect first -> reverse to design-agent-first) and PR #406 (state-aware held-seat/connect screens, no countdown). Load-bearing change: loosen the agent-create gate in app/routes/agents_create.py that today redirects to /me/connections when the provider is not enabled. The model/provider picker must offer ALL providers at design time, not only connected ones."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "4723b62322a808d5a9c34d77e84e714d681d863e",
+  "token_usage": [],
+  "command_telemetry": [],
+  "stages": {},
+  "invariant_warnings": [],
+  "schema_version": 1,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  }
+}

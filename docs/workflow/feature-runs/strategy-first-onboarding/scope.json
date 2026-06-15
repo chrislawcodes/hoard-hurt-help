@@ -1,0 +1,23 @@
+{
+  "paths": [
+    "app/engine/connection_health.py",
+    "app/models/agent.py",
+    "app/routes/agents_create.py",
+    "app/routes/agents_setup.py",
+    "app/routes/web_player.py",
+    "app/templates/agents",
+    "app/templates/connections",
+    "app/templates/seat_connect.html"
+  ],
+  "allowed_dirty_paths": [
+    "app/engine/connection_health.py",
+    "app/models/agent.py",
+    "app/routes/agents_create.py",
+    "app/routes/agents_setup.py",
+    "app/routes/web_player.py",
+    "app/templates/agents",
+    "app/templates/connections",
+    "app/templates/seat_connect.html",
+    "docs/workflow/feature-runs/strategy-first-onboarding"
+  ]
+}
