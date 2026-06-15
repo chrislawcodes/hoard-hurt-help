@@ -109,11 +109,13 @@
     {% for row in connections %}
     <article class="game-card">
         <div class="game-card-info">
-            <h3><a href="/me/connections/{{ row.connection.id }}">{{ row.display_name }}</a></h3>
-            <p class="meta">
+            {# Name, kind, health (with "last seen") and agent count on ONE line to
+               save vertical space — the name leads as the clickable link. #}
+            <p class="meta" style="margin:0;">
                 {% set connection = row.connection %}
                 {% set health = row.health %}
-                {% if row.connection.mode_a_at %}MCP connection{% else %}Machine connection{% endif %}
+                <a href="/me/connections/{{ row.connection.id }}" style="font-weight:500;color:inherit;">{{ row.display_name }}</a>
+                · {% if row.connection.mode_a_at %}MCP connection{% else %}Machine connection{% endif %}
                 · <span class="bot-health-live" hx-get="/me/connections/{{ row.connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
                     {% include "connections/_health_badge.html" %}
                 </span>
