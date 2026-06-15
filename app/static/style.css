@@ -75,7 +75,7 @@
  * STRUCTURE — references variables only, never literal colors
  * ============================================================ */
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 80px; }
 
 body {
     margin: 0;
@@ -843,7 +843,7 @@ pre code { background: none; padding: 0; }
 .hchip.help { color: var(--help); }
 .hchip.hurt { color: var(--hurt); }
 
-.section-head { display: flex; align-items: baseline; gap: 0.6rem; margin: 2rem 0 0.75rem; scroll-margin-top: 80px; }
+.section-head { display: flex; align-items: baseline; gap: 0.6rem; margin: 2rem 0 0.75rem; }
 .section-head h2 { margin: 0; }
 .section-head .count {
     font-size: 0.78rem;
