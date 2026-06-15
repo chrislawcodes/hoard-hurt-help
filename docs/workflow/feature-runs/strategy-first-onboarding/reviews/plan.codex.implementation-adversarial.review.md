@@ -3,14 +3,14 @@ reviewer: "codex"
 lens: "implementation-adversarial"
 stage: "plan"
 artifact_path: "docs/workflow/feature-runs/strategy-first-onboarding/plan.md"
-artifact_sha256: "d2512b8d0aec2dafb04e74daf48195ac8b5fcf6d1358670baf0812874e9cc814"
+artifact_sha256: "a2ba750064689303cbf1fdc349f62d950ef708519b49850e8690c9d8d0f342bf"
 repo_root: "."
-git_head_sha: "e3e63999d922df4064a53e8b323fb05d6e279489"
+git_head_sha: "99c9abec482e7d75209b9ecf558e618a38b40474"
 git_base_ref: "origin/main"
 git_base_sha: "4723b62322a808d5a9c34d77e84e714d681d863e"
 generation_method: "codex-runner"
 resolution_status: "accepted"
-resolution_note: "HIGH short-circuit: handoff now only skips when the TARGET provider is live (not global is_live_now). MEDIUM CTAs: agents/new, _live_status, seat_connect now carry ?provider=. MEDIUM readiness: add explicit needs-connecting state in agents_health_presenter._is_ready_to_play + _onboarding.html (don't widen READY). LOW N+1: Slice 4 batches both coverage AND _count_agent_matches. Scope widened to agents_list/agents_health_presenter/connections_pages."
+resolution_note: "r3 HIGH: live poll (live_status_fragment) now also only short-circuits on target-provider liveness. r3 MEDIUM1: hint on availability_notes links + all-provider mapping (hermes/openclaw->generic) + create-without-next still routes to connect. r3 MEDIUM2: needs-connecting respects PAUSED status (status-aware coverage). Verifications added."
 raw_output_path: "docs/workflow/feature-runs/strategy-first-onboarding/reviews/plan.codex.implementation-adversarial.review.md.raw.txt"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,18 +22,15 @@ coverage_note: ""
 
 ## Findings
 
-- **HIGH** [CODE-CONFIRMED] The new provider-scoped handoff is still globally short-circuited by any live connection. `list_connections()` in [app/routes/connections_pages.py](/Users/chrislaw/hoard-hurt-help--feat-strategy-first-onboarding/app/routes/connections_pages.py#L95) returns `next_url` whenever `is_live_now` is true, and `is_live_now` is computed across all connections at [L73](file:///Users/chrislaw/hoard-hurt-help--feat-strategy-first-onboarding/app/routes/connections_pages.py#L73). In the proposed flow, a user who already has one live provider but is trying to set up a different provider will skip the provider-specific connect step and bounce back to `next_url` before the target provider is actually selected.
-
-- **MEDIUM** [CODE-CONFIRMED] The plan only updates the main `/me/connections` entry, but several existing CTAs still drop users into the generic picker with no `provider=`. That includes the connect links in [app/templates/agents/new.html](/Users/chrislaw/hoard-hurt-help--feat-strategy-first-onboarding/app/templates/agents/new.html#L14), the "Create your agent" CTA in [app/templates/connections/_live_status.html](/Users/chrislaw/hoard-hurt-help--feat-strategy-first-onboarding/app/templates/connections/_live_status.html#L57), and the seat-hold reconnect link in [app/templates/seat_connect.html](/Users/chrislaw/hoard-hurt-help--feat-strategy-first-onboarding/app/templates/seat_connect.html#L17). The provider hint will be lost on these paths unless they are updated too.
-
-- **MEDIUM** [CODE-CONFIRMED] The readiness model the plan proposes is too coarse for the existing onboarding UI. `_is_ready_to_play()` in [app/routes/agents_health_presenter.py](/Users/chrislaw/hoard-hurt-help--feat-strategy-first-onboarding/app/routes/agents_health_presenter.py#L35) only accepts `READY/LIVE` plus `join_blocked`, and [app/templates/agents/_onboarding.html](/Users/chrislaw/hoard-hurt-help--feat-strategy-first-onboarding/app/templates/agents/_onboarding.html#L23) only has "Ready to play", "At capacity", or the reconnect card. If `READY` is widened to mean "provider enabled somewhere" as the plan says, a stale-but-configured agent will be rendered as "At capacity" or "Ready to play" even though the real blocker is that no live connection exists.
-
-- **LOW** [CODE-CONFIRMED] The list-page performance slice does not eliminate all per-agent queries. `list_agents()` in [app/routes/agents_list.py](/Users/chrislaw/hoard-hurt-help--feat-strategy-first-onboarding/app/routes/agents_list.py#L47) still calls `_count_agent_matches(db, agent.id)` inside the loop, so the page remains N+1 on match counts even if coverage lookup is batched.
+- **HIGH [CODE-CONFIRMED]** The plan only fixes the initial `/me/connections` redirect, but the live poll path still has the same unconditional bounce. `app/routes/connections_pages.py`'s `live_status_fragment` returns `HX-Redirect` whenever `context["is_live_now"]` is true, and `app/templates/connections/_live_status.html` polls that fragment every 4 seconds. That means any live provider will still kick the user back to `?next` before they finish connecting the targeted provider, which breaks the provider-scoped handoff the plan is trying to add.
+- **MEDIUM [CODE-CONFIRMED]** The provider-scoped handoff is incomplete across the actual entry points. The plan covers the main create-success redirect and some CTAs, but `app/templates/agents/new.html` still has per-provider “connect {{ Provider }}” links in `availability_notes` that go to `/me/connections` without `?provider=`, and the plan never says what should happen when `create_agent_or_connection` is reached without `?next` so the current `/me/agents/{id}` fallback can still bypass the connect flow. The plan also only names Claude/Gemini/OpenAI, while the codebase defines Hermes/OpenClaw providers too, so the hint mapping is undefined for real provider values.
+- **MEDIUM [CODE-CONFIRMED]** The new readiness rule will misclassify paused machines as “set up.” `app/engine/connection_health.py` already has `ConnectionStatus.PAUSED`, but `enabled_provider_values` and `provider_enabled_on_any_connection` intentionally ignore connection state and only look for enabled provider rows. The plan says “needs connecting” should key off enabled coverage, not live status, so a paused-but-enabled connection will still count as ready enough to suppress the reconnect state even though it cannot actually serve turns.
 
 ## Residual Risks
 
-- The provider-tab preselection still needs explicit tests for valid, unknown, and absent `provider=` values so the generic picker fallback does not regress.
-- The seat-hold reconnect path should be exercised end-to-end after the routing changes, because it combines the join flow, the held-seat page, and the connect redirect in one path.
+- The plan still needs tests that cover both redirect paths on the connect page: initial GET and the HTMX poll fragment.
+- The `?next` preservation path on validation failure is still a likely regression point, especially once the create flow stops hard-redirecting to `/me/connections`.
+- The batched agent-list query needs mixed-provider fixtures to prove the new state is correct across enabled, stale, paused, and absent providers.
 
 ## Runner Stats
 - total_input=0
@@ -42,4 +39,4 @@ coverage_note: ""
 
 ## Resolution
 - status: accepted
-- note: HIGH short-circuit: handoff now only skips when the TARGET provider is live (not global is_live_now). MEDIUM CTAs: agents/new, _live_status, seat_connect now carry ?provider=. MEDIUM readiness: add explicit needs-connecting state in agents_health_presenter._is_ready_to_play + _onboarding.html (don't widen READY). LOW N+1: Slice 4 batches both coverage AND _count_agent_matches. Scope widened to agents_list/agents_health_presenter/connections_pages.
+- note: r3 HIGH: live poll (live_status_fragment) now also only short-circuits on target-provider liveness. r3 MEDIUM1: hint on availability_notes links + all-provider mapping (hermes/openclaw->generic) + create-without-next still routes to connect. r3 MEDIUM2: needs-connecting respects PAUSED status (status-aware coverage). Verifications added.

@@ -4,8 +4,8 @@
 
 - review: reviews/spec.codex.feasibility-adversarial.review.md | status: accepted | note: Round 3: no actionable findings — spec converged.
 - review: reviews/spec.gemini.requirements-adversarial.review.md | status: accepted | note: Round 3: confirmations only, no new findings — spec converged.
-- review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: HIGH short-circuit: handoff now only skips when the TARGET provider is live (not global is_live_now). MEDIUM CTAs: agents/new, _live_status, seat_connect now carry ?provider=. MEDIUM readiness: add explicit needs-connecting state in agents_health_presenter._is_ready_to_play + _onboarding.html (don't widen READY). LOW N+1: Slice 4 batches both coverage AND _count_agent_matches. Scope widened to agents_list/agents_health_presenter/connections_pages.
-- review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: Reaffirmed: readiness keys on enabled coverage; needs-connecting state now explicit (also Codex MEDIUM); ?next + capacity verifications retained.
+- review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: r3 HIGH: live poll (live_status_fragment) now also only short-circuits on target-provider liveness. r3 MEDIUM1: hint on availability_notes links + all-provider mapping (hermes/openclaw->generic) + create-without-next still routes to connect. r3 MEDIUM2: needs-connecting respects PAUSED status (status-aware coverage). Verifications added.
+- review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: r3: no new actionable beyond Codex; readiness/capacity/next verifications retained.
 
 ## Architecture decisions
 
@@ -32,20 +32,36 @@
    reconnect. We MUST add an explicit "needs connecting" branch (provider enabled
    on no connection) rather than overloading READY — otherwise a stale-but-
    configured agent wrongly shows "Ready" / "At capacity".
+   **Respect connection status — paused counts as needs-connecting (Codex plan r3
+   MEDIUM):** `enabled_provider_values` / `provider_enabled_on_any_connection`
+   ignore `ConnectionStatus.PAUSED` (they look only at enabled rows on non-deleted
+   connections). So "needs connecting" MUST be computed against connections that
+   are NOT paused and not deleted — a provider enabled only on a paused connection
+   is still needs-connecting (resume/reconnect), not "set up". Add a status-aware
+   coverage helper (or a `status != PAUSED` filter) rather than reusing the raw
+   enabled set for this gate.
 3. **Provider-scoped connect handoff.** Add an optional `?provider=<value>` hint
    to `/me/connections` (`list_connections` in `connections_pages.py`) that
    preselects the matching client tab in `_connect_picker.html`
    (Claude→claude-code, Gemini→gemini, OpenAI→codex). The create success branch
    passes it. Absent/unknown hint → generic picker (no regression).
-   **Fix the live short-circuit (Codex plan HIGH):** today `list_connections`
-   returns `next_url` whenever `is_live_now` (ANY connection live). With a
-   `?provider=` hint, it MUST only short-circuit when *that target provider* is
-   live (`provider_is_covered(provider)`), so a user with one live provider can
-   still connect a different one instead of bouncing back early.
-   **Carry the hint on the other connect CTAs (Codex plan MEDIUM):** the generic
-   connect links also need `?provider=` where the provider is known —
-   `agents/new.html` connect card, `_live_status.html` "Create your agent" CTA,
-   and `seat_connect.html` reconnect link.
+   **Fix the live short-circuit on BOTH the page and the poll (Codex plan HIGH,
+   r2+r3):** today `list_connections` AND the 4-second HTMX poll
+   `live_status_fragment` both return `next_url`/`HX-Redirect` whenever
+   `is_live_now` (ANY connection live). With a `?provider=` hint, BOTH MUST only
+   short-circuit when *that target provider* is live (`provider_is_covered`), so a
+   user with one live provider can still connect a different one without the page
+   OR the poll bouncing them back early.
+   **Carry the hint on EVERY connect entry point (Codex plan MEDIUM):** all connect
+   links where the provider is known need `?provider=` — `_live_status.html`
+   "Create your agent" CTA, `seat_connect.html` reconnect link, AND the per-provider
+   `availability_notes` "connect {Provider}" links in `agents/new.html`.
+   **Provider→client mapping covers EVERY provider value:** claude→claude-code,
+   gemini→gemini, openai→codex; hermes/openclaw and any unknown value → the generic
+   picker (no dedicated tab) — never a broken/blank tab.
+   **Create reached without `?next`:** still route to connect-that-provider when
+   the agent's provider isn't live (not the `/me/agents/{id}` fallback), so the
+   strategy-first chain works even when create is not reached via Join.
 4. **Reverse the Join hub.** `web_player._join_setup_redirect`: a no-agent user
    goes to `/me/agents/new` (design first), carrying `?next` back to Join. The
    create flow already forwards `?next`; verify it survives a validation failure.
@@ -99,6 +115,20 @@ preselect hint, not replaced (NFR-003); no DB migration (NFR-004).
 
 ## Residual Risks (each carries a verification action — FF rule)
 
+- **The 4-second live poll bounces the user before they finish (Codex plan r3
+  HIGH).** verification: a test that `GET /me/connections/live-status?provider=X`
+  does NOT HX-Redirect while provider X is not live, even when a different provider
+  is live; pre-merge.
+- **A paused-but-enabled connection wrongly reads as "set up" (Codex plan r3
+  MEDIUM).** verification: a test that an agent whose provider is enabled only on a
+  PAUSED connection shows "needs connecting", and one on an ACTIVE connection does
+  not; pre-merge.
+- **A provider with no dedicated client tab (Hermes/OpenClaw) breaks the hint.**
+  verification: a test that `?provider=hermes` (and an unknown value) renders the
+  generic picker without error; pre-merge.
+- **Create without `?next` bypasses connect.** verification: a test that creating
+  an agent for an un-live provider with no `?next` still routes to
+  connect-that-provider, not the agent detail page; pre-merge.
 - **A disconnected agent leaks into capacity math.** verification: a test that a
   needs-connecting agent is NOT counted by `active_matches_for_provider` /
   `live_provider_capacity` and cannot bypass the seat cap; pre-merge.
