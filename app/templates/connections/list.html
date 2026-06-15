@@ -36,13 +36,13 @@
         <button type="button" class="btn-copy"
                 onclick="copyWithFeedback(this, document.getElementById('byo-play-prompt').textContent)">Copy</button>
         <pre id="byo-play-prompt">{{ play_prompt }}</pre>
-        <p class="hint" style="margin-top:0.6rem;">If your client asks, sign in with Google again. Switching computers or clients? Open the full setup below and add the server.</p>
+        <p class="hint" style="margin-top:0.6rem;">If your AI says it can't find the game tools — or asks you to sign in — its connection went to sleep. <a href="#setup">Reconnect below</a> (about 30 seconds), then paste the prompt again.</p>
 
         {% include "connections/_live_status.html" %}
     </div>
 
     <details class="card byo-collapsed" id="setup">
-        <summary><span class="byo-tick">✓ Set up</span> — switching computers? Add the server again</summary>
+        <summary><span class="byo-tick">✓ Set up</span> — reconnect, or add a new computer</summary>
         <div class="byo-connector-body">
             {% include "connections/_connect_picker.html" %}
         </div>

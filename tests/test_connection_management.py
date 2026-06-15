@@ -412,13 +412,15 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     assert "byo-signin-codex" not in codex_block  # no separate sign-in block
     # The Copy button sits to the RIGHT of the command text (text before button).
     assert codex_block.index("byo-cmd-text") < codex_block.index("byo-cmd-btn")
-    # Codex is the default (first) tab — the only zero-click sign-in.
-    assert text.index('for="byo-tab-codex"') < text.index('for="byo-tab-claude-code"')
+    # Claude Code is the default (first) tab — the audience default. Codex carries
+    # an "Easiest" badge as the zero-/mcp path.
+    assert text.index('for="byo-tab-claude-code"') < text.index('for="byo-tab-codex"')
+    assert "byo-easiest-badge" in text
     # Claude Code needs a second paste to sign in: the /mcp chip. Its step-2
-    # heading names the real action (paste into Claude Code), not the effect.
+    # heading names the real action (paste /mcp into Claude Code), not the effect.
     assert "byo-signin-claude-code" in connect_block
     assert "/mcp" in connect_block
-    assert "Paste this into Claude Code" in connect_block
+    assert "In Claude Code, paste /mcp" in connect_block
     # All four clients are offered; Cursor dropped.
     assert 'for="byo-tab-claude-code"' in text
     assert 'for="byo-tab-codex"' in text
@@ -455,8 +457,10 @@ async def test_connections_list_returning_state_shows_play_prompt(
     # The Mode A play-prompt leads the returning state.
     assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in text
     assert "never ask me for a key or token" in text
-    # The "sign in with Google again" nudge for returning users.
-    assert "sign in with Google again" in text
+    # The recovery nudge for returning users whose connection went to sleep:
+    # if the AI can't find the tools, reconnect below.
+    assert "can't find the game tools" in text
+    assert "Reconnect below" in text
     # Full setup collapsed behind the "✓ Set up" disclosure.
     assert "✓ Set up" in text
     # Not live → still waiting; not the live block.

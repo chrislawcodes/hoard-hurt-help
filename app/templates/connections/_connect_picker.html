@@ -1,5 +1,6 @@
-{# CSS-only provider picker (the byo-tabs pattern). Codex is checked first — it's
-   the only fully copy-paste, zero-click sign-in. Each command provider lays the
+{# CSS-only provider picker (the byo-tabs pattern). Claude Code is checked first
+   (the audience default); Codex carries an "Easiest" badge as the only fully
+   copy-paste, zero-/mcp sign-in. Each command provider lays the
    act of connecting out as numbered sub-steps so it reads as a sequence:
      step 1 "Paste this in your terminal" — the add command (one paste);
      step 2 "Sign in with Google" — a second paste block if the provider needs one
@@ -16,7 +17,7 @@
 
     <div class="byo-tab-labels" role="tablist">
         {% for opt in connect_options %}
-        <label class="byo-tab-label" for="byo-tab-{{ opt.client_id }}">{{ opt.client_label }}</label>
+        <label class="byo-tab-label" for="byo-tab-{{ opt.client_id }}">{{ opt.client_label }}{% if opt.easiest %} <span class="byo-easiest-badge">Easiest</span>{% endif %}</label>
         {% endfor %}
     </div>
 
