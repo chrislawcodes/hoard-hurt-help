@@ -22,7 +22,7 @@ from app.games.liars_dice.engine import (
     resolve_showdown,
     roll,
 )
-from app.games.liars_dice.rules_text import make_rules_text
+from app.games.liars_dice.rules_text import make_game_rules_text, make_rules_text
 from app.games.liars_dice.strategy import LD_DEFAULT_STRATEGY
 from app.models.game_state import MatchState, PlayerState
 from app.models.match import GameState, Match
@@ -225,6 +225,8 @@ class LiarsDice(BaseGameModule):
             dice_per_player=_default_config()["dice_per_player"],
             min_players=cfg.min_players,
             max_players=cfg.max_players,
+            total_rounds=total_rounds,
+            turns_per_round=turns_per_round,
         )
 
     def agent_base_prompt(
@@ -235,17 +237,27 @@ class LiarsDice(BaseGameModule):
         total_rounds: int = 7,
         turns_per_round: int = 7,
     ) -> str:
+        cfg = self.config_defaults()
+        rules = make_game_rules_text(
+            wild_ones=True,
+            dice_per_player=_default_config()["dice_per_player"],
+            min_players=cfg.min_players,
+            max_players=cfg.max_players,
+            total_rounds=total_rounds,
+            turns_per_round=turns_per_round,
+        )
         targets = [seat for seat in all_agent_ids if seat != your_agent_id]
         return (
             f'You are playing Liar\'s Dice as agent "{your_agent_id}". '
-            "Read your_private_state for your hidden dice and public_state for the standing bid, "
-            "active actor, dice counts, and showdown history.\n\n"
-            f"{self.rules_text(total_rounds, turns_per_round).rstrip()}\n\n"
-            f"All seats: {json.dumps(all_agent_ids)}\n"
-            f"Other seats: {json.dumps(targets)}\n\n"
-            "Return one move JSON object when asked to act:\n"
-            '{"move":{"type":"BID","quantity":N,"face":F}} or {"move":{"type":"CHALLENGE"}}.\n'
-            "Do not invent illegal bids."
+            "Read your_private_state for your hidden dice. Read public_state for the current bid, whose turn it is, "
+            "how many dice each player has left, and all past bids and showdowns in this round.\n\n"
+            f"RULES:\n{rules.rstrip()}\n\n"
+            f"All agents at the table: {json.dumps(all_agent_ids)}\n"
+            f"Other agents: {json.dumps(targets)}\n\n"
+            "RESPONSE FORMAT:\n"
+            "Return exactly one JSON object with no prose:\n"
+            '{"move": {"type": "BID", "quantity": N, "face": F}} or {"move": {"type": "CHALLENGE"}}\n'
+            "\nBids must strictly raise the standing bid per the rules above. Do not invent illegal bids."
         )
 
     async def validation_snapshot(
