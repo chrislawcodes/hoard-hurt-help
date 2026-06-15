@@ -1,8 +1,8 @@
 {
   "repo_root": ".",
-  "git_head_sha": "1d5e9c915c406519bb73565baf0cb15fba2b2c90",
-  "git_base_ref": "83f8e0b21f502eebfa9cb08e9f507a7604096e67",
-  "git_base_sha": "83f8e0b21f502eebfa9cb08e9f507a7604096e67",
+  "git_head_sha": "86a10f2211c1b6180d1aac8ac58797947fdf0e1b",
+  "git_base_ref": "1d5e9c915c406519bb73565baf0cb15fba2b2c90",
+  "git_base_sha": "1d5e9c915c406519bb73565baf0cb15fba2b2c90",
   "paths": [
     "app/engine/connection_health.py",
     "app/models/agent.py",

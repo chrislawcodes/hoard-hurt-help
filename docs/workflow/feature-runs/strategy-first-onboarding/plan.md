@@ -6,7 +6,7 @@
 - review: reviews/spec.gemini.requirements-adversarial.review.md | status: accepted | note: Round 3: confirmations only, no new findings — spec converged.
 - review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: Round 4: no actionable findings — plan converged.
 - review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: Round 4: no actionable findings — plan converged.
-- review: reviews/diff.gemini.regression-adversarial.review.md | status: accepted | note: CP3 diff: no actionable findings.
+- review: reviews/diff.gemini.regression-adversarial.review.md | status: accepted | note: CP4 diff: no actionable findings.
 
 ## Architecture decisions
 

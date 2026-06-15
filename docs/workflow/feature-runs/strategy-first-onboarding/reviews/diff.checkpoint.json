@@ -2,7 +2,7 @@
   "feature_slug": "strategy-first-onboarding",
   "stage": "diff",
   "artifact_path": "docs/workflow/feature-runs/strategy-first-onboarding/reviews/implementation.diff.patch",
-  "git_base_ref": "83f8e0b21f502eebfa9cb08e9f507a7604096e67",
+  "git_base_ref": "1d5e9c915c406519bb73565baf0cb15fba2b2c90",
   "allowed_dirty_paths": [
     "app/engine/connection_health.py",
     "app/models/agent.py",
@@ -17,7 +17,16 @@
     "app/templates/seat_connect.html",
     "docs/workflow/feature-runs/strategy-first-onboarding"
   ],
-  "required_reviews": [],
+  "required_reviews": [
+    {
+      "reviewer": "gemini",
+      "lens": "regression-adversarial",
+      "stage": "diff",
+      "path": "docs/workflow/feature-runs/strategy-first-onboarding/reviews/diff.gemini.regression-adversarial.review.md",
+      "context_paths": [],
+      "model": "gemini-3.1-flash-lite"
+    }
+  ],
   "max_artifact_chars": 50000,
   "max_context_chars": 60000,
   "max_total_chars": 250000

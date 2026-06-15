@@ -63,7 +63,7 @@
       "docs/workflow/feature-runs/strategy-first-onboarding"
     ],
     "used": true,
-    "updated_at": 1781513262
+    "updated_at": 1781514252
   },
   "checkpoint_fallback": {},
   "parallel_analysis": {
@@ -418,6 +418,25 @@
       "duration_seconds": 918.403113,
       "agent_id": null,
       "artifact_sha_at_time": "6deaa614ad1a8b2218108669f942046c3e22c3e93e9e92d3e881de0a7fbd7254"
+    },
+    {
+      "stage": "diff",
+      "round": 4,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "regression-adversarial",
+      "prompt_chars": 13374,
+      "prompt_cap": 250000,
+      "input_tokens": 339,
+      "output_tokens": 593,
+      "cost_usd_estimate": 0.00097425,
+      "timestamp": "2026-06-15T09:04:30.951390Z",
+      "started_at": "2026-06-15T09:04:12.833280Z",
+      "ended_at": "2026-06-15T09:04:30.951390Z",
+      "duration_seconds": 18.118035,
+      "agent_id": null,
+      "artifact_sha_at_time": "9ff70f3f25277f835b1aeb920b7413b59bdd40c42807e4fa3e1e8cb1f9b0da5f",
+      "activity_subtype": "micro"
     }
   ],
   "command_telemetry": [
@@ -756,6 +775,30 @@
       "files_written": 0,
       "subprocess_invocations": 38,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-15T09:04:31Z",
+      "wall_seconds": 19.225,
+      "input_bytes_read": 358436,
+      "output_bytes_written": 167326,
+      "files_read": 32,
+      "files_written": 7,
+      "subprocess_invocations": 64,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-15T09:05:11Z",
+      "wall_seconds": 0.475,
+      "input_bytes_read": 64718,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 38,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -789,12 +832,13 @@
       "initial_sha": "6deaa614ad1a8b2218108669f942046c3e22c3e93e9e92d3e881de0a7fbd7254"
     },
     "diff": {
-      "adversarial_rounds": 3,
+      "adversarial_rounds": 4,
       "annotations": [],
       "adversarial_sha_history": [
         "2d45800e5dda4bf0c2c6d3139865a3fa68c2a4c1a28d736dc1265624b79a41b8",
         "0a0bfccebd46f1075abc9379b75ccb4b7d54211c244493da8439b1f7a0bf3046",
-        "539aa99542f6c7a896c90b2145d89020160227a1182d332383c4b773821b94fe"
+        "539aa99542f6c7a896c90b2145d89020160227a1182d332383c4b773821b94fe",
+        "9ff70f3f25277f835b1aeb920b7413b59bdd40c42807e4fa3e1e8cb1f9b0da5f"
       ],
       "initial_sha": "2d45800e5dda4bf0c2c6d3139865a3fa68c2a4c1a28d736dc1265624b79a41b8"
     }
@@ -802,19 +846,19 @@
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 3,
+    "index": 4,
     "markers_sha": "03cd1366477b6ee2f9cd9a6e916449176aa9541af6adea5938e3f4910e78d3fc",
-    "last_diff_head_sha": "1d5e9c915c406519bb73565baf0cb15fba2b2c90"
+    "last_diff_head_sha": "86a10f2211c1b6180d1aac8ac58797947fdf0e1b"
   },
   "spec_adversarial_rounds": 2,
   "last_action_result": {
-    "next": "dispatch_next_slice_to_codex",
+    "next": "reconcile_reviews",
     "reason": "diff checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 3,
   "tasks_adversarial_rounds": 1,
-  "diff_adversarial_rounds": 3,
+  "diff_adversarial_rounds": 4,
   "heartbeats": [
     {
       "timestamp_pt": "2026-06-15T01:41:19.597192-07:00",
