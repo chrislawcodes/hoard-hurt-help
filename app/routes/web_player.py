@@ -15,7 +15,6 @@ from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
 from app.engine.connection_health import (
     active_matches_for_provider,
-    enabled_provider_values,
     is_join_blocked,
     live_provider_capacity,
     provider_enabled_on_any_connection,
@@ -178,30 +177,19 @@ async def _join_setup_redirect(
     the join form. We carry ``?next`` so finishing that step returns here.
 
     Joining needs, in order:
-      1. a connected AI client — which enables that client's provider, and
-      2. an AI agent built on a connected provider.
+      1. a handle,
+      2. an AI agent, and
+      3. a live provider for that agent.
 
-    So when the user has no agent at all, we branch on whether any provider is
-    connected yet:
-      - no enabled provider -> /me/connections   (connect a client first; creating
-        an agent here would dead-end, since it requires a connected provider)
-      - has a provider       -> /me/agents/new     (create the agent)
-
-    Once the user HAS an AI agent we fall through to the form, even if that
-    agent's provider is offline: the form shows every agent grouped by provider
-    (including "Not connected" ones), and picking one seats it held while the next
-    screen walks them through connecting.
+    If the user has no AI agent yet, we always send them to create one first.
+    The create flow itself will decide whether the next step is connecting that
+    agent's provider or returning straight here.
     """
     agents = await _load_user_agents(db, user.id)
     has_ai_agent = any(agent.kind == AgentKind.AI for agent, _version in agents)
     if has_ai_agent:
         return None
     next_param = quote(join_url, safe="")
-    if not await enabled_provider_values(db, user.id):
-        return RedirectResponse(
-            url=f"/me/connections?next={next_param}",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
     return RedirectResponse(
         url=f"/me/agents/new?next={next_param}",
         status_code=status.HTTP_303_SEE_OTHER,
