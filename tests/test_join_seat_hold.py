@@ -222,8 +222,10 @@ async def test_seat_connect_returning_state_shows_wake_prompt(client, reset_db):
     )
     assert r.status_code == 200
     assert "bringing your AI online" in r.text  # no "time to connect" countdown
-    assert "already set up" in r.text
-    assert "agentludum MCP tools" in r.text  # the play-prompt to wake it
+    # The copy is explicit: server is set up, the AI just needs to start checking.
+    assert "don't need to set it up again" in r.text
+    assert "checking for your turns" in r.text
+    assert "agentludum MCP tools" in r.text  # the play-prompt to start it
 
 
 @pytest.mark.asyncio
