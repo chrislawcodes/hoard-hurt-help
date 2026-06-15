@@ -30,42 +30,57 @@ def _is_retryable_db_error(exc: Exception) -> bool:
     return False
 
 
-async def _ensure_mode_a_providers(db: AsyncSession, connection: Connection) -> None:
-    """Enable every known provider row for this connection.
+async def _ensure_mode_a_providers(
+    db: AsyncSession,
+    connection: Connection,
+    provider: ConnectionProvider | None,
+) -> None:
+    """Enable the one provider whose MCP client just connected.
 
-    The Mode A connection is provider-agnostic: all of the user's AI agents
-    should resolve through it, so every provider is enabled here and kept
-    enabled on reuse.
+    An MCP client speaks for exactly one AI provider (Gemini CLI is Gemini,
+    Claude Code is Claude, and so on), so a Mode A connection enables only that
+    one provider — never the whole set. Connecting a second client later enables
+    its provider too, so the enabled set accumulates into an honest list of the
+    clients the user has actually connected. Already-enabled providers are left
+    alone; we never disable here.
+
+    ``provider`` is ``None`` when the caller cannot tell which client connected
+    (e.g. the bare sign-in token exchange, before any MCP session). In that case
+    we enable nothing and wait for a real handshake to tell us the provider.
+
+    NOTE: the machine/connector path is deliberately different — one machine can
+    run several CLIs, so it enables every provider it detects. That lives in
+    ``app/routes/agent_next_turn.py`` and is intentionally untouched here.
     """
-    rows = (
-        (
-            await db.execute(
-                select(ConnectionProviderRow).where(
-                    ConnectionProviderRow.connection_id == connection.id
-                )
+    if provider is None:
+        return
+    row = (
+        await db.execute(
+            select(ConnectionProviderRow).where(
+                ConnectionProviderRow.connection_id == connection.id,
+                ConnectionProviderRow.provider == provider,
             )
         )
-        .scalars()
-        .all()
-    )
-    by_provider = {row.provider: row for row in rows}
-    for provider in ConnectionProvider:
-        row = by_provider.get(provider)
-        if row is None:
-            db.add(
-                ConnectionProviderRow(
-                    connection_id=connection.id,
-                    provider=provider,
-                    enabled=True,
-                    detected=False,
-                )
+    ).scalar_one_or_none()
+    if row is None:
+        db.add(
+            ConnectionProviderRow(
+                connection_id=connection.id,
+                provider=provider,
+                enabled=True,
+                detected=False,
             )
-        else:
-            row.enabled = True
+        )
+    else:
+        row.enabled = True
 
 
 async def _mode_a_connection_once(
-    db: AsyncSession, user_id: int, *, now: datetime
+    db: AsyncSession,
+    user_id: int,
+    *,
+    now: datetime,
+    provider: ConnectionProvider | None,
 ) -> Connection:
     """Return the user's live Mode A connection or create/resurrect it."""
     live_connection = (
@@ -92,7 +107,7 @@ async def _mode_a_connection_once(
                 live_connection.first_connected_at = now
             if live_connection.status == ConnectionStatus.PENDING:
                 live_connection.status = ConnectionStatus.ACTIVE
-        await _ensure_mode_a_providers(db, live_connection)
+        await _ensure_mode_a_providers(db, live_connection, provider)
         return live_connection
 
     deleted_connection = (
@@ -121,7 +136,7 @@ async def _mode_a_connection_once(
         if deleted_connection.first_connected_at is None:
             deleted_connection.first_connected_at = now
         deleted_connection.last_seen_at = now
-        await _ensure_mode_a_providers(db, deleted_connection)
+        await _ensure_mode_a_providers(db, deleted_connection, provider)
         return deleted_connection
 
     raw_key = generate_connection_key()
@@ -137,7 +152,7 @@ async def _mode_a_connection_once(
     )
     db.add(connection)
     await db.flush()
-    await _ensure_mode_a_providers(db, connection)
+    await _ensure_mode_a_providers(db, connection, provider)
     return (
         (
             await db.execute(
@@ -154,10 +169,16 @@ async def mode_a_connection_for(
     db: AsyncSession,
     user: User,
     *,
+    provider: ConnectionProvider | None = None,
     now: datetime | None = None,
     max_attempts: int = _MAX_ATTEMPTS,
 ) -> Connection:
     """Return the canonical per-user Mode A connection.
+
+    ``provider`` is the single AI provider the connecting MCP client speaks for;
+    it is enabled on the connection (one client == one provider). ``None`` — the
+    default — enables nothing, which is correct when the caller cannot yet tell
+    which client connected (e.g. the bare sign-in token exchange).
 
     The helper is safe to call from concurrent OAuth callbacks or parallel
     first tool calls. A partial unique index keeps only one live row per user;
@@ -171,7 +192,7 @@ async def mode_a_connection_for(
             try:
                 async with db.begin_nested():
                     connection = await _mode_a_connection_once(
-                        db, user_id, now=resolved_now
+                        db, user_id, now=resolved_now, provider=provider
                     )
                     await db.flush()
                     return connection

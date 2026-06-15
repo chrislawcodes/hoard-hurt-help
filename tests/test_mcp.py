@@ -118,7 +118,9 @@ async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
-    async def fake_mode_a_connection_for(db: object, user: object) -> SimpleNamespace:
+    async def fake_mode_a_connection_for(
+        db: object, user: object, *, provider: object = None
+    ) -> SimpleNamespace:
         captured["user"] = user
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
 
@@ -171,7 +173,9 @@ async def test_get_turn_uses_oauth_player_resolution(
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
-    async def fake_mode_a_connection_for(db: object, user: object) -> SimpleNamespace:
+    async def fake_mode_a_connection_for(
+        db: object, user: object, *, provider: object = None
+    ) -> SimpleNamespace:
         captured["user"] = user
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
 
@@ -267,7 +271,9 @@ async def test_pull_tools_use_shared_oauth_resolution(
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
-    async def fake_mode_a_connection_for(db: object, user: object) -> SimpleNamespace:
+    async def fake_mode_a_connection_for(
+        db: object, user: object, *, provider: object = None
+    ) -> SimpleNamespace:
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
 
     def fake_assert_connection_usable(connection: object) -> None:
