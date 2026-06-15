@@ -311,6 +311,24 @@
       "duration_seconds": 299.816265,
       "agent_id": null,
       "artifact_sha_at_time": "6deaa614ad1a8b2218108669f942046c3e22c3e93e9e92d3e881de0a7fbd7254"
+    },
+    {
+      "stage": "tasks",
+      "round": 1,
+      "activity_type": "implementation",
+      "model": "gpt-5.4-mini",
+      "lens": null,
+      "prompt_chars": 25502,
+      "prompt_cap": null,
+      "input_tokens": 72304,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.072304,
+      "timestamp": "2026-06-15T08:29:16.564703Z",
+      "started_at": "2026-06-15T08:27:31.475787Z",
+      "ended_at": "2026-06-15T08:29:16.564703Z",
+      "duration_seconds": 105.088298,
+      "agent_id": null,
+      "artifact_sha_at_time": "6deaa614ad1a8b2218108669f942046c3e22c3e93e9e92d3e881de0a7fbd7254"
     }
   ],
   "command_telemetry": [
