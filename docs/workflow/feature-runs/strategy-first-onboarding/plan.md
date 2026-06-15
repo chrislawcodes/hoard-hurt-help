@@ -4,12 +4,8 @@
 
 - review: reviews/spec.codex.feasibility-adversarial.review.md | status: accepted | note: Round 3: no actionable findings — spec converged.
 - review: reviews/spec.gemini.requirements-adversarial.review.md | status: accepted | note: Round 3: confirmations only, no new findings — spec converged.
-
-Earlier rounds (addressed in the spec): the dead-end also lived in the GET
-form/template (not just the POST gate) → FR-001/FR-002 now cover both; the
-"connect Claude Code" handoff needs a provider hint on the (provider-neutral)
-connect page → FR-004; FR-006 now names the agent list/detail templates and a
-provider-scoped CTA; edge cases added for `?next` survival and capacity math.
+- review: reviews/plan.codex.implementation-adversarial.review.md | status: failed | note: transient codex runner timeout (stdin hang); re-running for a clean pass
+- review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: Finding #1 (stale readiness) addressed: needs-connecting keys on provider_enabled_on_any_connection (not live window); live-now via existing health badge; verification added. Findings #2 (?next robustness) and #3 (capacity math) already carried as residual risks with pre-merge verifications.
 
 ## Architecture decisions
 
@@ -19,11 +15,16 @@ provider-scoped CTA; edge cases added for `?next` survival and capacity math.
    the `has_enabled_provider`-driven "connect first" card; always render the
    design form). The model picker (`_build_model_picker_groups`) offers every
    provider as selectable.
-2. **Readiness is derived, no new column.** "Ready vs needs-connecting" is
-   computed from existing coverage helpers (`connection_health.provider_is_covered`
-   / `enabled_provider_values`). No DB migration. For the agent list, compute
-   coverage in ONE batched query (provider set enabled across the user's live
-   connections), then map per agent — never a query per agent.
+2. **Readiness is derived, no new column.** "Needs-connecting" keys off
+   **enabled coverage** — `provider_enabled_on_any_connection` /
+   `enabled_provider_values` ("have you set this provider up at all"), NOT the
+   90-second live window. So the agent list says "needs connecting" only when the
+   provider is enabled on no connection; otherwise it says set-up/ready, and the
+   *live-right-now* nuance reuses the **existing connection health badge** (the
+   same `LIVE_WINDOW_SECONDS` signal the rest of the app uses). This deliberately
+   avoids a NEW, possibly-stale "live now" claim on the agent card (Gemini plan
+   finding #1). No DB migration. For the list, compute the enabled-provider set in
+   ONE batched query, then map per agent — never a query per agent.
 3. **Provider-scoped connect handoff.** Add an optional `?provider=<value>` hint
    to `/me/connections` (`list_connections` in `connections_pages.py`) that
    preselects the matching client tab in `_connect_picker.html`
@@ -89,3 +90,8 @@ preselect hint, not replaced (NFR-003); no DB migration (NFR-004).
 - **PR #406 held-seat path no longer reached.** verification: the existing
   `test_join_seat_hold.py` suite stays green (no countdown, state-aware page);
   Preflight Gate green.
+- **Readiness UI implies "live now" when a provider is enabled-but-stale (Gemini
+  plan finding #1).** verification: a test that an agent whose provider is enabled
+  on a connection that is NOT live shows "set up" (not a false "ready to play
+  now"); the needs-connecting flag keys on `provider_enabled_on_any_connection`,
+  and live-now is shown only via the existing health badge; pre-merge.

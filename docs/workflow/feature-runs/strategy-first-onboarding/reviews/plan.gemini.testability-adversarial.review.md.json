@@ -1,0 +1,57 @@
+{
+  "session_id": "12d03a0d-0fdc-4b58-bbff-eebb7497dd94",
+  "response": "## Findings\n\n1.  **Risk of stale/misleading \"readiness\" UI (High):** The plan relies on `connection_health.py` for \"ready vs. needs-connecting\" status, but `connection_health.py` calculates liveness based on the `LIVE_WINDOW_SECONDS` threshold [CODE-CONFIRMED]. If a connection has a high `LIVE_WINDOW_SECONDS` or the runner is dead but the last heartbeat was recent, the agent might display as \"ready\" even if it cannot actually receive turns, misleading the user who just went through the onboarding flow.\n2.  **Potential for \"Split Brain\" in `_join_setup_redirect` (Medium):** Reversing the Join hub to always route no-agent users to `agents/new` assumes the `?next` chain is perfectly robust across all validation failures, including potential edge cases where `AgentCreateSchema` or `GameModule` validation might drop query params during re-renders [UNVERIFIED].\n3.  **Capacity Math Consistency (Medium):** The plan mandates that \"a needs-connecting agent must stay excluded from live-connection capacity math\" and plans to verify this with a test [UNVERIFIED]. If `active_matches_for_provider` or `live_provider_capacity` logic ever implicitly relies on `Agent` existence to project potential load (rather than strictly `ConnectionProviders` status), a simple check might miss subtle over-allocation bugs when an agent is created but not yet connected.\n\n## Residual Risks\n\n1.  **Race conditions in \"readiness\" state (Low):** Because readiness is derived on-the-fly and not persistent, a user could see an agent listed as \"needs-connecting\", click to connect, and by the time the page renders, the background scheduler might have already marked the connection as \"stale\" or \"down\" (if it was flapping), creating a flickering UI experience.\n2.  **N+1 Query Regression (Low):** While the plan explicitly calls out \"compute coverage in ONE batched query\" for the agent list, ensuring this remains performant as the number of agents and providers grows\u2014and ensuring it stays batched\u2014requires strict adherence in the implementation, as it is easy to accidentally revert to lazy-loading coverage inside the template loop.\n3.  **Migration/Downgrade Consistency:** While the plan correctly notes no DB migration is needed, it doesn't explicitly account for how existing \"no-connection\" agents (if any exist due to historical edge cases) might behave when suddenly exposed to the new \"needs-connecting\" UI, potentially creating support tickets for users whose agents were previously \"forgotten\".",
+  "stats": {
+    "models": {
+      "gemini-3.1-flash-lite": {
+        "api": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 3880
+        },
+        "tokens": {
+          "input": 25117,
+          "prompt": 25117,
+          "candidates": 562,
+          "total": 25679,
+          "cached": 0,
+          "thoughts": 0,
+          "tool": 0
+        },
+        "roles": {
+          "main": {
+            "totalRequests": 1,
+            "totalErrors": 0,
+            "totalLatencyMs": 3880,
+            "tokens": {
+              "input": 25117,
+              "prompt": 25117,
+              "candidates": 562,
+              "total": 25679,
+              "cached": 0,
+              "thoughts": 0,
+              "tool": 0
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 0,
+      "totalSuccess": 0,
+      "totalFail": 0,
+      "totalDurationMs": 0,
+      "totalDecisions": {
+        "accept": 0,
+        "reject": 0,
+        "modify": 0,
+        "auto_accept": 0
+      },
+      "byName": {}
+    },
+    "files": {
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0
+    }
+  }
+}
