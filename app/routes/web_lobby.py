@@ -26,14 +26,13 @@ other modules and tests can keep importing them from ``app.routes.web_lobby``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from urllib.parse import urlencode
 from typing import Any
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.deps import DbSession, get_current_user
@@ -47,8 +46,8 @@ from app.models.connection import Connection
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.ops_events import log_ops_event
-from app.read_models.agent_display import agent_display_name
 from app.read_models.matches import count_players_by_match
+from app.read_models.lobby_cache import load_lobby_recent_views_cached
 from app.routes import (
     web_account_notice,
     web_front_page,
@@ -57,12 +56,11 @@ from app.routes import (
     web_legacy_redirects,
 )
 from app.routes.web_support import (
-    _TEST_NAME_PREFIX,
     _is_any_admin,
     _is_showcase,
     _load_match_or_404,
     _redirect_to_match,
-    _top_standings,
+    _batch_top_standings,
     _upcoming_views,
 )
 from app.routes.viewer_presentation import _build_rc_data, sample_replay_data
@@ -119,121 +117,6 @@ async def _showcase_replay_data(
         return None, sample_replay_data()
 
 
-def _lobby_timestamp(match: Match) -> datetime:
-    """Pick the timestamp we want to show for a finished or cancelled match."""
-
-    return match.completed_at or match.cancelled_at or match.started_at or match.scheduled_start
-
-
-async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
-    """Build the lobby's finished-match sections in one read-side projection."""
-
-    player_counts = (
-        select(
-            Player.match_id.label("match_id"),
-            func.count(Player.id).label("player_count"),
-            func.coalesce(
-                func.sum(case((Agent.kind == AgentKind.BOT, 1), else_=0)),
-                0,
-            ).label("bot_count"),
-            func.coalesce(
-                func.sum(case((Agent.kind != AgentKind.BOT, 1), else_=0)),
-                0,
-            ).label("agent_count"),
-        )
-        .join(Agent, Agent.id == Player.agent_id)
-        .group_by(Player.match_id)
-        .subquery()
-    )
-    rows = (
-        await db.execute(
-            select(
-                Match,
-                func.coalesce(player_counts.c.player_count, 0),
-                func.coalesce(player_counts.c.bot_count, 0),
-                func.coalesce(player_counts.c.agent_count, 0),
-            )
-            .outerjoin(player_counts, player_counts.c.match_id == Match.id)
-            .where(Match.state.in_([GameState.COMPLETED, GameState.CANCELLED]))
-            .order_by(Match.scheduled_start.desc())
-        )
-    ).all()
-
-    winner_ids = {
-        match.winner_player_id
-        for match, *_ in rows
-        if match.state == GameState.COMPLETED and match.winner_player_id is not None
-    }
-    winner_rows: dict[int, dict[str, Any]] = {}
-    if winner_ids:
-        winner_rows = {
-            player_id: {
-                "display_name": agent_display_name(agent),
-                "is_bot": agent.kind == AgentKind.BOT,
-            }
-            for player_id, agent in (
-                await db.execute(
-                    select(Player.id, Agent)
-                    .join(Agent, Agent.id == Player.agent_id)
-                    .where(Player.id.in_(winner_ids))
-                )
-            ).all()
-        }
-
-    completed: list[dict[str, Any]] = []
-    recent: list[dict[str, Any]] = []
-    bots_only: list[dict[str, Any]] = []
-    cancelled: list[dict[str, Any]] = []
-    for match, player_count, bot_count, agent_count in rows:
-        if str(match.name).strip().lower().startswith(_TEST_NAME_PREFIX):
-            continue
-        timestamp = _lobby_timestamp(match)
-        view: dict[str, Any] = {
-            "id": match.id,
-            "game_type": match.game,
-            "name": match.name,
-            "state": match.state,
-            "player_count": int(player_count),
-            "bot_count": int(bot_count),
-            "agent_count": int(agent_count),
-            "timestamp": timestamp,
-            "timestamp_label": "Completed" if match.state == GameState.COMPLETED else "Cancelled",
-            "winner_display_name": (
-                winner_rows.get(match.winner_player_id, {}).get("display_name")
-                if match.winner_player_id
-                else None
-            ),
-            "winner_is_bot": (
-                winner_rows.get(match.winner_player_id, {}).get("is_bot", False)
-                if match.winner_player_id
-                else False
-            ),
-            "watch_url": f"/games/{match.game}/matches/{match.id}",
-        }
-        if view["winner_display_name"]:
-            view["summary"] = f"Won by {view['winner_display_name']}"
-        elif match.state == GameState.COMPLETED:
-            view["summary"] = "Finished"
-        else:
-            view["summary"] = "Cancelled"
-        if match.state == GameState.COMPLETED:
-            completed.append(view)
-            if int(agent_count) > 0:
-                recent.append(view)
-            elif int(player_count) > 0:
-                bots_only.append(view)
-        elif match.state == GameState.CANCELLED:
-            cancelled.append(view)
-
-    for group in (completed, recent, bots_only, cancelled):
-        group.sort(key=lambda v: v["timestamp"], reverse=True)
-
-    return {
-        "completed": completed,
-        "recent": recent,
-        "bots_only": bots_only,
-        "cancelled": cancelled,
-    }
 
 
 # Lobby board + polled 'upcoming' fragment. Defined on a local router; spliced
@@ -288,6 +171,10 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     active_player_counts = await count_players_by_match(
         db, [g.id for g in active_games], active_only=True
     )
+    # Fetch all standings in one batched query instead of N separate queries.
+    all_standings = await _batch_top_standings(
+        db, [g.id for g in active_games], limit=3
+    )
     live = []
     for g in active_games:
         live.append(
@@ -303,12 +190,12 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
                 "current_turn": g.current_turn,
                 "winner_agent_id": None,
                 # The marquee shows "who's leading", so a live game carries its top-3.
-                "standings": await _top_standings(db, g.id, 3),
+                "standings": all_standings.get(g.id, []),
                 "player_count": active_player_counts.get(g.id, 0),
             }
         )
     upcoming = await _upcoming_views(db)
-    finished_views = await _lobby_recent_views(db)
+    finished_views = await load_lobby_recent_views_cached()
     show_recent_all = request.query_params.get("recent") == "all"
     show_bots_all = request.query_params.get("sims") == "all"
     show_cancelled_all = request.query_params.get("cancelled") == "all"
@@ -499,8 +386,6 @@ __all__ = [
     "game_lobby",
     "game_upcoming",
     "_showcase_replay_data",
-    "_lobby_timestamp",
-    "_lobby_recent_views",
     # Names tests monkeypatch on this module; kept importable from here.
     "cancel_overdue_unfilled_games",
     "_upcoming_views",

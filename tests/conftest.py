@@ -38,9 +38,11 @@ def _clear_process_caches() -> None:
     the next.
     """
     from app.read_models.leaderboard_cache import clear_leaderboard_cache
+    from app.read_models.lobby_cache import clear_lobby_cache
     from app.routes.showcase_replay import clear_showcase_replay_cache
 
     clear_leaderboard_cache()
+    clear_lobby_cache()
     clear_showcase_replay_cache()
 
 
