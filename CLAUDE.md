@@ -57,6 +57,31 @@ Hard rules:
 - Fix the root cause. Do not use suppressions to silence errors.
 - If unrelated code breaks checks, validate in a clean worktree from `origin/main` before pushing.
 
+### Small-Change Lane (Direct Path only)
+
+Small changes do not need the full ritual. A change is "small" when **all** of
+these hold: ≤40 lines changed, ≤5 files touched, no DB migration, no model or
+schema change, no new dependency, and not a new subsystem.
+
+For a small change, the local gate is the **fast test lane** plus lint and types:
+
+```bash
+cd $(git rev-parse --show-toplevel)
+python3 -m ruff check . && \
+mypy app/ mcp_server/ && \
+pytest -q -m "not integration"   # fast lane (~13s); CI still runs the full suite
+```
+
+Also for a small change:
+- **Skip** the spec / plan / tasks docs and the `STATUS.md` update.
+- **Keep** the worktree-per-task rule and the PR's `Validation` section.
+
+CI runs the full `pytest` suite on every PR, so the full suite is still the real
+gate — the fast lane is just quicker local signal while you iterate.
+
+Anything that is **not** small (any migration, model change, or cross-cutting
+feature) runs the full Preflight Gate above and the normal delivery path.
+
 ## Python Standards
 
 ### No Suppressions
