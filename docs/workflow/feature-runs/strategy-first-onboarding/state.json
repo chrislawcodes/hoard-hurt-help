@@ -46,7 +46,31 @@
     },
     "unresolved": []
   },
-  "delivery": {},
+  "delivery": {
+    "pr_url": "",
+    "pr_number": null,
+    "merge_sha": "",
+    "closed_at": "2026-06-15T15:30:11+00:00",
+    "operator_note": "",
+    "review_coverage_summary": {
+      "spec_lenses_run": [
+        "codex:feasibility-adversarial",
+        "gemini:requirements-adversarial"
+      ],
+      "spec_lenses_skipped": [],
+      "plan_lenses_run": [
+        "codex:implementation-adversarial",
+        "gemini:testability-adversarial"
+      ],
+      "plan_lenses_skipped": [],
+      "tasks_lenses_run": [],
+      "tasks_lenses_skipped": [],
+      "diff_lenses_run": [
+        "gemini:regression-adversarial"
+      ],
+      "diff_lenses_skipped": []
+    }
+  },
   "dirty_overrides": {
     "allowed_dirty_paths": [
       "app/engine/connection_health.py",
@@ -874,5 +898,10 @@
       "activity": "codex running, last output 117s ago",
       "elapsed_ms": 600008
     }
-  ]
+  ],
+  "arch_docs": {
+    "no_change_acked": true,
+    "reason": "Architecture doc (AGENT_LUDUM_ARCHITECTURE.md) was updated in the feature PR #411; shipped code matches the plan \u2014 no post-implementation drift.",
+    "updated_at": 1781537533
+  }
 }
