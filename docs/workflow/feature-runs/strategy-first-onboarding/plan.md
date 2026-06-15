@@ -4,8 +4,8 @@
 
 - review: reviews/spec.codex.feasibility-adversarial.review.md | status: accepted | note: Round 3: no actionable findings — spec converged.
 - review: reviews/spec.gemini.requirements-adversarial.review.md | status: accepted | note: Round 3: confirmations only, no new findings — spec converged.
-- review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: r3 HIGH: live poll (live_status_fragment) now also only short-circuits on target-provider liveness. r3 MEDIUM1: hint on availability_notes links + all-provider mapping (hermes/openclaw->generic) + create-without-next still routes to connect. r3 MEDIUM2: needs-connecting respects PAUSED status (status-aware coverage). Verifications added.
-- review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: r3: no new actionable beyond Codex; readiness/capacity/next verifications retained.
+- review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: Round 4: no actionable findings — plan converged.
+- review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: Round 4: no actionable findings — plan converged.
 
 ## Architecture decisions
 

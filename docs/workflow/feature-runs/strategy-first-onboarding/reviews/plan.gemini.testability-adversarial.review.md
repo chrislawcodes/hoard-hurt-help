@@ -3,14 +3,14 @@ reviewer: "gemini"
 lens: "testability-adversarial"
 stage: "plan"
 artifact_path: "docs/workflow/feature-runs/strategy-first-onboarding/plan.md"
-artifact_sha256: "a2ba750064689303cbf1fdc349f62d950ef708519b49850e8690c9d8d0f342bf"
+artifact_sha256: "6b482ae84da5bae1bdfc446b2618908c31d69a9aad4df43a3c85462d0715e96d"
 repo_root: "."
-git_head_sha: "99c9abec482e7d75209b9ecf558e618a38b40474"
+git_head_sha: "92ae8342b430e0a106e53f3086f58a7cceb5df4f"
 git_base_ref: "origin/main"
 git_base_sha: "4723b62322a808d5a9c34d77e84e714d681d863e"
 generation_method: "gemini-cli"
 resolution_status: "accepted"
-resolution_note: "r3: no new actionable beyond Codex; readiness/capacity/next verifications retained."
+resolution_note: "Round 4: no actionable findings — plan converged."
 raw_output_path: "docs/workflow/feature-runs/strategy-first-onboarding/reviews/plan.gemini.testability-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,35 +22,28 @@ coverage_note: ""
 
 ## Findings
 
-1. **Stale/Stalling Race in Readiness Derivation (HIGH)**
-   The plan relies on `provider_enabled_on_any_connection` to determine readiness without accounting for the actual connection health (liveness). If a user has enabled a provider, but the only connections enabling that provider are `paused` or have had their runner process die (stalled), the UI will show "set up" or "ready," potentially misleading the user. The plan explicitly defers liveness to the *existing* health badge, but in an onboarding flow, the agent's "readiness" to play should arguably be coupled to an active, reachable connection, not just a configuration toggle.
-   [CODE-CONFIRMED] `app/engine/connection_health.py` separates `enabled_provider_values` from live health, but the UI logic in the plan proposes an "explicit needs-connecting branch" that might not distinguish between *configured-but-dead* and *configured-and-live*.
+- **Logic Leak in Provider Coverage/Health:** The plan relies on `connection_health.provider_is_covered` to determine "readiness" but simultaneously states that `enabled_provider_values` should ignore `ConnectionStatus.PAUSED`. If the coverage helper uses `enabled_provider_values` internally without status filtering, an agent on a PAUSED connection will be incorrectly flagged as "ready".
+  [CODE-CONFIRMED] `app/engine/connection_health.py` contains `enabled_provider_values` which gathers enabled providers without filtering for connection status (e.g., `PAUSED`).
 
-2. **`?next` Param Injection & Validation Bypass (MEDIUM)**
-   The plan assumes `?next` survives validation failure via `POST` re-rendering. If the `create_agent` handler does not explicitly pass the query parameter back into the `new_agent_form` template context, the state will be lost on the first validation failure. The plan does not explicitly call for validation of the `next` URL's safety (e.g., ensuring it isn't an open redirect).
-   [UNVERIFIED] Need to verify `app/routes/agents_create.py` implementation of `new_agent_form`.
+- **Incomplete Batched Query Design:** The plan proposes a batched coverage query for the agent list to avoid N+1 issues but does not address how this batching interacts with the "status-aware" coverage requirement. If `list_agents` runs one query for all agents, it must be robust enough to categorize each agent correctly based on the status of the connections providing their specific provider.
+  [UNVERIFIED] The plan mentions batched queries but doesn't define the complexity of the query to filter by `!PAUSED` status across multiple agents with different providers in a single round-trip.
 
-3. **Inconsistent Short-Circuit Logic for `/me/connections` (MEDIUM)**
-   The plan proposes changing the `is_live_now` short-circuit in `list_connections` to be provider-specific. This introduces a subtle UX discrepancy: if a user has multiple connections, some of which are live for provider A and others for provider B, the "auto-redirect" behavior will become non-deterministic or confusing based on which specific connection/provider is being targeted by the hint.
-   [CODE-CONFIRMED] `app/routes/connections_pages.py` handles the redirection logic; a provider-specific check requires careful handling of the aggregate `is_live_now` state.
-
-4. **N+1 Query Risk in Agent List (LOW)**
-   The plan acknowledges an N+1 risk but proposes a "batched coverage query." It is unclear if the proposed batched query handles the `Match` count lookup efficiently or if it will rely on the existing `_count_agent_matches` which may remain N+1 if not refactored into a single group-by query.
-   [CODE-CONFIRMED] `app/routes/agents_list.py` needs to move from per-agent call to a single aggregate query to truly mitigate the risk.
+- **Potential State Pollution in `?next`:** The plan relies on `?next` surviving create validation failures. If the validation logic in `agents_create.py` does not explicitly re-inject the `next` query parameter during the re-render of the form, the redirection chain is broken.
+  [UNVERIFIED] Requires checking `app/routes/agents_create.py` to confirm the form re-render logic handles arbitrary query parameters.
 
 ## Residual Risks
 
-1. **State Transition Fragility:** The "needs-connecting" state is entirely derived. If `connection_providers` is updated concurrently with a page render, the user might see conflicting "ready" vs "needs-connecting" statuses.
-2. **Backfill/Migration Hazards:** While the plan correctly notes no database migration, the reliance on derived state assumes the underlying `connection_providers` table accurately reflects user intent across all edge cases (e.g., user deletes all connections but leaves provider toggles enabled).
-3. **Onboarding Loop Deadlock:** The transition from `Join` -> `Agents/New` -> `Connect` -> `Join` is complex. If the connection step is cancelled or interrupted, the `?next` parameter may be lost or stale, leaving the user stranded without a clear path back to the game they originally intended to join.
+- **Stale Liveness UX:** By deliberately using the platform's standard `LIVE_WINDOW_SECONDS` (via existing connection health badges) rather than a custom "live now" state, there is a risk that the UI will show "Ready to play" (because the provider is *configured/active*) while the connection is actually stalled/offline, causing confusion for users expecting immediate turn execution.
+- **Join Redirect Loop:** If the "no-agent" user redirection to `/me/agents/new` is triggered without proper context, a user might get trapped in an onboarding loop if they decline to create an agent.
+- **Batched Query Over-fetching:** An improperly implemented batched coverage query that fetches all connection-provider states for all users could lead to performance degradation as the `connections` table grows, or worse, expose configuration data across different users if the scope is not strictly limited to the current user's connections.
 
 ## Token Stats
 
-- total_input=26130
-- total_output=900
-- total_tokens=52847
-- `gemini-3.1-flash-lite`: input=26130, output=900, total=52847
+- total_input=26461
+- total_output=554
+- total_tokens=27015
+- `gemini-3.1-flash-lite`: input=26461, output=554, total=27015
 
 ## Resolution
 - status: accepted
-- note: r3: no new actionable beyond Codex; readiness/capacity/next verifications retained.
+- note: Round 4: no actionable findings — plan converged.
