@@ -3,7 +3,6 @@
 import base64
 import json
 from datetime import datetime, timezone
-from urllib.parse import quote
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -12,12 +11,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
+from app.config import PROVIDER_MODELS
 from app.games import get as get_game_module
 from app.main import app
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+from app.models.agent import AgentStatus
 from tests.factories import make_connection, make_user
 
 
@@ -190,7 +191,7 @@ async def test_join_with_preset_strategy_seeds_preset_prompt(client, reset_db) -
 
 
 @pytest.mark.asyncio
-async def test_join_form_groups_models_and_disables_uncovered_providers(
+async def test_join_form_groups_models_even_when_providers_are_uncovered(
     client, reset_db
 ) -> None:
     async with reset_db() as db:
@@ -213,7 +214,8 @@ async def test_join_form_groups_models_and_disables_uncovered_providers(
     assert 'name="provider"' not in r.text
     assert 'name="model"' in r.text
     assert '<optgroup label="Claude">' in r.text
-    assert '<optgroup label="OpenAI" disabled>' in r.text
+    assert '<optgroup label="Claude" disabled>' not in r.text
+    assert '<optgroup label="OpenAI" disabled>' not in r.text
     # The disabled provider's note is now a real "connect it" link, not dead prose.
     assert "OpenAI isn't connected yet" in r.text
     assert 'href="/me/connections' in r.text
@@ -241,31 +243,34 @@ async def test_agent_instructions_page_shows_canonical_base_prompt(client, reset
 
 
 @pytest.mark.asyncio
-async def test_create_agent_page_without_any_connection_shows_connect_cta(
+async def test_create_agent_page_without_any_connection_shows_full_form(
     client, reset_db
 ) -> None:
-    # No provider connected at all: the create-agent form would dead-end (the POST
-    # needs a connected provider), so the page hides the form and shows a single
-    # "connect a client first" CTA pointing at /me/connections.
+    # No provider connected at all: the create-agent page still renders the full
+    # design form so the player can name the agent, pick any provider, and save
+    # strategy before doing the technical setup.
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
 
     r = await client.get("/me/agents/new", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
-    assert "Connect an AI client first" in r.text
-    assert 'href="/me/connections' in r.text
-    # The dead form must not render when there's nothing to build an agent on.
-    assert 'name="model"' not in r.text
+    assert "Connect an AI client first" not in r.text
+    assert 'name="model"' in r.text
+    assert 'name="strategy_text"' in r.text
+    for provider_value, models in PROVIDER_MODELS.items():
+        if not models:
+            continue
+        label = provider_value.capitalize() if provider_value != "openai" else "OpenAI"
+        assert f'<optgroup label="{label}" disabled>' not in r.text
 
 
 @pytest.mark.asyncio
-async def test_create_agent_with_disconnected_provider_redirects_to_connections(
+async def test_create_agent_with_disconnected_provider_still_creates_agent(
     client, reset_db
 ) -> None:
-    # Posting a model for a provider that isn't connected no longer 409s (a dead
-    # end). It redirects to /me/connections so the user can connect that client,
-    # then come back and create the agent.
+    # Posting a model for a provider that isn't connected still creates the
+    # agent. The old connect-first redirect is gone.
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
@@ -282,15 +287,21 @@ async def test_create_agent_with_disconnected_provider_redirects_to_connections(
         follow_redirects=False,
     )
     assert r.status_code == 303, r.text
-    assert r.headers["location"].startswith("/me/connections")
+    assert r.headers["location"].startswith("/me/agents/")
+
+    async with reset_db() as db:
+        agent = (
+            await db.execute(select(Agent).where(Agent.user_id == user.id, Agent.name == "Atlas"))
+        ).scalar_one()
+    assert agent.provider == ConnectionProvider.OPENAI
+    assert agent.status == AgentStatus.ACTIVE
 
 
 @pytest.mark.asyncio
-async def test_create_agent_disconnected_provider_redirect_preserves_next(
+async def test_create_agent_with_next_returns_to_next_target(
     client, reset_db
 ) -> None:
-    # The safety-net redirect keeps ?next so the join chain resumes after the user
-    # connects the missing client.
+    # When ?next is present, creation returns there after saving the agent.
     join_url = "/games/hoard-hurt-help/matches/G_001/join"
     async with reset_db() as db:
         user = await make_user(db)
@@ -310,8 +321,7 @@ async def test_create_agent_disconnected_provider_redirect_preserves_next(
     )
     assert r.status_code == 303, r.text
     loc = r.headers["location"]
-    assert loc.startswith("/me/connections?next=")
-    assert quote(join_url, safe="") in loc
+    assert loc == join_url
 
 
 @pytest.mark.asyncio

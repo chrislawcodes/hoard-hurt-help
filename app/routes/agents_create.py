@@ -8,8 +8,6 @@ creates the Agent + its first AgentVersion.
 from __future__ import annotations
 
 from typing import Annotated
-from urllib.parse import quote
-
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import String, select
@@ -159,8 +157,6 @@ async def new_agent_form(
             if strategy_presets
             else get_game_module(_DEFAULT_GAME).default_strategy()
         ),
-        # Carry a validated ?next through the form so creating the agent here can
-        # forward back to where the user came from (e.g. a join page hub).
         "next_url": safe_internal_next(next),
     }
     return templates.TemplateResponse(request, "agents/new.html", context)
@@ -199,17 +195,6 @@ async def create_agent_or_connection(
         if derived is None:
             raise HTTPException(status_code=400, detail="Unknown model.")
         agent_provider = ConnectionProvider(derived)
-        if agent_provider.value not in await enabled_provider_values(db, user.id):
-            # No connected client enables this provider yet. Don't dead-end the
-            # POST with a 409 — send the user to connect a client first, carrying
-            # ?next so the join chain (if any) resumes once they're set up.
-            safe_next = safe_internal_next(next_after)
-            target = (
-                f"/me/connections?next={quote(safe_next, safe='')}"
-                if safe_next
-                else "/me/connections"
-            )
-            return RedirectResponse(url=target, status_code=status.HTTP_303_SEE_OTHER)
         clean_strategy = (strategy_text or "").strip()
         if not clean_strategy and strategy_preset:
             preset = next(
