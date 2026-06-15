@@ -106,4 +106,7 @@ async def test_new_agent_form_renders_without_connections(client, reset_db) -> N
         if not models:
             continue
         label = "OpenAI" if provider_value == "openai" else provider_value.capitalize()
+        assert f'<optgroup label="{label}">' in resp.text
         assert f'<optgroup label="{label}" disabled>' not in resp.text
+        for model in models:
+            assert f'<option value="{model}"' in resp.text
