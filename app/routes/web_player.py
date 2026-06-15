@@ -21,7 +21,7 @@ from app.engine.connection_health import (
     provider_is_covered,
 )
 from app.engine.scheduler import start_game
-from app.engine.seat_hold import confirm_seat_if_live, hold_deadline
+from app.engine.seat_hold import SEAT_HOLD_SECONDS, confirm_seat_if_live, hold_deadline
 from app.games import get as get_game_module
 from app.games import is_admin_only
 from app.models.agent import Agent, AgentKind
@@ -55,6 +55,15 @@ _PROVIDER_LABELS = {
     "hermes": "Hermes",
     "openclaw": "OpenClaw",
 }
+
+# On the held-seat page, a "returning" provider (set up on a connection) is told
+# to just paste the play-prompt to wake it. If it's still wired into the user's
+# AI client, it checks in within seconds. So if it hasn't come online after this
+# grace window, the MCP server has almost certainly dropped out of the client —
+# pasting won't help, and we escalate the poll to a "reconnect your server" CTA.
+# This is the liveness check: we don't trust the DB "configured" flag, we watch
+# whether the connection actually comes online and act when it doesn't.
+_STALL_WAKE_SECONDS = 45
 
 
 def _aware(dt: datetime) -> datetime:
@@ -617,6 +626,22 @@ async def seat_connect_status(
                 "join_url": f"/games/{match.game}/matches/{match.id}/join",
             },
         )
+    # Liveness detection: the seat is still held and the provider hasn't come
+    # online. If it was set up on a connection (a "returning" provider) yet still
+    # hasn't checked in after the grace window, the MCP server has dropped out of
+    # the user's AI client — waking it won't work until they reconnect it. Surface
+    # a prominent reconnect CTA. The poll keeps running underneath, so the moment
+    # they reconnect and it comes online we still auto-seat them.
+    deadline = _aware(player.seat_reserved_until)
+    waited_seconds = SEAT_HOLD_SECONDS - (deadline - now).total_seconds()
+    is_configured = provider is not None and await provider_enabled_on_any_connection(
+        db, user.id, provider
+    )
+    escalate = is_configured and waited_seconds >= _STALL_WAKE_SECONDS
+    reconnect_url = None
+    if escalate and provider is not None:
+        connect_next = quote(f"{match_url}/connect/{player.id}", safe="")
+        reconnect_url = f"/me/connections?next={connect_next}&provider={provider.value}"
     return templates.TemplateResponse(
         request,
         "fragments/seat_connect_status.html",
@@ -624,6 +649,8 @@ async def seat_connect_status(
             "state": "held",
             "provider_label": provider_label,
             "status_url": f"{match_url}/connect/{player.id}/status",
+            "escalate": escalate,
+            "reconnect_url": reconnect_url,
         },
     )
 

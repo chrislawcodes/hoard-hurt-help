@@ -4,7 +4,20 @@
     <a class="btn btn-ghost" href="{{ join_url }}">Back to join →</a>
 </div>
 {% else %}
+{# Held seat, still waiting. The poll keeps running either way, so if the AI comes
+   online (even after a reconnect) we still auto-seat. When `escalate` is set, the
+   provider was set up but hasn't checked in within the grace window — its MCP
+   server has likely dropped out of the user's AI client, so pasting the wake
+   prompt won't help. Lead with a reconnect CTA instead of a bland "Waiting…". #}
 <div id="seat-status" hx-get="{{ status_url }}" hx-trigger="every 3s" hx-swap="outerHTML">
+    {% if escalate %}
+    <div class="card form" style="margin-top:0.8rem;">
+        <p>{{ provider_label }} still hasn't come online. Its MCP server may have disconnected from your AI — pasting the wake prompt won't help until you reconnect it.</p>
+        <a class="btn btn-primary" href="{{ reconnect_url }}">Reconnect {{ provider_label }} →</a>
+        <p class="hint" style="margin-top:0.6rem;">Still trying to wake it — if it comes online on its own, we'll seat you automatically.</p>
+    </div>
+    {% else %}
     <p class="hint">Waiting for {{ provider_label }} to come online…</p>
+    {% endif %}
 </div>
 {% endif %}
