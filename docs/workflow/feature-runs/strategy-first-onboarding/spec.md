@@ -144,32 +144,58 @@ for the core flow to function.
   it is reached when a player Joins an agent whose provider isn't live.
 - **Empty strategy** → fall back to the game's default strategy (existing
   behavior) so an agent is never strategy-less.
+- **Create validation fails (e.g. bad name) mid-chain** → the re-rendered form
+  MUST preserve `?next` so the user is never trapped looping between Join and
+  Create (Gemini residual risk).
+- **Disconnected agent and capacity** → a "needs connecting" agent MUST NOT count
+  toward, or break, live-connection capacity math (`active_matches_for_provider` /
+  `live_provider_capacity`); it simply cannot be seated until its provider is live
+  (Gemini residual risk).
 
 ## Requirements
 
 ### Functional Requirements
 
 - **FR-001**: The create-agent flow MUST allow creating an agent when the chosen
-  provider is not enabled on any connection (remove/replace the redirect-to-
-  connections gate in `app/routes/agents_create.py`). Supports US1.
+  provider is not enabled on any connection. This requires changing BOTH paths in
+  `app/routes/agents_create.py`: (a) the POST handler's redirect-to-connections
+  gate, AND (b) the GET handler `new_agent_form`, which today computes
+  `has_enabled_provider` and makes `agents/new.html` render a "Connect an AI client
+  first" card (with a `/me/connections` CTA) instead of the real form. The GET
+  form MUST show the full design form even with zero connections. Supports US1.
 - **FR-002**: The create-agent model/provider picker MUST offer all providers'
-  models regardless of which providers are connected. Supports US1.
+  models as selectable regardless of which providers are connected — the picker
+  MUST NOT disable provider groups/options for "no machine runs X"
+  (`_build_model_picker_groups` + `agents/new.html`). Supports US1.
 - **FR-003**: A created agent MUST persist its name, strategy, and provider, and
   MUST be distinguishable as "ready but not connected" when its provider has no
   enabled/live connection. The state SHOULD be derived from connection data
   rather than a new stored column unless the plan shows derivation is infeasible.
   Supports US1, US4, US5.
-- **FR-004**: After successful creation, the system MUST route the player to the
-  step that connects that agent's specific provider (e.g. the existing
-  `/me/connections` flow targeting that provider), preserving any `?next`.
-  Supports US2.
+- **FR-004**: After successful creation, the system MUST route the player to
+  connect that agent's specific provider. Because `/me/connections` is currently
+  provider-neutral (`list_connections` takes only `next`; one generic client
+  picker), this MUST add a provider hint to that page (e.g. `?provider=<value>`)
+  that preselects the matching client tab (Claude→Claude Code, Gemini→Gemini,
+  OpenAI→Codex), and the create handler MUST pass it, preserving any `?next`. If
+  the hint is absent/unknown the page MUST still render the generic picker
+  (graceful fallback). "Specific provider" means which MCP CLIENT to connect — one
+  client = one provider (PR #392); the multi-provider machine connector is a
+  separate path and out of scope. Supports US2.
 - **FR-005**: The Join setup routing (`_join_setup_redirect` in
   `app/routes/web_player.py`) MUST send a signed-in, handled user with no AI agent
   to design an agent first (`/me/agents/new`), NOT to `/me/connections`, carrying
   `?next` back to Join. Supports US3.
 - **FR-006**: When a player views their agents, each agent MUST show whether it
-  can play now or needs connecting, with a direct CTA to connect its provider when
-  it needs connecting. Supports US4.
+  can play now or needs connecting, with a direct, provider-scoped CTA to connect
+  its provider when needed. This names specific templates: the agent list
+  (`app/templates/agents/list.html`, today only a health badge + name + model +
+  row link — no connect CTA) MUST surface the needs-connecting state and CTA, and
+  the agent detail page (`app/templates/agents/detail.html`) MUST make its connect
+  action provider-scoped (carry the `?provider=` hint from FR-004) rather than the
+  generic `/me/connections` link. To avoid per-agent query cost, the
+  ready-vs-needs-connecting computation for the list MUST be batched (one coverage
+  query, not one per agent). Supports US4.
 - **FR-007**: Existing seat/live behavior MUST be preserved: an agent whose
   provider is live can be seated and play; an agent whose provider is not live
   follows the PR #406 state-aware held-seat page (no countdown). Supports US2.
