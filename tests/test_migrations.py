@@ -790,6 +790,10 @@ def test_check_oauth_config_passes_when_both_set(monkeypatch) -> None:
     monkeypatch.setattr(app_main.settings, "google_client_secret", "real-client-secret")
     # MCP OAuth discovery also requires a real public base_url in a deployment.
     monkeypatch.setattr(app_main.settings, "base_url", "https://play.example.com")
+    # A real deployment also requires a stable MCP signing key.
+    monkeypatch.setattr(
+        app_main.settings, "mcp_jwt_signing_key", "a-stable-mcp-signing-key-0123456789"
+    )
 
     # Must not raise.
     app_main._check_oauth_config()

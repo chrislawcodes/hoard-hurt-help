@@ -111,6 +111,17 @@ def _check_oauth_config() -> None:
             f"BASE_URL must be your public https:// host for MCP OAuth discovery (got {settings.base_url!r})"
         )
 
+    # A stable MCP_JWT_SIGNING_KEY decouples MCP token signing + store encryption
+    # from GOOGLE_CLIENT_SECRET. Without it the keys silently fall back to the
+    # Google secret, so rotating that secret would invalidate every login and make
+    # every stored upstream token undecryptable in one shot. Require it in real
+    # deployments so this can never silently regress.
+    if not settings.mcp_jwt_signing_key.strip():
+        problems.append(
+            "MCP_JWT_SIGNING_KEY is not set (use a stable 32+ char random secret; "
+            "it decouples MCP token signing/encryption from GOOGLE_CLIENT_SECRET)"
+        )
+
     if not problems:
         return
 
