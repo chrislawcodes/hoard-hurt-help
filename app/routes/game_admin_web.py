@@ -13,9 +13,9 @@ from app.engine.bot_presets import bot_preset_by_id
 from app.engine.match_creation import create_match
 from app.engine.match_deletion import cancel_match
 from app.engine.scheduler import start_game
-from app.engine.sims import validate_bot_profile_fields
-from app.engine.sims.roster import PACKS, PERSONALITIES, SIM_NAME_POOL
-from app.engine.sims.seating import SimSeatingError, add_sims_to_game
+from app.engine.bots import validate_bot_profile_fields
+from app.engine.bots.roster import PACKS, PERSONALITIES, BOT_NAME_POOL
+from app.engine.bots.seating import BotSeatingError, add_bots_to_game
 from app.engine.state_machine import TransitionError
 from app.games import GameError, get as get_game_module, known_types
 from app.games.base import GameConfig
@@ -315,11 +315,11 @@ async def _render_add_bots(
         .all()
     )
     can_add = match.state in (GameState.SCHEDULED, GameState.REGISTERING)
-    sims_data = {
+    bots_data = {
         "maxPlayers": match.max_players,
         "currentCount": len(existing),
         "existing": existing,
-        "names": list(SIM_NAME_POOL),
+        "names": list(BOT_NAME_POOL),
         "personalities": [
             {"id": p.id, "label": p.label, "description": p.description, "lean": p.lean}
             for p in PERSONALITIES
@@ -348,7 +348,7 @@ async def _render_add_bots(
             "can_add": can_add,
             "current_count": len(existing),
             "error": error,
-            "sims_data": sims_data,
+            "bots_data": bots_data,
         },
         status_code=status_code,
     )
@@ -439,8 +439,8 @@ async def add_bots_submit(
                 status_code=400,
             )
     try:
-        created = await add_sims_to_game(db, g, seats)
-    except SimSeatingError as exc:
+        created = await add_bots_to_game(db, g, seats)
+    except BotSeatingError as exc:
         return await _render_add_bots(
             request, db, user, game, g, error=str(exc), prefill=seats, status_code=400
         )

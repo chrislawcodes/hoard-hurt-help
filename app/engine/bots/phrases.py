@@ -1,4 +1,4 @@
-"""Canonical Sim phrase library."""
+"""Canonical bot phrase library."""
 
 from __future__ import annotations
 

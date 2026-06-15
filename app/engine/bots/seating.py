@@ -1,10 +1,10 @@
 """Seat platform bots into a game as ready-to-play players.
 
-The admin's "Add Sims" screen posts a roster of ``(name, personality)`` rows;
+The admin's "Add bots" screen posts a roster of ``(name, personality)`` rows;
 this module validates them and creates, for each row, a backing bot agent plus a
 player. Bots are owned by a single internal "Platform Bots" user so they never
 clutter a human's agent list, and they carry no usable credential - the
-scheduler drives them directly (see :mod:`app.engine.sims.service`).
+scheduler drives them directly (see :mod:`app.engine.bots.service`).
 
 A separate bot per seat is required: a player is uniquely keyed to one bot per
 game, and the deterministic runtime reads each player's traits and seed off its
@@ -20,8 +20,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.bot_presets import bot_preset_by_id
-from app.engine.sims.roster import is_known_personality
-from app.engine.sims.runtime import validate_bot_profile_fields
+from app.engine.bots.roster import is_known_personality
+from app.engine.bots.runtime import validate_bot_profile_fields
 from app.models.agent import Agent, AgentKind
 from app.models.match import Match
 from app.models.player import Player
@@ -37,13 +37,8 @@ BOTS_USER_SUB = "platform:bots"
 BOTS_USER_EMAIL = "bots@agentludum.local"
 BOTS_USER_NAME = "Platform Bots"
 
-SIM_AGENT_NAME_RE = BOT_AGENT_NAME_RE
-SIMS_USER_SUB = BOTS_USER_SUB
-SIMS_USER_EMAIL = BOTS_USER_EMAIL
-SIMS_USER_NAME = BOTS_USER_NAME
 
-
-class SimSeatingError(Exception):
+class BotSeatingError(Exception):
     """A roster the admin submitted can't be seated; message is user-facing."""
 
 
@@ -81,24 +76,24 @@ def _validate_roster(
     seats: list[tuple[str, str]], existing: set[str], max_players: int
 ) -> None:
     if not seats:
-        raise SimSeatingError("Add at least one bot to save.")
+        raise BotSeatingError("Add at least one bot to save.")
     seen: set[str] = set()
     for name, strategy in seats:
         if not is_known_personality(strategy):
-            raise SimSeatingError(f"Unknown personality: {strategy!r}.")
-        if not SIM_AGENT_NAME_RE.fullmatch(name):
-            raise SimSeatingError(
+            raise BotSeatingError(f"Unknown personality: {strategy!r}.")
+        if not BOT_AGENT_NAME_RE.fullmatch(name):
+            raise BotSeatingError(
                 f"“{name}” isn’t a valid name. Use letters, numbers, or spaces "
                 "(up to 32)."
             )
         if name in existing:
-            raise SimSeatingError(f"“{name}” is already taken in this game.")
+            raise BotSeatingError(f"“{name}” is already taken in this game.")
         if name in seen:
-            raise SimSeatingError(f"“{name}” is listed twice.")
+            raise BotSeatingError(f"“{name}” is listed twice.")
         seen.add(name)
     total = len(existing) + len(seats)
     if total > max_players:
-        raise SimSeatingError(
+        raise BotSeatingError(
             f"That would seat {total} players, over the {max_players} cap. "
             "Remove a few bots."
         )
@@ -110,7 +105,7 @@ async def add_bots_to_game(
     """Validate ``seats`` and seat each as a bot player. Commits on success.
 
     ``seats`` is a list of ``(name, personality_id)``. Raises
-    :class:`SimSeatingError` (no commit) if any name is invalid, duplicated,
+    :class:`BotSeatingError` (no commit) if any name is invalid, duplicated,
     already taken, the personality is unknown, or the table would overflow.
     """
     existing = set(await _existing_seat_names(db, game.id))
@@ -121,7 +116,7 @@ async def add_bots_to_game(
     for name, strategy in seats:
         preset = bot_preset_by_id(strategy)
         if preset is None:  # guarded by _validate_roster, kept for type-safety
-            raise SimSeatingError(f"Unknown personality: {strategy!r}.")
+            raise BotSeatingError(f"Unknown personality: {strategy!r}.")
         agent = Agent(
             user_id=bots_user.id,
             name=f"{game.id}:{name}",
@@ -150,7 +145,7 @@ async def add_bots_to_game(
                 bot_version=agent.bot_version,
             )
         except ValueError as exc:
-            raise SimSeatingError(
+            raise BotSeatingError(
                 f"Bot profile for {name!r} is invalid: {exc}"
             ) from exc
         player = Player(
@@ -165,13 +160,3 @@ async def add_bots_to_game(
 
     await db.commit()
     return created
-
-
-async def get_or_create_sims_user(db: AsyncSession) -> User:
-    return await get_or_create_bots_user(db)
-
-
-async def add_sims_to_game(
-    db: AsyncSession, game: Match, seats: list[tuple[str, str]]
-) -> list[Player]:
-    return await add_bots_to_game(db, game, seats)

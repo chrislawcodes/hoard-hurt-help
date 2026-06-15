@@ -133,8 +133,8 @@ async def test_cta_connected_agent_is_play_now(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_cta_sim_only_is_create_agent(reset_db):
-    # A Sim (house bot) isn't the visitor's own AI agent, so they still need to
+async def test_cta_bot_only_is_create_agent(reset_db):
+    # A bot (house bot) isn't the visitor's own AI agent, so they still need to
     # create one before anything else.
     async with reset_db() as db:
         user = await make_user(db)

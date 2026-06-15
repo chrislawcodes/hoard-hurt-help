@@ -21,7 +21,7 @@ from app.engine.arena import (
     fill_and_start_auto_matches,
 )
 from app.engine.bot_presets import HISTORICAL_BOT_NAME_POOL
-from app.engine.sims.seating import SimSeatingError
+from app.engine.bots.seating import BotSeatingError
 from app.models import Base
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -65,13 +65,13 @@ async def test_ensure_creates_practice_arena_when_none_exists(db_session):
         assert arena.max_players == PRACTICE_ARENA_MAX_PLAYERS
         assert arena.created_by_user_id is None
 
-        # Should have PRACTICE_ARENA_BOT_COUNT pre-seated Sim players.
-        sim_count = await db.scalar(
+        # Should have PRACTICE_ARENA_BOT_COUNT pre-seated bot players.
+        bot_count = await db.scalar(
             select(func.count()).select_from(Player).where(
                 Player.match_id == arena.id, Player.left_at.is_(None)
             )
         )
-        assert sim_count == PRACTICE_ARENA_BOT_COUNT
+        assert bot_count == PRACTICE_ARENA_BOT_COUNT
         seat_names = (
             (
                 await db.execute(
@@ -257,7 +257,7 @@ async def test_ensure_auto_match_idempotent(db_session):
         assert count == 1
 
 
-async def test_fill_and_start_auto_matches_fills_sims(db_session):
+async def test_fill_and_start_auto_matches_fills_bots(db_session):
     past = datetime.now(timezone.utc) - timedelta(minutes=5)
     match_id = "M_9001"
 
@@ -341,7 +341,7 @@ async def test_fill_and_start_auto_matches_zero_humans_cancels(db_session):
 
 
 async def test_fill_and_start_seating_error_cancels_match_and_continues(db_session):
-    """A SimSeatingError during bot seating cancels the affected match.
+    """A BotSeatingError during bot seating cancels the affected match.
 
     The failed match must end up CANCELLED (not left in limbo), and the loop
     must continue processing subsequent due matches.
@@ -388,8 +388,8 @@ async def test_fill_and_start_seating_error_cancels_match_and_continues(db_sessi
         nonlocal call_count
         call_count += 1
         if match.id == failing_id:
-            raise SimSeatingError("Test-induced seating failure")
-        from app.engine.sims.seating import add_bots_to_game as _real
+            raise BotSeatingError("Test-induced seating failure")
+        from app.engine.bots.seating import add_bots_to_game as _real
         return await _real(db, match, seats)
 
     with patch(original_add_bots, side_effect=_add_bots_side_effect):

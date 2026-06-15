@@ -1,9 +1,9 @@
-"""The Sim catalog the admin picks from when seating a game.
+"""The bot catalog the admin picks from when seating a game.
 
 Static, presentation-facing data: the eight personalities (with a one-word
 action *lean* for glanceable colour), the quick-add packs that bundle them, and
-the historical leader name pool used for default Sim names. The actual trait
-values for each personality live in :mod:`app.engine.sim_presets`; this module
+the historical leader name pool used for default bot names. The actual trait
+values for each personality live in :mod:`app.engine.bot_presets`; this module
 only adds the labels, descriptions, and grouping the admin screen needs.
 """
 
@@ -20,7 +20,7 @@ from app.engine.bot_presets import (
 
 # Each personality leans toward one of the three actions. Used only to colour a
 # dot in the picker so the admin can read cooperative / aggressive / self at a
-# glance — it does not change how the Sim plays.
+# glance — it does not change how the bot plays.
 _LEAN: dict[str, str] = {
     "coalition_seeker": "help",
     "loyal_partner": "help",
@@ -82,9 +82,9 @@ PACKS: tuple[Pack, ...] = (
 )
 
 
-# Default Sim names. These are historical generals and leaders; multi-word
+# Default bot names. These are historical generals and leaders; multi-word
 # names use spaces for display.
-SIM_NAME_POOL: tuple[str, ...] = HISTORICAL_BOT_NAME_POOL
+BOT_NAME_POOL: tuple[str, ...] = HISTORICAL_BOT_NAME_POOL
 
 
 def is_known_personality(strategy: str) -> bool:

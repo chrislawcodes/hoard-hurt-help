@@ -39,23 +39,23 @@ async def client():
 
 
 async def _seed_completed_match(reset_db) -> None:
-    """One completed match: an agent with a handle, an agent without, and a Sim."""
+    """One completed match: an agent with a handle, an agent without, and a bot."""
     async with reset_db() as db:
         user_with = await make_user(db, 1)  # factory gives handle "agent1"
         user_without = await make_user(db, 2)
         user_without.handle = None
         user_without.handle_key = None
-        sim_owner = await make_user(db, 3)
+        bot_owner = await make_user(db, 3)
 
         agent_with, version_with = await make_agent(db, user_with, name="AliceBot")
         agent_without, version_without = await make_agent(db, user_without, name="BobBot")
-        sim_bot, _ = await make_agent(
+        bot_agent, _ = await make_agent(
             db,
-            sim_owner,
+            bot_owner,
             name="Coalition Seeker",
             kind=AgentKind.BOT,
-            sim_profile_name="Coalition Seeker",
-            sim_strategy="coalition_seeker",
+            bot_profile_name="Coalition Seeker",
+            bot_strategy="coalition_seeker",
         )
 
         match = Match(
@@ -87,8 +87,8 @@ async def _seed_completed_match(reset_db) -> None:
                     model_self_report=version_without.model if version_without else None,
                 ),
                 Player(
-                    match_id=match.id, user_id=sim_owner.id,
-                    agent_id=sim_bot.id,
+                    match_id=match.id, user_id=bot_owner.id,
+                    agent_id=bot_agent.id,
                     seat_name="Coalition Seeker",
                     total_round_wins=2, total_round_score=20,
                 ),
@@ -97,7 +97,7 @@ async def _seed_completed_match(reset_db) -> None:
         await db.commit()
 
 
-async def test_owner_handle_shown_for_agents_and_absent_for_sims(reset_db):
+async def test_owner_handle_shown_for_agents_and_absent_for_bots(reset_db):
     await _seed_completed_match(reset_db)
     async with reset_db() as db:
         sections = await load_leaderboard_sections(db, included="all")
@@ -110,12 +110,12 @@ async def test_owner_handle_shown_for_agents_and_absent_for_sims(reset_db):
     assert alice.owner_handle == "agent1"
     # Agent whose owner has not picked a handle yet: no credit.
     assert bob.owner_handle is None
-    # Sim still appears (the User join didn't drop it) but carries no owner.
+    # Bot still appears (the User join didn't drop it) but carries no owner.
     assert rows["Coalition Seeker"].is_bot is True
     assert rows["Coalition Seeker"].owner_handle is None
 
 
-async def test_agents_view_keeps_handles_and_excludes_sims(reset_db):
+async def test_agents_view_keeps_handles_and_excludes_bots(reset_db):
     await _seed_completed_match(reset_db)
     async with reset_db() as db:
         sections = await load_leaderboard_sections(db, included="agents")

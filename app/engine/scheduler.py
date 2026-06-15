@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.broadcast import publish
 from app.db import SessionLocal
 from app.engine import resolver
-from app.engine.sims.service import auto_submit_bot_phase
+from app.engine.bots.service import auto_submit_bot_phase
 from app.engine.state_machine import assert_transition
 from app.engine.tokens import generate_turn_token
 from app.engine.turn_drivers import SequentialDriver, TurnDriver
@@ -231,7 +231,7 @@ class SchedulerRegistry:
                 await fn(db)
 
         while True:
-            # 1st: fill overdue auto-matches with Sims before start_due_games
+            # 1st: fill overdue auto-matches with bots before start_due_games
             # evaluates player count — if reversed, auto-matches get cancelled.
             await self._run_subsystem(
                 "fill_and_start_auto_matches",

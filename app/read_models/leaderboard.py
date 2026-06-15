@@ -46,10 +46,6 @@ class LeaderboardRow:
     is_archived: bool
     archived_at: datetime | None
 
-    @property
-    def is_sim(self) -> bool:
-        return self.is_bot
-
 
 @dataclass(frozen=True)
 class LeaderboardSection:
@@ -60,10 +56,6 @@ class LeaderboardSection:
     rows: list[LeaderboardRow]
     match_count: int
     has_bots: bool
-
-    @property
-    def has_sims(self) -> bool:
-        return self.has_bots
 
 
 @dataclass(frozen=True)
@@ -108,7 +100,7 @@ def _agent_display_name(agent: Agent, version: AgentVersion | None) -> str:
 
 def _competitor_key(agent: Agent) -> str:
     """Leaderboard grouping key. Preset bots are re-seated as a fresh per-match
-    agent each game, so group them by their stable profile (as the old Sim board
+    agent each game, so group them by their stable profile (as the old bot board
     did) rather than the throwaway per-match agent id. AI agents are persistent
     competitors, so they key by their own id."""
     if agent.kind == AgentKind.BOT:

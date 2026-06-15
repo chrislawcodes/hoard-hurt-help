@@ -1,4 +1,4 @@
-"""Trust scoring for Sims."""
+"""Trust scoring for bots."""
 
 from __future__ import annotations
 

@@ -49,7 +49,7 @@ def test_build_rc_data_includes_owner_map() -> None:
             "is_bot": False,
         },
         {
-            "agent_id": "SimX",
+            "agent_id": "BotX",
             "display_name": "Coalition Seeker",
             "round_score": 0,
             "round_wins": 0,
@@ -58,9 +58,9 @@ def test_build_rc_data_includes_owner_map() -> None:
         },
     ]
     data = json.loads(_build_rc_data(scoreboard, []))
-    assert data["labels"] == {"Napoleon": "AliceBot", "SimX": "Coalition Seeker"}
-    assert data["bots"] == {"SimX": True}
-    assert data["owners"] == {"Napoleon": "alice", "SimX": "agentludum"}
+    assert data["labels"] == {"Napoleon": "AliceBot", "BotX": "Coalition Seeker"}
+    assert data["bots"] == {"BotX": True}
+    assert data["owners"] == {"Napoleon": "alice", "BotX": "agentludum"}
 
 
 async def test_viewer_shows_winner_owner_and_rail_data(reset_db, client):
@@ -109,8 +109,8 @@ async def test_viewer_marks_bots_with_agentludum(reset_db, client):
             bot_owner,
             name="Bot Alpha",
             kind=AgentKind.BOT,
-            sim_profile_name="Bot Alpha",
-            sim_strategy="coalition_seeker",
+            bot_profile_name="Bot Alpha",
+            bot_strategy="coalition_seeker",
         )
         match = Match(
             id="M_v2",

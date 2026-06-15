@@ -22,7 +22,7 @@ from app.main import app
 from app.models import Base, Agent, AgentKind, Connection, ConnectionSetup, Match, GameState, Player, User
 from app.models.match import MatchKind
 from app.models.user import UserRole
-from app.engine.sims import pack_profile_choices
+from app.engine.bots import pack_profile_choices
 from tests.factories import make_agent, make_connection, make_user, seat_player
 
 
@@ -303,8 +303,8 @@ async def test_lobby_recent_games_use_agent_names(client, reset_db):
             bot_owner,
             name="Atlas",
             kind=AgentKind.BOT,
-            sim_profile_name="Atlas",
-            sim_strategy="coalition_seeker",
+            bot_profile_name="Atlas",
+            bot_strategy="coalition_seeker",
         )
         agent.name = f"{match.id}:Atlas"
         player = Player(
@@ -362,8 +362,8 @@ async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
 
         for i in range(6):
             g = Match(
-                id=f"G_SIM_{i}",
-                name=f"Sim Match {i}",
+                id=f"G_BOT_{i}",
+                name=f"Bot Match {i}",
                 state=GameState.COMPLETED,
                 scheduled_start=base - timedelta(days=20 + i),
                 per_turn_deadline_seconds=60,
@@ -376,7 +376,7 @@ async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
                 agent, _ = await make_agent(
                     db,
                     user,
-                    name=f"sim-{i}-{seat}",
+                    name=f"bot-{i}-{seat}",
                     kind=AgentKind.BOT,
                 )
                 player = Player(
@@ -409,9 +409,9 @@ async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
     assert "Recent Games with only Bots" in r.text
     assert "Cancelled Games" in r.text
     assert "Agent Match 5" not in r.text
-    assert "Sim Match 5" not in r.text
+    assert "Bot Match 5" not in r.text
     assert "Agent Match 4" in r.text
-    assert "Sim Match 4" in r.text
+    assert "Bot Match 4" in r.text
     assert "2026-05-25T11:00:00Z" in r.text
     assert "2026-06-02T11:30:00Z" in r.text
     assert "See all" in r.text
@@ -420,7 +420,7 @@ async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
     expanded = await client.get("/games/hoard-hurt-help?recent=all&sims=all&cancelled=all")
     assert expanded.status_code == 200
     assert "Agent Match 5" in expanded.text
-    assert "Sim Match 5" in expanded.text
+    assert "Bot Match 5" in expanded.text
     assert "Show fewer" in expanded.text
 
 
@@ -535,7 +535,7 @@ async def test_create_agent_setup_shows_key_once(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_preset_sims_auto_provision_and_show_separately(client, reset_db):
+async def test_preset_bots_auto_provision_and_show_separately(client, reset_db):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
     presets = bot_presets()
@@ -639,7 +639,7 @@ async def test_practice_arena_starts_when_player_joins(client, reset_db, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_create_sim_bot_shows_sim_profile(client, reset_db):
+async def test_create_bot_shows_bot_profile(client, reset_db):
     user = await _seed_user(reset_db)
     choice = next(
         choice

@@ -174,7 +174,7 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
 
     completed: list[dict[str, Any]] = []
     recent: list[dict[str, Any]] = []
-    sims_only: list[dict[str, Any]] = []
+    bots_only: list[dict[str, Any]] = []
     cancelled: list[dict[str, Any]] = []
     for match, player_count, bot_count, agent_count in rows:
         if str(match.name).strip().lower().startswith(_TEST_NAME_PREFIX):
@@ -213,17 +213,17 @@ async def _lobby_recent_views(db: DbSession) -> dict[str, list[dict[str, Any]]]:
             if int(agent_count) > 0:
                 recent.append(view)
             elif int(player_count) > 0:
-                sims_only.append(view)
+                bots_only.append(view)
         elif match.state == GameState.CANCELLED:
             cancelled.append(view)
 
-    for group in (completed, recent, sims_only, cancelled):
+    for group in (completed, recent, bots_only, cancelled):
         group.sort(key=lambda v: v["timestamp"], reverse=True)
 
     return {
         "completed": completed,
         "recent": recent,
-        "sims_only": sims_only,
+        "bots_only": bots_only,
         "cancelled": cancelled,
     }
 
@@ -311,7 +311,7 @@ async def leaderboard_page(
         included=included_mode,
     )
     if hide_sim_games:
-        sections = [section for section in sections if not section.has_sims]
+        sections = [section for section in sections if not section.has_bots]
     # Hide admin-only (under-construction) game sections from non-admins.
     if not _is_any_admin(user):
         sections = [s for s in sections if not is_admin_only(s.game_type)]
@@ -334,16 +334,16 @@ async def leaderboard_page(
             "included_agents_url": _leaderboard_url(
                 request, rating=rating_mode, included="agents", hide_sim_games=hide_sim_games
             ),
-            "included_sims_url": _leaderboard_url(
+            "included_bots_url": _leaderboard_url(
                 request, rating=rating_mode, included="sims", hide_sim_games=hide_sim_games
             ),
             "included_all_url": _leaderboard_url(
                 request, rating=rating_mode, included="all", hide_sim_games=hide_sim_games
             ),
-            "sim_games_show_url": _leaderboard_url(
+            "bot_games_show_url": _leaderboard_url(
                 request, rating=rating_mode, included=included_mode, hide_sim_games=False
             ),
-            "sim_games_hide_url": _leaderboard_url(
+            "bot_games_hide_url": _leaderboard_url(
                 request, rating=rating_mode, included=included_mode, hide_sim_games=True
             ),
         },
@@ -473,7 +473,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     upcoming = await _upcoming_views(db)
     finished_views = await _lobby_recent_views(db)
     show_recent_all = request.query_params.get("recent") == "all"
-    show_sims_all = request.query_params.get("sims") == "all"
+    show_bots_all = request.query_params.get("sims") == "all"
     show_cancelled_all = request.query_params.get("cancelled") == "all"
 
     # Marquee = the most-progressed live game (rounds, then turns).
@@ -484,7 +484,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
         request, db, finished_views["completed"]
     )
     recent_games = finished_views["recent"]
-    sims_only_games = finished_views["sims_only"]
+    bots_only_games = finished_views["bots_only"]
 
     # Onboarding banner: shown when the user has a warm agent but hasn't joined a
     # match yet. Disappears naturally once they're in a game.
@@ -558,13 +558,13 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             else None,
             "recent_games_toggle_label": "Show fewer" if show_recent_all else "See all",
             "show_recent_all": show_recent_all,
-            "sims_only_games": sims_only_games[:5] if not show_sims_all else sims_only_games,
-            "sims_only_games_total": len(sims_only_games),
-            "sims_only_games_toggle_url": _toggle_url("bots-only-games", "sims", show_sims_all)
-            if len(sims_only_games) > 5
+            "bots_only_games": bots_only_games[:5] if not show_bots_all else bots_only_games,
+            "bots_only_games_total": len(bots_only_games),
+            "bots_only_games_toggle_url": _toggle_url("bots-only-games", "sims", show_bots_all)
+            if len(bots_only_games) > 5
             else None,
-            "sims_only_games_toggle_label": "Show fewer" if show_sims_all else "See all",
-            "show_sims_all": show_sims_all,
+            "bots_only_games_toggle_label": "Show fewer" if show_bots_all else "See all",
+            "show_bots_all": show_bots_all,
             "cancelled_games": cancelled_games[:5] if not show_cancelled_all else cancelled_games,
             "cancelled_games_total": len(cancelled_games),
             "cancelled_games_toggle_url": _toggle_url("cancelled-games", "cancelled", show_cancelled_all)

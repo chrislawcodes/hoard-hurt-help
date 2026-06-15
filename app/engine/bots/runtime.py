@@ -17,7 +17,7 @@ from .strategies import (
     normalize_strategy_name,
 )
 from .trust import compute_trust_map
-from .types import SimActionDecision, SimContext, SimPlan, SimProfile, SimTalkDecision
+from .types import BotActionDecision, BotContext, BotPlan, BotProfile, BotTalkDecision
 
 
 def validate_bot_profile_fields(
@@ -62,7 +62,7 @@ def validate_bot_profile_fields(
         )
 
 
-def build_bot_profile(agent: Agent) -> SimProfile:
+def build_bot_profile(agent: Agent) -> BotProfile:
     validate_bot_profile_fields(
         kind=agent.kind,
         bot_strategy=agent.bot_strategy,
@@ -77,7 +77,7 @@ def build_bot_profile(agent: Agent) -> SimProfile:
     assert agent.bot_trust_model is not None
     assert agent.bot_seed is not None
     assert agent.bot_version is not None
-    return SimProfile(
+    return BotProfile(
         strategy=normalize_strategy_name(agent.bot_strategy),
         truthfulness=agent.bot_truthfulness,
         trust_model=agent.bot_trust_model,
@@ -87,7 +87,7 @@ def build_bot_profile(agent: Agent) -> SimProfile:
     )
 
 
-def choose_bot_talk_decision(context: SimContext, profile: SimProfile) -> SimTalkDecision:
+def choose_bot_talk_decision(context: BotContext, profile: BotProfile) -> BotTalkDecision:
     trust_map = compute_trust_map(
         your_agent_id=context.your_agent_id,
         all_agent_ids=context.all_agent_ids,
@@ -104,7 +104,7 @@ def choose_bot_talk_decision(context: SimContext, profile: SimProfile) -> SimTal
         target_name=plan.target_id,
     )
     thinking = _thinking(profile, context, plan, truth_mode, trust_map)
-    return SimTalkDecision(
+    return BotTalkDecision(
         intent=plan.intent,
         truth_mode=truth_mode,
         message=message,
@@ -112,7 +112,7 @@ def choose_bot_talk_decision(context: SimContext, profile: SimProfile) -> SimTal
     )
 
 
-def choose_bot_action_decision(context: SimContext, profile: SimProfile) -> SimActionDecision:
+def choose_bot_action_decision(context: BotContext, profile: BotProfile) -> BotActionDecision:
     leader_id = _leader_id(context.scoreboard)
     signals = extract_talk_signals(
         context.current_talk_messages, all_agent_ids=context.all_agent_ids, leader_id=leader_id
@@ -129,20 +129,20 @@ def choose_bot_action_decision(context: SimContext, profile: SimProfile) -> SimA
             continue
         move = _plan_to_move(plan, context)
         if _move_is_valid(move, context):
-            return SimActionDecision(
+            return BotActionDecision(
                 intent=plan.intent,
                 move=move,
                 thinking=_thinking(profile, context, plan, "n/a", trust_map),
             )
-    fallback = SimPlan("hoard_protect_score", None, "fallback")
-    return SimActionDecision(
+    fallback = BotPlan("hoard_protect_score", None, "fallback")
+    return BotActionDecision(
         intent=fallback.intent,
         move={"action": "HOARD", "target_id": None},
         thinking=_thinking(profile, context, fallback, "n/a", trust_map),
     )
 
 
-def _plan_to_move(plan: SimPlan, context: SimContext) -> dict[str, str | None]:
+def _plan_to_move(plan: BotPlan, context: BotContext) -> dict[str, str | None]:
     if plan.intent in {"keep_partner", "start_partnership", "test_offer", "reward_helper", "repair_trust", "protect_victim"}:
         return {"action": "HELP", "target_id": plan.target_id}
     if plan.intent in {"punish_attacker", "hurt_leader", "endgame_hurt", "block_rival"}:
@@ -153,7 +153,7 @@ def _plan_to_move(plan: SimPlan, context: SimContext) -> dict[str, str | None]:
     return {"action": "HOARD", "target_id": None}
 
 
-def _crowd_move(context: SimContext) -> dict[str, str | None]:
+def _crowd_move(context: BotContext) -> dict[str, str | None]:
     if not context.history:
         return {"action": "HOARD", "target_id": None}
     latest = max((r.round, r.turn) for r in context.history if not r.was_defaulted)
@@ -181,7 +181,7 @@ def _crowd_move(context: SimContext) -> dict[str, str | None]:
     return {"action": action, "target_id": target}
 
 
-def _move_is_valid(move: dict[str, str | None], context: SimContext) -> bool:
+def _move_is_valid(move: dict[str, str | None], context: BotContext) -> bool:
     action = str(move.get("action", "")).upper()
     target = move.get("target_id")
     if action == "HOARD":
@@ -198,7 +198,7 @@ def _move_is_valid(move: dict[str, str | None], context: SimContext) -> bool:
     return True
 
 
-def _choose_truth_mode(profile: SimProfile, context: SimContext, intent: str, phase: str) -> str:
+def _choose_truth_mode(profile: BotProfile, context: BotContext, intent: str, phase: str) -> str:
     value = profile.truthfulness
     if value >= 90:
         weights = [("honest", 80), ("partial", 20)]
@@ -224,9 +224,9 @@ def _choose_truth_mode(profile: SimProfile, context: SimContext, intent: str, ph
 
 
 def _thinking(
-    profile: SimProfile,
-    context: SimContext,
-    plan: SimPlan,
+    profile: BotProfile,
+    context: BotContext,
+    plan: BotPlan,
     truth_mode: str,
     trust_map: dict[str, int],
 ) -> str:
@@ -248,12 +248,7 @@ def _leader_id(scoreboard: Sequence[ScoreboardRow]) -> str | None:
 
 def _seed_int(*parts: object) -> int:
     payload = "||".join(
-        p.seed_basis() if isinstance(p, SimContext) else str(p) for p in parts
+        p.seed_basis() if isinstance(p, BotContext) else str(p) for p in parts
     )
     digest = hashlib.sha256(payload.encode()).hexdigest()
     return int(digest[:16], 16)
-
-
-build_sim_profile = build_bot_profile
-choose_talk_decision = choose_bot_talk_decision
-choose_action_decision = choose_bot_action_decision

@@ -10,7 +10,7 @@ from app.schemas.agent import ScoreboardRow, TalkMessage
 
 
 @dataclass(frozen=True)
-class SimProfile:
+class BotProfile:
     strategy: str
     truthfulness: int
     trust_model: str
@@ -20,11 +20,11 @@ class SimProfile:
 
 
 @dataclass(frozen=True)
-class SimContext:
-    # Kept for compatibility with the rest of the Sim DTO plumbing, but it is no
+class BotContext:
+    # Kept for compatibility with the rest of the bot DTO plumbing, but it is no
     # longer part of the seed. The deterministic seed now comes from
     # `game_started_at` plus a canonicalized context snapshot so match IDs and
-    # list ordering cannot perturb Sim behavior.
+    # list ordering cannot perturb bot behavior.
     game_id: str
     game_started_at: datetime
     round: int
@@ -99,14 +99,14 @@ class SimContext:
 
 
 @dataclass(frozen=True)
-class SimPlan:
+class BotPlan:
     intent: str
     target_id: str | None
     reason: str
 
 
 @dataclass(frozen=True)
-class SimTalkDecision:
+class BotTalkDecision:
     intent: str
     truth_mode: str
     message: str
@@ -114,14 +114,7 @@ class SimTalkDecision:
 
 
 @dataclass(frozen=True)
-class SimActionDecision:
+class BotActionDecision:
     intent: str
     move: dict[str, str | None]
     thinking: str
-
-
-BotProfile = SimProfile
-BotContext = SimContext
-BotPlan = SimPlan
-BotTalkDecision = SimTalkDecision
-BotActionDecision = SimActionDecision

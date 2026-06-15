@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import make_engine
-from app.engine.sims import (
+from app.engine.bots import (
     BotContext,
     BotProfile,
     build_bot_profile,

@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.bot_presets import BOT_PRESETS, allocate_default_bot_names, bot_presets
 from app.engine.match_creation import create_match
-from app.engine.sims.seating import SimSeatingError, add_bots_to_game
+from app.engine.bots.seating import BotSeatingError, add_bots_to_game
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -84,8 +84,6 @@ def _choose_bot_seats(
     return seats
 
 
-_choose_sim_seats = _choose_bot_seats
-
 def _auto_match_name(boundary: datetime) -> str:
     """Pick a name from _AUTO_MATCH_NAMES keyed to the boundary's 30-min slot."""
     slot = boundary.hour * 2 + boundary.minute // 30
@@ -144,7 +142,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
 
     presets = bot_presets()
     if not presets:
-        logger.warning("No Sim presets available — Practice Arena not created.")
+        logger.warning("No bot presets available — Practice Arena not created.")
         return
 
     far_future = datetime.now(timezone.utc) + timedelta(days=365)
@@ -166,7 +164,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
     seats = _choose_bot_seats(PRACTICE_ARENA_BOT_COUNT)
     try:
         await add_bots_to_game(db, arena, seats)
-    except SimSeatingError as exc:
+    except BotSeatingError as exc:
         log_ops_event(
             logger,
             logging.ERROR,
@@ -267,7 +265,7 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
             if seats:
                 try:
                     await add_bots_to_game(db, match, seats)
-                except SimSeatingError as exc:
+                except BotSeatingError as exc:
                     log_ops_event(
                         logger,
                         logging.ERROR,
