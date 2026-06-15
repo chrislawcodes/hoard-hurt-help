@@ -275,6 +275,7 @@ Out of scope: MCP auth/token mechanics; auto-join; a new connect screen; game ru
 - review: reviews/spec.gemini.requirements-adversarial.review.md | status: accepted | note: Round 3: confirmations only, no new findings — spec converged.
 - review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: Round 4: no actionable findings — plan converged.
 - review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: Round 4: no actionable findings — plan converged.
+- review: reviews/diff.gemini.regression-adversarial.review.md | status: accepted | note: CP2 diff: no actionable findings.
 
 ## Architecture decisions
 
@@ -424,11 +425,8 @@ preselect hint, not replaced (NFR-003); no DB migration (NFR-004).
 
 
 ## Tasks to implement (your scope)
-- [ ] T4 [app/routes/connections_pages.py] Accept an optional `?provider=` on
-- [ ] T5 [app/templates/connections/_connect_picker.html] Preselect the tab
-- [ ] T6 [app/routes/agents_create.py] On create success, when the agent's
-- [ ] T7 [app/templates/agents/new.html, app/templates/connections/_live_status.html, app/templates/seat_connect.html]
-- [ ] T8 [tests/test_strategy_first_onboarding.py] Post-create redirect targets the
+- [ ] T9 [app/routes/web_player.py] In `_join_setup_redirect`, send a signed-in,
+- [ ] T10 [tests/test_join_seat_hold.py] A no-agent, no-connection user hitting a
 
 ## File scope
 (no specific scope — implement all tasks)
