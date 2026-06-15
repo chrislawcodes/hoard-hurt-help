@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.engine.scheduler import _active_player_count
-from app.engine.seat_hold import sweep_held_seats
+from app.engine.seat_hold import SEAT_HOLD_SECONDS, sweep_held_seats
 from app.main import app
 from app.models import Base, GameState, Match, Player, User
 from tests.factories import make_agent, make_connection, make_user
@@ -353,3 +353,66 @@ async def test_status_released_when_expired(client, reset_db):
     async with reset_db() as db:
         gone = (await db.execute(select(Player).where(Player.id == player_id))).first()
         assert gone is None
+
+
+# ---------------------------------------------------------------------------
+# Liveness detection — escalate a stalled wake to "reconnect your server"
+# ---------------------------------------------------------------------------
+
+
+async def _held_configured_offline_player(reset_db, *, seconds_waited: int) -> tuple[int, int]:
+    """A held seat for a configured-but-offline provider, as if the user has been
+    waiting *seconds_waited* since joining. The deadline is join + SEAT_HOLD_SECONDS,
+    so we back it out from how long we want to look like we've waited."""
+    deadline = datetime.now(timezone.utc) + timedelta(
+        seconds=SEAT_HOLD_SECONDS - seconds_waited
+    )
+    async with reset_db() as db:
+        user = await make_user(db, 0)
+        connection, _ = await make_connection(db, user)  # enabled, offline
+        agent, _v = await make_agent(
+            db, user, connection=connection, model="claude-haiku-4-5", name="Atlas"
+        )
+        player = Player(
+            match_id="G_001",
+            user_id=user.id,
+            agent_id=agent.id,
+            seat_name="Atlas",
+            seat_reserved_until=deadline,
+        )
+        db.add(player)
+        await db.commit()
+        return user.id, player.id
+
+
+@pytest.mark.asyncio
+async def test_status_escalates_to_reconnect_after_grace_window(client, reset_db):
+    """A set-up provider that never comes online → the poll detects the stall and
+    surfaces a reconnect CTA instead of waiting forever."""
+    await _seed_match(reset_db)
+    uid, pid = await _held_configured_offline_player(reset_db, seconds_waited=120)
+    r = await client.get(
+        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}/status",
+        cookies=_cookies(uid),
+        follow_redirects=False,
+    )
+    assert r.status_code == 200
+    assert "Reconnect Claude" in r.text
+    assert "/me/connections" in r.text
+    assert "provider=claude" in r.text
+
+
+@pytest.mark.asyncio
+async def test_status_waits_within_grace_window_before_escalating(client, reset_db):
+    """Inside the grace window, a configured provider still just shows 'Waiting' —
+    we give the wake prompt a chance before crying 'reconnect'."""
+    await _seed_match(reset_db)
+    uid, pid = await _held_configured_offline_player(reset_db, seconds_waited=5)
+    r = await client.get(
+        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}/status",
+        cookies=_cookies(uid),
+        follow_redirects=False,
+    )
+    assert r.status_code == 200
+    assert "Waiting" in r.text
+    assert "Reconnect" not in r.text
