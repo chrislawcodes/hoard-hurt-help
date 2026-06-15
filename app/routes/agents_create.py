@@ -145,9 +145,6 @@ async def new_agent_form(
         "model_groups": model_groups,
         "selected_model": selected_model,
         "availability_notes": availability_notes,
-        # When no provider is connected yet, the form can't create anything — the
-        # template shows a "connect a client first" CTA instead of a dead form.
-        "has_enabled_provider": bool(enabled_values),
         "default_game": _DEFAULT_GAME,
         "default_strategy": get_game_module(_DEFAULT_GAME).default_strategy(),
         "strategy_presets": strategy_presets,
