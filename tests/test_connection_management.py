@@ -956,6 +956,34 @@ async def test_detail_renders_provider_toggles_and_install_hint(
 
 
 @pytest.mark.asyncio
+async def test_mode_a_detail_shows_read_only_provider_not_machine_toggles(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """An MCP (Mode A) connection plays one provider via the AI client you signed
+    in with — so its detail page shows that provider read-only, NOT the machine
+    multi-provider toggle box with CLI-detection language."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mode_a_at = datetime.now(timezone.utc)
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.get(
+        f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    # The provider it plays is shown read-only…
+    assert "This is an MCP connection." in r.text
+    assert "Playing" in r.text
+    assert "Claude" in r.text
+    # …and none of the machine-connector toggle/CLI machinery appears.
+    assert "toggle-switch" not in r.text
+    assert "provider-install-hint" not in r.text
+    assert "this machine should run" not in r.text
+
+
+@pytest.mark.asyncio
 async def test_connection_controls_live_in_status_card(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

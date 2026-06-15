@@ -224,6 +224,16 @@ async def connection_detail(
         }
         for p in ConnectionProvider
     ]
+    # An MCP (Mode A) connection is not a machine running several CLIs — the AI
+    # client you signed in with speaks for exactly one provider (one client ==
+    # one provider, per #392). So it gets a read-only list of the provider(s) it
+    # actually plays, not the machine-style multi-provider toggle box.
+    is_mode_a = connection.mode_a_at is not None
+    mode_a_providers = (
+        [{"value": t["value"], "label": t["label"]} for t in provider_toggles if t["enabled"]]
+        if is_mode_a
+        else []
+    )
     setup_message = _setup_message(fresh_key) if fresh_key is not None else None
     return templates.TemplateResponse(
         request,
@@ -237,6 +247,8 @@ async def connection_detail(
             "setup_message": setup_message,
             "attached_agents": attached_agents,
             "stranded_agents": stranded_agents,
+            "is_mode_a": is_mode_a,
+            "mode_a_providers": mode_a_providers,
             "provider_toggles": provider_toggles,
             "provider_label": _provider_label(connection.provider),
             "provider_models": (
