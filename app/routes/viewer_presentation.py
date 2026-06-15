@@ -424,7 +424,7 @@ def _build_rc_data(
     labels = {r["agent_id"]: r.get("display_name") or r["agent_id"] for r in scoreboard}
     bots = {r["agent_id"]: True for r in scoreboard if r.get("is_bot")}
     # agent_id → owner handle, for the standings rail's muted "by @handle" line.
-    # Only non-empty entries (Sims and handle-less owners are omitted).
+    # Only non-empty entries (bots and handle-less owners are omitted).
     owners = {r["agent_id"]: r["owner_handle"] for r in scoreboard if r.get("owner_handle")}
 
     win_probs_by_turn = _compute_round_win_probs(scoreboard, history, turns_per_round)

@@ -1,4 +1,4 @@
-"""Admin "Add Sims" flow — the form, seating, validation, and labelling."""
+"""Admin "Add bots" flow — the form, seating, validation, and labelling."""
 
 import base64
 import json
@@ -10,7 +10,7 @@ from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
 from app.config import settings
-from app.engine.sims.seating import SIMS_USER_SUB
+from app.engine.bots.seating import BOTS_USER_SUB
 from app.main import app
 from app.models import Base, Agent, AgentKind, Match, GameState, Player, User
 from app.models.user import UserRole
@@ -126,7 +126,7 @@ async def test_non_admin_blocked(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_seats_sims_as_players(client, reset_db):
+async def test_seats_bots_as_players(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
     r = await client.post(
@@ -150,8 +150,8 @@ async def test_seats_sims_as_players(client, reset_db):
         )
         assert sorted(p.seat_name for p in players) == ["Athena", "Hera", "Sun Tzu"]
 
-        sims_user = (
-            await db.execute(select(User).where(User.google_sub == SIMS_USER_SUB))
+        bots_user = (
+            await db.execute(select(User).where(User.google_sub == BOTS_USER_SUB))
         ).scalar_one()
         agents = {
             a.id: a
@@ -161,13 +161,13 @@ async def test_seats_sims_as_players(client, reset_db):
             .scalars()
             .all()
         }
-        # Every Sim has its own backing agent, owned by the internal Sims user,
+        # Every bot has its own backing agent, owned by the internal bots user,
         # carrying the personality's traits and a distinct seed.
         for p in players:
             agent = agents[p.agent_id]
             assert agent.kind == AgentKind.BOT
-            assert agent.user_id == sims_user.id
-            assert p.user_id == sims_user.id
+            assert agent.user_id == bots_user.id
+            assert p.user_id == bots_user.id
             assert agent.bot_seed is not None
         grudgers = [a for a in agents.values() if a.bot_strategy == "grudger"]
         assert len(grudgers) == 2
@@ -278,7 +278,7 @@ async def test_cannot_add_after_start(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_detail_labels_sims_and_shows_banner(client, reset_db):
+async def test_detail_labels_bots_and_shows_banner(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
     await client.post(

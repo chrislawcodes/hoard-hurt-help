@@ -117,12 +117,12 @@ def test_bot_profile_invalid_emits_ops_event(caplog: pytest.LogCaptureFixture) -
     log_ops_event is available there, then emit through an isolated test
     logger to avoid cross-test logging-state interference.
     """
-    import app.engine.sims.service  # noqa: PLC0415  # confirm import compiles
+    import app.engine.bots.service  # noqa: PLC0415  # confirm import compiles
 
-    assert hasattr(app.engine.sims.service, "log_ops_event") or True  # wiring present
+    assert hasattr(app.engine.bots.service, "log_ops_event") or True  # wiring present
 
-    test_logger = logging.getLogger("test.ops.sims_service")
-    with caplog.at_level(logging.ERROR, logger="test.ops.sims_service"):
+    test_logger = logging.getLogger("test.ops.bots_service")
+    with caplog.at_level(logging.ERROR, logger="test.ops.bots_service"):
         log_ops_event(
             test_logger,
             logging.ERROR,

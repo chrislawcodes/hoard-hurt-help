@@ -84,14 +84,14 @@ async def _seed_leaderboard_match(
         await db.flush()
 
         winners: list[Player] = []
-        for user_index, seat_name, kind, sim_profile_name, round_wins, total_score in seat_specs:
+        for user_index, seat_name, kind, bot_profile_name, round_wins, total_score in seat_specs:
             user = await make_user(db, user_index)
             agent, _ = await make_agent(
                 db,
                 user,
-                name=sim_profile_name or f"agent-{seat_name}",
+                name=bot_profile_name or f"agent-{seat_name}",
                 kind=kind,
-                sim_profile_name=sim_profile_name if kind == AgentKind.BOT else None,
+                bot_profile_name=bot_profile_name if kind == AgentKind.BOT else None,
             )
             player = Player(match_id=match.id, user_id=user.id, agent_id=agent.id, seat_name=seat_name)
             db.add(player)
@@ -114,7 +114,7 @@ async def _seed_leaderboard_data(reset_db: async_sessionmaker) -> None:
         seat_specs=[
             (1, "Alpha", AgentKind.AI, None, 3.0, 120),
             (2, "Beta", AgentKind.AI, None, 2.0, 100),
-            (3, "Gamma", AgentKind.BOT, "Random Sim", 1.0, 90),
+            (3, "Gamma", AgentKind.BOT, "Random Bot", 1.0, 90),
         ],
     )
     await _seed_leaderboard_match(
@@ -175,19 +175,19 @@ async def test_global_leaderboard_renders_rankings(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_global_leaderboard_can_include_sims_and_hide_sim_games(client, reset_db):
-    """The sim filter should show Sims when enabled and hide sim sections when requested."""
+async def test_global_leaderboard_can_include_bots_and_hide_bot_games(client, reset_db):
+    """The bot filter should show bots when enabled and hide bot sections when requested."""
     await _seed_leaderboard_data(reset_db)
-    with_sims = await client.get("/leaderboard?included=all")
-    assert with_sims.status_code == 200
-    assert "Random Sim" in with_sims.text
-    assert "lb-tag-sim" in with_sims.text
+    with_bots = await client.get("/leaderboard?included=all")
+    assert with_bots.status_code == 200
+    assert "Random Bot" in with_bots.text
+    assert "lb-tag-sim" in with_bots.text
 
     hidden = await client.get("/leaderboard?included=all&hide_sim_games=1")
     assert hidden.status_code == 200
     assert "No ranked competitors yet for this filter." in hidden.text
     assert "Alpha" not in hidden.text
-    assert "Random Sim" not in hidden.text
+    assert "Random Bot" not in hidden.text
 
 
 @pytest.mark.asyncio

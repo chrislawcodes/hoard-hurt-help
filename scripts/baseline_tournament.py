@@ -83,7 +83,7 @@ _CREATE_LOCK = asyncio.Lock()
 async def _run_one_match(match_index: int, strategies: list[str]) -> str:
     """Create one match, seat the given 10 bots, run it, return match id."""
     from app.db import SessionLocal
-    from app.engine.sims.seating import add_bots_to_game
+    from app.engine.bots.seating import add_bots_to_game
     from app.engine.state_machine import assert_transition
     from app.engine.tokens import generate_match_id
     from app.models.match import GameState, Match

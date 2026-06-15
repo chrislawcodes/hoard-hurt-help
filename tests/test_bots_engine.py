@@ -1,20 +1,20 @@
-"""Tests for the deterministic Sims engine."""
+"""Tests for the deterministic bots engine."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
 from app.engine.game_records import ActionRecord
-from app.engine.sims import (
-    SimContext,
-    SimProfile,
-    choose_action_decision,
-    choose_talk_decision,
+from app.engine.bots import (
+    BotContext,
+    BotProfile,
+    choose_bot_action_decision,
+    choose_bot_talk_decision,
     compute_trust_map,
     extract_talk_signals,
     render_phrase,
 )
-from app.engine.sims.phrases import PHRASES
+from app.engine.bots.phrases import PHRASES
 from app.schemas.agent import ScoreboardRow, TalkMessage
 
 
@@ -29,7 +29,7 @@ def _context(
     talk: list[TalkMessage] | None = None,
     game_id: str = "G_1",
     game_started_at: datetime | None = None,
-) -> SimContext:
+) -> BotContext:
     agent_ids = all_agent_ids or ["AI_1", "AI_2", "AI_3", "AI_10"]
     board = scoreboard or [
         ScoreboardRow(agent_id="AI_1", round_score=4, round_wins=0.0),
@@ -37,7 +37,7 @@ def _context(
         ScoreboardRow(agent_id="AI_3", round_score=10, round_wins=0.0),
         ScoreboardRow(agent_id="AI_10", round_score=12, round_wins=0.0),
     ]
-    return SimContext(
+    return BotContext(
         game_id=game_id,
         game_started_at=game_started_at or datetime(2026, 1, 1, tzinfo=timezone.utc),
         round=round_,
@@ -125,8 +125,8 @@ def test_trust_clamps_to_bounds() -> None:
 
 def test_leader_pressure_hurts_the_leader() -> None:
     context = _context()
-    profile = SimProfile(strategy="leader_pressure", truthfulness=80, trust_model="even", seed=42, version="v1")
-    decision = choose_action_decision(context, profile)
+    profile = BotProfile(strategy="leader_pressure", truthfulness=80, trust_model="even", seed=42, version="v1")
+    decision = choose_bot_action_decision(context, profile)
     assert decision.move == {"action": "HURT", "target_id": "AI_2"}
 
 
@@ -167,16 +167,16 @@ def test_crowd_follower_copies_majority_action() -> None:
         ),
     ]
     context = _context(history=history, scoreboard=[ScoreboardRow(agent_id=a, round_score=i, round_wins=0.0) for i, a in enumerate(["AI_1", "AI_2", "AI_3", "AI_4", "AI_5"], start=1)])
-    profile = SimProfile(strategy="crowd_follower", truthfulness=80, trust_model="even", seed=99, version="v1")
-    decision = choose_action_decision(context, profile)
+    profile = BotProfile(strategy="crowd_follower", truthfulness=80, trust_model="even", seed=99, version="v1")
+    decision = choose_bot_action_decision(context, profile)
     assert decision.move == {"action": "HELP", "target_id": "AI_3"}
 
 
 def test_decisions_are_deterministic() -> None:
     context = _context()
-    profile = SimProfile(strategy="coalition_seeker", truthfulness=80, trust_model="open", seed=7, version="v1")
-    first = choose_talk_decision(context, profile)
-    second = choose_talk_decision(context, profile)
+    profile = BotProfile(strategy="coalition_seeker", truthfulness=80, trust_model="open", seed=7, version="v1")
+    first = choose_bot_talk_decision(context, profile)
+    second = choose_bot_talk_decision(context, profile)
     assert first == second
 
 
@@ -196,5 +196,5 @@ def test_seeded_tie_breaks_do_not_depend_on_agent_order() -> None:
         scoreboard=list(reversed(board)),
         game_id="G_999",
     )
-    profile = SimProfile(strategy="leader_pressure", truthfulness=80, trust_model="even", seed=11, version="v1")
-    assert choose_action_decision(context_a, profile).move == choose_action_decision(context_b, profile).move
+    profile = BotProfile(strategy="leader_pressure", truthfulness=80, trust_model="even", seed=11, version="v1")
+    assert choose_bot_action_decision(context_a, profile).move == choose_bot_action_decision(context_b, profile).move

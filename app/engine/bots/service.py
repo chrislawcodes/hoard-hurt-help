@@ -8,12 +8,12 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.sims.runtime import (
+from app.engine.bots.runtime import (
     build_bot_profile,
     choose_bot_action_decision,
     choose_bot_talk_decision,
 )
-from app.engine.sims.types import SimContext
+from app.engine.bots.types import BotContext
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.match import Match
 from app.models.player import Player
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 Phase = Literal["talk", "act"]
 
 
-async def auto_submit_sim_phase(
+async def auto_submit_bot_phase(
     db: AsyncSession,
     game: Match,
     turn: Turn,
@@ -82,8 +82,8 @@ async def auto_submit_sim_phase(
             )
             continue
 
-        context = SimContext(
-            game_id=game.id,  # internal Sim DTO field; kept as game_id (see types.py)
+        context = BotContext(
+            game_id=game.id,  # internal bot DTO field; kept as game_id (see types.py)
             game_started_at=game.started_at or game.scheduled_start,
             round=turn.round,
             turn=turn.turn,
@@ -193,6 +193,3 @@ async def _existing_submission(
             )
         )
     ).scalar_one_or_none()
-
-
-auto_submit_bot_phase = auto_submit_sim_phase

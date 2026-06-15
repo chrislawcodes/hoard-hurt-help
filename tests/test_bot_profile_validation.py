@@ -6,7 +6,7 @@ Covers:
 - add_bots_to_game (seating) rejects a preset that would produce an invalid
   profile, rather than silently skipping at play-time.
 - A valid bot passes all checks end-to-end.
-- All system-defined presets (BOT_PRESETS and SIM_PACKS) produce valid profiles.
+- All system-defined presets (BOT_PRESETS and BOT_PACKS) produce valid profiles.
 """
 
 from __future__ import annotations
@@ -16,11 +16,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.engine.bot_presets import BOT_PRESETS
-from app.engine.sims import validate_bot_profile_fields
-from app.engine.sims.presets import SIM_PACKS, resolve_profile_choice
-from app.engine.sims.runtime import build_bot_profile
-from app.engine.sims.seating import SimSeatingError, add_bots_to_game
-from app.engine.sims.strategies import VALID_STRATEGIES
+from app.engine.bots import validate_bot_profile_fields
+from app.engine.bots.presets import BOT_PACKS, resolve_profile_choice
+from app.engine.bots.runtime import build_bot_profile
+from app.engine.bots.seating import BotSeatingError, add_bots_to_game
+from app.engine.bots.strategies import VALID_STRATEGIES
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match
 
@@ -151,14 +151,14 @@ def test_all_bot_presets_produce_valid_profiles() -> None:
         )
 
 
-def test_all_sim_pack_choices_produce_valid_profiles() -> None:
-    """Every sim-pack profile choice must yield a valid SimProfile."""
-    for pack_id, pack in SIM_PACKS.items():
+def test_all_bot_pack_choices_produce_valid_profiles() -> None:
+    """Every bot-pack profile choice must yield a valid BotProfile."""
+    for pack_id, pack in BOT_PACKS.items():
         for index in range(len(pack.entries)):
             choice_id = f"{pack_id}:{index}"
             profile = resolve_profile_choice(choice_id, seed_base=100)
             # resolve_profile_choice uses VALID_STRATEGIES indirectly via the
-            # SimProfile dataclass — we also run the explicit validation path.
+            # BotProfile dataclass — we also run the explicit validation path.
             validate_bot_profile_fields(
                 kind=AgentKind.BOT,
                 bot_strategy=profile.strategy,
@@ -226,5 +226,5 @@ async def test_add_bots_to_game_succeeds_for_valid_preset(reset_db) -> None:
 async def test_add_bots_to_game_rejects_unknown_personality(reset_db) -> None:
     async with reset_db() as db:
         match = await _seed_match(db)
-        with pytest.raises(SimSeatingError, match="Unknown personality"):
+        with pytest.raises(BotSeatingError, match="Unknown personality"):
             await add_bots_to_game(db, match, [("Caesar", "galaxy_brain")])

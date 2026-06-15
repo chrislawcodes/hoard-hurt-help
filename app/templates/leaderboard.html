@@ -18,15 +18,15 @@
         <span class="lb-control-label">Included</span>
         <div class="view-switch">
             <a class="view-btn" href="{{ included_agents_url }}" aria-pressed="{{ 'true' if included == 'agents' else 'false' }}">Agents</a>
-            <a class="view-btn" href="{{ included_sims_url }}" aria-pressed="{{ 'true' if included == 'sims' or included == 'bot' else 'false' }}">Bots</a>
+            <a class="view-btn" href="{{ included_bots_url }}" aria-pressed="{{ 'true' if included == 'sims' or included == 'bot' else 'false' }}">Bots</a>
             <a class="view-btn" href="{{ included_all_url }}" aria-pressed="{{ 'true' if included == 'all' else 'false' }}">Agents + Bots</a>
         </div>
     </div>
     <div class="lb-control">
         <span class="lb-control-label">Bot games</span>
         <div class="view-switch">
-            <a class="view-btn" href="{{ sim_games_show_url }}" aria-pressed="{{ 'true' if not hide_sim_games else 'false' }}">Show all</a>
-            <a class="view-btn" href="{{ sim_games_hide_url }}" aria-pressed="{{ 'true' if hide_sim_games else 'false' }}">Hide bot games</a>
+            <a class="view-btn" href="{{ bot_games_show_url }}" aria-pressed="{{ 'true' if not hide_sim_games else 'false' }}">Show all</a>
+            <a class="view-btn" href="{{ bot_games_hide_url }}" aria-pressed="{{ 'true' if hide_sim_games else 'false' }}">Hide bot games</a>
         </div>
     </div>
 </div>

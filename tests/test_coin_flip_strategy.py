@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.engine.game_records import ActionRecord
-from app.engine.sims import SimContext, SimProfile, choose_action_decision, choose_talk_decision
-from app.engine.sims.roster import is_known_personality
+from app.engine.bots import BotContext, BotProfile, choose_bot_action_decision, choose_bot_talk_decision
+from app.engine.bots.roster import is_known_personality
 from app.engine.bot_presets import bot_preset_by_id
 from app.schemas.agent import ScoreboardRow
 
 
-def _coin_flip_profile(seed: int = 1) -> SimProfile:
-    return SimProfile(
+def _coin_flip_profile(seed: int = 1) -> BotProfile:
+    return BotProfile(
         strategy="coin_flip",
         truthfulness=50,
         trust_model="even",
@@ -27,10 +27,10 @@ def _context(
     all_ids: list[str] | None = None,
     scoreboard: list[ScoreboardRow] | None = None,
     history: list[ActionRecord] | None = None,
-) -> SimContext:
+) -> BotContext:
     ids = all_ids or ["A", "B", "C", "D"]
     board = scoreboard or [ScoreboardRow(agent_id=aid, round_score=4, round_wins=0.0) for aid in ids]
-    return SimContext(
+    return BotContext(
         game_id="G_TEST",
         game_started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         round=1,
@@ -57,7 +57,7 @@ def test_coin_flip_preset_exists() -> None:
 def test_coin_flip_action_is_legal() -> None:
     profile = _coin_flip_profile()
     ctx = _context()
-    decision = choose_action_decision(ctx, profile)
+    decision = choose_bot_action_decision(ctx, profile)
     action = decision.move["action"]
     target = decision.move["target_id"]
 
@@ -81,7 +81,7 @@ def test_coin_flip_never_hurts_zero_score_player() -> None:
     for seed in range(50):
         profile = _coin_flip_profile(seed=seed)
         ctx = _context(scoreboard=board)
-        decision = choose_action_decision(ctx, profile)
+        decision = choose_bot_action_decision(ctx, profile)
         if decision.move["action"] == "HURT":
             assert decision.move["target_id"] == "D", (
                 f"seed={seed}: HURT targeted {decision.move['target_id']}, expected D"
@@ -97,15 +97,15 @@ def test_coin_flip_hoard_only_when_alone() -> None:
     for seed in range(30):
         profile = _coin_flip_profile(seed=seed)
         ctx = _context(all_ids=["A", "B"], scoreboard=board)
-        decision = choose_action_decision(ctx, profile)
+        decision = choose_bot_action_decision(ctx, profile)
         assert decision.move["action"] != "HURT"
 
 
 def test_coin_flip_is_deterministic() -> None:
     profile = _coin_flip_profile(seed=7)
     ctx = _context()
-    first = choose_action_decision(ctx, profile)
-    second = choose_action_decision(ctx, profile)
+    first = choose_bot_action_decision(ctx, profile)
+    second = choose_bot_action_decision(ctx, profile)
     assert first == second
 
 
@@ -113,7 +113,7 @@ def test_coin_flip_talk_uses_known_phrase_intent() -> None:
     profile = _coin_flip_profile()
     ctx = _context()
     # We need a talk-phase context
-    talk_ctx = SimContext(
+    talk_ctx = BotContext(
         game_id=ctx.game_id,
         game_started_at=ctx.game_started_at,
         round=ctx.round,
@@ -125,7 +125,7 @@ def test_coin_flip_talk_uses_known_phrase_intent() -> None:
         scoreboard=ctx.scoreboard,
         current_talk_messages=[],
     )
-    decision = choose_talk_decision(talk_ctx, profile)
+    decision = choose_bot_talk_decision(talk_ctx, profile)
     assert isinstance(decision.message, str)
     assert len(decision.message) > 0
 
@@ -134,7 +134,7 @@ def test_coin_flip_action_varies_across_seeds() -> None:
     # With enough seeds we should see at least two distinct actions.
     ctx = _context()
     actions = {
-        choose_action_decision(ctx, _coin_flip_profile(seed=s)).move["action"]
+        choose_bot_action_decision(ctx, _coin_flip_profile(seed=s)).move["action"]
         for s in range(20)
     }
     assert len(actions) >= 2, f"Expected action variety, got only {actions}"

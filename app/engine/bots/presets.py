@@ -1,14 +1,14 @@
-"""Preset packs for Sims."""
+"""Preset packs for bots."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .types import SimProfile
+from .types import BotProfile
 
 
 @dataclass(frozen=True)
-class SimPackEntry:
+class BotPackEntry:
     strategy: str
     truthfulness: int
     trust_model: str
@@ -16,16 +16,16 @@ class SimPackEntry:
 
 
 @dataclass(frozen=True)
-class SimPack:
+class BotPack:
     id: str
     version: str
     name: str
     hidden: bool
-    entries: list[SimPackEntry]
+    entries: list[BotPackEntry]
 
 
 @dataclass(frozen=True)
-class SimProfileChoice:
+class BotProfileChoice:
     id: str
     pack_id: str
     pack_name: str
@@ -38,74 +38,74 @@ class SimProfileChoice:
     seed_offset: int
 
 
-SIM_PACKS: dict[str, SimPack] = {
-    "mixed_20": SimPack(
+BOT_PACKS: dict[str, BotPack] = {
+    "mixed_20": BotPack(
         id="mixed_20",
         version="v1",
         name="Mixed 20",
         hidden=False,
         entries=[
-            SimPackEntry("coalition_seeker", 90, "even", 0),
-            SimPackEntry("coalition_seeker", 80, "open", 1),
-            SimPackEntry("loyal_partner", 80, "open", 2),
-            SimPackEntry("loyal_partner", 65, "even", 3),
-            SimPackEntry("grudger", 80, "bitter", 4),
-            SimPackEntry("leader_pressure", 55, "careful", 5),
-            SimPackEntry("opportunist", 35, "twitchy", 6),
-            SimPackEntry("endgame_sniper", 65, "even", 7),
-            SimPackEntry("diplomat", 80, "open", 8),
-            SimPackEntry("crowd_follower", 45, "careful", 9),
+            BotPackEntry("coalition_seeker", 90, "even", 0),
+            BotPackEntry("coalition_seeker", 80, "open", 1),
+            BotPackEntry("loyal_partner", 80, "open", 2),
+            BotPackEntry("loyal_partner", 65, "even", 3),
+            BotPackEntry("grudger", 80, "bitter", 4),
+            BotPackEntry("leader_pressure", 55, "careful", 5),
+            BotPackEntry("opportunist", 35, "twitchy", 6),
+            BotPackEntry("endgame_sniper", 65, "even", 7),
+            BotPackEntry("diplomat", 80, "open", 8),
+            BotPackEntry("crowd_follower", 45, "careful", 9),
         ],
     ),
-    "coalition": SimPack(
+    "coalition": BotPack(
         id="coalition",
         version="v1",
         name="Coalition",
         hidden=False,
         entries=[
-            SimPackEntry("coalition_seeker", 90, "open", 0),
-            SimPackEntry("loyal_partner", 80, "open", 1),
-            SimPackEntry("diplomat", 80, "even", 2),
-            SimPackEntry("coalition_seeker", 65, "careful", 3),
+            BotPackEntry("coalition_seeker", 90, "open", 0),
+            BotPackEntry("loyal_partner", 80, "open", 1),
+            BotPackEntry("diplomat", 80, "even", 2),
+            BotPackEntry("coalition_seeker", 65, "careful", 3),
         ],
     ),
-    "chaos": SimPack(
+    "chaos": BotPack(
         id="chaos",
         version="v1",
         name="Chaos",
         hidden=False,
         entries=[
-            SimPackEntry("grudger", 35, "bitter", 0),
-            SimPackEntry("leader_pressure", 45, "twitchy", 1),
-            SimPackEntry("opportunist", 25, "twitchy", 2),
-            SimPackEntry("endgame_sniper", 35, "bitter", 3),
+            BotPackEntry("grudger", 35, "bitter", 0),
+            BotPackEntry("leader_pressure", 45, "twitchy", 1),
+            BotPackEntry("opportunist", 25, "twitchy", 2),
+            BotPackEntry("endgame_sniper", 35, "bitter", 3),
         ],
     ),
-    "fixture_zero_floor": SimPack(
+    "fixture_zero_floor": BotPack(
         id="fixture_zero_floor",
         version="v1",
         name="Fixture: Zero Floor",
         hidden=True,
         entries=[
-            SimPackEntry("leader_pressure", 80, "even", 0),
-            SimPackEntry("grudger", 80, "bitter", 1),
+            BotPackEntry("leader_pressure", 80, "even", 0),
+            BotPackEntry("grudger", 80, "bitter", 1),
         ],
     ),
 }
 
 
-def resolve_pack(pack_id: str) -> SimPack:
-    return SIM_PACKS[pack_id]
+def resolve_pack(pack_id: str) -> BotPack:
+    return BOT_PACKS[pack_id]
 
 
-def pack_profile_choices(*, include_hidden: bool = False) -> list[SimProfileChoice]:
-    choices: list[SimProfileChoice] = []
-    for pack in SIM_PACKS.values():
+def pack_profile_choices(*, include_hidden: bool = False) -> list[BotProfileChoice]:
+    choices: list[BotProfileChoice] = []
+    for pack in BOT_PACKS.values():
         if pack.hidden and not include_hidden:
             continue
         for index, entry in enumerate(pack.entries):
             choices.append(
-                SimProfileChoice(
+                BotProfileChoice(
                     id=f"{pack.id}:{index}",
                     pack_id=pack.id,
                     pack_name=pack.name,
@@ -121,12 +121,12 @@ def pack_profile_choices(*, include_hidden: bool = False) -> list[SimProfileChoi
     return choices
 
 
-def resolve_profile_choice(choice_id: str, *, seed_base: int = 0) -> SimProfile:
+def resolve_profile_choice(choice_id: str, *, seed_base: int = 0) -> BotProfile:
     pack_id, index_text = choice_id.split(":", 1)
     pack = resolve_pack(pack_id)
     index = int(index_text)
     entry = pack.entries[index]
-    return SimProfile(
+    return BotProfile(
         strategy=entry.strategy,
         truthfulness=entry.truthfulness,
         trust_model=entry.trust_model,
@@ -136,10 +136,10 @@ def resolve_profile_choice(choice_id: str, *, seed_base: int = 0) -> SimProfile:
     )
 
 
-def expand_pack(pack_id: str, *, seed_base: int = 0) -> list[SimProfile]:
+def expand_pack(pack_id: str, *, seed_base: int = 0) -> list[BotProfile]:
     pack = resolve_pack(pack_id)
     return [
-        SimProfile(
+        BotProfile(
             strategy=entry.strategy,
             truthfulness=entry.truthfulness,
             trust_model=entry.trust_model,
@@ -151,12 +151,12 @@ def expand_pack(pack_id: str, *, seed_base: int = 0) -> list[SimProfile]:
     ]
 
 
-def _choice_label(entry: SimPackEntry) -> str:
+def _choice_label(entry: BotPackEntry) -> str:
     return (
         f"{entry.strategy.replace('_', ' ').title()} · "
         f"{entry.truthfulness}% · {entry.trust_model.title()}"
     )
 
 
-def _choice_description(entry: SimPackEntry, pack_version: str, index: int) -> str:
+def _choice_description(entry: BotPackEntry, pack_version: str, index: int) -> str:
     return f"Pack version {pack_version} · slot {index + 1}"

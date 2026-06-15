@@ -1,4 +1,4 @@
-"""Smoke tests for the Sims storage defaults."""
+"""Smoke tests for the bots storage defaults."""
 
 import re
 from datetime import datetime, timedelta, timezone
@@ -28,7 +28,7 @@ async def reset_db(monkeypatch):
     await test_engine.dispose()
 
 
-def test_historical_sim_name_pool_has_curated_display_safe_names() -> None:
+def test_historical_bot_name_pool_has_curated_display_safe_names() -> None:
     assert len(HISTORICAL_BOT_NAME_POOL) == 125
     assert len(set(HISTORICAL_BOT_NAME_POOL)) == len(HISTORICAL_BOT_NAME_POOL)
     assert all("_" not in name for name in HISTORICAL_BOT_NAME_POOL)
@@ -42,8 +42,8 @@ def test_historical_sim_name_pool_has_curated_display_safe_names() -> None:
 async def test_game_defaults_to_twenty_player_cap(reset_db):
     async with reset_db() as db:
         g = Match(
-            id="G_SIM",
-            name="Sim Test",
+            id="G_BOT",
+            name="Bot Test",
             state=GameState.REGISTERING,
             scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
         )
@@ -53,7 +53,7 @@ async def test_game_defaults_to_twenty_player_cap(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_make_agent_defaults_to_ai_and_keeps_sim_fields_empty(reset_db):
+async def test_make_agent_defaults_to_ai_and_keeps_bot_fields_empty(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
         agent, _ = await make_agent(db, user, name="Atlas")
@@ -63,20 +63,20 @@ async def test_make_agent_defaults_to_ai_and_keeps_sim_fields_empty(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_make_agent_can_persist_sim_traits(reset_db):
+async def test_make_agent_can_persist_bot_traits(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
         agent, _ = await make_agent(
             db,
             user,
-            name="SimAtlas",
+            name="BotAtlas",
             kind=AgentKind.BOT,
-            sim_strategy="grudger",
-            sim_truthfulness=80,
-            sim_trust_model="bitter",
-            sim_seed=42,
-            sim_version="v1",
-            sim_fixture_pack="fixture-a",
+            bot_strategy="grudger",
+            bot_truthfulness=80,
+            bot_trust_model="bitter",
+            bot_seed=42,
+            bot_version="v1",
+            bot_fixture_pack="fixture-a",
         )
         await db.flush()
 

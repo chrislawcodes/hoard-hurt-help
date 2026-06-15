@@ -1,4 +1,4 @@
-"""Scheduler integration tests for deterministic Sims."""
+"""Scheduler integration tests for deterministic bots."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ async def reset_db(monkeypatch, tmp_path):
     from app.db import make_engine
     from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
 
-    test_engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'sims_scheduler.db'}")
+    test_engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'bots_scheduler.db'}")
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -51,10 +51,10 @@ def published(monkeypatch):
     return events
 
 
-async def _seed_sim_game(db: AsyncSession) -> tuple[Match, list[Player]]:
+async def _seed_bot_game(db: AsyncSession) -> tuple[Match, list[Player]]:
     game = Match(
-        id="G_SIM",
-        name="sim-game",
+        id="G_BOT",
+        name="bot-game",
         state=GameState.ACTIVE,
         scheduled_start=datetime.now(timezone.utc),
         started_at=datetime.now(timezone.utc),
@@ -66,12 +66,12 @@ async def _seed_sim_game(db: AsyncSession) -> tuple[Match, list[Player]]:
     await db.flush()
 
     players: list[Player] = []
-    sim_specs = [
+    bot_specs = [
         ("AI_00", "leader_pressure", 80, "even", 11),
         ("AI_01", "diplomat", 80, "open", 12),
     ]
-    for i, (agent_id, strategy, truthfulness, trust_model, seed) in enumerate(sim_specs):
-        user = User(google_sub=f"sub-{i}", email=f"sim{i}@test.com", name=f"sim{i}")
+    for i, (agent_id, strategy, truthfulness, trust_model, seed) in enumerate(bot_specs):
+        user = User(google_sub=f"sub-{i}", email=f"bot{i}@test.com", name=f"bot{i}")
         db.add(user)
         await db.flush()
         agent, _key = await make_agent(
@@ -80,11 +80,11 @@ async def _seed_sim_game(db: AsyncSession) -> tuple[Match, list[Player]]:
             name=f"bot-{agent_id}",
             kind=AgentKind.BOT,
             status=AgentStatus.ACTIVE,
-            sim_strategy=strategy,
-            sim_truthfulness=truthfulness,
-            sim_trust_model=trust_model,
-            sim_seed=seed,
-            sim_version="v1",
+            bot_strategy=strategy,
+            bot_truthfulness=truthfulness,
+            bot_trust_model=trust_model,
+            bot_seed=seed,
+            bot_version="v1",
         )
         player = Player(
             match_id=game.id,
@@ -101,8 +101,8 @@ async def _seed_sim_game(db: AsyncSession) -> tuple[Match, list[Player]]:
 
 
 @pytest.mark.asyncio
-async def test_scheduler_auto_submits_sim_talk_and_actions(db, published):
-    game, players = await _seed_sim_game(db)
+async def test_scheduler_auto_submits_bot_talk_and_actions(db, published):
+    game, players = await _seed_bot_game(db)
 
     await asyncio.wait_for(scheduler._run_game(game.id), timeout=5)
 
@@ -150,17 +150,17 @@ async def test_bot_targeted_move_records_internal_agent_id(db, monkeypatch):
     target_player_id=None. Either way the move was wrong. The fix translates
     seat name -> agent_id before recording, like the real-agent API path.
     """
-    from app.engine.sims import service
-    from app.engine.sims.types import SimActionDecision
+    from app.engine.bots import service
+    from app.engine.bots.types import BotActionDecision
     from app.games import get as get_game_module
 
-    game, players = await _seed_sim_game(db)
+    game, players = await _seed_bot_game(db)
     actor, target = players[0], players[1]
 
     def fake_decision(context, profile):
         # Every bot HURTs some other seat, chosen by its public seat name.
         other = next(a for a in context.all_agent_ids if a != context.your_agent_id)
-        return SimActionDecision(
+        return BotActionDecision(
             intent="hurt_leader",
             move={"action": "HURT", "target_id": other},
             thinking="t",
@@ -217,7 +217,7 @@ async def test_turn_loop_crash_persists_incident(db, monkeypatch):
     """
     from app.models.request_incident import RequestIncident
 
-    game, _players = await _seed_sim_game(db)
+    game, _players = await _seed_bot_game(db)
 
     async def boom(*args, **kwargs):
         raise RuntimeError("synthetic turn-loop crash")

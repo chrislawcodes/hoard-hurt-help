@@ -319,7 +319,7 @@ async def test_archived_agent_keeps_profile_metadata(client, reset_db):
             user_id=user.id,
             provider=connection.provider,
             kind=AgentKind.AI,
-            name="PresetSim",
+            name="PresetBot",
             game="hoard-hurt-help",
             status=AgentStatus.ACTIVE,
             bot_profile_id=presets[0].id,
@@ -337,7 +337,7 @@ async def test_archived_agent_keeps_profile_metadata(client, reset_db):
                 match_id="G_001",
                 user_id=user.id,
                 agent_id=agent.id,
-                seat_name="AI_SIM",
+                seat_name="AI_BOT",
             )
         )
         await db.commit()
