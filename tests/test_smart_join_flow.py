@@ -388,6 +388,27 @@ async def test_connect_target_provider_not_bounced_by_a_different_live_provider(
 
 
 @pytest.mark.asyncio
+async def test_connect_gemini_status_ignores_a_playing_claude(client, reset_db):
+    """On a Connect-Gemini page, the live/playing status must reflect GEMINI only —
+    a Claude that's live and playing must NOT make it say 'Your AI is playing'."""
+    user = await _user_with_handle(reset_db)
+    async with reset_db() as db:
+        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+        connection, _ = await make_connection(db, u)  # Claude, by default
+        connection.last_seen_at = datetime.now(timezone.utc)  # live
+        connection.api_call_count = 5  # and playing (made real game calls)
+        await db.commit()
+    r = await client.get(
+        f"/me/connections?provider=gemini&next={JOIN_NEXT}",
+        cookies=_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 200
+    assert "Your AI is playing" not in r.text  # that's Claude, not Gemini
+    assert "Connect Gemini" in r.text
+
+
+@pytest.mark.asyncio
 async def test_connections_page_waits_when_not_live(client, reset_db):
     # Not live yet: render the page (no forward), and the poll fragment carries
     # ?next so it can forward once the AI connects.

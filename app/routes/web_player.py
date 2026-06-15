@@ -556,6 +556,12 @@ async def seat_connect(
     connect_url = f"/me/connections?next={connect_next}"
     if provider is not None:
         connect_url += f"&provider={provider.value}"
+    if not is_returning:
+        # New provider — nothing set up yet. Skip the "you're in, bringing your AI
+        # online" interstitial and go straight to that provider's connect steps. The
+        # seat stays held; the connect page's ?next brings the user back here, and
+        # the seat auto-confirms once the AI starts playing.
+        return RedirectResponse(url=connect_url, status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(
         request,
         "seat_connect.html",

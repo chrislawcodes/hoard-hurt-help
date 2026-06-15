@@ -229,17 +229,20 @@ async def test_seat_connect_returning_state_shows_wake_prompt(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_seat_connect_new_state_shows_connect_walkthrough(client, reset_db):
-    """Provider set up nowhere → full connect walkthrough, not the play-prompt."""
+async def test_seat_connect_new_state_redirects_straight_to_connect(client, reset_db):
+    """Provider set up nowhere → skip the held-seat interstitial and go straight to
+    that provider's connect steps (carrying the provider hint)."""
     await _seed_match(reset_db)
     uid, pid = await _held_seat_for_state(reset_db, model="gemini-3.1-flash-lite", with_connection=False)
     r = await client.get(
-        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", cookies=_cookies(uid)
+        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}",
+        cookies=_cookies(uid),
+        follow_redirects=False,
     )
-    assert r.status_code == 200
-    assert "Let's connect Gemini" in r.text
-    assert "Connect Gemini →" in r.text
-    assert "agentludum MCP tools" not in r.text  # no play-prompt for a new setup
+    assert r.status_code == 303
+    loc = r.headers["location"]
+    assert loc.startswith("/me/connections?next=")
+    assert "provider=gemini" in loc
 
 
 # ---------------------------------------------------------------------------

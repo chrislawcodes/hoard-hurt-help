@@ -19,7 +19,6 @@ from starlette.responses import Response
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
 from app.engine.connection_health import (
-    ConnectionHealth,
     compute_connection_health,
     provider_enabled_on_any_connection,
     provider_is_covered,
@@ -103,32 +102,32 @@ async def list_connections(
     # The page always offers a ready-to-run setup command inline: reuse the user's
     # one open machine setup or mint it, with a key that stays stable across loads.
     active_setup, key = await _ensure_pending_setup_and_key(request, db, user.id)
-    rows = []
-    is_live_now = False
-    is_playing_now = False
-    for connection in connections:
-        health = await compute_connection_health(db, connection)
-        if health.state in (ConnectionHealth.LIVE, ConnectionHealth.READY):
-            is_live_now = True
-            if connection.api_call_count > 0:
-                is_playing_now = True
-        rows.append(
-            {
-                "connection": connection,
-                "display_name": _connection_display_name(connection),
-                "health": health,
-                "agents": await _load_attached_agents(db, connection),
-            }
-        )
+    target_provider = (
+        ConnectionProvider(provider_hint) if provider_hint is not None else None
+    )
+    rows = [
+        {
+            "connection": connection,
+            "display_name": _connection_display_name(connection),
+            "health": await compute_connection_health(db, connection),
+            "agents": await _load_attached_agents(db, connection),
+        }
+        for connection in connections
+    ]
+    # Live/playing is scoped to the TARGET provider when one was given, so a page
+    # opened to connect Gemini reflects Gemini's status — never a live Claude's.
+    # With no target it falls back to "any connection of mine" (per-account).
+    status_flags = await _live_status_context(
+        db, user, next_url=next_url, provider=target_provider
+    )
+    is_live_now = bool(status_flags["is_live_now"])
+    is_playing_now = bool(status_flags["is_playing_now"])
     # Three user states drive what the one-box leads with (see the design doc):
     #   NEW       — never connected (no connection rows)
     #   RETURNING — connected before, but none live right now
     #   LIVE      — at least one connection is LIVE or READY right now
     has_connected_before = bool(connections)
     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
-    target_provider = (
-        ConnectionProvider(provider_hint) if provider_hint is not None else None
-    )
     target_provider_live = (
         await provider_is_covered(db, user.id, target_provider)
         if target_provider is not None
@@ -205,7 +204,14 @@ async def live_status_fragment(
     """
     next_url = safe_internal_next(next)
     provider_hint = _normalized_provider_hint(provider)
-    context = await _live_status_context(db, user, next_url=next_url)
+    target_provider = (
+        ConnectionProvider(provider_hint) if provider_hint is not None else None
+    )
+    # Scope the "live / playing" status to the target provider, so the poll on a
+    # Connect-Gemini page never flips to "your AI is playing" off a live Claude.
+    context = await _live_status_context(
+        db, user, next_url=next_url, provider=target_provider
+    )
     context["provider_hint"] = provider_hint
     if next_url and (
         (provider_hint is not None and await provider_is_covered(db, user.id, ConnectionProvider(provider_hint)))
