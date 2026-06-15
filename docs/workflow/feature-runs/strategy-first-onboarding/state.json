@@ -346,6 +346,24 @@
       "duration_seconds": 105.088298,
       "agent_id": null,
       "artifact_sha_at_time": "6deaa614ad1a8b2218108669f942046c3e22c3e93e9e92d3e881de0a7fbd7254"
+    },
+    {
+      "stage": "tasks",
+      "round": 1,
+      "activity_type": "implementation",
+      "model": "gpt-5.4-mini",
+      "lens": null,
+      "prompt_chars": 25714,
+      "prompt_cap": null,
+      "input_tokens": 292216,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.292216,
+      "timestamp": "2026-06-15T08:43:36.209043Z",
+      "started_at": "2026-06-15T08:31:19.584675Z",
+      "ended_at": "2026-06-15T08:43:36.209043Z",
+      "duration_seconds": 736.619928,
+      "agent_id": null,
+      "artifact_sha_at_time": "6deaa614ad1a8b2218108669f942046c3e22c3e93e9e92d3e881de0a7fbd7254"
     }
   ],
   "command_telemetry": [
@@ -692,5 +710,14 @@
   },
   "plan_adversarial_rounds": 3,
   "tasks_adversarial_rounds": 1,
-  "diff_adversarial_rounds": 1
+  "diff_adversarial_rounds": 1,
+  "heartbeats": [
+    {
+      "timestamp_pt": "2026-06-15T01:41:19.597192-07:00",
+      "timestamp_utc": "2026-06-15T08:41:19.597355+00:00",
+      "stage": "implement",
+      "activity": "codex running, last output 7s ago",
+      "elapsed_ms": 600009
+    }
+  ]
 }

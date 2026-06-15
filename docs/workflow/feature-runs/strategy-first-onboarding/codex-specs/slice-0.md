@@ -424,9 +424,11 @@ preselect hint, not replaced (NFR-003); no DB migration (NFR-004).
 
 
 ## Tasks to implement (your scope)
-- [ ] T1 [app/routes/agents_create.py] Remove the POST gate in
-- [ ] T2 [app/templates/agents/new.html] Always render the design form (name /
-- [ ] T3 [tests/test_strategy_first_onboarding.py] A signed-in user with zero
+- [ ] T4 [app/routes/connections_pages.py] Accept an optional `?provider=` on
+- [ ] T5 [app/templates/connections/_connect_picker.html] Preselect the tab
+- [ ] T6 [app/routes/agents_create.py] On create success, when the agent's
+- [ ] T7 [app/templates/agents/new.html, app/templates/connections/_live_status.html, app/templates/seat_connect.html]
+- [ ] T8 [tests/test_strategy_first_onboarding.py] Post-create redirect targets the
 
 ## File scope
 (no specific scope — implement all tasks)
