@@ -1,0 +1,287 @@
+diff --git a/app/engine/connection_health.py b/app/engine/connection_health.py
+index 92d94f1..06f8615 100644
+--- a/app/engine/connection_health.py
++++ b/app/engine/connection_health.py
+@@ -351,6 +351,34 @@ async def enabled_provider_values(db: AsyncSession, user_id: int) -> set[str]:
+     return {p.value for p in rows}
+ 
+ 
++async def enabled_provider_values_on_nonpaused_connections(
++    db: AsyncSession, user_id: int
++) -> set[str]:
++    """Provider values enabled on any non-paused, non-deleted connection.
++
++    This is the coverage signal for the agent list's ready-vs-needs-connecting
++    state. A provider enabled only on a paused connection still needs
++    reconnecting, so paused rows are excluded here on purpose.
++    """
++    rows = (
++        (
++            await db.execute(
++                select(ConnectionProviderRow.provider)
++                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
++                .where(
++                    Connection.user_id == user_id,
++                    Connection.deleted_at.is_(None),
++                    Connection.status != ConnectionStatus.PAUSED,
++                    ConnectionProviderRow.enabled.is_(True),
++                )
++            )
++        )
++        .scalars()
++        .all()
++    )
++    return {p.value for p in rows}
++
++
+ async def active_matches_for_provider(
+     db: AsyncSession, user_id: int, provider: ConnectionProvider
+ ) -> int:
+diff --git a/app/routes/agents_health_presenter.py b/app/routes/agents_health_presenter.py
+index 4d36441..fc1d5ad 100644
+--- a/app/routes/agents_health_presenter.py
++++ b/app/routes/agents_health_presenter.py
+@@ -24,9 +24,12 @@ from app.models.player import Player
+ @dataclass(frozen=True)
+ class AgentRow:
+     agent: Agent
+-    version: AgentVersion | None
+-    health: object
+-    match_count: int
++    version: AgentVersion | None = None
++    health: object | None = None
++    match_count: int = 0
++    provider_label: str | None = None
++    connect_url: str | None = None
++    needs_connecting: bool = False
+ 
+ 
+ @dataclass(frozen=True)
+@@ -59,17 +62,48 @@ async def _count_agent_matches(db: DbSession, agent_id: int) -> int:
+     return int(count or 0)
+ 
+ 
+-def _is_ready_to_play(context: dict[str, object]) -> bool:
+-    """True when the agent can accept a new match invitation right now."""
++async def _count_agent_matches_for_agents(
++    db: DbSession, agent_ids: list[int]
++) -> dict[int, int]:
++    if not agent_ids:
++        return {}
++    rows = (
++        await db.execute(
++            select(Player.agent_id, func.count().label("match_count"))
++            .where(Player.agent_id.in_(agent_ids))
++            .group_by(Player.agent_id)
++        )
++    ).all()
++    return {agent_id: int(match_count or 0) for agent_id, match_count in rows}
++
++
++def _readiness_state(context: dict[str, object]) -> str:
++    """Return the onboarding card state for the agent detail page.
++
++    READY is only for live/ready coverage. A provider that is not covered by a
++    non-paused connection needs connecting, and a paused agent stays paused so
++    the dedicated paused card can keep owning that state.
++    """
+     health = context.get("health")
+     if health is None:
+-        return False
++        return "needs_connecting"
+     if isinstance(health, dict):
+         state = health.get("state")
++        needs_reconnect = bool(health.get("needs_reconnect"))
+     else:
+         state = getattr(health, "state", None)
+-    if state not in (ConnectionHealth.LIVE, ConnectionHealth.READY):
+-        return False
++        needs_reconnect = bool(getattr(health, "needs_reconnect", False))
++    if state == ConnectionHealth.PAUSED:
++        return "paused"
++    if needs_reconnect:
++        return "needs_connecting"
+     if context.get("join_blocked"):
+-        return False
+-    return True
++        return "at_capacity"
++    if state in (ConnectionHealth.LIVE, ConnectionHealth.READY):
++        return "ready"
++    return "needs_connecting"
++
++
++def _is_ready_to_play(context: dict[str, object]) -> bool:
++    """True when the agent can accept a new match invitation right now."""
++    return _readiness_state(context) == "ready"
+diff --git a/app/routes/agents_list.py b/app/routes/agents_list.py
+index 1509d60..dea8d28 100644
+--- a/app/routes/agents_list.py
++++ b/app/routes/agents_list.py
+@@ -10,11 +10,19 @@ from sqlalchemy import select
+ from starlette.responses import Response
+ 
+ from app.deps import DbSession, require_user_with_handle
+-from app.engine.connection_health import ConnectionHealth, provider_is_covered
++from app.engine.connection_health import (
++    ConnectionHealth,
++    enabled_provider_values_on_nonpaused_connections,
++)
+ from app.models.agent import Agent, AgentKind, AgentStatus
+ from app.models.agent_version import AgentVersion
+ from app.models.user import User
+-from app.routes.agents_health_presenter import AgentRow, _count_agent_matches
++from app.routes.agents_health_presenter import (
++    AgentRow,
++    _count_agent_matches_for_agents,
++    _readiness_state,
++)
++from app.routes.connections_setup import _provider_label
+ from app.templating import templates
+ 
+ router = APIRouter()
+@@ -43,13 +51,18 @@ async def list_agents(
+     user: Annotated[User, Depends(require_user_with_handle)],
+ ) -> Response:
+     agents = await _load_user_agents(db, user.id)
++    setup_provider_values = await enabled_provider_values_on_nonpaused_connections(
++        db, user.id
++    )
++    match_counts = await _count_agent_matches_for_agents(
++        db, [agent.id for agent, _ in agents]
++    )
+     rows: list[AgentRow] = []
+     for agent, version in agents:
+         provider = agent.provider
+-        covered = (
+-            await provider_is_covered(db, user.id, provider)
+-            if provider is not None
+-            else False
++        provider_label = _provider_label(provider) if provider is not None else None
++        connect_url = (
++            f"/me/connections?provider={provider.value}" if provider is not None else None
+         )
+         if agent.status == AgentStatus.PAUSED:
+             health: object = {
+@@ -65,10 +78,11 @@ async def list_agents(
+                 "game_name": None,
+                 "agent_count": 0,
+             }
+-        elif not covered:
++            needs_connecting = False
++        elif provider is None or provider.value not in setup_provider_values:
+             health = {
+                 "state": ConnectionHealth.DISCONNECTED,
+-                "label": "No live connection",
++                "label": "Needs connecting",
+                 "badge_class": "badge-alert",
+                 "pulse": False,
+                 "needs_reconnect": True,
+@@ -93,12 +107,16 @@ async def list_agents(
+                 "game_name": None,
+                 "agent_count": 0,
+             }
++        needs_connecting = _readiness_state({"health": health, "join_blocked": False}) == "needs_connecting"
+         rows.append(
+             AgentRow(
+                 agent=agent,
+                 version=version,
+                 health=health,
+-                match_count=await _count_agent_matches(db, agent.id),
++                match_count=match_counts.get(agent.id, 0),
++                provider_label=provider_label,
++                connect_url=connect_url,
++                needs_connecting=needs_connecting,
+             )
+         )
+     return templates.TemplateResponse(
+diff --git a/app/templates/agents/_onboarding.html b/app/templates/agents/_onboarding.html
+index a62c85c..099b0b4 100644
+--- a/app/templates/agents/_onboarding.html
++++ b/app/templates/agents/_onboarding.html
+@@ -7,6 +7,7 @@
+   (no page reload needed) as the agent progresses through onboarding.
+ 
+   States covered:
++    waiting            (1) — not live yet: "Needs connecting" + connect CTA
+     connected_no_game  (2) — connected, idle: "Ready to play" + find-a-match CTA
+     connected_pregame  (3) — in a pre-game match: name + "Starts soon" message
+     in_game_no_move    (4) — active match, no move yet: waiting for first move
+@@ -14,13 +15,29 @@
+   Also handles:
+     join_blocked       — at capacity: "At capacity" card instead of ready-to-play
+ 
+-  State 1 (waiting / never connected) is already rendered by the reconnect card
+-  in detail.html and is not repeated here. When the runner hasn't connected yet,
+-  this fragment renders nothing.
++  State 1 (waiting / never connected) now renders the "Needs connecting" card
++  here, so the detail page and its polled status fragment stay in sync.
+ #}
+ {% set s = onboarding.state.value %}
++{% set provider_name = "your AI" %}
++{% if agent.provider %}
++    {% if agent.provider.value == "openai" %}
++        {% set provider_name = "OpenAI" %}
++    {% else %}
++        {% set provider_name = agent.provider.value | title %}
++    {% endif %}
++{% endif %}
++
++{% if s == "waiting" %}
++    {% if agent.status.value != 'paused' %}
++<div class="card" style="border-color:var(--warn, #c48f00);">
++    <h3 style="margin-top:0;">Needs connecting</h3>
++    <p class="hint" style="margin-top:0;">No live connection runs {{ provider_name }}. Connect it, then this agent can play.</p>
++    <a class="btn btn-primary" href="{% if agent.provider %}/me/connections?provider={{ agent.provider.value }}{% else %}/me/connections{% endif %}">Connect {{ provider_name }} →</a>
++</div>
++    {% endif %}
+ 
+-{% if s == "in_game_no_move" %}
++{% elif s == "in_game_no_move" %}
+ <div class="card" style="border-color:var(--ok, #2d9a5a);">
+     <h3 style="margin-top:0;">In a match</h3>
+     <p class="hint" style="margin-top:0;">In <strong>{{ onboarding.match_name }}</strong>. Waiting for its first move…</p>
+@@ -50,4 +67,4 @@
+     {% endif %}
+ 
+ {% endif %}
+-{# state == "waiting": nothing rendered here; detail.html's reconnect card covers it. #}
++{# state == "waiting": the needs-connecting card above covers it. #}
+diff --git a/app/templates/agents/detail.html b/app/templates/agents/detail.html
+index 266fe43..778a839 100644
+--- a/app/templates/agents/detail.html
++++ b/app/templates/agents/detail.html
+@@ -24,13 +24,7 @@
+            onchange="this.form.requestSubmit()">
+ </form>
+ 
+-{% if health.needs_reconnect %}
+-<div class="card">
+-    <h3 style="margin-top:0;">No live connection runs {{ agent.provider.value if agent.provider else "this agent's provider" }}</h3>
+-    <p class="hint" style="margin-top:0;">This agent plays on any live connection that has its provider turned on. Turn it on (and start the runner) from your connections page.</p>
+-    <a class="btn btn-primary" href="/me/connections">Go to connections →</a>
+-</div>
+-{% elif health.state.value == 'paused' %}
++{% if health.state.value == 'paused' %}
+ <div class="card">
+     <h3 style="margin-top:0;">Paused</h3>
+     <p class="hint" style="margin-top:0;">Resume this agent when you want it to play again.</p>
+diff --git a/app/templates/agents/list.html b/app/templates/agents/list.html
+index f4c57d0..e586e32 100644
+--- a/app/templates/agents/list.html
++++ b/app/templates/agents/list.html
+@@ -18,9 +18,14 @@
+         <a class="agent-row" href="/me/agents/{{ row.agent.id }}">
+             <span class="badge {{ row.health.badge_class }}">{% if row.health.pulse %}<span class="dot"></span>{% elif row.health.state.value == 'ready' %}<span class="dot dot-still"></span>{% endif %}{{ row.health.label }}</span>
+             <span class="agent-row-name">{{ row.agent.name }}</span>
+-            <span class="agent-row-meta">{% if row.version %}{{ row.version.model }} · v{{ row.version.version_no }} · {% endif %}{% if row.agent.provider %}{{ row.agent.provider.value | title }} · {% endif %}{{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}</span>
++            <span class="agent-row-meta">{% if row.version %}{{ row.version.model }} · v{{ row.version.version_no }} · {% endif %}{% if row.provider_label %}{{ row.provider_label }} · {% endif %}{{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}</span>
+             <span class="agent-row-chevron">›</span>
+         </a>
++        {% if row.needs_connecting and row.connect_url %}
++        <p class="hint" style="margin:0 0 0.75rem 0.75rem;">
++            Needs connecting — <a href="{{ row.connect_url }}">Connect {{ row.provider_label }} →</a>
++        </p>
++        {% endif %}
+         {% endfor %}
+     </section>
+     {% endfor %}

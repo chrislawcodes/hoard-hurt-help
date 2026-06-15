@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -85,6 +86,23 @@ async def _user_agent(reset_db, *, live: bool):
         agent, _v = await make_agent(db, user, connection=connection, name="Atlas")
         await db.commit()
         return user.id, agent.id
+
+
+@pytest.mark.asyncio
+async def test_join_no_agent_no_connection_redirects_to_create_agent(client, reset_db):
+    await _seed_match(reset_db)
+    user = await _user_with_handle(reset_db)
+    r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/me/agents/new?next={quote(JOIN_URL, safe='')}"
+
+
+async def _user_with_handle(reset_db):
+    async with reset_db() as db:
+        user = await make_user(db, 0)
+        await db.commit()
+        await db.refresh(user)
+        return user
 
 
 # ---------------------------------------------------------------------------

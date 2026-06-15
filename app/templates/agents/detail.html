@@ -24,13 +24,7 @@
            onchange="this.form.requestSubmit()">
 </form>
 
-{% if health.needs_reconnect %}
-<div class="card">
-    <h3 style="margin-top:0;">No live connection runs {{ agent.provider.value if agent.provider else "this agent's provider" }}</h3>
-    <p class="hint" style="margin-top:0;">This agent plays on any live connection that has its provider turned on. Turn it on (and start the runner) from your connections page.</p>
-    <a class="btn btn-primary" href="/me/connections">Go to connections →</a>
-</div>
-{% elif health.state.value == 'paused' %}
+{% if health.state.value == 'paused' %}
 <div class="card">
     <h3 style="margin-top:0;">Paused</h3>
     <p class="hint" style="margin-top:0;">Resume this agent when you want it to play again.</p>

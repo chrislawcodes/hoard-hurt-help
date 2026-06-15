@@ -1,18 +1,19 @@
 {# CSS-only provider picker (the byo-tabs pattern). Claude Code is checked first
-   (the audience default); Codex carries an "Easiest" badge as the only fully
-   copy-paste, zero-/mcp sign-in. Each command provider lays the
-   act of connecting out as numbered sub-steps so it reads as a sequence:
+   by default; a page can pass `selected_client_id` to preselect a specific tab.
+   Codex carries an "Easiest" badge as the only fully copy-paste, zero-/mcp
+   sign-in. Each command provider lays the act of connecting out as numbered
+   sub-steps so it reads as a sequence:
      step 1 "Paste this in your terminal" — the add command (one paste);
      step 2 "Sign in with Google" — a second paste block if the provider needs one
        (e.g. Claude Code's /mcp), otherwise just what to expect.
    GUI providers (Claude Desktop) render as numbered click-through steps. Every
    copyable block puts the Copy button to the RIGHT of the text, not above it.
    The "You're connected" payoff is a separate region (see _live_status.html).
-   Expects `connect_options` in context. #}
+   Expects `connect_options` and optional `selected_client_id` in context. #}
 <div class="byo-tabs">
     {% for opt in connect_options %}
     <input type="radio" name="byo-client" id="byo-tab-{{ opt.client_id }}"
-           class="byo-tab-input"{% if loop.first %} checked{% endif %}>
+           class="byo-tab-input"{% if opt.client_id == selected_client_id or (not selected_client_id and loop.first) %} checked{% endif %}>
     {% endfor %}
 
     <div class="byo-tab-labels" role="tablist">

@@ -1,0 +1,40 @@
+{
+  "feature_slug": "strategy-first-onboarding",
+  "stage": "spec",
+  "artifact_path": "docs/workflow/feature-runs/strategy-first-onboarding/spec.md",
+  "git_base_ref": "",
+  "allowed_dirty_paths": [],
+  "required_reviews": [
+    {
+      "reviewer": "codex",
+      "lens": "feasibility-adversarial",
+      "stage": "spec",
+      "path": "docs/workflow/feature-runs/strategy-first-onboarding/reviews/spec.codex.feasibility-adversarial.review.md",
+      "context_paths": [
+        "app/routes/agents_create.py",
+        "app/routes/web_player.py",
+        "app/engine/connection_health.py",
+        "app/routes/agents_setup.py",
+        "app/models/agent.py"
+      ],
+      "model": "gpt-5.4-mini"
+    },
+    {
+      "reviewer": "gemini",
+      "lens": "requirements-adversarial",
+      "stage": "spec",
+      "path": "docs/workflow/feature-runs/strategy-first-onboarding/reviews/spec.gemini.requirements-adversarial.review.md",
+      "context_paths": [
+        "app/routes/agents_create.py",
+        "app/routes/web_player.py",
+        "app/engine/connection_health.py",
+        "app/routes/agents_setup.py",
+        "app/models/agent.py"
+      ],
+      "model": "gemini-3.1-flash-lite"
+    }
+  ],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

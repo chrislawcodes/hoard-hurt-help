@@ -10,11 +10,19 @@ from sqlalchemy import select
 from starlette.responses import Response
 
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import ConnectionHealth, provider_is_covered
+from app.engine.connection_health import (
+    ConnectionHealth,
+    enabled_provider_values_on_nonpaused_connections,
+)
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.user import User
-from app.routes.agents_health_presenter import AgentRow, _count_agent_matches
+from app.routes.agents_health_presenter import (
+    AgentRow,
+    _count_agent_matches_for_agents,
+    _readiness_state,
+)
+from app.routes.connections_setup import _provider_label
 from app.templating import templates
 
 router = APIRouter()
@@ -43,13 +51,18 @@ async def list_agents(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
     agents = await _load_user_agents(db, user.id)
+    setup_provider_values = await enabled_provider_values_on_nonpaused_connections(
+        db, user.id
+    )
+    match_counts = await _count_agent_matches_for_agents(
+        db, [agent.id for agent, _ in agents]
+    )
     rows: list[AgentRow] = []
     for agent, version in agents:
         provider = agent.provider
-        covered = (
-            await provider_is_covered(db, user.id, provider)
-            if provider is not None
-            else False
+        provider_label = _provider_label(provider) if provider is not None else None
+        connect_url = (
+            f"/me/connections?provider={provider.value}" if provider is not None else None
         )
         if agent.status == AgentStatus.PAUSED:
             health: object = {
@@ -65,10 +78,11 @@ async def list_agents(
                 "game_name": None,
                 "agent_count": 0,
             }
-        elif not covered:
+            needs_connecting = False
+        elif provider is None or provider.value not in setup_provider_values:
             health = {
                 "state": ConnectionHealth.DISCONNECTED,
-                "label": "No live connection",
+                "label": "Needs connecting",
                 "badge_class": "badge-alert",
                 "pulse": False,
                 "needs_reconnect": True,
@@ -93,12 +107,16 @@ async def list_agents(
                 "game_name": None,
                 "agent_count": 0,
             }
+        needs_connecting = _readiness_state({"health": health, "join_blocked": False}) == "needs_connecting"
         rows.append(
             AgentRow(
                 agent=agent,
                 version=version,
                 health=health,
-                match_count=await _count_agent_matches(db, agent.id),
+                match_count=match_counts.get(agent.id, 0),
+                provider_label=provider_label,
+                connect_url=connect_url,
+                needs_connecting=needs_connecting,
             )
         )
     return templates.TemplateResponse(

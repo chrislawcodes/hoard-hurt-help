@@ -17,7 +17,10 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import enabled_provider_values
+from app.engine.connection_health import (
+    enabled_provider_values,
+    enabled_provider_values_on_nonpaused_connections,
+)
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
@@ -147,9 +150,6 @@ async def new_agent_form(
         "model_groups": model_groups,
         "selected_model": selected_model,
         "availability_notes": availability_notes,
-        # When no provider is connected yet, the form can't create anything — the
-        # template shows a "connect a client first" CTA instead of a dead form.
-        "has_enabled_provider": bool(enabled_values),
         "default_game": _DEFAULT_GAME,
         "default_strategy": get_game_module(_DEFAULT_GAME).default_strategy(),
         "strategy_presets": strategy_presets,
@@ -159,8 +159,6 @@ async def new_agent_form(
             if strategy_presets
             else get_game_module(_DEFAULT_GAME).default_strategy()
         ),
-        # Carry a validated ?next through the form so creating the agent here can
-        # forward back to where the user came from (e.g. a join page hub).
         "next_url": safe_internal_next(next),
     }
     return templates.TemplateResponse(request, "agents/new.html", context)
@@ -199,17 +197,6 @@ async def create_agent_or_connection(
         if derived is None:
             raise HTTPException(status_code=400, detail="Unknown model.")
         agent_provider = ConnectionProvider(derived)
-        if agent_provider.value not in await enabled_provider_values(db, user.id):
-            # No connected client enables this provider yet. Don't dead-end the
-            # POST with a 409 — send the user to connect a client first, carrying
-            # ?next so the join chain (if any) resumes once they're set up.
-            safe_next = safe_internal_next(next_after)
-            target = (
-                f"/me/connections?next={quote(safe_next, safe='')}"
-                if safe_next
-                else "/me/connections"
-            )
-            return RedirectResponse(url=target, status_code=status.HTTP_303_SEE_OTHER)
         clean_strategy = (strategy_text or "").strip()
         if not clean_strategy and strategy_preset:
             preset = next(
@@ -242,9 +229,21 @@ async def create_agent_or_connection(
         await db.flush()
         agent.current_version_id = version.id
         await db.commit()
-        # If a join hub (or other page) sent the user here with ?next, forward
-        # back there now that the agent exists, instead of the agent detail page.
-        destination = safe_internal_next(next_after) or f"/me/agents/{agent.id}"
+        next_url = safe_internal_next(next_after)
+        # If the provider is already set up (enabled on a non-paused connection),
+        # skip the connect step and continue to the next hop (or the agent detail
+        # page when no next was supplied). This matches the agent-list readiness
+        # signal (enabled, status-aware), not the stricter live-now window — a
+        # set-up-but-idle provider is woken by the Join held-seat flow, not here.
+        setup_providers = await enabled_provider_values_on_nonpaused_connections(
+            db, user.id
+        )
+        if agent_provider.value in setup_providers:
+            destination = next_url or f"/me/agents/{agent.id}"
+        else:
+            destination = f"/me/connections?provider={agent_provider.value}"
+            if next_url is not None:
+                destination += f"&next={quote(next_url, safe='')}"
         return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
 
     raise HTTPException(status_code=400, detail="Agent name is required.")

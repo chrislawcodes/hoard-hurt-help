@@ -18,7 +18,11 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import ConnectionHealth, compute_connection_health
+from app.engine.connection_health import (
+    ConnectionHealth,
+    compute_connection_health,
+    provider_is_covered,
+)
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.models.connection import Connection, ConnectionProvider
 from app.models.user import User
@@ -45,6 +49,32 @@ from app.templating import templates
 
 router = APIRouter()
 
+_PROVIDER_CLIENT_IDS = {
+    ConnectionProvider.CLAUDE.value: "claude-code",
+    ConnectionProvider.GEMINI.value: "gemini",
+    ConnectionProvider.OPENAI.value: "codex",
+}
+
+
+def _normalized_provider_hint(provider: str | None) -> str | None:
+    if provider is None:
+        return None
+    cleaned = provider.strip().lower()
+    if not cleaned:
+        return None
+    try:
+        ConnectionProvider(cleaned)
+    except ValueError:
+        return None
+    return cleaned
+
+
+def _selected_client_id(provider: str | None) -> str | None:
+    normalized = _normalized_provider_hint(provider)
+    if normalized is None:
+        return None
+    return _PROVIDER_CLIENT_IDS.get(normalized)
+
 
 @router.get("", response_class=HTMLResponse)
 async def list_connections(
@@ -52,8 +82,11 @@ async def list_connections(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     next: str | None = None,
+    provider: str | None = None,
 ) -> Response:
     next_url = safe_internal_next(next)
+    provider_hint = _normalized_provider_hint(provider)
+    selected_client_id = _selected_client_id(provider_hint)
     await gc_pending_connections(db)
     connections = (
         (
@@ -92,10 +125,17 @@ async def list_connections(
     #   LIVE      — at least one connection is LIVE or READY right now
     has_connected_before = bool(connections)
     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
+    target_provider_live = (
+        await provider_is_covered(db, user.id, ConnectionProvider(provider_hint))
+        if provider_hint is not None
+        else False
+    )
     # Hub forward: if a join page sent the user here to start their AI and a
     # connection is already live, jump straight back instead of making them read
     # the "Connected" box. The 4s poll covers the case where it goes live later.
-    if next_url and is_live_now:
+    if next_url and (
+        target_provider_live or (provider_hint is None and is_live_now)
+    ):
         return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(
         request,
@@ -114,6 +154,8 @@ async def list_connections(
             "agent_summary": agent_summary,
             "lobby_url": "/games/hoard-hurt-help",
             "next_url": next_url,
+            "provider_hint": provider_hint,
+            "selected_client_id": selected_client_id,
         },
     )
 
@@ -124,6 +166,7 @@ async def live_status_fragment(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     next: str | None = None,
+    provider: str | None = None,
 ) -> Response:
     """The self-advancing connect → play region, polled every 4s.
 
@@ -137,8 +180,13 @@ async def live_status_fragment(
     hub — the same auto-advance the page does on load, but for the poll path.
     """
     next_url = safe_internal_next(next)
+    provider_hint = _normalized_provider_hint(provider)
     context = await _live_status_context(db, user, next_url=next_url)
-    if next_url and context["is_live_now"]:
+    context["provider_hint"] = provider_hint
+    if next_url and (
+        (provider_hint is not None and await provider_is_covered(db, user.id, ConnectionProvider(provider_hint)))
+        or (provider_hint is None and context["is_live_now"])
+    ):
         # HTMX honors HX-Redirect by navigating the whole page. An empty body is
         # fine since the redirect replaces this fragment's container entirely.
         return HTMLResponse("", headers={"HX-Redirect": next_url})

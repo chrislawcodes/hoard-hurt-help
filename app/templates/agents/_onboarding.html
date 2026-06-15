@@ -7,6 +7,7 @@
   (no page reload needed) as the agent progresses through onboarding.
 
   States covered:
+    waiting            (1) — not live yet: "Needs connecting" + connect CTA
     connected_no_game  (2) — connected, idle: "Ready to play" + find-a-match CTA
     connected_pregame  (3) — in a pre-game match: name + "Starts soon" message
     in_game_no_move    (4) — active match, no move yet: waiting for first move
@@ -14,13 +15,29 @@
   Also handles:
     join_blocked       — at capacity: "At capacity" card instead of ready-to-play
 
-  State 1 (waiting / never connected) is already rendered by the reconnect card
-  in detail.html and is not repeated here. When the runner hasn't connected yet,
-  this fragment renders nothing.
+  State 1 (waiting / never connected) now renders the "Needs connecting" card
+  here, so the detail page and its polled status fragment stay in sync.
 #}
 {% set s = onboarding.state.value %}
+{% set provider_name = "your AI" %}
+{% if agent.provider %}
+    {% if agent.provider.value == "openai" %}
+        {% set provider_name = "OpenAI" %}
+    {% else %}
+        {% set provider_name = agent.provider.value | title %}
+    {% endif %}
+{% endif %}
 
-{% if s == "in_game_no_move" %}
+{% if s == "waiting" %}
+    {% if agent.status.value != 'paused' %}
+<div class="card" style="border-color:var(--warn, #c48f00);">
+    <h3 style="margin-top:0;">Needs connecting</h3>
+    <p class="hint" style="margin-top:0;">No live connection runs {{ provider_name }}. Connect it, then this agent can play.</p>
+    <a class="btn btn-primary" href="{% if agent.provider %}/me/connections?provider={{ agent.provider.value }}{% else %}/me/connections{% endif %}">Connect {{ provider_name }} →</a>
+</div>
+    {% endif %}
+
+{% elif s == "in_game_no_move" %}
 <div class="card" style="border-color:var(--ok, #2d9a5a);">
     <h3 style="margin-top:0;">In a match</h3>
     <p class="hint" style="margin-top:0;">In <strong>{{ onboarding.match_name }}</strong>. Waiting for its first move…</p>
@@ -50,4 +67,4 @@
     {% endif %}
 
 {% endif %}
-{# state == "waiting": nothing rendered here; detail.html's reconnect card covers it. #}
+{# state == "waiting": the needs-connecting card above covers it. #}

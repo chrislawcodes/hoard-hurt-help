@@ -5,13 +5,13 @@ FIRST missing thing, carrying ?next back to the join URL:
 
   1. Not signed in           → /auth/google/login?next=<join>
   2. No handle               → /me/handle?next=<join>
-  3. No agent, no provider   → /me/connections?next=<join>  (connect a client first)
-  4. No agent, has provider  → /me/agents/new?next=<join>   (create the agent)
+  3. No agent                → /me/agents/new?next=<join>   (design the agent)
+  4. Has no live provider     → /me/connections?provider=<x>&next=<join>
   5. Has an AI agent         → render the join form (no Player seated)
 
-Creating an agent requires an already-connected provider, so a brand-new user
-(zero connections, zero agents) is sent to connect a client first — never to the
-create-agent page, which would dead-end.
+Creating an agent no longer requires an already-connected provider, so a
+brand-new user (zero connections, zero agents) is sent to create an agent
+first. The follow-up step is the provider-specific connect flow for that agent.
 
 The form now shows ALL of the user's AI agents grouped by provider — including
 ones whose provider is offline or not set up — so an unconnected provider no
@@ -156,16 +156,15 @@ async def test_no_handle_redirects_to_handle_with_next(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_fresh_user_no_connection_redirects_to_connections_with_next(client, reset_db):
-    # Brand-new user: handle, but ZERO connections and ZERO agents. Creating an
-    # agent needs a connected provider, so the hub must send them to connect a
-    # client first — not to /me/agents/new (the old dead end).
+async def test_fresh_user_no_connection_redirects_to_create_agent_with_next(client, reset_db):
+    # Brand-new user: handle, but ZERO connections and ZERO agents. The hub
+    # sends them to design an agent first, not to /me/connections.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)  # handle, no connection, no agent
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 303
     loc = r.headers["location"]
-    assert loc.startswith("/me/connections?next=")
+    assert loc.startswith("/me/agents/new?next=")
     assert JOIN_NEXT in loc
 
 
@@ -304,7 +303,7 @@ async def test_create_agent_post_forwards_to_next(client, reset_db):
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        await make_connection(db, u)  # enables the claude provider for creation
+        await make_connection(db, u)  # provider is enabled but not live yet
         await db.commit()
     r = await client.post(
         "/me/agents/new",
@@ -318,12 +317,14 @@ async def test_create_agent_post_forwards_to_next(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
+    # Claude is set up (enabled), so creation forwards straight to the next hop.
     assert r.headers["location"] == JOIN_URL
 
 
 @pytest.mark.asyncio
 async def test_create_agent_post_rejects_external_next(client, reset_db):
-    # An external next is dropped; we fall back to the agent detail page.
+    # An external next is dropped; since the provider IS set up, we fall back to
+    # the agent's detail page (not the external target).
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()

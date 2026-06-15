@@ -24,9 +24,12 @@ from app.models.player import Player
 @dataclass(frozen=True)
 class AgentRow:
     agent: Agent
-    version: AgentVersion | None
-    health: object
-    match_count: int
+    version: AgentVersion | None = None
+    health: object | None = None
+    match_count: int = 0
+    provider_label: str | None = None
+    connect_url: str | None = None
+    needs_connecting: bool = False
 
 
 @dataclass(frozen=True)
@@ -59,17 +62,48 @@ async def _count_agent_matches(db: DbSession, agent_id: int) -> int:
     return int(count or 0)
 
 
-def _is_ready_to_play(context: dict[str, object]) -> bool:
-    """True when the agent can accept a new match invitation right now."""
+async def _count_agent_matches_for_agents(
+    db: DbSession, agent_ids: list[int]
+) -> dict[int, int]:
+    if not agent_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(Player.agent_id, func.count().label("match_count"))
+            .where(Player.agent_id.in_(agent_ids))
+            .group_by(Player.agent_id)
+        )
+    ).all()
+    return {agent_id: int(match_count or 0) for agent_id, match_count in rows}
+
+
+def _readiness_state(context: dict[str, object]) -> str:
+    """Return the onboarding card state for the agent detail page.
+
+    READY is only for live/ready coverage. A provider that is not covered by a
+    non-paused connection needs connecting, and a paused agent stays paused so
+    the dedicated paused card can keep owning that state.
+    """
     health = context.get("health")
     if health is None:
-        return False
+        return "needs_connecting"
     if isinstance(health, dict):
         state = health.get("state")
+        needs_reconnect = bool(health.get("needs_reconnect"))
     else:
         state = getattr(health, "state", None)
-    if state not in (ConnectionHealth.LIVE, ConnectionHealth.READY):
-        return False
+        needs_reconnect = bool(getattr(health, "needs_reconnect", False))
+    if state == ConnectionHealth.PAUSED:
+        return "paused"
+    if needs_reconnect:
+        return "needs_connecting"
     if context.get("join_blocked"):
-        return False
-    return True
+        return "at_capacity"
+    if state in (ConnectionHealth.LIVE, ConnectionHealth.READY):
+        return "ready"
+    return "needs_connecting"
+
+
+def _is_ready_to_play(context: dict[str, object]) -> bool:
+    """True when the agent can accept a new match invitation right now."""
+    return _readiness_state(context) == "ready"
