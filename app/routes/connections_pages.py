@@ -1,0 +1,242 @@
+"""Connection list and detail pages plus their live-status poll fragments.
+
+The human-facing connections surface: the one-box list page, the 4s connect→play
+poll, and a single machine's detail page with its status and health-badge
+fragments. Read-only views built from the shared queries; the setup-minting and
+name-saving actions live in ``connections_machine_setup``.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Path, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import select
+from starlette import status
+from starlette.responses import Response
+
+from app.config import PROVIDER_MODELS, settings
+from app.deps import DbSession, require_user_with_handle
+from app.engine.connection_health import ConnectionHealth, compute_connection_health
+from app.engine.pending_connection_gc import gc_pending_connections
+from app.models.connection import Connection, ConnectionProvider
+from app.models.user import User
+from app.routes.connections_connect_guide import (
+    _PROVIDER_CLIS,
+    _connect_options,
+    _play_prompt,
+    _provider_label,
+    _setup_message,
+)
+from app.routes.connections_machine_setup import _ensure_pending_setup_and_key
+from app.routes.connections_queries import (
+    _connection_display_name,
+    _live_status_context,
+    _load_attached_agents,
+    _load_connection_providers,
+    _load_owned_connection,
+    _load_stranded_agents,
+    _load_user_agents,
+    _summarize_agent,
+)
+from app.routes.web_support import safe_internal_next
+from app.templating import templates
+
+router = APIRouter()
+
+
+@router.get("", response_class=HTMLResponse)
+async def list_connections(
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    next: str | None = None,
+) -> Response:
+    next_url = safe_internal_next(next)
+    await gc_pending_connections(db)
+    connections = (
+        (
+            await db.execute(
+                select(Connection)
+                .where(Connection.user_id == user.id, Connection.deleted_at.is_(None))
+                .order_by(Connection.created_at.desc(), Connection.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # The page always offers a ready-to-run setup command inline: reuse the user's
+    # one open machine setup or mint it, with a key that stays stable across loads.
+    active_setup, key = await _ensure_pending_setup_and_key(request, db, user.id)
+    rows = []
+    is_live_now = False
+    is_playing_now = False
+    for connection in connections:
+        health = await compute_connection_health(db, connection)
+        if health.state in (ConnectionHealth.LIVE, ConnectionHealth.READY):
+            is_live_now = True
+            if connection.api_call_count > 0:
+                is_playing_now = True
+        rows.append(
+            {
+                "connection": connection,
+                "display_name": _connection_display_name(connection),
+                "health": health,
+                "agents": await _load_attached_agents(db, connection),
+            }
+        )
+    # Three user states drive what the one-box leads with (see the design doc):
+    #   NEW       — never connected (no connection rows)
+    #   RETURNING — connected before, but none live right now
+    #   LIVE      — at least one connection is LIVE or READY right now
+    has_connected_before = bool(connections)
+    has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
+    # Hub forward: if a join page sent the user here to start their AI and a
+    # connection is already live, jump straight back instead of making them read
+    # the "Connected" box. The 4s poll covers the case where it goes live later.
+    if next_url and is_live_now:
+        return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse(
+        request,
+        "connections/list.html",
+        {
+            "user": user,
+            "connections": rows,
+            "active_setup": active_setup,
+            "setup_message": _setup_message(key),
+            "connect_options": _connect_options(),
+            "play_prompt": _play_prompt(),
+            "has_connected_before": has_connected_before,
+            "is_live_now": is_live_now,
+            "is_playing_now": is_playing_now,
+            "has_agent": has_agent,
+            "agent_summary": agent_summary,
+            "lobby_url": "/games/hoard-hurt-help",
+            "next_url": next_url,
+        },
+    )
+
+
+@router.get("/live-status", response_class=HTMLResponse)
+async def live_status_fragment(
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    next: str | None = None,
+) -> Response:
+    """The self-advancing connect → play region, polled every 4s.
+
+    Three states: not live → the pulsing "Waiting for your AI to connect…" line;
+    live but not yet playing → "Connected", leading with the play-prompt code block
+    to paste (a "Create an agent" nudge first if the user has no agent); playing →
+    a "Your AI is playing" success box once the AI has made a real game call.
+
+    Hub forward: when called with a validated ?next and the AI has just gone live,
+    answer the HTMX poll with an HX-Redirect so the browser jumps back to the join
+    hub — the same auto-advance the page does on load, but for the poll path.
+    """
+    next_url = safe_internal_next(next)
+    context = await _live_status_context(db, user, next_url=next_url)
+    if next_url and context["is_live_now"]:
+        # HTMX honors HX-Redirect by navigating the whole page. An empty body is
+        # fine since the redirect replaces this fragment's container entirely.
+        return HTMLResponse("", headers={"HX-Redirect": next_url})
+    return templates.TemplateResponse(
+        request,
+        "connections/_live_status.html",
+        context,
+    )
+
+
+@router.get("/{connection_id}", response_class=HTMLResponse)
+async def connection_detail(
+    connection_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> Response:
+    connection = await _load_owned_connection(db, user, connection_id)
+    fresh_key = request.session.pop(f"fresh_connection_key_{connection.id}", None)
+    health = await compute_connection_health(db, connection)
+    attached_agents = await _load_attached_agents(db, connection)
+    stranded_agents = await _load_stranded_agents(db, user.id)
+    provider_rows = await _load_connection_providers(db, connection.id)
+    # The toggle box lists every provider with its current enabled/detected state.
+    provider_toggles = [
+        {
+            "value": p.value,
+            "label": _provider_label(p),
+            "cli": _PROVIDER_CLIS.get(p.value, p.value),
+            "enabled": (provider_rows[p.value].enabled if p.value in provider_rows else False),
+            "detected": (provider_rows[p.value].detected if p.value in provider_rows else False),
+            "detected_detail": (
+                provider_rows[p.value].detected_detail if p.value in provider_rows else None
+            ),
+        }
+        for p in ConnectionProvider
+    ]
+    setup_message = _setup_message(fresh_key) if fresh_key is not None else None
+    return templates.TemplateResponse(
+        request,
+        "connections/detail.html",
+        {
+            "user": user,
+            "connection": connection,
+            "display_name": _connection_display_name(connection),
+            "health": health,
+            "fresh_key": fresh_key,
+            "setup_message": setup_message,
+            "attached_agents": attached_agents,
+            "stranded_agents": stranded_agents,
+            "provider_toggles": provider_toggles,
+            "provider_label": _provider_label(connection.provider),
+            "provider_models": (
+                PROVIDER_MODELS.get(connection.provider.value, [])
+                if connection.provider is not None
+                else []
+            ),
+            "strand_provider": request.query_params.get("strand_provider"),
+            "strand_count": request.query_params.get("strand_count"),
+            "base_url": settings.base_url,
+            "agent_count": len(attached_agents),
+        },
+    )
+
+
+@router.get("/{connection_id}/status", response_class=HTMLResponse)
+async def connection_status_fragment(
+    connection_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> Response:
+    connection = await _load_owned_connection(db, user, connection_id)
+    return templates.TemplateResponse(
+        request,
+        "connections/_status.html",
+        {
+            "connection": connection,
+            "display_name": _connection_display_name(connection),
+            "health": await compute_connection_health(db, connection),
+            "agent_count": len(await _load_attached_agents(db, connection)),
+        },
+    )
+
+
+@router.get("/{connection_id}/health-badge", response_class=HTMLResponse)
+async def connection_health_badge_fragment(
+    connection_id: Annotated[int, Path()],
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+) -> Response:
+    connection = await _load_owned_connection(db, user, connection_id)
+    return templates.TemplateResponse(
+        request,
+        "connections/_health_badge.html",
+        {
+            "connection": connection,
+            "health": await compute_connection_health(db, connection),
+        },
+    )
