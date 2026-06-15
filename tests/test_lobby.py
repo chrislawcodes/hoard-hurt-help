@@ -1074,13 +1074,13 @@ async def test_db_error_building_replay_falls_back_to_sample(
     and the page still renders with the sample fallback — not a 500."""
     await _seed_completed_showcase(reset_db)
 
-    # Monkeypatch _game_view_context (called inside _showcase_replay_data) to
+    # Monkeypatch _game_view_context (called inside _build_showcase_replay) to
     # simulate a transient DB failure after the match has already been found.
     async def _raise_db_error(*args: object, **kwargs: object) -> dict:
         raise SQLAlchemyError("simulated DB connection error")
 
     monkeypatch.setattr(
-        "app.routes.web_lobby._game_view_context",
+        "app.routes.showcase_replay._game_view_context",
         _raise_db_error,
     )
 
@@ -1104,7 +1104,7 @@ async def test_programming_error_building_replay_propagates(
         raise TypeError("simulated programming bug: wrong argument type")
 
     monkeypatch.setattr(
-        "app.routes.web_lobby._game_view_context",
+        "app.routes.showcase_replay._game_view_context",
         _raise_type_error,
     )
 

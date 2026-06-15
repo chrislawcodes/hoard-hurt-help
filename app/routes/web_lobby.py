@@ -11,9 +11,8 @@ into focused sibling modules:
 
 This module keeps the lobby board (``/games/{game}``) and its polled
 ``/games/{game}/upcoming`` fragment. They stay here on purpose: tests
-monkeypatch ``app.routes.web_lobby.cancel_overdue_unfilled_games``,
-``app.routes.web_lobby._upcoming_views``, and (via ``_showcase_replay_data``)
-``app.routes.web_lobby._game_view_context``. Those handlers resolve those names
+monkeypatch ``app.routes.web_lobby.cancel_overdue_unfilled_games`` and
+``app.routes.web_lobby._upcoming_views``. Those handlers resolve those names
 from *this* module's namespace, so the handlers must be defined here for the
 patches to take effect.
 
@@ -55,16 +54,13 @@ from app.routes import (
     web_leaderboard,
     web_legacy_redirects,
 )
+from app.routes.showcase_replay import load_showcase_replay_cached
 from app.routes.web_support import (
     _is_any_admin,
-    _is_showcase,
-    _load_match_or_404,
     _redirect_to_match,
     _batch_top_standings,
     _upcoming_views,
 )
-from app.routes.viewer_presentation import _build_rc_data, sample_replay_data
-from app.routes.web_viewer import _game_view_context
 
 # Re-export the moved public symbols so existing imports from this module keep
 # working without change.
@@ -85,37 +81,6 @@ from app.routes.web_account_notice import account_disabled
 from app.templating import templates
 
 logger = logging.getLogger(__name__)
-
-
-async def _showcase_replay_data(
-    request: Request, db, completed_views: list[dict]
-) -> tuple[str | None, str]:
-    """Robot-circle replay of the most-recent completed showcase game.
-
-    Returns ``(match_id, rc_data_json)``. When no finished showcase game exists
-    (or building its data fails), ``match_id`` is None and the JSON is a bundled
-    sample replay so the animation always plays instead of a dead placeholder.
-    Shared by the platform front page and the Hoard·Hurt·Help lobby so both
-    replay the same latest game the same way.
-    """
-    match_id = next((v["id"] for v in completed_views if _is_showcase(v)), None)
-    if not match_id:
-        return None, sample_replay_data()
-    try:
-        match = await _load_match_or_404(db, match_id)
-        ctx = await _game_view_context(request, db, match)
-        return match_id, _build_rc_data(ctx["scoreboard"], ctx["history"])
-    except SQLAlchemyError:
-        log_ops_event(
-            logger,
-            logging.ERROR,
-            "replay_fallback",
-            f"DB error building robot-circle replay for match {match_id};"
-            " falling back to sample",
-            match_id=match_id,
-        )
-        return None, sample_replay_data()
-
 
 
 
@@ -203,10 +168,13 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     # Marquee = the most-progressed live game (rounds, then turns).
     live.sort(key=lambda v: (v["current_round"], v["current_turn"]), reverse=True)
     # When nothing is live, replay the latest finished game with the same
-    # robot-circle animation the platform front page uses.
-    rc_game_id, rc_data = (None, "") if live else await _showcase_replay_data(
-        request, db, finished_views["completed"]
-    )
+    # robot-circle animation the platform front page uses. Both the front page
+    # and the lobby share the same stale-while-revalidate cache, so neither
+    # ever pays the full timeline rebuild per request.
+    if live:
+        rc_game_id, rc_data = None, ""
+    else:
+        rc_game_id, rc_data, _ = await load_showcase_replay_cached()
     recent_games = finished_views["recent"]
     bots_only_games = finished_views["bots_only"]
 
@@ -385,11 +353,9 @@ __all__ = [
     # Lobby board + fragment (defined here).
     "game_lobby",
     "game_upcoming",
-    "_showcase_replay_data",
     # Names tests monkeypatch on this module; kept importable from here.
     "cancel_overdue_unfilled_games",
     "_upcoming_views",
-    "_game_view_context",
     # Re-exported public symbols from the split sibling modules.
     "home",
     "games_catalog",
