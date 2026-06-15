@@ -21,8 +21,9 @@ from app.config import PROVIDER_MODELS, settings
 from app.main import app
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
-from app.models.connection import ConnectionProvider
-from tests.factories import make_connection, make_user
+from app.models.connection import ConnectionProvider, ConnectionStatus
+from app.routes.agents_health_presenter import _readiness_state
+from tests.factories import make_agent, make_connection, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -169,3 +170,73 @@ async def test_connections_page_with_provider_hint_keeps_other_live_connections_
     assert resp.status_code == 200
     assert re.search(r'id="byo-tab-codex"[\s\S]*?class="byo-tab-input" checked', resp.text)
     assert "/games/hoard-hurt-help/matches/G_001/join" in resp.text
+
+
+def test_readiness_state_marks_paused_connections_as_needs_connecting() -> None:
+    from app.engine.connection_health import ConnectionHealth, ConnectionHealthStatus
+
+    paused_health = ConnectionHealthStatus(
+        state=ConnectionHealth.PAUSED,
+        label="Paused",
+        badge_class="badge-done",
+        pulse=False,
+        needs_reconnect=False,
+        never_connected=False,
+        last_connected_at=None,
+        last_connected_human=None,
+    )
+    assert _readiness_state({"health": paused_health, "join_blocked": False}) == "paused"
+
+    disconnected_health = ConnectionHealthStatus(
+        state=ConnectionHealth.DISCONNECTED,
+        label="Needs connecting",
+        badge_class="badge-alert",
+        pulse=False,
+        needs_reconnect=True,
+        never_connected=True,
+        last_connected_at=None,
+        last_connected_human=None,
+    )
+    assert _readiness_state({"health": disconnected_health, "join_blocked": False}) == "needs_connecting"
+
+
+@pytest.mark.asyncio
+async def test_agent_list_marks_paused_only_provider_as_needs_connecting(
+    client, reset_db
+) -> None:
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(
+            db, user, status=ConnectionStatus.PAUSED
+        )
+        agent, _ = await make_agent(db, user, connection=connection, name="Atlas")
+        await db.commit()
+
+    resp = await client.get("/me/agents", cookies=_signed_in_cookies(user.id))
+
+    assert resp.status_code == 200
+    assert "Needs connecting" in resp.text
+    assert 'Connect Claude →' in resp.text
+    assert 'href="/me/connections?provider=claude"' in resp.text
+
+
+@pytest.mark.asyncio
+async def test_agent_detail_marks_paused_only_provider_as_needs_connecting(
+    client, reset_db
+) -> None:
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(
+            db, user, status=ConnectionStatus.PAUSED
+        )
+        agent, _ = await make_agent(db, user, connection=connection, name="Atlas")
+        await db.commit()
+
+    resp = await client.get(
+        f"/me/agents/{agent.id}", cookies=_signed_in_cookies(user.id)
+    )
+
+    assert resp.status_code == 200
+    assert "Needs connecting" in resp.text
+    assert "No live connection runs Claude" in resp.text
+    assert 'href="/me/connections?provider=claude"' in resp.text
