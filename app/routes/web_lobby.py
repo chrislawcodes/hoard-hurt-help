@@ -268,15 +268,23 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "lobby: DB error during overdue-game reconciliation; rendering current state",
             route="game_lobby",
         )
-    all_games = (
-        (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
-    )
     # Only live games feed the marquee. Upcoming is built separately via
-    # _upcoming_views, and finished/cancelled via _lobby_recent_views — so the
-    # old "loop every game and compute a player_count" was pure waste for every
-    # finished/cancelled match (its view was discarded). Active games carry their
-    # standings, and their player counts come from one grouped query.
-    active_games = [g for g in all_games if g.state == GameState.ACTIVE]
+    # _upcoming_views, and finished/cancelled via _lobby_recent_views — so this
+    # query asks the DB for ACTIVE matches only. Loading every match ever played
+    # just to filter for the live few was O(all matches): a full-table scan that
+    # grew on every finished game. Active games carry their standings, and their
+    # player counts come from one grouped query.
+    active_games = (
+        (
+            await db.execute(
+                select(Match)
+                .where(Match.state == GameState.ACTIVE)
+                .order_by(Match.scheduled_start.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
     active_player_counts = await count_players_by_match(
         db, [g.id for g in active_games], active_only=True
     )
