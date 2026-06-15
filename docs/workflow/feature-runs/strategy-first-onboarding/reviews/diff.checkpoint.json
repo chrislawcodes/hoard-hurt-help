@@ -1,0 +1,24 @@
+{
+  "feature_slug": "strategy-first-onboarding",
+  "stage": "diff",
+  "artifact_path": "docs/workflow/feature-runs/strategy-first-onboarding/reviews/implementation.diff.patch",
+  "git_base_ref": "4723b62322a808d5a9c34d77e84e714d681d863e",
+  "allowed_dirty_paths": [
+    "app/engine/connection_health.py",
+    "app/models/agent.py",
+    "app/routes/agents_create.py",
+    "app/routes/agents_health_presenter.py",
+    "app/routes/agents_list.py",
+    "app/routes/agents_setup.py",
+    "app/routes/connections_pages.py",
+    "app/routes/web_player.py",
+    "app/templates/agents",
+    "app/templates/connections",
+    "app/templates/seat_connect.html",
+    "docs/workflow/feature-runs/strategy-first-onboarding"
+  ],
+  "required_reviews": [],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

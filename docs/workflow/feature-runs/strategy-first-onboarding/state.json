@@ -47,7 +47,24 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "app/engine/connection_health.py",
+      "app/models/agent.py",
+      "app/routes/agents_create.py",
+      "app/routes/agents_health_presenter.py",
+      "app/routes/agents_list.py",
+      "app/routes/agents_setup.py",
+      "app/routes/connections_pages.py",
+      "app/routes/web_player.py",
+      "app/templates/agents",
+      "app/templates/connections",
+      "app/templates/seat_connect.html",
+      "docs/workflow/feature-runs/strategy-first-onboarding"
+    ],
+    "used": true,
+    "updated_at": 1781512245
+  },
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -607,6 +624,18 @@
       "files_written": 5,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-15T08:30:46Z",
+      "wall_seconds": 0.936,
+      "input_bytes_read": 299624,
+      "output_bytes_written": 134646,
+      "files_read": 30,
+      "files_written": 7,
+      "subprocess_invocations": 62,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -638,21 +667,30 @@
         "6deaa614ad1a8b2218108669f942046c3e22c3e93e9e92d3e881de0a7fbd7254"
       ],
       "initial_sha": "6deaa614ad1a8b2218108669f942046c3e22c3e93e9e92d3e881de0a7fbd7254"
+    },
+    "diff": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "2d45800e5dda4bf0c2c6d3139865a3fa68c2a4c1a28d736dc1265624b79a41b8"
+      ],
+      "initial_sha": "2d45800e5dda4bf0c2c6d3139865a3fa68c2a4c1a28d736dc1265624b79a41b8"
     }
   },
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 0,
-    "markers_sha": "",
-    "last_diff_head_sha": ""
+    "index": 1,
+    "markers_sha": "03cd1366477b6ee2f9cd9a6e916449176aa9541af6adea5938e3f4910e78d3fc",
+    "last_diff_head_sha": "b1fb0c74d1323109bc3749928e2144af365cccbe"
   },
   "spec_adversarial_rounds": 2,
   "last_action_result": {
     "next": "dispatch_next_slice_to_codex",
-    "reason": "tasks checkpoint completed",
+    "reason": "diff checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 3,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 1
 }

@@ -1,0 +1,36 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "b1fb0c74d1323109bc3749928e2144af365cccbe",
+  "git_base_ref": "4723b62322a808d5a9c34d77e84e714d681d863e",
+  "git_base_sha": "4723b62322a808d5a9c34d77e84e714d681d863e",
+  "paths": [
+    "app/engine/connection_health.py",
+    "app/models/agent.py",
+    "app/routes/agents_create.py",
+    "app/routes/agents_health_presenter.py",
+    "app/routes/agents_list.py",
+    "app/routes/agents_setup.py",
+    "app/routes/connections_pages.py",
+    "app/routes/web_player.py",
+    "app/templates/agents",
+    "app/templates/connections",
+    "app/templates/seat_connect.html"
+  ],
+  "allowed_dirty_paths": [
+    "app/engine/connection_health.py",
+    "app/models/agent.py",
+    "app/routes/agents_create.py",
+    "app/routes/agents_health_presenter.py",
+    "app/routes/agents_list.py",
+    "app/routes/agents_setup.py",
+    "app/routes/connections_pages.py",
+    "app/routes/web_player.py",
+    "app/templates/agents",
+    "app/templates/connections",
+    "app/templates/seat_connect.html",
+    "docs/workflow/feature-runs/strategy-first-onboarding"
+  ],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/strategy-first-onboarding/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}
