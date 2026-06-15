@@ -275,7 +275,7 @@ Out of scope: MCP auth/token mechanics; auto-join; a new connect screen; game ru
 - review: reviews/spec.gemini.requirements-adversarial.review.md | status: accepted | note: Round 3: confirmations only, no new findings — spec converged.
 - review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: Round 4: no actionable findings — plan converged.
 - review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: Round 4: no actionable findings — plan converged.
-- review: reviews/diff.gemini.regression-adversarial.review.md | status: accepted | note: CP2 diff: no actionable findings.
+- review: reviews/diff.gemini.regression-adversarial.review.md | status: accepted | note: CP3 diff: no actionable findings.
 
 ## Architecture decisions
 
@@ -425,8 +425,11 @@ preselect hint, not replaced (NFR-003); no DB migration (NFR-004).
 
 
 ## Tasks to implement (your scope)
-- [ ] T9 [app/routes/web_player.py] In `_join_setup_redirect`, send a signed-in,
-- [ ] T10 [tests/test_join_seat_hold.py] A no-agent, no-connection user hitting a
+- [ ] T11 [app/engine/connection_health.py] Add a status-aware coverage helper: a
+- [ ] T12 [app/routes/agents_health_presenter.py] Add an explicit "needs
+- [ ] T13 [app/routes/agents_list.py] Use the batched set-up-providers query and
+- [ ] T14 [app/templates/agents/list.html, app/templates/agents/_onboarding.html, app/templates/agents/detail.html]
+- [ ] T15 [tests/test_strategy_first_onboarding.py] Agent whose provider is enabled
 
 ## File scope
 (no specific scope — implement all tasks)
