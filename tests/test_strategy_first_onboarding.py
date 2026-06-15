@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import base64
 import json
+import re
+from datetime import datetime, timezone
+from urllib.parse import quote
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -19,7 +22,7 @@ from app.main import app
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
-from tests.factories import make_user
+from tests.factories import make_connection, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +56,9 @@ def _signed_in_cookies(user_id: int) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_create_agent_without_connections_succeeds(client, reset_db) -> None:
+async def test_create_agent_without_connections_redirects_to_provider_connect(
+    client, reset_db
+) -> None:
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -70,8 +75,8 @@ async def test_create_agent_without_connections_succeeds(client, reset_db) -> No
     )
 
     assert resp.status_code == 303
-    assert resp.headers["location"].startswith("/me/agents/")
-    assert "/me/connections" not in resp.headers["location"]
+    assert resp.headers["location"] == "/me/connections?provider=openai"
+    assert "/me/agents/" not in resp.headers["location"]
 
     async with reset_db() as db:
         agent = (
@@ -87,6 +92,12 @@ async def test_create_agent_without_connections_succeeds(client, reset_db) -> No
     assert agent.status.value == "active"
     assert version.model == "gpt-5.4-mini"
     assert version.strategy_text == "Play to win."
+
+    follow = await client.get(resp.headers["location"], cookies=_signed_in_cookies(user.id))
+    assert follow.status_code == 200
+    assert 'id="byo-tab-codex"' in follow.text
+    assert re.search(r'id="byo-tab-codex"[\s\S]*?class="byo-tab-input" checked', follow.text)
+    assert 'hx-get="/me/connections/live-status?provider=openai"' in follow.text
 
 
 @pytest.mark.asyncio
@@ -110,3 +121,51 @@ async def test_new_agent_form_renders_without_connections(client, reset_db) -> N
         assert f'<optgroup label="{label}" disabled>' not in resp.text
         for model in models:
             assert f'<option value="{model}"' in resp.text
+
+
+@pytest.mark.asyncio
+async def test_create_agent_without_connections_preserves_next_in_connect_redirect(
+    client, reset_db
+) -> None:
+    async with reset_db() as db:
+        user = await make_user(db)
+        await db.commit()
+
+    next_url = "/games/hoard-hurt-help/matches/G_001/join"
+    resp = await client.post(
+        "/me/agents/new",
+        cookies=_signed_in_cookies(user.id),
+        data={
+            "name": "Atlas",
+            "model": "gpt-5.4-mini",
+            "strategy_text": "Play to win.",
+            "next": next_url,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/me/connections?provider=openai&next={quote(next_url, safe='')}"
+
+
+@pytest.mark.asyncio
+async def test_connections_page_with_provider_hint_keeps_other_live_connections_from_redirecting(
+    client, reset_db
+) -> None:
+    async with reset_db() as db:
+        user = await make_user(db)
+        # A live Claude connection exists, but we're routing the user to connect
+        # OpenAI next. The page must stay put so the OpenAI tab can be used.
+        connection, _ = await make_connection(db, user)
+        connection.last_seen_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    resp = await client.get(
+        "/me/connections?provider=openai&next=/games/hoard-hurt-help/matches/G_001/join",
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 200
+    assert re.search(r'id="byo-tab-codex"[\s\S]*?class="byo-tab-input" checked', resp.text)
+    assert "/games/hoard-hurt-help/matches/G_001/join" in resp.text

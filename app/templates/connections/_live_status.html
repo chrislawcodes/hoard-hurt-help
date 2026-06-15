@@ -10,7 +10,7 @@
    has an agent, since that's when there are games to play. Expects `play_prompt`,
    `has_agent`, `agent_summary`, `is_live_now`, `is_playing_now`, `lobby_url`. #}
 <div id="live-status"
-     hx-get="/me/connections/live-status{% if next_url %}?next={{ next_url | urlencode }}{% endif %}"
+     hx-get="/me/connections/live-status{% if next_url or provider_hint %}?{% if provider_hint %}provider={{ provider_hint }}{% endif %}{% if next_url %}{% if provider_hint %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}"
      hx-trigger="every 4s"
      hx-swap="outerHTML">
     {% if is_playing_now %}
@@ -54,7 +54,7 @@
                 <p class="byo-next-label">Next step</p>
                 <h3 class="byo-next-title">Create your agent</h3>
                 <p class="byo-next-body">Your agent is your AI player — the model it uses and the strategy it follows. Make one and you're ready to enter games.</p>
-                <a class="btn btn-primary" href="/me/agents/new{% if next_url %}?next={{ next_url | urlencode }}{% endif %}">Create your agent →</a>
+                <a class="btn btn-primary" href="/me/agents/new{% if next_url or provider_hint %}?{% if provider_hint %}provider={{ provider_hint }}{% endif %}{% if next_url %}{% if provider_hint %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}">Create your agent →</a>
             {% endif %}
         </div>
     {% else %}

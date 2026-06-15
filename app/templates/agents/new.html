@@ -25,7 +25,7 @@
                 {% endfor %}
             </select>
             {% for note in availability_notes %}
-            <small class="hint">{{ note.provider_label }} isn't connected yet — <a href="/me/connections{% if next_url %}?next={{ next_url | urlencode }}{% endif %}">connect {{ note.provider_label }} →</a> to use {{ note.provider_label }} models.</small>
+            <small class="hint">{{ note.provider_label }} isn't connected yet — <a href="/me/connections{% if next_url or note.provider_value %}?{% if note.provider_value %}provider={{ note.provider_value }}{% endif %}{% if next_url %}{% if note.provider_value %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}">connect {{ note.provider_label }} →</a> to use {{ note.provider_label }} models.</small>
             {% endfor %}
         </label>
         <label>

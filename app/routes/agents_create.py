@@ -8,6 +8,8 @@ creates the Agent + its first AgentVersion.
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import String, select
@@ -15,7 +17,7 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import enabled_provider_values
+from app.engine.connection_health import enabled_provider_values, provider_is_covered
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
@@ -224,9 +226,15 @@ async def create_agent_or_connection(
         await db.flush()
         agent.current_version_id = version.id
         await db.commit()
-        # If a join hub (or other page) sent the user here with ?next, forward
-        # back there now that the agent exists, instead of the agent detail page.
-        destination = safe_internal_next(next_after) or f"/me/agents/{agent.id}"
+        next_url = safe_internal_next(next_after)
+        # If the provider is already live, skip the connect step and continue to
+        # the next hop (or the agent detail page when no next was supplied).
+        if await provider_is_covered(db, user.id, agent_provider):
+            destination = next_url or f"/me/agents/{agent.id}"
+        else:
+            destination = f"/me/connections?provider={agent_provider.value}"
+            if next_url is not None:
+                destination += f"&next={quote(next_url, safe='')}"
         return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
 
     raise HTTPException(status_code=400, detail="Agent name is required.")
