@@ -188,7 +188,7 @@ async def test_seat_connect_returning_state_shows_wake_prompt(client, reset_db):
     assert r.status_code == 200
     assert "bringing your AI online" in r.text  # no "time to connect" countdown
     assert "already set up" in r.text
-    assert "hoardhurthelp MCP tools" in r.text  # the play-prompt to wake it
+    assert "agentludum MCP tools" in r.text  # the play-prompt to wake it
 
 
 @pytest.mark.asyncio
@@ -202,7 +202,7 @@ async def test_seat_connect_new_state_shows_connect_walkthrough(client, reset_db
     assert r.status_code == 200
     assert "Let's connect Gemini" in r.text
     assert "Connect Gemini →" in r.text
-    assert "hoardhurthelp MCP tools" not in r.text  # no play-prompt for a new setup
+    assert "agentludum MCP tools" not in r.text  # no play-prompt for a new setup
 
 
 # ---------------------------------------------------------------------------

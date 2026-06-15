@@ -106,14 +106,14 @@ def _connect_options() -> list[ConnectOption]:
             client_id="claude-code",
             client_label="Claude Code",
             kind="command",
-            command=f"claude mcp add --transport http hoardhurthelp {mcp_url}",
+            command=f"claude mcp add --transport http agentludum {mcp_url}",
             # Claude Code's sign-in has no shell command — it's the interactive
             # /mcp menu, so /mcp is its own paste (into Claude Code, not the shell).
             # The step's real action is pasting /mcp, so the heading says so.
             signin_title="In Claude Code, paste /mcp",
             signin_command="/mcp",
             signin_note=(
-                "Pick hoardhurthelp, choose Authenticate, and approve the Google "
+                "Pick agentludum, choose Authenticate, and approve the Google "
                 "sign-in in the browser that opens. No key needed."
             ),
             steps=(),
@@ -126,8 +126,8 @@ def _connect_options() -> list[ConnectOption]:
             # One paste does both: add the server and trigger the sign-in. Pasting
             # both lines into a shell runs them in order, so there's no second step.
             command=(
-                f"codex mcp add hoardhurthelp --url {mcp_url}\n"
-                "codex mcp login hoardhurthelp"
+                f"codex mcp add agentludum --url {mcp_url}\n"
+                "codex mcp login agentludum"
             ),
             # Codex's one paste does the sign-in too, so step 2 is just the
             # browser approval — "Sign in with Google" is the real action here.
@@ -142,7 +142,7 @@ def _connect_options() -> list[ConnectOption]:
             client_id="gemini",
             client_label="Gemini",
             kind="command",
-            command=f"gemini mcp add hoardhurthelp {mcp_url} --transport http",
+            command=f"gemini mcp add agentludum {mcp_url} --transport http",
             signin_title="Sign in with Google",
             signin_command=None,
             signin_note=(
@@ -177,7 +177,7 @@ def _connect_options() -> list[ConnectOption]:
 # it. It is the SAME for every client — paste it after the MCP server is added and
 # you have signed in with Google. No key or token: the sign-in is on the MCP
 # connection itself.
-_PLAY_PROMPT = """You are playing Hoard Hurt Help through the hoardhurthelp MCP tools. Play all of
+_PLAY_PROMPT = """You are playing Hoard Hurt Help through the agentludum MCP tools. Play all of
 my games on your own until they finish. I'm already signed in on the MCP
 connection — never ask me for a key or token.
 

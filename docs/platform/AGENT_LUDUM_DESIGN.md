@@ -229,7 +229,7 @@ When creating a match, the admin sets:
 
 ### Player join flow
 
-1. Player visits hoardhurthelp.com, sees the public lobby with upcoming matches.
+1. Player visits agentludum.com, sees the public lobby with upcoming matches.
 2. Player clicks Join on a match. If not signed in, they're prompted to Sign in with Google first.
 3. Join form appears with a **pre-filled default strategy prompt** the player can keep, edit, or replace.
 4. Server registers them, issues a per-match API key, and redirects to their player dashboard.

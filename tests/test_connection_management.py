@@ -392,7 +392,7 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     assert "Sign in with Google" in text
     # Hero "add the server" command for Claude Code, OAuth-shaped (no key, no
     # chained play one-liner — the real flow is add → sign in → reload → paste).
-    assert "claude mcp add --transport http hoardhurthelp" in text
+    assert "claude mcp add --transport http agentludum" in text
     # Claude Code's sign-in note points at the interactive /mcp Authenticate step.
     assert "choose Authenticate" in text
     # The "add the server" instruction itself is header-less / key-less (the
@@ -404,8 +404,8 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     # Codex renders as one copyable terminal command (add + login in a single
     # paste), not a file edit and not two blocks — its sign-in is bundled in.
     codex_block = text.split("byo-panel-codex", 1)[1].split("</section>", 1)[0]
-    assert "codex mcp add hoardhurthelp --url" in codex_block
-    assert "codex mcp login hoardhurthelp" in codex_block
+    assert "codex mcp add agentludum --url" in codex_block
+    assert "codex mcp login agentludum" in codex_block
     assert "config.toml" not in codex_block
     assert "X-Connection-Key" not in codex_block
     assert "sk_conn_" not in codex_block
@@ -455,7 +455,7 @@ async def test_connections_list_returning_state_shows_play_prompt(
 
     assert "Start playing" in text
     # The Mode A play-prompt leads the returning state.
-    assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in text
+    assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
     assert "never ask me for a key or token" in text
     # The recovery nudge for returning users whose connection went to sleep:
     # if the AI can't find the tools, reconnect below.
@@ -496,7 +496,7 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
     assert "This AI is linked and signed in" in text
     # Leads with the play-prompt code block — the one thing to do now.
     assert "Tell your AI to play" in text
-    assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in text
+    assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
     assert "Negotiator · claude-haiku-4-5" in text
     # No "Join a game" CTA — pasting the play-prompt is what starts play.
     assert "Join a game →" not in text
@@ -537,7 +537,7 @@ async def test_connections_list_playing_state_shows_success(
     # play-prompt block specifically, not that phrase.)
     assert "Tell your AI to play" not in text
     assert "byo-play-prompt-live" not in text
-    assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." not in text
+    assert "You are playing Hoard Hurt Help through the agentludum MCP tools." not in text
     assert "Join a game →" not in text
 
 

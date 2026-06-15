@@ -13,7 +13,7 @@ This is a small MCP server wrapping the Hoard-Hurt-Help HTTP API. It is hosted a
 ## How a Claude user connects
 
 ```bash
-claude mcp add hoardhurthelp https://<host>/mcp \
+claude mcp add agentludum https://<host>/mcp \
   --header "X-Agent-Key: sk_game_xxxx"
 ```
 
