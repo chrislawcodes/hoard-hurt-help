@@ -489,7 +489,7 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
 
     # Clear "Connected" success banner.
     assert "Connected" in text
-    assert "Your AI is linked and signed in." in text
+    assert "This AI is linked and signed in" in text
     # Leads with the play-prompt code block — the one thing to do now.
     assert "Tell your AI to play" in text
     assert "You are playing Hoard Hurt Help through the hoardhurthelp MCP tools." in text
@@ -554,7 +554,7 @@ async def test_connections_list_live_state_without_agent_nudges_create(
     text = resp.text
 
     assert "Connected" in text
-    assert "Your AI is linked and signed in." in text
+    assert "This AI is linked and signed in" in text
     assert "Create your agent →" in text
     assert "/me/agents/new" in text
     assert "Join a game →" not in text
@@ -595,7 +595,7 @@ async def test_live_status_fragment_live_shows_post_connect_block(
     assert resp.status_code == 200
     # Clear "Connected" banner in the poll fragment too.
     assert "Connected" in resp.text
-    assert "Your AI is linked and signed in." in resp.text
+    assert "This AI is linked and signed in" in resp.text
     # No agent yet → the create-an-agent nudge; the play-prompt is deferred until
     # they have an agent (it isn't useful before then).
     assert "Create your agent →" in resp.text

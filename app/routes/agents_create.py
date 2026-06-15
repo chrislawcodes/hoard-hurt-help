@@ -8,6 +8,7 @@ creates the Agent + its first AgentVersion.
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,12 +17,12 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
+from app.engine.connection_health import enabled_provider_values
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider
-from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
 from app.routes.connections_setup import (
     _provider_label,
@@ -68,38 +69,22 @@ async def _load_user_connections(db: DbSession, user_id: int) -> list[Connection
     return list(rows.scalars().all())
 
 
-async def _enabled_provider_values(db: DbSession, user_id: int) -> set[str]:
-    """Provider values enabled on at least one of the user's live-or-not
-    connections — the providers an agent can be created for."""
-    rows = (
-        (
-            await db.execute(
-                select(ConnectionProviderRow.provider)
-                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
-                .where(
-                    Connection.user_id == user_id,
-                    Connection.deleted_at.is_(None),
-                    ConnectionProviderRow.enabled.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return {p.value for p in rows}
-
-
 def _build_model_picker_groups(
-    enabled_provider_values: set[str], selected_model: str | None
-) -> tuple[list[dict[str, object]], str | None, list[str]]:
-    """Return grouped model options plus the first selectable model and disabled notes."""
+    enabled_values: set[str], selected_model: str | None
+) -> tuple[list[dict[str, object]], str | None, list[dict[str, str]]]:
+    """Return grouped model options, the first selectable model, and per-provider
+    "connect this provider" notes for the ones that aren't connected yet.
+
+    Each note is a dict (provider label + value) so the template can render a real
+    "Connect {Provider} →" link carrying ?next, rather than dead prose.
+    """
     groups: list[dict[str, object]] = []
-    notes: list[str] = []
+    notes: list[dict[str, str]] = []
     first_enabled: str | None = None
     first_any: str | None = None
     for provider_value, models in PROVIDER_MODELS.items():
         provider = ConnectionProvider(provider_value)
-        enabled = provider_value in enabled_provider_values
+        enabled = provider_value in enabled_values
         options: list[dict[str, str]] = [{"value": model, "label": model} for model in models]
         if options and first_any is None:
             first_any = options[0]["value"]
@@ -107,7 +92,10 @@ def _build_model_picker_groups(
             first_enabled = options[0]["value"]
         if not enabled:
             notes.append(
-                f"No machine runs {_provider_label(provider)} — turn it on at /me/connections."
+                {
+                    "provider_value": provider_value,
+                    "provider_label": _provider_label(provider),
+                }
             )
         groups.append(
             {
@@ -133,7 +121,7 @@ async def new_agent_form(
 ) -> Response:
     await gc_pending_connections(db)
     connections = await _load_user_connections(db, user.id)
-    enabled_provider_values = await _enabled_provider_values(db, user.id)
+    enabled_values = await enabled_provider_values(db, user.id)
     requested_provider = provider.strip().lower() if provider and provider.strip() else None
     selected_model = None
     if requested_provider is not None:
@@ -142,7 +130,7 @@ async def new_agent_form(
                 selected_model = models[0]
                 break
     model_groups, selected_model, availability_notes = _build_model_picker_groups(
-        enabled_provider_values, selected_model
+        enabled_values, selected_model
     )
     strategy_presets = [
         {
@@ -159,6 +147,9 @@ async def new_agent_form(
         "model_groups": model_groups,
         "selected_model": selected_model,
         "availability_notes": availability_notes,
+        # When no provider is connected yet, the form can't create anything — the
+        # template shows a "connect a client first" CTA instead of a dead form.
+        "has_enabled_provider": bool(enabled_values),
         "default_game": _DEFAULT_GAME,
         "default_strategy": get_game_module(_DEFAULT_GAME).default_strategy(),
         "strategy_presets": strategy_presets,
@@ -208,14 +199,17 @@ async def create_agent_or_connection(
         if derived is None:
             raise HTTPException(status_code=400, detail="Unknown model.")
         agent_provider = ConnectionProvider(derived)
-        if agent_provider.value not in await _enabled_provider_values(db, user.id):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"No machine runs {_provider_label(agent_provider)}. "
-                    "Turn it on at /me/connections first."
-                ),
+        if agent_provider.value not in await enabled_provider_values(db, user.id):
+            # No connected client enables this provider yet. Don't dead-end the
+            # POST with a 409 — send the user to connect a client first, carrying
+            # ?next so the join chain (if any) resumes once they're set up.
+            safe_next = safe_internal_next(next_after)
+            target = (
+                f"/me/connections?next={quote(safe_next, safe='')}"
+                if safe_next
+                else "/me/connections"
             )
+            return RedirectResponse(url=target, status_code=status.HTTP_303_SEE_OTHER)
         clean_strategy = (strategy_text or "").strip()
         if not clean_strategy and strategy_preset:
             preset = next(

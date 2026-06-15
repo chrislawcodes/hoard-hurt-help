@@ -324,6 +324,33 @@ async def provider_enabled_on_any_connection(
     return row is not None
 
 
+async def enabled_provider_values(db: AsyncSession, user_id: int) -> set[str]:
+    """Provider values enabled on at least one of the user's live-or-not
+    connections — the providers an agent can be created for.
+
+    Shared by the create-agent flow (which providers to offer) and the join hub
+    (whether to send a setup-less user to connect a client first). Liveness is
+    not required: a stale-but-set-up connection still counts. Deleted connections
+    are excluded.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(ConnectionProviderRow.provider)
+                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
+                .where(
+                    Connection.user_id == user_id,
+                    Connection.deleted_at.is_(None),
+                    ConnectionProviderRow.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {p.value for p in rows}
+
+
 async def active_matches_for_provider(
     db: AsyncSession, user_id: int, provider: ConnectionProvider
 ) -> int:

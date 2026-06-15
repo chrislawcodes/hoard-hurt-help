@@ -263,7 +263,7 @@ async def test_create_connection_reuses_existing_pending_setup(
 
 
 @pytest.mark.asyncio
-async def test_new_agent_rejects_invalid_model_for_provider(
+async def test_new_agent_disconnected_provider_redirects_to_connections(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
@@ -279,10 +279,13 @@ async def test_new_agent_rejects_invalid_model_for_provider(
             "model": "gpt-5.4-mini",
             "strategy_text": "Play to win.",
         },
+        follow_redirects=False,
     )
-    # The model derives provider=openai, which no connection runs (only claude
-    # is enabled) — rejected with a clear "no connection runs openai" message.
-    assert resp.status_code == 409
+    # The model derives provider=openai, which no connection runs (only claude is
+    # enabled). Rather than 409-ing into a dead end, the POST redirects the user
+    # to connect that client first.
+    assert resp.status_code == 303
+    assert resp.headers["location"].startswith("/me/connections")
 
 
 @pytest.mark.asyncio
