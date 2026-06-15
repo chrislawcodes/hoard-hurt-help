@@ -1,19 +1,19 @@
 {
-  "session_id": "12d03a0d-0fdc-4b58-bbff-eebb7497dd94",
-  "response": "## Findings\n\n1.  **Risk of stale/misleading \"readiness\" UI (High):** The plan relies on `connection_health.py` for \"ready vs. needs-connecting\" status, but `connection_health.py` calculates liveness based on the `LIVE_WINDOW_SECONDS` threshold [CODE-CONFIRMED]. If a connection has a high `LIVE_WINDOW_SECONDS` or the runner is dead but the last heartbeat was recent, the agent might display as \"ready\" even if it cannot actually receive turns, misleading the user who just went through the onboarding flow.\n2.  **Potential for \"Split Brain\" in `_join_setup_redirect` (Medium):** Reversing the Join hub to always route no-agent users to `agents/new` assumes the `?next` chain is perfectly robust across all validation failures, including potential edge cases where `AgentCreateSchema` or `GameModule` validation might drop query params during re-renders [UNVERIFIED].\n3.  **Capacity Math Consistency (Medium):** The plan mandates that \"a needs-connecting agent must stay excluded from live-connection capacity math\" and plans to verify this with a test [UNVERIFIED]. If `active_matches_for_provider` or `live_provider_capacity` logic ever implicitly relies on `Agent` existence to project potential load (rather than strictly `ConnectionProviders` status), a simple check might miss subtle over-allocation bugs when an agent is created but not yet connected.\n\n## Residual Risks\n\n1.  **Race conditions in \"readiness\" state (Low):** Because readiness is derived on-the-fly and not persistent, a user could see an agent listed as \"needs-connecting\", click to connect, and by the time the page renders, the background scheduler might have already marked the connection as \"stale\" or \"down\" (if it was flapping), creating a flickering UI experience.\n2.  **N+1 Query Regression (Low):** While the plan explicitly calls out \"compute coverage in ONE batched query\" for the agent list, ensuring this remains performant as the number of agents and providers grows\u2014and ensuring it stays batched\u2014requires strict adherence in the implementation, as it is easy to accidentally revert to lazy-loading coverage inside the template loop.\n3.  **Migration/Downgrade Consistency:** While the plan correctly notes no DB migration is needed, it doesn't explicitly account for how existing \"no-connection\" agents (if any exist due to historical edge cases) might behave when suddenly exposed to the new \"needs-connecting\" UI, potentially creating support tickets for users whose agents were previously \"forgotten\".",
+  "session_id": "ba6eee07-5a7a-4b7a-aba4-35b48f272d29",
+  "response": "## Findings\n\n*   **Risk of Inconsistent Readiness State (HIGH):** The plan differentiates \"needs-connecting\" (derived from `provider_enabled_on_any_connection`) from the \"live-now\" status (derived from connection liveness). The plan admits that this UI could imply an agent is \"ready to play now\" when its provider is enabled but the connection is currently stale or dead (Residual Risk #7). Relying on disparate signals for \"readiness\" vs. \"live status\" is fragile.\n    *   [CODE-CONFIRMED] `app/engine/connection_health.py` and `app/routes/agent_next_turn.py` confirm these signals are handled separately and could indeed result in a confusing UI state if an agent is displayed as \"ready\" while its backing connection is effectively stalled.\n*   **Missing Atomic Constraint for Join Hub (HIGH):** Slice 3 proposes redirecting \"no-agent\" users to `/me/agents/new`. However, the system architecture (documented in `AGENT_LUDUM_ARCHITECTURE.md` \u00a71) distinguishes between \"Bots\" and \"Agents.\" It is unclear if this redirect forces a user to create an AI Agent when a Bot might suffice, or if it inadvertently prevents a new user from accessing the practice arena (which uses Bots) without first completing the Agent design flow.\n    *   [CODE-CONFIRMED] `app/engine/arena.py` confirms that bots are system-managed, not user-managed. A new user might reasonably expect to participate in the arena without having to go through the Agent-design onboarding flow.\n*   **Potential for N+1 Query in Agent List (MEDIUM):** The plan calls for a \"batched coverage query\" in the agent list to avoid N queries (Residual Risk #5). If the implementation does not properly utilize a join or a single `IN` clause to fetch provider status for all agents in the list at once, it will revert to N queries, which is a known performance anti-pattern in the current architecture.\n    *   [UNVERIFIED] The implementation logic for the batched query is not provided.\n*   **Ambiguity in `?next` Parameter Persistence (MEDIUM):** While the plan identifies the risk of losing `?next` during form re-rendering (Residual Risk #2), it does not specify the mechanism for persistence. If it relies on a hidden input, it is vulnerable to manipulation.\n    *   [UNVERIFIED] The actual implementation strategy for keeping `?next` intact was not detailed.\n\n## Residual Risks\n\n*   **Logic Drift in Adapter Layers:** The `AGENT_LUDUM_ARCHITECTURE.md` warns that the shared play-service layer must be strictly followed, or HTTP routes and MCP tools will drift. The plan modifies the `agents_create.py` (HTTP-specific route) but does not provide a mechanism to ensure that the new \"strategy-first\" state remains consistent if a user creates an agent via an MCP tool.\n*   **Capacity Gate Bypass:** The plan assumes `active_matches_for_provider` / `live_provider_capacity` will handle disconnected agents by excluding them. If these functions do not explicitly filter by `Connection.last_seen_at` or `Connection.status` and only check `enabled` status, then disconnected agents will indeed inflate capacity, violating the design goal.",
   "stats": {
     "models": {
       "gemini-3.1-flash-lite": {
         "api": {
           "totalRequests": 1,
           "totalErrors": 0,
-          "totalLatencyMs": 3880
+          "totalLatencyMs": 4085
         },
         "tokens": {
-          "input": 25117,
-          "prompt": 25117,
-          "candidates": 562,
-          "total": 25679,
+          "input": 25336,
+          "prompt": 25336,
+          "candidates": 717,
+          "total": 26053,
           "cached": 0,
           "thoughts": 0,
           "tool": 0
@@ -22,12 +22,12 @@
           "main": {
             "totalRequests": 1,
             "totalErrors": 0,
-            "totalLatencyMs": 3880,
+            "totalLatencyMs": 4085,
             "tokens": {
-              "input": 25117,
-              "prompt": 25117,
-              "candidates": 562,
-              "total": 25679,
+              "input": 25336,
+              "prompt": 25336,
+              "candidates": 717,
+              "total": 26053,
               "cached": 0,
               "thoughts": 0,
               "tool": 0

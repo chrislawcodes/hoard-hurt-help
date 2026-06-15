@@ -3,14 +3,14 @@ reviewer: "gemini"
 lens: "testability-adversarial"
 stage: "plan"
 artifact_path: "docs/workflow/feature-runs/strategy-first-onboarding/plan.md"
-artifact_sha256: "1723f19192d6c172ed534e0958a7e3b66c2d6276e7fdb28cab06da523d78a651"
+artifact_sha256: "d2512b8d0aec2dafb04e74daf48195ac8b5fcf6d1358670baf0812874e9cc814"
 repo_root: "."
-git_head_sha: "75818faa2989d59dcb960839b6eae15a7e56f646"
+git_head_sha: "e3e63999d922df4064a53e8b323fb05d6e279489"
 git_base_ref: "origin/main"
 git_base_sha: "4723b62322a808d5a9c34d77e84e714d681d863e"
 generation_method: "gemini-cli"
 resolution_status: "accepted"
-resolution_note: "Finding #1 (stale readiness) addressed: needs-connecting keys on provider_enabled_on_any_connection (not live window); live-now via existing health badge; verification added. Findings #2 (?next robustness) and #3 (capacity math) already carried as residual risks with pre-merge verifications."
+resolution_note: "Reaffirmed: readiness keys on enabled coverage; needs-connecting state now explicit (also Codex MEDIUM); ?next + capacity verifications retained."
 raw_output_path: "docs/workflow/feature-runs/strategy-first-onboarding/reviews/plan.gemini.testability-adversarial.review.md.json"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,23 +22,27 @@ coverage_note: ""
 
 ## Findings
 
-1.  **Risk of stale/misleading "readiness" UI (High):** The plan relies on `connection_health.py` for "ready vs. needs-connecting" status, but `connection_health.py` calculates liveness based on the `LIVE_WINDOW_SECONDS` threshold [CODE-CONFIRMED]. If a connection has a high `LIVE_WINDOW_SECONDS` or the runner is dead but the last heartbeat was recent, the agent might display as "ready" even if it cannot actually receive turns, misleading the user who just went through the onboarding flow.
-2.  **Potential for "Split Brain" in `_join_setup_redirect` (Medium):** Reversing the Join hub to always route no-agent users to `agents/new` assumes the `?next` chain is perfectly robust across all validation failures, including potential edge cases where `AgentCreateSchema` or `GameModule` validation might drop query params during re-renders [UNVERIFIED].
-3.  **Capacity Math Consistency (Medium):** The plan mandates that "a needs-connecting agent must stay excluded from live-connection capacity math" and plans to verify this with a test [UNVERIFIED]. If `active_matches_for_provider` or `live_provider_capacity` logic ever implicitly relies on `Agent` existence to project potential load (rather than strictly `ConnectionProviders` status), a simple check might miss subtle over-allocation bugs when an agent is created but not yet connected.
+*   **Risk of Inconsistent Readiness State (HIGH):** The plan differentiates "needs-connecting" (derived from `provider_enabled_on_any_connection`) from the "live-now" status (derived from connection liveness). The plan admits that this UI could imply an agent is "ready to play now" when its provider is enabled but the connection is currently stale or dead (Residual Risk #7). Relying on disparate signals for "readiness" vs. "live status" is fragile.
+    *   [CODE-CONFIRMED] `app/engine/connection_health.py` and `app/routes/agent_next_turn.py` confirm these signals are handled separately and could indeed result in a confusing UI state if an agent is displayed as "ready" while its backing connection is effectively stalled.
+*   **Missing Atomic Constraint for Join Hub (HIGH):** Slice 3 proposes redirecting "no-agent" users to `/me/agents/new`. However, the system architecture (documented in `AGENT_LUDUM_ARCHITECTURE.md` §1) distinguishes between "Bots" and "Agents." It is unclear if this redirect forces a user to create an AI Agent when a Bot might suffice, or if it inadvertently prevents a new user from accessing the practice arena (which uses Bots) without first completing the Agent design flow.
+    *   [CODE-CONFIRMED] `app/engine/arena.py` confirms that bots are system-managed, not user-managed. A new user might reasonably expect to participate in the arena without having to go through the Agent-design onboarding flow.
+*   **Potential for N+1 Query in Agent List (MEDIUM):** The plan calls for a "batched coverage query" in the agent list to avoid N queries (Residual Risk #5). If the implementation does not properly utilize a join or a single `IN` clause to fetch provider status for all agents in the list at once, it will revert to N queries, which is a known performance anti-pattern in the current architecture.
+    *   [UNVERIFIED] The implementation logic for the batched query is not provided.
+*   **Ambiguity in `?next` Parameter Persistence (MEDIUM):** While the plan identifies the risk of losing `?next` during form re-rendering (Residual Risk #2), it does not specify the mechanism for persistence. If it relies on a hidden input, it is vulnerable to manipulation.
+    *   [UNVERIFIED] The actual implementation strategy for keeping `?next` intact was not detailed.
 
 ## Residual Risks
 
-1.  **Race conditions in "readiness" state (Low):** Because readiness is derived on-the-fly and not persistent, a user could see an agent listed as "needs-connecting", click to connect, and by the time the page renders, the background scheduler might have already marked the connection as "stale" or "down" (if it was flapping), creating a flickering UI experience.
-2.  **N+1 Query Regression (Low):** While the plan explicitly calls out "compute coverage in ONE batched query" for the agent list, ensuring this remains performant as the number of agents and providers grows—and ensuring it stays batched—requires strict adherence in the implementation, as it is easy to accidentally revert to lazy-loading coverage inside the template loop.
-3.  **Migration/Downgrade Consistency:** While the plan correctly notes no DB migration is needed, it doesn't explicitly account for how existing "no-connection" agents (if any exist due to historical edge cases) might behave when suddenly exposed to the new "needs-connecting" UI, potentially creating support tickets for users whose agents were previously "forgotten".
+*   **Logic Drift in Adapter Layers:** The `AGENT_LUDUM_ARCHITECTURE.md` warns that the shared play-service layer must be strictly followed, or HTTP routes and MCP tools will drift. The plan modifies the `agents_create.py` (HTTP-specific route) but does not provide a mechanism to ensure that the new "strategy-first" state remains consistent if a user creates an agent via an MCP tool.
+*   **Capacity Gate Bypass:** The plan assumes `active_matches_for_provider` / `live_provider_capacity` will handle disconnected agents by excluding them. If these functions do not explicitly filter by `Connection.last_seen_at` or `Connection.status` and only check `enabled` status, then disconnected agents will indeed inflate capacity, violating the design goal.
 
 ## Token Stats
 
-- total_input=25117
-- total_output=562
-- total_tokens=25679
-- `gemini-3.1-flash-lite`: input=25117, output=562, total=25679
+- total_input=25336
+- total_output=717
+- total_tokens=26053
+- `gemini-3.1-flash-lite`: input=25336, output=717, total=26053
 
 ## Resolution
 - status: accepted
-- note: Finding #1 (stale readiness) addressed: needs-connecting keys on provider_enabled_on_any_connection (not live window); live-now via existing health badge; verification added. Findings #2 (?next robustness) and #3 (capacity math) already carried as residual risks with pre-merge verifications.
+- note: Reaffirmed: readiness keys on enabled coverage; needs-connecting state now explicit (also Codex MEDIUM); ?next + capacity verifications retained.
