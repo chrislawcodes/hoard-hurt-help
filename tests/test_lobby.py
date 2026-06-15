@@ -114,8 +114,10 @@ async def _seed_agent(
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         connection, k = await make_connection(db, u, key=key)
         agent, _ = await make_agent(db, u, connection=connection, name=name)
-        connection.first_connected_at = datetime.now(timezone.utc)
-        connection.last_seen_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        connection.first_connected_at = now
+        connection.last_seen_at = now
+        connection.last_polled_at = now  # AI is running the play loop → seats confirm
         await db.commit()
         return agent, k, connection.id
 
@@ -923,8 +925,10 @@ async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         conn, _k = await make_connection(db, u, max_concurrent_games=1)
-        conn.first_connected_at = datetime.now(timezone.utc)
-        conn.last_seen_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        conn.first_connected_at = now
+        conn.last_seen_at = now
+        conn.last_polled_at = now  # AI is running the play loop → seats confirm
         agent, _v = await make_agent(db, u, connection=conn, name="Busy")
         active = Match(
             id="G_A", name="A", state=GameState.ACTIVE,

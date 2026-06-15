@@ -178,3 +178,26 @@ async def test_next_turn_service_returns_payload(reset_db):
         assert response["status"] == "your_turn"
         assert response["match_id"] == seed["match_id"]
         assert response["turn_token"] == seed["turn_token"]
+
+
+@pytest.mark.asyncio
+async def test_next_turn_stamps_play_loop_heartbeat(reset_db):
+    """Calling get_next_turn records the play-loop heartbeat (last_polled_at) — the
+    signal that an AI is actually running, which gates seating. A plain sign-in
+    never reaches here, so it never sets this."""
+    seed = await _seed_turn(reset_db, match_id="M_SERVICE_HB")
+    async with reset_db() as db:
+        connection = (
+            await db.execute(
+                select(Connection).where(Connection.id == seed["connection_id"])
+            )
+        ).scalar_one()
+        assert connection.last_polled_at is None
+        await agent_play.get_next_turn(db, connection)
+    async with reset_db() as db:
+        refreshed = (
+            await db.execute(
+                select(Connection).where(Connection.id == seed["connection_id"])
+            )
+        ).scalar_one()
+        assert refreshed.last_polled_at is not None

@@ -75,14 +75,21 @@ async def _seed_match(reset_db, state: GameState = GameState.REGISTERING) -> Non
 
 
 async def _user_agent(reset_db, *, live: bool):
-    """Make a user + agent whose provider connection is live or not."""
+    """Make a user + agent whose provider's AI is running the play loop, or not.
+
+    "live" now means the AI is actually polling get_next_turn (last_polled_at is
+    fresh) — not merely that the connection was seen, which a sign-in handshake
+    would satisfy."""
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection, _ = await make_connection(db, user)
         if live:
-            connection.last_seen_at = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+            connection.last_seen_at = now
+            connection.last_polled_at = now
         else:
             connection.last_seen_at = None
+            connection.last_polled_at = None
         agent, _v = await make_agent(db, user, connection=connection, name="Atlas")
         await db.commit()
         return user.id, agent.id
@@ -127,6 +134,34 @@ async def test_join_live_agent_confirms_and_goes_to_match(client, reset_db):
             await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
         assert player.seat_reserved_until is None  # confirmed
+
+
+@pytest.mark.asyncio
+async def test_join_signed_in_but_not_looping_holds_not_confirms(client, reset_db):
+    """The fix: a connection SEEN recently (a fresh sign-in handshake bumps
+    last_seen) but with NO play loop running (last_polled_at is NULL) must HOLD the
+    seat, not confirm it. Signing in isn't the same as an AI actually playing."""
+    await _seed_match(reset_db)
+    async with reset_db() as db:
+        user = await make_user(db, 0)
+        connection, _ = await make_connection(db, user)
+        connection.last_seen_at = datetime.now(timezone.utc)  # seen — i.e. signed in
+        connection.last_polled_at = None  # but the play loop never ran
+        agent, _v = await make_agent(db, user, connection=connection, name="Atlas")
+        await db.commit()
+        user_id, agent_id = user.id, agent.id
+    r = await client.post(
+        JOIN_URL,
+        data={"agent_id": agent_id},
+        cookies=_cookies(user_id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    async with reset_db() as db:
+        player = (
+            await db.execute(select(Player).where(Player.match_id == "G_001"))
+        ).scalar_one()
+        assert player.seat_reserved_until is not None  # HELD, not confirmed
 
 
 @pytest.mark.asyncio
@@ -238,7 +273,11 @@ async def _held_player(reset_db, *, live: bool, deadline: datetime):
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection, _ = await make_connection(db, user)
-        connection.last_seen_at = datetime.now(timezone.utc) if live else None
+        # "live" = the AI is running the play loop (last_polled_at fresh), which is
+        # what now confirms a held seat.
+        now = datetime.now(timezone.utc)
+        connection.last_seen_at = now if live else None
+        connection.last_polled_at = now if live else None
         agent, _v = await make_agent(db, user, connection=connection, name="Atlas")
         player = Player(
             match_id="G_001",

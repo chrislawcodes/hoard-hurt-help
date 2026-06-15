@@ -18,7 +18,7 @@ from app.engine.connection_health import (
     is_join_blocked,
     live_provider_capacity,
     provider_enabled_on_any_connection,
-    provider_is_covered,
+    provider_loop_running,
 )
 from app.engine.scheduler import start_game
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, confirm_seat_if_live, hold_deadline
@@ -275,7 +275,11 @@ async def join_form(
             continue
         pv = provider.value
         if pv not in provider_status:
-            if await provider_is_covered(db, user.id, provider):
+            # "live" means an AI is actually running the play loop — not merely
+            # that the connection was seen (a sign-in handshake counts as "seen").
+            # So picking a "live" agent gets a confirmed seat; "offline" is set up
+            # but not playing, so it's held while the user starts their AI.
+            if await provider_loop_running(db, user.id, provider):
                 provider_status[pv] = "live"
             elif await provider_enabled_on_any_connection(db, user.id, provider):
                 provider_status[pv] = "offline"
@@ -368,10 +372,14 @@ async def _seat_user_agent(
     allowed_models = PROVIDER_MODELS.get(provider.value, [])
     if allowed_models and version.model not in allowed_models:
         raise HTTPException(status_code=400, detail="That model is not valid for this provider.")
-    covered = await provider_is_covered(db, user.id, provider)
+    # Confirm the seat only when an AI is actually running the play loop for this
+    # provider — not merely when the connection was seen recently (a sign-in
+    # handshake bumps last_seen without an AI playing). Otherwise hold the seat and
+    # let the next screen walk the user through starting their AI.
+    loop_running = await provider_loop_running(db, user.id, provider)
     reserved_until: datetime | None = None
-    if covered:
-        # Live now — a confirmed seat. SUM-based join gate: active count vs. sum
+    if loop_running:
+        # Playing now — a confirmed seat. SUM-based join gate: active count vs. sum
         # of capacities over live connections. Admins bypass it so they can seat
         # an agent already busy in another match (e.g. for testing).
         if not bypass_capacity:
