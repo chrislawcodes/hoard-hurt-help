@@ -317,13 +317,14 @@ async def test_create_agent_post_forwards_to_next(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == f"/me/connections?provider=claude&next={JOIN_NEXT}"
+    # Claude is set up (enabled), so creation forwards straight to the next hop.
+    assert r.headers["location"] == JOIN_URL
 
 
 @pytest.mark.asyncio
 async def test_create_agent_post_rejects_external_next(client, reset_db):
-    # An external next is dropped; we still route to the provider-specific
-    # connect step because the provider is not live yet.
+    # An external next is dropped; since the provider IS set up, we fall back to
+    # the agent's detail page (not the external target).
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
@@ -341,7 +342,7 @@ async def test_create_agent_post_rejects_external_next(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == "/me/connections?provider=claude"
+    assert r.headers["location"].startswith("/me/agents/")
     assert "evil.example.com" not in r.headers["location"]
 
 
