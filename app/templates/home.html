@@ -134,6 +134,7 @@
    always present (even when empty) so polling keeps running and a newly created
    game can appear. #}
 <div id="lobby-upcoming"
+     style="scroll-margin-top: 80px"
      hx-get="/games/hoard-hurt-help/upcoming"
      hx-trigger="every 60s"
      hx-swap="innerHTML">
