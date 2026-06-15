@@ -59,7 +59,7 @@ def test_sqlite_migrations_round_trip(tmp_path: Path) -> None:
 
 
 def test_mode_a_migration_adds_marker_and_unique_index(tmp_path: Path) -> None:
-    """0032 must add the Mode A marker plus the live-row unique index."""
+    """0032 adds the Mode A marker; 0036 makes the unique index per-provider."""
     db_path = tmp_path / "mode_a.db"
 
     up = _run_alembic(["upgrade", "head"], db_path)
@@ -74,6 +74,83 @@ def test_mode_a_migration_adds_marker_and_unique_index(tmp_path: Path) -> None:
         ).fetchone()
         assert index_sql is not None
         assert "mode_a_at IS NOT NULL AND deleted_at IS NULL" in index_sql[0]
+        # After 0036 the uniqueness is per (user, provider), not just per user.
+        index_cols = [
+            row[2]
+            for row in conn.execute(
+                "PRAGMA index_info(uq_connections_mode_a_user_id_live)"
+            ).fetchall()
+        ]
+        assert index_cols == ["user_id", "provider"]
+    finally:
+        conn.close()
+
+
+def test_0036_collapses_legacy_multi_provider_mode_a_connection(tmp_path: Path) -> None:
+    """A legacy Mode A connection that accumulated several providers (provider NULL,
+    many enabled rows) must become single-provider, and the new per-(user, provider)
+    index must then permit a SEPARATE connection for the other provider."""
+    db_path = tmp_path / "split.db"
+
+    up = _run_alembic(["upgrade", "0035"], db_path)
+    assert up.returncode == 0, f"`alembic upgrade 0035` failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.execute(
+            "INSERT INTO users (id, google_sub, email) VALUES (1, 'sub-1', 'a@b.com')"
+        )
+        # Legacy Mode A connection: provider NULL, two providers enabled on it.
+        conn.execute(
+            "INSERT INTO connections "
+            "(id, user_id, provider, key_lookup, key_hint, status, "
+            " max_concurrent_games, stall_threshold, mode_a_at) "
+            "VALUES (10, 1, NULL, 'k10', 'k10x', 'active', 3, 3, '2026-06-01 00:00:00+00')"
+        )
+        conn.execute(
+            "INSERT INTO connection_providers (connection_id, provider, enabled) "
+            "VALUES (10, 'claude', 1), (10, 'gemini', 1)"
+        )
+    conn.close()
+
+    up = _run_alembic(["upgrade", "0036"], db_path)
+    assert up.returncode == 0, f"`alembic upgrade 0036` failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        # The connection is now single-provider (the first, claude); gemini disabled.
+        assert conn.execute(
+            "SELECT provider FROM connections WHERE id=10"
+        ).fetchone() == ("claude",)
+        enabled = dict(
+            conn.execute(
+                "SELECT provider, enabled FROM connection_providers WHERE connection_id=10"
+            ).fetchall()
+        )
+        assert enabled == {"claude": 1, "gemini": 0}
+
+        # The new index allows a SEPARATE live Mode A connection for gemini…
+        with conn:
+            conn.execute(
+                "INSERT INTO connections "
+                "(id, user_id, provider, key_lookup, key_hint, status, "
+                " max_concurrent_games, stall_threshold, mode_a_at) "
+                "VALUES (11, 1, 'gemini', 'k11', 'k11x', 'active', 3, 3, "
+                "'2026-06-02 00:00:00+00')"
+            )
+        # …but a duplicate (same user + provider, live) is rejected.
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO connections "
+                    "(id, user_id, provider, key_lookup, key_hint, status, "
+                    " max_concurrent_games, stall_threshold, mode_a_at) "
+                    "VALUES (12, 1, 'claude', 'k12', 'k12x', 'active', 3, 3, "
+                    "'2026-06-03 00:00:00+00')"
+                )
+            raise AssertionError("duplicate (user, provider) Mode A row was allowed")
+        except sqlite3.IntegrityError:
+            pass
     finally:
         conn.close()
 
@@ -107,7 +184,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0035",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0036",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"

@@ -85,15 +85,22 @@ async def test_signin_creates_active_connection_without_counting_a_call(
 @pytest.mark.asyncio
 async def test_tool_path_still_records_the_call(
     db_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tool path is unchanged: it records the authenticated call (cost
-    signal), unlike the sign-in handshake."""
+    signal), unlike the sign-in handshake. The client is identified from context
+    (one client == one provider), so the call resolves to that provider's
+    connection."""
+    monkeypatch.setattr(
+        server, "_client_provider_from_context", lambda: ConnectionProvider.GEMINI
+    )
     async with db_session_factory() as db:
         _access, _userinfo, connection = await server._resolve_oauth_connection(db, _token())
         refreshed = (
             await db.execute(select(Connection).where(Connection.id == connection.id))
         ).scalar_one()
         assert refreshed.status == ConnectionStatus.ACTIVE
+        assert refreshed.provider is ConnectionProvider.GEMINI
         assert refreshed.api_call_count == 1
 
 
@@ -207,40 +214,23 @@ def test_userinfo_from_claims_requires_email() -> None:
 
 
 @pytest.mark.asyncio
-async def test_signin_hook_creates_active_connection_from_id_token(
+async def test_signin_hook_syncs_user_without_creating_a_connection(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The token-exchange hook turns a Google id_token into a live connection —
-    with no MCP session or tool call, and no billed API call.
+    """The token-exchange hook syncs the signed-in user but creates NO connection.
 
-    Bare sign-in (``... mcp login``) does not yet know which client connected,
-    so it enables NO provider. The client names itself later on the MCP
-    handshake, which is when its one provider gets enabled.
+    Each provider gets its own Mode A connection, and at sign-in we don't yet know
+    which AI client (provider) is connecting. The connection is created a moment
+    later, at the MCP initialize handshake, where ``clientInfo`` names the provider.
     """
     async with db_session_factory() as db:
-        connection = await server._create_signin_connection(
-            db, {"id_token": _make_id_token()}
-        )
-        assert connection is not None
+        user = await server._sync_signin_user(db, {"id_token": _make_id_token()})
+        assert user is not None
         await db.commit()
 
-        assert connection.status == ConnectionStatus.ACTIVE
-        assert connection.first_connected_at is not None
-        assert connection.api_call_count == 0
-
-        # No provider enabled yet — sign-in alone does not claim a provider.
-        provider_rows = (
-            (
-                await db.execute(
-                    select(ConnectionProviderRow).where(
-                        ConnectionProviderRow.connection_id == connection.id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        assert provider_rows == []
+        # No connection is born at sign-in — the provider isn't known yet.
+        connections = (await db.execute(select(Connection))).scalars().all()
+        assert connections == []
 
 
 @pytest.mark.asyncio
@@ -249,7 +239,7 @@ async def test_signin_hook_skips_when_no_id_token(
 ) -> None:
     """A refresh-token exchange (no id_token) is a no-op, not an error."""
     async with db_session_factory() as db:
-        result = await server._create_signin_connection(db, {"access_token": "x"})
+        result = await server._sync_signin_user(db, {"access_token": "x"})
         assert result is None
 
 

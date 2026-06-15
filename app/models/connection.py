@@ -33,9 +33,16 @@ class ConnectionStatus(str, enum.Enum):
 class Connection(Base):
     __tablename__ = "connections"
     __table_args__ = (
+        # One live MCP (Mode A) connection per user PER PROVIDER. An MCP client
+        # speaks for exactly one provider (one client == one provider, #392), so
+        # each provider the user signs in gets its own connection — never one
+        # connection that accumulates several. ``provider`` is therefore set on a
+        # Mode A connection (it is the connection's identity), unlike the legacy
+        # accumulate-providers-on-one-row model.
         Index(
             "uq_connections_mode_a_user_id_live",
             "user_id",
+            "provider",
             unique=True,
             sqlite_where=text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
             postgresql_where=text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
