@@ -103,13 +103,14 @@ Every external entry point. Split by audience.
 | `sse.py` | — | Server‑Sent Events streams the live viewer subscribes to (bridges `broadcast`). |
 | `auth.py` | 87 | Google OAuth sign‑in / sign‑out. `sync_google_user` is **additive**: it ensures `ADMIN` for config‑floor emails and otherwise **preserves** the stored `role`, so an in‑app promotion survives the next login. |
 
-### 2. Core engine — `app/engine/` (~2,160 lines)
+### 2. Core engine — `app/engine/` (~3,500 lines)
 
 Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 
 | Module | Lines | Responsibility |
 |---|---:|---|
 | `scheduler.py` | 438 | **The turn loop.** One task per active game runs round→turn→talk→act→resolve→award→finalize, broadcasting each step. Also the poller that auto‑starts/cancels due games and resumes loops after a restart. |
+| `agent_play.py` + `agent_play_next_turn.py` / `agent_play_reads.py` / `agent_play_guards.py` | ~1,360 (split) | **The shared play‑service layer** every agent action runs through — called by **both** the HTTP routes and the MCP tools (thin adapters; auth differs, logic is shared). Split by job: `agent_play.py` (the per‑match verbs — poll/submit‑talk/submit‑action/state/leave/opponent/chat/turn/standings — and re‑exports the rest so callers keep importing from `app.engine.agent_play`), `agent_play_next_turn.py` (the connection‑level next‑turn fan‑out + sticky‑pin claim), `agent_play_reads.py` (DB→payload projections), `agent_play_guards.py` (rate‑limit / binding / error primitives). Deps run one‑way (guards ← reads ← {next_turn, verbs}), no cycle. **Game‑agnostic**: every game‑specific bit goes through the `GameModule` contract, so this layer already serves PD *and* Liar's Dice; the move dict is opaque to it (one small exception: `_LD_VALIDATION_SNAPSHOT_KEYS` names Liar's‑Dice snapshot keys to strip). |
 | `game_insights.py` | 315 | Deterministic spectator insights: season overview + per‑round detail. |
 | `board_signals.py` | 196 | Whole‑board signals the server can see but one bot can't cheaply compute. |
 | `opponent_stats.py` | 183 | Per‑opponent, action‑derived stats and a bounded short‑list. |
@@ -305,7 +306,8 @@ connection pinning.
 **No loopback, no internal key.** Authenticated tools do **not** call our HTTP API
 over the network with a forwarded key. The play actions the tools use (next‑turn,
 get‑turn, submit‑talk, submit‑action, the read tools) are extracted into a
-**shared play‑service layer** (e.g. `app/engine/agent_play.py`) that **both** the
+**shared play‑service layer** (`app/engine/agent_play.py` plus its split siblings
+`agent_play_next_turn` / `agent_play_reads` / `agent_play_guards`) that **both** the
 agent HTTP routes (`agent_api.py` / `agent_next_turn.py`) and the MCP tools call.
 The HTTP route is a thin adapter (parse → `require_connection` /
 `require_agent_player` → service); the MCP tool is the other adapter (OAuth →
@@ -369,7 +371,7 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change Practice Arena / Auto-Match seeding | `app/engine/arena.py` + `app/engine/bot_presets.py` + `app/engine/bots/roster.py` + `app/routes/connections_*.py` / `agents_*.py`. |
 | Change an agent's model/strategy | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
 | Touch the turn lifecycle | `app/engine/scheduler.py`. |
-| Change what an agent sees/submits | The shared play‑service layer (`app/engine/agent_play.py`) that both the HTTP routes and MCP tools call + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
+| Change what an agent sees/submits | The shared play‑service layer — `app/engine/agent_play.py` (verbs) + `agent_play_next_turn.py` (next‑turn fan‑out) + `agent_play_reads.py` (payload projections) + `agent_play_guards.py` (rate‑limit/binding) — that both the HTTP routes and MCP tools call, + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
 | Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata) + the OAuth‑identity→per‑user "Mode A" `Connection` bridge in `mcp_server/`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
 | Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). |
 | Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (eligibility + sticky‑pin claim) wired into `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. Pin columns live on `app/models/player.py`. |
