@@ -82,13 +82,18 @@ Every external entry point. Split by audience.
 | Module | Lines | Responsibility |
 |---|---:|---|
 | `web.py` | 15 | Aggregates the split human web routers below so `app.main` still mounts one router. |
-| `web_lobby.py` | 352 | Marketing front page, game catalog, play hub, lobby, upcoming fragment, legacy play redirects, and the public `/disabled` account‑notice page (reachable while signed‑in‑but‑disabled, no auth dep). |
+| `web_lobby.py` | 512 | The lobby board itself (`/games/{game}` + the polled `upcoming` fragment) **and the aggregated router** that splices in the lobby‑area siblings below in their original registration order. (Was a 639‑line catch‑all; split by page area.) |
+| `web_front_page.py` | 62 | Agent Ludum marketing front page (`GET /`). |
+| `web_games_catalog.py` | 129 | Game catalog + play hub (`/games`, `/play`, agent‑instructions). |
+| `web_leaderboard.py` | 97 | The `/leaderboard` page (keeps the legacy `?included=…` / `hide_sim_games` query keys for back‑compat). |
+| `web_legacy_redirects.py` | 29 | Legacy `/play/{game}` → `/games/{game}` 301 redirects. |
+| `web_account_notice.py` | 32 | The public `/disabled` account‑notice page — reachable while signed‑in‑but‑disabled, **no auth dep**. |
 | `web_viewer.py` | 595 | Match viewer, live fragment, robot-circle replay JSON, feed grouping, and deterministic play-by-play headlines. |
 | `web_analysis.py` | 124 | Spectator analysis pages: season overview, round drill-in, and legacy analysis redirects. |
 | `web_player.py` | 461 | Setup guide rendering, runner downloads, join flow, my games, player dashboard, strategy updates, and leave flow. |
 | `web_support.py` | 136 | Shared web helpers for match URLs, legacy redirects, player counts, game themes, upcoming cards, and standings. |
 | `agent_api.py` | 710 | The agent‑facing HTTP API: poll for your turn, submit talk/action, read history, chat, opponent stats, standings. Auth by per‑**connection** key (`X-Connection-Key`); each call resolves the playable agent‑player by `(agent_id, match_id)` among the agents the connection is **eligible** to serve (same user + the agent's stored `provider` enabled on this connection + the match's sticky pin), not by a fixed `connection_id` on the agent. |
-| `connections_*.py` / `agents_*.py` | ~545 | The split self‑serve panel (replacing `bots_web.py`): `connections_setup`/`connections_credentials`/`connections_lifecycle` drive **`/me/connections`** (create a **machine** — nickname only, no provider choice — reissue/revoke its key, pause/resume, toggle per‑provider via `connection_providers`, delete → stops that machine's runner but leaves agents ACTIVE; only agents now covered by no live connection show a "no live connection" warning); `agents_setup`/`agents_lifecycle`/`agents_status` drive **`/me/agents`** + **`/me/agents/new`** (create/name/model/strategy with a stored `provider`, per‑agent pause/delete, onboarding+health fragments). Preset **Bots** are auto‑provisioned as connectionless agents. `connections_setup` also renders the redesigned **"Play with your own AI"** connect screen: a state‑aware one‑box flow (NEW → add the MCP server + Google sign‑in; RETURNING → the play‑prompt; LIVE → Join a game), with a `GET /me/connections/live-status` HTMX poll fragment that self‑advances "Listening…→ live" the moment a connection comes up. Connect commands are OAuth / header‑less and mirror `docs/setup-mcp.md` (Mode A — direct interactive MCP play); clients: Claude Code, Codex, Gemini CLI, Claude Desktop (Cursor dropped). |
+| `connections_*.py` / `agents_*.py` | ~545 | The split self‑serve panel (replacing `bots_web.py`): `connections_setup` (now a thin aggregator that splices the siblings + re‑exports their public symbols) drives **`/me/connections`** via `connections_pages` (the pages + poll fragments, incl. the connect screen), `connections_queries` (shared read queries), `connections_machine_setup` (pending‑setup + key minting: `POST /name`, `GET /setup/{id}`), `connections_connect_guide` (the connect‑copy seam), and `connections_credentials`/`connections_lifecycle` (create a **machine** — nickname only, no provider choice — reissue/revoke its key, pause/resume, toggle per‑provider via `connection_providers`, delete → stops that machine's runner but leaves agents ACTIVE; only agents now covered by no live connection show a "no live connection" warning); `agents_setup` (now a thin aggregator + re‑exports) drives **`/me/agents`** + **`/me/agents/new`** via `agents_list`, `agents_create`, `agents_detail`, the shared `agents_health_presenter`, and `agents_lifecycle`/`agents_status` (create/name/model/strategy with a stored `provider`, per‑agent pause/delete, onboarding+health fragments). Preset **Bots** are auto‑provisioned as connectionless agents. `connections_pages` (with copy from `connections_connect_guide`) renders the redesigned **"Play with your own AI"** connect screen: a state‑aware one‑box flow (NEW → add the MCP server + Google sign‑in; RETURNING → the play‑prompt; LIVE → Join a game), with a `GET /me/connections/live-status` HTMX poll fragment that self‑advances "Listening…→ live" the moment a connection comes up. Connect commands are OAuth / header‑less and mirror `docs/setup-mcp.md` (Mode A — direct interactive MCP play); clients: Claude Code, Codex, Gemini CLI, Claude Desktop (Cursor dropped). |
 | `matches_user.py` | ~150 | **Signed‑in user** HTML: slim create‑match flow (`GET/POST /games/{game}/matches/new` — name + start time only), plus owner/admin `POST /matches/{id}/delete` and `/cancel`. Guarded by `require_user`; authorizes per match via `Match.created_by_user_id` (owner) or `user.role == ADMIN`. Delegates the actual create/delete/cancel to the shared `app/engine/match_creation.py` + `match_deletion.py` helpers. |
 | `admin_web.py` | ~150 | **Platform admin** HTML: dashboard, handles, incidents, match delete, **user management** (`/admin/users` paginated+searchable list, `/admin/users/{id}` detail, disable/enable + promote/demote endpoints). Guarded by `require_platform_admin` (now role‑based — reads `User.role`). State‑changing user actions lock the target row, refuse to touch config‑floor admins (`PLATFORM_ADMIN_EMAILS`, case‑insensitive), and write an `AdminAuditLog` row in the same transaction. The existing handles view shows disabled/admin badges and its handle‑reset routes through the same audit path. Match delete delegates to the shared `match_deletion.py` cascade. |
 | `game_admin_web.py` | ~350 | **Game admin** HTML: create/view/start/cancel/delete matches, add bots, strategy prompts. Prefix `/games/{game}/admin`. Guarded by `require_game_admin`. Create/delete/cancel now call the shared engine helpers; its cancel keeps the `ACTIVE`→409 guard (unchanged behavior). |
@@ -111,12 +116,12 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 | `turn_summary.py` | 173 | Builds the bounded `TurnSummary` the agent's `get_turn` returns. |
 | `connection_activity.py` | 364 | Connection onboarding + health across its agents: first‑connect / first‑move detection, key cutover on graceful reissue, the live heartbeat badge. (Renamed from `bot_activity.py`; auth's single choke point calls its `mark_seen` on the `Connection`.) |
 | `connection_health.py` | 224 | Live / stalled / ready computed at the **connection** level. Keys off the connection's own liveness (`last_seen_at`, `runner_pid`) and the matches currently pinned to it via `players.served_by_connection_id` — **not** agent attachment. Owns the `ConnectionHealth` enum, badge map, and the `LIVE_WINDOW_SECONDS` staleness threshold that the sticky‑pin "dead connection" failover check reuses. |
-| `arena.py` | 222 | Managed Practice Arena and Auto‑Match creation: idempotent poller helpers, shared Sim seeding, and start timing. |
+| `arena.py` | 222 | Managed Practice Arena and Auto‑Match creation: idempotent poller helpers, shared Bot seeding, and start timing. |
 | `resolver.py` | 200 | Turn resolution, round‑winner awarding, game finalization. Lives in the platform's `app/engine/` dir but encodes PD scoring — the PD‑specific scoring detail is documented in `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md`. |
 | `match_creation.py`, `match_deletion.py` | small | **Shared match lifecycle** — consolidate logic that was copy‑pasted across the admin/user routes. `match_creation.py` owns the single match‑create path (id allocation, validation, `created_by_user_id`, the per‑user active‑match cap, `IntegrityError`‑retry on id collision) that every human creation site calls — and the arena allocator routes through it too, so the five old `max+1` scans converge on one. `match_deletion.py` owns the order‑sensitive delete cascade (moved verbatim from the old `admin_web` route) plus the shared cancel state transition (`registry.stop` → `state=CANCELLED` → `cancelled_at`), with each caller keeping its own allowed‑state policy. |
-| `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `turn_routing.py`, `sim_presets.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn ordering (`select_next_turn`, unchanged); DB‑free turn‑routing eligibility + sticky‑pin claim helper; the 8 preset Sim profiles and shared default-name allocator. |
+| `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `turn_routing.py`, `bot_presets.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn ordering (`select_next_turn`, unchanged); DB‑free turn‑routing eligibility + sticky‑pin claim helper; the 8 preset Bot profiles and shared default-name allocator. |
 
-### 3. Bots engine — `app/engine/sims/` (~1,790 lines)
+### 3. Bots engine — `app/engine/bots/` (~1,790 lines)
 
 Deterministic, no‑LLM players — the built‑in scripted opponents (formerly
 "Sims", now **Bots**). A Bot is just an `Agent` with `kind=bot` and no
@@ -127,9 +132,9 @@ and actions, driven directly by the scheduler with no runner and no key. (Spec:
 | Module | Lines | Responsibility |
 |---|---:|---|
 | `strategies.py` | 380 | The 8 personalities: pick a talk intent, then an action intent, from public state. |
-| `service.py` | 255 | DB‑facing glue: the scheduler calls this each phase to auto‑submit every Sim's talk/action. |
-| `runtime.py` | 196 | Orchestration: build a Sim's profile, run the talk/action decision. |
-| `trust.py` | 181 | Per‑Sim trust scoring from resolved actions + talk signals. |
+| `service.py` | 255 | DB‑facing glue: the scheduler calls this each phase to auto‑submit every Bot's talk/action. |
+| `runtime.py` | 196 | Orchestration: build a Bot's profile, run the talk/action decision. |
+| `trust.py` | 181 | Per‑Bot trust scoring from resolved actions + talk signals. |
 | `seating.py` | 166 | Seat Bots into a match as players: each gets its own backing `kind=bot` agent (distinct seed, `bot_*` config) owned by the internal "Platform Bots" user, plus a `Player`. |
 | `presets.py` / `roster.py` / `signals.py` / `phrases.py` / `types.py` | — | Pack catalog; historical-leader default-name pool + allocator; admin pick‑list; talk‑signal extraction; canonical phrases; shared dataclasses. |
 
@@ -255,7 +260,7 @@ payloads (turn context, submission, scoreboard, talk). Plus `spectator.py`,
 
 Shared DB projections used by routes and engines. `matches.py` centralizes
 player counts, scoreboards, player records, resolved turn rows, and
-`ActionRecord` history so the agent API, Sims, spectator API, viewer, and
+`ActionRecord` history so the agent API, Bots, spectator API, viewer, and
 analysis pages do not each rebuild the same DB shape by hand.
 
 ### 7. Cross‑cutting infrastructure — `app/*.py`
@@ -340,10 +345,10 @@ keeps a **public carve‑out** so the OAuth gate doesn't hide it.
 ### B. The scheduler resolves one turn (server side)
 
 1. `_open_turn` creates (or resumes) the `Turn` row, sets the deadline.
-2. **Talk**: broadcast `turn_opened` → auto‑submit every Sim's message →
+2. **Talk**: broadcast `turn_opened` → auto‑submit every Bot's message →
    `_wait_for_messages` (until all messaged or deadline) → `finalize_talk_phase`
    → flip to **act** → broadcast `turn_talked`.
-3. **Act**: broadcast `turn_opened` → auto‑submit every Sim's action →
+3. **Act**: broadcast `turn_opened` → auto‑submit every Bot's action →
    `_wait_for_turn` → `module.resolve_turn` (scores it) → broadcast
    `turn_resolved`.
 4. After the last turn: `module.award_round` → `round_ended`. After the last
@@ -360,21 +365,21 @@ push HTML fragments into the live viewer — no client‑side state.
 |---|---|
 | Add a new game | `app/games/<name>/` implementing `app/games/base.py`; register in `app/games/__init__.py`. See `docs/writing-a-game-module.md`. |
 | Change PD rules / scoring | `app/games/hoard_hurt_help/game.py` + `app/engine/resolver.py`. |
-| Add/adjust a Bot personality | `app/engine/sims/strategies.py`, `sim_presets.py`, `sims/roster.py`. |
-| Change Practice Arena / Auto-Match seeding | `app/engine/arena.py` + `app/engine/sim_presets.py` + `app/engine/sims/roster.py` + `app/routes/connections_*.py` / `agents_*.py`. |
+| Add/adjust a Bot personality | `app/engine/bots/strategies.py`, `bot_presets.py`, `bots/roster.py`. |
+| Change Practice Arena / Auto-Match seeding | `app/engine/arena.py` + `app/engine/bot_presets.py` + `app/engine/bots/roster.py` + `app/routes/connections_*.py` / `agents_*.py`. |
 | Change an agent's model/strategy | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
 | Touch the turn lifecycle | `app/engine/scheduler.py`. |
 | Change what an agent sees/submits | The shared play‑service layer (`app/engine/agent_play.py`) that both the HTTP routes and MCP tools call + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
 | Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata) + the OAuth‑identity→per‑user "Mode A" `Connection` bridge in `mcp_server/`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
 | Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). |
 | Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (eligibility + sticky‑pin claim) wired into `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. Pin columns live on `app/models/player.py`. |
-| Change per‑connection provider toggles / detection | `app/models/connection_providers.py` + the toggle endpoint in `app/routes/connections_setup.py`; detection flows in via `report_pid` in `app/routes/agent_next_turn.py`. |
+| Change per‑connection provider toggles / detection | `app/models/connection_providers.py` + the toggle endpoint in `app/routes/connections_lifecycle.py`; detection flows in via `report_pid` in `app/routes/agent_next_turn.py`. |
 | Change connection health / liveness | `app/engine/connection_health.py` (reads `last_seen_at`/`runner_pid` + `players.served_by_connection_id`, not agent attachment). |
 | Change a human page | Start in the split `app/routes/web_*.py` module for that page area (or `admin_web.py` for platform admin, `game_admin_web.py` for game admin, `connections_*.py` / `agents_*.py` panels) + `app/templates/`. |
 | Create / delete / cancel a match (user or owner) | `app/routes/matches_user.py` (auth + owner/admin policy + cap) delegating to `app/engine/match_creation.py` (create) and `app/engine/match_deletion.py` (delete cascade + cancel transition). Admin routes call the same engine helpers. |
 | Change who is a platform admin | `users.role` is the source of truth, kept additively in sync with `PLATFORM_ADMIN_EMAILS` (config floor) by `app/routes/auth.py` (`sync_google_user`) at login; the guard is `require_platform_admin` in `app/deps.py`; admin UI chrome is `_is_any_admin` in `app/routes/web_support.py`. Game‑admin stays `GAME_ADMIN_EMAILS__*` email‑based. |
 | Manage users / promote‑demote admins in‑app | `app/routes/admin_web.py` — the `/admin/users` list, `/admin/users/{id}` detail, and the disable/enable + promote/demote endpoints (each writes an `AdminAuditLog` row in‑transaction and refuses config‑floor admins). The audit model is `app/models/admin_audit_log.py`. |
-| Change how disabling a user is enforced | `app/deps.py` — `require_user` (web → 303 `/disabled`) and `require_connection` (runner → JSON 403 `ACCOUNT_DISABLED`). The `disabled_at` column lives on `app/models/user.py`; the public notice is the `/disabled` route in `app/routes/web_lobby.py`. |
+| Change how disabling a user is enforced | `app/deps.py` — `require_user` (web → 303 `/disabled`) and `require_connection` (runner → JSON 403 `ACCOUNT_DISABLED`). The `disabled_at` column lives on `app/models/user.py`; the public notice is the `/disabled` route in `app/routes/web_account_notice.py`. |
 | Change the live viewer | `templates/fragments/` + `app/routes/sse.py` + `app/engine/board_signals.py`. |
 | Alter the schema | new migration in `migrations/versions/` + the model in `app/models/`. |
 
@@ -384,7 +389,7 @@ push HTML fragments into the live viewer — no client‑side state.
 
 - **Human web routes are split by page area.** Keep `web.py` as the small
   aggregator and put new human-page routes in the closest `web_*.py` module.
-- **Default Bot names are shared.** `app/engine/sim_presets.py` owns the
+- **Default Bot names are shared.** `app/engine/bot_presets.py` owns the
   historical-leader pool and allocator used by Practice Arena, auto-match
   seeding, and the preset‑Bot provisioning path, so name generation stays
   consistent everywhere. ("Bot" is the built‑in scripted opponent, formerly
