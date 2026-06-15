@@ -185,7 +185,7 @@ class _ConnectAtSignInGoogleProvider(GoogleProvider):
 # request (a revoked/expired Google session still fails), so this only stops the
 # needless client-facing re-auth churn. Works because access_type=offline gets us
 # a Google refresh token, so the lifetime isn't capped at the upstream expiry.
-_MCP_ACCESS_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
+_MCP_ACCESS_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
 
 def _build_auth_provider() -> GoogleProvider:

@@ -284,8 +284,8 @@ def test_auth_provider_skips_consent_and_hooks_signin() -> None:
 
 
 def test_auth_provider_issues_long_lived_login_token() -> None:
-    """Login tokens last 30 days, not Google's 1-hour default, so clients aren't
+    """Login tokens last 90 days, not Google's 1-hour default, so clients aren't
     forced to re-auth every hour / after every deploy."""
     provider = server._build_auth_provider()
-    assert server._MCP_ACCESS_TOKEN_TTL_SECONDS == 30 * 24 * 60 * 60
-    assert provider._fastmcp_access_token_expiry_seconds == 30 * 24 * 60 * 60
+    assert server._MCP_ACCESS_TOKEN_TTL_SECONDS == 90 * 24 * 60 * 60
+    assert provider._fastmcp_access_token_expiry_seconds == 90 * 24 * 60 * 60
