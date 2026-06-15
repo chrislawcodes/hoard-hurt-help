@@ -251,10 +251,9 @@ async def _seed_extra_completed(reset_db: async_sessionmaker, n: int) -> None:
 
 @pytest.mark.asyncio
 async def test_lobby_query_count_flat_as_finished_games_grow(client, reset_db):
-    # The lobby's live loop used to run a query per game for EVERY finished and
-    # cancelled match, then throw the result away. Now it only touches live games
-    # and reads finished matches in one grouped query. Proof: the number of DB
-    # SELECTs for the lobby must not grow as finished games pile up.
+    # The lobby used to run a query per game for EVERY finished and cancelled
+    # match. Now it reads them in one grouped query (via cache). Proof: the number
+    # of DB SELECTs for the lobby must not grow as finished games pile up.
     await _seed_game(reset_db, state=GameState.ACTIVE)  # keeps showcase-replay off
     await _seed_extra_completed(reset_db, 0)
     with _count_selects() as first:
@@ -268,8 +267,10 @@ async def test_lobby_query_count_flat_as_finished_games_grow(client, reset_db):
         r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
 
-    # Same query count with 7 finished games as with 1 — no per-game N+1.
-    assert second["n"] == baseline
+    # Query count doesn't grow with more finished games — the cache serves the
+    # finished views (no per-game N+1). The second request may have fewer queries
+    # if the cache is still warm.
+    assert second["n"] <= baseline
 
 
 @pytest.mark.asyncio
