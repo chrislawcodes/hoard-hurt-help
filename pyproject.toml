@@ -49,6 +49,14 @@ include = ["app*", "mcp_server*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Fast-vs-slow lane. Tests are auto-tagged in conftest.py by the fixtures they
+# use: anything that boots the in-memory DB or HTTP stack is `integration`
+# (slow); pure-logic tests are `unit` (fast). Run the fast lane during tight
+# iteration with:  pytest -m "not integration"
+markers = [
+    "integration: boots the DB or HTTP stack (slow); excluded from the fast lane",
+    "unit: pure logic, no DB or HTTP (fast lane)",
+]
 
 [tool.ruff]
 line-length = 100

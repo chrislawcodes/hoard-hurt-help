@@ -21,6 +21,29 @@ from app.models.connection_provider import ConnectionProvider as ConnectionProvi
 from app.models.user import User
 
 
+# Fixtures whose presence means a test boots the in-memory DB or the HTTP
+# stack — the slow part of the suite. Tests pulling in any of these are tagged
+# `integration`; everything else is `unit` (the fast lane). Kept here, next to
+# the fixtures themselves, so the list stays honest as fixtures change.
+_INTEGRATION_FIXTURES = frozenset(
+    {"engine", "session_factory", "db", "reset_db", "client", "async_client", "ac"}
+)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Auto-tag every test as `unit` (fast) or `integration` (slow).
+
+    A test that requests a DB engine or an HTTP client (directly or through
+    another fixture) is slow, so it is marked `integration`. Everything else is
+    marked `unit`. This drives `pytest -m "not integration"` (the fast lane)
+    without hand-marking 100+ test files.
+    """
+    for item in items:
+        fixtures = set(getattr(item, "fixturenames", ()))
+        marker = "integration" if fixtures & _INTEGRATION_FIXTURES else "unit"
+        item.add_marker(getattr(pytest.mark, marker))
+
+
 @pytest.fixture(scope="session")
 def event_loop() -> asyncio.AbstractEventLoop:
     """Session-scoped event loop for async fixtures."""
