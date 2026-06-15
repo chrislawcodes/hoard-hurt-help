@@ -3,6 +3,7 @@
 import base64
 import json
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -213,7 +214,10 @@ async def test_join_form_groups_models_and_disables_uncovered_providers(
     assert 'name="model"' in r.text
     assert '<optgroup label="Claude">' in r.text
     assert '<optgroup label="OpenAI" disabled>' in r.text
-    assert 'No machine runs OpenAI — turn it on at /me/connections.' in r.text
+    # The disabled provider's note is now a real "connect it" link, not dead prose.
+    assert "OpenAI isn't connected yet" in r.text
+    assert 'href="/me/connections' in r.text
+    assert "connect OpenAI →" in r.text
     assert 'name="strategy_preset"' not in r.text
     assert 'name="strategy_text"' in r.text
     assert 'href="/games/hoard-hurt-help/agent-instructions"' in r.text
@@ -237,26 +241,31 @@ async def test_agent_instructions_page_shows_canonical_base_prompt(client, reset
 
 
 @pytest.mark.asyncio
-async def test_join_page_without_active_connection_points_to_connections(
+async def test_create_agent_page_without_any_connection_shows_connect_cta(
     client, reset_db
 ) -> None:
+    # No provider connected at all: the create-agent form would dead-end (the POST
+    # needs a connected provider), so the page hides the form and shows a single
+    # "connect a client first" CTA pointing at /me/connections.
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
 
     r = await client.get("/me/agents/new", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
-    assert 'name="model"' in r.text
-    assert '<optgroup label="Claude" disabled>' in r.text
-    assert '<optgroup label="Gemini" disabled>' in r.text
-    assert '<optgroup label="OpenAI" disabled>' in r.text
-    assert 'No machine runs Claude — turn it on at /me/connections.' in r.text
-    assert 'No machine runs Gemini — turn it on at /me/connections.' in r.text
-    assert 'No machine runs OpenAI — turn it on at /me/connections.' in r.text
+    assert "Connect an AI client first" in r.text
+    assert 'href="/me/connections' in r.text
+    # The dead form must not render when there's nothing to build an agent on.
+    assert 'name="model"' not in r.text
 
 
 @pytest.mark.asyncio
-async def test_join_with_disconnected_provider_is_rejected(client, reset_db) -> None:
+async def test_create_agent_with_disconnected_provider_redirects_to_connections(
+    client, reset_db
+) -> None:
+    # Posting a model for a provider that isn't connected no longer 409s (a dead
+    # end). It redirects to /me/connections so the user can connect that client,
+    # then come back and create the agent.
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
@@ -270,9 +279,39 @@ async def test_join_with_disconnected_provider_is_rejected(client, reset_db) -> 
             "strategy_text": "CUSTOM: always cooperate.",
         },
         cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
     )
-    assert r.status_code == 409, r.text
-    assert "No machine runs OpenAI" in r.text
+    assert r.status_code == 303, r.text
+    assert r.headers["location"].startswith("/me/connections")
+
+
+@pytest.mark.asyncio
+async def test_create_agent_disconnected_provider_redirect_preserves_next(
+    client, reset_db
+) -> None:
+    # The safety-net redirect keeps ?next so the join chain resumes after the user
+    # connects the missing client.
+    join_url = "/games/hoard-hurt-help/matches/G_001/join"
+    async with reset_db() as db:
+        user = await make_user(db)
+        await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        await db.commit()
+
+    r = await client.post(
+        "/me/agents/new",
+        data={
+            "name": "Atlas",
+            "model": "gpt-5.4-mini",
+            "strategy_text": "CUSTOM: always cooperate.",
+            "next": join_url,
+        },
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303, r.text
+    loc = r.headers["location"]
+    assert loc.startswith("/me/connections?next=")
+    assert quote(join_url, safe="") in loc
 
 
 @pytest.mark.asyncio

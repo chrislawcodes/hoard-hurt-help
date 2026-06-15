@@ -15,6 +15,7 @@ from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
 from app.engine.connection_health import (
     active_matches_for_provider,
+    enabled_provider_values,
     is_join_blocked,
     live_provider_capacity,
     provider_enabled_on_any_connection,
@@ -172,24 +173,38 @@ async def _load_user_agents(
 async def _join_setup_redirect(
     db: DbSession, user: User, join_url: str
 ) -> RedirectResponse | None:
-    """Redirect to create-agent only when the user has no AI agent to pick.
+    """Send the user to the FIRST setup step they're missing, or None to render
+    the join form. We carry ``?next`` so finishing that step returns here.
 
-    The join form now shows ALL of the user's AI agents, grouped by provider —
-    including ones whose provider is offline or not set up. Picking one of those
-    still seats them (held), and the next screen walks them through connecting
-    before a short countdown runs out. So the only thing that blocks the form is
-    having nothing to pick at all. We carry ``?next`` so finishing on the
-    create-agent page returns here.
+    Joining needs, in order:
+      1. a connected AI client — which enables that client's provider, and
+      2. an AI agent built on a connected provider.
+
+    So when the user has no agent at all, we branch on whether any provider is
+    connected yet:
+      - no enabled provider -> /me/connections   (connect a client first; creating
+        an agent here would dead-end, since it requires a connected provider)
+      - has a provider       -> /me/agents/new     (create the agent)
+
+    Once the user HAS an AI agent we fall through to the form, even if that
+    agent's provider is offline: the form shows every agent grouped by provider
+    (including "Not connected" ones), and picking one seats it held while the next
+    screen walks them through connecting.
     """
     agents = await _load_user_agents(db, user.id)
     has_ai_agent = any(agent.kind == AgentKind.AI for agent, _version in agents)
-    if not has_ai_agent:
-        next_param = quote(join_url, safe="")
+    if has_ai_agent:
+        return None
+    next_param = quote(join_url, safe="")
+    if not await enabled_provider_values(db, user.id):
         return RedirectResponse(
-            url=f"/me/agents/new?next={next_param}",
+            url=f"/me/connections?next={next_param}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
-    return None
+    return RedirectResponse(
+        url=f"/me/agents/new?next={next_param}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
@@ -296,6 +311,8 @@ async def join_form(
             "player_count": await _player_count(db, match.id),
             "agent_groups": agent_groups,
             "any_agents": bool(agent_groups),
+            # The "create another agent" CTA carries ?next back to this join page.
+            "join_url": join_url,
             "base_url": settings.base_url,
             "error": None,
         },

@@ -3,10 +3,15 @@
 The join page is the HUB. On GET it checks setup state and redirects to the
 FIRST missing thing, carrying ?next back to the join URL:
 
-  1. Not signed in   → /auth/google/login?next=<join>
-  2. No handle       → /me/handle?next=<join>
-  3. No AI agent     → /me/agents/new?next=<join>
-  4. Has an AI agent → render the join form (no Player seated)
+  1. Not signed in           → /auth/google/login?next=<join>
+  2. No handle               → /me/handle?next=<join>
+  3. No agent, no provider   → /me/connections?next=<join>  (connect a client first)
+  4. No agent, has provider  → /me/agents/new?next=<join>   (create the agent)
+  5. Has an AI agent         → render the join form (no Player seated)
+
+Creating an agent requires an already-connected provider, so a brand-new user
+(zero connections, zero agents) is sent to connect a client first — never to the
+create-agent page, which would dead-end.
 
 The form now shows ALL of the user's AI agents grouped by provider — including
 ones whose provider is offline or not set up — so an unconnected provider no
@@ -151,9 +156,29 @@ async def test_no_handle_redirects_to_handle_with_next(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_no_agent_redirects_to_create_agent_with_next(client, reset_db):
+async def test_fresh_user_no_connection_redirects_to_connections_with_next(client, reset_db):
+    # Brand-new user: handle, but ZERO connections and ZERO agents. Creating an
+    # agent needs a connected provider, so the hub must send them to connect a
+    # client first — not to /me/agents/new (the old dead end).
     await _seed_match(reset_db)
-    user = await _user_with_handle(reset_db)  # handle, but no agent at all
+    user = await _user_with_handle(reset_db)  # handle, no connection, no agent
+    r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
+    assert r.status_code == 303
+    loc = r.headers["location"]
+    assert loc.startswith("/me/connections?next=")
+    assert JOIN_NEXT in loc
+
+
+@pytest.mark.asyncio
+async def test_provider_but_no_agent_redirects_to_create_agent_with_next(client, reset_db):
+    # A connected provider but no agent yet: the hub sends them to create one,
+    # carrying ?next back to the join URL.
+    await _seed_match(reset_db)
+    user = await _user_with_handle(reset_db)
+    async with reset_db() as db:
+        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+        await make_connection(db, u)  # enables a provider, but no agent created
+        await db.commit()
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 303
     loc = r.headers["location"]

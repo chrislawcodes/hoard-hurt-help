@@ -7,6 +7,13 @@
     <p class="sub">Pick a model and strategy.</p>
 </div>
 
+{% if not has_enabled_provider %}
+<div class="card agent-setup-card">
+    <h3 style="margin-top:0;">Connect an AI client first</h3>
+    <p class="sub">An agent plays using an AI client you've connected. You haven't connected one yet, so there's nothing to build an agent on. Connect a client (Claude, Gemini, or Codex) — that turns on its models here.</p>
+    <a class="btn btn-primary" href="/me/connections{% if next_url %}?next={{ next_url | urlencode }}{% endif %}">Connect an AI client first →</a>
+</div>
+{% else %}
 <div class="card agent-setup-card">
     <h3 style="margin-top:0;">Create the agent</h3>
     <form method="post" action="/me/agents/new" class="form agent-setup-form">
@@ -29,7 +36,7 @@
                 {% endfor %}
             </select>
             {% for note in availability_notes %}
-            <small class="hint">{{ note }}</small>
+            <small class="hint">{{ note.provider_label }} isn't connected yet — <a href="/me/connections{% if next_url %}?next={{ next_url | urlencode }}{% endif %}">connect {{ note.provider_label }} →</a> to use {{ note.provider_label }} models.</small>
             {% endfor %}
         </label>
         <label>
@@ -73,6 +80,7 @@
 
 <script>
 (function () {
+    if (!document.getElementById('strategy-text')) return;
     const presets = {{ strategy_presets | tojson }};
     const defaultStrategy = {{ default_strategy | tojson }};
     const strategyBox = document.getElementById('strategy-text');
@@ -120,5 +128,6 @@
     setActivePreset(activePresetId || 'custom');
 })();
 </script>
+{% endif %}
 
 {% endblock %}

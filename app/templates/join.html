@@ -40,7 +40,7 @@
 {% else %}
 <div class="card form">
     <p>All of your agents are already in this match. Create another agent to add it, or head back to the lobby.</p>
-    <a class="btn btn-primary" href="/me/agents/new">Create an agent →</a>
+    <a class="btn btn-primary" href="/me/agents/new{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">Create an agent →</a>
 </div>
 {% endif %}
 {% endblock %}
