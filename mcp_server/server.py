@@ -177,6 +177,17 @@ class _ConnectAtSignInGoogleProvider(GoogleProvider):
         return claims
 
 
+# How long the FastMCP-issued login (bearer) token stays valid. The default ties
+# it to Google's 1-hour access-token life, which forces a FULL re-login every hour
+# and after every deploy for clients that don't silently refresh (e.g. Claude
+# Code). We issue our own long-lived reference token instead: FastMCP still
+# re-validates and transparently refreshes the upstream Google token on every
+# request (a revoked/expired Google session still fails), so this only stops the
+# needless client-facing re-auth churn. Works because access_type=offline gets us
+# a Google refresh token, so the lifetime isn't capped at the upstream expiry.
+_MCP_ACCESS_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
+
+
 def _build_auth_provider() -> GoogleProvider:
     """Create the OAuth proxy used for MCP client sign-in.
 
@@ -208,6 +219,9 @@ def _build_auth_provider() -> GoogleProvider:
         },
         client_storage=_build_client_storage(),
         jwt_signing_key=signing_key,
+        # Issue a long-lived login token so clients aren't kicked out every hour /
+        # after each deploy (see _MCP_ACCESS_TOKEN_TTL_SECONDS).
+        fastmcp_access_token_expiry_seconds=_MCP_ACCESS_TOKEN_TTL_SECONDS,
         # Skip FastMCP's built-in Allow/Deny consent interstitial. It confuses
         # non-expert users (it shows a raw 127.0.0.1 callback) and leaves dead
         # tabs behind. Google's own sign-in/consent still gates every login, and
