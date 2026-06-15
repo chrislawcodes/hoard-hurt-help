@@ -234,14 +234,36 @@ class BaseGameModule:
     overrides what it needs and "the platform default" stays identical to PD.
 
     A game module subclasses this and implements the abstract members of
-    `GameModule` (config, rules, validate/record/resolve/award/finalize, move
-    display, theme). The defaults here reproduce the simultaneous, public,
-    fixed-grid behavior PD has always had. Games that need sequential turns,
-    hidden state, or a custom finish order override the relevant method.
+    `GameModule` (config, rules, validate_move, record_submission, resolve_turn,
+    award_round, finalize, theme). The defaults here reproduce the simultaneous,
+    public, fixed-grid behavior PD has always had — including a no-talk-phase
+    `record_message` and a no-display `move_effect`. Games that need sequential
+    turns, hidden state, a talk phase, per-move display, or a custom finish order
+    override the relevant method.
 
     The PD module subclasses this; the conformance stub does not (it never drives
     the platform paths that call these hooks).
     """
+
+    async def record_message(
+        self,
+        db: AsyncSession,
+        turn: Turn,
+        player: Player,
+        message: str,
+        thinking: str,
+        *,
+        existing: TurnMessage | None,
+        is_connector_fallback: bool = False,
+    ) -> None:
+        # Default: a game with no talk phase persists nothing. Games that have a
+        # talk phase (e.g. PD) override this to store the message.
+        return None
+
+    def move_effect(self, action: str) -> tuple[int, int | None]:
+        # Default: no per-move score effect to display in the viewer. Games whose
+        # moves carry a nominal point value (e.g. PD) override this.
+        return (0, None)
 
     async def next_actor(self, db: AsyncSession, match: Match) -> str | None:
         # Simultaneous games resolve every player each turn — the scheduler does

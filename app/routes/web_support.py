@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.engine.match_id_rewrite import match_id_candidates
+from app.match_naming import is_smoke_test_match_name
 from app.games import get as get_game_module
 from app.games.base import GameError, GameTheme
 from app.models.agent import Agent, AgentKind
@@ -216,17 +217,12 @@ async def _redirect_to_match(
     return RedirectResponse(url=_match_url(match, suffix), status_code=status.HTTP_301_MOVED_PERMANENTLY)
 
 
-# A finished game named like this is a deploy smoke test, not a real match —
-# keep it out of the public front door (featured replay + recent list).
-_TEST_NAME_PREFIX = "prod smoke"
-
-
 def _is_showcase(view: dict) -> bool:
     """Real, watchable game: had a full table, at least one real agent, and isn't a smoke test."""
     return (
         view["player_count"] >= 3
         and view.get("agent_count", 0) >= 1
-        and not view["name"].strip().lower().startswith(_TEST_NAME_PREFIX)
+        and not is_smoke_test_match_name(view["name"])
     )
 
 

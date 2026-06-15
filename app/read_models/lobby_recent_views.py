@@ -8,11 +8,11 @@ from typing import Any
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.match_naming import is_smoke_test_match_name
 from app.models.agent import Agent, AgentKind
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.read_models.agent_display import agent_display_name
-from app.routes.web_support import _TEST_NAME_PREFIX
 
 
 def _lobby_timestamp(match: Match) -> datetime:
@@ -82,7 +82,7 @@ async def load_lobby_recent_views(
     bots_only: list[dict[str, Any]] = []
     cancelled: list[dict[str, Any]] = []
     for match, player_count, bot_count, agent_count in rows:
-        if str(match.name).strip().lower().startswith(_TEST_NAME_PREFIX):
+        if is_smoke_test_match_name(str(match.name)):
             continue
         timestamp = _lobby_timestamp(match)
         view: dict[str, Any] = {
