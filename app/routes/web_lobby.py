@@ -62,7 +62,7 @@ from app.routes.web_support import (
     _is_showcase,
     _load_match_or_404,
     _redirect_to_match,
-    _top_standings,
+    _batch_top_standings,
     _upcoming_views,
 )
 from app.routes.viewer_presentation import _build_rc_data, sample_replay_data
@@ -288,6 +288,10 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     active_player_counts = await count_players_by_match(
         db, [g.id for g in active_games], active_only=True
     )
+    # Fetch all standings in one batched query instead of N separate queries.
+    all_standings = await _batch_top_standings(
+        db, [g.id for g in active_games], limit=3
+    )
     live = []
     for g in active_games:
         live.append(
@@ -303,7 +307,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
                 "current_turn": g.current_turn,
                 "winner_agent_id": None,
                 # The marquee shows "who's leading", so a live game carries its top-3.
-                "standings": await _top_standings(db, g.id, 3),
+                "standings": all_standings.get(g.id, []),
                 "player_count": active_player_counts.get(g.id, 0),
             }
         )

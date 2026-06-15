@@ -255,3 +255,49 @@ async def _top_standings(db, match_id: str, limit: int = 3) -> list[dict]:
     for i, row in enumerate(rows, start=1):
         row["rank"] = i
     return rows
+
+
+async def _batch_top_standings(
+    db, match_ids: list[str], limit: int = 3
+) -> dict[str, list[dict]]:
+    """Fetch top-N standings for multiple matches in one query.
+
+    Returns a dict keyed by match_id, each value is the top-N players sorted by
+    round-wins then round-score. Reduces N+1 queries on active games to one.
+    """
+    if not match_ids:
+        return {}
+
+    players = (
+        (
+            await db.execute(
+                select(Player).where(
+                    Player.match_id.in_(match_ids),
+                    Player.left_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    # Group players by match, sort within each group, take top N.
+    by_match: dict[str, list[dict]] = {mid: [] for mid in match_ids}
+    for p in players:
+        by_match[p.match_id].append({
+            "agent_id": p.seat_name,
+            "round_score": p.current_round_score,
+            "round_wins": p.total_round_wins,
+        })
+
+    result = {}
+    for match_id, player_list in by_match.items():
+        sorted_rows = sorted(
+            player_list,
+            key=lambda r: (-r["round_wins"], -r["round_score"]),
+        )[:limit]
+        for i, row in enumerate(sorted_rows, start=1):
+            row["rank"] = i
+        result[match_id] = sorted_rows
+
+    return result
