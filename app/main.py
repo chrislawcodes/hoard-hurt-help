@@ -21,6 +21,7 @@ from app.cache_warmup import warm_homepage_caches
 from app.config import settings
 from app.db_bootstrap import prepare_database_for_upgrade, verify_required_tables
 from app.engine.scheduler import registry as scheduler_registry
+from app.canonical_host import CanonicalHostMiddleware, canonical_host_of
 from app.request_logging import install_request_logging
 from app.routes import (
     admin_api,
@@ -235,6 +236,17 @@ def create_app() -> FastAPI:
         session_cookie="hhh_session",
     )
     install_request_logging(app)
+    # Outermost: refuse the Railway domain (and any non-canonical host) in real
+    # deployments, so the only working address is the canonical one. Without this,
+    # a client that registers the *.up.railway.app URL connects but fails OAuth
+    # sign-in with a confusing "protected resource mismatch". The deploy health
+    # check (/healthz) is always allowed. Off outside a real deployment, so local
+    # dev and tests (Host: testserver) are unaffected.
+    app.add_middleware(
+        CanonicalHostMiddleware,
+        canonical_host=canonical_host_of(settings.base_url),
+        enabled=bool(os.getenv("RAILWAY_ENVIRONMENT_ID")),
+    )
 
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.include_router(auth_routes.router)

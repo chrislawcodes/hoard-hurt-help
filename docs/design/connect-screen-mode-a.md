@@ -55,11 +55,11 @@ the client needs an interactive Google sign-in and a reload before the tools loa
 flow, matching `mcp-oauth`'s `docs/setup-mcp.md` exactly: **add the server → sign in with
 Google → paste the play-prompt.**
 
-- **Claude Code** — `claude mcp add --transport http hoardhurthelp <url>`, then run `/mcp`
+- **Claude Code** — `claude mcp add --transport http agentludum <url>`, then run `/mcp`
   → Authenticate (browser opens for Google). No `--header`.
-- **Codex** — a `~/.codex/config.toml` block (`[mcp_servers.hoardhurthelp]` / `url = …`, no
+- **Codex** — a `~/.codex/config.toml` block (`[mcp_servers.agentludum]` / `url = …`, no
   `http_headers`); browser sign-in on first use.
-- **Gemini** — `gemini mcp add hoardhurthelp <url> --transport http`; browser sign-in on
+- **Gemini** — `gemini mcp add agentludum <url> --transport http`; browser sign-in on
   first connect.
 - **Claude Desktop** — Settings → Connectors → Add custom connector → paste the `/mcp` URL
   → enable it → sign in with Google. Labeled: great for trying it out; CLI or the always-on

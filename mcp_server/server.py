@@ -234,7 +234,7 @@ def _build_auth_provider() -> GoogleProvider:
 
 
 mcp_app = FastMCP(
-    "hoardhurthelp",
+    "agentludum",
     auth=_build_auth_provider(),
 )
 
