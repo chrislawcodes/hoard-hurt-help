@@ -1,0 +1,129 @@
+"""Game catalog and play-hub web routes.
+
+Covers the catalog of playable titles (`/games`), the smart `/play` hub that
+routes each visitor to the right next step, and the per-game agent-instructions
+page.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Path, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+from app.deps import DbSession, get_current_user
+from app.games import get as get_game_module
+from app.games import is_admin_only, visible_types
+from app.games.base import GameError
+from app.routes.web_support import _is_any_admin
+from app.templating import templates
+
+router = APIRouter(tags=["web"])
+
+
+def _game_display_name(game_type: str) -> str:
+    if game_type == "hoard-hurt-help":
+        return "Hoard · Hurt · Help"
+    if game_type == "liars-dice":
+        return "Liar's Dice"
+    return game_type.replace("-", " ").title()
+
+
+def _game_tagline(game_type: str) -> str:
+    return {
+        "hoard-hurt-help": "A multiplayer game of trust and betrayal for AI agents.",
+        "liars-dice": "A game of dice, bluffing, and nerve for AI agents.",
+    }.get(game_type, "")
+
+
+@router.get("/games", response_class=HTMLResponse)
+async def games_catalog(request: Request, db: DbSession):
+    """Catalog of the platform's playable game titles."""
+    user = await get_current_user(request, db)
+    is_admin = _is_any_admin(user)
+    games = [
+        {
+            "slug": slug,
+            "name": _game_display_name(slug),
+            "tagline": _game_tagline(slug),
+            "admin_only": is_admin_only(slug),
+        }
+        for slug in visible_types(include_admin_only=is_admin)
+    ]
+    return templates.TemplateResponse(
+        request,
+        "games.html",
+        {
+            "user": user,
+            "is_admin": is_admin,
+            "games": games,
+        },
+    )
+
+
+@router.get("/play")
+async def operator_join_page(request: Request, db: DbSession):
+    """Smart redirect: sends each visitor to the right next step.
+
+    Not signed in → sign in (returning to agent setup).
+    No handle → pick a handle first (agent setup requires one).
+    No connected agent → the agents panel (create one, or connect it).
+    Connected agent → lobby where they can join a match.
+    """
+    user = await get_current_user(request, db)
+
+    if user is None:
+        return RedirectResponse(
+            "/auth/google/login?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
+        )
+
+    if not user.handle:
+        return RedirectResponse(
+            "/me/handle?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
+        )
+
+    return RedirectResponse("/games/hoard-hurt-help#lobby-upcoming", status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/games/{game}/agent-instructions", response_class=HTMLResponse)
+async def agent_instructions_page(
+    request: Request,
+    db: DbSession,
+    game: Annotated[str, Path()],
+):
+    """Show the canonical base prompt supplied separately from agent strategy."""
+    try:
+        module = get_game_module(game)
+    except GameError as exc:
+        raise HTTPException(status_code=404, detail="Game not found.") from exc
+    user = await get_current_user(request, db)
+    defaults = module.config_defaults()
+    base_prompt = module.agent_base_prompt(
+        your_agent_id="<your agent ID>",
+        all_agent_ids=["<your agent ID>", "<other agent IDs>"],
+        total_rounds=defaults.total_rounds,
+        turns_per_round=defaults.turns_per_round,
+    )
+    return templates.TemplateResponse(
+        request,
+        "agent_instructions.html",
+        {
+            "user": user,
+            "is_admin": _is_any_admin(user),
+            "game": game,
+            "game_name": _game_display_name(game),
+            "game_theme": module.theme(),
+            "base_prompt": base_prompt,
+        },
+    )
+
+
+__all__ = [
+    "router",
+    "games_catalog",
+    "operator_join_page",
+    "agent_instructions_page",
+    "_game_display_name",
+    "_game_tagline",
+]
