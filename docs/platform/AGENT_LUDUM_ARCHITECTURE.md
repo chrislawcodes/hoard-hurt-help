@@ -1,5 +1,7 @@
 # Agent Ludum — Platform Architecture
 
+> **In a hurry?** Jump to **[Where to make a change (quick index)](#where-to-make-a-change-quick-index)** to find the file for a task, and **[Notable shapes & tensions](#notable-shapes--tensions)** for the invariants you must not break. The per‑subsystem module tables in between are the detailed map.
+
 This doc is a **map of the code**: the big subsystems, the large modules inside
 them, and how a request flows through them. It answers "where does X live and
 why is it shaped this way."
