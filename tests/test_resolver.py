@@ -9,8 +9,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.resolver import resolve_turn, award_round_winners, finalize_game
-from app.engine.rules import DEFAULT_MISSED_MESSAGE
+from app.engine.resolver import award_round_winners, finalize_game
+from app.games.hoard_hurt_help.rules import DEFAULT_MISSED_MESSAGE
+from app.games.hoard_hurt_help.scoring import resolve_turn
 from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
 
