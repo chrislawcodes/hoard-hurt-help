@@ -23,6 +23,8 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import broadcast
+from app.aware_datetime import ensure_aware
+from app.engine.connection_health import LIVE_WINDOW_SECONDS
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState
 from app.models.player import Player
@@ -33,21 +35,11 @@ BotStatus = ConnectionStatus
 
 _PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
 
-# How long after the last authenticated call a bot still counts as "live". The
-# runner polls on its own cadence and interactive MCP play holds each request open
-# for up to ~25s (the bounded long-poll), so this tolerates a couple of missed
-# pings before the badge flips to disconnected.
-_LIVE_WINDOW_SECONDS = 90
 # Don't rewrite last_seen_at on every fast poll — once per this interval is plenty.
 _HEARTBEAT_THROTTLE_SECONDS = 10
 # Same idea for the play-loop heartbeat (last_polled_at): get_next_turn can fire
 # rapidly when idle (instant no_game reply), so throttle the write.
 _POLL_THROTTLE_SECONDS = 10
-
-
-def _as_aware(dt: datetime) -> datetime:
-    """SQLite drops tz info on read; treat a naive value as UTC."""
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def bot_channel(bot_id: int) -> str:
@@ -116,7 +108,7 @@ async def mark_seen(
     cutover = key_hash == bot.key_lookup and bot.prev_key_lookup is not None
     heartbeat_due = (
         bot.last_seen_at is None
-        or (now - _as_aware(bot.last_seen_at)).total_seconds() >= _HEARTBEAT_THROTTLE_SECONDS
+        or (now - ensure_aware(bot.last_seen_at)).total_seconds() >= _HEARTBEAT_THROTTLE_SECONDS
     )
 
     # One atomic UPDATE per call: always bump the call counter; conditionally set
@@ -165,7 +157,7 @@ async def mark_polled(
     last = connection.last_polled_at
     if (
         last is not None
-        and (now - _as_aware(last)).total_seconds() < _POLL_THROTTLE_SECONDS
+        and (now - ensure_aware(last)).total_seconds() < _POLL_THROTTLE_SECONDS
     ):
         return
     await db.execute(
@@ -323,7 +315,7 @@ class BotHealthStatus:
 
 def _humanize_since(dt: datetime, now: datetime) -> str:
     """Plain 'time ago' for the badge, e.g. 'just now', '4m ago', '2h ago'."""
-    secs = int((now - _as_aware(dt)).total_seconds())
+    secs = int((now - ensure_aware(dt)).total_seconds())
     if secs < 10:
         return "just now"
     if secs < 60:
@@ -370,7 +362,7 @@ async def compute_bot_health(
     Precedence (top wins): Paused (owner intent) -> Stalled (in a live game but
     the runner is cold or every recent move defaulted) -> Live (warm + in a game)
     -> Ready (warm, no game) -> Disconnected. "Warm" means the heartbeat
-    (``last_seen_at``) is within ``_LIVE_WINDOW_SECONDS``; the displayed
+    (``last_seen_at``) is within ``LIVE_WINDOW_SECONDS``; the displayed
     last-connected time falls back to ``first_connected_at`` so bots that
     connected before the heartbeat existed don't read as 'never connected'.
     """
@@ -378,11 +370,11 @@ async def compute_bot_health(
     last_seen = bot.last_seen_at
     warm = (
         last_seen is not None
-        and (now - _as_aware(last_seen)).total_seconds() <= _LIVE_WINDOW_SECONDS
+        and (now - ensure_aware(last_seen)).total_seconds() <= LIVE_WINDOW_SECONDS
     )
     last_connected = bot.last_seen_at or bot.first_connected_at
     never = last_connected is None
-    last_connected_aware = _as_aware(last_connected) if last_connected is not None else None
+    last_connected_aware = ensure_aware(last_connected) if last_connected is not None else None
     human = None if last_connected is None else _humanize_since(last_connected, now)
 
     def build(

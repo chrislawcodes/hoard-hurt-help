@@ -15,7 +15,7 @@ from app.models.player import Player
 from app.models.user import User
 from app.read_models.matches import load_match_timeline, load_players
 from app.read_models.agent_display import agent_display_name
-from app.routes.viewer_presentation import (
+from app.engine.viewer_presentation import (
     _build_rc_data,
     _feed_sort_key,
     _move_effect_for,

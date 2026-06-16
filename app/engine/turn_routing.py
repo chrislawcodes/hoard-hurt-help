@@ -12,13 +12,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from collections.abc import Mapping, Sequence
 
+from app.aware_datetime import ensure_aware
 from app.engine.connection_health import LIVE_WINDOW_SECONDS
 from app.models.connection import ConnectionProvider
-
-
-def _as_aware(dt: datetime) -> datetime:
-    """SQLite may drop tzinfo on read; treat naive values as UTC."""
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def _provider_value(provider: str | ConnectionProvider) -> str:
@@ -61,7 +57,7 @@ def connection_is_dead(connection: ConnectionRouteState, *, now: datetime | None
         return True
     if last_seen is None:
         return True
-    return (now - _as_aware(last_seen)).total_seconds() > LIVE_WINDOW_SECONDS
+    return (now - ensure_aware(last_seen)).total_seconds() > LIVE_WINDOW_SECONDS
 
 
 def connection_covers_provider(

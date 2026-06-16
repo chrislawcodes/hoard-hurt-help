@@ -20,12 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 import app.db as db_module
+from app.aware_datetime import ensure_aware
 from app.engine.agent_idle import IdleStatus, compute_idle_status
 from app.engine.connection_activity import mark_polled
 from app.engine.agent_play_guards import (
     _LONG_POLL_HOLD_SECONDS,
     _LONG_POLL_INTERVAL_SECONDS,
-    _as_aware,
 )
 from app.engine.agent_play_reads import (
     _build_current_turn,
@@ -204,7 +204,7 @@ async def _collect_candidates(
                 match_id=match_id,
                 round=turn.round,
                 turn=turn.turn,
-                deadline=_as_aware(turn.deadline_at),
+                deadline=ensure_aware(turn.deadline_at),
                 agent_id=agent_id,
             )
         )

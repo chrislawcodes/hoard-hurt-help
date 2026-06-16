@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, stat
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy import case, func, select
 
+from app.aware_datetime import ensure_aware
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
 from app.engine.connection_health import (
@@ -31,6 +32,7 @@ from app.models.player import Player
 from app.models.user import User, UserRole
 from app.request_logging import set_request_trace_context
 from app.routes.connections_connect_guide import _play_prompt
+from app.routes.provider_labels import PROVIDER_LABELS
 from app.routes.web_support import (
     _game_theme,
     _is_any_admin,
@@ -47,15 +49,6 @@ router = APIRouter(tags=["web"])
 _DOCS_DIR = FsPath("docs")
 _GUIDE_NAME = re.compile(r"^[a-z0-9-]+$")
 
-# Human-friendly provider names for the grouped join picker and connect page.
-_PROVIDER_LABELS = {
-    "claude": "Claude",
-    "gemini": "Gemini",
-    "openai": "OpenAI",
-    "hermes": "Hermes",
-    "openclaw": "OpenClaw",
-}
-
 # On the held-seat page, a "returning" provider (set up on a connection) is told
 # to just paste the play-prompt to wake it. If it's still wired into the user's
 # AI client, it checks in within seconds. So if it hasn't come online after this
@@ -64,11 +57,6 @@ _PROVIDER_LABELS = {
 # This is the liveness check: we don't trust the DB "configured" flag, we watch
 # whether the connection actually comes online and act when it doesn't.
 _STALL_WAKE_SECONDS = 45
-
-
-def _aware(dt: datetime) -> datetime:
-    """SQLite returns naive datetimes; treat them as UTC for arithmetic."""
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def _hx_redirect(url: str) -> HTMLResponse:
@@ -289,7 +277,7 @@ async def join_form(
             pv,
             {
                 "provider": pv,
-                "provider_label": _PROVIDER_LABELS.get(pv, pv.title()),
+                "provider_label": PROVIDER_LABELS.get(pv, pv.title()),
                 "status": provider_status[pv],
                 "agents": [],
             },
@@ -536,7 +524,7 @@ async def seat_connect(
 
     provider = await db.scalar(select(Agent.provider).where(Agent.id == player.agent_id))
     provider_label = (
-        _PROVIDER_LABELS.get(provider.value, provider.value.title())
+        PROVIDER_LABELS.get(provider.value, provider.value.title())
         if provider is not None
         else "your AI"
     )
@@ -622,7 +610,7 @@ async def seat_connect_status(
 
     provider = await db.scalar(select(Agent.provider).where(Agent.id == player.agent_id))
     provider_label = (
-        _PROVIDER_LABELS.get(provider.value, provider.value.title())
+        PROVIDER_LABELS.get(provider.value, provider.value.title())
         if provider is not None
         else "your AI"
     )
@@ -633,7 +621,7 @@ async def seat_connect_status(
         return _hx_redirect(match_url)
 
     now = datetime.now(timezone.utc)
-    if _aware(player.seat_reserved_until) <= now:
+    if ensure_aware(player.seat_reserved_until) <= now:
         # Deadline passed and still not live — release the seat now.
         await db.delete(player)
         await db.commit()
@@ -652,7 +640,7 @@ async def seat_connect_status(
     # the user's AI client — waking it won't work until they reconnect it. Surface
     # a prominent reconnect CTA. The poll keeps running underneath, so the moment
     # they reconnect and it comes online we still auto-seat them.
-    deadline = _aware(player.seat_reserved_until)
+    deadline = ensure_aware(player.seat_reserved_until)
     waited_seconds = SEAT_HOLD_SECONDS - (deadline - now).total_seconds()
     is_configured = provider is not None and await provider_enabled_on_any_connection(
         db, user.id, provider

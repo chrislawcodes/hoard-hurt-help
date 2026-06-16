@@ -17,7 +17,8 @@ from fastapi import status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.agent_play_guards import _as_aware, _err, _seat_name_map
+from app.aware_datetime import ensure_aware
+from app.engine.agent_play_guards import _err, _seat_name_map
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
@@ -194,7 +195,7 @@ async def _load_active_phase_turn(
             f"Turn is not in {expected_phase} phase.",
             status.HTTP_409_CONFLICT,
         )
-    if datetime.now(timezone.utc) >= _as_aware(turn.deadline_at):
+    if datetime.now(timezone.utc) >= ensure_aware(turn.deadline_at):
         raise _err("DEADLINE_PASSED", "Submission past deadline.", status.HTTP_410_GONE)
     return game, turn
 
