@@ -807,7 +807,7 @@ async def test_no_game_returns_no_game_immediately_with_idle_cadence(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """A connection with NO game at all gets 'no_game' (not 'waiting') at once,
-    carrying an idle count and the slow ~30s idle cadence. The plural endpoint
+    carrying an idle count and the slow 5-minute idle cadence. The plural endpoint
     does the same. A freshly-connected caller is not told to stop yet."""
     async with session_factory() as db:
         user = await make_user(db)
@@ -823,7 +823,7 @@ async def test_no_game_returns_no_game_immediately_with_idle_cadence(
     assert body["status"] == "no_game"
     # Returned immediately (no long-poll hold) and advised the slow idle cadence.
     assert elapsed < 0.5
-    assert body["next_poll_after_seconds"] == 30
+    assert body["next_poll_after_seconds"] == 300
     # Just connected — idle clock barely started, so don't stop yet.
     assert body["should_stop"] is False
     assert body["idle_seconds"] < 60
@@ -833,18 +833,24 @@ async def test_no_game_returns_no_game_immediately_with_idle_cadence(
     assert batch.status_code == 200, batch.text
     bbody = batch.json()
     assert bbody["status"] == "no_game"
-    assert bbody["next_poll_after_seconds"] == 30
+    assert bbody["next_poll_after_seconds"] == 300
     assert bbody["should_stop"] is False
 
 
 @pytest.mark.asyncio
 async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Seated in an active game but with no open turn: a turn could open any
-    moment, so the bounded long-poll holds for ~hold_seconds and then returns
-    'waiting'. We use a short hold so the test stays fast and assert the call
-    actually spent close to the window before giving up."""
+    moment, so the server long-polls — it holds the request open, then returns
+    'waiting'. We shrink the server's hold so the test stays fast and assert the
+    call actually spent close to the window before giving up."""
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0.4)
+    monkeypatch.setattr(
+        "app.engine.agent_play_next_turn.LONG_POLL_INTERVAL_SECONDS", 0.05
+    )
     async with session_factory() as db:
         user = await make_user(db)
         connection, key = await make_connection(db, user)
@@ -876,10 +882,7 @@ async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
 
     loop = asyncio.get_event_loop()
     started = loop.time()
-    r = await client.get(
-        "/api/agent/next-turn?hold_seconds=0.4&interval_seconds=0.05",
-        headers={"X-Connection-Key": key},
-    )
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     elapsed = loop.time() - started
     assert r.status_code == 200, r.text
     body = r.json()
@@ -892,10 +895,15 @@ async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
 
 @pytest.mark.asyncio
 async def test_long_poll_returns_promptly_when_a_turn_opens(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When a turn opens partway through the hold, the long-poll returns it the
     moment its next re-check sees it — well before the full window elapses."""
+    monkeypatch.setattr(
+        "app.engine.agent_play_next_turn.LONG_POLL_INTERVAL_SECONDS", 0.05
+    )
     async with session_factory() as db:
         user = await make_user(db)
         connection, key = await make_connection(db, user)
@@ -947,10 +955,7 @@ async def test_long_poll_returns_promptly_when_a_turn_opens(
     # Long hold window, fast re-check interval: the response should come back when
     # the turn opens (~0.15s), not at the 5s window.
     opener = asyncio.create_task(open_turn_soon())
-    r = await client.get(
-        "/api/agent/next-turn?hold_seconds=5&interval_seconds=0.05",
-        headers={"X-Connection-Key": key},
-    )
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     await opener
     elapsed = loop.time() - started
     assert r.status_code == 200, r.text

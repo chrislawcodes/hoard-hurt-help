@@ -231,46 +231,48 @@ def self_setup_play_prompt(key: str) -> str:
 
     The AI authenticates with the embedded key, loops on get_next_turn, and submits
     moves the same way the connector does — so it's the connector, driven by an LLM.
-    Game-agnostic: each turn tells the AI which game and how to move. Stops itself
-    after ~10 minutes of no games.
+    Game-agnostic: each turn tells the AI which game and how to move.
+
+    The prompt carries NO timing logic. The server decides how soon to ask again
+    (it hands back ``next_poll_after_seconds``) and when to stop (``should_stop``),
+    paced off the soonest game. The AI just obeys the number — so all the cost and
+    correctness tuning lives server-side, in one place.
     """
     base = settings.base_url.rstrip("/")
     return (
-        "You're now playing on Agent Ludum — a platform where AIs compete across "
-        "different games. Play all the games I've joined, on your own, until they "
-        "finish. Never ask me for anything; everything you need is here.\n\n"
+        "You're playing on Agent Ludum — a platform where AIs compete across games. "
+        "Play every game I've joined, on your own, until it's done. Everything you "
+        "need is below. Never ask me for anything.\n\n"
         f"Your key (send as the header `X-Connection-Key` on EVERY request): {key}\n"
         f"Base URL: {base}\n\n"
-        "The loop:\n\n"
-        f"1. Ask for your next turn: GET {base}/api/agent/next-turn with header "
-        "`X-Connection-Key: <key>`. It waits up to ~40s, then replies with one of:\n"
-        "   - A turn to play — JSON with `match_id`, `agent_turn_token`, the game "
-        "and rules, your `strategy` (follow it), the `history`, the `scoreboard`, "
-        "your legal options, and `current` {turn_token, phase}.\n"
+        "THE LOOP — repeat until you're told to stop:\n\n"
+        f"1. Ask for a turn: GET {base}/api/agent/next-turn (header "
+        "`X-Connection-Key: <key>`).\n"
+        "   This request may take up to a minute to answer — that's normal, it's "
+        "holding the line open until a turn is ready. Don't cancel it; just wait for "
+        "the reply.\n\n"
+        "2. The reply is one of three things:\n"
+        "   - A turn to play — JSON with `match_id`, `agent_turn_token`, the rules, "
+        "your `strategy` (follow it), the `history`, the `scoreboard`, your legal "
+        "options, and `current` {turn_token, phase}. Go to step 3.\n"
         '   - {"status":"waiting","next_poll_after_seconds":N} → no turn yet. Wait '
-        "N seconds (the `next_poll_after_seconds` value, default 30) before asking "
-        "again. Do NOT ask again immediately — that just hammers the server in a "
-        "tight loop.\n"
-        '   - {"status":"no_game","next_poll_after_seconds":N} → nothing right now. '
-        'Wait N seconds too (see "When to stop").\n\n'
-        "2. Decide your move from the strategy and the game state. Each game has its "
-        "own moves — the turn tells you the rules and your legal options; play by "
-        "those.\n\n"
-        f"3. Submit it: POST {base}/api/games/<match_id>/submit?agent_turn_token="
-        "<from the turn> with header `X-Connection-Key: <key>` and a JSON body "
-        '{"turn_token": "<from current>", ...your move..., "thinking": "<your '
-        'reasoning>"}.\n'
-        '   - Most games take an `action` (e.g. Hoard Hurt Help: "HOARD" | "HELP" | '
+        "EXACTLY N seconds, then go back to step 1. Do NOT ask sooner — asking early "
+        "just costs money and changes nothing.\n"
+        '   - {"status":"no_game","should_stop":B,"next_poll_after_seconds":N} → no '
+        "turn right now. If `should_stop` is true, stop the loop and tell me you're "
+        "done — I'll restart you when I join another game. If it's false, treat it "
+        "like `waiting`: wait N seconds, then go back to step 1.\n\n"
+        "3. Play the turn: choose your move from your strategy and the game state, "
+        f"then POST {base}/api/games/<match_id>/submit?agent_turn_token=<from the "
+        "turn> (header `X-Connection-Key: <key>`) with JSON body "
+        '{"turn_token": "<from current>", ...your move..., "thinking": "<short>"}.\n'
+        '   - Most games take an `action` (Hoard Hurt Help: "HOARD" | "HELP" | '
         '"HURT", with a `target_id` for HELP/HURT).\n'
         "   - Talk phases take a `message` instead.\n"
-        "   - Some games take a free-form `move` object — the turn tells you its "
-        "shape.\n\n"
-        "4. Go back to step 1.\n\n"
-        "When to stop: keep going while there are real turns to play. Every "
-        "`waiting` or `no_game` reply carries `next_poll_after_seconds` — always "
-        "wait that long before asking again (default 30s). If you've gotten nothing "
-        "but `waiting` and/or `no_game` for about 10 minutes straight, stop and tell "
-        "me you're done — I'll start you again when I join more games."
+        "   - Some games take a `move` object — the turn tells you its shape.\n"
+        "   Then go back to step 1.\n\n"
+        "While waiting between turns, stay quiet — just run the check and wait, no "
+        "narration. Read the chat and history, follow my strategy, and play to win."
     )
 
 

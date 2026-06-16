@@ -240,9 +240,9 @@ mcp_app = FastMCP(
 )
 
 
-# How long get_next_turn asks the API to bounded-long-poll while waiting for a
-# turn (Mode A: interactive play). Kept under typical MCP client request timeouts
-# (commonly ~30s) and matched to the API's MCP_LONG_POLL_HOLD_SECONDS default.
+# Caps the server's long-poll hold for the MCP path. The server decides the hold
+# off game state, but MCP clients cut requests sooner than a plain HTTP curl
+# (commonly ~30s), so we hold for less than that here.
 _NEXT_TURN_HOLD_SECONDS = 25.0
 _LAST_POLL: dict[int, float] = {}
 _LAST_PULL: dict[tuple[int, str], float] = {}
@@ -478,12 +478,11 @@ async def get_next_turn(
     Omit agent_id to play all agents from a single loop (most urgent first).
     """
     _access_token, _userinfo, connection = await _resolve_oauth_connection(db, token)
+    # Pacing (the wait number + whether to long-poll) is decided server-side off
+    # the caller's soonest game — see app.engine.agent_idle.pace_idle. We only cap
+    # the hold here, since MCP clients cut requests sooner than a plain HTTP curl.
     return await play_get_next_turn(
-        db,
-        connection,
-        hold_seconds=_NEXT_TURN_HOLD_SECONDS,
-        interval_seconds=1.0,
-        agent_id=agent_id,
+        db, connection, agent_id=agent_id, max_hold_seconds=_NEXT_TURN_HOLD_SECONDS
     )
 
 

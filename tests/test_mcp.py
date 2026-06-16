@@ -151,13 +151,11 @@ async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
         db: object,
         connection: object,
         *,
-        hold_seconds: float,
-        interval_seconds: float,
         agent_id: int | None = None,
+        max_hold_seconds: float | None = None,
     ) -> dict[str, object]:
         captured["service_connection"] = connection
-        captured["hold_seconds"] = hold_seconds
-        captured["interval_seconds"] = interval_seconds
+        captured["max_hold_seconds"] = max_hold_seconds
         captured["agent_id"] = agent_id
         return {"status": "waiting", "next_poll_after_seconds": 2}
 
@@ -176,6 +174,8 @@ async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
     assert captured["checked_connection"].key_lookup == "lookup-7"
     assert captured["mark_seen_key_hash"] == "lookup-7"
     assert captured["service_connection"].id == 7
+    # MCP path caps the server's long-poll hold (MCP clients cut requests early).
+    assert captured["max_hold_seconds"] == server._NEXT_TURN_HOLD_SECONDS
 
 
 @pytest.mark.asyncio

@@ -21,17 +21,11 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 async def next_turn(
     connection: Annotated[Connection, Depends(require_connection)],
     db: DbSession,
-    hold_seconds: float = 0.0,
-    interval_seconds: float = 1.0,
     agent_id: int | None = None,
 ) -> dict[str, object]:
-    return await get_next_turn(
-        db,
-        connection,
-        hold_seconds=hold_seconds,
-        interval_seconds=interval_seconds,
-        agent_id=agent_id,
-    )
+    # Pacing (long-poll hold + wait number) is decided server-side, off the
+    # caller's soonest game — the client no longer asks for a hold length.
+    return await get_next_turn(db, connection, agent_id=agent_id)
 
 
 @router.get("/next-turns", response_model=None)
