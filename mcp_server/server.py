@@ -29,6 +29,7 @@ from app.deps import assert_connection_usable, require_agent_player
 from app.engine.agent_play import (
     chat_transcript,
     get_next_turn as play_get_next_turn,
+    get_next_turns as play_get_next_turns,
     opponent_history,
     poll_turn,
     standings,
@@ -465,17 +466,42 @@ async def get_turn(
 @mcp_app.tool()
 async def get_next_turn(
     *,
+    agent_id: int | None = None,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
     db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
-    """Get the most urgent pending turn across all of the user's games."""
+    """Get the most urgent pending turn across all of the user's games.
+
+    Pass agent_id to get the next turn for ONE specific agent. Use this when you
+    are running several agents at once: run one loop per agent in parallel, and
+    give each loop its own agent_id so the agents' turns never wait on each other.
+    Omit agent_id to play all agents from a single loop (most urgent first).
+    """
     _access_token, _userinfo, connection = await _resolve_oauth_connection(db, token)
     return await play_get_next_turn(
         db,
         connection,
         hold_seconds=_NEXT_TURN_HOLD_SECONDS,
         interval_seconds=1.0,
+        agent_id=agent_id,
     )
+
+
+@mcp_app.tool()
+async def get_next_turns(
+    *,
+    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
+) -> Any:
+    """Return ALL of the user's currently-claimable turns at once, one per agent.
+
+    Use this to discover how many agents you are running before fanning out: if it
+    returns more than one turn, run one parallel loop per agent (call
+    get_next_turn(agent_id=...) in each), so two agents on the same provider can
+    both move inside the same turn window instead of waiting in line.
+    """
+    _access_token, _userinfo, connection = await _resolve_oauth_connection(db, token)
+    return await play_get_next_turns(db, connection)
 
 
 @mcp_app.tool()

@@ -400,6 +400,75 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
 
 
 @pytest.mark.asyncio
+async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Two agents share one connection AND one match. agent_id fetches just one;
+    the batch returns both; the no-arg fetch still serves the most-urgent."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        match, _turn = await _create_match_with_turn(db, "M_0201", deadline_seconds=60)
+        agent_a, _version_a, player_a = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="alpha strategy",
+        )
+        agent_b, _version_b, player_b = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Beta",
+            agent_name="Beta",
+            model="claude-haiku-4-5",
+            strategy_text="beta strategy",
+        )
+        await db.commit()
+
+    # agent_id picks exactly that agent's turn — even though both share the match.
+    only_a = await client.get(
+        "/api/agent/next-turn",
+        params={"agent_id": agent_a.id},
+        headers={"X-Connection-Key": key},
+    )
+    assert only_a.status_code == 200, only_a.text
+    body_a = only_a.json()
+    assert body_a["status"] == "your_turn"
+    assert body_a["agent_id"] == agent_a.id
+    assert body_a["seat_name"] == player_a.seat_name
+
+    only_b = await client.get(
+        "/api/agent/next-turn",
+        params={"agent_id": agent_b.id},
+        headers={"X-Connection-Key": key},
+    )
+    assert only_b.status_code == 200, only_b.text
+    body_b = only_b.json()
+    assert body_b["status"] == "your_turn"
+    assert body_b["agent_id"] == agent_b.id
+    assert body_b["seat_name"] == player_b.seat_name
+
+    # The batch returns BOTH agents' turns, one entry per agent.
+    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    assert batch.status_code == 200, batch.text
+    batch_body = batch.json()
+    assert batch_body["status"] == "your_turn"
+    served_agent_ids = {turn["agent_id"] for turn in batch_body["turns"]}
+    assert served_agent_ids == {agent_a.id, agent_b.id}
+
+    # Regression: the no-arg fetch still serves a single most-urgent turn.
+    any_turn = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert any_turn.status_code == 200, any_turn.text
+    assert any_turn.json()["agent_id"] in {agent_a.id, agent_b.id}
+
+
+@pytest.mark.asyncio
 async def test_paused_connection_next_turn_is_rejected(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
