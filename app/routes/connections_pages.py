@@ -183,6 +183,7 @@ async def list_connections(
             "has_connected_before": has_connected_before,
             "is_live_now": is_live_now,
             "is_playing_now": is_playing_now,
+            "next_game_status": status_flags["next_game_status"],
             "has_agent": has_agent,
             "agent_summary": agent_summary,
             "lobby_url": "/games/hoard-hurt-help",

@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.deps import DbSession
+from app.engine.agent_idle import GameTiming, game_timing_for_user
 from app.engine.connection_health import (
     LIVE_WINDOW_SECONDS,
     ConnectionHealth,
@@ -249,9 +250,13 @@ async def _live_status_context(
                 is_playing_now = True
                 break
     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
+    # The free, server-rendered "what's my AI waiting for" line — so the human
+    # reads game timing off the page, not off the (paid) AI's narration.
+    next_game_status = _next_game_line(await game_timing_for_user(db, user.id))
     return {
         "is_live_now": is_live_now,
         "is_playing_now": is_playing_now,
+        "next_game_status": next_game_status,
         "has_agent": has_agent,
         "agent_summary": agent_summary,
         "play_prompt": _play_prompt(),
@@ -260,3 +265,15 @@ async def _live_status_context(
         # (a join hub sent the user to start their machine). None = stay put.
         "next_url": next_url,
     }
+
+
+def _next_game_line(timing: GameTiming) -> str:
+    """One plain line for the status box: what the running AI is waiting on."""
+    if timing.has_live_game:
+        return "A game is live now — your AI is playing it."
+    seconds = timing.seconds_to_next_start
+    if seconds is not None:
+        if seconds < 90:
+            return "Your next game is starting now."
+        return f"Your next game starts in about {round(seconds / 60)} min."
+    return "No game yet — join one and your AI will jump in."

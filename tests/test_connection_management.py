@@ -539,6 +539,8 @@ async def test_connections_list_playing_state_shows_success(
     assert "byo-play-prompt-live" not in text
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." not in text
     assert "Join a game →" not in text
+    # The free, server-rendered game-status line: this user has no game seated yet.
+    assert "No game yet" in text
 
 
 @pytest.mark.asyncio

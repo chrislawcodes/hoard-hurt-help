@@ -106,3 +106,28 @@ def test_live_game_wins_over_a_scheduled_one():
     )
     assert hold == LONG_POLL_HOLD_SECONDS
     assert nxt == POLL_IN_PLAY_SECONDS
+
+
+def test_status_line_copy_for_each_state():
+    """The free on-page status line (the AI never narrates this) reads right for a
+    live game, a scheduled start, an imminent start, and no game."""
+    from app.engine.agent_idle import GameTiming
+    from app.routes.connections_queries import _next_game_line
+
+    live = GameTiming(has_game=True, has_live_game=True, seconds_to_next_start=None)
+    assert "live" in _next_game_line(live).lower()
+
+    scheduled = GameTiming(
+        has_game=True, has_live_game=False, seconds_to_next_start=240
+    )
+    assert "4 min" in _next_game_line(scheduled)
+
+    imminent = GameTiming(
+        has_game=True, has_live_game=False, seconds_to_next_start=20
+    )
+    assert "starting now" in _next_game_line(imminent).lower()
+
+    none_yet = GameTiming(
+        has_game=False, has_live_game=False, seconds_to_next_start=None
+    )
+    assert "no game" in _next_game_line(none_yet).lower()

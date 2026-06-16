@@ -8,7 +8,10 @@
         a success box that confirms it's working, so the user knows it took.
    The play-prompt is the SAME for every provider and only appears once the user
    has an agent, since that's when there are games to play. Expects `play_prompt`,
-   `has_agent`, `agent_summary`, `is_live_now`, `is_playing_now`, `lobby_url`. #}
+   `has_agent`, `agent_summary`, `is_live_now`, `is_playing_now`, `lobby_url`, and
+   `next_game_status` (a free, server-rendered "game live / next game in ~N min /
+   no game yet" line shown in the PLAYING box, so the human reads timing off the
+   page instead of the paid AI's narration). #}
 <div id="live-status"
      hx-get="/me/connections/live-status{% if next_url or provider_hint %}?{% if provider_hint %}provider={{ provider_hint }}{% endif %}{% if next_url %}{% if provider_hint %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}"
      hx-trigger="every 4s"
@@ -22,6 +25,7 @@
                 <div>
                     <p class="byo-playing-title">Your AI is playing</p>
                     <p class="byo-playing-sub">It worked — your AI is playing your games on its own. You can close this page; it keeps playing.</p>
+                    {% if next_game_status %}<p class="byo-playing-status">{{ next_game_status }}</p>{% endif %}
                 </div>
             </div>
             <p class="byo-playing-actions">

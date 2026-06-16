@@ -392,7 +392,8 @@ async def get_next_turn(
 
     # No turn right now. Pace off the soonest game: a live (or imminent) game
     # long-polls; everything else gets a plain "wait N seconds" and returns at once.
-    idle = await compute_idle_status(db, connection, now=now)
+    # Scope to agent_id when a per-agent loop asks, so it paces off its own game.
+    idle = await compute_idle_status(db, connection, now=now, agent_id=agent_id)
     hold_seconds, next_poll = pace_idle(idle)
     if max_hold_seconds is not None:
         hold_seconds = min(hold_seconds, max_hold_seconds)
