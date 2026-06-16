@@ -31,7 +31,8 @@ from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
 from app.models.user import User, UserRole
 from app.request_logging import set_request_trace_context
-from app.routes.connections_connect_guide import _play_prompt
+from app.routes.connections_connect_guide import self_setup_play_prompt
+from app.routes.connections_machine_setup import _ensure_pending_setup_and_key
 from app.routes.provider_labels import PROVIDER_LABELS
 from app.routes.web_support import (
     _game_theme,
@@ -528,28 +529,18 @@ async def seat_connect(
         if provider is not None
         else "your AI"
     )
-    # Fork on setup state: a RETURNING user (this provider is set up on a
-    # connection, just not live now) only needs to wake their AI with the
-    # play-prompt; a NEW user (provider not set up anywhere) needs the full
-    # connect walkthrough. No countdown either way — the seat is held generously
-    # and the page auto-seats the moment the AI comes online.
-    is_returning = provider is not None and await provider_enabled_on_any_connection(
-        db, user.id, provider
-    )
-    status_url = f"{match_url}/connect/{player.id}/status"
-    connect_next = quote(f"{match_url}/connect/{player.id}", safe="")
-    # Carry the provider so the connections page judges THIS provider (e.g. Gemini),
-    # not "is anything of mine live". Without it, a live Claude connection makes the
-    # page think we're already set up and bounce us straight back to this page.
-    connect_url = f"/me/connections?next={connect_next}"
+    # One path for everyone: the AI self-setup prompt for this seat's provider.
+    # Paste it into the AI and it plays via the HTTP API — no MCP, no sign-in, no
+    # client-specific commands. The seat-status poll below auto-confirms the seat
+    # (and jumps to the match) the moment the AI starts playing. We mint a STABLE
+    # per-provider key so the prompt shows the same key on every reload.
+    self_setup_prompt = None
     if provider is not None:
-        connect_url += f"&provider={provider.value}"
-    if not is_returning:
-        # New provider — nothing set up yet. Skip the "you're in, bringing your AI
-        # online" interstitial and go straight to that provider's connect steps. The
-        # seat stays held; the connect page's ?next brings the user back here, and
-        # the seat auto-confirms once the AI starts playing.
-        return RedirectResponse(url=connect_url, status_code=status.HTTP_303_SEE_OTHER)
+        _setup, self_play_key = await _ensure_pending_setup_and_key(
+            request, db, user.id, provider=provider
+        )
+        self_setup_prompt = self_setup_play_prompt(self_play_key)
+    status_url = f"{match_url}/connect/{player.id}/status"
     return templates.TemplateResponse(
         request,
         "seat_connect.html",
@@ -560,9 +551,7 @@ async def seat_connect(
             "game_theme": _game_theme(match),
             "player": player,
             "provider_label": provider_label,
-            "setup_state": "returning" if is_returning else "new",
-            "play_prompt": _play_prompt() if is_returning else "",
-            "connect_url": connect_url,
+            "self_setup_prompt": self_setup_prompt,
             "status_url": status_url,
         },
     )
