@@ -29,9 +29,13 @@
     {% for row in group.agents %}
     <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" class="agent-row">
         <span class="agent-row-name">{{ row.agent.name }}{% if row.model_label %} <small class="agent-row-model">{{ row.model_label }}</small>{% endif %}</span>
+        {% if row.seated %}
+        <span class="badge badge-done">Already seated</span>
+        {% else %}
         <button type="submit" name="agent_id" value="{{ row.agent.id }}" class="btn {% if group.status == 'live' %}btn-primary{% else %}btn-ghost{% endif %}">
             {% if group.status == 'live' %}Join{% else %}Join &amp; connect{% endif %}
         </button>
+        {% endif %}
     </form>
     {% endfor %}
 </div>
