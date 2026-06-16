@@ -254,6 +254,20 @@ async def require_connection(
         )
         db.add(connection)
         await db.flush()
+        # A provider-scoped setup (e.g. the AI self-play key for one provider) must
+        # enable that provider, since next-turn serves agents off the enabled rows,
+        # not connection.provider. A machine setup has provider=None — its rows come
+        # from the connector's detected-CLI report instead, so nothing to do here.
+        if setup.provider is not None:
+            db.add(
+                ConnectionProviderRow(
+                    connection_id=connection.id,
+                    provider=setup.provider,
+                    enabled=True,
+                    detected=False,
+                )
+            )
+            await db.flush()
         setup.connection_id = connection.id
         setup.completed_at = datetime.now(timezone.utc)
         connection = (

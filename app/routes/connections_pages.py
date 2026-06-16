@@ -32,6 +32,7 @@ from app.routes.connections_connect_guide import (
     _play_prompt,
     _provider_label,
     _setup_message,
+    self_setup_play_prompt,
 )
 from app.routes.connections_machine_setup import _ensure_pending_setup_and_key
 from app.routes.connections_queries import (
@@ -158,6 +159,16 @@ async def list_connections(
         target_provider_live or (provider_hint is None and is_live_now)
     ):
         return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
+    # AI self-setup path: a stable per-provider key + a paste-into-your-AI prompt
+    # that plays via the plain HTTP API (no MCP, no browser, no client commands).
+    # Only on a provider-specific page, since the key is scoped to that provider's
+    # agents. Reuses the same setup+session-key plumbing as the connector.
+    self_setup_prompt = None
+    if target_provider is not None:
+        _self_setup, self_play_key = await _ensure_pending_setup_and_key(
+            request, db, user.id, provider=target_provider
+        )
+        self_setup_prompt = self_setup_play_prompt(self_play_key)
     return templates.TemplateResponse(
         request,
         "connections/list.html",
@@ -168,6 +179,7 @@ async def list_connections(
             "setup_message": _setup_message(key),
             "connect_options": _connect_options(),
             "play_prompt": _play_prompt(),
+            "self_setup_prompt": self_setup_prompt,
             "has_connected_before": has_connected_before,
             "is_live_now": is_live_now,
             "is_playing_now": is_playing_now,

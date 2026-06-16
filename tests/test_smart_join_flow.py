@@ -384,7 +384,9 @@ async def test_connect_target_provider_not_bounced_by_a_different_live_provider(
         follow_redirects=False,
     )
     assert r.status_code == 200  # rendered, NOT bounced back
-    assert "Connect Gemini" in r.text  # leads with the Gemini connect steps
+    # Leads with the Gemini-specific path (the self-setup prompt), not "you're set".
+    assert "Play with Gemini" in r.text
+    assert "X-Connection-Key" in r.text  # the self-setup prompt is shown
 
 
 @pytest.mark.asyncio
@@ -405,7 +407,38 @@ async def test_connect_gemini_status_ignores_a_playing_claude(client, reset_db):
     )
     assert r.status_code == 200
     assert "Your AI is playing" not in r.text  # that's Claude, not Gemini
-    assert "Connect Gemini" in r.text
+    assert "Play with Gemini" in r.text
+
+
+def test_self_setup_prompt_contract():
+    """The self-setup prompt must carry the full play contract: the key, the
+    get/submit endpoints, a move example, and the 10-minute idle stop."""
+    from app.routes.connections_connect_guide import self_setup_play_prompt
+
+    p = self_setup_play_prompt("sk_conn_deadbeef")
+    assert "sk_conn_deadbeef" in p
+    assert "X-Connection-Key" in p
+    assert "/api/agent/next-turn" in p
+    assert "/submit" in p and "agent_turn_token" in p
+    assert "HOARD" in p and "HURT" in p  # a concrete move example
+    assert "10 minutes" in p  # the idle stop
+    assert "platform" in p  # framed as a platform, not one game
+
+
+@pytest.mark.asyncio
+async def test_connect_target_shows_self_setup_prompt_with_a_key(client, reset_db):
+    """The connect-a-provider page leads with the AI self-setup prompt: a real
+    sk_conn_ key + the HTTP play loop, so the AI can set itself up and play."""
+    user = await _user_with_handle(reset_db)
+    r = await client.get(
+        f"/me/connections?provider=gemini&next={JOIN_NEXT}",
+        cookies=_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 200
+    assert "sk_conn_" in r.text  # a usable key is embedded
+    assert "/api/agent/next-turn" in r.text  # the loop contract
+    assert "Easiest" in r.text
 
 
 @pytest.mark.asyncio

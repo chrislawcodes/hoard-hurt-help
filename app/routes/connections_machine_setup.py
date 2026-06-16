@@ -86,24 +86,27 @@ async def _ensure_pending_setup_and_key(
     db: DbSession,
     user_id: int,
     nickname: str | None = None,
+    provider: ConnectionProvider | None = None,
 ) -> tuple[ConnectionSetup, str]:
-    """Reuse the user's one open machine setup (or mint it) and return a STABLE
-    plaintext key for the inline setup command.
+    """Reuse the user's one open setup for *provider* (or mint it) and return a
+    STABLE plaintext key for the inline setup command.
 
-    A machine is provider-agnostic — the connector auto-detects which AI CLIs are
-    installed — so setups are always created with ``provider=None``. The key is
-    minted once and stashed in the session so reloads show the SAME command; we
-    never silently rotate a key the user may have already copied. The key only
-    regenerates if the session no longer carries it (e.g. a new browser session),
-    since the raw value is unrecoverable from the stored hash.
+    ``provider=None`` is the machine connector — provider-agnostic, since the
+    connector auto-detects which AI CLIs are installed. A non-None ``provider`` is
+    a single-provider keyed setup (the AI self-play key), which on first use becomes
+    a connection with just that provider enabled. The key is minted once and stashed
+    in the session so reloads show the SAME command; we never silently rotate a key
+    the user may have already copied. It only regenerates if the session no longer
+    carries it (e.g. a new browser session), since the raw value is unrecoverable
+    from the stored hash.
     """
-    setup = await _load_resumeable_pending_setup(db, user_id, None)
+    setup = await _load_resumeable_pending_setup(db, user_id, provider)
     if setup is None:
         key = generate_connection_key()
         setup = ConnectionSetup(
             user_id=user_id,
             nickname=(nickname.strip() if nickname and nickname.strip() else None),
-            provider=None,
+            provider=provider,
             key_lookup=bot_key_lookup(key),
             key_hint=bot_key_hint(key),
         )

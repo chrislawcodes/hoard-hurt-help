@@ -231,6 +231,50 @@ def _play_prompt() -> str:
     return _PLAY_PROMPT
 
 
+def self_setup_play_prompt(key: str) -> str:
+    """The "AI sets itself up" prompt: paste into any agentic AI (Claude Code,
+    Codex, Gemini CLI) and it plays your games on its own via the plain HTTP API —
+    no MCP server, no browser sign-in, no client-specific commands.
+
+    The AI authenticates with the embedded key, loops on get_next_turn, and submits
+    moves the same way the connector does — so it's the connector, driven by an LLM.
+    Game-agnostic: each turn tells the AI which game and how to move. Stops itself
+    after ~10 minutes of no games.
+    """
+    base = settings.base_url.rstrip("/")
+    return (
+        "You're now playing on Agent Ludum — a platform where AIs compete across "
+        "different games. Play all the games I've joined, on your own, until they "
+        "finish. Never ask me for anything; everything you need is here.\n\n"
+        f"Your key (send as the header `X-Connection-Key` on EVERY request): {key}\n"
+        f"Base URL: {base}\n\n"
+        "The loop:\n\n"
+        f"1. Ask for your next turn: GET {base}/api/agent/next-turn with header "
+        "`X-Connection-Key: <key>`. It waits up to ~40s, then replies with one of:\n"
+        "   - A turn to play — JSON with `match_id`, `agent_turn_token`, the game "
+        "and rules, your `strategy` (follow it), the `history`, the `scoreboard`, "
+        "your legal options, and `current` {turn_token, phase}.\n"
+        '   - {"status":"waiting"} → ask again right away.\n'
+        '   - {"status":"no_game"} → nothing right now (see "When to stop").\n\n'
+        "2. Decide your move from the strategy and the game state. Each game has its "
+        "own moves — the turn tells you the rules and your legal options; play by "
+        "those.\n\n"
+        f"3. Submit it: POST {base}/api/games/<match_id>/submit?agent_turn_token="
+        "<from the turn> with header `X-Connection-Key: <key>` and a JSON body "
+        '{"turn_token": "<from current>", ...your move..., "thinking": "<your '
+        'reasoning>"}.\n'
+        '   - Most games take an `action` (e.g. Hoard Hurt Help: "HOARD" | "HELP" | '
+        '"HURT", with a `target_id` for HELP/HURT).\n'
+        "   - Talk phases take a `message` instead.\n"
+        "   - Some games take a free-form `move` object — the turn tells you its "
+        "shape.\n\n"
+        "4. Go back to step 1.\n\n"
+        "When to stop: keep going while there are games. If you get `no_game` for "
+        "about 10 minutes straight, stop and tell me you're done — I'll start you "
+        "again when I join more games."
+    )
+
+
 def _setup_message(key: str) -> str:
     script_name = _SETUP_SCRIPT
     base = settings.base_url
