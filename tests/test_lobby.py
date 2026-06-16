@@ -858,8 +858,8 @@ async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monk
 
 
 @pytest.mark.asyncio
-async def test_join_form_hides_already_seated_agents(client, reset_db):
-    """Re-entering the join form to add more shows only agents not yet seated."""
+async def test_join_form_shows_already_seated_agents(client, reset_db):
+    """Re-entering the join form keeps every agent visible and marks seated ones."""
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
@@ -872,8 +872,10 @@ async def test_join_form_hides_already_seated_agents(client, reset_db):
         follow_redirects=False,
     )
     form = await client.get("/games/hoard-hurt-help/matches/G_001/join", cookies=cookies)
+    assert "One" in form.text  # still visible
+    assert "Already seated" in form.text
+    assert f'value="{a1.id}"' not in form.text  # already seated → no join button
     assert f'value="{a2.id}"' in form.text  # still available
-    assert f'value="{a1.id}"' not in form.text  # already seated → hidden
 
 
 @pytest.mark.asyncio

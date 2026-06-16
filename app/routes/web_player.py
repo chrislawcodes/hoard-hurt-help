@@ -230,8 +230,8 @@ async def join_form(
         return redirect
 
     agents = await _load_user_agents(db, user.id)
-    # Agents already seated in this match can't join again — hide them so adding
-    # more (the admin multi-seat flow) only ever shows agents still available.
+    # Agents already seated in this match stay visible, but they can't join
+    # again. The admin multi-seat flow still uses the same list.
     seated_agent_ids = set(
         (
             await db.execute(
@@ -253,8 +253,6 @@ async def join_form(
     groups: dict[str, dict] = {}
     for agent, version in agents:
         if agent.kind != AgentKind.AI:
-            continue
-        if agent.id in seated_agent_ids:
             continue
         if version is None:
             continue
@@ -283,7 +281,12 @@ async def join_form(
             },
         )
         group["agents"].append(
-            {"agent": agent, "version": version, "model_label": f"{pv}/{version.model}"}
+            {
+                "agent": agent,
+                "version": version,
+                "model_label": f"{pv}/{version.model}",
+                "seated": agent.id in seated_agent_ids,
+            }
         )
     status_rank = {"live": 0, "offline": 1, "unconfigured": 2}
     agent_groups = sorted(
