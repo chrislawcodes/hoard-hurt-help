@@ -39,6 +39,12 @@ class StubGame:
 
     game_type = "stub"
 
+    def display_name(self) -> str:
+        return "Stub Showdown"
+
+    def tagline(self) -> str:
+        return "A trivial conformance game."
+
     def config_defaults(self) -> GameConfig:
         return GameConfig(
             total_rounds=1,
@@ -179,6 +185,32 @@ async def test_stub_rejects_illegal_move() -> None:
         module.validate_move(
             {"action": "HOARD"}, your_agent_id="A", all_agent_ids=["A", "B"]
         )
+
+
+def test_catalog_and_leaderboard_read_display_from_module() -> None:
+    """The catalog and leaderboard get a game's title/tagline from its module,
+    not a game_type branch. A brand-new game (the stub) declares its own strings
+    and both surfaces pick them up with zero platform edits."""
+    from app.read_models.leaderboard import (
+        _game_display_name as leaderboard_display_name,
+    )
+    from app.routes.web_games_catalog import (
+        _game_display_name as catalog_display_name,
+    )
+    from app.routes.web_games_catalog import _game_tagline as catalog_tagline
+
+    assert catalog_display_name("stub") == "Stub Showdown"
+    assert catalog_tagline("stub") == "A trivial conformance game."
+    assert leaderboard_display_name("stub") == "Stub Showdown"
+
+    # PD's stylized title still comes through unchanged.
+    assert catalog_display_name("hoard-hurt-help") == "Hoard · Hurt · Help"
+    assert leaderboard_display_name("hoard-hurt-help") == "Hoard · Hurt · Help"
+
+    # An unregistered legacy type falls back to the humanized game_type.
+    assert catalog_display_name("ancient-game") == "Ancient Game"
+    assert catalog_tagline("ancient-game") == ""
+    assert leaderboard_display_name("ancient-game") == "Ancient Game"
 
 
 @pytest.mark.asyncio

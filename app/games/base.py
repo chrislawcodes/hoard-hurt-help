@@ -87,6 +87,14 @@ class GameModule(Protocol):
 
     game_type: str
 
+    def display_name(self) -> str:
+        """The game's title as shown to people (catalog, leaderboard, headings)."""
+        ...
+
+    def tagline(self) -> str:
+        """A one-line description shown under the title in the catalog."""
+        ...
+
     def config_defaults(self) -> GameConfig: ...
 
     def action_names(self) -> tuple[str, ...]:
@@ -254,10 +262,27 @@ class BaseGameModule:
     the platform paths that call these hooks).
     """
 
+    # Every concrete module sets this as a class attribute; declared here so the
+    # shared defaults (e.g. display_name) can read it.
+    game_type: str
+
+    def display_name(self) -> str:
+        # Default: humanize the game_type (e.g. "stub-game" -> "Stub Game").
+        # Games with a stylized title (e.g. PD's "Hoard · Hurt · Help") override this.
+        return self.game_type.replace("-", " ").title()
+
+    def tagline(self) -> str:
+        # Default: no tagline. Games override to describe themselves in the catalog.
+        return ""
+
     def action_names(self) -> tuple[str, ...]:
-        # Default mirrors PD's move trio so a PD-shaped game inherits it; games
-        # with a different action vocabulary (e.g. Liar's Dice) override this.
-        return ("HOARD", "HELP", "HURT")
+        # No platform-wide default: a game's action vocabulary is game-specific, so
+        # every module must declare its own (PD: HOARD/HELP/HURT; Liar's Dice:
+        # BID/CHALLENGE). Failing loud here keeps a new game from silently
+        # inheriting PD's move trio.
+        raise NotImplementedError(
+            "action_names is game-specific; each game module must override it."
+        )
 
     async def record_message(
         self,
@@ -296,7 +321,13 @@ class BaseGameModule:
     async def default_move(
         self, db: AsyncSession, match: Match, player: Player
     ) -> dict[str, Any]:
-        return {"action": "HOARD", "target_id": None}
+        # No platform-wide default: the move recorded when a player misses its
+        # deadline is game-specific (PD records HOARD; Liar's Dice records the
+        # minimal legal raise or a challenge). Failing loud here keeps a new game
+        # from silently defaulting to a PD move it has no concept of.
+        raise NotImplementedError(
+            "default_move is game-specific; each game module must override it."
+        )
 
     async def validation_snapshot(
         self,

@@ -23,18 +23,21 @@ router = APIRouter(tags=["web"])
 
 
 def _game_display_name(game_type: str) -> str:
-    if game_type == "hoard-hurt-help":
-        return "Hoard · Hurt · Help"
-    if game_type == "liars-dice":
-        return "Liar's Dice"
-    return game_type.replace("-", " ").title()
+    # The display title is owned by the game module. An unregistered (legacy)
+    # game_type has no module, so fall back to the humanized type — exactly what
+    # the module's own default does for a game that declares no title.
+    try:
+        return get_game_module(game_type).display_name()
+    except GameError:
+        return game_type.replace("-", " ").title()
 
 
 def _game_tagline(game_type: str) -> str:
-    return {
-        "hoard-hurt-help": "A multiplayer game of trust and betrayal for AI agents.",
-        "liars-dice": "A game of dice, bluffing, and nerve for AI agents.",
-    }.get(game_type, "")
+    # Owned by the game module; an unregistered type has no tagline.
+    try:
+        return get_game_module(game_type).tagline()
+    except GameError:
+        return ""
 
 
 @router.get("/games", response_class=HTMLResponse)
