@@ -11,6 +11,7 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Literal
 
+from app.engine.action_vocab import pd_action_names
 from app.engine.game_records import ActionRecord, PlayerRecord
 from app.schemas.agent import OpponentsAggregate, OpponentStat, StyleMix
 
@@ -21,7 +22,12 @@ MAX_SHORTLIST = 12
 TOP_THREATS = 3
 NEIGHBOR_RADIUS = 2
 
-_STYLE_INDEX = {"HOARD": 0, "HELP": 1, "HURT": 2}
+def _style_index() -> dict[str, int]:
+    """Map each action name to its style-bucket position (HOARD=0, HELP=1, HURT=2).
+
+    The game's ordered action names drive the per-action style buckets; the
+    StyleMix fields and the counts[0..2] reads assume this order."""
+    return {name: i for i, name in enumerate(pd_action_names())}
 
 
 def rank_players(players: Sequence[PlayerRecord]) -> list[PlayerRecord]:
@@ -71,17 +77,19 @@ def build_opponent_view(
     opponent_ids = {p.agent_id for p in opponents}
 
     # Toward-you tallies.
+    style_index = _style_index()
+    _, help_action, hurt_action = pd_action_names()
     helped_you: Counter[str] = Counter()
     hurt_you: Counter[str] = Counter()
     style_counts: dict[str, list[int]] = {}
     for a in actions:
-        idx = _STYLE_INDEX.get(a.action)
+        idx = style_index.get(a.action)
         if idx is not None:
             style_counts.setdefault(a.actor_id, [0, 0, 0])[idx] += 1
         if a.actor_id != you and a.target_id == you:
-            if a.action == "HELP":
+            if a.action == help_action:
                 helped_you[a.actor_id] += 1
-            elif a.action == "HURT":
+            elif a.action == hurt_action:
                 hurt_you[a.actor_id] += 1
 
     turn_keys = _ordered_turn_keys(actions)
@@ -150,10 +158,11 @@ def _reciprocity(
     succ: dict[tuple[int, int], tuple[int, int]],
 ) -> tuple[bool, bool]:
     """Next-turn mirror: did `opp` mirror your move the very next resolved turn?"""
-    your_help = {(a.round, a.turn) for a in actions if a.actor_id == you and a.action == "HELP" and a.target_id == opp}
-    your_hurt = {(a.round, a.turn) for a in actions if a.actor_id == you and a.action == "HURT" and a.target_id == opp}
-    opp_help_you = {(a.round, a.turn) for a in actions if a.actor_id == opp and a.action == "HELP" and a.target_id == you}
-    opp_hurt_you = {(a.round, a.turn) for a in actions if a.actor_id == opp and a.action == "HURT" and a.target_id == you}
+    _, help_action, hurt_action = pd_action_names()
+    your_help = {(a.round, a.turn) for a in actions if a.actor_id == you and a.action == help_action and a.target_id == opp}
+    your_hurt = {(a.round, a.turn) for a in actions if a.actor_id == you and a.action == hurt_action and a.target_id == opp}
+    opp_help_you = {(a.round, a.turn) for a in actions if a.actor_id == opp and a.action == help_action and a.target_id == you}
+    opp_hurt_you = {(a.round, a.turn) for a in actions if a.actor_id == opp and a.action == hurt_action and a.target_id == you}
     returned_help = any(succ.get(k) in opp_help_you for k in your_help)
     returned_hurt = any(succ.get(k) in opp_hurt_you for k in your_hurt)
     return returned_help, returned_hurt
@@ -169,15 +178,16 @@ def _aggregate(
     if not folded:
         return None
     folded_set = set(folded)
+    hoard_action, help_action, hurt_action = pd_action_names()
     hoard = help = hurt = 0
     if last_rt is not None:
         for a in actions:
             if (a.round, a.turn) != last_rt or a.actor_id not in folded_set:
                 continue
-            if a.action == "HOARD":
+            if a.action == hoard_action:
                 hoard += 1
-            elif a.action == "HELP":
+            elif a.action == help_action:
                 help += 1
-            elif a.action == "HURT":
+            elif a.action == hurt_action:
                 hurt += 1
     return OpponentsAggregate(count=len(folded), hoard=hoard, help=help, hurt=hurt)

@@ -212,6 +212,9 @@ class LiarsDice(BaseGameModule):
             admin_only=True,
         )
 
+    def action_names(self) -> tuple[str, ...]:
+        return ("BID", "CHALLENGE")
+
     def strategy_presets(self) -> list[StrategyPreset]:
         return LD_STRATEGY_PRESETS
 

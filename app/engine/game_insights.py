@@ -16,6 +16,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from app.engine.action_vocab import pd_action_names
 from app.engine.board_signals import compute_board_signals
 from app.engine.game_records import ActionRecord, PlayerRecord
 
@@ -131,14 +132,15 @@ def round_results(actions: Sequence[ActionRecord]) -> list[RoundResult]:
 
 
 def _relationships(actions: Sequence[ActionRecord]) -> tuple[Counter[tuple[str, str]], Counter[tuple[str, str]]]:
+    _, help_action, hurt_action = pd_action_names()
     helps: Counter[tuple[str, str]] = Counter()
     hurts: Counter[tuple[str, str]] = Counter()
     for a in actions:
         if a.target_id is None:
             continue
-        if a.action == "HELP":
+        if a.action == help_action:
             helps[(a.actor_id, a.target_id)] += 1
-        elif a.action == "HURT":
+        elif a.action == hurt_action:
             hurts[(a.actor_id, a.target_id)] += 1
     return helps, hurts
 
@@ -174,9 +176,10 @@ def grudges(actions: Sequence[ActionRecord], cap: int = GRUDGE_CAP) -> tuple[lis
 
 
 def _earliest_helps(actions: Sequence[ActionRecord]) -> dict[tuple[str, str], tuple[int, int]]:
+    _, help_action, _ = pd_action_names()
     earliest: dict[tuple[str, str], tuple[int, int]] = {}
     for a in actions:
-        if a.action == "HELP" and a.target_id is not None:
+        if a.action == help_action and a.target_id is not None:
             key = (a.actor_id, a.target_id)
             when = (a.round, a.turn)
             if key not in earliest or when < earliest[key]:
@@ -190,6 +193,7 @@ def _round_events(
     actions: Sequence[ActionRecord],
 ) -> list[Event]:
     """The within-round event feed, newest turn first."""
+    _, _, hurt_action = pd_action_names()
     earliest_help = _earliest_helps(actions)
     round_actions = [a for a in actions if a.round == round_num]
     turns = sorted({a.turn for a in round_actions})
@@ -199,16 +203,16 @@ def _round_events(
         this = [a for a in round_actions if a.turn == turn]
         # Pile-on: 2+ HURTs on the same target this turn.
         hurt_targets: Counter[str] = Counter(
-            a.target_id for a in this if a.action == "HURT" and a.target_id is not None
+            a.target_id for a in this if a.action == hurt_action and a.target_id is not None
         )
         for target, n in sorted(hurt_targets.items()):
             if n >= PILE_ON_MIN:
-                attackers = sorted(a.actor_id for a in this if a.action == "HURT" and a.target_id == target)
+                attackers = sorted(a.actor_id for a in this if a.action == hurt_action and a.target_id == target)
                 events.append(Event(round_num, turn, "pileon", "\U0001f3af",
                     f"Pile-on: {', '.join(attackers)} all hit {target}."))
         # Betrayal: hurts someone it helped earlier in the game.
         for a in this:
-            if a.action == "HURT" and a.target_id is not None:
+            if a.action == hurt_action and a.target_id is not None:
                 first_help = earliest_help.get((a.actor_id, a.target_id))
                 if first_help is not None and first_help < (a.round, a.turn):
                     events.append(Event(round_num, turn, "betrayal", "⚔",

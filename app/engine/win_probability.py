@@ -26,6 +26,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from app.engine.action_vocab import pd_action_names
 from app.engine.game_records import ActionRecord, PlayerRecord
 
 _MODEL_DIR = Path(__file__).resolve().parents[2] / "data"
@@ -194,30 +195,34 @@ class _Ctx:
 
     def _behavior(self, agent_id: str) -> tuple[int, int, int, int]:
         """(help, hurt, hoard, times_targeted) from prior actions."""
+        # These names must match the strings the trained model's features were
+        # built from; for PD they resolve to HOARD/HELP/HURT (unchanged).
+        hoard_action, help_action, hurt_action = pd_action_names()
         my = [a for a in self.prior if a.actor_id == agent_id]
         return (
-            sum(1 for a in my if a.action == "HELP"),
-            sum(1 for a in my if a.action == "HURT"),
-            sum(1 for a in my if a.action == "HOARD"),
-            sum(1 for a in self.prior if a.action == "HURT" and a.target_id == agent_id),
+            sum(1 for a in my if a.action == help_action),
+            sum(1 for a in my if a.action == hurt_action),
+            sum(1 for a in my if a.action == hoard_action),
+            sum(1 for a in self.prior if a.action == hurt_action and a.target_id == agent_id),
         )
 
     def _table(self, agent_id: str) -> tuple[int, int, int, int, int, int]:
         """(help_cnt, hurt_cnt, hoard_cnt, was_piled, pile_max, mutual) for current turn."""
-        tbl_help = sum(1 for a in self.cur if a.action == "HELP")
-        tbl_hurt = sum(1 for a in self.cur if a.action == "HURT")
-        tbl_hoard = sum(1 for a in self.cur if a.action == "HOARD")
+        hoard_action, help_action, hurt_action = pd_action_names()
+        tbl_help = sum(1 for a in self.cur if a.action == help_action)
+        tbl_hurt = sum(1 for a in self.cur if a.action == hurt_action)
+        tbl_hoard = sum(1 for a in self.cur if a.action == hoard_action)
 
         hurt_on: dict[str, int] = defaultdict(int)
         for a in self.cur:
-            if a.action == "HURT" and a.target_id:
+            if a.action == hurt_action and a.target_id:
                 hurt_on[a.target_id] += 1
         was_piled = 1 if hurt_on.get(agent_id, 0) >= 2 else 0
         pile_max = max(hurt_on.values()) if hurt_on else 0
 
         helped: dict[str, str] = {}
         for a in self.cur:
-            if a.action == "HELP" and a.target_id:
+            if a.action == help_action and a.target_id:
                 helped[a.actor_id] = a.target_id
         mutual = (
             1 if agent_id in helped and helped.get(helped[agent_id]) == agent_id else 0
@@ -228,9 +233,10 @@ class _Ctx:
         total = len(self.prior)
         if total == 0:
             return 0.0, 0.0
+        _, help_action, hurt_action = pd_action_names()
         return (
-            sum(1 for a in self.prior if a.action == "HELP") / total,
-            sum(1 for a in self.prior if a.action == "HURT") / total,
+            sum(1 for a in self.prior if a.action == help_action) / total,
+            sum(1 for a in self.prior if a.action == hurt_action) / total,
         )
 
     # --- public feature builders ---
