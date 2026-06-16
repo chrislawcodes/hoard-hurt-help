@@ -23,7 +23,7 @@ from app.engine.connection_health import (
 )
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.connection import Connection, ConnectionStatus
+from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
 from app.routes.connections_connect_guide import _play_prompt
@@ -207,7 +207,11 @@ def _summarize_agent(agents: list[AgentRow]) -> tuple[bool, str | None]:
 
 
 async def _live_status_context(
-    db: DbSession, user: User, *, next_url: str | None = None
+    db: DbSession,
+    user: User,
+    *,
+    next_url: str | None = None,
+    provider: ConnectionProvider | None = None,
 ) -> dict[str, object]:
     """Shared 'are we live + agent nudge' context for the page and the poll fragment.
 
@@ -218,13 +222,27 @@ async def _live_status_context(
     proof the play-prompt took and the AI is actually calling the game on its own.
     Reuses the per-row health computation so the page and the 4s poll fragment can't
     drift.
+
+    When ``provider`` is given, only connections that serve THAT provider count — so
+    a page opened to connect Gemini reflects Gemini's status, not a live Claude's.
     """
+    conn_query = select(Connection).where(
+        Connection.user_id == user.id, Connection.deleted_at.is_(None)
+    )
+    if provider is not None:
+        conn_query = conn_query.join(
+            ConnectionProviderRow,
+            ConnectionProviderRow.connection_id == Connection.id,
+        ).where(
+            ConnectionProviderRow.provider == provider,
+            ConnectionProviderRow.enabled.is_(True),
+        )
     connections = (
         (
             await db.execute(
-                select(Connection)
-                .where(Connection.user_id == user.id, Connection.deleted_at.is_(None))
-                .order_by(Connection.created_at.desc(), Connection.id.desc())
+                conn_query.order_by(
+                    Connection.created_at.desc(), Connection.id.desc()
+                )
             )
         )
         .scalars()
