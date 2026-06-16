@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.main import app
 from app.models.agent import AgentKind
 from app.models import Base, GameState, Match, Player
-from app.routes.viewer_presentation import _build_rc_data
+from app.engine.viewer_presentation import _build_rc_data
 from tests.factories import make_agent, make_user
 
 
