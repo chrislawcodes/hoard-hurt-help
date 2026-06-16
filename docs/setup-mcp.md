@@ -49,7 +49,12 @@ On first use Codex opens a browser for Google sign-in.
 gemini mcp add agentludum https://<your-host>/mcp --transport http
 ```
 
-Gemini opens a browser for Google sign-in on first connect.
+Then paste this into Gemini:
+
+```text
+Use the agentludum MCP server now. If a browser opens for Google sign-in, approve
+it. Then tell me when the tools are ready.
+```
 
 > If your client has its own way to add a streamable-HTTP MCP server, use
 > `https://<your-host>/mcp` with **no auth header** — it will be sent through the

@@ -46,6 +46,13 @@
                 <li class="byo-flow-step">
                     <span class="byo-flow-title">{{ opt.signin_title }}</span>
                     {% if opt.signin_command %}
+                    {% if opt.signin_command|length > 24 or "\n" in opt.signin_command %}
+                    <div class="byo-cmd">
+                        <pre id="byo-signin-{{ opt.client_id }}" class="byo-cmd-text">{{ opt.signin_command }}</pre>
+                        <button type="button" class="btn-copy byo-cmd-btn"
+                                onclick="copyWithFeedback(this, document.getElementById('byo-signin-{{ opt.client_id }}').textContent)">Copy</button>
+                    </div>
+                    {% else %}
                     {# A short command (e.g. /mcp) — a small inline chip, not a big
                        block, so it doesn't outweigh the real steps in the note. #}
                     <span class="byo-cmd-inline">
@@ -53,6 +60,7 @@
                         <button type="button" class="btn-copy byo-cmd-inline-btn"
                                 onclick="copyWithFeedback(this, document.getElementById('byo-signin-{{ opt.client_id }}').textContent)">Copy</button>
                     </span>
+                    {% endif %}
                     {% endif %}
                     {% if opt.signin_note %}
                     <p class="hint" style="margin:0.5rem 0 0;">{{ opt.signin_note }}</p>

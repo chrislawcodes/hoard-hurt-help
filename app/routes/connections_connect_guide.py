@@ -136,11 +136,12 @@ def _connect_options() -> list[ConnectOption]:
             client_label="Gemini",
             kind="command",
             command=f"gemini mcp add agentludum {mcp_url} --transport http",
-            signin_title="Sign in with Google",
-            signin_command=None,
-            signin_note=(
-                "Open Gemini once — it opens a browser to approve. No key needed."
+            signin_title="Paste this into Gemini",
+            signin_command=(
+                "Use the agentludum MCP server now. If a browser opens for Google "
+                "sign-in, approve it. Then tell me when the tools are ready."
             ),
+            signin_note="No key needed.",
             steps=(),
             note=None,
         ),
