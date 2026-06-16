@@ -90,7 +90,7 @@ Every external entry point. Split by audience.
 | `web_leaderboard.py` | 97 | The `/leaderboard` page (keeps the legacy `?included=…` / `hide_sim_games` query keys for back‑compat). |
 | `web_legacy_redirects.py` | 29 | Legacy `/play/{game}` → `/games/{game}` 301 redirects. |
 | `web_account_notice.py` | 32 | The public `/disabled` account‑notice page — reachable while signed‑in‑but‑disabled, **no auth dep**. |
-| `web_viewer.py` | 595 | Match viewer, live fragment, robot-circle replay JSON, feed grouping, and deterministic play-by-play headlines. |
+| `web_viewer.py` | 256 | Match viewer host route and live fragment. The generic skeleton (players, scoreboard, timeline, messages) is platform‑owned; per‑game display data (replay story, robot‑circle JSON, feed headline, grouping) is delegated to each module's `build_replay_view`. PD's payload builder: `app/games/hoard_hurt_help/viewer.py`; Liar's Dice: `app/games/liars_dice/viewer.py`. |
 | `web_analysis.py` | 124 | Spectator analysis pages: season overview, round drill-in, and legacy analysis redirects. |
 | `web_player.py` | 461 | Setup guide rendering, runner downloads, join flow, my games, player dashboard, strategy updates, and leave flow. |
 | `web_support.py` | 136 | Shared web helpers for match URLs, legacy redirects, player counts, game themes, upcoming cards, and standings. |
@@ -111,7 +111,8 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 
 | Module | Lines | Responsibility |
 |---|---:|---|
-| `scheduler.py` | 438 | **The turn loop.** One task per active game runs round→turn→talk→act→resolve→award→finalize, broadcasting each step. Also the poller that auto‑starts/cancels due games and resumes loops after a restart. |
+| `scheduler.py` | 428 | **Registry + due‑game poller.** Tracks the running asyncio task per active game; auto‑starts and cancels due games; resumes task loops after a process restart. The per‑match turn‑loop logic lives in `scheduler_turn_loop.py` and is re‑exported here so callers and tests keep the same import path. |
+| `scheduler_turn_loop.py` | 340 | **Per‑match turn loop.** Owns `_run_game`, `_open_turn`, and the `_wait_for_*` helpers — split from `scheduler.py` to isolate the freeze‑prone resume path. Re‑exported through `scheduler.py`; the dependency is one‑directional (scheduler imports turn loop, never the reverse). |
 | `agent_play.py` + `agent_play_next_turn.py` / `agent_play_reads.py` / `agent_play_guards.py` | ~1,360 (split) | **The shared play‑service layer** every agent action runs through — called by **both** the HTTP routes and the MCP tools (thin adapters; auth differs, logic is shared). Split by job: `agent_play.py` (the per‑match verbs — poll/submit‑talk/submit‑action/state/leave/opponent/chat/turn/standings — and re‑exports the rest so callers keep importing from `app.engine.agent_play`), `agent_play_next_turn.py` (the connection‑level next‑turn fan‑out + sticky‑pin claim), `agent_play_reads.py` (DB→payload projections), `agent_play_guards.py` (rate‑limit / binding / error primitives). Deps run one‑way (guards ← reads ← {next_turn, verbs}), no cycle. **Game‑agnostic**: every game‑specific bit goes through the `GameModule` contract, so this layer already serves PD *and* Liar's Dice; the move dict is opaque to it (one small exception: `_LD_VALIDATION_SNAPSHOT_KEYS` names Liar's‑Dice snapshot keys to strip). |
 | `game_insights.py` | 315 | Deterministic spectator insights: season overview + per‑round detail. |
 | `board_signals.py` | 196 | Whole‑board signals the server can see but one bot can't cheaply compute. |
@@ -120,7 +121,7 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 | `connection_activity.py` | 364 | Connection onboarding + health across its agents: first‑connect / first‑move detection, key cutover on graceful reissue, the live heartbeat badge. (Renamed from `bot_activity.py`; auth's single choke point calls its `mark_seen` on the `Connection`.) |
 | `connection_health.py` | 224 | Live / stalled / ready computed at the **connection** level. Keys off the connection's own liveness (`last_seen_at`, `runner_pid`) and the matches currently pinned to it via `players.served_by_connection_id` — **not** agent attachment. Owns the `ConnectionHealth` enum, badge map, and the `LIVE_WINDOW_SECONDS` staleness threshold that the sticky‑pin "dead connection" failover check reuses. |
 | `arena.py` | 222 | Managed Practice Arena and Auto‑Match creation: idempotent poller helpers, shared Bot seeding, and start timing. |
-| `resolver.py` | 200 | Turn resolution, round‑winner awarding, game finalization. Lives in the platform's `app/engine/` dir but encodes PD scoring — the PD‑specific scoring detail is documented in `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md`. |
+| `resolver.py` | 112 | **Generic turn‑lifecycle helpers only:** `finalize_talk_phase`, `award_round_winners`, `finalize_game`. Fully game‑agnostic. PD‑specific per‑turn scoring (HOARD/HELP/HURT payoffs, mutual‑help bonus, score floor) moved to `app/games/hoard_hurt_help/scoring.py`. |
 | `match_creation.py`, `match_deletion.py` | small | **Shared match lifecycle** — consolidate logic that was copy‑pasted across the admin/user routes. `match_creation.py` owns the single match‑create path (id allocation, validation, `created_by_user_id`, the per‑user active‑match cap, `IntegrityError`‑retry on id collision) that every human creation site calls — and the arena allocator routes through it too, so the five old `max+1` scans converge on one. `match_deletion.py` owns the order‑sensitive delete cascade (moved verbatim from the old `admin_web` route) plus the shared cancel state transition (`registry.stop` → `state=CANCELLED` → `cancelled_at`), with each caller keeping its own allowed‑state policy. |
 | `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `turn_routing.py`, `bot_presets.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn ordering (`select_next_turn`, unchanged); DB‑free turn‑routing eligibility + sticky‑pin claim helper; the 8 preset Bot profiles and shared default-name allocator. |
 
@@ -145,8 +146,15 @@ and actions, driven directly by the scheduler with no runner and no key. (Spec:
 
 | Module | Lines | Responsibility |
 |---|---:|---|
-| `base.py` | 141 | The `GameModule` **contract**: config, rules text, strategy presets, move validation, submission/message persistence, resolve/award/finalize, viewer display, theme. |
+| `base.py` | 427 | The `GameModule` **contract** (`Protocol`) + `BaseGameModule` (default implementations). Key hooks every game implements: `config_defaults`, `rules_text`, `strategy_presets`, `validate_move`, `record_submission`, `resolve_turn`, `award_round`, `finalize`, `theme`. Newer hooks added for game‑agnosticism: `display_name()` + `tagline()` (catalog text, so the platform never hardcodes a game name); `action_names()` (the move vocabulary — used by insight engines to bucket the action log without knowing which game they're reading; **fails loud in `BaseGameModule`** so a new game can't silently inherit PD's HOARD/HELP/HURT trio); `default_move()` (the move to record when a player misses its deadline — **also fails loud in `BaseGameModule`** so a new game can't silently record HOARD); `build_replay_view()` + `viewer_fragment()` (the game's own replay payload and live‑region template — **both fail loud**, keeping the platform viewer from silently rendering PD's pact/betrayal story for another game). |
 | `__init__.py` | 37 | The registry: `register()` / `get(game_type)`. |
+
+**Game modules** (plugins in `app/games/<name>/`) each own their rules, scoring, and viewer presentation:
+
+| Game | Scoring | Viewer/replay |
+|---|---|---|
+| Hoard‑Hurt‑Help (PD) | `app/games/hoard_hurt_help/scoring.py` | `app/games/hoard_hurt_help/viewer.py` |
+| Liar's Dice | inside `app/games/liars_dice/game.py` | `app/games/liars_dice/viewer.py` |
 
 The Hoard‑Hurt‑Help PD module → see `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md`.
 
@@ -368,11 +376,12 @@ push HTML fragments into the live viewer — no client‑side state.
 | You want to… | Start here |
 |---|---|
 | Add a new game | `app/games/<name>/` implementing `app/games/base.py`; register in `app/games/__init__.py`. See `docs/writing-a-game-module.md`. |
-| Change PD rules / scoring | `app/games/hoard_hurt_help/game.py` + `app/engine/resolver.py`. |
+| Change PD rules / scoring | `app/games/hoard_hurt_help/scoring.py` (HOARD/HELP/HURT payoff math) + `app/games/hoard_hurt_help/rules.py` (PD constants) + `app/games/hoard_hurt_help/game.py` (move validation, submission). |
+| Change PD replay / viewer (robot‑circle, feed, headlines) | `app/games/hoard_hurt_help/viewer.py` (`build_replay_view`) via `app/routes/web_viewer.py`. |
 | Add/adjust a Bot personality | `app/engine/bots/strategies.py`, `bot_presets.py`, `bots/roster.py`. |
 | Change Practice Arena / Auto-Match seeding | `app/engine/arena.py` + `app/engine/bot_presets.py` + `app/engine/bots/roster.py` + `app/routes/connections_*.py` / `agents_*.py`. |
 | Change an agent's model/strategy | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
-| Touch the turn lifecycle | `app/engine/scheduler.py`. |
+| Touch the turn lifecycle | `app/engine/scheduler_turn_loop.py` (the loop itself: `_run_game`, `_open_turn`, wait helpers) + `app/engine/scheduler.py` (registry + poller). |
 | Change what an agent sees/submits | The shared play‑service layer — `app/engine/agent_play.py` (verbs) + `agent_play_next_turn.py` (next‑turn fan‑out) + `agent_play_reads.py` (payload projections) + `agent_play_guards.py` (rate‑limit/binding) — that both the HTTP routes and MCP tools call, + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
 | Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata) + the OAuth‑identity→per‑user "Mode A" `Connection` bridge in `mcp_server/`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
 | Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). |
@@ -399,10 +408,17 @@ push HTML fragments into the live viewer — no client‑side state.
   consistent everywhere. ("Bot" is the built‑in scripted opponent, formerly
   "Sim"; a *user's* AI competitor is an **agent**, never a bot.)
 - **Storage is still PD‑shaped.** Moves live in `turn_submissions`
-  (`action`/`target`/`points_delta`), and the submit wire format is PD's. A new
-  move *vocabulary* can only arrive through the contract directly, not over HTTP
-  yet — generalizing this is deferred to game #2 (`AGENT_LUDUM_DESIGN.md` §11).
+  (`action`/`target`/`points_delta`), and the submit wire format in
+  `app/schemas/agent.py` is PD's. A new move *vocabulary* can only arrive through
+  the contract directly, not over HTTP yet — generalizing this is deferred to
+  game #3 (`AGENT_LUDUM_DESIGN.md` §11).
   See `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md` for the game‑side view.
+- **"Fail loud" contract defaults keep the platform game‑agnostic.** `action_names()`,
+  `default_move()`, `build_replay_view()`, and `viewer_fragment()` all raise
+  `NotImplementedError` in `BaseGameModule`. Adding a new game and forgetting any
+  of them blows up at runtime on the first use, not silently with PD's data.
+  The tension to watch: don't add a new platform path that calls any of these
+  without a corresponding `BaseGameModule` default (or a deliberate loud raise).
 - **Two‑process‑free by design.** The scheduler runs in the web process as asyncio
   tasks, not a separate worker. Simple to run; the trade‑off is that turn
   progress is tied to the process being up (hence resume‑on‑startup).
