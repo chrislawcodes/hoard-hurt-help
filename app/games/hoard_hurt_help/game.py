@@ -1,8 +1,8 @@
 """Prisoner's Dilemma — `hoard-hurt-help`.
 
-A thin adapter over the existing engine in `app/engine/*` (which is left
-UNCHANGED, so its tests pass identically). It implements the `GameModule`
-contract by delegating to `app.engine.resolver` and reusing the PD rules/scoring.
+It implements the `GameModule` contract using this module's own PD rules and
+scoring (`app.games.hoard_hurt_help.rules` / `.scoring`) and delegating the
+game-agnostic talk/round/game finalization to `app.engine.resolver`.
 """
 
 from __future__ import annotations
@@ -14,19 +14,20 @@ from sqlalchemy import select
 
 from app.agent_prompt import make_agent_base_prompt
 from app.engine import resolver
-from app.engine.rules import (
-    HELP_POINTS,
-    HOARD_POINTS,
-    HURT_POINTS,
-    make_game_rules_text,
-    make_rules_text,
-)
 from app.games.base import (
     BaseGameModule,
     GameConfig,
     GameError,
     GameTheme,
     StrategyPreset,
+)
+from app.games.hoard_hurt_help import scoring
+from app.games.hoard_hurt_help.rules import (
+    HELP_POINTS,
+    HOARD_POINTS,
+    HURT_POINTS,
+    make_game_rules_text,
+    make_rules_text,
 )
 from app.games.hoard_hurt_help.strategy import PD_DEFAULT_STRATEGY, PD_STRATEGY_PRESETS
 from app.models.player import Player
@@ -198,7 +199,7 @@ class HoardHurtHelp(BaseGameModule):
             )
 
     async def resolve_turn(self, db: AsyncSession, turn: Turn) -> None:
-        await resolver.resolve_turn(db, turn)
+        await scoring.resolve_turn(db, turn)
 
     async def award_round(self, db: AsyncSession, game: Match, round_num: int) -> None:
         await resolver.award_round_winners(db, game, round_num)

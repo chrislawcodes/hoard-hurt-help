@@ -9,7 +9,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from app.engine.resolver import award_round_winners, finalize_game, resolve_turn
+from app.engine.resolver import award_round_winners, finalize_game
+from app.games.hoard_hurt_help.scoring import resolve_turn
 from app.engine.tokens import generate_turn_token
 from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
@@ -143,7 +144,7 @@ async def test_full_game_runs_to_completion(db):
 async def test_static_prefix_byte_identical_concept(db):
     """The shape of the static prefix is stable game-wide — we test this here
     indirectly by ensuring rules text constant doesn't change at runtime."""
-    from app.engine.rules import RULES_TEXT
+    from app.games.hoard_hurt_help.rules import RULES_TEXT
 
     snapshot = RULES_TEXT
     assert RULES_TEXT is snapshot  # same object, no rebinding
