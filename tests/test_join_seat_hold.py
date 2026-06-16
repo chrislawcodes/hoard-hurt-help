@@ -25,6 +25,8 @@ from app.engine.scheduler import _active_player_count
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, sweep_held_seats
 from app.main import app
 from app.models import Base, GameState, Match, Player, User
+from app.models.connection import ConnectionProvider
+from app.models.connection_setup import ConnectionSetup
 from tests.factories import make_agent, make_connection, make_user
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
@@ -242,6 +244,35 @@ async def test_seat_connect_shows_self_setup_prompt_new(client, reset_db):
     assert r.status_code == 200  # rendered, not redirected
     assert "sk_conn_" in r.text
     assert "/api/agent/next-turn" in r.text
+
+
+@pytest.mark.asyncio
+async def test_seat_connect_key_is_scoped_to_the_seats_provider(client, reset_db):
+    """The prompt is one universal text for every provider — only the KEY differs.
+    The held-seat page mints that key for the SEAT's own provider, so an OpenAI
+    agent's page hands out an OpenAI key, never some other provider's."""
+    await _seed_match(reset_db)
+    uid, pid = await _held_seat_for_state(reset_db, model="gpt-5.4-mini", with_connection=False)
+    r = await client.get(
+        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", cookies=_cookies(uid)
+    )
+    assert r.status_code == 200
+    assert "sk_conn_" in r.text  # the universal prompt + a usable key
+    async with reset_db() as db:
+        pending = (
+            (
+                await db.execute(
+                    select(ConnectionSetup).where(
+                        ConnectionSetup.user_id == uid,
+                        ConnectionSetup.completed_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # Exactly one pending key, scoped to THIS seat's provider (OpenAI).
+        assert [s.provider for s in pending] == [ConnectionProvider.OPENAI]
 
 
 # ---------------------------------------------------------------------------
