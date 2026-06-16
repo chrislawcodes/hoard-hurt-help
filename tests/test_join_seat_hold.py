@@ -25,6 +25,8 @@ from app.engine.scheduler import _active_player_count
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, sweep_held_seats
 from app.main import app
 from app.models import Base, GameState, Match, Player, User
+from app.models.connection import ConnectionProvider
+from app.models.connection_setup import ConnectionSetup
 from tests.factories import make_agent, make_connection, make_user
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
@@ -213,25 +215,25 @@ async def _held_seat_for_state(reset_db, *, model: str, with_connection: bool) -
 
 
 @pytest.mark.asyncio
-async def test_seat_connect_returning_state_shows_wake_prompt(client, reset_db):
-    """Provider set up but offline → wake it with the play-prompt; no countdown."""
+async def test_seat_connect_shows_self_setup_prompt_returning(client, reset_db):
+    """Whether or not the provider was set up before, the held-seat page shows ONE
+    thing: the AI self-setup prompt (a real key + the HTTP play loop)."""
     await _seed_match(reset_db)
     uid, pid = await _held_seat_for_state(reset_db, model="claude-haiku-4-5", with_connection=True)
     r = await client.get(
         f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", cookies=_cookies(uid)
     )
     assert r.status_code == 200
-    assert "bringing your AI online" in r.text  # no "time to connect" countdown
-    # The copy is explicit: server is set up, the AI just needs to start checking.
-    assert "don't need to set it up again" in r.text
-    assert "checking for your turns" in r.text
-    assert "agentludum MCP tools" in r.text  # the play-prompt to start it
+    assert "bringing your AI online" in r.text
+    assert "sk_conn_" in r.text  # a usable key
+    assert "/api/agent/next-turn" in r.text  # the HTTP play loop, not MCP
+    assert "agentludum MCP tools" not in r.text  # the dead MCP prompt is gone
 
 
 @pytest.mark.asyncio
-async def test_seat_connect_new_state_redirects_straight_to_connect(client, reset_db):
-    """Provider set up nowhere → skip the held-seat interstitial and go straight to
-    that provider's connect steps (carrying the provider hint)."""
+async def test_seat_connect_shows_self_setup_prompt_new(client, reset_db):
+    """A never-set-up provider also gets the self-setup prompt — no redirect to a
+    separate connect page, no MCP walkthrough."""
     await _seed_match(reset_db)
     uid, pid = await _held_seat_for_state(reset_db, model="gemini-3.1-flash-lite", with_connection=False)
     r = await client.get(
@@ -239,10 +241,38 @@ async def test_seat_connect_new_state_redirects_straight_to_connect(client, rese
         cookies=_cookies(uid),
         follow_redirects=False,
     )
-    assert r.status_code == 303
-    loc = r.headers["location"]
-    assert loc.startswith("/me/connections?next=")
-    assert "provider=gemini" in loc
+    assert r.status_code == 200  # rendered, not redirected
+    assert "sk_conn_" in r.text
+    assert "/api/agent/next-turn" in r.text
+
+
+@pytest.mark.asyncio
+async def test_seat_connect_key_is_scoped_to_the_seats_provider(client, reset_db):
+    """The prompt is one universal text for every provider — only the KEY differs.
+    The held-seat page mints that key for the SEAT's own provider, so an OpenAI
+    agent's page hands out an OpenAI key, never some other provider's."""
+    await _seed_match(reset_db)
+    uid, pid = await _held_seat_for_state(reset_db, model="gpt-5.4-mini", with_connection=False)
+    r = await client.get(
+        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", cookies=_cookies(uid)
+    )
+    assert r.status_code == 200
+    assert "sk_conn_" in r.text  # the universal prompt + a usable key
+    async with reset_db() as db:
+        pending = (
+            (
+                await db.execute(
+                    select(ConnectionSetup).where(
+                        ConnectionSetup.user_id == uid,
+                        ConnectionSetup.completed_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # Exactly one pending key, scoped to THIS seat's provider (OpenAI).
+        assert [s.provider for s in pending] == [ConnectionProvider.OPENAI]
 
 
 # ---------------------------------------------------------------------------
