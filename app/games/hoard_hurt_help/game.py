@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
     from app.models.match import Match
     from app.models.turn import Turn
+    from app.read_models.matches import TimelineTurn
 
 _VALID_ACTIONS = {"HOARD", "HELP", "HURT"}
 
@@ -223,6 +224,24 @@ class HoardHurtHelp(BaseGameModule):
         if a == "HURT":
             return 0, -HURT_POINTS
         return 0, None
+
+    async def build_replay_view(
+        self,
+        db: AsyncSession,
+        match: Match,
+        players: list[Player],
+        scoreboard: list[dict[str, Any]],
+        timeline: list[TimelineTurn],
+        viewer_seat: str | None,
+    ) -> dict[str, Any]:
+        from app.games.hoard_hurt_help.viewer import build_pd_replay_view
+
+        return await build_pd_replay_view(
+            db, match, players, scoreboard, timeline, viewer_seat
+        )
+
+    def viewer_fragment(self) -> str:
+        return "fragments/pd_live_region.html"
 
     def theme(self) -> GameTheme:
         # The flagship game wears the platform's warm orange, plus the move trio

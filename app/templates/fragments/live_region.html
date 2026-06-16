@@ -6,46 +6,8 @@
    above is rendered once at page load and lives outside this live region, so its
    own #rc-data never updates. The page script reads this blob after each swap and
    extends the animation's turn list — that's what lets an open page advance past
-   the turn count it loaded with, instead of freezing. #}
-{% if game.game == "liars-dice" %}
-    {% include "fragments/liars_dice_live_region.html" %}
-{% else %}
-    {% if rc_data %}<script type="application/json" id="rc-data-live">{{ rc_data | safe }}</script>{% endif %}
+   the turn count it loaded with, instead of freezing.
 
-    {# One feed, full width. The standings rail lives in the hero row above (the
-       robot-circle viewer's live JS rail); the old static scoreboard + the
-       animation's mini "Turn summary" were removed to stop showing the game twice. #}
-    <section class="feed-col feed-col-full">
-        {% if rounds %}
-        <nav class="round-nav" aria-label="Jump to round">
-            <span class="round-nav-label">Round</span>
-            <button type="button" class="round-chip" data-round="all">All</button>
-            {% for r in range(1, max_played_round + 1) %}
-            <button type="button" class="round-chip" data-round="{{ r }}">R{{ r }}{% if game.state.value == "active" and r == game.current_round %} <span class="live-dot" aria-hidden="true"></span>{% endif %}</button>
-            {% endfor %}
-            <span class="round-nav-spacer"></span>
-            <span class="view-switch" id="view-switch" role="group" aria-label="Feed view">
-                <button type="button" class="view-btn" data-view="story" title="One-line play-by-play">Story</button>
-                <button type="button" class="view-btn" data-view="cards" title="Full cards with messages">Cards</button>
-                <button type="button" class="view-btn" data-view="compact" title="One line per move">Compact</button>
-            </span>
-        </nav>
-        {% endif %}
-
-        <div id="feed" class="feed">
-        {% if rounds %}
-                <p class="feed-legend">Newest turns first. Switch views: <strong>Story</strong> (one-line play-by-play), <strong>Cards</strong> (full messages), or <strong>Compact</strong> (one line per move).</p>
-                {% for rnd in rounds | reverse %}
-                <section class="round-section" data-round="{{ rnd.round }}">
-                    <h3 class="round-heading">Round {{ rnd.round }}</h3>
-                    {% for turn in rnd.turns | reverse %}
-                        {% include "fragments/turn_block.html" %}
-                    {% endfor %}
-                </section>
-                {% endfor %}
-            {% else %}
-                <p class="empty">No turns resolved yet. Waiting for the first move…</p>
-            {% endif %}
-        </div>
-    </section>
-{% endif %}
+   Which feed renders is module-driven: each game declares its live-region
+   fragment via `viewer_fragment`, so the platform never forks on game type. #}
+{% include viewer_fragment %}

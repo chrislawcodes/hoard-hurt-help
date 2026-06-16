@@ -32,6 +32,8 @@ from app.models.turn import TurnSubmission
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from app.read_models.matches import TimelineTurn
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -600,6 +602,24 @@ class LiarsDice(BaseGameModule):
             "last_showdown": state.state_json.get("last_showdown"),
             "next_leader": state.state_json.get("next_leader"),
         }
+
+    async def build_replay_view(
+        self,
+        db: AsyncSession,
+        match: Match,
+        players: list[Player],
+        scoreboard: list[dict[str, Any]],
+        timeline: list[TimelineTurn],
+        viewer_seat: str | None,
+    ) -> dict[str, Any]:
+        from app.games.liars_dice.viewer import build_liars_dice_replay_view
+
+        return await build_liars_dice_replay_view(
+            db, match, players, scoreboard, timeline, viewer_seat
+        )
+
+    def viewer_fragment(self) -> str:
+        return "fragments/liars_dice_live_region.html"
 
     async def on_round_start(self, db: AsyncSession, match: Match, round_num: int) -> None:
         state = await _load_state(db, match.id, create=True)
