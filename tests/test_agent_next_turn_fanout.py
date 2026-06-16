@@ -1110,7 +1110,7 @@ async def test_no_game_after_idle_window_tells_client_to_stop(
         # Back-date every idle anchor well past the 10-minute window.
         long_ago = datetime.now(timezone.utc) - timedelta(minutes=20)
         connection.first_connected_at = long_ago
-        connection.mode_a_at = long_ago
+        connection.mcp_connected_at = long_ago
         connection.created_at = long_ago
         await db.commit()
 

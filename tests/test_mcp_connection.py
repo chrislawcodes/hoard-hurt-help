@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.engine.mode_a_connection import mode_a_connection_for
+from app.engine.mcp_connection import mcp_connection_for
 from app.deps import assert_connection_usable
 from app.models import Base
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
@@ -62,7 +62,7 @@ async def test_assert_connection_usable_raises_expected_errors(
             key_hint="abcd",
             status=status,
             deleted_at=deleted_at,
-            mode_a_at=datetime.now(timezone.utc),
+            mcp_connected_at=datetime.now(timezone.utc),
         )
         db.add(connection)
         await db.flush()
@@ -87,7 +87,7 @@ async def test_assert_connection_usable_rejects_disabled_account(
             key_lookup="hash",
             key_hint="abcd",
             status=ConnectionStatus.ACTIVE,
-            mode_a_at=datetime.now(timezone.utc),
+            mcp_connected_at=datetime.now(timezone.utc),
         )
         db.add(connection)
         await db.flush()
@@ -98,7 +98,7 @@ async def test_assert_connection_usable_rejects_disabled_account(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_connection_for_concurrent_calls_create_one_row(
+async def test_mcp_connection_for_concurrent_calls_create_one_row(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_session_factory() as db:
@@ -114,7 +114,7 @@ async def test_mode_a_connection_for_concurrent_calls_create_one_row(
             stored_user = (
                 await db.execute(select(User).where(User.id == user_id))
             ).scalar_one()
-            connection = await mode_a_connection_for(
+            connection = await mcp_connection_for(
                 db, stored_user, provider=ConnectionProvider.GEMINI
             )
             await db.commit()
@@ -130,7 +130,7 @@ async def test_mode_a_connection_for_concurrent_calls_create_one_row(
                 select(Connection)
                 .where(
                     Connection.user_id == user_id,
-                    Connection.mode_a_at.is_not(None),
+                    Connection.mcp_connected_at.is_not(None),
                     Connection.deleted_at.is_(None),
                 )
                 .order_by(Connection.id)
@@ -140,7 +140,7 @@ async def test_mode_a_connection_for_concurrent_calls_create_one_row(
         connection = rows[0]
         assert set(connection_ids) == {connection.id}
         assert connection.status is ConnectionStatus.ACTIVE
-        assert connection.mode_a_at is not None
+        assert connection.mcp_connected_at is not None
 
         # One MCP client == one provider: only the connecting client's provider
         # (GEMINI here) is enabled, not the whole set.
@@ -157,12 +157,12 @@ async def test_mode_a_connection_for_concurrent_calls_create_one_row(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_connection_enables_only_the_connecting_provider(
+async def test_mcp_connection_enables_only_the_connecting_provider(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_session_factory() as db:
         user = await _make_user(db, suffix="prov")
-        connection = await mode_a_connection_for(
+        connection = await mcp_connection_for(
             db, user, provider=ConnectionProvider.CLAUDE
         )
         await db.commit()
@@ -179,7 +179,7 @@ async def test_mode_a_connection_enables_only_the_connecting_provider(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_connection_without_provider_creates_nothing(
+async def test_mcp_connection_without_provider_creates_nothing(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     # The bare sign-in token exchange does not know which client connected, so it
@@ -188,7 +188,7 @@ async def test_mode_a_connection_without_provider_creates_nothing(
     # MCP handshake, when the provider is known.
     async with db_session_factory() as db:
         user = await _make_user(db, suffix="noprov")
-        connection = await mode_a_connection_for(db, user)
+        connection = await mcp_connection_for(db, user)
         await db.commit()
         assert connection is None
         rows = (
@@ -200,43 +200,43 @@ async def test_mode_a_connection_without_provider_creates_nothing(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_connection_without_provider_reuses_single_existing(
+async def test_mcp_connection_without_provider_reuses_single_existing(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    # When the user already has exactly one Mode A connection, a provider-less call
+    # When the user already has exactly one MCP connection, a provider-less call
     # (unidentified client) resolves to it rather than guessing or creating.
     async with db_session_factory() as db:
         user = await _make_user(db, suffix="one")
-        made = await mode_a_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
+        made = await mcp_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
-        resolved = await mode_a_connection_for(db, user)
+        resolved = await mcp_connection_for(db, user)
         assert resolved is not None
         assert resolved.id == made.id
 
 
 @pytest.mark.asyncio
-async def test_mode_a_connection_without_provider_is_none_when_ambiguous(
+async def test_mcp_connection_without_provider_is_none_when_ambiguous(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     # With several connections we cannot pick safely on an unidentified client.
     async with db_session_factory() as db:
         user = await _make_user(db, suffix="many")
-        await mode_a_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
-        await mode_a_connection_for(db, user, provider=ConnectionProvider.GEMINI)
+        await mcp_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
+        await mcp_connection_for(db, user, provider=ConnectionProvider.GEMINI)
         await db.commit()
-        assert await mode_a_connection_for(db, user) is None
+        assert await mcp_connection_for(db, user) is None
 
 
 @pytest.mark.asyncio
-async def test_mode_a_connection_one_per_provider(
+async def test_mcp_connection_one_per_provider(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     # Each provider the user signs in gets its OWN connection — never one
     # connection that accumulates several.
     async with db_session_factory() as db:
         user = await _make_user(db, suffix="perprov")
-        gem = await mode_a_connection_for(db, user, provider=ConnectionProvider.GEMINI)
-        cla = await mode_a_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
+        gem = await mcp_connection_for(db, user, provider=ConnectionProvider.GEMINI)
+        cla = await mcp_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
         assert gem.id != cla.id
         assert gem.provider is ConnectionProvider.GEMINI
@@ -251,12 +251,12 @@ async def test_mode_a_connection_one_per_provider(
                 )
             ).scalars().all()
             assert {(r.provider, r.enabled) for r in rows} == {(prov, True)}
-        # Two live Mode A connections for the user, one per provider.
+        # Two live MCP connections for the user, one per provider.
         live = (
             await db.execute(
                 select(Connection).where(
                     Connection.user_id == user.id,
-                    Connection.mode_a_at.is_not(None),
+                    Connection.mcp_connected_at.is_not(None),
                     Connection.deleted_at.is_(None),
                 )
             )
@@ -265,12 +265,12 @@ async def test_mode_a_connection_one_per_provider(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_connection_for_resurrects_soft_deleted_row(
+async def test_mcp_connection_for_resurrects_soft_deleted_row(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_session_factory() as db:
         user = await _make_user(db, suffix="1")
-        connection = await mode_a_connection_for(
+        connection = await mcp_connection_for(
             db, user, provider=ConnectionProvider.CLAUDE
         )
         await db.commit()
@@ -291,7 +291,7 @@ async def test_mode_a_connection_for_resurrects_soft_deleted_row(
             await db.execute(select(User).where(User.google_sub == "sub-1"))
         ).scalar_one()
         # Reconnecting the SAME provider resurrects the same row.
-        resurrected = await mode_a_connection_for(
+        resurrected = await mcp_connection_for(
             db, stored_user, provider=ConnectionProvider.CLAUDE
         )
         await db.commit()
@@ -307,7 +307,7 @@ async def test_mode_a_connection_for_resurrects_soft_deleted_row(
                 select(Connection)
                 .where(
                     Connection.user_id == stored_user.id,
-                    Connection.mode_a_at.is_not(None),
+                    Connection.mcp_connected_at.is_not(None),
                 )
                 .order_by(Connection.id)
             )

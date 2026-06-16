@@ -1,10 +1,10 @@
 """Idle / no-game detection and poll pacing for the connection-scoped next-turn
 endpoint.
 
-The "running AI" (Claude / Codex / Gemini following the self-setup play-prompt, or
-the always-on connector) polls ``get_next_turn`` in a loop. The server decides how
-soon it should ask again — the AI just obeys the number. Every "ask" by a
-pasted-in AI is a paid model think, so the goal is: ask as rarely as possible
+The "running AI" (an MCP client following the play prompt, or the always-on
+connector) polls ``get_next_turn`` in a loop. The server decides how
+soon it should ask again — the AI just obeys the number. Every "ask" by an
+interactive client is a paid model think, so the goal is: ask as rarely as possible
 without missing a turn.
 
 Two regimes, paced off the SOONEST game the caller is seated in:
@@ -225,7 +225,7 @@ async def _last_activity_at(db: AsyncSession, connection: Connection) -> datetim
     if last_submit is not None:
         return ensure_aware(last_submit)
     fallback = (
-        connection.mode_a_at
+        connection.mcp_connected_at
         or connection.first_connected_at
         or connection.created_at
     )

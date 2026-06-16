@@ -122,10 +122,10 @@ async def test_mcp_discovery_requires_bearer_token() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
+async def test_get_next_turn_uses_google_identity_and_mcp_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The bridge resolves the Google identity and builds the Mode A connection."""
+    """The bridge resolves the Google identity and builds the MCP connection."""
     from mcp_server import server
 
     captured: dict[str, object] = {}
@@ -134,7 +134,7 @@ async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
-    async def fake_mode_a_connection_for(
+    async def fake_mcp_connection_for(
         db: object, user: object, *, provider: object = None
     ) -> SimpleNamespace:
         captured["user"] = user
@@ -160,7 +160,7 @@ async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
         return {"status": "waiting", "next_poll_after_seconds": 2}
 
     monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mode_a_connection_for", fake_mode_a_connection_for)
+    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
     monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
     monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
     monkeypatch.setattr(server, "play_get_next_turn", fake_get_next_turn)
@@ -191,7 +191,7 @@ async def test_get_turn_uses_oauth_player_resolution(
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
-    async def fake_mode_a_connection_for(
+    async def fake_mcp_connection_for(
         db: object, user: object, *, provider: object = None
     ) -> SimpleNamespace:
         captured["user"] = user
@@ -229,7 +229,7 @@ async def test_get_turn_uses_oauth_player_resolution(
         return {"status": "your_turn", "current": {"phase": "talk"}}
 
     monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mode_a_connection_for", fake_mode_a_connection_for)
+    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
     monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
     monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
     monkeypatch.setattr(server, "require_agent_player", fake_require_agent_player)
@@ -289,7 +289,7 @@ async def test_pull_tools_use_shared_oauth_resolution(
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
-    async def fake_mode_a_connection_for(
+    async def fake_mcp_connection_for(
         db: object, user: object, *, provider: object = None
     ) -> SimpleNamespace:
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
@@ -325,7 +325,7 @@ async def test_pull_tools_use_shared_oauth_resolution(
         return {"status": "ok"}
 
     monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mode_a_connection_for", fake_mode_a_connection_for)
+    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
     monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
     monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
     monkeypatch.setattr(server, "require_agent_player", fake_require_agent_player)

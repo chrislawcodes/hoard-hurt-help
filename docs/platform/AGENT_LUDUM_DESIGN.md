@@ -461,7 +461,7 @@ step (it lives on `/me/agents`), and Join hands off to the lobby.
 
 Two connect methods coexist:
 
-- **Mode A — direct, interactive MCP play (re-introduced).** You point your AI
+- **MCP connection — direct, interactive MCP play (re-introduced).** You point your AI
   client at `/mcp`, **sign in with Google** (OAuth — no pasted key; see the
   `mcp-oauth` feature), and paste a play-prompt; your AI plays your matches live
   while the session runs. This **reverses** the earlier decision that "the runner

@@ -24,12 +24,15 @@ from app.config import settings
 from app.engine.scheduler import _active_player_count
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, sweep_held_seats
 from app.main import app
-from app.models import Base, GameState, Match, Player, User
-from app.models.connection import ConnectionProvider
-from app.models.connection_setup import ConnectionSetup
+from app.models import Base, ConnectionProvider, GameState, Match, Player, User
 from tests.factories import make_agent, make_connection, make_user
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
+MCP_PROVIDER_MODELS = [
+    (ConnectionProvider.CLAUDE, "claude-haiku-4-5"),
+    (ConnectionProvider.OPENAI, "gpt-5.4-mini"),
+    (ConnectionProvider.GEMINI, "gemini-3.1-flash-lite"),
+]
 
 
 @pytest.fixture(autouse=True)
@@ -85,11 +88,15 @@ async def _user_agent(reset_db, *, live: bool):
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection, _ = await make_connection(db, user)
+        connection.mcp_connected_at = datetime.now(timezone.utc)
         if live:
             now = datetime.now(timezone.utc)
+            connection.mcp_connected_at = now
+            connection.first_connected_at = now
             connection.last_seen_at = now
             connection.last_polled_at = now
         else:
+            connection.first_connected_at = connection.mcp_connected_at
             connection.last_seen_at = None
             connection.last_polled_at = None
         agent, _v = await make_agent(db, user, connection=connection, name="Atlas")
@@ -147,6 +154,9 @@ async def test_join_signed_in_but_not_looping_holds_not_confirms(client, reset_d
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection, _ = await make_connection(db, user)
+        now = datetime.now(timezone.utc)
+        connection.mcp_connected_at = now
+        connection.first_connected_at = now
         connection.last_seen_at = datetime.now(timezone.utc)  # seen — i.e. signed in
         connection.last_polled_at = None  # but the play loop never ran
         agent, _v = await make_agent(db, user, connection=connection, name="Atlas")
@@ -200,6 +210,9 @@ async def _held_seat_for_state(reset_db, *, model: str, with_connection: bool) -
         connection = None
         if with_connection:
             connection, _ = await make_connection(db, user)  # enabled, offline
+            now = datetime.now(timezone.utc)
+            connection.mcp_connected_at = now
+            connection.first_connected_at = now
         agent, _v = await make_agent(db, user, connection=connection, model=model, name="Atlas")
         player = Player(
             match_id="G_001",
@@ -215,9 +228,9 @@ async def _held_seat_for_state(reset_db, *, model: str, with_connection: bool) -
 
 
 @pytest.mark.asyncio
-async def test_seat_connect_shows_self_setup_prompt_returning(client, reset_db):
-    """Whether or not the provider was set up before, the held-seat page shows ONE
-    thing: the AI self-setup prompt (a real key + the HTTP play loop)."""
+async def test_seat_connect_shows_mcp_play_prompt_returning(client, reset_db):
+    """A configured-but-offline provider gets the MCP play prompt, not a raw HTTP
+    self-setup key."""
     await _seed_match(reset_db)
     uid, pid = await _held_seat_for_state(reset_db, model="claude-haiku-4-5", with_connection=True)
     r = await client.get(
@@ -225,15 +238,16 @@ async def test_seat_connect_shows_self_setup_prompt_returning(client, reset_db):
     )
     assert r.status_code == 200
     assert "bringing your AI online" in r.text
-    assert "sk_conn_" in r.text  # a usable key
-    assert "/api/agent/next-turn" in r.text  # the HTTP play loop, not MCP
-    assert "agentludum MCP tools" not in r.text  # the dead MCP prompt is gone
+    assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in r.text
+    assert "never ask me for a key or token" in r.text
+    assert "sk_conn_" not in r.text
+    assert "/api/agent/next-turn" not in r.text
 
 
 @pytest.mark.asyncio
-async def test_seat_connect_shows_self_setup_prompt_new(client, reset_db):
-    """A never-set-up provider also gets the self-setup prompt — no redirect to a
-    separate connect page, no MCP walkthrough."""
+async def test_seat_connect_redirects_never_configured_provider_to_mcp_setup(client, reset_db):
+    """A never-set-up provider goes to the provider-specific MCP connect page,
+    carrying next back to the held seat."""
     await _seed_match(reset_db)
     uid, pid = await _held_seat_for_state(reset_db, model="gemini-3.1-flash-lite", with_connection=False)
     r = await client.get(
@@ -241,38 +255,108 @@ async def test_seat_connect_shows_self_setup_prompt_new(client, reset_db):
         cookies=_cookies(uid),
         follow_redirects=False,
     )
-    assert r.status_code == 200  # rendered, not redirected
-    assert "sk_conn_" in r.text
-    assert "/api/agent/next-turn" in r.text
+    assert r.status_code == 303
+    next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", safe="")
+    assert r.headers["location"] == f"/me/connections?provider=gemini&next={next_url}"
 
 
 @pytest.mark.asyncio
-async def test_seat_connect_key_is_scoped_to_the_seats_provider(client, reset_db):
-    """The prompt is one universal text for every provider — only the KEY differs.
-    The held-seat page mints that key for the SEAT's own provider, so an OpenAI
-    agent's page hands out an OpenAI key, never some other provider's."""
+@pytest.mark.parametrize("provider,model", MCP_PROVIDER_MODELS)
+async def test_join_never_configured_mcp_provider_redirects_to_mcp_setup(
+    client, reset_db, provider, model
+):
+    """Join itself sends a never-configured MCP provider to MCP setup, not the
+    held-seat wake page."""
     await _seed_match(reset_db)
-    uid, pid = await _held_seat_for_state(reset_db, model="gpt-5.4-mini", with_connection=False)
-    r = await client.get(
-        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", cookies=_cookies(uid)
-    )
-    assert r.status_code == 200
-    assert "sk_conn_" in r.text  # the universal prompt + a usable key
     async with reset_db() as db:
-        pending = (
-            (
-                await db.execute(
-                    select(ConnectionSetup).where(
-                        ConnectionSetup.user_id == uid,
-                        ConnectionSetup.completed_at.is_(None),
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        user = await make_user(db, 0)
+        agent, _v = await make_agent(db, user, connection=None, model=model, name="Atlas")
+        await db.commit()
+        uid, agent_id = user.id, agent.id
+    r = await client.post(
+        JOIN_URL,
+        data={"agent_id": agent_id},
+        cookies=_cookies(uid),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    async with reset_db() as db:
+        player = (
+            await db.execute(select(Player).where(Player.match_id == "G_001"))
+        ).scalar_one()
+        assert player.seat_reserved_until is not None
+    next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{player.id}", safe="")
+    assert r.headers["location"] == f"/me/connections?provider={provider.value}&next={next_url}"
+
+
+@pytest.mark.asyncio
+async def test_join_machine_only_claude_connection_still_redirects_to_mcp_setup(
+    client, reset_db
+):
+    """A live old-style connection does not count as Claude MCP setup."""
+    await _seed_match(reset_db)
+    async with reset_db() as db:
+        user = await make_user(db, 0)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        now = datetime.now(timezone.utc)
+        connection.last_seen_at = now
+        connection.last_polled_at = now
+        agent, _v = await make_agent(db, user, connection=connection, name="Atlas")
+        await db.commit()
+        uid, agent_id = user.id, agent.id
+    r = await client.post(
+        JOIN_URL,
+        data={"agent_id": agent_id},
+        cookies=_cookies(uid),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    async with reset_db() as db:
+        player = (
+            await db.execute(select(Player).where(Player.match_id == "G_001"))
+        ).scalar_one()
+    next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{player.id}", safe="")
+    assert r.headers["location"] == f"/me/connections?provider=claude&next={next_url}"
+
+
+@pytest.mark.asyncio
+async def test_seat_connect_expired_mcp_connection_redirects_to_mcp_setup(
+    client, reset_db
+):
+    """An MCP connection older than the 90-day OAuth window needs setup again."""
+    await _seed_match(reset_db)
+    async with reset_db() as db:
+        user = await make_user(db, 0)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.GEMINI)
+        old = datetime.now(timezone.utc) - timedelta(days=91)
+        connection.mcp_connected_at = old
+        connection.first_connected_at = old
+        connection.last_seen_at = old
+        agent, _v = await make_agent(
+            db,
+            user,
+            connection=connection,
+            model="gemini-3.1-flash-lite",
+            name="Atlas",
         )
-        # Exactly one pending key, scoped to THIS seat's provider (OpenAI).
-        assert [s.provider for s in pending] == [ConnectionProvider.OPENAI]
+        player = Player(
+            match_id="G_001",
+            user_id=user.id,
+            agent_id=agent.id,
+            seat_name="Atlas",
+            seat_reserved_until=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+        db.add(player)
+        await db.commit()
+        uid, pid = user.id, player.id
+    r = await client.get(
+        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}",
+        cookies=_cookies(uid),
+        follow_redirects=False,
+    )
+    next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", safe="")
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/me/connections?provider=gemini&next={next_url}"
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +395,8 @@ async def _held_player(reset_db, *, live: bool, deadline: datetime):
         # "live" = the AI is running the play loop (last_polled_at fresh), which is
         # what now confirms a held seat.
         now = datetime.now(timezone.utc)
+        connection.mcp_connected_at = now
+        connection.first_connected_at = now
         connection.last_seen_at = now if live else None
         connection.last_polled_at = now if live else None
         agent, _v = await make_agent(db, user, connection=connection, name="Atlas")
@@ -444,6 +530,9 @@ async def _held_configured_offline_player(reset_db, *, seconds_waited: int) -> t
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection, _ = await make_connection(db, user)  # enabled, offline
+        now = datetime.now(timezone.utc)
+        connection.mcp_connected_at = now
+        connection.first_connected_at = now
         agent, _v = await make_agent(
             db, user, connection=connection, model="claude-haiku-4-5", name="Atlas"
         )

@@ -1,4 +1,4 @@
-# Connect screen redesign — "Play with your own AI" (Mode A)
+# Connect screen redesign — "Play with your own AI" (MCP connection)
 
 **Branch:** feat/connect-screen-polish (off origin/main)
 **Type:** Direct Path, pure-UI build

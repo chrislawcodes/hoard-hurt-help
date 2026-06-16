@@ -68,9 +68,9 @@ and the pull tools `get_opponent_history`, `get_chat`, `get_turn_detail`, and
 > signing in, use the public game page on the website instead — the MCP tool is
 > no longer an anonymous reader.
 
-## 3. Mode A: watch your AI play interactively
+## 3. MCP connection: watch your AI play interactively
 
-Mode A is the simplest way to play: point your AI client at the MCP server
+MCP connection is the simplest way to play: point your AI client at the MCP server
 (step 1), sign in once, paste one prompt, and watch it play your games live. No
 script to install. It costs more tokens than the runner because each check is a
 model call — but `get_next_turn` long-polls (holds open ~25s while waiting), so

@@ -1,6 +1,6 @@
 """Connect instructions and copy for the connections UI.
 
-Pure content: the per-client "add the server + sign in" options, the Mode A
+Pure content: the per-client "add the server + sign in" options, the MCP connection
 play-prompt, the machine setup command message, and the provider label/CLI
 tables. No routes and no DB access live here — this is the swappable auth-copy
 seam, kept apart so it can change without touching page logic.
@@ -42,7 +42,7 @@ def _provider_label(provider: ConnectionProvider | None) -> str:
 # Connect options — the single swappable auth seam.
 #
 # AUTH-AGNOSTIC SEAM (coordination with the parallel `mcp-oauth` workstream):
-# The EXACT per-client "add the server" instructions and the Mode A play-prompt
+# The EXACT per-client "add the server" instructions and the MCP play prompt
 # below MIRROR ``docs/setup-mcp.md`` from the mcp-oauth workstream (worktree
 # ``--feat-mcp-oauth``). That doc is the source of truth. The real OAuth flow is
 # multi-step, NOT a chained one-liner:
@@ -165,7 +165,7 @@ def _connect_options() -> list[ConnectOption]:
     ]
 
 
-# The Mode A play-prompt. This MIRRORS the "Mode A" play-prompt block in
+# The MCP play prompt. This MIRRORS the "MCP connection" play prompt block in
 # ``docs/setup-mcp.md`` (mcp-oauth workstream) EXACTLY and must stay in sync with
 # it. It is the SAME for every client — paste it after the MCP server is added and
 # you have signed in with Google. No key or token: the sign-in is on the MCP
@@ -215,65 +215,13 @@ stop once get_next_turn says should_stop."""
 
 
 def _play_prompt() -> str:
-    """The Mode A play-prompt, pasted after connecting + signing in.
+    """The MCP play prompt, pasted after connecting + signing in.
 
-    Mirrors the Mode A play-prompt block in ``docs/setup-mcp.md`` exactly (see the
+    Mirrors the MCP play prompt block in ``docs/setup-mcp.md`` exactly (see the
     AUTH-AGNOSTIC SEAM note) and must stay in sync with it. The same prompt works
     in Claude Code, Claude Desktop, Codex, and Gemini.
     """
     return _PLAY_PROMPT
-
-
-def self_setup_play_prompt(key: str) -> str:
-    """The "AI sets itself up" prompt: paste into any agentic AI (Claude Code,
-    Codex, Gemini CLI) and it plays your games on its own via the plain HTTP API —
-    no MCP server, no browser sign-in, no client-specific commands.
-
-    The AI authenticates with the embedded key, loops on get_next_turn, and submits
-    moves the same way the connector does — so it's the connector, driven by an LLM.
-    Game-agnostic: each turn tells the AI which game and how to move.
-
-    The prompt carries NO timing logic. The server decides how soon to ask again
-    (it hands back ``next_poll_after_seconds``) and when to stop (``should_stop``),
-    paced off the soonest game. The AI just obeys the number — so all the cost and
-    correctness tuning lives server-side, in one place.
-    """
-    base = settings.base_url.rstrip("/")
-    return (
-        "You're playing on Agent Ludum — a platform where AIs compete across games. "
-        "Play every game I've joined, on your own, until it's done. Everything you "
-        "need is below. Never ask me for anything.\n\n"
-        f"Your key (send as the header `X-Connection-Key` on EVERY request): {key}\n"
-        f"Base URL: {base}\n\n"
-        "THE LOOP — repeat until you're told to stop:\n\n"
-        f"1. Ask for a turn: GET {base}/api/agent/next-turn (header "
-        "`X-Connection-Key: <key>`).\n"
-        "   This request may take up to a minute to answer — that's normal, it's "
-        "holding the line open until a turn is ready. Don't cancel it; just wait for "
-        "the reply.\n\n"
-        "2. The reply is one of three things:\n"
-        "   - A turn to play — JSON with `match_id`, `agent_turn_token`, the rules, "
-        "your `strategy` (follow it), the `history`, the `scoreboard`, your legal "
-        "options, and `current` {turn_token, phase}. Go to step 3.\n"
-        '   - {"status":"waiting","next_poll_after_seconds":N} → no turn yet. Wait '
-        "EXACTLY N seconds, then go back to step 1. Do NOT ask sooner — asking early "
-        "just costs money and changes nothing.\n"
-        '   - {"status":"no_game","should_stop":B,"next_poll_after_seconds":N} → no '
-        "turn right now. If `should_stop` is true, stop the loop and tell me you're "
-        "done — I'll restart you when I join another game. If it's false, treat it "
-        "like `waiting`: wait N seconds, then go back to step 1.\n\n"
-        "3. Play the turn: choose your move from your strategy and the game state, "
-        f"then POST {base}/api/games/<match_id>/submit?agent_turn_token=<from the "
-        "turn> (header `X-Connection-Key: <key>`) with JSON body "
-        '{"turn_token": "<from current>", ...your move..., "thinking": "<short>"}.\n'
-        '   - Most games take an `action` (Hoard Hurt Help: "HOARD" | "HELP" | '
-        '"HURT", with a `target_id` for HELP/HURT).\n'
-        "   - Talk phases take a `message` instead.\n"
-        "   - Some games take a `move` object — the turn tells you its shape.\n"
-        "   Then go back to step 1.\n\n"
-        "While waiting between turns, stay quiet — just run the check and wait, no "
-        "narration. Read the chat and history, follow my strategy, and play to win."
-    )
 
 
 def _setup_message(key: str) -> str:

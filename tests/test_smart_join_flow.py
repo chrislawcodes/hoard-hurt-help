@@ -212,6 +212,8 @@ async def test_agent_but_stale_connection_shows_form_not_running(client, reset_d
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         connection, _ = await make_connection(db, u)
         await make_agent(db, u, connection=connection, name="Atlas")
+        connection.mcp_connected_at = datetime.now(timezone.utc)
+        connection.first_connected_at = connection.mcp_connected_at
         connection.last_seen_at = None  # never heartbeated => not live
         await db.commit()
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
@@ -384,9 +386,10 @@ async def test_connect_target_provider_not_bounced_by_a_different_live_provider(
         follow_redirects=False,
     )
     assert r.status_code == 200  # rendered, NOT bounced back
-    # Leads with the Gemini-specific path (the self-setup prompt), not "you're set".
-    assert "Play with Gemini" in r.text
-    assert "X-Connection-Key" in r.text  # the self-setup prompt is shown
+    # Leads with the Gemini-specific MCP setup path, not "you're set".
+    assert "Connect Gemini" in r.text
+    assert "gemini mcp add agentludum" in r.text
+    assert "X-Connection-Key" not in r.text
 
 
 @pytest.mark.asyncio
@@ -407,33 +410,13 @@ async def test_connect_gemini_status_ignores_a_playing_claude(client, reset_db):
     )
     assert r.status_code == 200
     assert "Your AI is playing" not in r.text  # that's Claude, not Gemini
-    assert "Play with Gemini" in r.text
-
-
-def test_self_setup_prompt_contract():
-    """The self-setup prompt must carry the full play contract: the key, the
-    get/submit endpoints, a move example, and server-driven timing/stop."""
-    from app.routes.connections_connect_guide import self_setup_play_prompt
-
-    p = self_setup_play_prompt("sk_conn_deadbeef")
-    assert "sk_conn_deadbeef" in p
-    assert "X-Connection-Key" in p
-    assert "/api/agent/next-turn" in p
-    assert "/submit" in p and "agent_turn_token" in p
-    assert "HOARD" in p and "HURT" in p  # a concrete move example
-    assert "platform" in p  # framed as a platform, not one game
-    # Timing is server-driven: obey the wait number, stop only when told.
-    assert "next_poll_after_seconds" in p  # respect the server's wait hint
-    assert "should_stop" in p  # stop is the server's call, not a self-timer
-    assert "right away" not in p  # no "ask again right away" busy loop
-    # The prompt must not bake in its own timing rule (server owns pacing).
-    assert "10 minutes" not in p
+    assert "Connect Gemini" in r.text
 
 
 @pytest.mark.asyncio
-async def test_connect_target_shows_self_setup_prompt_with_a_key(client, reset_db):
-    """The connect-a-provider page leads with the AI self-setup prompt: a real
-    sk_conn_ key + the HTTP play loop, so the AI can set itself up and play."""
+async def test_connect_target_shows_mcp_setup_without_self_setup_key(client, reset_db):
+    """The connect-a-provider page leads with MCP setup, not the raw HTTP
+    self-setup key prompt."""
     user = await _user_with_handle(reset_db)
     r = await client.get(
         f"/me/connections?provider=gemini&next={JOIN_NEXT}",
@@ -441,9 +424,11 @@ async def test_connect_target_shows_self_setup_prompt_with_a_key(client, reset_d
         follow_redirects=False,
     )
     assert r.status_code == 200
-    assert "sk_conn_" in r.text  # a usable key is embedded
-    assert "/api/agent/next-turn" in r.text  # the loop contract
-    assert "Easiest" in r.text
+    gemini_block = r.text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
+    assert "gemini mcp add agentludum" in gemini_block
+    assert "sk_conn_" not in gemini_block
+    assert "/api/agent/next-turn" not in gemini_block
+    assert "X-Connection-Key" not in gemini_block
 
 
 @pytest.mark.asyncio

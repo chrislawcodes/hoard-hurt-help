@@ -146,6 +146,17 @@ async def _make_connection(
         max_concurrent_games=max_concurrent_games,
         last_seen_at=last_seen_at,
         first_connected_at=first_connected_at,
+        mcp_connected_at=(
+            first_connected_at
+            or last_seen_at
+            if provider
+            in {
+                ConnectionProvider.CLAUDE,
+                ConnectionProvider.OPENAI,
+                ConnectionProvider.GEMINI,
+            }
+            else None
+        ),
     )
     db.add(conn)
     await db.flush()

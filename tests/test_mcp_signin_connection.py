@@ -126,7 +126,7 @@ async def test_signin_is_idempotent_one_connection_per_user(
                 await db.execute(
                     select(Connection).where(
                         Connection.deleted_at.is_(None),
-                        Connection.mode_a_at.is_not(None),
+                        Connection.mcp_connected_at.is_not(None),
                     )
                 )
             )
@@ -219,7 +219,7 @@ async def test_signin_hook_syncs_user_without_creating_a_connection(
 ) -> None:
     """The token-exchange hook syncs the signed-in user but creates NO connection.
 
-    Each provider gets its own Mode A connection, and at sign-in we don't yet know
+    Each provider gets its own MCP connection, and at sign-in we don't yet know
     which AI client (provider) is connecting. The connection is created a moment
     later, at the MCP initialize handshake, where ``clientInfo`` names the provider.
     """

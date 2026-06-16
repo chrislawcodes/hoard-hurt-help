@@ -80,15 +80,15 @@
 </details>
 
 <div class="card">
-{% if is_mode_a %}
+{% if is_mcp_connection %}
     {# MCP connection: the AI client you signed in with speaks for one provider.
        Read-only — no per-provider toggles and no local-CLI detection. To add a
        provider, connect another AI client (a separate sign-in / connection). #}
     <h3 style="margin-top:0;">AI provider</h3>
     <p class="meta">This is an MCP connection. The AI client you signed in with plays through it, and each client speaks for one AI provider. To play another provider, connect that provider's AI client — it becomes its own connection.</p>
-    {% if mode_a_providers %}
+    {% if mcp_connection_providers %}
     <div class="provider-row">
-        <span class="provider-name">{{ mode_a_providers | map(attribute='label') | join(', ') }}</span>
+        <span class="provider-name">{{ mcp_connection_providers | map(attribute='label') | join(', ') }}</span>
         <span class="provider-state"><span class="provider-detected">Playing</span></span>
     </div>
     {% else %}

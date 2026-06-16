@@ -58,9 +58,9 @@ def test_sqlite_migrations_round_trip(tmp_path: Path) -> None:
     )
 
 
-def test_mode_a_migration_adds_marker_and_unique_index(tmp_path: Path) -> None:
-    """0032 adds the Mode A marker; 0036 makes the unique index per-provider."""
-    db_path = tmp_path / "mode_a.db"
+def test_mcp_connection_migration_adds_marker_and_unique_index(tmp_path: Path) -> None:
+    """0032 adds the MCP connection marker; 0036 makes the unique index per-provider."""
+    db_path = tmp_path / "mcp_connection.db"
 
     up = _run_alembic(["upgrade", "head"], db_path)
     assert up.returncode == 0, f"`alembic upgrade head` failed:\n{up.stdout}\n{up.stderr}"
@@ -68,17 +68,17 @@ def test_mode_a_migration_adds_marker_and_unique_index(tmp_path: Path) -> None:
     conn = sqlite3.connect(db_path)
     try:
         columns = [row[1] for row in conn.execute("PRAGMA table_info(connections)").fetchall()]
-        assert "mode_a_at" in columns
+        assert "mcp_connected_at" in columns
         index_sql = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='index' AND name='uq_connections_mode_a_user_id_live'"
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='uq_connections_mcp_user_provider_live'"
         ).fetchone()
         assert index_sql is not None
-        assert "mode_a_at IS NOT NULL AND deleted_at IS NULL" in index_sql[0]
+        assert "mcp_connected_at IS NOT NULL AND deleted_at IS NULL" in index_sql[0]
         # After 0036 the uniqueness is per (user, provider), not just per user.
         index_cols = [
             row[2]
             for row in conn.execute(
-                "PRAGMA index_info(uq_connections_mode_a_user_id_live)"
+                "PRAGMA index_info(uq_connections_mcp_user_provider_live)"
             ).fetchall()
         ]
         assert index_cols == ["user_id", "provider"]
@@ -86,8 +86,8 @@ def test_mode_a_migration_adds_marker_and_unique_index(tmp_path: Path) -> None:
         conn.close()
 
 
-def test_0036_collapses_legacy_multi_provider_mode_a_connection(tmp_path: Path) -> None:
-    """A legacy Mode A connection that accumulated several providers (provider NULL,
+def test_0036_collapses_legacy_multi_provider_mcp_connection(tmp_path: Path) -> None:
+    """A legacy MCP connection that accumulated several providers (provider NULL,
     many enabled rows) must become single-provider, and the new per-(user, provider)
     index must then permit a SEPARATE connection for the other provider."""
     db_path = tmp_path / "split.db"
@@ -100,7 +100,7 @@ def test_0036_collapses_legacy_multi_provider_mode_a_connection(tmp_path: Path) 
         conn.execute(
             "INSERT INTO users (id, google_sub, email) VALUES (1, 'sub-1', 'a@b.com')"
         )
-        # Legacy Mode A connection: provider NULL, two providers enabled on it.
+        # Legacy MCP connection: provider NULL, two providers enabled on it.
         conn.execute(
             "INSERT INTO connections "
             "(id, user_id, provider, key_lookup, key_hint, status, "
@@ -129,7 +129,7 @@ def test_0036_collapses_legacy_multi_provider_mode_a_connection(tmp_path: Path) 
         )
         assert enabled == {"claude": 1, "gemini": 0}
 
-        # The new index allows a SEPARATE live Mode A connection for gemini…
+        # The new index allows a SEPARATE live MCP connection for gemini…
         with conn:
             conn.execute(
                 "INSERT INTO connections "
@@ -148,7 +148,7 @@ def test_0036_collapses_legacy_multi_provider_mode_a_connection(tmp_path: Path) 
                     "VALUES (12, 1, 'claude', 'k12', 'k12x', 'active', 3, 3, "
                     "'2026-06-03 00:00:00+00')"
                 )
-            raise AssertionError("duplicate (user, provider) Mode A row was allowed")
+            raise AssertionError("duplicate (user, provider) MCP connection row was allowed")
         except sqlite3.IntegrityError:
             pass
     finally:
@@ -184,7 +184,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0037",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0038",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"

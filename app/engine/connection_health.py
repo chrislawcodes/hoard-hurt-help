@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,14 @@ _HEARTBEAT_THROTTLE_SECONDS = 10
 # Generous: covers the ~25s long-poll hold PLUS an LLM's think-and-submit gap
 # between polls, so a busy agent is never mistaken for a stopped one.
 LOOP_RUNNING_WINDOW_SECONDS = 120
+MCP_CONNECTION_VALID_DAYS = 90
+MCP_CONNECTION_PROVIDERS = frozenset(
+    {
+        ConnectionProvider.CLAUDE,
+        ConnectionProvider.OPENAI,
+        ConnectionProvider.GEMINI,
+    }
+)
 
 
 def _humanize_since(dt: datetime, now: datetime) -> str:
@@ -324,6 +332,97 @@ async def provider_enabled_on_any_connection(
     return row is not None
 
 
+def provider_uses_mcp_connection(provider: ConnectionProvider) -> bool:
+    """True when this provider's user-facing setup path is OAuth MCP."""
+    return provider in MCP_CONNECTION_PROVIDERS
+
+
+async def provider_has_recent_mcp_connection(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when *provider* has an MCP connection used in the last 90 days.
+
+    For Claude, OpenAI, and Gemini, "set up" means the user has connected that
+    provider's MCP client recently enough that the Google OAuth token should
+    still be valid. A machine/header-style connection does not satisfy this
+    check.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MCP_CONNECTION_VALID_DAYS)
+    rows = (
+        (
+            await db.execute(
+                select(Connection)
+                .join(
+                    ConnectionProviderRow,
+                    ConnectionProviderRow.connection_id == Connection.id,
+                )
+                .where(
+                    Connection.user_id == user_id,
+                    Connection.deleted_at.is_(None),
+                    Connection.mcp_connected_at.is_not(None),
+                    ConnectionProviderRow.provider == provider,
+                    ConnectionProviderRow.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for connection in rows:
+        seen_values = [
+            dt
+            for dt in (
+                connection.last_seen_at,
+                connection.first_connected_at,
+                connection.mcp_connected_at,
+            )
+            if dt is not None
+        ]
+        if seen_values and max(ensure_aware(dt) for dt in seen_values) >= cutoff:
+            return True
+    return False
+
+
+async def provider_has_current_setup(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when the provider has the setup path we currently support.
+
+    Claude/OpenAI/Gemini are now MCP-first, so they require a recent MCP
+    connection. Hermes/OpenClaw still use the older connection signal until their
+    MCP setup path is handled separately.
+    """
+    if provider_uses_mcp_connection(provider):
+        return await provider_has_recent_mcp_connection(db, user_id, provider)
+    return await provider_enabled_on_any_connection(db, user_id, provider)
+
+
+async def provider_has_live_current_setup(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when the provider's current setup path is connected right now."""
+    if not provider_uses_mcp_connection(provider):
+        return await provider_is_covered(db, user_id, provider)
+    now = datetime.now(timezone.utc)
+    rows = (
+        await db.execute(
+            select(Connection)
+            .join(
+                ConnectionProviderRow,
+                ConnectionProviderRow.connection_id == Connection.id,
+            )
+            .where(
+                Connection.user_id == user_id,
+                Connection.deleted_at.is_(None),
+                Connection.mcp_connected_at.is_not(None),
+                ConnectionProviderRow.provider == provider,
+                ConnectionProviderRow.enabled.is_(True),
+            )
+        )
+    ).scalars().all()
+    return any(_connection_is_live(connection, now) for connection in rows)
+
+
 async def provider_loop_running(
     db: AsyncSession, user_id: int, provider: ConnectionProvider
 ) -> bool:
@@ -337,22 +436,25 @@ async def provider_loop_running(
     while the user starts their AI.
     """
     now = datetime.now(timezone.utc)
+    query = (
+        select(Connection.last_polled_at)
+        .join(
+            ConnectionProviderRow,
+            ConnectionProviderRow.connection_id == Connection.id,
+        )
+        .where(
+            Connection.user_id == user_id,
+            Connection.deleted_at.is_(None),
+            Connection.status != ConnectionStatus.PAUSED,
+            ConnectionProviderRow.provider == provider,
+            ConnectionProviderRow.enabled.is_(True),
+        )
+    )
+    if provider_uses_mcp_connection(provider):
+        query = query.where(Connection.mcp_connected_at.is_not(None))
     polled = (
         (
-            await db.execute(
-                select(Connection.last_polled_at)
-                .join(
-                    ConnectionProviderRow,
-                    ConnectionProviderRow.connection_id == Connection.id,
-                )
-                .where(
-                    Connection.user_id == user_id,
-                    Connection.deleted_at.is_(None),
-                    Connection.status != ConnectionStatus.PAUSED,
-                    ConnectionProviderRow.provider == provider,
-                    ConnectionProviderRow.enabled.is_(True),
-                )
-            )
+            await db.execute(query)
         )
         .scalars()
         .all()
@@ -458,21 +560,22 @@ async def live_provider_capacity(
     Returns 0 when no live connection covers the provider (join is always blocked).
     """
     now = datetime.now(timezone.utc)
-    rows = (
-        await db.execute(
-            select(Connection)
-            .join(
-                ConnectionProviderRow,
-                ConnectionProviderRow.connection_id == Connection.id,
-            )
-            .where(
-                Connection.user_id == user_id,
-                Connection.deleted_at.is_(None),
-                ConnectionProviderRow.provider == provider,
-                ConnectionProviderRow.enabled.is_(True),
-            )
+    query = (
+        select(Connection)
+        .join(
+            ConnectionProviderRow,
+            ConnectionProviderRow.connection_id == Connection.id,
         )
-    ).scalars().all()
+        .where(
+            Connection.user_id == user_id,
+            Connection.deleted_at.is_(None),
+            ConnectionProviderRow.provider == provider,
+            ConnectionProviderRow.enabled.is_(True),
+        )
+    )
+    if provider_uses_mcp_connection(provider):
+        query = query.where(Connection.mcp_connected_at.is_not(None))
+    rows = (await db.execute(query)).scalars().all()
     return sum(c.max_concurrent_games for c in rows if _connection_is_live(c, now))
 
 
