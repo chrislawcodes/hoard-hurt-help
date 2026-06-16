@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.aware_datetime import ensure_aware
 from app.broadcast import publish
 from app.db import SessionLocal
 from app.engine import resolver
@@ -59,11 +60,6 @@ MIN_PLAYERS_TO_START = 3
 # the log from `exception` to `critical` — a persistently broken subsystem must
 # not just re-log the same error forever with no alarm.
 _POLLER_ESCALATE_AFTER = 5
-
-
-def _as_aware(dt: datetime) -> datetime:
-    """SQLite drops tz info on read; normalize to UTC-aware for comparisons."""
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 async def _active_player_count(db, match_id: str) -> int:
@@ -147,7 +143,7 @@ class SchedulerRegistry:
                 .all()
             )
             for g in games:
-                if _as_aware(g.scheduled_start) > now:
+                if ensure_aware(g.scheduled_start) > now:
                     continue  # not due yet
                 count = await _active_player_count(db, g.id)
                 if count >= MIN_PLAYERS_TO_START:
@@ -588,7 +584,7 @@ async def _all_messaged(db, turn: Turn) -> bool:
 
 async def _wait_for_messages(db, turn: Turn) -> None:
     """Block until the talk deadline, or until all active players have messaged."""
-    deadline = _as_aware(turn.deadline_at)
+    deadline = ensure_aware(turn.deadline_at)
     while True:
         remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
         if remaining <= 0:
@@ -610,7 +606,7 @@ async def _begin_act_phase(db, game: Match, turn: Turn) -> None:
 
 async def _wait_for_turn(db, turn: Turn) -> None:
     """Block until the turn deadline, or until all active players have submitted."""
-    deadline = _as_aware(turn.deadline_at)
+    deadline = ensure_aware(turn.deadline_at)
     while True:
         remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
         if remaining <= 0:
@@ -647,7 +643,7 @@ async def cancel_overdue_unfilled_games(db) -> int:
     )
     cancelled = 0
     for g in games:
-        if _as_aware(g.scheduled_start) > now:
+        if ensure_aware(g.scheduled_start) > now:
             continue  # not due yet
         count = await _active_player_count(db, g.id)
         if count >= MIN_PLAYERS_TO_START:
