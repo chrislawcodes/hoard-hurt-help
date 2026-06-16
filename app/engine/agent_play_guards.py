@@ -27,8 +27,6 @@ _POLL_NEAR_START = 5
 _POLL_WHEN_ACTIVE = 5
 _NEAR_START_WINDOW_SECONDS = 180
 _PULL_MIN_INTERVAL = 1.0
-_LONG_POLL_HOLD_SECONDS = 0.0
-_LONG_POLL_INTERVAL_SECONDS = 1.0
 
 PollRateState = dict[int, float]
 PullRateState = dict[tuple[int, str], float]

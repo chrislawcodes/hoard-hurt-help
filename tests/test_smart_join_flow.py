@@ -412,7 +412,7 @@ async def test_connect_gemini_status_ignores_a_playing_claude(client, reset_db):
 
 def test_self_setup_prompt_contract():
     """The self-setup prompt must carry the full play contract: the key, the
-    get/submit endpoints, a move example, and the 10-minute idle stop."""
+    get/submit endpoints, a move example, and server-driven timing/stop."""
     from app.routes.connections_connect_guide import self_setup_play_prompt
 
     p = self_setup_play_prompt("sk_conn_deadbeef")
@@ -421,11 +421,13 @@ def test_self_setup_prompt_contract():
     assert "/api/agent/next-turn" in p
     assert "/submit" in p and "agent_turn_token" in p
     assert "HOARD" in p and "HURT" in p  # a concrete move example
-    assert "10 minutes" in p  # the idle stop
     assert "platform" in p  # framed as a platform, not one game
-    # Must back off between polls, never busy-loop on a `waiting` reply.
+    # Timing is server-driven: obey the wait number, stop only when told.
     assert "next_poll_after_seconds" in p  # respect the server's wait hint
+    assert "should_stop" in p  # stop is the server's call, not a self-timer
     assert "right away" not in p  # no "ask again right away" busy loop
+    # The prompt must not bake in its own timing rule (server owns pacing).
+    assert "10 minutes" not in p
 
 
 @pytest.mark.asyncio

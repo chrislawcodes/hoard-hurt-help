@@ -21,12 +21,13 @@ from sqlalchemy.orm import joinedload
 
 import app.db as db_module
 from app.aware_datetime import ensure_aware
-from app.engine.agent_idle import IdleStatus, compute_idle_status
-from app.engine.connection_activity import mark_polled
-from app.engine.agent_play_guards import (
-    _LONG_POLL_HOLD_SECONDS,
-    _LONG_POLL_INTERVAL_SECONDS,
+from app.engine.agent_idle import (
+    LONG_POLL_INTERVAL_SECONDS,
+    IdleStatus,
+    compute_idle_status,
+    pace_idle,
 )
+from app.engine.connection_activity import mark_polled
 from app.engine.agent_play_reads import (
     _build_current_turn,
     _group_into_turns,
@@ -370,14 +371,16 @@ async def get_next_turn(
     db: AsyncSession,
     connection: Connection,
     *,
-    hold_seconds: float = _LONG_POLL_HOLD_SECONDS,
-    interval_seconds: float = _LONG_POLL_INTERVAL_SECONDS,
     agent_id: int | None = None,
+    max_hold_seconds: float | None = None,
 ) -> dict[str, object]:
-    held = max(0.0, hold_seconds) > 0.0
-    waiting_poll_hint = 2 if held else 30
-    deadline = asyncio.get_event_loop().time() + max(0.0, hold_seconds)
+    """Serve the caller's most urgent turn, or — if none is open — tell it how soon
+    to ask again, paced off its soonest game (see :func:`pace_idle`).
 
+    The hold length and the wait number are decided by the server, not the caller.
+    ``max_hold_seconds`` caps the long-poll hold (tests pass 0 to return at once
+    instead of waiting out a real hold).
+    """
     now = datetime.now(timezone.utc)
     # The play-loop heartbeat: reaching here means the AI is actively polling for
     # turns. Stamp it (throttled) before serving so seating can tell a running loop
@@ -387,20 +390,26 @@ async def get_next_turn(
     if served is not None:
         return served
 
-    # No turn right now: decide between "waiting" (game coming) and "no_game"
-    # (nothing coming) BEFORE the long-poll hold. If the caller has no game at all
-    # there's nothing to long-poll for, so reply at once with the idle hint.
+    # No turn right now. Pace off the soonest game: a live (or imminent) game
+    # long-polls; everything else gets a plain "wait N seconds" and returns at once.
     idle = await compute_idle_status(db, connection, now=now)
-    if not idle.has_game:
+    hold_seconds, next_poll = pace_idle(idle)
+    if max_hold_seconds is not None:
+        hold_seconds = min(hold_seconds, max_hold_seconds)
+
+    if hold_seconds <= 0.0:
         await db.rollback()
-        return _idle_payload(idle, waiting_poll_hint=waiting_poll_hint)
+        return _idle_payload(idle, waiting_poll_hint=next_poll)
 
     connection_id = connection.id
     await db.rollback()
 
     loop = asyncio.get_event_loop()
+    deadline = loop.time() + hold_seconds
     while loop.time() < deadline:
-        await asyncio.sleep(max(0.0, min(interval_seconds, deadline - loop.time())))
+        await asyncio.sleep(
+            max(0.0, min(LONG_POLL_INTERVAL_SECONDS, deadline - loop.time()))
+        )
         async with db_module.SessionLocal() as check_db:
             fresh = (
                 await check_db.execute(
@@ -422,7 +431,7 @@ async def get_next_turn(
         if served is not None:
             return served
 
-    return {"status": "waiting", "next_poll_after_seconds": waiting_poll_hint}
+    return {"status": "waiting", "next_poll_after_seconds": next_poll}
 
 
 async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, object]:
@@ -435,7 +444,10 @@ async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, 
     claimed = [cand for cand in ordered if await _claim_pin(db, connection, cand, ctx, now)]
     await db.commit()
     if not claimed:
+        # Non-blocking fan-out: no long-poll hold here, but use the same paced
+        # wait number so a per-agent loop backs off identically to get_next_turn.
         idle = await compute_idle_status(db, connection, now=now)
-        return _idle_payload(idle, waiting_poll_hint=30)
+        _, next_poll = pace_idle(idle)
+        return _idle_payload(idle, waiting_poll_hint=next_poll)
     turns = [await _build_turn_payload(db, cand, ctx) for cand in claimed]
     return {"status": "your_turn", "turns": turns}

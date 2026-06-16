@@ -1,23 +1,35 @@
-"""Idle / no-game detection for the connection-scoped next-turn endpoint.
+"""Idle / no-game detection and poll pacing for the connection-scoped next-turn
+endpoint.
 
-The MCP "running AI" (Claude / Codex / Gemini following the Mode A play-prompt)
-polls ``get_next_turn`` in a loop. When there's nothing to play, the server tells
-it apart from two situations:
+The "running AI" (Claude / Codex / Gemini following the self-setup play-prompt, or
+the always-on connector) polls ``get_next_turn`` in a loop. The server decides how
+soon it should ask again — the AI just obeys the number. Every "ask" by a
+pasted-in AI is a paid model think, so the goal is: ask as rarely as possible
+without missing a turn.
 
-* **waiting** — the caller is seated in a game that's live (or about to start) but
-  no turn is open for it right now. A turn IS coming; keep polling.
-* **no_game** — the caller has NO active or upcoming game at all. Nothing is
-  coming unless a human joins one. We attach an ``idle_seconds`` count and, once
-  the caller has been idle past :data:`IDLE_STOP_SECONDS`, a ``should_stop`` hint
-  so an interactive client can stop its loop instead of polling forever.
+Two regimes, paced off the SOONEST game the caller is seated in:
 
-The idle clock has no dedicated column (we avoid a migration): it's derived from
-existing facts — the most recent real move the user's agents submitted, falling
-back to when this connection first came online. That anchor only matters in the
-no-game case; if a game is live or scheduled we never tell the client to stop.
+* **In a live game** — a turn could open any second. The server *long-polls*:
+  it holds the request open (cheap — no model thinking while it waits) and answers
+  the instant a turn opens. After a hold with nothing, ask again in seconds.
+* **Before a game** — no turn exists yet, so there's nothing to hold open for.
+  The server hands back a plain "wait N seconds": ~5 minutes when a start is far
+  off (or there's no game at all), tightening to ~1 minute inside the last five,
+  then switching to a long-poll in the final minute so the AI is already waiting
+  when the first turn (with its 60-second deadline) opens.
 
-The hint is advisory. The always-on connector service is meant to run forever and
-deliberately ignores ``should_stop`` — only the interactive MCP client acts on it.
+Naps are capped so a long nap can never carry the AI *past* the next, tighter lane
+— it can be a little early, never late. And the speed always follows the soonest
+game, so joining a far game then a near one pulls the cadence tight for the near
+one.
+
+The idle clock (for the no-game case) has no dedicated column: it's derived from
+the most recent real move the user's agents made, falling back to when the
+connection came online. ``should_stop`` only ever fires when there is NO game at
+all and that clock passes :data:`IDLE_STOP_SECONDS`; a caller with any game
+scheduled or live is never told to stop. The always-on connector ignores
+``should_stop`` and runs forever by design — only the interactive client acts on
+it.
 """
 
 from __future__ import annotations
@@ -35,36 +47,97 @@ from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import TurnSubmission
 
-# How long the interactive client may go with no game to play before the server
-# hints that it should stop polling. ~10 minutes, per the agreed Mode A play-flow.
+# How long the interactive client may go with NO game before the server hints it
+# should stop polling. ~10 minutes.
 IDLE_STOP_SECONDS = 600
 
-# A live game (someone's turn could open any moment) or a scheduled/registering
-# game (about to start) both count as "the caller has a game" — never stop then.
+# Long-poll: hold the request open this long, watching for a turn to open. Kept
+# well under common proxy timeouts (~100s) so the held request always returns
+# cleanly rather than being cut by an intermediary.
+LONG_POLL_HOLD_SECONDS = 40
+# How often, inside a hold, to re-check the DB for a freshly opened turn.
+LONG_POLL_INTERVAL_SECONDS = 1.0
+
+# In a live game (or the final approach to a start), after a hold returns nothing,
+# ask again this soon — a turn can open any moment.
+POLL_IN_PLAY_SECONDS = 5
+# Begin long-polling this many seconds before a scheduled start, so the AI is
+# already holding the line open when the first turn opens.
+LONG_POLL_LEAD_SECONDS = 60
+# Inside this window before a start, check every minute.
+NEAR_START_WINDOW_SECONDS = 300
+POLL_NEAR_START_SECONDS = 60
+# Far from any start, or no game at all: check every five minutes.
+POLL_WAITING_SECONDS = 300
+
+# A live game (a turn could open any moment) or a scheduled/registering game
+# (about to start) both count as "the caller has a game" — never stop then.
 _HAS_GAME_STATES = (
     GameState.ACTIVE,
     GameState.SCHEDULED,
     GameState.REGISTERING,
 )
+_UPCOMING_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
 
 
 @dataclass(frozen=True)
 class IdleStatus:
-    """Resolved no-game / idle picture for one connection's owner."""
+    """Resolved no-game / idle / soonest-start picture for one connection's owner."""
 
     has_game: bool
+    # Any seated game in the ACTIVE state — a turn could open any second.
+    has_live_game: bool
+    # Seconds until the soonest scheduled/registering game starts, floored at 0.
+    # ``None`` when no upcoming game is scheduled (no game, or only live games).
+    seconds_to_next_start: int | None
     idle_seconds: int
     should_stop: bool
     stop_reason: str | None
 
 
-async def _user_has_game(db: AsyncSession, user_id: int) -> bool:
-    """True if the user has any active AI agent seated in a live or upcoming game."""
-    row = (
+def pace_idle(idle: IdleStatus) -> tuple[float, int]:
+    """Decide ``(long_poll_hold_seconds, next_poll_after_seconds)`` for a poll that
+    has no turn to serve right now.
+
+    All timing lives here, in one place — the AI never reasons about start times;
+    it just obeys ``next_poll_after_seconds`` and waits out the hold. Naps are
+    capped so they can't overshoot into a looser lane or past a start.
+    """
+    # Live game: a turn could open any second. Hold the line; ask again soon.
+    if idle.has_live_game:
+        return (float(LONG_POLL_HOLD_SECONDS), POLL_IN_PLAY_SECONDS)
+
+    seconds = idle.seconds_to_next_start
+    # Nothing scheduled at all → cheap waiting (and maybe ``should_stop``).
+    if seconds is None:
+        return (0.0, POLL_WAITING_SECONDS)
+
+    # Final approach: hold the line so we catch the opening turn the instant it
+    # opens — its 60-second deadline leaves no room to be a nap late.
+    if seconds <= LONG_POLL_LEAD_SECONDS:
+        return (float(LONG_POLL_HOLD_SECONDS), POLL_IN_PLAY_SECONDS)
+
+    # Inside the last five minutes: check every minute, but never nap past the
+    # long-poll lead window.
+    if seconds <= NEAR_START_WINDOW_SECONDS:
+        nap = min(POLL_NEAR_START_SECONDS, seconds - LONG_POLL_LEAD_SECONDS)
+        return (0.0, max(POLL_IN_PLAY_SECONDS, nap))
+
+    # Far off: check every five minutes, but never nap past the near-start window.
+    nap = min(POLL_WAITING_SECONDS, seconds - NEAR_START_WINDOW_SECONDS)
+    return (0.0, max(POLL_NEAR_START_SECONDS, nap))
+
+
+async def _seated_game_states(
+    db: AsyncSession, user_id: int
+) -> list[tuple[GameState, datetime | None]]:
+    """The (state, scheduled_start) of every live-or-upcoming game the user's
+    active AI agents are seated in."""
+    rows = (
         await db.execute(
-            select(Player.id)
+            select(Match.state, Match.scheduled_start)
+            .join(Player, Player.match_id == Match.id)
             .join(Agent, Agent.id == Player.agent_id)
-            .join(Match, Match.id == Player.match_id)
             .where(
                 Agent.user_id == user_id,
                 Agent.kind == AgentKind.AI,
@@ -73,15 +146,12 @@ async def _user_has_game(db: AsyncSession, user_id: int) -> bool:
                 Player.left_at.is_(None),
                 Match.state.in_(_HAS_GAME_STATES),
             )
-            .limit(1)
         )
-    ).first()
-    return row is not None
+    ).all()
+    return [(state, start) for state, start in rows]
 
 
-async def _last_activity_at(
-    db: AsyncSession, connection: Connection
-) -> datetime:
+async def _last_activity_at(db: AsyncSession, connection: Connection) -> datetime:
     """When the connection's owner last had game activity.
 
     The most recent real (non-defaulted) move by any of the user's agents is the
@@ -116,22 +186,36 @@ async def _last_activity_at(
 async def compute_idle_status(
     db: AsyncSession, connection: Connection, *, now: datetime | None = None
 ) -> IdleStatus:
-    """Resolve whether the caller has a game and, if not, how long it's been idle.
+    """Resolve whether the caller has a game, how soon the soonest one starts, and
+    — when there's no game — how long it's been idle.
 
     ``should_stop`` is only ever True when there's NO game and the idle window has
-    elapsed — a client with a game waiting (or one that recently played) is never
-    told to stop.
+    elapsed; a client with a game live or scheduled is never told to stop.
     """
     now = now or datetime.now(timezone.utc)
-    if await _user_has_game(db, connection.user_id):
+    games = await _seated_game_states(db, connection.user_id)
+    if games:
+        has_live = any(state == GameState.ACTIVE for state, _ in games)
+        starts = [
+            max(0, int((ensure_aware(start) - now).total_seconds()))
+            for state, start in games
+            if state in _UPCOMING_STATES and start is not None
+        ]
         return IdleStatus(
-            has_game=True, idle_seconds=0, should_stop=False, stop_reason=None
+            has_game=True,
+            has_live_game=has_live,
+            seconds_to_next_start=min(starts) if starts else None,
+            idle_seconds=0,
+            should_stop=False,
+            stop_reason=None,
         )
     anchor = await _last_activity_at(db, connection)
     idle_seconds = max(0, int((now - anchor).total_seconds()))
     should_stop = idle_seconds >= IDLE_STOP_SECONDS
     return IdleStatus(
         has_game=False,
+        has_live_game=False,
+        seconds_to_next_start=None,
         idle_seconds=idle_seconds,
         should_stop=should_stop,
         stop_reason="idle_timeout" if should_stop else None,
