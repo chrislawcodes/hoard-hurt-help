@@ -247,8 +247,12 @@ def self_setup_play_prompt(key: str) -> str:
         "   - A turn to play — JSON with `match_id`, `agent_turn_token`, the game "
         "and rules, your `strategy` (follow it), the `history`, the `scoreboard`, "
         "your legal options, and `current` {turn_token, phase}.\n"
-        '   - {"status":"waiting"} → ask again right away.\n'
-        '   - {"status":"no_game"} → nothing right now (see "When to stop").\n\n'
+        '   - {"status":"waiting","next_poll_after_seconds":N} → no turn yet. Wait '
+        "N seconds (the `next_poll_after_seconds` value, default 30) before asking "
+        "again. Do NOT ask again immediately — that just hammers the server in a "
+        "tight loop.\n"
+        '   - {"status":"no_game","next_poll_after_seconds":N} → nothing right now. '
+        'Wait N seconds too (see "When to stop").\n\n'
         "2. Decide your move from the strategy and the game state. Each game has its "
         "own moves — the turn tells you the rules and your legal options; play by "
         "those.\n\n"
@@ -262,9 +266,11 @@ def self_setup_play_prompt(key: str) -> str:
         "   - Some games take a free-form `move` object — the turn tells you its "
         "shape.\n\n"
         "4. Go back to step 1.\n\n"
-        "When to stop: keep going while there are games. If you get `no_game` for "
-        "about 10 minutes straight, stop and tell me you're done — I'll start you "
-        "again when I join more games."
+        "When to stop: keep going while there are real turns to play. Every "
+        "`waiting` or `no_game` reply carries `next_poll_after_seconds` — always "
+        "wait that long before asking again (default 30s). If you've gotten nothing "
+        "but `waiting` and/or `no_game` for about 10 minutes straight, stop and tell "
+        "me you're done — I'll start you again when I join more games."
     )
 
 

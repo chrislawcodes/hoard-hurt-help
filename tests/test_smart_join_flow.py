@@ -423,6 +423,9 @@ def test_self_setup_prompt_contract():
     assert "HOARD" in p and "HURT" in p  # a concrete move example
     assert "10 minutes" in p  # the idle stop
     assert "platform" in p  # framed as a platform, not one game
+    # Must back off between polls, never busy-loop on a `waiting` reply.
+    assert "next_poll_after_seconds" in p  # respect the server's wait hint
+    assert "right away" not in p  # no "ask again right away" busy loop
 
 
 @pytest.mark.asyncio
