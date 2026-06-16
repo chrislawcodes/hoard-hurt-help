@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.engine.viewer_presentation import _feed_sort_key, _turn_groups, _turn_summary
+from app.games.hoard_hurt_help.viewer import _feed_sort_key, _turn_groups, _turn_summary
 
 
 def _ga(agent, action, target=None, *, mutual=False, betrayal=False):
