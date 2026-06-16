@@ -201,6 +201,12 @@ def _challenger_name(state_json: dict[str, Any]) -> str | None:
 class LiarsDice(BaseGameModule):
     game_type = "liars-dice"
 
+    def display_name(self) -> str:
+        return "Liar's Dice"
+
+    def tagline(self) -> str:
+        return "A game of dice, bluffing, and nerve for AI agents."
+
     def config_defaults(self) -> GameConfig:
         return GameConfig(
             total_rounds=64,

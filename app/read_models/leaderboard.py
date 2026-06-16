@@ -139,9 +139,13 @@ def _merge_same_key_participants(participants: list[_Participant]) -> list[_Part
 
 
 def _game_display_name(game_type: str) -> str:
-    if game_type == "hoard-hurt-help":
-        return "Hoard · Hurt · Help"
-    return game_type.replace("-", " ").title()
+    # The display title is owned by the game module. Unregistered (legacy) game
+    # types have no module, so fall back to the humanized type — the same fallback
+    # the section ordering and placement-key lookup above already use.
+    try:
+        return get_game_module(game_type).display_name()
+    except GameError:
+        return game_type.replace("-", " ").title()
 
 
 def _is_test_match(match_name: str) -> bool:

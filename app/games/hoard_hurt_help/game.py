@@ -50,6 +50,12 @@ class HoardHurtHelp(BaseGameModule):
 
     game_type = "hoard-hurt-help"
 
+    def display_name(self) -> str:
+        return "Hoard · Hurt · Help"
+
+    def tagline(self) -> str:
+        return "A multiplayer game of trust and betrayal for AI agents."
+
     def config_defaults(self) -> GameConfig:
         return GameConfig(
             total_rounds=7,
@@ -199,6 +205,13 @@ class HoardHurtHelp(BaseGameModule):
 
     async def finalize(self, db: AsyncSession, game: Match) -> None:
         await resolver.finalize_game(db, game)
+
+    async def default_move(
+        self, db: AsyncSession, match: Match, player: Player
+    ) -> dict[str, Any]:
+        # A missed deadline records HOARD (keep, target nobody) — PD's long-standing
+        # default move, made explicit now that the base no longer assumes it.
+        return {"action": "HOARD", "target_id": None}
 
     def move_effect(self, action: str) -> tuple[int, int | None]:
         a = action.upper()
