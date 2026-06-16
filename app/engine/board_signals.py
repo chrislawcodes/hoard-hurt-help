@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from collections.abc import Sequence
 from typing import Literal
 
+from app.engine.action_vocab import pd_action_names
 from app.engine.game_records import ActionRecord, PlayerRecord
 from app.schemas.agent import Alliance, BoardSignals
 
@@ -46,8 +47,9 @@ def compute_board_signals(
 
 
 def _temperature(round_actions: Sequence[ActionRecord]) -> tuple[float, TemperatureLabel]:
-    helps = sum(1 for a in round_actions if a.action == "HELP")
-    hurts = sum(1 for a in round_actions if a.action == "HURT")
+    _, help_action, hurt_action = pd_action_names()
+    helps = sum(1 for a in round_actions if a.action == help_action)
+    hurts = sum(1 for a in round_actions if a.action == hurt_action)
     if helps + hurts == 0:
         return 0.5, "mixed"
     temp = helps / (helps + hurts)
@@ -60,9 +62,10 @@ def _temperature(round_actions: Sequence[ActionRecord]) -> tuple[float, Temperat
 
 def _help_edges(round_actions: Sequence[ActionRecord]) -> dict[tuple[str, str], int]:
     """Directed HELP edge weights A->B over the given actions."""
+    _, help_action, _ = pd_action_names()
     edges: Counter[tuple[str, str]] = Counter()
     for a in round_actions:
-        if a.action == "HELP" and a.target_id is not None:
+        if a.action == help_action and a.target_id is not None:
             edges[(a.actor_id, a.target_id)] += 1
     return dict(edges)
 

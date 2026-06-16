@@ -14,13 +14,24 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import make_engine
+from app.engine.action_vocab import pd_action_names
 from app.games.hoard_hurt_help.game import HoardHurtHelp
+from app.games.liars_dice.game import LiarsDice
 from app.models import Base, Match, GameState
 from tests.factories import seat_player
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def test_action_names_contract() -> None:
+    # The read-side insight engines bucket the action log by these names in this
+    # exact order (HOARD, HELP, HURT); the StyleMix/aggregate fields depend on it.
+    assert HoardHurtHelp().action_names() == ("HOARD", "HELP", "HURT")
+    assert pd_action_names() == ("HOARD", "HELP", "HURT")
+    # Each game owns its own vocabulary; Liar's Dice is not PD's trio.
+    assert LiarsDice().action_names() == ("BID", "CHALLENGE")
 
 
 @pytest.mark.asyncio

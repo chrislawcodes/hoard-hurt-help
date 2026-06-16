@@ -59,6 +59,11 @@ class HoardHurtHelp(BaseGameModule):
             max_players=100,
         )
 
+    def action_names(self) -> tuple[str, ...]:
+        # Canonical display order the insight engines tally moves in:
+        # HOARD (keep), HELP (cooperate), HURT (attack).
+        return ("HOARD", "HELP", "HURT")
+
     def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
         return make_rules_text(total_rounds, turns_per_round)
 

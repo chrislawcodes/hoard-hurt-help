@@ -89,6 +89,15 @@ class GameModule(Protocol):
 
     def config_defaults(self) -> GameConfig: ...
 
+    def action_names(self) -> tuple[str, ...]:
+        """This game's action names, in the canonical display order.
+
+        The read-side "insight" engines (opponent stats, board signals, season /
+        round analysis) bucket the action log by these names. Returning them here
+        keeps those engines from hardcoding one game's move vocabulary. The order
+        is the order those engines present per-action tallies in."""
+        ...
+
     def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str: ...
 
     def strategy_presets(self) -> list[StrategyPreset]:
@@ -244,6 +253,11 @@ class BaseGameModule:
     The PD module subclasses this; the conformance stub does not (it never drives
     the platform paths that call these hooks).
     """
+
+    def action_names(self) -> tuple[str, ...]:
+        # Default mirrors PD's move trio so a PD-shaped game inherits it; games
+        # with a different action vocabulary (e.g. Liar's Dice) override this.
+        return ("HOARD", "HELP", "HURT")
 
     async def record_message(
         self,

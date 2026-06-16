@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
+from app.engine.action_vocab import pd_action_names
 from app.engine.board_signals import (
     alliance_formed_this_turn,
     compute_board_signals,
@@ -135,9 +136,10 @@ def _delta(
         if a.actor_id == you or a.target_id == you
     ]
     others = [a for a in last if a.actor_id != you]
-    hoard = sum(1 for a in others if a.action == "HOARD")
-    helped = sum(1 for a in others if a.action == "HELP")
-    hurt = sum(1 for a in others if a.action == "HURT")
+    hoard_action, help_action, hurt_action = pd_action_names()
+    hoard = sum(1 for a in others if a.action == hoard_action)
+    helped = sum(1 for a in others if a.action == help_action)
+    hurt = sum(1 for a in others if a.action == hurt_action)
     return TurnDelta(
         round=last_rt[0],
         turn=last_rt[1],
