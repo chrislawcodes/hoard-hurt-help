@@ -1,4 +1,4 @@
-{% set is_mcp = connection.mode_a_at %}
+{% set is_mcp = connection.mcp_connected_at %}
 <div id="connection-status" class="card" hx-get="/me/connections/{{ connection.id }}/status" hx-trigger="every 5s" hx-swap="outerHTML">
     <h3 style="margin-top:0;">Connection status</h3>
     <p class="hint" style="margin-top:0;">

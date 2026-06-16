@@ -418,6 +418,7 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
         # Set last_seen_at so the connection is warm (runner connected)
         connection.last_seen_at = recently
         connection.first_connected_at = recently
+        connection.mcp_connected_at = recently
         await db.flush()
         agent = await _make_agent(db, user, connection=connection, name="Alpha")
         version = await _make_version(db, agent)

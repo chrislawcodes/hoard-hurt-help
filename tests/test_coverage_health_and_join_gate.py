@@ -61,6 +61,7 @@ async def test_loop_running_true_when_recently_polled(
 ) -> None:
     user = await make_user(db_session, 30)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.mcp_connected_at = datetime.now(timezone.utc)
     conn.last_polled_at = datetime.now(timezone.utc) - timedelta(seconds=20)
     await db_session.flush()
     assert await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -75,6 +76,7 @@ async def test_loop_running_false_when_seen_but_never_polled(
     provider_is_covered would call it 'live'."""
     user = await make_user(db_session, 31)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.mcp_connected_at = datetime.now(timezone.utc)
     conn.last_seen_at = datetime.now(timezone.utc)  # seen → "covered" says live
     conn.last_polled_at = None  # but no play loop ever ran
     await db_session.flush()
@@ -88,6 +90,7 @@ async def test_loop_running_false_when_poll_is_stale(
 ) -> None:
     user = await make_user(db_session, 32)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.mcp_connected_at = datetime.now(timezone.utc)
     conn.last_polled_at = datetime.now(timezone.utc) - timedelta(minutes=10)
     await db_session.flush()
     assert not await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -101,6 +104,7 @@ async def test_loop_running_false_when_paused(
     conn, _ = await make_connection(
         db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.PAUSED
     )
+    conn.mcp_connected_at = datetime.now(timezone.utc)
     conn.last_polled_at = datetime.now(timezone.utc)
     await db_session.flush()
     assert not await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
@@ -345,13 +349,13 @@ async def test_live_provider_capacity_zero_when_no_live_connections(
     user = await make_user(db_session, 30)
     # Connection exists but is cold.
     conn, _ = await make_connection(
-        db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
+        db_session, user, provider=ConnectionProvider.HERMES, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=3,
     )
     conn.last_seen_at = _cold()
     await db_session.flush()
 
-    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
+    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.HERMES)
     assert cap == 0
 
 
@@ -361,13 +365,13 @@ async def test_live_provider_capacity_one_live_connection(
 ) -> None:
     user = await make_user(db_session, 31)
     conn, _ = await make_connection(
-        db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
+        db_session, user, provider=ConnectionProvider.HERMES, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=4,
     )
     conn.last_seen_at = _recently()
     await db_session.flush()
 
-    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
+    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.HERMES)
     assert cap == 4
 
 
@@ -378,18 +382,18 @@ async def test_live_provider_capacity_two_live_connections_sums(
     """Capacity is the SUM over all live connections that have the provider enabled."""
     user = await make_user(db_session, 32)
     conn1, _ = await make_connection(
-        db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
+        db_session, user, provider=ConnectionProvider.HERMES, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=3,
     )
     conn1.last_seen_at = _recently()
     conn2, _ = await make_connection(
-        db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
+        db_session, user, provider=ConnectionProvider.HERMES, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=5,
     )
     conn2.last_seen_at = _recently()
     await db_session.flush()
 
-    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
+    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.HERMES)
     assert cap == 8  # 3 + 5
 
 
@@ -416,14 +420,14 @@ async def test_join_gate_allowed_under_capacity_one_connection(
     """One live connection with capacity 2, zero active matches → allowed."""
     user = await make_user(db_session, 41)
     conn, _ = await make_connection(
-        db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
+        db_session, user, provider=ConnectionProvider.HERMES, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=2,
     )
     conn.last_seen_at = _recently()
     await db_session.flush()
 
-    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
-    active = await active_matches_for_provider(db_session, user.id, ConnectionProvider.CLAUDE)
+    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.HERMES)
+    active = await active_matches_for_provider(db_session, user.id, ConnectionProvider.HERMES)
     assert cap == 2
     assert active == 0
     assert is_join_blocked(active, cap) is False
@@ -436,7 +440,7 @@ async def test_join_gate_blocked_at_capacity_one_connection(
     """One live connection with capacity 1, one active match → blocked."""
     user = await make_user(db_session, 42)
     conn, _ = await make_connection(
-        db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
+        db_session, user, provider=ConnectionProvider.HERMES, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=1,
     )
     conn.last_seen_at = _recently()
@@ -457,8 +461,8 @@ async def test_join_gate_blocked_at_capacity_one_connection(
     db_session.add(player)
     await db_session.flush()
 
-    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
-    active = await active_matches_for_provider(db_session, user.id, ConnectionProvider.CLAUDE)
+    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.HERMES)
+    active = await active_matches_for_provider(db_session, user.id, ConnectionProvider.HERMES)
     assert cap == 1
     assert active == 1
     assert is_join_blocked(active, cap) is True
@@ -473,12 +477,12 @@ async def test_join_gate_scales_with_two_live_connections(
     """
     user = await make_user(db_session, 43)
     conn1, _ = await make_connection(
-        db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
+        db_session, user, provider=ConnectionProvider.HERMES, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=2,
     )
     conn1.last_seen_at = _recently()
     conn2, _ = await make_connection(
-        db_session, user, provider=ConnectionProvider.CLAUDE, status=ConnectionStatus.ACTIVE,
+        db_session, user, provider=ConnectionProvider.HERMES, status=ConnectionStatus.ACTIVE,
         max_concurrent_games=2,
     )
     conn2.last_seen_at = _recently()
@@ -501,8 +505,8 @@ async def test_join_gate_scales_with_two_live_connections(
         db_session.add(player)
     await db_session.flush()
 
-    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.CLAUDE)
-    active = await active_matches_for_provider(db_session, user.id, ConnectionProvider.CLAUDE)
+    cap = await live_provider_capacity(db_session, user.id, ConnectionProvider.HERMES)
+    active = await active_matches_for_provider(db_session, user.id, ConnectionProvider.HERMES)
     assert cap == 4      # 2 + 2
     assert active == 3
     assert is_join_blocked(active, cap) is False   # 3 < 4 → allowed
@@ -520,7 +524,7 @@ async def test_join_gate_scales_with_two_live_connections(
     db_session.add(player4)
     await db_session.flush()
 
-    active2 = await active_matches_for_provider(db_session, user.id, ConnectionProvider.CLAUDE)
+    active2 = await active_matches_for_provider(db_session, user.id, ConnectionProvider.HERMES)
     assert active2 == 4
     assert is_join_blocked(active2, cap) is True   # 4 >= 4 → blocked
 

@@ -18,7 +18,7 @@ from app.engine.connection_health import (
     active_matches_for_provider,
     is_join_blocked,
     live_provider_capacity,
-    provider_enabled_on_any_connection,
+    provider_has_current_setup,
     provider_loop_running,
 )
 from app.engine.scheduler import start_game
@@ -31,8 +31,7 @@ from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
 from app.models.user import User, UserRole
 from app.request_logging import set_request_trace_context
-from app.routes.connections_connect_guide import self_setup_play_prompt
-from app.routes.connections_machine_setup import _ensure_pending_setup_and_key
+from app.routes.connections_connect_guide import _play_prompt
 from app.routes.provider_labels import PROVIDER_LABELS
 from app.routes.web_support import (
     _game_theme,
@@ -270,7 +269,7 @@ async def join_form(
             # but not playing, so it's held while the user starts their AI.
             if await provider_loop_running(db, user.id, provider):
                 provider_status[pv] = "live"
-            elif await provider_enabled_on_any_connection(db, user.id, provider):
+            elif await provider_has_current_setup(db, user.id, provider):
                 provider_status[pv] = "offline"
             else:
                 provider_status[pv] = "unconfigured"
@@ -487,8 +486,22 @@ async def join_submit(
     if held:
         # At least one seat is waiting on its AI. Send the user to the connect
         # countdown for the first held seat so they can bring it online in time.
+        held_provider = await db.scalar(
+            select(Agent.provider).where(Agent.id == held[0].agent_id)
+        )
+        held_connect_url = f"/games/{match.game}/matches/{match.id}/connect/{held[0].id}"
+        if held_provider is not None and not await provider_has_current_setup(
+            db, user.id, held_provider
+        ):
+            return RedirectResponse(
+                url=(
+                    f"/me/connections?provider={held_provider.value}"
+                    f"&next={quote(held_connect_url, safe='')}"
+                ),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
         return RedirectResponse(
-            url=f"/games/{match.game}/matches/{match.id}/connect/{held[0].id}",
+            url=held_connect_url,
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -529,17 +542,16 @@ async def seat_connect(
         if provider is not None
         else "your AI"
     )
-    # One path for everyone: the AI self-setup prompt for this seat's provider.
-    # Paste it into the AI and it plays via the HTTP API — no MCP, no sign-in, no
-    # client-specific commands. The seat-status poll below auto-confirms the seat
-    # (and jumps to the match) the moment the AI starts playing. We mint a STABLE
-    # per-provider key so the prompt shows the same key on every reload.
-    self_setup_prompt = None
-    if provider is not None:
-        _setup, self_play_key = await _ensure_pending_setup_and_key(
-            request, db, user.id, provider=provider
+    if provider is not None and not await provider_has_current_setup(
+        db, user.id, provider
+    ):
+        return RedirectResponse(
+            url=(
+                f"/me/connections?provider={provider.value}"
+                f"&next={quote(f'{match_url}/connect/{player.id}', safe='')}"
+            ),
+            status_code=status.HTTP_303_SEE_OTHER,
         )
-        self_setup_prompt = self_setup_play_prompt(self_play_key)
     status_url = f"{match_url}/connect/{player.id}/status"
     return templates.TemplateResponse(
         request,
@@ -551,7 +563,7 @@ async def seat_connect(
             "game_theme": _game_theme(match),
             "player": player,
             "provider_label": provider_label,
-            "self_setup_prompt": self_setup_prompt,
+            "play_prompt": _play_prompt(),
             "status_url": status_url,
         },
     )
@@ -631,7 +643,7 @@ async def seat_connect_status(
     # they reconnect and it comes online we still auto-seat them.
     deadline = ensure_aware(player.seat_reserved_until)
     waited_seconds = SEAT_HOLD_SECONDS - (deadline - now).total_seconds()
-    is_configured = provider is not None and await provider_enabled_on_any_connection(
+    is_configured = provider is not None and await provider_has_current_setup(
         db, user.id, provider
     )
     escalate = is_configured and waited_seconds >= _STALL_WAKE_SECONDS

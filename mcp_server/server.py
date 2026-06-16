@@ -1,7 +1,7 @@
 """MCP server for Hoard Hurt Help.
 
 The MCP layer uses Google OAuth, resolves the signed-in user to the canonical
-Mode A connection, and calls the shared play service in-process.
+MCP connection, and calls the shared play service in-process.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from app.engine.agent_play import (
 )
 from app.engine.connection_activity import mark_seen
 from app.engine.mcp_client_identity import provider_from_client_name
-from app.engine.mode_a_connection import mode_a_connection_for
+from app.engine.mcp_connection import mcp_connection_for
 from app.models.connection import Connection, ConnectionProvider
 from app.models.player import Player
 from app.models.user import User
@@ -129,7 +129,7 @@ async def _bootstrap_signin_connection_from_idp(idp_tokens: Mapping[str, Any]) -
     Runs inside the token exchange (see _ConnectAtSignInGoogleProvider) — the one
     server-side point that fires exactly once per sign-in AND already knows who
     the user is. We do NOT create a connection here: each provider gets its own
-    Mode A connection, and at sign-in we don't yet know which AI client (provider)
+    MCP connection, and at sign-in we don't yet know which AI client (provider)
     is connecting. The connection is created a moment later at the MCP initialize
     handshake, where ``clientInfo`` names the provider. Identity comes from the
     Google id_token in the token response.
@@ -155,7 +155,7 @@ async def _sync_signin_user(
 
 
 class _ConnectAtSignInGoogleProvider(GoogleProvider):
-    """GoogleProvider that records the Mode A connection as soon as sign-in
+    """GoogleProvider that records the MCP connection as soon as sign-in
     finishes, so the connections page does not wait for the first MCP request.
 
     ``_extract_upstream_claims`` is FastMCP's documented override point for
@@ -323,20 +323,20 @@ async def _connection_from_token(
     *,
     provider: ConnectionProvider | None,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
-    """Resolve a verified OAuth token to the caller's Mode A connection.
+    """Resolve a verified OAuth token to the caller's MCP connection.
 
     Creates the connection on first sight and reuses it thereafter. ``provider``
     is the single provider the connecting MCP client speaks for — each provider
     gets its own connection (one client == one provider). When ``provider`` is
     ``None`` (an unidentified client) we cannot create one, so we reuse the
-    caller's single existing Mode A connection if there is exactly one, otherwise
+    caller's single existing MCP connection if there is exactly one, otherwise
     raise. Does NOT record the call — see ``mark_seen`` for the heartbeat /
     usage-count side of a request.
     """
     access_token = _require_access_token(token)
     userinfo = _google_userinfo_from_token(access_token)
     user = await sync_google_user(db, userinfo)
-    connection = await mode_a_connection_for(db, user, provider=provider)
+    connection = await mcp_connection_for(db, user, provider=provider)
     if connection is None:
         # No provider to key on and no single existing connection to fall back to —
         # we genuinely can't tell which AI client this is. Fail loud rather than
@@ -373,7 +373,7 @@ async def _resolve_oauth_connection(
 async def _bootstrap_signin_connection(
     token: object, provider: ConnectionProvider | None
 ) -> None:
-    """Create/resume the caller's Mode A connection when their session starts.
+    """Create/resume the caller's MCP connection when their session starts.
 
     Runs once per MCP session, on the ``initialize`` handshake, so the
     /me/connections page flips to "connected" as soon as the client signs in —
@@ -383,7 +383,7 @@ async def _bootstrap_signin_connection(
     The handshake is not a paid model inference, so this deliberately skips
     ``mark_seen`` (which bumps the ``api_call_count`` cost counter) and only
     writes the connection's existence and connected timestamps via
-    ``mode_a_connection_for``.
+    ``mcp_connection_for``.
 
     fail-open: advisory only — if this fails the session still initializes, and
     the first tool call's ``_resolve_oauth_connection`` remains the authoritative
@@ -395,7 +395,7 @@ async def _bootstrap_signin_connection(
 
 
 class SigninConnectionMiddleware(Middleware):
-    """Bootstrap the Mode A connection when a client initializes a session."""
+    """Bootstrap the MCP connection when a client initializes a session."""
 
     async def on_initialize(
         self,

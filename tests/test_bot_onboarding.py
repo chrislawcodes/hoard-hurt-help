@@ -307,6 +307,7 @@ async def test_status_fragment_connected_no_game_shows_join(client, reset_db):
         connection, _ = await make_connection(db, u)
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         now = datetime.now(timezone.utc)
+        connection.mcp_connected_at = now
         connection.first_connected_at = now
         connection.last_seen_at = now
         await db.commit()
@@ -323,6 +324,7 @@ async def test_detail_empty_games_copy_when_connected(client, reset_db):
         connection, _ = await make_connection(db, u)
         agent, _ = await make_agent(db, u, connection=connection, name="Atlas")
         now = datetime.now(timezone.utc)
+        connection.mcp_connected_at = now
         connection.first_connected_at = now
         connection.last_seen_at = now
         await db.commit()

@@ -115,6 +115,18 @@ async def _seed_agent(
         connection, k = await make_connection(db, u, key=key)
         agent, _ = await make_agent(db, u, connection=connection, name=name)
         now = datetime.now(timezone.utc)
+        existing_mcp = await db.scalar(
+            select(Connection.id)
+            .where(
+                Connection.user_id == u.id,
+                Connection.provider == connection.provider,
+                Connection.mcp_connected_at.is_not(None),
+                Connection.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        if existing_mcp is None:
+            connection.mcp_connected_at = now
         connection.first_connected_at = now
         connection.last_seen_at = now
         connection.last_polled_at = now  # AI is running the play loop → seats confirm
@@ -926,6 +938,7 @@ async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         conn, _k = await make_connection(db, u, max_concurrent_games=1)
         now = datetime.now(timezone.utc)
+        conn.mcp_connected_at = now
         conn.first_connected_at = now
         conn.last_seen_at = now
         conn.last_polled_at = now  # AI is running the play loop → seats confirm

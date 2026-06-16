@@ -352,7 +352,7 @@ async def test_connections_list_shows_inline_setup_and_no_provider_picker(
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
     # One unified setup prompt, inline, using the single connector download. The
-    # connector is now the secondary "always-on" option below the Mode A flow.
+    # connector is now the secondary "always-on" option below the MCP flow.
     assert "always-on connector" in resp.text
     assert "Name this machine" in resp.text
     assert "Paste this to your AI assistant:" in resp.text
@@ -440,7 +440,7 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
 async def test_connections_list_returning_state_shows_play_prompt(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """RETURNING user (connected before, nothing live now): lead with the Mode A
+    """RETURNING user (connected before, nothing live now): lead with the MCP connection
     play-prompt (the recurring action); the full add-server setup is collapsed."""
     async with session_factory() as db:
         user = await _make_user(db)
@@ -454,7 +454,7 @@ async def test_connections_list_returning_state_shows_play_prompt(
     text = resp.text
 
     assert "Start playing" in text
-    # The Mode A play-prompt leads the returning state.
+    # The MCP play prompt leads the returning state.
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
     assert "never ask me for a key or token" in text
     # The recovery nudge for returning users whose connection went to sleep:
@@ -621,7 +621,7 @@ async def test_connections_list_renders_existing_connection(
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
     assert "Your connections" in resp.text
-    # No mode_a_at on this connection, so it reads as the always-on connector kind.
+    # No mcp_connected_at on this connection, so it reads as the always-on connector kind.
     assert "Machine connection" in resp.text
     assert "My Claude" in resp.text
     assert "Manage →" in resp.text
@@ -974,16 +974,16 @@ async def test_detail_renders_provider_toggles_and_install_hint(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_detail_shows_read_only_provider_not_machine_toggles(
+async def test_mcp_connection_detail_shows_read_only_provider_not_machine_toggles(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """An MCP (Mode A) connection plays one provider via the AI client you signed
+    """An MCP connection plays one provider via the AI client you signed
     in with — so its detail page shows that provider read-only, NOT the machine
     multi-provider toggle box with CLI-detection language."""
     async with session_factory() as db:
         user = await _make_user(db)
         connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
-        connection.mode_a_at = datetime.now(timezone.utc)
+        connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
         conn_id = connection.id
 
@@ -1031,7 +1031,7 @@ async def test_connection_controls_live_in_status_card(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_status_card_hides_rotate_key(
+async def test_mcp_connection_status_card_hides_rotate_key(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Rotate Key issues a fresh paste-in key — a machine idea. An MCP connection
@@ -1040,7 +1040,7 @@ async def test_mode_a_status_card_hides_rotate_key(
     async with session_factory() as db:
         user = await _make_user(db)
         connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
-        connection.mode_a_at = datetime.now(timezone.utc)
+        connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
         conn_id = connection.id
 

@@ -21,6 +21,7 @@ from app.engine.connection_health import (
     LIVE_WINDOW_SECONDS,
     ConnectionHealth,
     compute_connection_health,
+    provider_uses_mcp_connection,
 )
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -38,10 +39,10 @@ class AgentRow:
 
 
 def _connection_display_name(connection: Connection) -> str:
-    # A Mode A connection is one MCP client, which speaks for exactly one AI
+    # A MCP connection is one MCP client, which speaks for exactly one AI
     # provider — so it is named by that provider (Claude, OpenAI…), never
     # user-nicknamed. (Nicknaming is a machine idea: you name your computer.)
-    if connection.mode_a_at:
+    if connection.mcp_connected_at:
         if connection.provider is not None:
             return PROVIDER_LABELS.get(
                 connection.provider.value, connection.provider.value.title()
@@ -229,6 +230,8 @@ async def _live_status_context(
             ConnectionProviderRow.provider == provider,
             ConnectionProviderRow.enabled.is_(True),
         )
+        if provider_uses_mcp_connection(provider):
+            conn_query = conn_query.where(Connection.mcp_connected_at.is_not(None))
     connections = (
         (
             await db.execute(

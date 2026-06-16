@@ -582,7 +582,7 @@ pre code { background: none; padding: 0; }
 .auth { text-align: center; margin: 4rem auto; }
 
 
-/* ---- Connect-your-AI (BYO Mode A) ---- */
+/* ---- Connect-your-AI (MCP connection) ---- */
 /* Readiness banner: green-tinted when an agent exists, accent-nudge when not. */
 .byo-readiness.is-ready { border-color: color-mix(in srgb, var(--help) 45%, var(--line)); }
 .byo-readiness.needs-agent { border-color: var(--accent); }
