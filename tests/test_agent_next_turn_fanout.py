@@ -968,6 +968,76 @@ async def test_long_poll_returns_promptly_when_a_turn_opens(
 
 
 @pytest.mark.asyncio
+async def test_pacing_is_agent_scoped_when_a_loop_asks_for_one_agent(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A per-agent loop must pace off ITS own soonest game, not a busier sibling.
+
+    Agent A's game is 25 min off; sibling agent B is live. Connection-wide, a live
+    game means long-poll — but the loop scoped to A should see no live game and use
+    the cheap 5-minute waiting cadence, so A's loop doesn't burn the fast in-play
+    rate waiting on B's game."""
+    from app.engine.agent_idle import compute_idle_status, pace_idle
+
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, _key = await make_connection(db, user)
+        now = datetime.now(timezone.utc)
+        far = Match(
+            id="M_FAR",
+            name="match-M_FAR",
+            state=GameState.SCHEDULED,
+            scheduled_start=now + timedelta(minutes=25),
+            per_turn_deadline_seconds=60,
+            current_round=0,
+            current_turn=0,
+        )
+        live = Match(
+            id="M_LIVE",
+            name="match-M_LIVE",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=1,
+        )
+        db.add_all([far, live])
+        await db.flush()
+        agent_a, _va, _pa = await _seat_agent(
+            db, user=user, connection=connection, match=far,
+            seat_name=f"{user.handle}/A", agent_name="A",
+            model="claude-sonnet-4-6", strategy_text="s",
+        )
+        await _seat_agent(
+            db, user=user, connection=connection, match=live,
+            seat_name=f"{user.handle}/B", agent_name="B",
+            model="claude-sonnet-4-6", strategy_text="s",
+        )
+        await db.commit()
+        connection_id = connection.id
+        agent_a_id = agent_a.id
+
+    async with session_factory() as db:
+        conn = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+        # Connection-wide: B is live → long-poll.
+        whole = await compute_idle_status(db, conn)
+        assert whole.has_live_game is True
+        assert pace_idle(whole)[0] > 0  # holds the line open
+
+        # Scoped to agent A: its only game is 25 min off → no hold, 5-min cadence.
+        scoped = await compute_idle_status(db, conn, agent_id=agent_a_id)
+        assert scoped.has_live_game is False
+        assert scoped.seconds_to_next_start is not None
+        assert scoped.seconds_to_next_start > 600
+        hold, next_poll = pace_idle(scoped)
+        assert hold == 0.0
+        assert next_poll == 300
+
+
+@pytest.mark.asyncio
 async def test_api_call_count_increments_and_turn_count_on_real_submit(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
