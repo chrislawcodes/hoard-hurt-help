@@ -7,29 +7,18 @@
     <p class="sub">{{ player.seat_name }} has a seat in "{{ game.name }}". We'll seat you automatically the moment {{ provider_label }} connects — take your time.</p>
 </div>
 <div class="card form seat-connect">
-{% if setup_state == "returning" %}
-    {# RETURNING: {{ provider_label }}'s MCP server is set up, it just isn't checking
-       for turns yet. Make that explicit so the user doesn't think they need to set
-       the connection up again — they only need to tell their AI to start checking.
-       Reconnect is the fallback if the connection actually expired. #}
-    <p>✓ Your {{ provider_label }} MCP server is connected — you don't need to set it up again. {{ provider_label }} just isn't checking for your turns yet. Paste this into {{ provider_label }} to tell it to start checking and play:</p>
+    {# One path: paste the self-setup prompt into the AI and it plays via the HTTP
+       API (no MCP, no sign-in). The seat-status poll below confirms the seat the
+       moment the AI starts playing. #}
+    <p>Paste this into {{ provider_label }} (or any AI that can run commands). It sets itself up and plays your games on its own — no sign-in, no setup commands.</p>
+    {% if self_setup_prompt %}
     <button type="button" class="btn-copy"
-            onclick="copyWithFeedback(this, document.getElementById('seat-play-prompt').textContent)">Copy</button>
-    <pre id="seat-play-prompt">{{ play_prompt }}</pre>
-    {# connect_url already carries ?provider= for this seat's provider. #}
-    <p class="hint" style="margin-top:0.6rem;">If it says it can't find the game tools, or asks you to sign in, your connection expired — <a href="{{ connect_url }}">reconnect {{ provider_label }} →</a></p>
+            onclick="copyWithFeedback(this, document.getElementById('seat-self-setup').textContent)">Copy</button>
+    <pre id="seat-self-setup">{{ self_setup_prompt }}</pre>
+    {% endif %}
     <div class="form-actions" style="margin-top:0.8rem;">
         <a class="btn btn-ghost" href="/games/{{ game.game }}">Leave seat</a>
     </div>
-{% else %}
-    {# NEW: {{ provider_label }} isn't set up yet — send them through the full
-       connect walkthrough. #}
-    <p>Let's connect {{ provider_label }} so it can play. It takes about a minute — add the server, sign in with Google, and you're set.</p>
-    <div class="form-actions">
-        <a class="btn btn-primary" href="{{ connect_url }}">Connect {{ provider_label }} →</a>
-        <a class="btn btn-ghost" href="/games/{{ game.game }}">Leave seat</a>
-    </div>
-{% endif %}
 </div>
 <div id="seat-status" hx-get="{{ status_url }}" hx-trigger="every 3s" hx-swap="outerHTML">
     <p class="hint">Waiting for {{ provider_label }} to come online…</p>
