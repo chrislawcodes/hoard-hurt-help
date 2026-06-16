@@ -725,6 +725,22 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
         assert connection.provider is ConnectionProvider.CLAUDE
         assert connection.first_connected_at is not None
         assert connection.status is ConnectionStatus.ACTIVE
+        # A provider-scoped setup enables that provider on the new connection, so
+        # next-turn (which serves agents off the enabled rows) actually finds it.
+        prov_rows = (
+            (
+                await db.execute(
+                    select(ConnectionProviderRow).where(
+                        ConnectionProviderRow.connection_id == connection_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert {(r.provider, r.enabled) for r in prov_rows} == {
+            (ConnectionProvider.CLAUDE, True)
+        }
 
     delete_resp = await client.post(
         f"/me/connections/{connection_id}/delete",

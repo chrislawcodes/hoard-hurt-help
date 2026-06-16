@@ -14,16 +14,35 @@
 
 {% if connect_target %}
     {# --- TARGETED CONNECT: the user came to set up a SPECIFIC provider that isn't
-       connected yet (e.g. they hit "Connect Gemini" on a held seat). Lead with that
-       provider's connect steps — the picker preselects it via selected_client_id —
-       instead of the per-account "you're all set" view that a different live
-       provider would otherwise trigger. --- #}
+       connected yet (e.g. they hit "Connect Gemini" on a held seat). Lead with the
+       AI self-setup prompt (easiest — the AI sets itself up and plays via the HTTP
+       API, no sign-in), then the manual MCP steps collapsed behind it. The live
+       region auto-advances the moment the AI starts playing. --- #}
+    {% if self_setup_prompt %}
+    <div class="card" id="connect">
+        <h2 style="margin-top:0;">Play with {{ target_provider_label }} <span class="byo-easiest-badge">Easiest</span></h2>
+        <p class="hint" style="margin-bottom:0.9rem;">Paste this into {{ target_provider_label }} (or any AI that can run commands). It sets itself up and plays your games on its own — no sign-in, no setup commands.</p>
+        <button type="button" class="btn-copy"
+                onclick="copyWithFeedback(this, document.getElementById('self-setup-prompt').textContent)">Copy</button>
+        <pre id="self-setup-prompt">{{ self_setup_prompt }}</pre>
+        {% include "connections/_live_status.html" %}
+    </div>
+
+    <details class="card byo-collapsed" id="setup">
+        <summary>Rather connect the MCP server yourself? Manual setup for {{ target_provider_label }}</summary>
+        <div class="byo-connector-body">
+            <p class="hint" style="margin-bottom:0.6rem;">{{ target_provider_label }} isn't connected yet. Add its server and sign in with Google.</p>
+            {% include "connections/_connect_picker.html" %}
+        </div>
+    </details>
+    {% else %}
     <div class="card" id="connect">
         <h2 style="margin-top:0;">Connect {{ target_provider_label }}</h2>
         <p class="hint" style="margin-bottom:0.9rem;">{{ target_provider_label }} isn't connected yet. Add its server and sign in with Google — the page moves on by itself the moment it connects.</p>
         {% include "connections/_connect_picker.html" %}
         {% include "connections/_live_status.html" %}
     </div>
+    {% endif %}
 
 {% elif is_live_now %}
     {# --- LIVE: lead with the post-connect block (Create-agent → play-prompt →
