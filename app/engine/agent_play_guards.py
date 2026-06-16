@@ -16,6 +16,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.aware_datetime import ensure_aware
 from app.deps import _parse_agent_turn_token
 from app.models.match import Match
 from app.models.player import Player
@@ -40,13 +41,6 @@ def _err(code: str, message: str, http: int, details: dict | None = None) -> HTT
     )
 
 
-def _as_aware(dt: datetime) -> datetime:
-    """SQLite drops timezone info on read; normalize to UTC-aware."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
 def _seat_name_map(players: Sequence[Player]) -> dict[int, str]:
     return {player.agent_id: player.seat_name for player in players}
 
@@ -69,7 +63,7 @@ def _check_pull_rate_limit(rate_state: PullRateState, agent_id: int, bucket: str
 
 def _next_poll_before_start(game: Match) -> int:
     seconds_until_start = (
-        _as_aware(game.scheduled_start) - datetime.now(timezone.utc)
+        ensure_aware(game.scheduled_start) - datetime.now(timezone.utc)
     ).total_seconds()
     if seconds_until_start > _NEAR_START_WINDOW_SECONDS:
         return _POLL_FAR_FROM_START

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.aware_datetime import ensure_aware
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
@@ -24,14 +25,9 @@ _HEARTBEAT_THROTTLE_SECONDS = 10
 LOOP_RUNNING_WINDOW_SECONDS = 120
 
 
-def _as_aware(dt: datetime) -> datetime:
-    """SQLite may drop tzinfo on read; treat naive values as UTC."""
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-
-
 def _humanize_since(dt: datetime, now: datetime) -> str:
     """Return a small relative time string for the UI badge."""
-    secs = int((now - _as_aware(dt)).total_seconds())
+    secs = int((now - ensure_aware(dt)).total_seconds())
     if secs < 10:
         return "just now"
     if secs < 60:
@@ -121,12 +117,12 @@ async def compute_connection_health(
     last_seen = connection.last_seen_at
     warm = (
         last_seen is not None
-        and (now - _as_aware(last_seen)).total_seconds() <= LIVE_WINDOW_SECONDS
+        and (now - ensure_aware(last_seen)).total_seconds() <= LIVE_WINDOW_SECONDS
     )
     last_connected = connection.last_seen_at or connection.first_connected_at
     never_connected = last_connected is None
     last_connected_at = (
-        _as_aware(last_connected) if last_connected is not None else None
+        ensure_aware(last_connected) if last_connected is not None else None
     )
     last_connected_human = (
         None if last_connected is None else _humanize_since(last_connected, now)

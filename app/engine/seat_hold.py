@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.aware_datetime import ensure_aware
 from app.db import SessionLocal
 from app.engine.connection_health import provider_loop_running
 from app.models.agent import Agent
@@ -31,11 +32,6 @@ from app.models.player import Player
 # a long hold never blocks a game from beginning — it only avoids punishing a
 # user who is still connecting. The connect screens no longer show a countdown.
 SEAT_HOLD_SECONDS = 15 * 60  # 15 minutes
-
-
-def _as_aware(dt: datetime) -> datetime:
-    """SQLite drops tz info on read; normalize to UTC-aware for comparisons."""
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def hold_deadline(now: datetime) -> datetime:
@@ -112,7 +108,7 @@ async def sweep_held_seats(session_factory: async_sessionmaker | None = None) ->
                 changed = True
                 continue
             deadline = player.seat_reserved_until
-            if deadline is not None and _as_aware(deadline) <= now:
+            if deadline is not None and ensure_aware(deadline) <= now:
                 await db.delete(player)
                 changed = True
         if changed:

@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.aware_datetime import ensure_aware
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection
 from app.models.match import GameState, Match
@@ -45,11 +46,6 @@ _HAS_GAME_STATES = (
     GameState.SCHEDULED,
     GameState.REGISTERING,
 )
-
-
-def _as_aware(dt: datetime) -> datetime:
-    """SQLite drops tz info on read; treat a naive value as UTC."""
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -108,13 +104,13 @@ async def _last_activity_at(
         )
     ).scalar_one_or_none()
     if last_submit is not None:
-        return _as_aware(last_submit)
+        return ensure_aware(last_submit)
     fallback = (
         connection.mode_a_at
         or connection.first_connected_at
         or connection.created_at
     )
-    return _as_aware(fallback)
+    return ensure_aware(fallback)
 
 
 async def compute_idle_status(

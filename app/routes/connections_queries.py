@@ -27,6 +27,7 @@ from app.models.connection import Connection, ConnectionProvider, ConnectionStat
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
 from app.routes.connections_connect_guide import _play_prompt
+from app.routes.provider_labels import PROVIDER_LABELS
 
 
 @dataclass(frozen=True)
@@ -35,23 +36,13 @@ class AgentRow:
     version: AgentVersion | None
 
 
-# Friendly names for the one provider an MCP connection speaks for.
-_MODE_A_PROVIDER_LABELS = {
-    "claude": "Claude",
-    "gemini": "Gemini",
-    "openai": "OpenAI",
-    "hermes": "Hermes",
-    "openclaw": "OpenClaw",
-}
-
-
 def _connection_display_name(connection: Connection) -> str:
     # A Mode A connection is one MCP client, which speaks for exactly one AI
     # provider — so it is named by that provider (Claude, OpenAI…), never
     # user-nicknamed. (Nicknaming is a machine idea: you name your computer.)
     if connection.mode_a_at:
         if connection.provider is not None:
-            return _MODE_A_PROVIDER_LABELS.get(
+            return PROVIDER_LABELS.get(
                 connection.provider.value, connection.provider.value.title()
             )
         return "MCP connection"
