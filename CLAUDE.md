@@ -190,7 +190,7 @@ The mess is *un-pruned* branches, not many branches. Prune as you go.
 
 Always read:
 - This file (`CLAUDE.md`) for coding standards and preflight
-- `docs/platform/AGENT_LUDUM_DESIGN.md` + `AGENT_LUDUM_ARCHITECTURE.md` for the platform's design & architecture
+- `docs/platform/AGENT_LUDUM_ARCHITECTURE.md` for the platform's architecture — start with its **"Where to make a change (quick index)"** task→file table and **"Notable shapes & tensions"** invariants, then read `AGENT_LUDUM_DESIGN.md` for the design rationale
 - `docs/games/<game>/` (e.g. `hoard-hurt-help/`) for that game's design & architecture
 
 Read when relevant:
