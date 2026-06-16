@@ -1,14 +1,29 @@
-"""Presentation helpers for the match viewer and replay data."""
+"""PD-specific viewer presentation: the replay "story".
+
+The platform viewer route loads the generic skeleton (players, scoreboard,
+timeline, messages, rounds) and asks each game module to build its own display
+payload via `build_replay_view`. This file is PD's payload builder: the per-turn
+pact/betrayal tagging, the deterministic play-by-play headline, the feed
+ordering/summary/grouping, and the robot-circle replay JSON.
+
+These were the PD-specific parts of the platform's old `_game_view_context` and
+`app/engine/viewer_presentation.py`; they are moved here verbatim so the
+platform route carries no game-specific scoring or narrative.
+"""
 
 from __future__ import annotations
 
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from app.games import get as get_game_module
-from app.games.base import GameError
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.models.match import Match
+    from app.models.player import Player
+    from app.read_models.matches import TimelineTurn
 
 # Calibration ±pp per round (measured on held-out test set via permutation
 # of predicted vs actual within calibration buckets). Round 1 excluded —
@@ -20,7 +35,9 @@ _ROUND_CAL_MAE: dict[int, float] = {
 # A real, recorded match (G_0016) bundled in the same robot-circle JSON format
 # `_build_rc_data` emits. It seeds the homepage/lobby replay so the animation
 # always plays, even before a live showcase game exists.
-_SAMPLE_REPLAY_PATH = Path(__file__).resolve().parent.parent / "static" / "_rc-g0016-payload.json"
+_SAMPLE_REPLAY_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "static" / "_rc-g0016-payload.json"
+)
 
 
 @lru_cache(maxsize=1)
@@ -47,6 +64,9 @@ def _move_effect_for(game_type: str, action: str) -> tuple[int, int | None]:
     viewers see who each move lands on. It is deliberately not the player's net
     change for the turn, which folds in others' moves, bonuses, and the floor.
     """
+    from app.games import get as get_game_module
+    from app.games.base import GameError
+
     try:
         return get_game_module(game_type).move_effect(action)
     except GameError:
@@ -520,3 +540,151 @@ def _build_rc_data(
     if viewer_seat is not None:
         payload["viewer_seat"] = viewer_seat
     return json.dumps(payload, ensure_ascii=False)
+
+
+async def build_pd_replay_view(
+    db: AsyncSession,
+    match: Match,
+    players: list[Player],
+    scoreboard: list[dict[str, Any]],
+    timeline: list[TimelineTurn],
+    viewer_seat: str | None,
+) -> dict[str, Any]:
+    """Build PD's display payload: the enriched ``history`` and the ``rc_data`` JSON.
+
+    Moved verbatim from the platform's old ``_game_view_context``: it tags each
+    turn's pacts (mutual HELP) and betrayals (HURT on last turn's pact partner),
+    attaches the per-move display action/delta, tracks the in-round running score
+    to pick the leader for the play-by-play headline, and emits the feed
+    ordering/summary/grouping and the robot-circle replay JSON.
+    """
+    g = match
+    history: list[dict[str, Any]] = []
+
+    # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
+    # the same turn; a "betrayal" is a HURT aimed at last turn's pact partner.
+    prev_mutual: set[frozenset[str]] = set()
+    # Carried across turns to narrate a deterministic play-by-play headline.
+    prev_actions: list[dict[str, Any]] = []
+    prev_leader: str | None = None
+    inround: dict[str, int] = {}
+    inround_round: int | None = None
+    for seq, t in enumerate(timeline, start=1):
+        messages: list[dict[str, Any]] = [
+            {
+                "agent_id": message.agent_id,
+                "text": message.text,
+                "thinking": message.thinking,
+                "was_defaulted": message.was_defaulted,
+            }
+            for message in t.messages
+        ]
+        actions: list[dict[str, Any]] = []
+        for action in t.actions:
+            actor_delta, target_delta = _move_effect_for(g.game, action.action)
+            actions.append(
+                {
+                    "agent_id": action.agent_id,
+                    "action": action.action,
+                    "target_id": action.target_id,
+                    "quantity": action.quantity,
+                    "face": action.face,
+                    # Nominal per-move effect, attributed to who it lands on.
+                    "actor_delta": actor_delta,
+                    "target_delta": target_delta,
+                    "thinking": action.thinking,
+                    "was_defaulted": action.was_defaulted,
+                    "mutual": False,
+                    "betrayal": False,
+                }
+            )
+
+        # Tag this turn's pacts (mutual HELP) and betrayals (HURT on last turn's
+        # pact partner), so the feed can mark them without re-deriving in JS.
+        helps = {
+            a["agent_id"]: a["target_id"]
+            for a in actions
+            if a["action"] == "HELP" and a["target_id"]
+        }
+        this_mutual: set[frozenset[str]] = set()
+        for a in actions:
+            tgt = a["target_id"]
+            if not tgt:
+                continue
+            pair = frozenset((a["agent_id"], tgt))
+            if a["action"] == "HELP" and helps.get(tgt) == a["agent_id"]:
+                a["mutual"] = True
+                this_mutual.add(pair)
+            elif a["action"] == "HURT" and pair in prev_mutual:
+                a["betrayal"] = True
+        prev_mutual = this_mutual
+
+        messages_by_agent = {m["agent_id"]: m for m in messages}
+        for a in actions:
+            paired_message = messages_by_agent.get(a["agent_id"])
+            if paired_message is not None:
+                a["message"] = paired_message["text"]
+                a["message_thinking"] = paired_message["thinking"]
+                a["message_was_defaulted"] = paired_message["was_defaulted"]
+            else:
+                a["message"] = ""
+                a["message_thinking"] = ""
+                a["message_was_defaulted"] = True
+
+            if a["action"] == "HOARD":
+                a["display_action"] = "Hoard"
+                a["display_delta"] = a["actor_delta"]
+            elif a["action"] == "HELP":
+                a["display_action"] = "Help"
+                a["display_delta"] = 8 if a["mutual"] else a["target_delta"]
+            else:
+                a["display_action"] = "HURT"
+                a["display_delta"] = a["target_delta"]
+
+        # Running in-round score (resets each round) → who leads, for the
+        # play-by-play "lead change" beat.
+        if t.round != inround_round:
+            inround_round = t.round
+            inround = {p.seat_name: 0 for p in players}
+        for a in actions:
+            if a["action"] == "HOARD":
+                inround[a["agent_id"]] = inround.get(a["agent_id"], 0) + 2
+            elif a["action"] == "HELP" and a["mutual"]:
+                inround[a["agent_id"]] = inround.get(a["agent_id"], 0) + 8
+            elif a["action"] == "HELP" and a["target_id"]:
+                inround[a["target_id"]] = inround.get(a["target_id"], 0) + 4
+            elif a["action"] == "HURT" and a["target_id"]:
+                inround[a["target_id"]] = max(0, inround.get(a["target_id"], 0) - 4)
+        # Highest score, ties broken alphabetically — deterministic.
+        leader = min(inround, key=lambda k: (-inround[k], k)) if inround else None
+        headline = _turn_headline(actions, prev_actions, leader, prev_leader, seq)
+        prev_leader = leader
+        prev_actions = actions
+
+        history.append(
+            {
+                "seq": seq,
+                "round": t.round,
+                "turn": t.turn,
+                "messages": messages,
+                "actions": actions,
+                # `actions` stays in submission order for the animation; the feed
+                # renders `feed_actions` (highlights first) and `summary` (counts).
+                "feed_actions": sorted(actions, key=_feed_sort_key),
+                "summary": _turn_summary(actions),
+                "groups": _turn_groups(actions),
+                "headline": headline,
+            }
+        )
+
+    return {
+        "history": history,
+        # The replay's turn data. Built here (not just in the full-page route) so
+        # the live fragment carries fresh turns too — that's what lets an
+        # already-open page extend the animation as new turns resolve, instead of
+        # staying frozen at the turn count present when the page first loaded.
+        "rc_data": _build_rc_data(scoreboard, history, g.turns_per_round, viewer_seat),
+        # PD renders the animated robot-circle stage + narration dock above the
+        # feed; games without that visual leave this off (see game.html).
+        "show_replay_stage": True,
+    }

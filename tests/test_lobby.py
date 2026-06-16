@@ -183,7 +183,7 @@ async def test_lobby_shows_robot_replay_of_latest_game(client, reset_db):
 def test_sample_replay_data_is_valid_rc_json() -> None:
     # The bundled fallback parses as rc_data the viewer can render: agents, turns,
     # and a sample flag so it can be told apart from a real game.
-    from app.engine.viewer_presentation import sample_replay_data
+    from app.games.hoard_hurt_help.viewer import sample_replay_data
 
     data = json.loads(sample_replay_data())
     assert data["sample"] is True

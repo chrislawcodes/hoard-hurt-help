@@ -15,14 +15,6 @@ from app.models.player import Player
 from app.models.user import User
 from app.read_models.matches import load_match_timeline, load_players
 from app.read_models.agent_display import agent_display_name
-from app.engine.viewer_presentation import (
-    _build_rc_data,
-    _feed_sort_key,
-    _move_effect_for,
-    _turn_groups,
-    _turn_headline,
-    _turn_summary,
-)
 from app.routes.web_support import (
     _game_theme,
     _is_any_admin,
@@ -82,125 +74,18 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     for i, row in enumerate(scoreboard, start=1):
         row["rank"] = i
 
-    history: list[dict[str, Any]] = []
     viewer_player = next((p for p in players if user and p.user_id == user.id), None)
     public_state = await module.public_state_for(db, g, viewer_player)
+    viewer_seat = viewer_player.seat_name if viewer_player else None
 
-    # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
-    # the same turn; a "betrayal" is a HURT aimed at last turn's pact partner.
-    prev_mutual: set[frozenset[str]] = set()
-    # Carried across turns to narrate a deterministic play-by-play headline.
-    prev_actions: list[dict[str, Any]] = []
-    prev_leader: str | None = None
-    inround: dict[str, int] = {}
-    inround_round: int | None = None
-    for seq, t in enumerate(timeline, start=1):
-        messages: list[dict[str, Any]] = [
-            {
-                "agent_id": message.agent_id,
-                "text": message.text,
-                "thinking": message.thinking,
-                "was_defaulted": message.was_defaulted,
-            }
-            for message in t.messages
-        ]
-        actions: list[dict[str, Any]] = []
-        for action in t.actions:
-            actor_delta, target_delta = _move_effect_for(g.game, action.action)
-            actions.append(
-                {
-                    "agent_id": action.agent_id,
-                    "action": action.action,
-                    "target_id": action.target_id,
-                    "quantity": action.quantity,
-                    "face": action.face,
-                    # Nominal per-move effect, attributed to who it lands on.
-                    "actor_delta": actor_delta,
-                    "target_delta": target_delta,
-                    "thinking": action.thinking,
-                    "was_defaulted": action.was_defaulted,
-                    "mutual": False,
-                    "betrayal": False,
-                }
-            )
-
-        # Tag this turn's pacts (mutual HELP) and betrayals (HURT on last turn's
-        # pact partner), so the feed can mark them without re-deriving in JS.
-        helps = {
-            a["agent_id"]: a["target_id"]
-            for a in actions
-            if a["action"] == "HELP" and a["target_id"]
-        }
-        this_mutual: set[frozenset[str]] = set()
-        for a in actions:
-            tgt = a["target_id"]
-            if not tgt:
-                continue
-            pair = frozenset((a["agent_id"], tgt))
-            if a["action"] == "HELP" and helps.get(tgt) == a["agent_id"]:
-                a["mutual"] = True
-                this_mutual.add(pair)
-            elif a["action"] == "HURT" and pair in prev_mutual:
-                a["betrayal"] = True
-        prev_mutual = this_mutual
-
-        messages_by_agent = {m["agent_id"]: m for m in messages}
-        for a in actions:
-            paired_message = messages_by_agent.get(a["agent_id"])
-            if paired_message is not None:
-                a["message"] = paired_message["text"]
-                a["message_thinking"] = paired_message["thinking"]
-                a["message_was_defaulted"] = paired_message["was_defaulted"]
-            else:
-                a["message"] = ""
-                a["message_thinking"] = ""
-                a["message_was_defaulted"] = True
-
-            if a["action"] == "HOARD":
-                a["display_action"] = "Hoard"
-                a["display_delta"] = a["actor_delta"]
-            elif a["action"] == "HELP":
-                a["display_action"] = "Help"
-                a["display_delta"] = 8 if a["mutual"] else a["target_delta"]
-            else:
-                a["display_action"] = "HURT"
-                a["display_delta"] = a["target_delta"]
-
-        # Running in-round score (resets each round) → who leads, for the
-        # play-by-play "lead change" beat.
-        if t.round != inround_round:
-            inround_round = t.round
-            inround = {p.seat_name: 0 for p in players}
-        for a in actions:
-            if a["action"] == "HOARD":
-                inround[a["agent_id"]] = inround.get(a["agent_id"], 0) + 2
-            elif a["action"] == "HELP" and a["mutual"]:
-                inround[a["agent_id"]] = inround.get(a["agent_id"], 0) + 8
-            elif a["action"] == "HELP" and a["target_id"]:
-                inround[a["target_id"]] = inround.get(a["target_id"], 0) + 4
-            elif a["action"] == "HURT" and a["target_id"]:
-                inround[a["target_id"]] = max(0, inround.get(a["target_id"], 0) - 4)
-        # Highest score, ties broken alphabetically — deterministic.
-        leader = min(inround, key=lambda k: (-inround[k], k)) if inround else None
-        headline = _turn_headline(actions, prev_actions, leader, prev_leader, seq)
-        prev_leader = leader
-        prev_actions = actions
-
-        history.append(
-            {
-                "seq": seq,
-                "round": t.round,
-                "turn": t.turn,
-                "messages": messages,
-                "actions": actions,
-                # `actions` stays in submission order for the animation; the feed
-                # renders `feed_actions` (highlights first) and `summary` (counts).
-                "feed_actions": sorted(actions, key=_feed_sort_key),
-                "summary": _turn_summary(actions),
-                "groups": _turn_groups(actions),
-                "headline": headline,
-            }
-        )
+    # The game module owns its replay "story" — the enriched per-turn history and
+    # any replay JSON its viewer fragment renders. The platform route stays
+    # game-agnostic: it builds the generic skeleton above and merges the module's
+    # display payload (history, rc_data, …) into the template context below.
+    replay_view = await module.build_replay_view(
+        db, g, players, scoreboard, timeline, viewer_seat
+    )
+    history: list[dict[str, Any]] = replay_view.get("history", [])
 
     # Keep the server data in chronological order. The template reverses it for
     # the newest-first feed while round navigation can still reason about order.
@@ -218,7 +103,6 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         ).scalar_one_or_none()
         winner_agent_id = winner.seat_name if winner else None
 
-    viewer_seat = viewer_player.seat_name if viewer_player else None
     viewer_prompt_text = None
     viewer_prompt_label = None
     if viewer_player and viewer_player.agent_version_id is not None:
@@ -226,7 +110,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         if version is not None:
             viewer_prompt_text = version.strategy_text
             viewer_prompt_label = f"v{version.version_no} · {version.model}"
-    return {
+    ctx = {
         "user": user,
         "is_admin": _is_any_admin(user),
         "is_game_admin": _is_game_admin(user, g.game),
@@ -234,11 +118,6 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         "game_theme": _game_theme(g),
         "scoreboard": scoreboard,
         "history": history,
-        # The replay's turn data. Built here (not just in the full-page route) so
-        # the live fragment carries fresh turns too — that's what lets an
-        # already-open page extend the animation as new turns resolve, instead of
-        # staying frozen at the turn count present when the page first loaded.
-        "rc_data": _build_rc_data(scoreboard, history, g.turns_per_round, viewer_seat),
         "rounds": rounds,
         "max_played_round": max_played_round,
         "winner_agent_id": winner_agent_id,
@@ -251,7 +130,21 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         "viewer_prompt_label": viewer_prompt_label,
         "coaching_enabled": bool(g.coaching) if hasattr(g, "coaching") else True,
         "public_state": public_state,
+        # The live-region feed fragment is module-driven, so the template includes
+        # whatever fragment this game declares instead of forking on game type.
+        "viewer_fragment": module.viewer_fragment(),
+        # Whether to render the animated replay stage above the feed. A module
+        # turns this on in its replay payload below; default off keeps it game-
+        # agnostic (no game-type fork in the template).
+        "show_replay_stage": False,
     }
+    # Merge the module's display payload (rc_data and any other replay fields).
+    # `history` is read above to build the generic round grouping; the rest of the
+    # game-specific payload (e.g. rc_data) flows straight into the context.
+    for key, value in replay_view.items():
+        if key != "history":
+            ctx[key] = value
+    return ctx
 
 
 async def _load_viewer_prompt_version(

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.match import Match
     from app.models.player import Player
     from app.models.turn import Turn, TurnMessage, TurnSubmission
+    from app.read_models.matches import TimelineTurn
 
 
 class GameError(Exception):
@@ -231,6 +232,30 @@ class GameModule(Protocol):
         """Game-rendered public state block for the payload/spectator. Default: none."""
         ...
 
+    # --- Viewer / replay (the contract owns "how a match is replayed") ---
+
+    async def build_replay_view(
+        self,
+        db: AsyncSession,
+        match: Match,
+        players: list[Player],
+        scoreboard: list[dict[str, Any]],
+        timeline: list[TimelineTurn],
+        viewer_seat: str | None,
+    ) -> dict[str, Any]:
+        """Game-specific display payload merged into the viewer template context.
+
+        The platform route loads the generic skeleton (players, scoreboard,
+        timeline, messages); this returns the game's own replay data — for PD
+        the enriched ``history`` (pacts/betrayals, per-move display, feed
+        ordering/summary/groups, play-by-play headline) plus the robot-circle
+        ``rc_data`` JSON; for another game whatever its fragments render."""
+        ...
+
+    def viewer_fragment(self) -> str:
+        """Template path of this game's live-region feed fragment."""
+        ...
+
     # --- Records / Elo ---
 
     async def final_placement(self, db: AsyncSession, match: Match) -> list[int]:
@@ -346,6 +371,29 @@ class BaseGameModule:
         self, db: AsyncSession, match: Match, viewer: Player | None
     ) -> dict[str, Any]:
         return {}
+
+    async def build_replay_view(
+        self,
+        db: AsyncSession,
+        match: Match,
+        players: list[Player],
+        scoreboard: list[dict[str, Any]],
+        timeline: list[TimelineTurn],
+        viewer_seat: str | None,
+    ) -> dict[str, Any]:
+        # No platform-wide default: the replay payload (history shape, any
+        # narrative, the rc_data blob) is game-specific. Failing loud here keeps
+        # a new game from silently inheriting PD's pact/betrayal story.
+        raise NotImplementedError(
+            "build_replay_view is game-specific; each game module must override it."
+        )
+
+    def viewer_fragment(self) -> str:
+        # No platform-wide default: a game's live-region feed fragment is its
+        # own. Failing loud keeps a new game from silently rendering PD's feed.
+        raise NotImplementedError(
+            "viewer_fragment is game-specific; each game module must override it."
+        )
 
     async def bot_move(self, db: AsyncSession, match: Match, player: Player) -> dict[str, Any]:
         return await self.default_move(db, match, player)
