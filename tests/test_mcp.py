@@ -49,6 +49,7 @@ async def test_mcp_tools_registered() -> None:
     assert {
         "get_turn",
         "get_next_turn",
+        "get_next_turns",
         "submit_talk",
         "submit_action",
         "get_game_state",
@@ -57,6 +58,21 @@ async def test_mcp_tools_registered() -> None:
         "get_turn_detail",
         "get_standings",
     }.issubset(tool_names)
+
+
+@pytest.mark.asyncio
+async def test_get_next_turn_exposes_agent_id_for_parallel_play() -> None:
+    """The agent_id selector is LLM-visible so a client can run one loop per agent."""
+    from mcp_server.server import mcp_app
+
+    schemas = {
+        t.name: (t.parameters or {}).get("properties", {})
+        for t in await mcp_app.list_tools()
+    }
+    assert "agent_id" in schemas["get_next_turn"]
+    # The batch discovery tool takes no LLM-facing args beyond the hidden plumbing.
+    assert "token" not in schemas["get_next_turns"]
+    assert "db" not in schemas["get_next_turns"]
 
 
 @pytest.mark.asyncio
@@ -137,10 +153,12 @@ async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
         *,
         hold_seconds: float,
         interval_seconds: float,
+        agent_id: int | None = None,
     ) -> dict[str, object]:
         captured["service_connection"] = connection
         captured["hold_seconds"] = hold_seconds
         captured["interval_seconds"] = interval_seconds
+        captured["agent_id"] = agent_id
         return {"status": "waiting", "next_poll_after_seconds": 2}
 
     monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)

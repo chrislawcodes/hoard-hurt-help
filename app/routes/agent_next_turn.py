@@ -23,12 +23,14 @@ async def next_turn(
     db: DbSession,
     hold_seconds: float = 0.0,
     interval_seconds: float = 1.0,
+    agent_id: int | None = None,
 ) -> dict[str, object]:
     return await get_next_turn(
         db,
         connection,
         hold_seconds=hold_seconds,
         interval_seconds=interval_seconds,
+        agent_id=agent_id,
     )
 
 

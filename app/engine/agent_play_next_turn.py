@@ -97,26 +97,33 @@ async def _load_route_states(
 
 
 async def _collect_candidates(
-    db: AsyncSession, connection: Connection, now: datetime
+    db: AsyncSession,
+    connection: Connection,
+    now: datetime,
+    *,
+    agent_id: int | None = None,
 ) -> tuple[list[TurnCandidate], dict[str, object]]:
     connections_by_id, polling_state = await _load_route_states(db, connection)
 
-    agent_rows = (
-        await db.execute(
-            select(Agent, Player, Match, AgentVersion)
-            .join(Player, Player.agent_id == Agent.id)
-            .join(Match, Match.id == Player.match_id)
-            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-            .where(
-                Agent.user_id == connection.user_id,
-                Agent.kind == AgentKind.AI,
-                Agent.status == AgentStatus.ACTIVE,
-                Agent.archived_at.is_(None),
-                Player.left_at.is_(None),
-                Match.state == GameState.ACTIVE,
-            )
+    # When agent_id is given, restrict to that single agent so a caller running one
+    # parallel loop per agent only ever sees (and claims) its own agent's turn.
+    agents_stmt = (
+        select(Agent, Player, Match, AgentVersion)
+        .join(Player, Player.agent_id == Agent.id)
+        .join(Match, Match.id == Player.match_id)
+        .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+        .where(
+            Agent.user_id == connection.user_id,
+            Agent.kind == AgentKind.AI,
+            Agent.status == AgentStatus.ACTIVE,
+            Agent.archived_at.is_(None),
+            Player.left_at.is_(None),
+            Match.state == GameState.ACTIVE,
         )
-    ).all()
+    )
+    if agent_id is not None:
+        agents_stmt = agents_stmt.where(Agent.id == agent_id)
+    agent_rows = (await db.execute(agents_stmt)).all()
 
     latest_turn_by_match: dict[str, Turn] = {}
     player_by_key: dict[tuple[int, str], Player] = {}
@@ -320,9 +327,13 @@ async def _build_turn_payload(
 
 
 async def _serve_one_turn(
-    db: AsyncSession, connection: Connection, now: datetime
+    db: AsyncSession,
+    connection: Connection,
+    now: datetime,
+    *,
+    agent_id: int | None = None,
 ) -> dict[str, object] | None:
-    candidates, ctx = await _collect_candidates(db, connection, now)
+    candidates, ctx = await _collect_candidates(db, connection, now, agent_id=agent_id)
     chosen = select_next_turn(candidates)
     if chosen is None:
         return None
@@ -361,6 +372,7 @@ async def get_next_turn(
     *,
     hold_seconds: float = _LONG_POLL_HOLD_SECONDS,
     interval_seconds: float = _LONG_POLL_INTERVAL_SECONDS,
+    agent_id: int | None = None,
 ) -> dict[str, object]:
     held = max(0.0, hold_seconds) > 0.0
     waiting_poll_hint = 2 if held else 30
@@ -371,7 +383,7 @@ async def get_next_turn(
     # turns. Stamp it (throttled) before serving so seating can tell a running loop
     # from a one-off sign-in. Its own commit, so the later rollbacks don't undo it.
     await mark_polled(db, connection, now=now)
-    served = await _serve_one_turn(db, connection, now)
+    served = await _serve_one_turn(db, connection, now, agent_id=agent_id)
     if served is not None:
         return served
 
@@ -404,7 +416,9 @@ async def get_next_turn(
                 or fresh.user.disabled_at is not None
             ):
                 break
-            served = await _serve_one_turn(check_db, fresh, datetime.now(timezone.utc))
+            served = await _serve_one_turn(
+                check_db, fresh, datetime.now(timezone.utc), agent_id=agent_id
+            )
         if served is not None:
             return served
 
