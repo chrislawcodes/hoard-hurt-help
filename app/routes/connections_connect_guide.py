@@ -12,14 +12,7 @@ from dataclasses import dataclass
 
 from app.config import settings
 from app.models.connection import ConnectionProvider
-
-_PROVIDER_LABELS = {
-    ConnectionProvider.CLAUDE.value: "Claude",
-    ConnectionProvider.GEMINI.value: "Gemini",
-    ConnectionProvider.OPENAI.value: "OpenAI",
-    ConnectionProvider.HERMES.value: "Hermes",
-    ConnectionProvider.OPENCLAW.value: "OpenClaw",
-}
+from app.routes.provider_labels import PROVIDER_LABELS
 
 # The command-line tool the connector looks for to mark a provider "detected".
 # Must mirror `_detect_providers()` in scripts/agentludum_connector.py (openai is
@@ -42,7 +35,7 @@ _SETUP_SCRIPT = "agentludum_connector.py"
 def _provider_label(provider: ConnectionProvider | None) -> str:
     if provider is None:
         return "Machine"
-    return _PROVIDER_LABELS.get(provider.value, provider.value.title())
+    return PROVIDER_LABELS.get(provider.value, provider.value.title())
 
 
 # ---------------------------------------------------------------------------
