@@ -437,6 +437,13 @@ async def get_next_turn(
 
 async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, object]:
     now = datetime.now(timezone.utc)
+    # Play-loop heartbeat: calling get_next_turns is the AI actively polling for
+    # work, exactly like get_next_turn. Stamp it (throttled) BEFORE collecting, so
+    # an agent that only ever discovers turns through this fan-out endpoint — e.g.
+    # one waiting for its first match to start — still counts as LIVE. Without this,
+    # last_polled_at never advances on the discovery path, provider_readiness never
+    # reaches LIVE, and a held seat's connect page waits forever.
+    await mark_polled(db, connection, now=now)
     candidates, ctx = await _collect_candidates(db, connection, now)
     ordered = sorted(
         candidates,
