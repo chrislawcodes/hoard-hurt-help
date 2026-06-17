@@ -160,7 +160,7 @@ async def test_get_next_turn_uses_google_identity_and_mcp_connection(
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
     async def fake_mcp_connection_for(
-        db: object, user: object, *, provider: object = None
+        db: object, user: object, *, provider: object = None, oauth_client_id: object = None
     ) -> SimpleNamespace:
         captured["user"] = user
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
@@ -217,7 +217,7 @@ async def test_get_turn_uses_oauth_player_resolution(
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
     async def fake_mcp_connection_for(
-        db: object, user: object, *, provider: object = None
+        db: object, user: object, *, provider: object = None, oauth_client_id: object = None
     ) -> SimpleNamespace:
         captured["user"] = user
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
@@ -315,7 +315,7 @@ async def test_pull_tools_use_shared_oauth_resolution(
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
     async def fake_mcp_connection_for(
-        db: object, user: object, *, provider: object = None
+        db: object, user: object, *, provider: object = None, oauth_client_id: object = None
     ) -> SimpleNamespace:
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
 
@@ -382,18 +382,17 @@ async def test_pull_tools_use_shared_oauth_resolution(
 
 
 # ---------------------------------------------------------------------------
-# Stateless-mode provider-resolution flaw proof
+# Stateless-mode client identity — regression tests for spec 016
 # ---------------------------------------------------------------------------
 
 
-def test_client_provider_from_context_is_none_outside_fastmcp_session() -> None:
-    """PROOF (mechanism): _client_provider_from_context() always returns None outside
-    a live FastMCP HTTP request.
+def test_client_provider_from_context_returns_none_without_active_session() -> None:
+    """_client_provider_from_context() fails open (returns None) outside a live request.
 
     In stateless_http mode every tool-call request arrives with no persistent
-    session, so get_context().session.client_params is None — the same situation
-    as calling this function from a plain pytest test. The function catches the
-    resulting exception and fails open with None.
+    session, so session.client_params is None. The function catches this and returns
+    None — expected behavior. Tool calls use token.client_id instead (see
+    _resolve_oauth_connection).
     """
     from mcp_server.server import _client_provider_from_context
 
@@ -402,37 +401,47 @@ def test_client_provider_from_context_is_none_outside_fastmcp_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_multi_connection_user_gets_unknown_mcp_client_when_provider_is_none(
+async def test_multi_connection_user_resolves_via_oauth_client_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """PROOF (impact): a user with 2+ MCP connections hits UNKNOWN_MCP_CLIENT (HTTP 400).
+    """A user with 2+ MCP connections resolves correctly via token.client_id.
 
-    Full chain in stateless mode:
-      1. stateless tool-call request carries no session → _client_provider_from_context() returns None
-      2. mcp_connection_for(provider=None) returns None — can't pick between 2 connections
-      3. _connection_from_token raises HTTP 400 UNKNOWN_MCP_CLIENT
-
-    A Gemini+Claude user reproduces this on every tool call.
+    Full chain after the fix:
+      1. token.client_id is extracted and passed as oauth_client_id
+      2. mcp_connection_for(oauth_client_id=...) finds the matching connection
+      3. tool call succeeds — no UNKNOWN_MCP_CLIENT
     """
-    from fastapi import HTTPException
+    from app.models.connection import ConnectionStatus
 
     from mcp_server import server
+
+    EXPECTED_CLIENT_ID = "sub-123"  # matches _token()'s client_id / subject
 
     async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
     async def fake_mcp_connection_for(
-        db: object, user: object, *, provider: object = None
-    ) -> None:
-        # Simulates a user with 2 connections: provider=None → can't pick → None
+        db: object,
+        user: object,
+        *,
+        provider: object = None,
+        oauth_client_id: object = None,
+    ) -> SimpleNamespace | None:
+        # Simulates a user with 2 connections: oauth_client_id picks the right one
+        if oauth_client_id == EXPECTED_CLIENT_ID:
+            return SimpleNamespace(
+                deleted_at=None,
+                status=ConnectionStatus.ACTIVE,
+                key_lookup="some-key-hash",
+            )
         return None
 
     monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
     monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
+    monkeypatch.setattr(server, "assert_connection_usable", lambda conn: None)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await server._connection_from_token(object(), _token(), provider=None)
-
-    assert exc_info.value.status_code == 400
-    detail = exc_info.value.detail
-    assert detail["error"]["code"] == "UNKNOWN_MCP_CLIENT"
+    access_token, _userinfo, connection = await server._connection_from_token(
+        object(), _token(), provider=None, oauth_client_id=EXPECTED_CLIENT_ID
+    )
+    assert connection is not None
+    assert connection.key_lookup == "some-key-hash"
