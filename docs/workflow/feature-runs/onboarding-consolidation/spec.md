@@ -176,11 +176,13 @@ anything ≥ `CONNECTED_NOT_LIVE` as "ready to show Play"; the seat pages can re
 behavior) **without** a separate predicate. The six predicates remain as the
 internal building blocks of these four boundaries.
 
-**PAUSED handling (decision — see Open Decisions):** today `provider_has_current_setup`
-does *not* exclude PAUSED connections but `provider_loop_running` does, so a
-paused-only user currently lands in `CONNECTED_NOT_LIVE` and is told to "start
-your AI" rather than "resume your connection." The signal must place PAUSED
-deliberately; recommendation is a distinct treatment so the CTA says "resume."
+**PAUSED handling (decided — fold into `CONNECTED_NOT_LIVE`):** a paused-only
+connection naturally lands in `CONNECTED_NOT_LIVE` — `provider_has_current_setup`
+is true (it ignores PAUSED) while `provider_has_live_current_setup` and
+`provider_loop_running` exclude it. We **keep** that and add **no** special PAUSED
+state, so the signal stays at four states (simpler). Accepted limitation: the CTA
+for a paused-only provider then reads "start your AI" rather than "resume your
+connection" (see Residual limitation).
 
 ### 2. The onboarding-state resolver (`nav_context.py`)
 
@@ -235,7 +237,7 @@ routes.
 | Site | Before | After |
 |---|---|---|
 | **Nav CTA** (1) | "Play now" on `first_connected_at`-ever | Resolver, `require=NEEDS_MCP_CONNECTION`. ⚠ "Play now" now means **has current MCP setup** (recent), not "ever connected" — a 90-day-stale connection stops showing "Play now". |
-| **`/play`** (2) | sign-in + handle, then lobby | Resolver routes to the first unmet gate. ⚠ behavior change — **flag as a decision**. |
+| **`/play`** (2) | sign-in + handle, then lobby | Resolver routes to the first unmet gate. ⚠ behavior change — **decided: route to next gate** (see Resolved decisions). |
 | **Post-login** (3) | `next=="/"` & 0 agents → `/me/agents` | Resolver decides the gate. ⚠ destination becomes `/me/agents/new`; also catches missing handle at login. |
 | **Agent-create** (4) | `enabled_provider_values_on_nonpaused_connections` | Resolver with `target_agent`. ⚠ "set up" now means `provider_has_current_setup` (MCP-recent) — aligns it with the join flow #444 already tightened. |
 | **Join gate + seat** (5–11) | mix of `loop_running` / `has_current_setup` | Pre-pick gates via resolver; per-agent seat reads via `provider_readiness`. Logic ≈ same, now shared. |
@@ -259,7 +261,7 @@ and the reviews confirm none is accidental.
 - `app/routes/agents_detail.py` — readiness → `provider_readiness`.
 - `app/routes/web_player.py` — `_join_setup_redirect` + seat confirm/hold/connect reads → resolver / `provider_readiness`.
 - `app/routes/connections_pages.py` — target-state + auto-forward → `provider_readiness`.
-- `app/routes/web_games_catalog.py` — `/play` → resolver (pending the `/play` decision).
+- `app/routes/web_games_catalog.py` — `/play` → resolver (routes to next gate).
 - `app/engine/seat_hold.py` — `confirm_seat_if_live` reads the `LIVE` boundary via the shared signal (kept bit-identical).
 
 **Tests:** unit tests for `provider_readiness` (each of the 4 boundaries, incl.
@@ -299,20 +301,34 @@ guards, seat-hold UX templates, capacity math.
 3. #444's product rule (90-day MCP recency for Claude/OpenAI/Gemini) is correct
    and stays.
 
-## Open decisions for the human
+## Resolved decisions (2026-06-16)
 
-1. **`/play` routing** — route through the resolver (sends setup-incomplete users
-   to their next gate; recommended) or keep it lobby-first?
-2. **Multi-agent reduction** — for nav/`/play`/post-login, reflect the
-   **most-ready** agent (recommended; preserves today's nav) or the least-ready?
-3. **PAUSED placement** — should a paused-only provider read as a distinct state
-   so the CTA says "resume your connection" (recommended) rather than "start your
-   AI"?
-4. **Connect-page auto-forward bar** — keep "seen now" (`SEEN_NOT_POLLING`,
-   today's behavior) or require `LIVE`? Recommended: keep "seen now" so the page
-   advances the instant the MCP client signs in.
-5. **Post-login destination** — `/me/agents/new` (create) vs `/me/agents` (list)
-   for a returning user with zero agents. Recommended: `/me/agents/new`.
+All five open questions answered by Chris:
+
+1. **`/play` routing** — **Route to next gate.** A setup-incomplete user is sent
+   through the resolver to their first unmet step, then back to play. `/play` is a
+   true "get me playing" funnel, not a lobby drop.
+2. **Multi-agent reduction** — **Most-ready wins.** For nav / `/play` /
+   post-login, the resolver reports the furthest-along agent's stage (one ready
+   agent ⇒ "Play now"). Preserves today's nav behavior.
+3. **PAUSED placement** — **Fold into `CONNECTED_NOT_LIVE`.** No special state;
+   the signal stays at four states. Accepted limitation below.
+4. **Connect-page auto-forward bar** — **Seen now (`SEEN_NOT_POLLING`).** The page
+   advances the instant the MCP client signs in, before the first turn poll
+   (today's snappy behavior).
+5. **Post-login destination** — **`/me/agents/new`.** A returning user with zero
+   agents lands directly on the create form (strategy-first), not the empty list.
+
+### Residual limitation
+
+- **Paused-only provider shows "start your AI," not "resume."** Folding PAUSED
+  into `CONNECTED_NOT_LIVE` (decision 3) keeps the misleading CTA for a user whose
+  only connection is paused. Accepted for simplicity.
+  *verification:* a unit test asserts a paused-only connection resolves to
+  `CONNECTED_NOT_LIVE` (documents the behavior so it can't regress silently); if
+  this becomes a real support issue, a distinct `PAUSED` state is a cheap
+  follow-up. Severity: low — a user who paused their own connection has context
+  for why it isn't running.
 
 ## Risks
 
