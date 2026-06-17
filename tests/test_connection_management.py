@@ -412,10 +412,10 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     assert "byo-signin-codex" not in codex_block  # no separate sign-in block
     # The Copy button sits to the RIGHT of the command text (text before button).
     assert codex_block.index("byo-cmd-text") < codex_block.index("byo-cmd-btn")
-    # Claude Code is the default (first) tab — the audience default. Codex carries
-    # an "Easiest" badge as the zero-/mcp path.
+    # Claude Code is the default (first) tab — the audience default.
     assert text.index('for="byo-tab-claude-code"') < text.index('for="byo-tab-codex"')
-    assert "byo-easiest-badge" in text
+    # No provider carries an "Easiest" badge anymore.
+    assert "byo-easiest-badge" not in text
     # Claude Code needs a second paste to sign in: the /mcp chip. Its step-2
     # heading names the real action (paste /mcp into Claude Code), not the effect.
     assert "byo-signin-claude-code" in connect_block

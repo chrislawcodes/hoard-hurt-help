@@ -81,7 +81,6 @@ class ConnectOption:
     signin_note: str | None  # kind="command": what to expect / do for sign-in
     steps: tuple[str, ...]  # kind="steps": numbered click-through steps
     note: str | None  # kind="steps": short footnote under the steps
-    easiest: bool = False  # render an "Easiest" badge on the tab (zero-/mcp path)
 
 
 def _connect_options() -> list[ConnectOption]:
@@ -90,8 +89,7 @@ def _connect_options() -> list[ConnectOption]:
     See the AUTH-AGNOSTIC SEAM note above: these mirror ``docs/setup-mcp.md`` from
     the mcp-oauth workstream and are header-less (no key, no ``--header``).
     Providers, in display order: Claude Code first (the audience default), then
-    Codex (tagged "Easiest" — the only fully copy-paste, zero-``/mcp`` sign-in),
-    Gemini, Claude Desktop.
+    Codex, Gemini, Claude Desktop.
     """
     mcp_url = f"{settings.base_url}/mcp"
     return [
@@ -129,7 +127,6 @@ def _connect_options() -> list[ConnectOption]:
             signin_note="A browser opens — approve the Google sign-in. No key needed.",
             steps=(),
             note=None,
-            easiest=True,
         ),
         ConnectOption(
             client_id="gemini",
