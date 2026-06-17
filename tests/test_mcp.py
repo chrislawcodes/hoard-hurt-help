@@ -101,12 +101,37 @@ async def test_authed_tools_hide_token_and_db_from_schema() -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_discovery_requires_bearer_token() -> None:
-    """The MCP endpoint advertises OAuth discovery instead of a secret header."""
+    """The MCP endpoint advertises OAuth discovery instead of a secret header.
+
+    The server runs stateless (no in-memory session map, so a redeploy can't
+    orphan a client). Stateless streamable-HTTP serves no server->client SSE
+    stream, so an unauthenticated GET is 405, not the auth challenge. Real clients
+    discover OAuth on the POST `initialize` path they actually use: an
+    unauthenticated POST returns 401 with the Bearer challenge and the
+    resource-metadata discovery URL.
+    """
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/mcp")
-        assert response.status_code == 401
-        challenge = response.headers["www-authenticate"]
+        # No server-push stream in stateless mode.
+        assert (await client.get("/mcp")).status_code == 405
+
+        # The OAuth challenge rides the POST initialize path real clients use.
+        init = await client.post(
+            "/mcp",
+            headers={"Accept": "application/json, text/event-stream"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "gemini-cli-mcp-client", "version": "1"},
+                },
+            },
+        )
+        assert init.status_code == 401
+        challenge = init.headers["www-authenticate"]
         assert "Bearer" in challenge
         assert "/.well-known/oauth-protected-resource/mcp" in challenge
 
