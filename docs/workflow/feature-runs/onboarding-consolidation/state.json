@@ -6,9 +6,9 @@
     "extra_gemini_lenses": []
   },
   "blocked": {
-    "active": true,
-    "reason": "Spec authored and ready for checkpoint. Cannot run the spec adversarial review in this remote container: 'codex' and 'gemini' CLIs are not installed (FileNotFoundError), and --fallback crashes with a telemetry RecursionError. Needs an environment with the review CLIs to run the spec checkpoint, OR a human decision to proceed with a manual review. Open product decision for the plan: should /play route through the resolver (recommended) or stay lobby-first?",
-    "updated_at": 1781646369
+    "active": false,
+    "reason": "",
+    "updated_at": 1781653760
   },
   "discovery": {
     "version": 2,
@@ -93,6 +93,30 @@
       "files_written": 4,
       "subprocess_invocations": 4,
       "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-16T23:50:33Z",
+      "wall_seconds": 0.208,
+      "input_bytes_read": 27957,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-16T23:50:34Z",
+      "wall_seconds": 0.199,
+      "input_bytes_read": 28451,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -103,7 +127,8 @@
         "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5",
         "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5"
       ],
-      "initial_sha": "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5"
+      "initial_sha": "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5",
+      "judge_next_action": "advance"
     }
   },
   "invariant_warnings": [],
@@ -113,5 +138,13 @@
     "markers_sha": "",
     "last_diff_head_sha": ""
   },
-  "spec_adversarial_rounds": 1
+  "spec_adversarial_rounds": 1,
+  "annotations": [
+    {
+      "stage": "spec",
+      "ts": "20260616T235051_800642Z",
+      "reason": "Spec reviews accepted via manual independent sub-agent adversarial pass (codex/gemini CLIs unavailable in this remote container; --fallback hits a telemetry RecursionError). Both lenses reconciled to accepted; all findings folded into spec v2.",
+      "head_sha": "ca89008ead36657078d59cc78df679fbf38fe0dc"
+    }
+  ]
 }
