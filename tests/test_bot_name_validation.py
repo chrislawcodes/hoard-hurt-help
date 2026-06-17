@@ -8,6 +8,7 @@ tighten them.
 
 import base64
 import json
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -62,6 +63,7 @@ async def test_long_name_with_spaces_is_accepted(reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mcp_connected_at = datetime.now(timezone.utc)  # set up (MCP-recent)
         await db.commit()
 
     async with _authed_client(user.id) as c:
@@ -85,6 +87,7 @@ async def test_name_over_120_chars_is_rejected(reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mcp_connected_at = datetime.now(timezone.utc)  # set up (MCP-recent)
         await db.commit()
 
     async with _authed_client(user.id, follow_redirects=False) as c:
@@ -108,6 +111,7 @@ async def test_rename_to_long_spaced_name_is_accepted(reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mcp_connected_at = datetime.now(timezone.utc)  # set up (MCP-recent)
         await db.commit()
 
     async with _authed_client(user.id) as c:

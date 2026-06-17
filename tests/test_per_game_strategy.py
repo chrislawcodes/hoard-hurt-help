@@ -308,7 +308,8 @@ async def test_create_agent_with_next_returns_to_next_target(
     join_url = "/games/hoard-hurt-help/matches/G_001/join"
     async with reset_db() as db:
         user = await make_user(db)
-        await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mcp_connected_at = datetime.now(timezone.utc)  # set up (MCP-recent)
         await db.commit()
 
     r = await client.post(

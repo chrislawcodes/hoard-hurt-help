@@ -346,6 +346,7 @@ async def test_detail_established_agent_hides_playing_banner(client, reset_db):
         now = datetime.now(timezone.utc)
         connection.first_connected_at = now  # connected once, recently
         connection.last_seen_at = now
+        connection.mcp_connected_at = now  # set up (MCP-recent)
         g = await _game(db, "G_1", GameState.COMPLETED)
         p = await _player(db, g.id, agent, u, connection_id=connection.id)
         await _submission(db, g.id, p, round_=1, turn_=1)

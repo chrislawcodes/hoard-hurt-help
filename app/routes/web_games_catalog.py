@@ -16,6 +16,7 @@ from app.deps import DbSession, get_current_user
 from app.games import get as get_game_module
 from app.games import is_admin_only, visible_types
 from app.games.base import GameError
+from app.routes.nav_context import resolve_play_setup_state
 from app.routes.web_support import _is_any_admin
 from app.templating import templates
 
@@ -81,12 +82,10 @@ async def operator_join_page(request: Request, db: DbSession):
             "/auth/google/login?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
         )
 
-    if not user.handle:
-        return RedirectResponse(
-            "/me/handle?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
-        )
-
-    return RedirectResponse("/games/hoard-hurt-help#lobby-upcoming", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(
+        (await resolve_play_setup_state(db, user)).next_url,
+        status_code=status.HTTP_302_FOUND,
+    )
 
 
 @router.get("/games/{game}/agent-instructions", response_class=HTMLResponse)

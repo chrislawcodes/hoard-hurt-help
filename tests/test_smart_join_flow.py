@@ -233,6 +233,7 @@ async def test_hub_chains_from_create_agent_to_connections_no_loop(client, reset
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         connection, _ = await make_connection(db, u)
         connection.last_seen_at = datetime.now(timezone.utc)  # LIVE machine, no agent yet
+        connection.mcp_connected_at = datetime.now(timezone.utc)  # set up (MCP-recent)
         await db.commit()
     cookies = _cookies(user.id)
 
@@ -305,7 +306,8 @@ async def test_create_agent_post_forwards_to_next(client, reset_db):
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        await make_connection(db, u)  # provider is enabled but not live yet
+        connection, _ = await make_connection(db, u)  # set up via a recent MCP connection
+        connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
     r = await client.post(
         "/me/agents/new",
@@ -330,7 +332,8 @@ async def test_create_agent_post_rejects_external_next(client, reset_db):
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        await make_connection(db, u)
+        connection, _ = await make_connection(db, u)
+        connection.mcp_connected_at = datetime.now(timezone.utc)  # set up (MCP-recent)
         await db.commit()
     r = await client.post(
         "/me/agents/new",

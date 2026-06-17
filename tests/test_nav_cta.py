@@ -252,17 +252,20 @@ async def test_play_signed_out_redirects_to_login(client):
 
 
 @pytest.mark.asyncio
-async def test_play_unconnected_agent_goes_to_lobby(client, reset_db):
+async def test_play_unconnected_agent_goes_to_connect(client, reset_db):
+    # /play now routes a setup-incomplete user to their next gate (decision 1):
+    # an unconnected agent's provider is not set up, so /play sends them to the
+    # connect screen instead of dropping them at a lobby they can't act in.
     async with reset_db() as db:
         user = await make_user(db)
-        await make_bot(db, user, name="Atlas")  # never connected
+        await make_bot(db, user, name="Atlas")  # agent exists, provider never connected
         await db.commit()
         user_id = user.id
     r = await client.get(
         "/play", cookies=_signed_in_cookies(user_id), follow_redirects=False
     )
     assert r.status_code == 302
-    assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
+    assert r.headers["location"] == "/me/connections?provider=claude"
 
 
 @pytest.mark.asyncio
