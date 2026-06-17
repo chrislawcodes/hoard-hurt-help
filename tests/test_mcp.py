@@ -379,3 +379,60 @@ async def test_pull_tools_use_shared_oauth_resolution(
     assert await server.get_standings(match_id="M_001", token=token, db=object()) == {
         "status": "ok"
     }
+
+
+# ---------------------------------------------------------------------------
+# Stateless-mode provider-resolution flaw proof
+# ---------------------------------------------------------------------------
+
+
+def test_client_provider_from_context_is_none_outside_fastmcp_session() -> None:
+    """PROOF (mechanism): _client_provider_from_context() always returns None outside
+    a live FastMCP HTTP request.
+
+    In stateless_http mode every tool-call request arrives with no persistent
+    session, so get_context().session.client_params is None — the same situation
+    as calling this function from a plain pytest test. The function catches the
+    resulting exception and fails open with None.
+    """
+    from mcp_server.server import _client_provider_from_context
+
+    provider = _client_provider_from_context()
+    assert provider is None
+
+
+@pytest.mark.asyncio
+async def test_multi_connection_user_gets_unknown_mcp_client_when_provider_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PROOF (impact): a user with 2+ MCP connections hits UNKNOWN_MCP_CLIENT (HTTP 400).
+
+    Full chain in stateless mode:
+      1. stateless tool-call request carries no session → _client_provider_from_context() returns None
+      2. mcp_connection_for(provider=None) returns None — can't pick between 2 connections
+      3. _connection_from_token raises HTTP 400 UNKNOWN_MCP_CLIENT
+
+    A Gemini+Claude user reproduces this on every tool call.
+    """
+    from fastapi import HTTPException
+
+    from mcp_server import server
+
+    async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
+        return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
+
+    async def fake_mcp_connection_for(
+        db: object, user: object, *, provider: object = None
+    ) -> None:
+        # Simulates a user with 2 connections: provider=None → can't pick → None
+        return None
+
+    monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
+    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await server._connection_from_token(object(), _token(), provider=None)
+
+    assert exc_info.value.status_code == 400
+    detail = exc_info.value.detail
+    assert detail["error"]["code"] == "UNKNOWN_MCP_CLIENT"
