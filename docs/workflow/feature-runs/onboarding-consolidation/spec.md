@@ -4,152 +4,196 @@
 **Path:** Feature Factory (full) · platform feature
 **Scope dirs:** `app/engine/`, `app/routes/`
 
+> **Revision history**
+> - **v2 (this doc)** — refreshed after PR **#444** ("Use MCP connection flow for AI setup") merged to main, and after an independent adversarial review (manual sub-agent pass; the FF codex/gemini lenses can't run in this container). Changes: predicate inventory is now 6 (not ~3) because #444 added three; 4 more call sites brought into scope; `require_live` boolean replaced with a min-stage threshold; multi-agent reduction rule, PAUSED placement, handle-gate ownership, and the #444 redirect-loop risk added.
+> - v1 — initial spec.
+
 ## Summary
 
-We keep hitting bugs in "how a user gets an AI agent into a game" because **five
-different entry points each re-derive the same onboarding ladder, using a
-different provider-readiness predicate.** They drift, and a user ends up at the
-wrong next step (wrong CTA label, skipped connect step, redirect loop).
+We keep hitting bugs in "how a user gets an AI agent into a game" because the
+question **"is this provider ready?"** is answered by **six different,
+drifting predicates** across **~9 call sites**, and several pages re-derive the
+onboarding ladder themselves. They disagree at the edges, so users land on the
+wrong page, see the wrong CTA, or get bounced between pages.
 
-This feature centralizes that logic onto **two modules we already have** — no new
+PR #444 (just merged) made this **worse, not better**: chasing a real product
+need (MCP providers need a recent OAuth token) it *doubled* the readiness
+predicates (3 → 6) and spread a stricter gate across more pages as ad-hoc
+redirects — without a single source of truth. It also introduced a concrete
+two-page redirect-loop risk (see Risks). #444 is not wrong to revert; its rule is
+correct. The fix is to **unify** what it scattered.
+
+This feature centralizes the logic onto **two modules we already have** — no new
 module:
 
-1. **`app/engine/connection_health.py`** gains **one provider-capability
-   tri-state** — `NO_MCP_CONNECTION` / `CONNECTED_NOT_LIVE` / `LIVE` — and the ~6
-   overlapping predicates are re-expressed over it (or kept as documented thin
-   wrappers).
+1. **`app/engine/connection_health.py`** gains **one provider-readiness signal**
+   — a small state enum — and the 6 overlapping predicates are re-expressed over
+   it (or kept as documented thin wrappers).
 2. **`app/routes/nav_context.py`** promotes `compute_nav_cta` into a shared
    **`resolve_onboarding_state(...)`** that returns the first unmet gate plus the
-   URL to send the user to. All five entry points call it instead of rolling
-   their own ladder.
+   URL to send the user to. Every entry point calls it instead of rolling its
+   own ladder.
 
-The user-facing pipeline this expresses (the "holistic" model): **sign in →
-handle → create agent (picks the provider) → connect that provider's MCP
-connection → provider goes live / starts pulling → join the requested game.**
+The user-facing pipeline this expresses: **sign in → handle → create agent
+(picks the provider) → connect that provider's MCP connection → provider goes
+live / starts pulling → join the requested game.**
 
-No DB migration. Storage stays one-connection-per-user + per-provider
-`connection_providers` toggles; "per-provider MCP connection" is a *conceptual*
-unit derived over those toggles.
+No **new** DB migration. Storage stays one-connection-per-user + per-provider
+`connection_providers` toggles. (#444 already landed migration `0038`, a pure
+rename `connections.mode_a_at` → `connections.mcp_connected_at`; we build on that
+column, we don't add one.)
 
 ## Problem
 
 There is no single object that represents "how far along is this user toward
-playing." Each page invents its own slice, so:
+playing," and no single answer to "is this provider ready." Each page invents
+its own slice, so:
 
-- The **same question** ("is this provider ready?") is answered by **four
-  different predicates** that disagree at the edges.
-- Fixes have been **piecemeal** — patch one redirect, the next page still has the
-  old logic.
-- The "signed in but no provider" path is spread across `auth.py`, `deps.py`,
-  `agents_create.py`, `connections_pages.py`, and `web_player.py`.
+- The **same question** is answered by **six predicates** that disagree at the
+  edges (stale vs recent MCP, seen-now vs polling-now, paused handling).
+- Fixes have been **piecemeal** — #444 is the latest example: it re-pointed some
+  sites to a stricter predicate but left others behind and added new redirects.
+- The "signed in but no provider / not currently polling" path is spread across
+  `auth.py`, `deps.py`, `agents_create.py`, `agents_list.py`, `agents_detail.py`,
+  `connections_pages.py`, and `web_player.py`.
 
 ## Goal
 
 One intent-driven onboarding pipeline whose "next step" decision is computed in
-**one** place and whose "is this provider ready?" question is answered by **one**
-tri-state — both living in modules that already exist.
+**one** place, and whose "is this provider ready?" question is answered by **one**
+readiness signal — both living in modules that already exist.
 
 ## Non-goals
 
 - **No new module or subsystem.** Consolidate onto `connection_health.py` +
   `nav_context.py` only. (An optional rename of `nav_context.py` →
-  `onboarding_state.py` is cosmetic and deferred to the plan; not required.)
-- **No DB schema or migration change.** Storage and the MCP OAuth bridge are
-  untouched.
-- **No change to the per-user MCP connection creation / OAuth mechanics.**
-- **Do not revisit strategy-first ordering** — agent-before-connection stays (an
-  agent must exist first so we know *which* provider's connection to check).
+  `onboarding_state.py` is cosmetic; deferred to the plan.)
+- **No new DB migration.** Storage and the MCP OAuth bridge are untouched; we
+  reuse the `mcp_connected_at` column #444 renamed.
+- **Do not revert #444's product rule** — MCP providers genuinely need a recent
+  (90-day) MCP connection. We keep that meaning; we just stop duplicating it.
+- **Do not revisit strategy-first ordering** — agent-before-connection stays.
 - **Do not redesign the seat-hold / connect-countdown UX.** Only its "what is
-  missing?" decision routes through the resolver; the countdown page itself is
-  unchanged.
+  missing?" decision routes through the shared logic.
 - **Seat-capacity math is out of scope** (`active_matches_for_provider`,
-  `live_provider_capacity`, `is_join_blocked`) — that answers "how many matches
-  can my machine serve," not "what's my next onboarding step."
+  `live_provider_capacity`, `is_join_blocked`).
 
 ---
 
-## Current-state audit (the disagreement table)
+## Current-state audit (the disagreement table — post-#444)
 
-How each entry point decides the user's next step **today**, and the exact
-predicate it keys off. This is the artifact that motivates the unification — and
-the sites marked **⚠ changes** will behave differently after consolidation, on
-purpose.
+How each call site answers "is this provider ready?" / "what's the next step?"
+**today**, with verified file:line and predicate. Sites marked **⚠** will behave
+differently after consolidation, on purpose.
 
-| # | Entry point | File:line | What it decides | "Provider ready?" predicate it uses today | Notes |
-|---|---|---|---|---|---|
-| 1 | **Nav "Play" CTA** | `app/routes/nav_context.py:128` (`compute_nav_cta`) | Button label + href | **"connected once"** — `user_has_connected_agent` = provider enabled on a connection whose `first_connected_at` is set (line 42) | Deliberately *not* live-now so the label doesn't flap. Ladder: connected→agent→neither. |
-| 2 | **`/play` hub** | `app/routes/web_games_catalog.py` (`operator_join_page`) | Where the "play" funnel lands | **none** — checks sign-in + handle only, then redirects to the lobby | Provider-less / agent-less users are dropped at the lobby, not routed to setup. |
-| 3 | **Post-login redirect** | `app/routes/auth.py:119` (`google_callback`) | Where you land right after OAuth | **agent count only** — counts non-archived `kind=ai` agents; 0 → `/me/agents` | Only fires when `next == "/"`. Ignores handle and provider state. Sends to the agent *list*, not *new*. |
-| 4 | **Agent-create destination** | `app/routes/agents_create.py:238` | After creating an agent: connect, or done | **"enabled on a non-paused connection"** — `enabled_provider_values_on_nonpaused_connections` (line 502) | Looser than "has current MCP setup": a provider enabled on a connection with no recent MCP login still counts as set up here. |
-| 5 | **Join setup gate** | `app/routes/web_player.py:170` (`_join_setup_redirect`) | First missing step before the join form | **agent existence only** — `has_ai_agent`; none → `/me/agents/new` | The provider check happens *later*, per picked agent, in `_seat_user_agent` / `join_submit`. |
-| 5b | **Seat confirm vs hold** | `app/routes/web_player.py:370` (`_seat_user_agent`) | Confirm the seat now, or hold it | **"loop running now"** — `provider_loop_running` (line 426; keys off `last_polled_at`) | Strictest signal: an AI is actually polling for turns. A mere sign-in handshake does *not* count. |
-| 5c | **Seat connect redirect / escalation** | `app/routes/web_player.py:496,548,649` | Send to connect vs play-prompt; escalate to "reconnect" | **"has current setup"** — `provider_has_current_setup` (line 386; MCP-recent for Claude/OpenAI/Gemini, else enabled) | Yet another definition, distinct from #4's "enabled on non-paused." |
+### A. Entry points that pick the next onboarding step
 
-**The core finding:** "is this provider ready?" is answered by **four different
-predicates** across these sites — `first_connected_at` set (1),
-`enabled_provider_values_on_nonpaused_connections` (4), `provider_loop_running`
-(5b), and `provider_has_current_setup` (5c) — plus two sites that don't check at
-all (2, 3). They are each *locally* defensible but *collectively* inconsistent.
+| # | Entry point | File:line | Predicate today | Note |
+|---|---|---|---|---|
+| 1 | **Nav "Play" CTA** | `nav_context.py:128` (`compute_nav_cta`) | **"connected once"** — `user_has_connected_agent` (`:42`), provider enabled on a connection whose `first_connected_at` is set (`:66`) | Deliberately not live-now so the label doesn't flap. |
+| 2 | **`/play` hub** | `web_games_catalog.py:68` (`operator_join_page`) | **none** — sign-in + handle only, then redirect to the lobby | Provider-less / agent-less users are dropped at the lobby, not routed to setup. |
+| 3 | **Post-login redirect** | `auth.py:119` (`google_callback`) | **agent count only** — 0 non-archived `kind=ai` agents → `/me/agents` (the list) | Only fires when `next == "/"`. Ignores handle + provider. |
+| 4 | **Agent-create destination** | `agents_create.py:238` | **"enabled on a non-paused connection"** — `enabled_provider_values_on_nonpaused_connections` (`connection_health.py:502`) | Looser than `provider_has_current_setup`: an enabled-but-not-recently-MCP-connected provider counts as set up here. |
+| 5 | **Join setup gate** | `web_player.py:170` (`_join_setup_redirect`) | **agent existence only** — inline `any(agent.kind == AgentKind.AI ...)` (`:186`), none → `/me/agents/new` | Not a named predicate; an inline check. |
 
-### The ~6 predicates in `connection_health.py` being consolidated
+### B. Per-provider readiness checks during join/seat/connect (the sprawl)
 
-| Predicate | Line | Answers |
-|---|---|---|
-| `provider_is_covered` | 277 | A *live* connection (seen within `LIVE_WINDOW_SECONDS`) has the provider enabled. |
-| `provider_enabled_on_any_connection` | 306 | Provider enabled on any non-deleted connection (liveness not required). |
-| `provider_has_recent_mcp_connection` | 340 | MCP connection used within `MCP_CONNECTION_VALID_DAYS` (90d). |
-| `provider_has_current_setup` | 386 | The setup we currently support exists (MCP-recent for MCP providers, else enabled). |
-| `provider_has_live_current_setup` | 400 | That current setup is connected *right now* (seen now). |
-| `provider_loop_running` | 426 | An AI is actually *polling/looping* right now (`last_polled_at`). |
-| `enabled_provider_values*` | 475 / 502 | Set-level: which providers to offer / mark ready (multi-provider list). |
+| # | Site | File:line | Predicate today | Meaning |
+|---|---|---|---|---|
+| 6 | Join-form status badge | `web_player.py:268,270` | `provider_loop_running` then `provider_has_current_setup` | live / offline / unconfigured |
+| 7 | Seat confirm vs hold | `web_player.py:370` (`_seat_user_agent`) | `provider_loop_running` (`connection_health.py:426`) | "an AI is polling right now" |
+| 8 | Held-seat connect redirect | `web_player.py:496` (`join_submit`) | `provider_has_current_setup` (`:386`) | redirect to `/me/connections` if not set up |
+| 9 | Seat-connect page | `web_player.py:548` (`seat_connect`) | `provider_has_current_setup` | same |
+| 10 | Seat-connect poll / escalation | `web_player.py:649` (`seat_connect_status`) | `provider_has_current_setup` | escalate to "reconnect" CTA |
+| 11 | Seat-hold poller confirm | `seat_hold.py:56` (`confirm_seat_if_live`) | `provider_loop_running` | background seat confirm |
+| 12 | **Connections page** target state | `connections_pages.py:132,137,219` | **`provider_has_live_current_setup`** (`:400`) + `provider_has_current_setup` | "seen right now" — **a different bar than the seat pages** |
+| 13 | Agent list readiness badge | `agents_list.py:54` | `enabled_provider_values_on_nonpaused_connections` | ready vs needs-connecting |
+| 14 | Agent detail readiness | `agents_detail.py:139` | `provider_is_covered` (`:277`) | "live now" (seen) |
+
+**The core finding:** "is this provider ready?" is answered by **six predicates**
+spread over **14 sites**, and at least three *different* readiness bars are in
+active use at once:
+
+- **"has current setup"** (`provider_has_current_setup`, MCP-recent) — sites 4*, 6, 8, 9, 10.
+- **"seen now"** (`provider_has_live_current_setup` / `provider_is_covered`) — sites 12, 14.
+- **"polling now"** (`provider_loop_running`) — sites 6, 7, 11.
+
+Plus "connected once" (`first_connected_at`) at the nav (1) and "enabled on
+non-paused" at agent-create/list (4, 13). #444 is what pushed sites 8–12 onto the
+stricter `*_current_setup` / `*_live_current_setup` predicates while leaving 1,
+4, 13, 14 on their old bars — creating the seat-page (`has_current_setup`) vs
+connections-page (`has_live_current_setup`) split that is the new loop risk.
+
+### The 6 predicates in `connection_health.py` being consolidated
+
+| Predicate | Line | Answers | Added by #444? |
+|---|---|---|---|
+| `provider_is_covered` | 277 | a *live* (seen) connection has the provider enabled | no |
+| `provider_enabled_on_any_connection` | 306 | provider enabled on any non-deleted connection | no |
+| `provider_has_recent_mcp_connection` | 340 | MCP connection used within `MCP_CONNECTION_VALID_DAYS` (90d) | **yes** |
+| `provider_has_current_setup` | 386 | MCP-recent for MCP providers, else enabled | **yes** |
+| `provider_has_live_current_setup` | 400 | that current setup is connected *right now* (seen) | **yes** |
+| `provider_loop_running` | 426 | an AI is actually *polling* right now (`last_polled_at`) | no (but #444 added `mcp_connected_at` guard) |
+
+Set-level helpers `enabled_provider_values` (475) / `_on_nonpaused_connections`
+(502) stay for "which providers to offer / list," but their use as a *readiness*
+signal (sites 4, 13) is replaced by the unified signal.
 
 ---
 
 ## Target design
 
-### 1. The provider-capability tri-state (`connection_health.py`)
+### 1. The provider-readiness signal (`connection_health.py`)
 
-One function is the single answer to "where is this provider in setup?":
+One function is the single answer to "where is this provider in setup?" The
+review showed the live code uses **three** meaningful bars, not two, so the
+signal must distinguish them rather than collapse to a boolean:
 
 ```python
 class ProviderReadiness(enum.Enum):
-    NO_MCP_CONNECTION = "no_mcp_connection"   # gate 4 unmet: no usable setup
-    CONNECTED_NOT_LIVE = "connected_not_live" # set up, but no AI is looping yet
+    NO_MCP_CONNECTION = "no_mcp_connection"   # no usable setup (gate: connect)
+    CONNECTED_NOT_LIVE = "connected_not_live" # set up, MCP client not signed in now
+    SEEN_NOT_POLLING = "seen_not_polling"     # MCP client online, but no AI polling yet
     LIVE = "live"                             # an AI is polling for turns right now
 
 async def provider_readiness(db, user_id, provider) -> ProviderReadiness: ...
 ```
 
-Boundary definitions (the agreed unified meaning):
+Boundary definitions (built over the predicates #444 already wrote — we wrap,
+not rewrite):
 
 | State | Defined as |
 |---|---|
-| `NO_MCP_CONNECTION` | `not provider_has_current_setup(...)` (MCP-recent for MCP providers; enabled for hermes/openclaw). |
-| `CONNECTED_NOT_LIVE` | `provider_has_current_setup(...)` is true **and** `provider_loop_running(...)` is false. |
-| `LIVE` | `provider_loop_running(...)` is true (an AI is actually pulling turns). |
+| `NO_MCP_CONNECTION` | `not provider_has_current_setup(...)` |
+| `CONNECTED_NOT_LIVE` | `provider_has_current_setup(...)` and not `provider_has_live_current_setup(...)` |
+| `SEEN_NOT_POLLING` | `provider_has_live_current_setup(...)` and not `provider_loop_running(...)` |
+| `LIVE` | `provider_loop_running(...)` |
 
-The existing predicates are **kept as the building blocks** of these boundaries
-(re-expressed, not duplicated): `provider_has_current_setup` defines the
-`NO_MCP_CONNECTION` edge; `provider_loop_running` defines the `LIVE` edge;
-`provider_is_covered` / `provider_enabled_on_any_connection` /
-`provider_has_recent_mcp_connection` stay as internal helpers behind
-`provider_has_current_setup`. The set-level `enabled_provider_values*` stay for
-the create-form/agent-list "which providers" lists, but their use as a
-*readiness* signal (site #4) is replaced by the tri-state.
+This four-state signal is the reconciliation of the three bars: the nav can treat
+anything ≥ `CONNECTED_NOT_LIVE` as "ready to show Play"; the seat pages can require
+`LIVE`; the connections page's "you're connected, go back" auto-forward keys off
+`SEEN_NOT_POLLING` (matching its current `provider_has_live_current_setup`
+behavior) **without** a separate predicate. The six predicates remain as the
+internal building blocks of these four boundaries.
 
-**Note on `provider_has_live_current_setup` ("seen now"):** kept, but the plan
-must decide whether the seat-connect auto-redirect should switch from "seen now"
-to `LIVE` ("looping"). Recommendation: use `LIVE`, because "seen" includes a
-sign-in handshake that isn't actually playing — but this is a plan-stage call.
+**PAUSED handling (decision — see Open Decisions):** today `provider_has_current_setup`
+does *not* exclude PAUSED connections but `provider_loop_running` does, so a
+paused-only user currently lands in `CONNECTED_NOT_LIVE` and is told to "start
+your AI" rather than "resume your connection." The signal must place PAUSED
+deliberately; recommendation is a distinct treatment so the CTA says "resume."
 
 ### 2. The onboarding-state resolver (`nav_context.py`)
 
-`compute_nav_cta` is already the ladder; promote it into a general resolver every
-site calls:
+Promote `compute_nav_cta` into a general resolver every site calls:
 
 ```python
-class OnboardingStage(enum.Enum):
-    NOT_SIGNED_IN, NEEDS_HANDLE, NEEDS_AGENT, NEEDS_MCP_CONNECTION, NEEDS_LIVE, READY
+class OnboardingStage(enum.IntEnum):
+    NOT_SIGNED_IN = 0
+    NEEDS_HANDLE = 1
+    NEEDS_AGENT = 2
+    NEEDS_MCP_CONNECTION = 3   # NO_MCP_CONNECTION
+    NEEDS_LIVE = 4             # CONNECTED_NOT_LIVE / SEEN_NOT_POLLING
+    READY = 5                  # LIVE
 
 @dataclass(frozen=True)
 class OnboardingState:
@@ -158,91 +202,132 @@ class OnboardingState:
 
 async def resolve_onboarding_state(
     db, user, *,
-    target_match=None,        # match-scoped intent (join) vs global (nav, /play)
+    target_match=None,        # match-scoped (join) vs global (nav, /play, post-login)
     target_agent=None,        # when a specific agent's provider is the subject
-    require_live: bool = False,  # nav label tolerates CONNECTED_NOT_LIVE; join needs LIVE
+    require: OnboardingStage = OnboardingStage.NEEDS_MCP_CONNECTION,  # min bar this caller demands
 ) -> OnboardingState: ...
 ```
 
-- The resolver owns the **ordering** (the gate ladder) and the **canonical
-  next-step URL**, including `?next=` threading back to the intent.
-- It reads provider state **only** through `provider_readiness`.
-- `require_live` is how nav (label may stay on `CONNECTED_NOT_LIVE`) and join
-  (needs `LIVE` to seat) share one ladder instead of two — the "label vs gate"
-  distinction, as a parameter.
-- Pages keep only their **local** concern (rendering the form, the seat-hold
-  countdown). The chain logic is centralized.
+- `require` replaces v1's `require_live` boolean. It is the **minimum stage this
+  caller treats as "done."** Nav uses `NEEDS_MCP_CONNECTION` (a set-up agent shows
+  "Play"); join-confirm uses `READY` (must be polling). An `IntEnum` makes the
+  threshold comparison explicit and supports the three real bars.
+- **Multi-agent reduction rule (decision — see Open Decisions):** for global
+  intent (no `target_agent`), the resolver reports the **most-ready** agent's
+  stage. This preserves today's nav semantics ("any connected agent ⇒ Play").
+  This rule is an acceptance criterion and gets a test.
+- The resolver excludes `kind=bot` agents, `archived_at IS NOT NULL` agents, and
+  agents with `provider IS NULL`.
+- It owns the gate **ordering** and the canonical **next-step URL** (incl. `?next=`
+  threading). Pages keep only local concerns (rendering a form, the countdown).
 
-### 3. Per-site adoption (before → after; ⚠ = intentional behavior change)
+### 3. Handle-gate ownership
+
+`deps.py:56` `require_user_with_handle` already 303-redirects handle-less users.
+To avoid two sources of truth: **`deps.py` keeps owning the handle gate** for
+routes that depend on it; the resolver's `NEEDS_HANDLE` stage only covers the
+entry points that use bare `get_current_user` (`/play`, `join_form`, post-login).
+The spec does not move handle logic into the resolver for `require_user_with_handle`
+routes.
+
+### 4. Per-site adoption (before → after; ⚠ = intentional behavior change)
 
 | Site | Before | After |
 |---|---|---|
-| **Nav CTA** | "Play now" on `first_connected_at`-ever | Calls resolver (`require_live=False`); label maps from stage. ⚠ "Play now" now means **has current MCP setup** (recent), not "ever connected" — a 90-day-stale connection stops showing "Play now". |
-| **`/play`** | sign-in + handle, then lobby | Calls resolver; routes a provider-less/agent-less user to their first unmet gate instead of dropping them at the lobby. ⚠ behavior change — **flag as a decision** (some may want `/play` to stay lobby-first). |
-| **Post-login** | `next=="/"` & 0 agents → `/me/agents` | `next=="/"` → resolver decides the gate. ⚠ destination becomes `/me/agents/new` (create) rather than the list, and also catches the missing-handle gate. |
-| **Agent-create** | `enabled_provider_values_on_nonpaused_connections` | Resolver with `target_agent`. ⚠ "set up" now means `provider_has_current_setup` (MCP-recent), so an enabled-but-not-recently-MCP-connected provider is now sent to connect instead of skipping it. |
-| **Join gate** | `has_ai_agent` only | Resolver with `target_match` for the pre-pick gates (handle/agent); post-pick seat confirm/hold reads the **same tri-state** (`LIVE` boundary). Net logic ≈ same, now shared. |
+| **Nav CTA** (1) | "Play now" on `first_connected_at`-ever | Resolver, `require=NEEDS_MCP_CONNECTION`. ⚠ "Play now" now means **has current MCP setup** (recent), not "ever connected" — a 90-day-stale connection stops showing "Play now". |
+| **`/play`** (2) | sign-in + handle, then lobby | Resolver routes to the first unmet gate. ⚠ behavior change — **flag as a decision**. |
+| **Post-login** (3) | `next=="/"` & 0 agents → `/me/agents` | Resolver decides the gate. ⚠ destination becomes `/me/agents/new`; also catches missing handle at login. |
+| **Agent-create** (4) | `enabled_provider_values_on_nonpaused_connections` | Resolver with `target_agent`. ⚠ "set up" now means `provider_has_current_setup` (MCP-recent) — aligns it with the join flow #444 already tightened. |
+| **Join gate + seat** (5–11) | mix of `loop_running` / `has_current_setup` | Pre-pick gates via resolver; per-agent seat reads via `provider_readiness`. Logic ≈ same, now shared. |
+| **Connections page** (12) | `provider_has_live_current_setup` | `provider_readiness` `SEEN_NOT_POLLING` boundary — **same bar, shared definition**, closing the seat-page/connections-page split #444 created. |
+| **Agent list** (13) | `enabled_provider_values_on_nonpaused_connections` | `provider_readiness` per provider. ⚠ list "ready" badge now matches the create flow + join flow definition. |
+| **Agent detail** (14) | `provider_is_covered` ("seen") | `provider_readiness`. ⚠ detail readiness aligns to the shared bars. |
 
-Every ⚠ row is enumerated here on purpose; the plan must keep a before/after note
-for each and the reviews must confirm none is accidental.
+Every ⚠ row is enumerated on purpose; the plan keeps a before/after note for each
+and the reviews confirm none is accidental.
 
 ---
 
 ## Scope boundaries (files)
 
 **Edited:**
-- `app/engine/connection_health.py` — add `ProviderReadiness` + `provider_readiness`; re-express predicates over it.
-- `app/routes/nav_context.py` — promote `compute_nav_cta` → `resolve_onboarding_state` (+ `OnboardingStage`/`OnboardingState`); keep `compute_nav_cta` as a thin caller for the label.
-- `app/routes/auth.py` — post-login redirect calls the resolver.
-- `app/routes/agents_create.py` — post-create destination calls the resolver.
-- `app/routes/web_player.py` — `_join_setup_redirect` (and the seat confirm/hold + connect-redirect reads) go through `provider_readiness` / the resolver.
-- `app/routes/web_games_catalog.py` — `/play` calls the resolver (pending the `/play` decision below).
+- `app/engine/connection_health.py` — add `ProviderReadiness` + `provider_readiness`; re-express the 6 predicates over it.
+- `app/routes/nav_context.py` — promote `compute_nav_cta` → `resolve_onboarding_state` (+ stage enum); keep `compute_nav_cta` as a thin caller.
+- `app/routes/auth.py` — post-login redirect → resolver.
+- `app/routes/agents_create.py` — post-create destination → resolver.
+- `app/routes/agents_list.py` — readiness badge → `provider_readiness`.
+- `app/routes/agents_detail.py` — readiness → `provider_readiness`.
+- `app/routes/web_player.py` — `_join_setup_redirect` + seat confirm/hold/connect reads → resolver / `provider_readiness`.
+- `app/routes/connections_pages.py` — target-state + auto-forward → `provider_readiness`.
+- `app/routes/web_games_catalog.py` — `/play` → resolver (pending the `/play` decision).
+- `app/engine/seat_hold.py` — `confirm_seat_if_live` reads the `LIVE` boundary via the shared signal (kept bit-identical).
 
-**Tests:** unit tests for `provider_readiness` (each boundary) and
-`resolve_onboarding_state` (each stage transition + `require_live`), plus
-per-entry-point redirect tests.
+**Tests:** unit tests for `provider_readiness` (each of the 4 boundaries, incl.
+PAUSED), `resolve_onboarding_state` (each stage + `require` threshold + multi-agent
+reduction), per-entry-point redirect `Location` tests, and an explicit
+**`/play ⇄ /me/connections` loop-guard test** using a "seen-but-not-polling"
+fixture (the #444 risk).
 
-**Not touched:** models, migrations, MCP bridge, `deps.py` guards (`require_user`
-/ disable enforcement stay as-is), seat-hold UX templates, capacity math.
+**Not touched:** models, new migrations, MCP bridge, `deps.py` handle/disable
+guards, seat-hold UX templates, capacity math.
 
 ---
 
 ## Acceptance criteria
 
-1. `spec.md` contains the disagreement table naming the exact predicate each of
-   the five entry points uses today (✅ above) and the agreed unified gate
-   definitions.
+1. `spec.md` tables how each call site answers readiness today (✅ above,
+   post-#444) and the agreed unified boundaries.
 2. `connection_health.py` exposes one `provider_readiness(...) ->
-   ProviderReadiness` tri-state; the ~6 existing predicates are re-expressed over
-   it or documented as retained wrappers.
-3. `nav_context.py` exposes `resolve_onboarding_state(...) -> OnboardingState`;
-   all adopting entry points call it instead of re-deriving the ladder.
-4. Every ⚠ behavior change is enumerated with a before/after note, and confirmed
-   intentional at the spec + plan reviews.
-5. Tests cover the tri-state boundaries and the resolver ladder; Preflight Gate
-   (`ruff` + `mypy` + `pytest`) is green.
-6. No DB migration; no new module.
+   ProviderReadiness` signal; the 6 predicates are re-expressed over it or kept as
+   documented wrappers. PAUSED placement is explicit.
+3. `nav_context.py` exposes `resolve_onboarding_state(...)`; all 14 sites read
+   through the resolver or `provider_readiness` — none keeps its own predicate.
+4. The multi-agent global reduction rule (most-ready) is implemented and tested.
+5. Every ⚠ behavior change is enumerated with a before/after note and confirmed
+   intentional at review.
+6. A loop-guard test covers the `/play ⇄ /me/connections` pair for a
+   seen-but-not-polling user.
+7. No new DB migration; no new module. Preflight Gate green.
 
 ## Assumptions carried in (correct any at review)
 
-1. **"Set up your agent to pull"** = the step where the user pastes the
-   play-prompt into their MCP client so the agent starts polling for turns
-   (today's seat-connect / `provider_loop_running` state). This maps to the
-   `CONNECTED_NOT_LIVE → LIVE` transition.
-2. The nav label may stay on `CONNECTED_NOT_LIVE` while join requires `LIVE` —
-   modeled as `require_live`, not two ladders.
-3. "Per-provider MCP connection" is conceptual, derived over
-   `connection_providers` toggles; physical storage is unchanged.
+1. **"Set up your agent to pull"** = the user pastes the play-prompt into their
+   MCP client so the agent polls for turns (the `SEEN_NOT_POLLING → LIVE`
+   transition).
+2. "Per-provider MCP connection" is conceptual, derived over `connection_providers`
+   toggles + `mcp_connected_at`; physical storage is unchanged.
+3. #444's product rule (90-day MCP recency for Claude/OpenAI/Gemini) is correct
+   and stays.
 
-## Open questions / risks
+## Open decisions for the human
 
-- **`/play` routing (decision needed):** route `/play` through the resolver
-  (sends setup-incomplete users to their next gate) or keep it lobby-first?
-  Recommendation: route through the resolver, since `/play` is the "I want to
-  play" funnel. Flagged for Chris.
-- **Redirect-loop risk:** five sites changing redirect logic at once is the main
-  regression surface. Mitigation: per-entry-point redirect tests asserting the
-  exact `Location` for each stage; a "READY user never gets redirected to setup"
-  invariant test.
-- **"Seen now" vs "looping" for seat-connect auto-redirect:** plan-stage call
-  (recommend `LIVE`).
+1. **`/play` routing** — route through the resolver (sends setup-incomplete users
+   to their next gate; recommended) or keep it lobby-first?
+2. **Multi-agent reduction** — for nav/`/play`/post-login, reflect the
+   **most-ready** agent (recommended; preserves today's nav) or the least-ready?
+3. **PAUSED placement** — should a paused-only provider read as a distinct state
+   so the CTA says "resume your connection" (recommended) rather than "start your
+   AI"?
+4. **Connect-page auto-forward bar** — keep "seen now" (`SEEN_NOT_POLLING`,
+   today's behavior) or require `LIVE`? Recommended: keep "seen now" so the page
+   advances the instant the MCP client signs in.
+5. **Post-login destination** — `/me/agents/new` (create) vs `/me/agents` (list)
+   for a returning user with zero agents. Recommended: `/me/agents/new`.
+
+## Risks
+
+- **#444 redirect-loop (possibly already live):** seat pages redirect on
+  `provider_has_current_setup` while `connections_pages.py` auto-forwards on
+  `provider_has_live_current_setup` — different bars pointing at each other. A
+  seen-but-stale user could ping-pong **today**. Mitigation: the shared signal
+  gives both pages one definition; the loop-guard test (criterion 6) locks it.
+  *Verification:* trace `/games/{g}/matches/{m}/connect/{p}` ⇄ `/me/connections`
+  with a fixture where `mcp_connected_at` is recent but `last_polled_at` is stale;
+  assert no redirect cycle before merge.
+- **Cross-cutting redirect changes across 10 files** — main regression surface.
+  *Verification:* per-entry-point `Location` tests + a "READY user is never
+  redirected to setup" invariant test.
+- **`seat_hold.confirm_seat_if_live` must stay bit-identical to the `LIVE`
+  boundary** or the background poller confirms seats under different rules than
+  the resolver routes them. *Verification:* a shared-constant test asserting both
+  resolve `LIVE` from the same `provider_loop_running` result.
