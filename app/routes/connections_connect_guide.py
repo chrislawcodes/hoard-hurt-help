@@ -114,17 +114,15 @@ def _connect_options() -> list[ConnectOption]:
             client_id="codex",
             client_label="Codex",
             kind="command",
-            # One paste does both: add the server and trigger the sign-in. Pasting
-            # both lines into a shell runs them in order, so there's no second step.
-            command=(
-                f"codex mcp add agentludum --url {mcp_url}\n"
-                "codex mcp login agentludum"
-            ),
-            # Codex's one paste does the sign-in too, so step 2 is just the
-            # browser approval — "Sign in with Google" is the real action here.
+            # codex mcp add detects OAuth and completes the sign-in flow
+            # automatically — no separate mcp login needed.
+            command=f"codex mcp add agentludum --url {mcp_url}",
             signin_title="Sign in with Google",
             signin_command=None,
-            signin_note="A browser opens — approve the Google sign-in. No key needed.",
+            signin_note=(
+                "A browser opens for Google sign-in — approve it. "
+                "No key needed. Once signed in, paste the play prompt to your Codex session."
+            ),
             steps=(),
             note=None,
         ),
