@@ -50,10 +50,10 @@
   "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
-    "reviewed": false,
+    "reviewed": true,
     "found": false,
-    "note": "",
-    "updated_at": 0
+    "note": "Parallelism exists and is orchestrated manually via isolated worktrees: B1 (web_player.py + auth.py + agents_create.py + web_games_catalog.py) || B2 (connections_pages.py + agents_list.py + agents_detail.py + seat_hold.py) - disjoint write sets. Slices 1->2 serial (2 depends on 1). Runner [P:] auto-parser not used.",
+    "updated_at": 1781656594
   },
   "init_head_sha": "bd010ab41e3df6aa1005990040f43a9e4ec4ade7",
   "token_usage": [],
@@ -153,6 +153,42 @@
       "files_written": 0,
       "subprocess_invocations": 26,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-17T00:36:04Z",
+      "wall_seconds": 0.066,
+      "input_bytes_read": 31430,
+      "output_bytes_written": 8849,
+      "files_read": 3,
+      "files_written": 1,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-17T00:36:21Z",
+      "wall_seconds": 0.061,
+      "input_bytes_read": 32056,
+      "output_bytes_written": 9162,
+      "files_read": 3,
+      "files_written": 1,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-17T00:36:35Z",
+      "wall_seconds": 0.925,
+      "input_bytes_read": 174810,
+      "output_bytes_written": 40288,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -174,6 +210,14 @@
       ],
       "initial_sha": "6e7c97d2b32a60c7d02d5a5ed4f905758b5d2c42dfce076f5bc30bb3ab142513",
       "judge_next_action": "advance"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "5966fd2d8643a50cb7f5c40da01ea94700edf0aeb24b63b8750cca5d834448b5"
+      ],
+      "initial_sha": "5966fd2d8643a50cb7f5c40da01ea94700edf0aeb24b63b8750cca5d834448b5"
     }
   },
   "invariant_warnings": [],
@@ -216,5 +260,11 @@
       "head_sha": "f6422fee50b4168e10f97b50c8aaba56af7a240c"
     }
   ],
-  "plan_adversarial_rounds": 0
+  "plan_adversarial_rounds": 0,
+  "tasks_adversarial_rounds": 1,
+  "last_action_result": {
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
+    "blockers": []
+  }
 }
