@@ -421,10 +421,11 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     assert "byo-signin-claude-code" in connect_block
     assert "/mcp" in connect_block
     assert "In Claude Code, paste /mcp" in connect_block
-    # Gemini gets a pasteable prompt, not a vague "open the app" note.
+    # Gemini gets the real /mcp auth slash command, not a vague NL prompt that
+    # doesn't trigger sign-in (and that wrongly asked Gemini to approve the OAuth).
     gemini_block = text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
-    assert "Paste this into Gemini" in gemini_block
-    assert "Use the agentludum MCP server now." in gemini_block
+    assert "In Gemini, run /mcp auth agentludum" in gemini_block
+    assert "/mcp auth agentludum" in gemini_block
     # All four clients are offered; Cursor dropped.
     assert 'for="byo-tab-claude-code"' in text
     assert 'for="byo-tab-codex"' in text

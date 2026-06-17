@@ -136,12 +136,15 @@ def _connect_options() -> list[ConnectOption]:
             client_label="Gemini",
             kind="command",
             command=f"gemini mcp add agentludum {mcp_url} --transport http",
-            signin_title="Paste this into Gemini",
-            signin_command=(
-                "Use the agentludum MCP server now. If a browser opens for Google "
-                "sign-in, approve it. Then tell me when the tools are ready."
+            # Gemini CLI's sign-in is the interactive `/mcp auth <server>` slash
+            # command (the parallel of Claude Code's `/mcp` → Authenticate), not a
+            # natural-language prompt. The browser sign-in is YOUR action — Gemini
+            # can't approve a Google OAuth for you.
+            signin_title="In Gemini, run /mcp auth agentludum",
+            signin_command="/mcp auth agentludum",
+            signin_note=(
+                "A browser opens — you approve the Google sign-in. No key needed."
             ),
-            signin_note="No key needed.",
             steps=(),
             note=None,
         ),

@@ -429,7 +429,7 @@ async def test_connect_target_shows_mcp_setup_without_self_setup_key(client, res
     assert r.status_code == 200
     gemini_block = r.text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
     assert "gemini mcp add agentludum" in gemini_block
-    assert "Use the agentludum MCP server now." in gemini_block
+    assert "/mcp auth agentludum" in gemini_block
     assert "sk_conn_" not in gemini_block
     assert "/api/agent/next-turn" not in gemini_block
     assert "X-Connection-Key" not in gemini_block
