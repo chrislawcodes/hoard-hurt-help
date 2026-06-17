@@ -37,6 +37,11 @@ from app.models.user import User
 from app.routes.web_support import safe_internal_next
 
 
+# The games lobby anchor every "ready to play" path lands on (nav CTA, /play,
+# and the play-setup resolver's READY/NEEDS_LIVE case).
+LOBBY_URL = "/games/hoard-hurt-help#lobby-upcoming"
+
+
 @dataclass(frozen=True)
 class NavCta:
     """The single Play button: a label and where it points."""
@@ -164,7 +169,7 @@ def _setup_gate_url(
         if target_match is not None
         else None
     )
-    lobby_url = "/games/hoard-hurt-help#lobby-upcoming"
+    lobby_url = LOBBY_URL
 
     if stage == PlaySetupStage.NOT_SIGNED_IN:
         return "/auth/google/login"
@@ -305,22 +310,14 @@ async def _reduce_most_ready(
 async def compute_nav_cta(db: AsyncSession, user: User | None) -> NavCta:
     """Resolve the Play CTA for this visitor.
 
-    Thin caller of ``resolve_play_setup_state`` with the nav's ``require`` bar
-    (``NEEDS_MCP_CONNECTION``): a set-up agent shows "Play now" even when its loop
-    isn't running right now. Agent-first ordering, matching how a player actually
-    gets into a game: create an agent (the competitor) → connect your AI → play.
+    Signed out: "Get started" → ``/play`` (which routes to sign-in). Signed in:
+    always "Play now" → the lobby. The nav stays dumb on purpose — all setup
+    gating (handle, agent, MCP connection, live) happens on the join flow, not
+    on this button.
     """
-    state = await resolve_play_setup_state(
-        db, user, require=PlaySetupStage.NEEDS_MCP_CONNECTION
-    )
-    if state.stage == PlaySetupStage.NOT_SIGNED_IN:
+    if user is None:
         return NavCta(label="Get started", href="/play")
-    if state.stage == PlaySetupStage.NEEDS_AGENT:
-        return NavCta(label="Create your agent", href="/me/agents/new")
-    if state.stage == PlaySetupStage.NEEDS_MCP_CONNECTION:
-        # Keep the existing nav href (no provider query) — simpler for the nav.
-        return NavCta(label="Connect your AI", href="/me/connections")
-    return NavCta(label="Play now", href="/games/hoard-hurt-help#lobby-upcoming")
+    return NavCta(label="Play now", href=LOBBY_URL)
 
 
 async def populate_nav_cta(request: Request, db: DbSession) -> None:

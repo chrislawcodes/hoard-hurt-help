@@ -10,7 +10,7 @@
     {# Returning path: this provider is already connected. Paste the MCP play prompt
        into the same AI client to wake the play loop. Never-configured providers are
        redirected to /me/connections?provider=... before this page renders. #}
-    <p>{{ provider_label }} is connected. Paste this into the same AI client to start checking for your turns. We'll seat you automatically once it starts playing.</p>
+    <p>{{ provider_label }} MCP connection is setup. Paste this into the same AI client to start checking for your turns. We'll seat you automatically once it starts playing.</p>
     {% if play_prompt %}
     <button type="button" class="btn-copy"
             onclick="copyWithFeedback(this, document.getElementById('seat-play-prompt').textContent)">Copy</button>

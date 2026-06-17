@@ -93,45 +93,45 @@ async def test_cta_signed_out_is_get_started(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_cta_no_agent_is_create_agent(reset_db):
-    # Agent-first: a brand-new user needs a competitor before connecting one.
+async def test_cta_signed_in_no_agent_is_play_now(reset_db):
+    # The nav is dumb now: a signed-in user always gets "Play now" → lobby,
+    # regardless of setup state. All gating moved to the join flow.
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Create your agent"
-    assert cta.href == "/me/agents/new"
+    assert cta.label == "Play now"
+    assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio
-async def test_cta_connection_no_agent_is_create_agent(reset_db):
-    # Has a connection but no agent yet -> still create the agent first.
+async def test_cta_signed_in_connection_no_agent_is_play_now(reset_db):
+    # Has a connection but no agent yet -> still just "Play now" (no smart funnel).
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user)
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Create your agent"
-    assert cta.href == "/me/agents/new"
+    assert cta.label == "Play now"
+    assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio
-async def test_cta_unconnected_agent_is_connect(reset_db):
-    # Has an agent but it has never connected -> next step is connecting the AI.
+async def test_cta_signed_in_unconnected_agent_is_play_now(reset_db):
+    # Has an agent but it has never connected -> still "Play now" (no smart funnel).
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user)
         await make_agent(db, user, name="Atlas")  # first_connected_at stays NULL
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Connect your AI"
-    assert cta.href == "/me/connections"
+    assert cta.label == "Play now"
+    assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio
 async def test_cta_connected_agent_is_play_now(reset_db):
-    # The "Play now" bar is now "has current MCP setup" (provider_readiness >=
-    # CONNECTED_NOT_LIVE), so a Claude (MCP) provider needs a recent mcp_connected_at.
+    # A fully set-up user also gets "Play now" → lobby.
     async with reset_db() as db:
         user = await make_user(db)
         connection, _ = await make_connection(db, user)
@@ -141,19 +141,19 @@ async def test_cta_connected_agent_is_play_now(reset_db):
         await db.commit()
         cta = await compute_nav_cta(db, user)
     assert cta.label == "Play now"
+    assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio
-async def test_cta_bot_only_is_create_agent(reset_db):
-    # A bot (house bot) isn't the visitor's own AI agent, so they still need to
-    # create one before anything else.
+async def test_cta_signed_in_bot_only_is_play_now(reset_db):
+    # A bot-only user has no seatable agent, but the nav still just says "Play now".
     async with reset_db() as db:
         user = await make_user(db)
         await make_agent(db, user, name="Sable", kind=AgentKind.BOT, connection=None)
         await db.commit()
         cta = await compute_nav_cta(db, user)
-    assert cta.label == "Create your agent"
-    assert cta.href == "/me/agents/new"
+    assert cta.label == "Play now"
+    assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 # ── rendered nav ────────────────────────────────────────────────────────────
@@ -213,7 +213,8 @@ async def test_nav_renders_play_now_for_connected_user(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_nav_renders_create_your_agent_for_user_without_agent(client, reset_db):
+async def test_nav_renders_play_now_for_user_without_agent(client, reset_db):
+    # The nav is dumb: even a brand-new signed-in user sees "Play now" → lobby.
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -221,13 +222,15 @@ async def test_nav_renders_create_your_agent_for_user_without_agent(client, rese
 
     r = await client.get("/games", cookies=_signed_in_cookies(user_id))
     assert r.status_code == 200
-    assert "Create your agent" in r.text
-    assert 'href="/me/agents/new"' in r.text
-    assert "Play now" not in r.text
+    assert "Play now" in r.text
+    assert 'href="/games/hoard-hurt-help#lobby-upcoming"' in r.text
+    assert "Create your agent" not in r.text
+    assert "Get started" not in r.text
 
 
 @pytest.mark.asyncio
-async def test_nav_renders_create_an_agent_for_user_with_connection_no_agent(client, reset_db):
+async def test_nav_renders_play_now_for_user_with_connection_no_agent(client, reset_db):
+    # A connection-but-no-agent user also just sees "Play now" — no smart funnel.
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user)
@@ -236,8 +239,9 @@ async def test_nav_renders_create_an_agent_for_user_with_connection_no_agent(cli
 
     r = await client.get("/games", cookies=_signed_in_cookies(user_id))
     assert r.status_code == 200
-    assert "Create your agent" in r.text
-    assert 'href="/me/agents/new"' in r.text
+    assert "Play now" in r.text
+    assert 'href="/games/hoard-hurt-help#lobby-upcoming"' in r.text
+    assert "Create your agent" not in r.text
     assert "Connect your AI" not in r.text
 
 
@@ -252,10 +256,9 @@ async def test_play_signed_out_redirects_to_login(client):
 
 
 @pytest.mark.asyncio
-async def test_play_unconnected_agent_goes_to_connect(client, reset_db):
-    # /play now routes a setup-incomplete user to their next gate (decision 1):
-    # an unconnected agent's provider is not set up, so /play sends them to the
-    # connect screen instead of dropping them at a lobby they can't act in.
+async def test_play_setup_incomplete_user_goes_to_lobby(client, reset_db):
+    # /play is dumb now: a signed-in user always lands on the lobby, even with
+    # setup incomplete. The handle/agent/connection gating moved to the join flow.
     async with reset_db() as db:
         user = await make_user(db)
         await make_bot(db, user, name="Atlas")  # agent exists, provider never connected
@@ -265,10 +268,7 @@ async def test_play_unconnected_agent_goes_to_connect(client, reset_db):
         "/play", cookies=_signed_in_cookies(user_id), follow_redirects=False
     )
     assert r.status_code == 302
-    loc = r.headers["location"]
-    assert loc.startswith("/me/connections?provider=claude")
-    # /play threads ?next back to itself so the funnel re-enters after connecting.
-    assert "next=%2Fplay" in loc
+    assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio

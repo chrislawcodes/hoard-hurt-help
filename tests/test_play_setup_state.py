@@ -432,14 +432,15 @@ async def test_single_provider_ready_query_bound(
 
 
 # ---------------------------------------------------------------------------
-# compute_nav_cta: the nav ⚠ change (stale MCP no longer shows "Play now")
+# compute_nav_cta: the nav is dumb — any signed-in user gets "Play now" → lobby,
+# regardless of MCP setup state. All gating moved to the join flow.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_nav_cta_stale_mcp_is_not_play_now(db_session: AsyncSession) -> None:
-    # 100-day-old mcp_connected_at is past the 90-day window → no current setup →
-    # the bar is NEEDS_MCP_CONNECTION, so the nav shows "Connect your AI".
+async def test_nav_cta_stale_mcp_is_still_play_now(db_session: AsyncSession) -> None:
+    # 100-day-old mcp_connected_at is past the 90-day window (no current setup),
+    # but the nav no longer reads setup state — it still shows "Play now".
     user = await make_user(db_session, 16)
     await _mcp_agent(
         db_session,
@@ -449,7 +450,8 @@ async def test_nav_cta_stale_mcp_is_not_play_now(db_session: AsyncSession) -> No
         last_seen_at=_stale_100_days(),
     )
     cta = await compute_nav_cta(db_session, user)
-    assert cta.label == "Connect your AI"
+    assert cta.label == "Play now"
+    assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio
@@ -464,3 +466,4 @@ async def test_nav_cta_current_setup_is_play_now(db_session: AsyncSession) -> No
     )
     cta = await compute_nav_cta(db_session, user)
     assert cta.label == "Play now"
+    assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
