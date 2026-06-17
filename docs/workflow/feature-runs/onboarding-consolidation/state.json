@@ -202,6 +202,18 @@
       "ts": "20260617T000318_187098Z",
       "reason": "Plan reviews accepted via independent manual sub-agent adversarial pass; artifact hashes re-synced after reconcile appended to plan.md.",
       "head_sha": "1a01e42a1a8463da36ca499c5ca9f5429f07d41a"
+    },
+    {
+      "stage": "plan",
+      "ts": "20260617T001205_796191Z",
+      "reason": "Re-synced review hashes after adding spec decision 6 (NEEDS_LIVE non-blocking at join) to plan AD-4.",
+      "head_sha": "f6422fee50b4168e10f97b50c8aaba56af7a240c"
+    },
+    {
+      "stage": "spec",
+      "ts": "20260617T001213_940416Z",
+      "reason": "Re-synced spec review hashes after adding resolved decision 6 (two-part onboarding; Part 2 optional/non-blocking at join).",
+      "head_sha": "f6422fee50b4168e10f97b50c8aaba56af7a240c"
     }
   ],
   "plan_adversarial_rounds": 0

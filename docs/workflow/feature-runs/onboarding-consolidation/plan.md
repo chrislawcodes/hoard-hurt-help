@@ -70,6 +70,16 @@ require: PlaySetupStage = NEEDS_MCP_CONNECTION)`:
 
 - `require` is the minimum stage the caller treats as "done." Nav uses
   `NEEDS_MCP_CONNECTION` (a set-up agent shows "Play"); join-confirm uses `READY`.
+- **`NEEDS_LIVE` is non-blocking at join (spec decision 6).** The two client
+  actions are distinct: Part 1 = connect (the `NEEDS_MCP_CONNECTION` gate, a real
+  redirect); Part 2 = paste the play-prompt to start polling (the
+  `SEEN_NOT_POLLING → LIVE` jump). Part 2 is surfaced **only after a match is
+  joined**, on the held-seat page, and never hard-redirects: the seat is held and
+  auto-confirms the instant `provider_readiness` reads `LIVE` — because the user's
+  poll loop may already be running (one loop serves all joined matches). The
+  play-prompt is an optional nudge, not a gate. This is already how
+  `_seat_user_agent` behaves (a `provider_loop_running` agent confirms immediately
+  and skips the prompt) — keep it.
 - **Global intent** (no `target_agent`): reduce over the user's AI agents to the
   **most-ready** one (settled decision 2). Excludes `kind=bot`,
   `archived_at IS NOT NULL`, and `provider IS NULL` agents.

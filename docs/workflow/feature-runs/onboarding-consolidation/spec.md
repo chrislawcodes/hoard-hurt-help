@@ -318,6 +318,21 @@ All five open questions answered by Chris:
    (today's snappy behavior).
 5. **Post-login destination** — **`/me/agents/new`.** A returning user with zero
    agents lands directly on the create form (strategy-first), not the empty list.
+6. **"Start your AI" (the play-prompt / Part 2) stays after join, and is
+   OPTIONAL.** Onboarding has two distinct client actions: **Part 1 — connect the
+   MCP connection** (one-time per provider; the `NEEDS_MCP_CONNECTION` gate) and
+   **Part 2 — tell the AI to check for turns** (paste the play-prompt to start the
+   poll loop; the `SEEN_NOT_POLLING → LIVE` jump). Part 2 is surfaced **after the
+   user joins a match**, on the held-seat / connect-countdown page — **not** as its
+   own step before joining. And it is **non-blocking**: the `NEEDS_LIVE` step never
+   hard-redirects or forces the user to paste anything. The seat is **held** and
+   **auto-confirms the moment the provider reads `LIVE`**, because the user's poll
+   loop **may already be running** (one running loop serves *all* their joined
+   matches, so a returning/active user often does nothing here). The play-prompt is
+   shown as an optional "if your AI isn't already running, paste this," with the
+   page polling underneath so an already-live agent is seated with zero extra
+   steps. (This matches today's `_seat_user_agent` behavior: a `provider_loop_running`
+   agent is confirmed immediately and skips the prompt entirely.)
 
 ### Residual limitation
 
