@@ -18,10 +18,11 @@ from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health import (
     ConnectionHealth,
+    ProviderReadiness,
     active_matches_for_provider,
     is_join_blocked,
     live_provider_capacity,
-    provider_is_covered,
+    provider_readiness,
 )
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -135,12 +136,18 @@ async def _build_agent_detail_context(
     attached connection. There is no per-agent "attached connection" any more.
     """
     provider = agent.provider
-    covered = (
-        await provider_is_covered(db, user.id, provider) if provider is not None else False
+    readiness = (
+        await provider_readiness(db, user.id, provider) if provider is not None else None
     )
 
     # Build a health-like dict the templates can read (same keys as
     # ConnectionHealthStatus but not the dataclass itself).
+    # Map provider_readiness rungs to the health display the template expects:
+    #   PAUSED agent          → PAUSED state
+    #   no provider           → DISCONNECTED / "No provider"
+    #   NO_MCP_CONNECTION     → DISCONNECTED / "No live connection" (needs connecting)
+    #   CONNECTED_NOT_LIVE    → DISCONNECTED / "No live connection" (set up but offline)
+    #   SEEN_NOT_POLLING/LIVE → READY (set up and recently seen or fully live)
     if agent.status == AgentStatus.PAUSED:
         health: object = {
             "state": ConnectionHealth.PAUSED,
@@ -169,7 +176,7 @@ async def _build_agent_detail_context(
             "game_name": None,
             "agent_count": 0,
         }
-    elif not covered:
+    elif readiness in (ProviderReadiness.NO_MCP_CONNECTION, ProviderReadiness.CONNECTED_NOT_LIVE):
         health = {
             "state": ConnectionHealth.DISCONNECTED,
             "label": "No live connection",
@@ -184,6 +191,7 @@ async def _build_agent_detail_context(
             "agent_count": 0,
         }
     else:
+        # SEEN_NOT_POLLING or LIVE → ready to accept matches
         health = {
             "state": ConnectionHealth.READY,
             "label": "Ready",
