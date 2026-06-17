@@ -85,21 +85,25 @@ async def test_signin_creates_active_connection_without_counting_a_call(
 @pytest.mark.asyncio
 async def test_tool_path_still_records_the_call(
     db_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tool path records the authenticated call (cost signal), unlike the
-    sign-in handshake. The client is identified by token.client_id, which is
-    stable across stateless-HTTP requests. The initialize path creates the
-    connection; tool calls look it up via oauth_client_id and record the call."""
+    sign-in handshake. The client is identified by its DCR client_id (read from
+    the raw bearer JWT), which is stable per client across stateless-HTTP requests.
+    The initialize path creates the connection; tool calls look it up via that id
+    and record the call."""
     tok = _token()
+    DCR_ID = "dcr-uuid-gemini"
+    monkeypatch.setattr(server, "_dcr_client_id_from_request", lambda: DCR_ID)
     async with db_session_factory() as db:
-        # Simulate initialize: create the connection with provider + oauth_client_id.
+        # Simulate initialize: create the connection with provider + DCR id.
         await server._connection_from_token(
-            db, tok, provider=ConnectionProvider.GEMINI, oauth_client_id=tok.client_id
+            db, tok, provider=ConnectionProvider.GEMINI, oauth_client_id=DCR_ID
         )
         await db.commit()
 
     async with db_session_factory() as db:
-        # Simulate a tool call: _resolve_oauth_connection uses token.client_id.
+        # Simulate a tool call: _resolve_oauth_connection reads the DCR id.
         _access, _userinfo, connection = await server._resolve_oauth_connection(db, tok)
         await db.commit()
         refreshed = (
@@ -108,6 +112,43 @@ async def test_tool_path_still_records_the_call(
         assert refreshed.status == ConnectionStatus.ACTIVE
         assert refreshed.provider is ConnectionProvider.GEMINI
         assert refreshed.api_call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_tool_call_routes_to_the_matching_client_not_another(
+    db_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for spec 016's real bug: one user, two MCP clients.
+
+    Each client has its own DCR client_id, so a Codex tool call must resolve to
+    the Codex (openai) connection — never collapse onto the Gemini one. Before the
+    fix, both clients shared the Google subject as the lookup key, so the second
+    client's traffic was silently routed into the first client's connection."""
+    tok = _token()
+    GEMINI_DCR = "dcr-uuid-gemini"
+    CODEX_DCR = "dcr-uuid-codex"
+
+    # Two initialize handshakes — one per client — create two connections.
+    monkeypatch.setattr(server, "_dcr_client_id_from_request", lambda: GEMINI_DCR)
+    async with db_session_factory() as db:
+        await server._connection_from_token(
+            db, tok, provider=ConnectionProvider.GEMINI, oauth_client_id=GEMINI_DCR
+        )
+        await db.commit()
+    monkeypatch.setattr(server, "_dcr_client_id_from_request", lambda: CODEX_DCR)
+    async with db_session_factory() as db:
+        await server._connection_from_token(
+            db, tok, provider=ConnectionProvider.OPENAI, oauth_client_id=CODEX_DCR
+        )
+        await db.commit()
+
+    # A Codex tool call (CODEX_DCR on the request) must hit the openai connection.
+    async with db_session_factory() as db:
+        _a, _u, connection = await server._resolve_oauth_connection(db, tok)
+        await db.commit()
+        assert connection.provider is ConnectionProvider.OPENAI
+        assert connection.oauth_client_id == CODEX_DCR
 
 
 @pytest.mark.asyncio

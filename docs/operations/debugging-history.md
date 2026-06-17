@@ -131,6 +131,42 @@ scheduler). Resume must be idempotent at turn *and* round boundaries, and a
 fire-and-forget task must never be able to die silently — which is why the
 M_0279 follow-up now persists loop crashes to `request_incidents`.
 
+### 2026-06-17 — MCP page stuck on "waiting" while the AI was actually playing
+
+**Symptom.** A user connected Codex, but `/me/connections?provider=openai` stayed
+on "waiting for your AI to connect" even though Codex was making real game moves.
+
+**Diagnose.** Queried prod (`DATABASE_PUBLIC_URL`):
+`SELECT id, provider, oauth_client_id, last_polled_at FROM connections WHERE user_id = 1`.
+The only live, actively-polling MCP connection was tagged **gemini** (id 14), and
+its `oauth_client_id` was `102022110959492264489` — which equaled the user's
+`users.google_sub` exactly. There was no live `openai` connection, so the
+openai-scoped page showed "waiting."
+
+**Root cause.** Spec 016 (#454) keyed the MCP connection lookup on
+`token.client_id`, assuming it was a per-client id. FastMCP's Google provider sets
+`AccessToken.client_id` to the Google **subject** (see
+`fastmcp/server/auth/providers/google.py`: `AccessToken(client_id=sub)`) — one
+value per *user*, shared by every AI client they sign in with. So the first client
+to connect after the deploy (Gemini) stamped the subject onto its connection, and
+the next client (Codex) matched the same subject and silently collapsed onto the
+Gemini connection. The token swap in `OAuthProxy.load_access_token` discards the
+real per-client id during validation, so it's not on the `AccessToken` at all.
+
+**Fix.** PR #456 keys on the OAuth Dynamic Client Registration `client_id` (a
+per-client UUID), read from the raw `Authorization: Bearer` JWT — FastMCP embeds
+it in the reference token it issues (`jwt_issuer.issue_access_token(client_id=
+client.client_id)`) but drops it on validation. `_dcr_client_id_from_request()`
+decodes the bearer payload (already verified by FastMCP upstream) and both the
+initialize and tool-call paths use it. Fail-open to the provider/single-connection
+lookup. Existing rows self-heal on each client's next `initialize`.
+
+**Lesson.** `token.client_id` from an OAuth-proxy provider is the *user subject*,
+not a client identifier — never use it to tell a user's clients apart. Spec 016's
+proof tests passed only because they mocked the token with a fake distinct
+`client_id`; the mock hid that real tokens carry the shared subject. When a key is
+supposed to be per-client, assert it against a *real* token shape, not a fixture.
+
 ---
 
 ## Manual recovery (last resort)
