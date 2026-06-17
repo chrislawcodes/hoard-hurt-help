@@ -114,14 +114,23 @@ def _connect_options() -> list[ConnectOption]:
             client_id="codex",
             client_label="Codex",
             kind="command",
-            # codex mcp add detects OAuth and completes the sign-in flow
-            # automatically — no separate mcp login needed.
+            # codex mcp add detects OAuth and completes the Google sign-in itself
+            # (no separate `mcp login` — that just starts a second, redundant
+            # OAuth). The browser sign-in pops up during this command.
             command=f"codex mcp add agentludum --url {mcp_url}",
-            signin_title="Sign in with Google",
-            signin_command=None,
+            # Step 2 is the full play prompt, pasted into a FRESH Codex session.
+            # Codex only loads a newly-added MCP server when a session starts, so a
+            # new `codex` run is required; pasting the prompt there fires the
+            # initialize handshake (page flips to Connected) AND starts the poll
+            # loop in one go. The prompt goes in Codex's input box, not the shell —
+            # it's full of backticks/quotes/apostrophes that a shell arg would
+            # mangle, so we deliberately do NOT inline it into the command above.
+            signin_title="Start Codex and paste this to play",
+            signin_command=_play_prompt(),
             signin_note=(
-                "A browser opens for Google sign-in — approve it. "
-                "No key needed. Once signed in, paste the play prompt to your Codex session."
+                "First approve the Google sign-in the command above opens — no key "
+                "needed. Then run `codex` and paste this; it connects and starts "
+                "playing your games on its own."
             ),
             steps=(),
             note=None,

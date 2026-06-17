@@ -389,7 +389,8 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     # The connect step reads as numbered sub-steps (paste in terminal / sign in).
     assert "Connect your AI provider" in text
     assert "Paste this in your terminal" in text
-    assert "Sign in with Google" in text
+    # Every provider's step guides a Google sign-in (titles vary by client now).
+    assert "Google sign-in" in text
     # Hero "add the server" command for Claude Code, OAuth-shaped (no key, no
     # chained play one-liner — the real flow is add → sign in → reload → paste).
     assert "claude mcp add --transport http agentludum" in text
@@ -401,15 +402,19 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     assert "X-Connection-Key" not in connect_block
     assert "sk_conn_" not in connect_block
     assert "--header" not in connect_block
-    # Codex renders as one copyable terminal command (add + login in a single
-    # paste), not a file edit and not two blocks — its sign-in is bundled in.
+    # Codex: step 1 is a single `mcp add` command (which does the OAuth itself —
+    # no `mcp login`, that just starts a second redundant sign-in). Step 2 is the
+    # full play prompt pasted into a fresh Codex session, which fires the connect
+    # handshake AND starts the poll loop in one go.
     codex_block = text.split("byo-panel-codex", 1)[1].split("</section>", 1)[0]
     assert "codex mcp add agentludum --url" in codex_block
-    assert "codex mcp login agentludum" in codex_block
+    assert "codex mcp login agentludum" not in codex_block  # no redundant login
     assert "config.toml" not in codex_block
     assert "X-Connection-Key" not in codex_block
     assert "sk_conn_" not in codex_block
-    assert "byo-signin-codex" not in codex_block  # no separate sign-in block
+    # Step 2 carries the play prompt as a copyable block.
+    assert "byo-signin-codex" in codex_block
+    assert "agentludum MCP tools" in codex_block
     # The Copy button sits to the RIGHT of the command text (text before button).
     assert codex_block.index("byo-cmd-text") < codex_block.index("byo-cmd-btn")
     # Claude Code is the default (first) tab — the audience default.
@@ -537,12 +542,12 @@ async def test_connections_list_playing_state_shows_success(
     assert "You can close this page" in text
     assert "byo-playing" in text
     assert "Watch your games →" in text
-    # The connect/play-prompt step is gone — and so is any Join button. (The
-    # always-on connector below has its own "Paste this…" copy, so check for the
-    # play-prompt block specifically, not that phrase.)
+    # The leading connect/play-prompt step is gone — and so is any Join button.
+    # Check for the live-status play-prompt block specifically (byo-play-prompt-live):
+    # the play-prompt text itself still appears in the collapsed Codex "Set up"
+    # picker (its step 2), so a global text-absence check would wrongly fail.
     assert "Tell your AI to play" not in text
     assert "byo-play-prompt-live" not in text
-    assert "You are playing Hoard Hurt Help through the agentludum MCP tools." not in text
     assert "Join a game →" not in text
     # The free, server-rendered game-status line: this user has no game seated yet.
     assert "No game yet" in text
