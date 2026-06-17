@@ -2172,3 +2172,77 @@ button.danger:hover,
     color: var(--ink);
 }
 .seat-countdown-label { font-size: 0.8rem; color: var(--ink-soft); }
+
+/* ── Human play panel ────────────────────────────────────────────────────────
+   Phone-first: big tap targets, thumb-reachable controls, a searchable target
+   picker. Reuses the --hoard/--help/--hurt action tokens so the human panel
+   reads in the same visual language as the feed. */
+.visually-hidden {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.waiting-indicator {
+    margin: 0.4rem 0; font-size: 0.9rem; color: var(--ink-soft); font-style: italic;
+}
+.play-panel {
+    margin: 0.75rem 0 1rem; padding: 1rem;
+    background: var(--surface-2); border: 2px solid var(--line-bold);
+    border-radius: var(--radius); box-shadow: var(--al-shadow, none);
+}
+.play-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 0.75rem; margin-bottom: 0.6rem;
+}
+.play-title { margin: 0; font-size: 1.15rem; }
+.play-sub { font-weight: 400; color: var(--ink-soft); }
+.play-clock {
+    font-variant-numeric: tabular-nums; font-weight: 800; font-size: 1.25rem;
+    color: var(--ink-soft); flex: none;
+}
+.play-clock-low { color: var(--hurt); }
+.play-status { margin: 0 0 0.6rem; font-size: 0.9rem; color: var(--help); font-weight: 600; }
+.play-left { margin: 0; color: var(--ink-soft); }
+.play-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.play-msg, .play-target-input {
+    width: 100%; padding: 0.7rem 0.8rem; font-size: 1rem;
+    border: 1.5px solid var(--line); border-radius: var(--radius);
+    background: var(--surface); color: var(--ink); box-sizing: border-box;
+}
+.action-choices {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;
+    border: 0; padding: 0; margin: 0;
+}
+.play-panel .action-card {
+    display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
+    padding: 0.8rem 0.4rem; min-height: 4.5rem; cursor: pointer;
+    border: 2px solid var(--line); border-radius: var(--radius);
+    background: var(--surface); text-align: center;
+}
+.play-panel .action-card .ac-name { font-weight: 800; font-size: 1.05rem; }
+.play-panel .action-card .ac-payoff { font-size: 0.82rem; color: var(--ink-soft); }
+.play-panel .action-card input { position: absolute; opacity: 0; pointer-events: none; }
+.play-panel .action-card-hoard { border-color: color-mix(in srgb, var(--hoard) 35%, var(--line)); }
+.play-panel .action-card-help  { border-color: color-mix(in srgb, var(--help) 35%, var(--line)); }
+.play-panel .action-card-hurt  { border-color: color-mix(in srgb, var(--hurt) 35%, var(--line)); }
+.play-panel .action-card:has(input:checked) {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+    border-color: var(--accent);
+}
+.play-panel .action-card-hoard:has(input:checked) { background: color-mix(in srgb, var(--hoard) 12%, var(--surface)); }
+.play-panel .action-card-help:has(input:checked)  { background: color-mix(in srgb, var(--help) 12%, var(--surface)); }
+.play-panel .action-card-hurt:has(input:checked)  { background: color-mix(in srgb, var(--hurt) 12%, var(--surface)); }
+.play-target { display: flex; flex-direction: column; gap: 0.3rem; }
+.play-target-label { font-weight: 700; font-size: 0.9rem; }
+.play-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.play-btn {
+    flex: 1 1 auto; min-height: 3rem; padding: 0.7rem 1rem; font-size: 1rem;
+    font-weight: 700; border-radius: var(--radius); cursor: pointer; border: 2px solid var(--line-bold);
+}
+.play-btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.play-btn-ghost { background: transparent; color: var(--ink); }
+.play-error { margin: 0.6rem 0 0; color: var(--hurt); font-weight: 600; }
+
+@media (min-width: 640px) {
+    .play-actions { justify-content: flex-end; }
+    .play-btn { flex: 0 0 auto; }
+}

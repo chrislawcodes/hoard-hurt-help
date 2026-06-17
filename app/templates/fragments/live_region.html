@@ -2,6 +2,18 @@
     {% include "fragments/game_status.html" %}
 </div>
 
+{# Everyone sees a neutral pace indicator while a phase waits on players, so a
+   slow (human) turn reads as alive, not frozen. #}
+{% if waiting_on is not none and waiting_on > 0 %}
+<p class="waiting-indicator" aria-live="polite">Waiting on {{ waiting_on }}
+   player{{ "s" if waiting_on != 1 else "" }}…</p>
+{% endif %}
+
+{# The human play panel renders only for the seated human on their open turn. #}
+{% if viewer_is_human %}
+    {% include "fragments/play_panel.html" %}
+{% endif %}
+
 {# Fresh replay data, refreshed on every SSE swap. The robot-circle animation
    above is rendered once at page load and lives outside this live region, so its
    own #rc-data never updates. The page script reads this blob after each swap and

@@ -6,12 +6,15 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
+from app.agent_prompt import MESSAGE_MAX_LENGTH
+from app.aware_datetime import ensure_aware
 from app.deps import DbSession, get_current_user, require_user
 from app.games import get as get_game_module
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
-from app.models.match import Match
+from app.models.match import GameState, Match
 from app.models.player import Player
+from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
 from app.read_models.matches import load_match_timeline, load_players
 from app.read_models.agent_display import agent_display_name
@@ -56,6 +59,9 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     bot_flags: dict[str, bool] = {
         seat_name: agent.kind == AgentKind.BOT for seat_name, agent, _handle in owner_rows
     }
+    kind_by_seat: dict[str, AgentKind] = {
+        seat_name: agent.kind for seat_name, agent, _handle in owner_rows
+    }
 
     scoreboard: list[dict[str, Any]] = sorted(
         (
@@ -77,6 +83,23 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     viewer_player = next((p for p in players if user and p.user_id == user.id), None)
     public_state = await module.public_state_for(db, g, viewer_player)
     viewer_seat = viewer_player.seat_name if viewer_player else None
+    play_ctx = await _build_human_play_context(
+        db, g, players, viewer_player, kind_by_seat
+    )
+    # Join/leave CTA flags. A signed-in user with no seat can join a not-yet-
+    # started match; a seated human can leave (pre-start frees the seat, in-match
+    # flips it to autopilot).
+    viewer_seat_human = (
+        viewer_player is not None
+        and kind_by_seat.get(viewer_player.seat_name) == AgentKind.HUMAN
+    )
+    can_join_human = (
+        user is not None
+        and viewer_player is None
+        and g.state in (GameState.SCHEDULED, GameState.REGISTERING)
+    )
+    play_ctx["viewer_seat_human"] = viewer_seat_human
+    play_ctx["can_join_human"] = can_join_human
 
     # The game module owns its replay "story" — the enriched per-turn history and
     # any replay JSON its viewer fragment renders. The platform route stays
@@ -138,6 +161,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         # agnostic (no game-type fork in the template).
         "show_replay_stage": False,
     }
+    ctx.update(play_ctx)
     # Merge the module's display payload (rc_data and any other replay fields).
     # `history` is read above to build the generic round grouping; the rest of the
     # game-specific payload (e.g. rc_data) flows straight into the context.
@@ -145,6 +169,113 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         if key != "history":
             ctx[key] = value
     return ctx
+
+
+async def _build_human_play_context(
+    db: DbSession,
+    match: Match,
+    players: list[Player],
+    viewer_player: Player | None,
+    kind_by_seat: dict[str, AgentKind],
+) -> dict[str, Any]:
+    """Per-viewer play-panel state + the everyone-visible 'waiting on N' count.
+
+    Returns a flat dict merged into the viewer context. When there is no open
+    turn (or the match isn't active) the panel-specific keys stay falsy so the
+    template renders nothing extra.
+    """
+    base: dict[str, Any] = {
+        "viewer_is_human": False,
+        "viewer_on_autopilot": False,
+        "can_play": False,
+        "play_phase": None,
+        "play_deadline_at": None,
+        "play_submitted": False,
+        "play_action": None,
+        "play_target": None,
+        "play_targets": [],
+        "waiting_on": None,
+        "message_max": MESSAGE_MAX_LENGTH,
+    }
+    if match.state != GameState.ACTIVE:
+        return base
+
+    turn = (
+        (
+            await db.execute(
+                select(Turn)
+                .where(Turn.match_id == match.id, Turn.resolved_at.is_(None))
+                .order_by(Turn.id.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if turn is None:
+        return base
+
+    phase = turn.phase
+    active = [p for p in players if p.left_at is None]
+    if phase == "talk":
+        acted_ids = set(
+            (
+                await db.execute(
+                    select(TurnMessage.player_id).where(
+                        TurnMessage.turn_id == turn.id,
+                        TurnMessage.was_defaulted.is_(False),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    else:
+        acted_ids = set(
+            (
+                await db.execute(
+                    select(TurnSubmission.player_id).where(
+                        TurnSubmission.turn_id == turn.id,
+                        TurnSubmission.was_defaulted.is_(False),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    base["play_phase"] = phase
+    base["play_deadline_at"] = ensure_aware(turn.deadline_at).isoformat()
+    base["waiting_on"] = sum(1 for p in active if p.id not in acted_ids)
+
+    if (
+        viewer_player is not None
+        and kind_by_seat.get(viewer_player.seat_name) == AgentKind.HUMAN
+    ):
+        base["viewer_is_human"] = True
+        base["viewer_on_autopilot"] = viewer_player.autopilot_at is not None
+        submitted = viewer_player.id in acted_ids
+        base["play_submitted"] = submitted
+        base["can_play"] = viewer_player.autopilot_at is None
+        base["play_targets"] = [
+            p.seat_name for p in active if p.id != viewer_player.id
+        ]
+        if phase == "act" and submitted:
+            sub = (
+                await db.execute(
+                    select(TurnSubmission).where(
+                        TurnSubmission.turn_id == turn.id,
+                        TurnSubmission.player_id == viewer_player.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if sub is not None:
+                base["play_action"] = sub.action
+                if sub.target_player_id is not None:
+                    target = next(
+                        (p for p in players if p.id == sub.target_player_id), None
+                    )
+                    base["play_target"] = target.seat_name if target else None
+    return base
 
 
 async def _load_viewer_prompt_version(

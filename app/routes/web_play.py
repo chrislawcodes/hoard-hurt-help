@@ -18,9 +18,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Path, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
+
+from app.templating import templates
 
 from app.agent_prompt import MESSAGE_MAX_LENGTH
 from app.aware_datetime import ensure_aware
@@ -136,6 +138,15 @@ async def _load_open_turn(
     return game, turn
 
 
+async def _render_live(request: Request, db: DbSession, match: Match) -> HTMLResponse:
+    """Re-render the live region so HTMX swaps the panel into its new state."""
+    # Imported lazily to avoid an import cycle (web_viewer doesn't import web_play).
+    from app.routes.web_viewer import _game_view_context
+
+    ctx = await _game_view_context(request, db, match)
+    return templates.TemplateResponse(request, "fragments/live_region.html", ctx)
+
+
 async def _all_players(db: DbSession, match_id: str) -> list[Player]:
     return list(
         (
@@ -148,12 +159,13 @@ async def _all_players(db: DbSession, match_id: str) -> list[Player]:
 
 @router.post("/games/{game}/matches/{match_id}/play/talk")
 async def play_talk(
+    request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
     game: Annotated[str, Path()],
     match_id: Annotated[str, Path()],
     message: Annotated[str, Form()] = "",
-) -> dict[str, object]:
+) -> HTMLResponse:
     """Record (or replace) the human's talk message for the open turn.
 
     An empty message is a valid Pass. Re-posting before the phase resolves
@@ -185,18 +197,19 @@ async def play_talk(
         existing=existing,
     )
     await db.commit()
-    return {"ok": True, "phase": "talk", "resolves_at": turn.deadline_at.isoformat()}
+    return await _render_live(request, db, match)
 
 
 @router.post("/games/{game}/matches/{match_id}/play/act")
 async def play_act(
+    request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
     game: Annotated[str, Path()],
     match_id: Annotated[str, Path()],
     action: Annotated[str, Form()],
     target: Annotated[str | None, Form()] = None,
-) -> dict[str, object]:
+) -> HTMLResponse:
     """Record (or replace) the human's action for the open turn.
 
     ``action`` is HOARD/HELP/HURT; ``target`` is the chosen opponent's public
@@ -241,7 +254,7 @@ async def play_act(
     except GameError as exc:
         raise _play_error(exc.code, exc.message, status.HTTP_400_BAD_REQUEST) from exc
     await db.commit()
-    return {"ok": True, "phase": "act", "resolves_at": turn.deadline_at.isoformat()}
+    return await _render_live(request, db, match)
 
 
 # --- join / leave ----------------------------------------------------------
