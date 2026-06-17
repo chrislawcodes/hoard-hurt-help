@@ -57,6 +57,13 @@ so that my seat is immediately real (unlike an AI agent waiting on a connection)
 - AC: A human seat is active on join — it is never put in a "waiting for your
   client to connect" hold.
 
+### A7 — Know what I'm signing up for (P1)
+As a human, I want to see the time commitment before I join, so that I'm not
+surprised by a long match.
+- AC: The join screen states the match size and rough active time
+  (e.g. "~N turns · expect to be active ~M min").
+- AC: Notification permission is requested here, at join — never mid-turn.
+
 ---
 
 ## B. Play a turn
@@ -75,43 +82,61 @@ that I come back in time.
   permission).
 - AC: The tab title changes to flag my turn (e.g. "(Your turn!) …") as an
   always-on fallback.
-- AC: An optional sound can be enabled/muted; default state is documented in the
-  spec.
+- AC: An optional sound can be enabled/muted; it defaults **off**.
 - AC: Alerts fire on the talk phase opening and the act phase opening, and clear
-  once I submit or the turn resolves.
+  once I submit/Pass or the turn resolves.
 
-### B3 — Say something (talk phase) (P1)
-As a human, I want to post a short public message before I act, so that I can
-bluff, promise, or threaten like the agents do.
-- AC: The talk panel has a one-line message box and a Submit button.
-- AC: Submitting records my message for the current turn's talk phase.
+### B3 — Say something or Pass (talk phase) (P1)
+As a human, I want to post a short public message *or* skip it in one tap, so that
+talk is a choice, not a per-turn chore.
+- AC: The talk panel has a one-line message box, a Submit, and a one-tap **Pass**.
+- AC: Submitting records my message; Passing records no message; both count me as
+  done immediately so the phase can resolve early.
 - AC: Message length is capped (matching the cap agents use).
-- AC: I can submit an empty/decline-to-talk message.
+- AC: If I do nothing, an empty message is recorded at the deadline.
 
-### B4 — Make my move (act phase) (P1)
-As a human, I want to choose Hoard / Help / Hurt and a target, so that I take my
-action for the turn.
-- AC: Three clearly distinct action choices, distinguishable **without relying on
-  color alone** (label + icon/shape), matching the Hoard/Help/Hurt visual
-  language.
-- AC: Help and Hurt require choosing a target from the other players; Hoard takes
-  no target and hides the target picker.
+### B4 — Make my move with the stakes in front of me (P1)
+As a human, I want to choose Hoard / Help / Hurt with the payoffs shown and a
+safe default, so that I can act fast and never get punished for hesitating.
+- AC: **Hoard is pre-selected by default** when the act phase opens.
+- AC: Each action card shows its payoff in text (e.g. "Hoard +2 you", "Help +4
+  them", "Hurt −4 them") — distinguishable **without relying on color alone**.
+- AC: Help and Hurt require a target via a **type-ahead / search picker** (usable
+  even in large matches); Hoard takes no target and hides the picker.
 - AC: I cannot target myself.
-- AC: Submitting records my action for the current turn's act phase.
 
-### B5 — Beat the clock or fall back safely (P1)
-As a human, I want a predictable result if I run out of time, so that a missed
-turn isn't a mystery.
-- AC: If I don't submit the act phase by the deadline, the server records Hoard
-  with "I did not submit a turn," same as an agent.
-- AC: The feed shows my defaulted move clearly.
+### B5 — Coast or commit; the clock is never a trap (P1)
+As a human, I want a safe, predictable result whether I act or not, so that
+running low on time isn't a punishment.
+- AC: When the clock ends, the server records my **current selection** (Hoard if I
+  never touched it).
+- AC: If I'd changed the selection (e.g. Help → Bob) but didn't click Submit, that
+  selection is recorded — not a fallback.
+- AC: A coasted Hoard appears in the feed as a normal Hoard, with no scolding
+  "you missed a turn" copy.
 
 ### B6 — Change my mind before the phase closes (P1)
 As a human, I want to re-pick before the phase resolves, so that a fat-finger
 isn't permanent.
-- AC: Re-submitting in the same open phase replaces my pending choice.
+- AC: Re-selecting in the same open phase replaces my pending choice; the clock
+  submits my latest selection.
 - AC: Once the phase resolves, my choice is locked and re-submit is refused with
-  a clear message.
+  a clear "that turn already resolved" message.
+
+### B9 — See that the game is alive while I (or others) think (P1)
+As a human or spectator, I want to see when a phase is waiting on players, so that
+a slow turn doesn't look frozen.
+- AC: During an open phase the viewer shows a neutral "waiting on N players…"
+  (no names, no choices).
+- AC: Submit/Pass shrinks N; the phase resolves when N reaches zero or the clock
+  ends.
+
+### B10 — Play on my phone (P1)
+As a human who watches on my phone, I want to play on my phone too, so that the
+"your turn" alert I get there is actionable.
+- AC: In a normal-size match, the three actions are large tap targets, the panel is
+  thumb-reachable, and the target picker works on a small screen.
+- AC: Huge (up to 100-player) matches need not be phone-tuned in v1.
 
 ### B7 — Play even with agents and bots in the match (P1)
 As a human, I want to play in a match that also has AI agents and scripted bots,
@@ -134,9 +159,11 @@ waste seconds.
 ### C1 — Confirm my submission (P1)
 As a human, I want clear confirmation when I've submitted, so that I trust it
 worked.
-- AC: After submit, the panel switches to "Locked in — waiting for the others"
-  and shows my choice read-only.
-- AC: The countdown keeps running (others may still be acting).
+- AC: After submit while the phase is still open, the panel shows "Submitted — you
+  can still change this until the clock ends" and shows my current choice.
+- AC: "Locked" wording is used only after the turn resolves.
+- AC: The countdown keeps running with "waiting on N players…" (others may still
+  be acting).
 
 ### C2 — See the turn resolve in the story (P1)
 As a human, I want my move to appear in the feed like everyone else's, so that I
@@ -181,24 +208,29 @@ the room.
 ### E1 — Leave before the match starts (P1)
 As a human, I want to drop my seat before kickoff, so that I'm not committed.
 - AC: A "Leave match" control is available pre-start.
-- AC: After leaving, my seat is freed and I'm no longer listed as a player.
+- AC: After leaving, my seat is removed from the match before it starts (or, if it
+  has started, see E2).
 
 ### E2 — Leave during the match (P1)
 As a human, I want to quit a match in progress, so that I'm not stuck playing.
-- AC: A "Leave match" control is available during the match.
-- AC: After leaving, the scheduler stops waiting on my seat; the match keeps
-  running.
-- AC: My already-played turns remain in the record.
+- AC: A "Leave match" control is available during the match, with clear copy that
+  my seat will Hoard for the rest of the match.
+- AC: After leaving, my seat **auto-Hoards every remaining turn**, submitted
+  immediately so it never makes the table wait on the clock.
+- AC: My seat stays in the standings with a "left" marker; my already-played turns
+  remain in the record.
 
 ---
 
 ## F. Spectator (must-not-regress)
 
 ### F1 — Watch unchanged (P1)
-As a spectator, I want the viewer to look and behave exactly as before, so that
-the watch experience doesn't regress.
+As a spectator, I want the viewer to stay clean and familiar, so that the watch
+experience doesn't regress.
 - AC: A spectator (not the seat owner) never sees a play panel.
-- AC: The feed, scoreboard, live updates, and replay timeline are unchanged.
+- AC: The feed, scoreboard, live updates, and replay timeline are unchanged,
+  except for two additive, calm elements visible to everyone: the "Play this
+  match" CTA and the "waiting on N players…" phase indicator.
 
 ### F2 — Strategy boundary holds (P1)
 As a spectator, I must never see private strategy. (Humans have none, but the
@@ -220,4 +252,3 @@ As an admin, I want to tell which seats are humans, so that I can reason about a
 match.
 - AC: Admin match views indicate which players are human. (P2 — public views stay
   uniform.)
-</content>

@@ -115,13 +115,25 @@ instead of the scheduler.**
      fix message; record nothing.
   5. `module.record_message(...)` / `module.record_submission(...)` with
      `is_connector_fallback=False`, `existing=<the player's row for this turn if
-     any>` (so re-submit replaces, matching agent/bot behavior).
+     any>` (so re-select replaces, matching agent/bot behavior).
   6. Commit, then return the **refreshed live-region fragment** so HTMX swaps the
-     panel into its "Locked in — waiting" state immediately.
+     panel into its "Submitted — you can still change this" state immediately.
 
 Because `record_submission` writes a `TurnSubmission` with `was_defaulted=False`,
 the scheduler's `_all_submitted()` counts it on its next 0.25s poll and resolves
 the turn once everyone has acted. **No scheduler change.**
+
+**Deadline behavior — auto-submit the current selection (FR-016).** The act panel
+always has a current selection, pre-set to **Hoard**. So:
+
+- *Untouched seat:* the human never POSTs. The scheduler's existing
+  `resolve_turn()` default materializes Hoard — exactly the desired result, free.
+- *Changed-but-not-submitted (near-miss):* to record the player's *selection*
+  rather than fall back to Hoard, the panel **auto-POSTs the current selection a
+  beat before the deadline**, client-side (the same ~2s buffer the countdown
+  uses). If the browser is gone, the server default still applies. This needs no
+  server change — the auto-POST hits the same `play/act` route as an explicit
+  Submit. Explicit Submit just does it sooner and resolves the phase early.
 
 **Optional reuse cleanup:** the validate → translate-target → record sequence is
 now shared by the bot service and the human route. Factor it into one helper
@@ -140,16 +152,28 @@ viewer:
 - `_game_view_context()` (`app/routes/web_viewer.py`) already computes
   `viewer_player` (the signed-in user's player in this match). Extend the live
   fragment context with: is this viewer a seated human, is there an open turn,
-  which phase, the `deadline_at`, and whether this player has already submitted a
-  non-defaulted row for the current phase.
+  which phase, the `deadline_at`, whether this player has already submitted a
+  non-defaulted row for the current phase, and the **count of active players still
+  outstanding** this phase (for the "waiting on N" indicator).
 - The PD live fragment (`fragments/pd_live_region.html`) gains a `play_panel`
   partial that renders **only** when `viewer_player` is human + it's their open
-  turn + they haven't submitted. Spectators and non-seated viewers get nothing —
-  the spectator view is byte-for-byte unchanged.
+  turn. Spectators and non-seated viewers get nothing — the only additive,
+  everyone-visible elements are the "waiting on N players…" line and the CTA.
+- **Act panel:** Hoard / Help / Hurt cards, **Hoard pre-selected**, each card
+  showing its payoff text. Help/Hurt reveal a **type-ahead target picker** (search,
+  not a 100-row scroll); Hoard hides it.
+- **Talk panel:** a one-line message box, a **Pass** button, and Submit.
 - **Countdown:** render `deadline_at` and count down client-side, reusing the
-  existing localtime/JS pattern in `base.html`. No server ticking.
-- **Submit:** the panel posts to the `play/talk` or `play/act` route via HTMX and
-  swaps the returned fragment — same swap mechanic the viewer already uses.
+  existing localtime/JS pattern in `base.html`. It **trusts the server** — shows a
+  ~2s safety buffer, stops accepting input just before zero, and treats the route's
+  response as truth (a late race → "that turn already resolved"). No server
+  ticking.
+- **Waiting indicator:** the fragment renders "waiting on N players…" from the
+  outstanding count; it refreshes naturally on each SSE-driven `…/live` swap.
+- **Submit / Pass / auto-submit:** all post to the `play/talk` or `play/act` route
+  via HTMX and swap the returned fragment — same mechanic the viewer already uses.
+- **Phone-first:** the panel is laid out for a phone in normal-size matches — large
+  tap targets for the three actions, thumb-reachable controls, a searchable picker.
 
 ### Out-of-page alerts
 
@@ -165,8 +189,9 @@ viewer:
 ### Action distinctness (accessibility)
 
 Reuse the `--hoard` / `--help` / `--hurt` tokens and `.action-card.*` classes, but
-each choice carries a **label + shape/icon**, so Hoard/Help/Hurt are
-distinguishable without color (a hard rule from the UX skill).
+each choice carries a **label + payoff number** (e.g. "Help +4 them"), so
+Hoard/Help/Hurt are distinguishable without color (a hard rule from the UX skill)
+and a first-timer learns the stakes in place — our entire first-turn onboarding.
 
 ---
 
@@ -183,9 +208,20 @@ distinguishable without color (a hard rule from the UX skill).
   capacity gates (humans are excluded, per §2.1).
 - **My matches:** `/me/matches` already lists a user's players and shows seat
   names — human seats appear automatically once the `Player` rows exist.
-- **Leave:** reuse the existing leave path (sets `Player.left_at`). The scheduler
-  already treats `left_at IS NOT NULL` as inactive, so it stops waiting on the
-  seat with no extra work.
+- **Leave — two cases:**
+  - *Before the match starts:* free the seat (reuse the existing pre-start leave /
+    seat-removal path). No turns were played; the player simply isn't in the match.
+  - *During the match:* leaving does **not** remove the seat — it flips it to
+    **auto-Hoard for the rest of the match**, kept in the standings (FR-031). This
+    is a new nullable column on `Player` (e.g. `autopilot_at`). The scheduler's
+    existing per-phase **bot auto-submit pass** (`auto_submit_bot_phase`) is
+    extended to also cover human seats with `autopilot_at` set: it records Hoard
+    (act) and an empty message (talk) for them **immediately**, via the shared
+    `apply_player_move` helper. Because the row is written before `_wait_for_turn`,
+    the table is never made to wait on a departed human — yet the seat stays active
+    and keeps scoring (+2/turn) to the end. We deliberately do **not** use
+    `left_at` here (that means inactive/removed); auto-Hoard is "still playing,
+    just on autopilot."
 
 ---
 
@@ -205,34 +241,44 @@ distinguishable without color (a hard rule from the UX skill).
 
 | Area | File(s) | Change |
 |---|---|---|
-| Model | `app/models/agent.py`, new migration in `migrations/versions/` | Add `kind="human"`; relax `provider` CHECK to allow NULL for `bot`+`human`. |
+| Model | `app/models/agent.py`, `app/models/player.py`, new migration in `migrations/versions/` | Add `kind="human"`; relax `provider` CHECK to allow NULL for `bot`+`human`; add nullable `Player.autopilot_at` (leave → auto-Hoard). |
 | Human identity helper | `app/engine/` (small new module, e.g. `human_player.py`) | Find-or-create the `(user, game)` human agent + frozen human version. |
 | `kind`-aware excludes | `app/engine/turn_routing.py`, `connection_health.py`, agent setup pages | Treat `human` like `bot` (excluded from routing/coverage/capacity). |
 | Move-in adapter | `app/routes/web_player.py` or new `web_play.py` (+ `web.py` aggregator) | `POST …/play/talk`, `POST …/play/act` → module verbs. |
-| Shared move helper (optional) | `app/engine/bots/service.py` + the new route | Factor `apply_player_move` used by both. |
-| Join (human branch) | `app/routes/web_player.py` | No-setup human join; active seat. |
-| Viewer context | `app/routes/web_viewer.py` | Add open-turn + viewer-submitted info to live fragment context. |
-| Templates | `app/templates/fragments/pd_live_region.html` (+ a `play_panel` partial), `app/templates/game.html`, lobby/viewer "Play" CTA | Render panel + countdown + alert JS + CTA. |
-| Styles | `app/static/style.css` | Play-panel + action-choice styles, reusing existing tokens. |
-| Tests | `tests/` | Engine: a human submission resolves a turn; missed human defaults to Hoard; left human isn't waited on. Web: play routes auth + phase/deadline guards. |
+| Shared move helper | `app/engine/bots/service.py` + the new route | Factor `apply_player_move` used by the bot pass **and** the human route. |
+| Auto-Hoard for leavers | `app/engine/bots/service.py` (`auto_submit_bot_phase`) | Also auto-submit Hoard/empty for human seats with `autopilot_at` set, immediately. |
+| Join + leave (human branch) | `app/routes/web_player.py` | No-setup human join (active seat); pre-start leave frees seat, in-match leave sets `autopilot_at`. |
+| Viewer context | `app/routes/web_viewer.py` | Add open-turn + viewer-submitted + outstanding-count info to the live fragment context. |
+| Templates | `app/templates/fragments/pd_live_region.html` (+ `play_panel` partial), `app/templates/game.html`, lobby/viewer "Play" CTA | Panel (default-Hoard, payoff cards, type-ahead picker, Pass), countdown, "waiting on N", alert JS, CTA. |
+| Styles | `app/static/style.css` | Play-panel + action-choice styles (phone-first), reusing existing tokens. |
+| Tests | `tests/` | Engine: a human submission resolves a turn; an untouched human defaults to Hoard; a leaver auto-Hoards immediately and isn't waited on. Web: play routes auth + phase/deadline guards; near-miss auto-submit records the selection. |
 
-**No change** to: `scheduler*.py`, `resolver`/`scoring`, the SSE transport
-(`sse.py` / `broadcast.py`), the scoreboard/feed read models, or the agent HTTP /
-MCP play path.
+**No change** to: `scheduler_turn_loop.py` (the loop itself), `resolver`/`scoring`,
+the SSE transport (`sse.py` / `broadcast.py`), the scoreboard/feed read models, or
+the agent HTTP / MCP play path. (The only engine touch is extending the existing
+bot auto-submit pass to cover leavers.)
 
 ---
 
 ## 7. Invariants we must not break
 
-- **Spectator view is unchanged.** The panel renders only for the seated viewer
-  on their open turn. Everything else about `…/live` is identical.
-- **No private intent leaks.** A human's "thinking" (if any) follows the same
-  rule as agents' — never shown to spectators.
-- **The clock is the clock.** No pausing/extending for humans; missed → Hoard.
-  This is what lets the scheduler stay untouched.
+- **Spectator view stays clean.** The play panel renders only for the seated
+  viewer on their open turn. The only additive, everyone-visible elements are the
+  "Play this match" CTA and the neutral "waiting on N players…" line (no names, no
+  choices — safe for a simultaneous game).
+- **No private intent leaks.** A human's "thinking" is empty in v1 and, like
+  agents', is never shown to spectators.
+- **The clock is the clock.** No pausing/extending. The safe Hoard default removes
+  the *penalty* of the clock without changing it, which is what lets the loop stay
+  untouched.
+- **Safe default + auto-submit selection.** Hoard is pre-selected; the clock
+  records the current selection (Hoard if untouched). A near-miss never silently
+  becomes Hoard.
 - **Humans never enter provider/connection math.** A `kind=human` agent must be
   excluded from routing eligibility, connection health, and seat-capacity counts,
   the same way bots are — or it could distort agent seat limits.
-- **Re-submit replaces, resolved locks.** Matches agent/bot semantics so behavior
+- **Re-select replaces, resolved locks.** Matches agent/bot semantics so behavior
   is uniform across player kinds.
-</content>
+- **A leaver keeps playing on autopilot.** In-match leave sets `autopilot_at`, not
+  `left_at`: the seat stays ranked and auto-Hoards (submitted immediately, never
+  waited on) to the end.

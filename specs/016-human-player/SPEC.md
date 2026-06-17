@@ -9,18 +9,25 @@ hand, alongside AI agents and scripted bots.
 **Delivery path:** full Feature Factory (this touches the data model + a
 migration, so it is **not** a small change per `CLAUDE.md`).
 
+> **Design decisions resolved 2026-06-16** (adversarial UX review): safe Hoard
+> default + auto-submit current selection (no auto-pilot toggle); inline payoff
+> hints + lean on the safe default for the first turn; phone-first play; free-text
+> talk + one-tap Pass; "waiting on N players…" + early resolve; leave = seat
+> auto-Hoards to the end; notification permission requested at join.
+
 ---
 
 ## Scope
 
 **In:** join as a human with no setup; play both turn phases (talk + act) by hand
-in the viewer under the existing per-turn deadline with a visible countdown;
-in-page + out-of-page "your turn" feedback; submission/resolution feedback; mixed
-human + agent + bot matches; leave a match.
+in the viewer under the existing per-turn deadline with a visible countdown that
+defaults to a safe Hoard; in-page + out-of-page "your turn" feedback;
+submission/resolution feedback; mixed human + agent + bot matches; phone-first
+play for normal matches; leave (seat auto-Hoards to the end).
 
-**Out (v1):** human-hosted or human-vs-human-only matches / matchmaking;
-pausing or extending the clock for humans; mobile-tuned play layout; strategy-text
-editing for humans; admin tooling beyond what already exists.
+**Out (v1):** human-hosted or human-vs-human-only matches / matchmaking; pausing
+or extending the clock; phone parity for huge (up to 100-player) matches;
+strategy-text editing for humans; admin tooling beyond what already exists.
 
 ---
 
@@ -44,80 +51,102 @@ editing for humans; admin tooling beyond what already exists.
 - **FR-006** Joining as a human requires **only** a display name (pre-filled from
   the user's handle) and a confirm. No agent creation, no connection, no API key,
   no strategy prompt.
-- **FR-007** A signed-out user who chooses to play is routed through Google
+- **FR-007** The join screen shows the **time commitment** before the user
+  commits (e.g. "~N turns · expect to be active ~M min").
+- **FR-008** A signed-out user who chooses to play is routed through Google
   sign-in and returned to the join action.
-- **FR-008** The human's `seat_name` is unique within the match, using the same
+- **FR-009** The human's `seat_name` is unique within the match, using the same
   uniquifier the existing seating uses; on a name collision the server suggests a
   tweaked name rather than erroring.
-- **FR-009** A human seat is **active immediately** on join — never placed in the
+- **FR-010** A human seat is **active immediately** on join — never placed in the
   "waiting for your client to connect" hold (`seat_reserved_until` stays NULL).
-- **FR-010** Join is refused with a clear message when the match is full or not in
+- **FR-011** Join is refused with a clear message when the match is full or not in
   a joinable state; if the user is already seated, they are sent to the viewer.
 
 ### Playing a turn
 
-- **FR-011** When a seated human's turn opens, a **play panel** renders in the
+- **FR-012** When a seated human's turn opens, a **play panel** renders in the
   viewer's live region for that user only. Spectators and non-seated viewers never
   see it.
-- **FR-012** The play panel shows a **countdown** of the seconds remaining in the
-  current phase, derived from the turn's `deadline_at`.
-- **FR-013** In the **talk** phase the panel offers a single-line public message
-  box (capped at the same length agents use) and a Submit; an empty message is
-  allowed.
-- **FR-014** In the **act** phase the panel offers **Hoard / Help / Hurt**,
-  distinguishable **without color alone** (label + shape/icon). Help and Hurt
-  require a target chosen from the other players; Hoard takes no target and hides
-  the target picker. Self-targeting is rejected.
-- **FR-015** A human's submission is recorded through the **same `GameModule`
+- **FR-013** The play panel shows a **countdown** of the seconds remaining in the
+  current phase, derived from the turn's `deadline_at`. The countdown trusts the
+  **server**: it displays a small safety buffer, stops accepting input a beat
+  before zero, and treats the server's response as the source of truth.
+- **FR-014** In the **act** phase, the panel offers **Hoard / Help / Hurt** with
+  **Hoard pre-selected by default**, each card showing its payoff in text
+  (e.g. "Hoard +2 you", "Help +4 them", "Hurt −4 them") so the actions are
+  distinguishable **without relying on color alone**.
+- **FR-015** Help and Hurt require a target chosen from the other players via a
+  **type-ahead / search picker** (not a long scroll list); Hoard takes no target
+  and hides the picker. Self-targeting is rejected.
+- **FR-016** When the act-phase clock ends, the server records the player's
+  **current selection** (Hoard if untouched). A near-miss (selection changed but
+  not explicitly submitted) records the selection, not a fallback. An explicit
+  Submit confirms and lets the phase resolve early.
+- **FR-017** In the **talk** phase, the panel offers a single-line public message
+  box (capped at the same length agents use) **and a one-tap Pass** (send
+  nothing). Submitting or Passing counts the player as done immediately. If the
+  clock ends untouched, an empty message is recorded.
+- **FR-018** A human's submission is recorded through the **same `GameModule`
   verbs** agents and bots use (`validate_move`, `record_message`,
-  `record_submission`), writing normal `TurnMessage` / `TurnSubmission` rows with
-  `was_defaulted=False`.
-- **FR-016** Submitting causes the scheduler to count the human like any active
-  player; the turn resolves early once all active players have acted, with **no
-  scheduler change**.
-- **FR-017** If a human does not submit the act phase by the deadline, the server
-  records `HOARD` with `was_defaulted=True` and the "I did not submit a turn"
-  message — identical to the agent rule.
-- **FR-018** Re-submitting within an open phase replaces the player's pending
-  choice. Submitting after the phase resolves is refused with a friendly "that
-  turn already resolved" message; nothing is recorded.
-- **FR-019** An illegal move (e.g. Help with no target) is rejected with an inline
+  `record_submission`), writing normal `TurnMessage` / `TurnSubmission` rows.
+- **FR-019** The scheduler counts a human like any active player; a phase resolves
+  early once all active players (any kind) have acted, otherwise at the deadline —
+  with **no scheduler change**.
+- **FR-020** During an open phase, the viewer shows a neutral **"waiting on N
+  players…"** indicator (no names, no choices) so a pause reads as alive, not
+  frozen. Submit/Pass shrinks N and can resolve the phase.
+- **FR-021** Re-selecting within an open phase replaces the player's pending
+  choice (the clock submits the latest). Submitting after the phase resolves is
+  refused with a friendly "that turn already resolved"; nothing is recorded.
+- **FR-022** An illegal move (e.g. Help with no target) is rejected with an inline
   fix message and nothing is recorded.
-- **FR-020** A match may contain humans, AI agents, and bots simultaneously; a
-  phase resolves only when all active players (any kind) have acted or the clock
-  expires.
+- **FR-023** A match may contain humans, AI agents, and bots simultaneously.
 
 ### Feedback
 
-- **FR-021** After a successful submit, the panel switches to a read-only
-  "Locked in — waiting for the others" state showing the player's choice; the
-  countdown keeps running.
-- **FR-022** On turn resolution, the human's action, message, points delta, and
+- **FR-024** After a submit while the phase is still open, the panel shows
+  **"Submitted — you can still change this until the clock ends."** "Locked" copy
+  is used only after the turn resolves.
+- **FR-025** On turn resolution, the human's action, message, points delta, and
   round outcome appear in the **same feed rendering** used for all players, and the
-  scoreboard updates.
-- **FR-023** **Out-of-page alert:** when the seated viewer's turn opens, fire a
-  browser Notification (when permission is granted), flash the tab title (always-on
-  fallback), and play an optional sound. Alerts fire for both phase openings and
-  clear on submit or resolution.
+  scoreboard updates. A coasted (defaulted-Hoard) turn shows as a normal Hoard,
+  not a scolding "you missed."
+- **FR-026** **Out-of-page alert:** when the seated viewer's turn opens, fire a
+  browser Notification (when permission is granted), flash the tab title
+  (always-on fallback), and play an optional sound (**default off**). Alerts fire
+  for both phase openings and clear on submit/Pass or resolution.
+- **FR-027** Notification permission is requested **at join time**, never during a
+  turn (so the prompt never steals the clock).
 
 ### View, manage, leave
 
-- **FR-024** Matches a user joined as a human appear in `/me/matches` with the
-  human seat name and link to the viewer.
-- **FR-025** Signing in with the seat-owning account on any device shows the play
+- **FR-028** Matches a user joined as a human appear in `/me/matches` with the
+  human seat name and a link to the viewer.
+- **FR-029** Signing in with the seat-owning account on any device shows the play
   panel on that player's turn; a different account never sees it.
-- **FR-026** Between turns the human sees the unchanged spectator viewer.
-- **FR-027** A human can leave a match before or during play; leaving sets
-  `Player.left_at`, after which the scheduler stops waiting on the seat (reusing
-  the existing leave path). Already-played turns remain in the record.
+- **FR-030** Between turns the human sees the unchanged spectator viewer.
+- **FR-031** A human can leave a match before or during play. **Leaving converts
+  the seat to auto-Hoard for the rest of the match** — its Hoard is submitted
+  immediately each turn so it never makes the table wait — and the seat stays in
+  the standings with a "left" marker. Already-played turns remain in the record.
+
+### Mobile
+
+- **FR-032** Play is **phone-first for normal-size matches**: large tap targets
+  for the three actions, a thumb-reachable panel, and the type-ahead target picker
+  usable on a small screen. Huge (up to 100-player) matches on phone are out of
+  v1 scope (FR-015 picker still works, just not tuned for that extreme).
 
 ### Boundaries / non-regression
 
-- **FR-028** The spectator viewer (feed, scoreboard, live SSE updates, replay
+- **FR-033** The spectator viewer (feed, scoreboard, live SSE updates, replay
   timeline) is unchanged for anyone who is not the seated viewer on their open
-  turn.
-- **FR-029** No private per-player intent ("thinking") is exposed to spectators.
-- **FR-030** v1 makes any standard scheduled match human-joinable with **no new
+  turn — except the additive "waiting on N players…" indicator (FR-020) and the
+  "Play this match" CTA (FR-005), which are visible to all.
+- **FR-034** No private per-player intent ("thinking") is exposed to spectators.
+  Humans send an empty `thinking` field (no notes box in v1).
+- **FR-035** v1 makes any standard scheduled match human-joinable with **no new
   admin flag**. *(Deferred option: a per-match "humans allowed" toggle — an
   additive `Match` column + a create-form checkbox — if later desired.)*
 
@@ -126,26 +155,34 @@ editing for humans; admin tooling beyond what already exists.
 ## Acceptance scenarios
 
 1. **Join with no setup.** A signed-in user with no agents clicks "Play this
-   match" on a scheduled match, accepts the pre-filled name, confirms, and lands
-   on the viewer seated — never seeing the agent-create or connect flows.
-   *(FR-005, FR-006, FR-009)*
-2. **Play a full turn.** When the user's turn opens, the panel appears with a
-   countdown; they type a message and submit (talk), then pick Help → a target and
-   submit (act); both appear in the feed when the turn resolves with the right
-   points. *(FR-011–FR-016, FR-022)*
-3. **Beat the clock / miss it.** A user who submits sees "Locked in"; a user who
-   ignores the panel has `HOARD` + "I did not submit a turn" recorded after the
-   deadline. *(FR-017, FR-021)*
-4. **Off-page nudge.** With the tab in the background, the user gets a
-   notification + a tab-title change when their turn opens, and it clears when they
-   submit. *(FR-023)*
-5. **Mixed match.** A match with one human, two agents, and three bots plays to
-   completion; the human's turns resolve in line with the others. *(FR-020)*
-6. **Spectator unaffected.** A second signed-in user watching the same match never
-   sees a play panel and the viewer is byte-for-byte the prior experience.
-   *(FR-011, FR-028)*
-7. **Leave.** The human leaves mid-match; the next turn resolves without waiting on
-   their seat, and the match finishes. *(FR-027)*
+   match," sees the time-commitment line, accepts the pre-filled name, confirms,
+   and lands on the viewer seated — never seeing the agent-create or connect flows.
+   *(FR-005–FR-010)*
+2. **Coast safely.** A user ignores the panel for a turn; at the deadline the
+   server records Hoard and the feed shows a normal Hoard, no penalty copy.
+   *(FR-014, FR-016, FR-025)*
+3. **Play a full turn.** When their turn opens, the panel shows Hoard selected
+   with payoffs; they type a message and submit (talk), then pick Help → search a
+   target → submit (act); both appear in the feed with correct points.
+   *(FR-012–FR-018, FR-025)*
+4. **Near-miss respects intent.** A user changes the selection to Help → Bob but
+   doesn't click Submit; at the deadline Help → Bob is recorded, not Hoard.
+   *(FR-016)*
+5. **Pace stays legible.** While a human deliberates, other viewers see "waiting
+   on 1 player…"; the user Passes talk and the phase advances. *(FR-017, FR-020)*
+6. **Off-page nudge.** With the tab backgrounded, the user gets a notification +
+   tab-title change when their turn opens (permission was granted at join), and it
+   clears when they submit. *(FR-026, FR-027)*
+7. **Phone play.** On a phone, the user can read the panel, tap an action, search
+   a target, and submit within the clock in a normal-size match. *(FR-032)*
+8. **Mixed match.** A match with one human, two agents, and three bots plays to
+   completion. *(FR-023)*
+9. **Spectator unaffected.** A second signed-in user watching never sees a play
+   panel; the only additions they see are the CTA and the "waiting on N" line.
+   *(FR-012, FR-033)*
+10. **Leave.** The human leaves mid-match; their seat auto-Hoards every remaining
+    turn without delaying resolution and shows a "left" marker in standings.
+    *(FR-031)*
 
 ---
 
@@ -153,7 +190,7 @@ editing for humans; admin tooling beyond what already exists.
 
 - Server-rendered HTML + HTMX; live updates via SSE-swapped fragments; **no new
   client transport**. The play panel rides the existing `…/live` swap.
-- Must work on a phone (functional, not yet tuned).
+- Phone-first for normal matches (FR-032).
 - All move recording goes through the `GameModule` contract — **no PD-specific
   logic** added to the platform play path.
 - Engine (`scheduler*`, `resolver`/`scoring`), SSE transport, and the agent
@@ -163,13 +200,8 @@ editing for humans; admin tooling beyond what already exists.
 
 ---
 
-## Open questions
+## Baked-in defaults (resolved)
 
-1. **Optional thinking field for humans?** Agents submit a private "thinking"
-   string. v1 default: humans send empty `thinking`. Confirm we don't want a
-   private notes box.
-2. **Sound default.** Default the optional turn sound **off** (opt-in) to avoid
-   surprising spectators-turned-players? Recommended: off by default.
-3. **Per-match "humans allowed" toggle.** v1 says all scheduled matches are
-   joinable (FR-030). Confirm we don't need the toggle yet.
-</content>
+- Humans send an empty private `thinking` field — no notes box in v1 (FR-034).
+- The optional turn sound defaults **off** (FR-026).
+- Every scheduled match is human-joinable; no per-match toggle (FR-035).
