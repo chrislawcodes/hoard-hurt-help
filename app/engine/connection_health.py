@@ -472,6 +472,57 @@ async def provider_loop_running(
     return False
 
 
+class ProviderReadiness(str, enum.Enum):
+    """How ready a provider is to actually play, as a single ladder rung.
+
+    Ordered worst→best in intent: ``NO_MCP_CONNECTION`` < ``CONNECTED_NOT_LIVE``
+    < ``SEEN_NOT_POLLING`` < ``LIVE``. ``provider_readiness`` resolves the rung.
+    """
+
+    NO_MCP_CONNECTION = "no_mcp_connection"
+    CONNECTED_NOT_LIVE = "connected_not_live"
+    SEEN_NOT_POLLING = "seen_not_polling"
+    LIVE = "live"
+
+
+async def provider_readiness(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> ProviderReadiness:
+    """Resolve a single readiness rung for *provider* as a top-down cascade.
+
+    First match wins, evaluating highest readiness first:
+
+    - ``provider_loop_running`` → ``LIVE`` (an AI is polling get_next_turn now)
+    - ``provider_has_live_current_setup`` → ``SEEN_NOT_POLLING`` (connected and
+      seen recently, but no play loop running)
+    - ``provider_has_current_setup`` → ``CONNECTED_NOT_LIVE`` (set up, but not
+      seen live right now)
+    - otherwise → ``NO_MCP_CONNECTION`` (no usable setup at all)
+
+    The cascade order is load-bearing for **non-MCP providers** (hermes/openclaw),
+    whose predicates fall back to liveness-free / ``last_seen_at``-based checks. A
+    non-MCP connection with a fresh ``last_polled_at`` but a stale ``last_seen_at``
+    is genuinely ``LIVE`` even though ``provider_has_live_current_setup`` (→
+    ``provider_is_covered``, which keys on ``last_seen_at``) is False. Checking
+    ``provider_loop_running`` first makes that case resolve correctly. Evaluating
+    the predicates in any other order could let a lower rung win over ``LIVE``.
+
+    A PAUSED-only connection naturally lands in ``CONNECTED_NOT_LIVE``: there is no
+    PAUSED special-case here. ``provider_has_current_setup`` ignores PAUSED while
+    ``provider_has_live_current_setup`` and ``provider_loop_running`` exclude it,
+    so the cascade falls through to the third rung on its own.
+
+    Adds no new SQL — this is a thin cascade over the three existing predicates.
+    """
+    if await provider_loop_running(db, user_id, provider):
+        return ProviderReadiness.LIVE
+    if await provider_has_live_current_setup(db, user_id, provider):
+        return ProviderReadiness.SEEN_NOT_POLLING
+    if await provider_has_current_setup(db, user_id, provider):
+        return ProviderReadiness.CONNECTED_NOT_LIVE
+    return ProviderReadiness.NO_MCP_CONNECTION
+
+
 async def enabled_provider_values(db: AsyncSession, user_id: int) -> set[str]:
     """Provider values enabled on at least one of the user's live-or-not
     connections — the providers an agent can be created for.
