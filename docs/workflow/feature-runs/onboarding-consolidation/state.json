@@ -117,6 +117,42 @@
       "files_written": 0,
       "subprocess_invocations": 20,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-17T00:01:57Z",
+      "wall_seconds": 0.367,
+      "input_bytes_read": 72904,
+      "output_bytes_written": 27121,
+      "files_read": 8,
+      "files_written": 5,
+      "subprocess_invocations": 6,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-17T00:02:59Z",
+      "wall_seconds": 0.317,
+      "input_bytes_read": 43159,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-17T00:03:00Z",
+      "wall_seconds": 0.319,
+      "input_bytes_read": 43646,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -128,6 +164,15 @@
         "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5"
       ],
       "initial_sha": "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5",
+      "judge_next_action": "advance"
+    },
+    "plan": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "6e7c97d2b32a60c7d02d5a5ed4f905758b5d2c42dfce076f5bc30bb3ab142513"
+      ],
+      "initial_sha": "6e7c97d2b32a60c7d02d5a5ed4f905758b5d2c42dfce076f5bc30bb3ab142513",
       "judge_next_action": "advance"
     }
   },
@@ -145,6 +190,19 @@
       "ts": "20260616T235051_800642Z",
       "reason": "Spec reviews accepted via manual independent sub-agent adversarial pass (codex/gemini CLIs unavailable in this remote container; --fallback hits a telemetry RecursionError). Both lenses reconciled to accepted; all findings folded into spec v2.",
       "head_sha": "ca89008ead36657078d59cc78df679fbf38fe0dc"
+    },
+    {
+      "stage": "plan",
+      "ts": "20260617T000300_500576Z",
+      "reason": "Plan reviews accepted via independent manual sub-agent adversarial pass (codex/gemini CLIs unavailable). Both MAJOR findings (nav query cost, non-MCP cascade order) reconciled into the plan.",
+      "head_sha": "1a01e42a1a8463da36ca499c5ca9f5429f07d41a"
+    },
+    {
+      "stage": "plan",
+      "ts": "20260617T000318_187098Z",
+      "reason": "Plan reviews accepted via independent manual sub-agent adversarial pass; artifact hashes re-synced after reconcile appended to plan.md.",
+      "head_sha": "1a01e42a1a8463da36ca499c5ca9f5429f07d41a"
     }
-  ]
+  ],
+  "plan_adversarial_rounds": 0
 }

@@ -4,12 +4,8 @@
 
 - review: reviews/spec.codex.feasibility-adversarial.review.md | status: accepted | note: Manual sub-agent feasibility pass (codex CLI unavailable); all findings folded into spec v2.
 - review: reviews/spec.gemini.requirements-adversarial.review.md | status: accepted | note: Manual sub-agent requirements pass (gemini CLI unavailable); all findings folded into spec v2.
-
----
-
-Builds the design in `spec.md` (v2). Driven by `reuse-report.md` — every row of
-that audit is addressed here. Premise: **no new module**; the two new symbols
-live on the two existing modules and wrap code that already exists.
+- review: reviews/plan.codex.implementation-adversarial.review.md | status: accepted | note: Manual sub-agent implementation pass; findings folded into plan (cascade order, query bound, HTMX endpoints).
+- review: reviews/plan.gemini.testability-adversarial.review.md | status: accepted | note: Manual sub-agent testability pass; findings folded into plan test lists + verifications.
 
 ## Architecture decisions
 
@@ -39,14 +35,29 @@ feature uses a distinct **play-setup** vocabulary, **not** "onboarding":
 > renames to `PlaySetupStage`/`resolve_play_setup_state`. The behavior is
 > identical — this is the implementation name of record.
 
-### AD-3 — `provider_readiness` boundary definitions (over the 3 predicates)
+### AD-3 — `provider_readiness` resolves as a **top-down cascade, first match wins**
+
+Evaluate highest-readiness first so `LIVE` always wins — required for
+correctness with **non-MCP providers** (hermes/openclaw), where the predicates
+fall back to liveness-free / `last_seen_at`-based checks and can otherwise
+disagree (a non-MCP connection with a fresh `last_polled_at` but stale
+`last_seen_at` is genuinely `LIVE` even though `provider_has_live_current_setup`
+→ `provider_is_covered` is False):
 
 ```
-LIVE                = provider_loop_running(...)
-SEEN_NOT_POLLING    = provider_has_live_current_setup(...) and not LIVE
-CONNECTED_NOT_LIVE  = provider_has_current_setup(...) and not SEEN_NOT_POLLING and not LIVE
-NO_MCP_CONNECTION   = not provider_has_current_setup(...)
+if   provider_loop_running(...):           return LIVE
+elif provider_has_live_current_setup(...): return SEEN_NOT_POLLING
+elif provider_has_current_setup(...):      return CONNECTED_NOT_LIVE
+else:                                      return NO_MCP_CONNECTION
 ```
+
+Non-MCP fallbacks (from `connection_health.py`): `provider_has_current_setup` →
+`provider_enabled_on_any_connection` (liveness-free, :397);
+`provider_has_live_current_setup` → `provider_is_covered` (:405);
+`provider_loop_running` keys on `last_polled_at` only (no `mcp_connected_at`
+guard for non-MCP, :453). The cascade order makes the ladder hold for **both**
+MCP and non-MCP providers. Slice 1 must test each boundary with a **non-MCP**
+provider too — especially the stale-seen-but-polling case.
 
 PAUSED-only naturally lands in `CONNECTED_NOT_LIVE` (settled decision 3): the
 function adds no PAUSED special-case. The predicates already encode it
@@ -63,6 +74,20 @@ require: PlaySetupStage = NEEDS_MCP_CONNECTION)`:
   **most-ready** one (settled decision 2). Excludes `kind=bot`,
   `archived_at IS NOT NULL`, and `provider IS NULL` agents.
 - Owns the canonical `next_url` (incl. `?next=` via `safe_internal_next`).
+
+**Query-cost bound (the reduction must NOT be naive).** `provider_readiness`
+issues up to 3 predicate queries; a naive per-agent loop is up to 3·K queries on
+a hot path (`compute_nav_cta` runs on every full page load — though it is skipped
+for HX requests, `nav_context.py:152`). The reduction therefore must:
+1. **Dedupe agents → distinct providers** first (agents share providers).
+2. **Early-exit on the caller's `require` bar:** evaluate the cheap-to-clear
+   predicate first and stop at the first provider that reaches `require`. For nav
+   (`require=NEEDS_MCP_CONNECTION`) that means: as soon as one provider clears
+   `provider_has_current_setup`, return — no need to evaluate `LIVE`/`SEEN` or any
+   other provider.
+This keeps the **common single-provider ready user at ~1 query** (today's cost),
+rising to ~1 query per distinct *unready* provider in the worst case — not 3·K.
+Slice 2 states the resulting per-page query bound and a test asserts it.
 
 ### AD-5 — Handle gate stays in `deps.py`
 
@@ -91,37 +116,56 @@ Each slice is ≤ ~300 changed lines and ends at a stable interface boundary
 (types before callers), so a `[CHECKPOINT]` diff review covers one coherent unit.
 
 ### Slice 1 — `ProviderReadiness` signal (foundation, no behavior change) `[CHECKPOINT]`
-- Add `ProviderReadiness` + `provider_readiness()` to `connection_health.py`,
-  wrapping the three predicates (AD-3). No callers change yet.
-- Tests: the four boundaries incl. PAUSED-only → `CONNECTED_NOT_LIVE`, reusing
+- Add `ProviderReadiness` + `provider_readiness()` to `connection_health.py` as a
+  top-down cascade over the three predicates (AD-3). No callers change yet.
+- Tests: the four boundaries incl. PAUSED-only → `CONNECTED_NOT_LIVE`, **plus the
+  same four boundaries via a non-MCP provider (hermes/openclaw)** — especially the
+  stale-seen-but-polling case that stresses the cascade order (Finding 2). Reuse
   `make_connection` + `mcp_connected_at`/`last_polled_at`/`last_seen_at` patterns
   from `test_coverage_health_and_join_gate.py` / `test_agent_detail_fixes.py`.
-- Est: ~120 lines. Pure addition; zero redirect risk.
+- **Query-count test:** attach a `before_cursor_execute` listener, call
+  `provider_readiness` once, assert it issues **≤3** queries (locks "no 7th
+  predicate" — replaces the earlier grep idea, which proves nothing since the
+  queries live in the callees).
+- Est: ~140 lines. Pure addition; zero redirect risk.
 
-### Slice 2 — `resolve_play_setup_state` resolver (foundation) `[CHECKPOINT]`
+### Slice 2 — `resolve_play_setup_state` resolver (**ships the nav ⚠ change**) `[CHECKPOINT]`
 - Add `PlaySetupStage`/`PlaySetupState`/`resolve_play_setup_state()` to
-  `nav_context.py` (AD-2/AD-4). Reimplement `compute_nav_cta` as a thin caller
-  (only consumer this slice).
-- Tests: each stage transition, `require` threshold, multi-agent most-ready
-  reduction; nav label unchanged for the common cases.
-- Est: ~180 lines. Behavior change limited to the nav's "ready" bar (⚠, tested).
+  `nav_context.py` (AD-2/AD-4), with provider-dedup + early-exit reduction. Reimplement
+  `compute_nav_cta` as a thin caller (only consumer this slice).
+- **This slice is behavior-changing**, not pure foundation: it lands the nav's
+  "ready" bar swap (`first_connected_at`-ever → `provider_has_current_setup`,
+  spec §4 ⚠ row 1). The `[CHECKPOINT]` review treats it as such.
+- Tests: each stage transition; `require` threshold; multi-agent most-ready
+  reduction (incl. a **mixed MCP + non-MCP** provider set); `provider IS NULL` /
+  `kind=bot` / `archived_at` agents excluded; the **per-page query bound** from
+  AD-4 (single-provider ready user ≤ ~1 readiness query).
+- Est: ~190 lines.
 
 ### Slice 3 — Adopt at the redirect entry points `[CHECKPOINT]`
 - `auth.py` post-login, `agents_create` destination, `web_games_catalog` `/play`,
   `web_player._join_setup_redirect` → call the resolver.
-- Tests: per-entry-point redirect `Location`; the `/play ⇄ /me/connections`
-  loop-guard with a seen-but-not-polling fixture (reuse `test_smart_join_flow.py`
-  cookie/redirect harness); a "READY user is never redirected to setup" invariant.
+- Tests: per-entry-point redirect `Location` — **including a named `/play`
+  redirect test** for the ⚠ lobby-drop → next-gate change (spec §4); the
+  `/play ⇄ /me/connections` loop-guard with a seen-but-not-polling fixture (reuse
+  `test_smart_join_flow.py` cookie/redirect harness); a "READY user is never
+  redirected to setup" invariant.
 - Est: ~160 lines.
 
 ### Slice 4 — Adopt the readiness signal at the per-provider display/seat sites `[CHECKPOINT]`
-- `web_player` join-form strings derive from `provider_readiness`; seat
-  confirm/hold/connect reads via the signal; `connections_pages` auto-forward via
-  `SEEN_NOT_POLLING`; `agents_list` + `agents_detail` readiness via the signal;
+- `web_player` join-form strings (`:252-273`) derive from `provider_readiness`;
+  seat confirm/hold/connect **and the `seat_connect_status` poll (`:649`)** read
+  via the signal; `connections_pages` auto-forward via `SEEN_NOT_POLLING` on
+  **both** the page-load path (`:156-159`) **and** the `live_status_fragment` HTMX
+  poll path (`:216-227`) — leaving either on the old predicate re-creates the
+  split (Finding 3); `agents_list` + `agents_detail` readiness via the signal;
   `seat_hold.confirm_seat_if_live` shares the `LIVE` boundary.
-- Tests: connections-page bar parity with the seat pages; agent list/detail
-  badges; a `confirm_seat_if_live` ↔ resolver `LIVE` parity test.
-- Est: ~200 lines.
+- Tests: connections-page **load-path and poll-path** bar parity with the seat
+  pages; named before/after `agents_list` badge and `agents_detail` readiness
+  tests (the ⚠ swaps, spec §4); a `confirm_seat_if_live` ↔ resolver `LIVE` parity
+  test asserting agreement across **all four** states (incl. the non-MCP
+  stale-seen-but-polling case), not just one happy path.
+- Est: ~210 lines.
 
 Slices 1→2 are a hard dependency (resolver uses the signal). 3 and 4 both depend
 on 1+2.
@@ -149,12 +193,16 @@ tests, don't change the factory). Redirect/loop tests reuse the
   `last_polled_at` stale must show no redirect cycle; run it against `origin/main`
   first to confirm it reproduces the loop pre-fix, then green post-fix.
 - **`provider_readiness` silently becomes a 7th predicate.** *verification:* a
-  code-review check (and a unit test) asserting `provider_readiness` issues no new
-  DB query of its own — it only awaits the three named predicates; grep the
-  function body for `select(`/`db.execute` and assert none.
+  `before_cursor_execute` SQL-counter test asserts one `provider_readiness` call
+  issues **≤3** queries (a grep over its body proves nothing — the queries are in
+  the callees). Slice 1.
+- **Nav query-cost regression on a hot path** (the most-ready reduction over many
+  agents). *verification:* Slice 2 query-bound test — a single-provider ready user
+  resolves with ≤ ~1 readiness query (no 3·K blow-up); dedup + early-exit per AD-4.
 - **Poller vs resolver drift on `LIVE`.** *verification:* Slice 4 parity test:
-  for the same fixture, `confirm_seat_if_live` and `resolve_play_setup_state(...,
-  require=READY)` agree on `LIVE`.
+  for the same fixtures across **all four** readiness states (incl. non-MCP
+  stale-seen-but-polling), `confirm_seat_if_live` and `resolve_play_setup_state(...,
+  require=READY)` agree on whether the seat is `LIVE`.
 - **Multi-agent reduction regresses the nav** (a user with one ready + one
   unready agent should still see "Play now"). *verification:* Slice 2 test asserts
   most-ready wins for that exact mix.
