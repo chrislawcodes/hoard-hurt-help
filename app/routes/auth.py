@@ -4,15 +4,15 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.google import oauth
 from app.auth.session import clear_session, set_session_user
 from app.config import settings
 from app.deps import DbSession
-from app.models.agent import Agent, AgentKind
 from app.models.user import User, UserRole
+from app.routes.nav_context import resolve_play_setup_state
 from app.schemas.auth import GoogleUserInfo
 
 logger = logging.getLogger(__name__)
@@ -118,15 +118,7 @@ async def google_callback(request: Request, db: DbSession):
 
     next_url = request.session.pop("next_after_login", "/") or "/"
     if next_url == "/":
-        agent_count = await db.scalar(
-            select(func.count()).select_from(Agent).where(
-                Agent.user_id == user.id,
-                Agent.archived_at.is_(None),
-                Agent.kind == AgentKind.AI,
-            )
-        ) or 0
-        if agent_count == 0:
-            next_url = "/me/agents"
+        next_url = (await resolve_play_setup_state(db, user)).next_url
     return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
 
 

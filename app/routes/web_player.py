@@ -15,12 +15,13 @@ from app.aware_datetime import ensure_aware
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
 from app.engine.connection_health import (
+    ProviderReadiness,
     active_matches_for_provider,
     is_join_blocked,
     live_provider_capacity,
-    provider_has_current_setup,
-    provider_loop_running,
+    provider_readiness,
 )
+from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
 from app.engine.scheduler import start_game
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, confirm_seat_if_live, hold_deadline
 from app.games import get as get_game_module
@@ -168,29 +169,32 @@ async def _load_user_agents(
 
 
 async def _join_setup_redirect(
-    db: DbSession, user: User, join_url: str
+    db: DbSession, user: User, match: Match
 ) -> RedirectResponse | None:
     """Send the user to the FIRST setup step they're missing, or None to render
-    the join form. We carry ``?next`` so finishing that step returns here.
+    the join form.
 
-    Joining needs, in order:
-      1. a handle,
-      2. an AI agent, and
-      3. a live provider for that agent.
+    Uses the shared play-setup resolver with ``require=NEEDS_AGENT``: once the
+    user has an eligible AI agent (regardless of whether the provider is live
+    right now), the resolver returns READY and we render the join form. The join
+    form itself shows provider liveness status and handles the held-seat connect
+    flow for agents whose provider is offline.
 
-    If the user has no AI agent yet, we always send them to create one first.
-    The create flow itself will decide whether the next step is connecting that
-    agent's provider or returning straight here.
+    ``target_match`` is NOT passed to the resolver so the stage-only URL is
+    returned; we then append a URL-encoded ``?next=`` pointing back to the match's
+    join URL. This preserves the URL-encoding contract that downstream pages and
+    tests rely on.
     """
-    agents = await _load_user_agents(db, user.id)
-    has_ai_agent = any(agent.kind == AgentKind.AI for agent, _version in agents)
-    if has_ai_agent:
-        return None
-    next_param = quote(join_url, safe="")
-    return RedirectResponse(
-        url=f"/me/agents/new?next={next_param}",
-        status_code=status.HTTP_303_SEE_OTHER,
+    state = await resolve_play_setup_state(
+        db, user, require=PlaySetupStage.NEEDS_AGENT
     )
+    if state.stage == PlaySetupStage.READY:
+        return None
+    join_url = f"/games/{match.game}/matches/{match.id}/join"
+    next_param = quote(join_url, safe="")
+    separator = "&" if "?" in state.next_url else "?"
+    redirect_url = f"{state.next_url}{separator}next={next_param}"
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
@@ -223,12 +227,12 @@ async def join_form(
 
     # Smart hub: if the operator is missing setup, walk them through ONLY the
     # missing step on the existing pages, carrying ?next back to this join URL.
-    # Returns None once they have a live, seatable AI agent — then we render the
+    # Returns None once they have a seatable AI agent — then we render the
     # join form below. No Player is seated here; backing out leaves no half-join.
-    join_url = f"/games/{game}/matches/{match_id}/join"
-    if redirect := await _join_setup_redirect(db, user, join_url):
+    if redirect := await _join_setup_redirect(db, user, match):
         return redirect
 
+    join_url = f"/games/{game}/matches/{match_id}/join"
     agents = await _load_user_agents(db, user.id)
     # Agents already seated in this match stay visible, but they can't join
     # again. The admin multi-seat flow still uses the same list.
@@ -261,13 +265,16 @@ async def join_form(
             continue
         pv = provider.value
         if pv not in provider_status:
-            # "live" means an AI is actually running the play loop — not merely
-            # that the connection was seen (a sign-in handshake counts as "seen").
-            # So picking a "live" agent gets a confirmed seat; "offline" is set up
-            # but not playing, so it's held while the user starts their AI.
-            if await provider_loop_running(db, user.id, provider):
+            # Map the shared readiness rung to the three status strings the join
+            # form understands. Compute once per distinct provider (the guard above
+            # ensures subsequent agents sharing a provider reuse the cached value).
+            readiness = await provider_readiness(db, user.id, provider)
+            if readiness == ProviderReadiness.LIVE:
                 provider_status[pv] = "live"
-            elif await provider_has_current_setup(db, user.id, provider):
+            elif readiness in (
+                ProviderReadiness.SEEN_NOT_POLLING,
+                ProviderReadiness.CONNECTED_NOT_LIVE,
+            ):
                 provider_status[pv] = "offline"
             else:
                 provider_status[pv] = "unconfigured"
@@ -367,7 +374,8 @@ async def _seat_user_agent(
     # provider — not merely when the connection was seen recently (a sign-in
     # handshake bumps last_seen without an AI playing). Otherwise hold the seat and
     # let the next screen walk the user through starting their AI.
-    loop_running = await provider_loop_running(db, user.id, provider)
+    readiness = await provider_readiness(db, user.id, provider)
+    loop_running = readiness == ProviderReadiness.LIVE
     reserved_until: datetime | None = None
     if loop_running:
         # Playing now — a confirmed seat. SUM-based join gate: active count vs. sum
@@ -493,9 +501,9 @@ async def join_submit(
             select(Agent.provider).where(Agent.id == held[0].agent_id)
         )
         held_connect_url = f"/games/{match.game}/matches/{match.id}/connect/{held[0].id}"
-        if held_provider is not None and not await provider_has_current_setup(
+        if held_provider is not None and await provider_readiness(
             db, user.id, held_provider
-        ):
+        ) == ProviderReadiness.NO_MCP_CONNECTION:
             return RedirectResponse(
                 url=(
                     f"/me/connections?provider={held_provider.value}"
@@ -545,9 +553,9 @@ async def seat_connect(
         if provider is not None
         else "your AI"
     )
-    if provider is not None and not await provider_has_current_setup(
+    if provider is not None and await provider_readiness(
         db, user.id, provider
-    ):
+    ) == ProviderReadiness.NO_MCP_CONNECTION:
         return RedirectResponse(
             url=(
                 f"/me/connections?provider={provider.value}"
@@ -646,9 +654,9 @@ async def seat_connect_status(
     # they reconnect and it comes online we still auto-seat them.
     deadline = ensure_aware(player.seat_reserved_until)
     waited_seconds = SEAT_HOLD_SECONDS - (deadline - now).total_seconds()
-    is_configured = provider is not None and await provider_has_current_setup(
+    is_configured = provider is not None and await provider_readiness(
         db, user.id, provider
-    )
+    ) != ProviderReadiness.NO_MCP_CONNECTION
     escalate = is_configured and waited_seconds >= _STALL_WAKE_SECONDS
     reconnect_url = None
     if escalate and provider is not None:

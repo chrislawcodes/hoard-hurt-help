@@ -66,10 +66,18 @@ def _desktop_nav_html(page: str) -> str:
 
 
 async def _connect(reset_db: async_sessionmaker, connection_id: int) -> None:
-    """Mark a connection as having connected at least once."""
+    """Mark a connection as having a current MCP setup.
+
+    The "Play now" bar moved from "connected once" (``first_connected_at``) to
+    "has current MCP setup" (a recent ``mcp_connected_at`` for an MCP provider),
+    so set both: ``first_connected_at`` for legacy signals and ``mcp_connected_at``
+    so the new readiness bar reads CONNECTED_NOT_LIVE.
+    """
     async with reset_db() as db:
         connection = (await db.execute(select(Connection).where(Connection.id == connection_id))).scalar_one()
-        connection.first_connected_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        connection.first_connected_at = now
+        connection.mcp_connected_at = now
         await db.commit()
 
 
@@ -122,11 +130,14 @@ async def test_cta_unconnected_agent_is_connect(reset_db):
 
 @pytest.mark.asyncio
 async def test_cta_connected_agent_is_play_now(reset_db):
+    # The "Play now" bar is now "has current MCP setup" (provider_readiness >=
+    # CONNECTED_NOT_LIVE), so a Claude (MCP) provider needs a recent mcp_connected_at.
     async with reset_db() as db:
         user = await make_user(db)
         connection, _ = await make_connection(db, user)
         await make_agent(db, user, connection=connection, name="Atlas")
         connection.first_connected_at = datetime.now(timezone.utc)
+        connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
         cta = await compute_nav_cta(db, user)
     assert cta.label == "Play now"
@@ -241,17 +252,23 @@ async def test_play_signed_out_redirects_to_login(client):
 
 
 @pytest.mark.asyncio
-async def test_play_unconnected_agent_goes_to_lobby(client, reset_db):
+async def test_play_unconnected_agent_goes_to_connect(client, reset_db):
+    # /play now routes a setup-incomplete user to their next gate (decision 1):
+    # an unconnected agent's provider is not set up, so /play sends them to the
+    # connect screen instead of dropping them at a lobby they can't act in.
     async with reset_db() as db:
         user = await make_user(db)
-        await make_bot(db, user, name="Atlas")  # never connected
+        await make_bot(db, user, name="Atlas")  # agent exists, provider never connected
         await db.commit()
         user_id = user.id
     r = await client.get(
         "/play", cookies=_signed_in_cookies(user_id), follow_redirects=False
     )
     assert r.status_code == 302
-    assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
+    loc = r.headers["location"]
+    assert loc.startswith("/me/connections?provider=claude")
+    # /play threads ?next back to itself so the funnel re-enters after connecting.
+    assert "next=%2Fplay" in loc
 
 
 @pytest.mark.asyncio

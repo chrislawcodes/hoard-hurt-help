@@ -19,9 +19,9 @@ from starlette.responses import Response
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
 from app.engine.connection_health import (
+    ProviderReadiness,
     compute_connection_health,
-    provider_has_current_setup,
-    provider_has_live_current_setup,
+    provider_readiness,
 )
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.models.connection import Connection, ConnectionProvider
@@ -128,15 +128,15 @@ async def list_connections(
     #   LIVE      — at least one connection is LIVE or READY right now
     has_connected_before = bool(connections)
     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
-    target_provider_live = (
-        await provider_has_live_current_setup(db, user.id, target_provider)
+    target_provider_readiness = (
+        await provider_readiness(db, user.id, target_provider)
         if target_provider is not None
-        else False
+        else None
     )
+    # "set up at all" → readiness != NO_MCP_CONNECTION
     target_provider_setup = (
-        await provider_has_current_setup(db, user.id, target_provider)
-        if target_provider is not None
-        else False
+        target_provider_readiness is not None
+        and target_provider_readiness != ProviderReadiness.NO_MCP_CONNECTION
     )
     # Came to connect a SPECIFIC provider that isn't set up yet → lead with that
     # provider's connect steps. Without this, a different live provider (a live
@@ -153,8 +153,14 @@ async def list_connections(
     # the "Connected" box. The 4s poll covers the case where it goes live later.
     # Only short-circuit on the TARGET provider (or, with no target, any live
     # connection) — never bounce a Gemini connect just because Claude is live.
+    # Decision 4: advance the instant the MCP client is SEEN (SEEN_NOT_POLLING or
+    # LIVE), before the first turn poll.
+    target_provider_seen = target_provider_readiness in {
+        ProviderReadiness.SEEN_NOT_POLLING,
+        ProviderReadiness.LIVE,
+    }
     if next_url and (
-        target_provider_live or (provider_hint is None and is_live_now)
+        target_provider_seen or (provider_hint is None and is_live_now)
     ):
         return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(
@@ -213,14 +219,17 @@ async def live_status_fragment(
         db, user, next_url=next_url, provider=target_provider
     )
     context["provider_hint"] = provider_hint
-    if next_url and (
-        (
-            provider_hint is not None
-            and await provider_has_live_current_setup(
-                db, user.id, ConnectionProvider(provider_hint)
-            )
+    # Decision 4: advance the instant the MCP client is SEEN (SEEN_NOT_POLLING or
+    # LIVE), before the first turn poll. Use the same rule as the page-load path.
+    poll_provider_seen = (
+        target_provider is not None
+        and (
+            await provider_readiness(db, user.id, target_provider)
         )
-        or (provider_hint is None and context["is_live_now"])
+        in {ProviderReadiness.SEEN_NOT_POLLING, ProviderReadiness.LIVE}
+    )
+    if next_url and (
+        poll_provider_seen or (provider_hint is None and context["is_live_now"])
     ):
         # HTMX honors HX-Redirect by navigating the whole page. An empty body is
         # fine since the redirect replaces this fragment's container entirely.

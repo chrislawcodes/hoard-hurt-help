@@ -19,8 +19,8 @@ from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
 from app.engine.connection_health import (
     enabled_provider_values,
-    enabled_provider_values_on_nonpaused_connections,
 )
+from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
@@ -230,20 +230,17 @@ async def create_agent_or_connection(
         agent.current_version_id = version.id
         await db.commit()
         next_url = safe_internal_next(next_after)
-        # If the provider is already set up (enabled on a non-paused connection),
-        # skip the connect step and continue to the next hop (or the agent detail
-        # page when no next was supplied). This matches the agent-list readiness
-        # signal (enabled, status-aware), not the stricter live-now window — a
-        # set-up-but-idle provider is woken by the Join held-seat flow, not here.
-        setup_providers = await enabled_provider_values_on_nonpaused_connections(
-            db, user.id
-        )
-        if agent_provider.value in setup_providers:
-            destination = next_url or f"/me/agents/{agent.id}"
-        else:
+        # Use the shared play-setup resolver to decide the post-create destination.
+        # NEEDS_MCP_CONNECTION means this agent's provider is not set up under the
+        # new MCP-recent bar → send the user to connect it. Any higher stage means
+        # the provider is already set up → continue to next_url or the agent page.
+        state = await resolve_play_setup_state(db, user, target_agent=agent)
+        if state.stage == PlaySetupStage.NEEDS_MCP_CONNECTION:
             destination = f"/me/connections?provider={agent_provider.value}"
             if next_url is not None:
                 destination += f"&next={quote(next_url, safe='')}"
+        else:
+            destination = next_url or f"/me/agents/{agent.id}"
         return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
 
     raise HTTPException(status_code=400, detail="Agent name is required.")

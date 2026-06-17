@@ -238,6 +238,7 @@ async def test_ai_agent_creation_is_unaffected(client, reset_db) -> None:
             key_lookup=bot_key_lookup(plain_key),
             key_hint=bot_key_hint(plain_key),
             status=ConnectionStatus.ACTIVE,
+            mcp_connected_at=datetime.now(timezone.utc),  # set up (MCP-recent)
         )
         db.add(conn)
         await db.flush()

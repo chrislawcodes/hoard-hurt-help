@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.aware_datetime import ensure_aware
 from app.db import SessionLocal
-from app.engine.connection_health import provider_loop_running
+from app.engine.connection_health import ProviderReadiness, provider_readiness
 from app.models.agent import Agent
 from app.models.player import Player
 
@@ -43,7 +43,7 @@ async def confirm_seat_if_live(db: AsyncSession, player: Player) -> bool:
     """Clear the hold on *player* once an AI is actually running the play loop for
     its agent's provider.
 
-    Keys off the play-loop heartbeat (``provider_loop_running``), not mere
+    Keys off ``provider_readiness == LIVE`` (the play-loop heartbeat), not mere
     connection liveness — so a held seat confirms when the user's AI genuinely
     starts playing, which is the same bar the join gate uses. Returns True when the
     seat was confirmed. Does not commit — the caller owns the transaction.
@@ -53,7 +53,7 @@ async def confirm_seat_if_live(db: AsyncSession, player: Player) -> bool:
     provider = await db.scalar(select(Agent.provider).where(Agent.id == player.agent_id))
     if provider is None:
         return False
-    if await provider_loop_running(db, player.user_id, provider):
+    if await provider_readiness(db, player.user_id, provider) == ProviderReadiness.LIVE:
         player.seat_reserved_until = None
         return True
     return False

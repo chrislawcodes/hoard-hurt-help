@@ -1,0 +1,270 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 1781653760
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [
+      "'Set up your agent to pull' = the step where the user pastes the play-prompt into their MCP client so the agent starts polling for turns (today's seat-connect / loop-running state).",
+      "The nav label may keep 'connected once' semantics while the join gate keeps 'live now' \u2014 modeled as a parameter on the resolver (e.g. require_live), not two separate ladders.",
+      "'Per-provider MCP connection' is a CONCEPTUAL unit derived over connection_providers toggles; physical storage is unchanged."
+    ],
+    "summary": "Rich prior conversation settled the design; carrying 3 explicit assumptions. Cross-cutting across 6 files with intentional behavior changes \u2014 full FF path forced (size heuristic mis-reads the not-yet-implemented 0-line diff as trivial).",
+    "updated_at": 1781646318,
+    "answers": {},
+    "non_goals": [
+      "No new module or subsystem \u2014 consolidate onto connection_health.py + nav_context.py only.",
+      "No DB schema or migration change; storage stays one-connection-per-user + connection_providers per-provider toggles.",
+      "No change to the MCP OAuth bridge or per-user connection creation mechanics.",
+      "Do not revisit strategy-first ordering \u2014 agent-before-connection stays.",
+      "Do not redesign the seat-hold / connect-countdown UX; only its 'what is missing' decision routes through the resolver."
+    ],
+    "acceptance_criteria": [
+      "spec.md tables how all 5 entry points (nav CTA, /play, auth.py post-login redirect, agents_create destination, web_player._join_setup_redirect) decide the next step today \u2014 naming the exact predicate each uses \u2014 and the agreed unified definition for each gate.",
+      "connection_health.py exposes ONE provider-capability function returning a tri-state {NO_MCP_CONNECTION, CONNECTED_NOT_LIVE, LIVE}; the ~6 existing predicates are re-expressed over it or explicitly documented as retained wrappers.",
+      "nav_context.py exposes resolve_onboarding_state(user, intent) -> (stage, next_url); all 5 entry points call it instead of re-deriving the ladder.",
+      "Every behavior change at a site that disagrees today is enumerated and intentional, with a before/after note.",
+      "Tests cover the tri-state and the resolver ladder for each stage transition; Preflight Gate green."
+    ],
+    "checklist": {
+      "goal": "One intent-driven onboarding pipeline whose 'what is my next step' logic is centralized on EXISTING modules (no new module): a single provider-capability tri-state in app/engine/connection_health.py, and a shared resolve_onboarding_state() promoted from compute_nav_cta in app/routes/nav_context.py that every entry point calls.",
+      "audience": "Signed-in users getting an AI agent into a game (esp. the 'signed in, no provider connected' path), and the developers who keep hitting drift bugs because each onboarding entry point re-derives the ladder differently.",
+      "constraints": "nav_context.py lives in app/routes/ and would own a broadened resolver; an optional rename to onboarding_state.py is cosmetic, not architectural."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": true,
+    "found": false,
+    "note": "Parallelism exists and is orchestrated manually via isolated worktrees: B1 (web_player.py + auth.py + agents_create.py + web_games_catalog.py) || B2 (connections_pages.py + agents_list.py + agents_detail.py + seat_hold.py) - disjoint write sets. Slices 1->2 serial (2 depends on 1). Runner [P:] auto-parser not used.",
+    "updated_at": 1781656594
+  },
+  "init_head_sha": "bd010ab41e3df6aa1005990040f43a9e4ec4ade7",
+  "token_usage": [],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-16T21:45:07Z",
+      "wall_seconds": 0.013,
+      "input_bytes_read": 7964,
+      "output_bytes_written": 3982,
+      "files_read": 2,
+      "files_written": 1,
+      "subprocess_invocations": 2,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-16T21:45:24Z",
+      "wall_seconds": 0.335,
+      "input_bytes_read": 41268,
+      "output_bytes_written": 19177,
+      "files_read": 7,
+      "files_written": 5,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-16T21:45:42Z",
+      "wall_seconds": 0.347,
+      "input_bytes_read": 35933,
+      "output_bytes_written": 16216,
+      "files_read": 6,
+      "files_written": 4,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-16T23:50:33Z",
+      "wall_seconds": 0.208,
+      "input_bytes_read": 27957,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-16T23:50:34Z",
+      "wall_seconds": 0.199,
+      "input_bytes_read": 28451,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-17T00:01:57Z",
+      "wall_seconds": 0.367,
+      "input_bytes_read": 72904,
+      "output_bytes_written": 27121,
+      "files_read": 8,
+      "files_written": 5,
+      "subprocess_invocations": 6,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-17T00:02:59Z",
+      "wall_seconds": 0.317,
+      "input_bytes_read": 43159,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-17T00:03:00Z",
+      "wall_seconds": 0.319,
+      "input_bytes_read": 43646,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-17T00:36:04Z",
+      "wall_seconds": 0.066,
+      "input_bytes_read": 31430,
+      "output_bytes_written": 8849,
+      "files_read": 3,
+      "files_written": 1,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-17T00:36:21Z",
+      "wall_seconds": 0.061,
+      "input_bytes_read": 32056,
+      "output_bytes_written": 9162,
+      "files_read": 3,
+      "files_written": 1,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-17T00:36:35Z",
+      "wall_seconds": 0.925,
+      "input_bytes_read": 174810,
+      "output_bytes_written": 40288,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5",
+        "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5"
+      ],
+      "initial_sha": "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5",
+      "judge_next_action": "advance"
+    },
+    "plan": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "6e7c97d2b32a60c7d02d5a5ed4f905758b5d2c42dfce076f5bc30bb3ab142513"
+      ],
+      "initial_sha": "6e7c97d2b32a60c7d02d5a5ed4f905758b5d2c42dfce076f5bc30bb3ab142513",
+      "judge_next_action": "advance"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "5966fd2d8643a50cb7f5c40da01ea94700edf0aeb24b63b8750cca5d834448b5"
+      ],
+      "initial_sha": "5966fd2d8643a50cb7f5c40da01ea94700edf0aeb24b63b8750cca5d834448b5"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 1,
+  "annotations": [
+    {
+      "stage": "spec",
+      "ts": "20260616T235051_800642Z",
+      "reason": "Spec reviews accepted via manual independent sub-agent adversarial pass (codex/gemini CLIs unavailable in this remote container; --fallback hits a telemetry RecursionError). Both lenses reconciled to accepted; all findings folded into spec v2.",
+      "head_sha": "ca89008ead36657078d59cc78df679fbf38fe0dc"
+    },
+    {
+      "stage": "plan",
+      "ts": "20260617T000300_500576Z",
+      "reason": "Plan reviews accepted via independent manual sub-agent adversarial pass (codex/gemini CLIs unavailable). Both MAJOR findings (nav query cost, non-MCP cascade order) reconciled into the plan.",
+      "head_sha": "1a01e42a1a8463da36ca499c5ca9f5429f07d41a"
+    },
+    {
+      "stage": "plan",
+      "ts": "20260617T000318_187098Z",
+      "reason": "Plan reviews accepted via independent manual sub-agent adversarial pass; artifact hashes re-synced after reconcile appended to plan.md.",
+      "head_sha": "1a01e42a1a8463da36ca499c5ca9f5429f07d41a"
+    },
+    {
+      "stage": "plan",
+      "ts": "20260617T001205_796191Z",
+      "reason": "Re-synced review hashes after adding spec decision 6 (NEEDS_LIVE non-blocking at join) to plan AD-4.",
+      "head_sha": "f6422fee50b4168e10f97b50c8aaba56af7a240c"
+    },
+    {
+      "stage": "spec",
+      "ts": "20260617T001213_940416Z",
+      "reason": "Re-synced spec review hashes after adding resolved decision 6 (two-part onboarding; Part 2 optional/non-blocking at join).",
+      "head_sha": "f6422fee50b4168e10f97b50c8aaba56af7a240c"
+    }
+  ],
+  "plan_adversarial_rounds": 0,
+  "tasks_adversarial_rounds": 1,
+  "last_action_result": {
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
+    "blockers": []
+  }
+}
