@@ -688,4 +688,16 @@ async def get_standings(
 # The parent FastAPI app mounts this at the public root so the auth discovery
 # URLs stay rooted at `/.well-known/...` while the MCP endpoint itself remains
 # `/mcp`.
-asgi_app = mcp_app.http_app(path="/mcp", transport="streamable-http")
+#
+# stateless_http=True: do NOT keep per-client session state in process memory.
+# A stateful server hands each client an Mcp-Session-Id and tracks it in RAM, so
+# every redeploy (Railway rolling-deploys on each merge) wipes that map and every
+# connected client's next call fails with "Session not found" until the human
+# manually reconnects — silently dropping active players mid-game. We don't use
+# the features that statefulness buys (server-initiated SSE notifications): play
+# is poll-based request/response, the long-poll lives inside a single request, and
+# auth is per-call via a reference token. Going stateless makes each request
+# self-contained, so a restart can't orphan a client.
+asgi_app = mcp_app.http_app(
+    path="/mcp", transport="streamable-http", stateless_http=True
+)
