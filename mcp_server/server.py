@@ -16,7 +16,12 @@ from typing import Any, cast
 from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentAccessToken, Depends
 from fastmcp.server.auth.providers.google import GoogleProvider
-from fastmcp.server.dependencies import AccessToken, get_access_token, get_context
+from fastmcp.server.dependencies import (
+    AccessToken,
+    get_access_token,
+    get_context,
+    get_http_request,
+)
 from fastapi import HTTPException, status
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from key_value.aio.protocols import AsyncKeyValue
@@ -317,6 +322,48 @@ def _client_provider_from_initialize(message: object) -> ConnectionProvider | No
     return provider_from_client_name(name)
 
 
+def _dcr_client_id_from_request() -> str | None:
+    """The per-client OAuth registration id, read from the raw bearer token.
+
+    Why not ``token.client_id``? After FastMCP validates a request it hands us an
+    ``AccessToken`` whose ``client_id`` is the Google *subject* — the user's
+    account id, identical for every AI client the same person signs in with (see
+    fastmcp ``providers/google.py``: ``AccessToken(client_id=sub)``). That cannot
+    tell one user's Codex from their Gemini, so it must not be used to route
+    between a user's connections.
+
+    The genuinely per-client id is the Dynamic Client Registration ``client_id``
+    (a UUID minted once per ``mcp add``). FastMCP embeds it in the reference JWT it
+    issues to the client but drops it during token validation, so we read it back
+    from the raw ``Authorization: Bearer`` header. The client sends the same JWT
+    on every request, so this is a stable per-client key. The bearer is already
+    verified by FastMCP before any of our code runs (the request reached an
+    authenticated tool/middleware), so we only decode the JWT payload to read the
+    routing claim — we do not re-verify the signature here.
+
+    fail-open: advisory routing only — any problem returns ``None`` and the caller
+    falls back to the provider / single-connection lookup.
+    """
+    try:
+        request = get_http_request()
+        header = request.headers.get("authorization") or ""
+        scheme, _, raw = header.partition(" ")
+        if scheme.lower() != "bearer" or not raw:
+            return None
+        segments = raw.split(".")
+        if len(segments) != 3:
+            return None  # not a JWT (e.g. an opaque token) — nothing to read
+        body = segments[1]
+        body += "=" * (-len(body) % 4)  # restore base64url padding
+        claims = json.loads(base64.urlsafe_b64decode(body))
+        client_id = claims.get("client_id")
+        return client_id if isinstance(client_id, str) and client_id else None
+    except Exception:
+        # fail-open: advisory routing only — fall back to provider/single lookup.
+        logger.debug("could not read DCR client_id from bearer token", exc_info=True)
+        return None
+
+
 async def _connection_from_token(
     db: AsyncSession,
     token: object,
@@ -363,10 +410,12 @@ async def _resolve_oauth_connection(
     db: AsyncSession,
     token: object,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
-    # Use token.client_id as the primary lookup key. In stateless-HTTP mode
-    # session memory is wiped between requests, so _client_provider_from_context()
-    # always returns None on tool calls — the token is the only stable identity.
-    oauth_client_id = _require_access_token(token).client_id
+    # The per-client identity is the DCR client_id read from the raw bearer JWT.
+    # In stateless-HTTP mode the session's clientInfo is wiped between requests, so
+    # the provider can't be read on a tool call; and token.client_id is the Google
+    # subject (one value per user, shared by all their clients), so it can't route
+    # between a user's Codex and Gemini. The DCR id is the only stable per-client key.
+    oauth_client_id = _dcr_client_id_from_request()
     access_token, userinfo, connection = await _connection_from_token(
         db, token, provider=None, oauth_client_id=oauth_client_id
     )
@@ -393,7 +442,7 @@ async def _bootstrap_signin_connection(
     the first tool call's ``_resolve_oauth_connection`` remains the authoritative
     place the connection is created and recorded.
     """
-    oauth_client_id = _require_access_token(token).client_id
+    oauth_client_id = _dcr_client_id_from_request()
     async with SessionLocal() as db:
         await _connection_from_token(db, token, provider=provider, oauth_client_id=oauth_client_id)
         await db.commit()

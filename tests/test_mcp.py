@@ -391,8 +391,8 @@ def test_client_provider_from_context_returns_none_without_active_session() -> N
 
     In stateless_http mode every tool-call request arrives with no persistent
     session, so session.client_params is None. The function catches this and returns
-    None — expected behavior. Tool calls use token.client_id instead (see
-    _resolve_oauth_connection).
+    None — expected behavior. Tool calls instead key on the DCR client_id read from
+    the raw bearer JWT (see _dcr_client_id_from_request / _resolve_oauth_connection).
     """
     from mcp_server.server import _client_provider_from_context
 
@@ -400,14 +400,50 @@ def test_client_provider_from_context_returns_none_without_active_session() -> N
     assert provider is None
 
 
+def test_dcr_client_id_from_request_decodes_bearer_jwt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_dcr_client_id_from_request() reads the per-client DCR id from the bearer JWT.
+
+    The reference JWT FastMCP issues to a client carries its DCR client_id (a UUID)
+    in the payload. We decode that payload to get a stable per-client key — unlike
+    the validated AccessToken, whose client_id is the shared Google subject.
+    """
+    import base64
+    import json
+
+    from mcp_server import server
+
+    payload = {"iss": "x", "client_id": "dcr-uuid-codex", "jti": "abc"}
+    seg = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    jwt = f"HEADER.{seg}.SIG"
+    fake_request = SimpleNamespace(headers={"authorization": f"Bearer {jwt}"})
+    monkeypatch.setattr(server, "get_http_request", lambda: fake_request)
+
+    assert server._dcr_client_id_from_request() == "dcr-uuid-codex"
+
+
+def test_dcr_client_id_from_request_fails_open_without_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No/!bearer/opaque token → None, so the caller falls back to provider lookup."""
+    from mcp_server import server
+
+    for header in ({}, {"authorization": "Basic abc"}, {"authorization": "Bearer opaque"}):
+        monkeypatch.setattr(
+            server, "get_http_request", lambda h=header: SimpleNamespace(headers=h)
+        )
+        assert server._dcr_client_id_from_request() is None
+
+
 @pytest.mark.asyncio
 async def test_multi_connection_user_resolves_via_oauth_client_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A user with 2+ MCP connections resolves correctly via token.client_id.
+    """A user with 2+ MCP connections resolves correctly via the per-client id.
 
     Full chain after the fix:
-      1. token.client_id is extracted and passed as oauth_client_id
+      1. the DCR client_id (from the bearer JWT) is passed as oauth_client_id
       2. mcp_connection_for(oauth_client_id=...) finds the matching connection
       3. tool call succeeds — no UNKNOWN_MCP_CLIENT
     """
@@ -415,7 +451,7 @@ async def test_multi_connection_user_resolves_via_oauth_client_id(
 
     from mcp_server import server
 
-    EXPECTED_CLIENT_ID = "sub-123"  # matches _token()'s client_id / subject
+    EXPECTED_CLIENT_ID = "dcr-uuid-client"  # the per-client DCR id used for routing
 
     async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
