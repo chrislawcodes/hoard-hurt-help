@@ -1,0 +1,117 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": true,
+    "reason": "Spec authored and ready for checkpoint. Cannot run the spec adversarial review in this remote container: 'codex' and 'gemini' CLIs are not installed (FileNotFoundError), and --fallback crashes with a telemetry RecursionError. Needs an environment with the review CLIs to run the spec checkpoint, OR a human decision to proceed with a manual review. Open product decision for the plan: should /play route through the resolver (recommended) or stay lobby-first?",
+    "updated_at": 1781646369
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [
+      "'Set up your agent to pull' = the step where the user pastes the play-prompt into their MCP client so the agent starts polling for turns (today's seat-connect / loop-running state).",
+      "The nav label may keep 'connected once' semantics while the join gate keeps 'live now' \u2014 modeled as a parameter on the resolver (e.g. require_live), not two separate ladders.",
+      "'Per-provider MCP connection' is a CONCEPTUAL unit derived over connection_providers toggles; physical storage is unchanged."
+    ],
+    "summary": "Rich prior conversation settled the design; carrying 3 explicit assumptions. Cross-cutting across 6 files with intentional behavior changes \u2014 full FF path forced (size heuristic mis-reads the not-yet-implemented 0-line diff as trivial).",
+    "updated_at": 1781646318,
+    "answers": {},
+    "non_goals": [
+      "No new module or subsystem \u2014 consolidate onto connection_health.py + nav_context.py only.",
+      "No DB schema or migration change; storage stays one-connection-per-user + connection_providers per-provider toggles.",
+      "No change to the MCP OAuth bridge or per-user connection creation mechanics.",
+      "Do not revisit strategy-first ordering \u2014 agent-before-connection stays.",
+      "Do not redesign the seat-hold / connect-countdown UX; only its 'what is missing' decision routes through the resolver."
+    ],
+    "acceptance_criteria": [
+      "spec.md tables how all 5 entry points (nav CTA, /play, auth.py post-login redirect, agents_create destination, web_player._join_setup_redirect) decide the next step today \u2014 naming the exact predicate each uses \u2014 and the agreed unified definition for each gate.",
+      "connection_health.py exposes ONE provider-capability function returning a tri-state {NO_MCP_CONNECTION, CONNECTED_NOT_LIVE, LIVE}; the ~6 existing predicates are re-expressed over it or explicitly documented as retained wrappers.",
+      "nav_context.py exposes resolve_onboarding_state(user, intent) -> (stage, next_url); all 5 entry points call it instead of re-deriving the ladder.",
+      "Every behavior change at a site that disagrees today is enumerated and intentional, with a before/after note.",
+      "Tests cover the tri-state and the resolver ladder for each stage transition; Preflight Gate green."
+    ],
+    "checklist": {
+      "goal": "One intent-driven onboarding pipeline whose 'what is my next step' logic is centralized on EXISTING modules (no new module): a single provider-capability tri-state in app/engine/connection_health.py, and a shared resolve_onboarding_state() promoted from compute_nav_cta in app/routes/nav_context.py that every entry point calls.",
+      "audience": "Signed-in users getting an AI agent into a game (esp. the 'signed in, no provider connected' path), and the developers who keep hitting drift bugs because each onboarding entry point re-derives the ladder differently.",
+      "constraints": "nav_context.py lives in app/routes/ and would own a broadened resolver; an optional rename to onboarding_state.py is cosmetic, not architectural."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "bd010ab41e3df6aa1005990040f43a9e4ec4ade7",
+  "token_usage": [],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-16T21:45:07Z",
+      "wall_seconds": 0.013,
+      "input_bytes_read": 7964,
+      "output_bytes_written": 3982,
+      "files_read": 2,
+      "files_written": 1,
+      "subprocess_invocations": 2,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-16T21:45:24Z",
+      "wall_seconds": 0.335,
+      "input_bytes_read": 41268,
+      "output_bytes_written": 19177,
+      "files_read": 7,
+      "files_written": 5,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-16T21:45:42Z",
+      "wall_seconds": 0.347,
+      "input_bytes_read": 35933,
+      "output_bytes_written": 16216,
+      "files_read": 6,
+      "files_written": 4,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5",
+        "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5"
+      ],
+      "initial_sha": "f64cbc08f6a1994720b8af0672c4f6992b0cba9f970ae12c5f285b41e0eed0a5"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 1
+}
