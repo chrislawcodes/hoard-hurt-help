@@ -228,6 +228,12 @@ async def live_status_fragment(
         )
         in {ProviderReadiness.SEEN_NOT_POLLING, ProviderReadiness.LIVE}
     )
+    # When the AI transitions to PLAYING, redirect to the lobby and set a session
+    # flag so the lobby shows the "Your agent is connected!" banner.
+    if context["is_playing_now"]:
+        redirect_target = next_url or str(context["lobby_url"])
+        request.session["agent_connected"] = True
+        return HTMLResponse("", headers={"HX-Redirect": redirect_target})
     if next_url and (
         poll_provider_seen or (provider_hint is None and context["is_live_now"])
     ):

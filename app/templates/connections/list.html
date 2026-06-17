@@ -20,8 +20,8 @@
     <div class="card" id="connect">
         <h2 style="margin-top:0;">Connect {{ target_provider_label }}</h2>
         <p class="hint" style="margin-bottom:0.9rem;">{{ target_provider_label }} isn't connected yet. Add its MCP server and sign in with Google — this page moves on by itself the moment it connects.</p>
-        {% include "connections/_connect_picker.html" %}
         {% include "connections/_live_status.html" %}
+        {% include "connections/_connect_picker.html" %}
     </div>
 
 {% elif is_live_now %}
@@ -66,9 +66,9 @@
         <h2 style="margin-top:0;">Connect your AI provider</h2>
         <p class="hint" style="margin-bottom:0.9rem;">Pick your provider, then follow the steps. The page moves on by itself the moment you're connected.</p>
 
-        {% include "connections/_connect_picker.html" %}
-
         {% include "connections/_live_status.html" %}
+
+        {% include "connections/_connect_picker.html" %}
     </div>
 {% endif %}
 

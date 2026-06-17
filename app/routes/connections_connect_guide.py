@@ -114,17 +114,24 @@ def _connect_options() -> list[ConnectOption]:
             client_id="codex",
             client_label="Codex",
             kind="command",
-            # One paste does both: add the server and trigger the sign-in. Pasting
-            # both lines into a shell runs them in order, so there's no second step.
-            command=(
-                f"codex mcp add agentludum --url {mcp_url}\n"
-                "codex mcp login agentludum"
+            # codex mcp add detects OAuth and completes the Google sign-in itself
+            # (no separate `mcp login` — that just starts a second, redundant
+            # OAuth). The browser sign-in pops up during this command.
+            command=f"codex mcp add agentludum --url {mcp_url}",
+            # Step 2 is the full play prompt, pasted into a FRESH Codex session.
+            # Codex only loads a newly-added MCP server when a session starts, so a
+            # new `codex` run is required; pasting the prompt there fires the
+            # initialize handshake (page flips to Connected) AND starts the poll
+            # loop in one go. The prompt goes in Codex's input box, not the shell —
+            # it's full of backticks/quotes/apostrophes that a shell arg would
+            # mangle, so we deliberately do NOT inline it into the command above.
+            signin_title="Start Codex and paste this to play",
+            signin_command=_play_prompt(),
+            signin_note=(
+                "First approve the Google sign-in the command above opens — no key "
+                "needed. Then run `codex` and paste this; it connects and starts "
+                "playing your games on its own."
             ),
-            # Codex's one paste does the sign-in too, so step 2 is just the
-            # browser approval — "Sign in with Google" is the real action here.
-            signin_title="Sign in with Google",
-            signin_command=None,
-            signin_note="A browser opens — approve the Google sign-in. No key needed.",
             steps=(),
             note=None,
         ),
