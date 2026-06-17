@@ -553,9 +553,14 @@ async def seat_connect(
         if provider is not None
         else "your AI"
     )
-    if provider is not None and await provider_readiness(
-        db, user.id, provider
-    ) == ProviderReadiness.NO_MCP_CONNECTION:
+    if provider is not None and await provider_readiness(db, user.id, provider) in (
+        ProviderReadiness.NO_MCP_CONNECTION,
+        ProviderReadiness.CONNECTED_NOT_LIVE,
+    ):
+        # No *active* MCP connection: either nothing set up, or set up but not
+        # seen within LIVE_WINDOW_SECONDS. An inactive connection needs reconnect,
+        # not "start polling" — send it to /me/connections. Only SEEN_NOT_POLLING
+        # (active but not looping yet) belongs on the wait page below.
         return RedirectResponse(
             url=(
                 f"/me/connections?provider={provider.value}"

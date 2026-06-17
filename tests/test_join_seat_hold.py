@@ -202,9 +202,15 @@ async def test_join_offline_agent_holds_and_goes_to_countdown(client, reset_db):
 # ---------------------------------------------------------------------------
 
 
-async def _held_seat_for_state(reset_db, *, model: str, with_connection: bool) -> tuple[int, int]:
-    """A held seat for an agent. with_connection enables that provider (RETURNING);
-    without one the provider is set up nowhere (NEW)."""
+async def _held_seat_for_state(
+    reset_db, *, model: str, with_connection: bool, seen_recently: bool = False
+) -> tuple[int, int]:
+    """A held seat for an agent.
+
+    with_connection enables that provider (RETURNING); without one the provider
+    is set up nowhere (NEW). seen_recently sets a fresh last_seen_at so the
+    connection reads as live (SEEN_NOT_POLLING) rather than CONNECTED_NOT_LIVE.
+    """
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection = None
@@ -213,6 +219,10 @@ async def _held_seat_for_state(reset_db, *, model: str, with_connection: bool) -
             now = datetime.now(timezone.utc)
             connection.mcp_connected_at = now
             connection.first_connected_at = now
+            if seen_recently:
+                # last_seen recent (within LIVE_WINDOW) but last_polled stale →
+                # the play loop isn't running → SEEN_NOT_POLLING.
+                connection.last_seen_at = now
         agent, _v = await make_agent(db, user, connection=connection, model=model, name="Atlas")
         player = Player(
             match_id="G_001",
@@ -228,11 +238,14 @@ async def _held_seat_for_state(reset_db, *, model: str, with_connection: bool) -
 
 
 @pytest.mark.asyncio
-async def test_seat_connect_shows_mcp_play_prompt_returning(client, reset_db):
-    """A configured-but-offline provider gets the MCP play prompt, not a raw HTTP
-    self-setup key."""
+async def test_seat_connect_shows_mcp_play_prompt_seen_not_polling(client, reset_db):
+    """A live-but-not-polling provider (SEEN_NOT_POLLING) gets the MCP play
+    prompt wait page, not a raw HTTP self-setup key — the AI is online, it just
+    needs to start the play loop."""
     await _seed_match(reset_db)
-    uid, pid = await _held_seat_for_state(reset_db, model="claude-haiku-4-5", with_connection=True)
+    uid, pid = await _held_seat_for_state(
+        reset_db, model="claude-haiku-4-5", with_connection=True, seen_recently=True
+    )
     r = await client.get(
         f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", cookies=_cookies(uid)
     )
@@ -242,6 +255,29 @@ async def test_seat_connect_shows_mcp_play_prompt_returning(client, reset_db):
     assert "never ask me for a key or token" in r.text
     assert "sk_conn_" not in r.text
     assert "/api/agent/next-turn" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_seat_connect_redirects_connected_not_live_provider_to_mcp_setup(
+    client, reset_db
+):
+    """A provider that is set up but not seen live (CONNECTED_NOT_LIVE) is sent
+    to /me/connections to reconnect — an inactive connection needs reconnect, not
+    the 'start polling' wait page."""
+    await _seed_match(reset_db)
+    # with_connection but seen_recently=False → mcp_connected_at recent, no
+    # last_seen_at → CONNECTED_NOT_LIVE.
+    uid, pid = await _held_seat_for_state(
+        reset_db, model="claude-haiku-4-5", with_connection=True
+    )
+    r = await client.get(
+        f"/games/hoard-hurt-help/matches/G_001/connect/{pid}",
+        cookies=_cookies(uid),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", safe="")
+    assert r.headers["location"] == f"/me/connections?provider=claude&next={next_url}"
 
 
 @pytest.mark.asyncio

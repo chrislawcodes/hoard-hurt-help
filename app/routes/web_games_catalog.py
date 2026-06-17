@@ -1,14 +1,13 @@
 """Game catalog and play-hub web routes.
 
-Covers the catalog of playable titles (`/games`), the smart `/play` hub that
-routes each visitor to the right next step, and the per-game agent-instructions
-page.
+Covers the catalog of playable titles (`/games`), the `/play` hub that sends each
+visitor to the lobby (signed in) or sign-in (signed out), and the per-game
+agent-instructions page.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
-from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -17,7 +16,7 @@ from app.deps import DbSession, get_current_user
 from app.games import get as get_game_module
 from app.games import is_admin_only, visible_types
 from app.games.base import GameError
-from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
+from app.routes.nav_context import LOBBY_URL
 from app.routes.web_support import _is_any_admin
 from app.templating import templates
 
@@ -69,12 +68,11 @@ async def games_catalog(request: Request, db: DbSession):
 
 @router.get("/play")
 async def operator_join_page(request: Request, db: DbSession):
-    """Smart redirect: sends each visitor to the right next step.
+    """Dumb redirect into the game.
 
-    Not signed in → sign in (returning to agent setup).
-    No handle → pick a handle first (agent setup requires one).
-    No connected agent → the agents panel (create one, or connect it).
-    Connected agent → lobby where they can join a match.
+    Not signed in → sign in (returning to the game page).
+    Signed in → the lobby. All setup gating (handle, agent, MCP connection,
+    live) lives on the join flow, not here.
     """
     user = await get_current_user(request, db)
 
@@ -83,15 +81,7 @@ async def operator_join_page(request: Request, db: DbSession):
             "/auth/google/login?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
         )
 
-    state = await resolve_play_setup_state(db, user)
-    next_url = state.next_url
-    if state.stage != PlaySetupStage.READY:
-        # Thread the user back through /play after each setup step, so finishing
-        # a gate re-enters the funnel and advances to the next gate (and finally
-        # the lobby) instead of stranding them on the page they just completed.
-        separator = "&" if "?" in next_url else "?"
-        next_url = f"{next_url}{separator}next={quote('/play', safe='')}"
-    return RedirectResponse(next_url, status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(LOBBY_URL, status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/games/{game}/agent-instructions", response_class=HTMLResponse)

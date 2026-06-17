@@ -1,13 +1,8 @@
-"""Tests for the /play smart-redirect hub and agents_create post-create routing.
+"""Tests for the /play hub and agents_create post-create routing.
 
 Covers:
-  - /play for the four visitor states (signed-out, no handle, no agent, all set).
-  - The key behavior change: a signed-in user with handle + agent but NO connected
-    provider is now redirected to /me/connections (a setup gate), NOT dropped at
-    the lobby.
-  - Loop-guard: a "seen-but-not-polling" user (mcp_connected_at recent, last_seen
-    recent, last_polled stale) gets the lobby, not a redirect cycle.
-  - READY user is never sent to a setup URL.
+  - /play is dumb: signed-out → sign-in; any signed-in user → the lobby,
+    regardless of setup state. All setup gating moved to the join flow.
   - agents_create POST: provider not set up → /me/connections?provider=...; provider
     set up (recent mcp_connected_at) → agent detail / next.
 """
@@ -86,7 +81,9 @@ async def test_play_signed_out_redirects_to_login(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_play_no_handle_redirects_to_handle(client, reset_db):
+async def test_play_no_handle_goes_to_lobby(client, reset_db):
+    # /play is dumb now: a signed-in user lands on the lobby even with no handle.
+    # The handle gate moved to the join flow.
     async with reset_db() as db:
         user = await make_user(db, 0)
         user.handle = None
@@ -95,21 +92,16 @@ async def test_play_no_handle_redirects_to_handle(client, reset_db):
         await db.refresh(user)
     r = await client.get("/play", cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 302
-    loc = r.headers["location"]
-    assert loc.startswith("/me/handle")
-    # /play threads ?next back to itself so finishing a gate re-enters the funnel
-    # instead of stranding the user on the page they just completed.
-    assert "next=%2Fplay" in loc
+    assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio
-async def test_play_no_agent_redirects_to_agents_new(client, reset_db):
-    # Signed in with a handle but no agent → /me/agents/new
+async def test_play_no_agent_goes_to_lobby(client, reset_db):
+    # Signed in with a handle but no agent → still the lobby (no smart funnel).
     user = await _user_with_handle(reset_db)
     r = await client.get("/play", cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 302
-    loc = r.headers["location"]
-    assert loc.startswith("/me/agents/new")
+    assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio
@@ -130,31 +122,26 @@ async def test_play_with_live_agent_redirects_to_lobby(client, reset_db):
 
 
 # ---------------------------------------------------------------------------
-# KEY BEHAVIOR CHANGE: agent + NO connected provider → connections gate
+# /play is dumb: agent + NO connected provider still goes to the lobby. The
+# provider gate now lives on the join flow, not on /play.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_play_agent_but_no_mcp_connection_redirects_to_connections(client, reset_db):
-    """⚠ Changed behavior: user has handle + agent but NO MCP connection.
+async def test_play_agent_but_no_mcp_connection_goes_to_lobby(client, reset_db):
+    """User has handle + agent but NO MCP connection → still the lobby.
 
-    Previously: lobby (no provider gate was checked here).
-    Now: /me/connections?provider=... so the user sets up their AI client.
+    The /play smart funnel was removed; the provider gate is enforced on the
+    join flow instead (see test_join_seat_hold / _join_setup_redirect coverage).
     """
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        # make_agent without a connection: agent has provider=claude but no connection
-        # row → provider_readiness returns NO_MCP_CONNECTION.
         await make_agent(db, u, name="Atlas")
         await db.commit()
     r = await client.get("/play", cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 302
-    loc = r.headers["location"]
-    assert "/me/connections" in loc
-    assert "provider=" in loc
-    # Must NOT be sent to the lobby.
-    assert "lobby" not in loc
+    assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 # ---------------------------------------------------------------------------
