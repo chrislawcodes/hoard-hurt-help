@@ -265,7 +265,10 @@ async def test_play_unconnected_agent_goes_to_connect(client, reset_db):
         "/play", cookies=_signed_in_cookies(user_id), follow_redirects=False
     )
     assert r.status_code == 302
-    assert r.headers["location"] == "/me/connections?provider=claude"
+    loc = r.headers["location"]
+    assert loc.startswith("/me/connections?provider=claude")
+    # /play threads ?next back to itself so the funnel re-enters after connecting.
+    assert "next=%2Fplay" in loc
 
 
 @pytest.mark.asyncio

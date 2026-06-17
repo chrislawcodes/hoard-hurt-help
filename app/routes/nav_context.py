@@ -121,20 +121,6 @@ async def user_disconnected_connection_count(db: AsyncSession, user_id: int) -> 
     return (await db.scalar(stmt)) or 0
 
 
-async def user_has_agent(db: AsyncSession, user_id: int) -> bool:
-    """True if the user owns at least one real (non-bot) AI agent."""
-    stmt = (
-        select(func.count())
-        .select_from(Agent)
-        .where(
-            Agent.user_id == user_id,
-            Agent.archived_at.is_(None),
-            Agent.kind == AgentKind.AI,
-        )
-    )
-    return bool(await db.scalar(stmt))
-
-
 async def _eligible_agent_providers(
     db: AsyncSession, user_id: int
 ) -> list[ConnectionProvider]:
@@ -161,7 +147,8 @@ async def _eligible_agent_providers(
         .scalars()
         .all()
     )
-    # provider IS NULL is filtered in SQL, so every row here is a real provider.
+    # provider IS NULL is filtered in SQL; the comprehension also narrows the row
+    # type from ConnectionProvider | None to ConnectionProvider for the checker.
     return [p for p in rows if p is not None]
 
 

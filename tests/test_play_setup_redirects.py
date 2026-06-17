@@ -95,7 +95,11 @@ async def test_play_no_handle_redirects_to_handle(client, reset_db):
         await db.refresh(user)
     r = await client.get("/play", cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 302
-    assert r.headers["location"].startswith("/me/handle")
+    loc = r.headers["location"]
+    assert loc.startswith("/me/handle")
+    # /play threads ?next back to itself so finishing a gate re-enters the funnel
+    # instead of stranding the user on the page they just completed.
+    assert "next=%2Fplay" in loc
 
 
 @pytest.mark.asyncio

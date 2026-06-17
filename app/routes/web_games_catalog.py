@@ -8,6 +8,7 @@ page.
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,7 +17,7 @@ from app.deps import DbSession, get_current_user
 from app.games import get as get_game_module
 from app.games import is_admin_only, visible_types
 from app.games.base import GameError
-from app.routes.nav_context import resolve_play_setup_state
+from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
 from app.routes.web_support import _is_any_admin
 from app.templating import templates
 
@@ -82,10 +83,15 @@ async def operator_join_page(request: Request, db: DbSession):
             "/auth/google/login?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
         )
 
-    return RedirectResponse(
-        (await resolve_play_setup_state(db, user)).next_url,
-        status_code=status.HTTP_302_FOUND,
-    )
+    state = await resolve_play_setup_state(db, user)
+    next_url = state.next_url
+    if state.stage != PlaySetupStage.READY:
+        # Thread the user back through /play after each setup step, so finishing
+        # a gate re-enters the funnel and advances to the next gate (and finally
+        # the lobby) instead of stranding them on the page they just completed.
+        separator = "&" if "?" in next_url else "?"
+        next_url = f"{next_url}{separator}next={quote('/play', safe='')}"
+    return RedirectResponse(next_url, status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/games/{game}/agent-instructions", response_class=HTMLResponse)

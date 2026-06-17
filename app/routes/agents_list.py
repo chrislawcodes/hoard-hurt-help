@@ -17,6 +17,7 @@ from app.engine.connection_health import (
 )
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
+from app.models.connection import ConnectionProvider
 from app.models.user import User
 from app.routes.agents_health_presenter import (
     AgentRow,
@@ -59,7 +60,7 @@ async def list_agents(
     distinct_providers = {
         agent.provider for agent, _ in agents if agent.provider is not None
     }
-    readiness_by_provider: dict[object, ProviderReadiness] = {
+    readiness_by_provider: dict[ConnectionProvider, ProviderReadiness] = {
         prov: await provider_readiness(db, user.id, prov)
         for prov in distinct_providers
     }

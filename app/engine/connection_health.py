@@ -550,34 +550,6 @@ async def enabled_provider_values(db: AsyncSession, user_id: int) -> set[str]:
     return {p.value for p in rows}
 
 
-async def enabled_provider_values_on_nonpaused_connections(
-    db: AsyncSession, user_id: int
-) -> set[str]:
-    """Provider values enabled on any non-paused, non-deleted connection.
-
-    This is the coverage signal for the agent list's ready-vs-needs-connecting
-    state. A provider enabled only on a paused connection still needs
-    reconnecting, so paused rows are excluded here on purpose.
-    """
-    rows = (
-        (
-            await db.execute(
-                select(ConnectionProviderRow.provider)
-                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
-                .where(
-                    Connection.user_id == user_id,
-                    Connection.deleted_at.is_(None),
-                    Connection.status != ConnectionStatus.PAUSED,
-                    ConnectionProviderRow.enabled.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return {p.value for p in rows}
-
-
 async def active_matches_for_provider(
     db: AsyncSession, user_id: int, provider: ConnectionProvider
 ) -> int:
