@@ -322,21 +322,22 @@ async def _connection_from_token(
     token: object,
     *,
     provider: ConnectionProvider | None,
+    oauth_client_id: str | None = None,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
     """Resolve a verified OAuth token to the caller's MCP connection.
 
     Creates the connection on first sight and reuses it thereafter. ``provider``
     is the single provider the connecting MCP client speaks for — each provider
-    gets its own connection (one client == one provider). When ``provider`` is
-    ``None`` (an unidentified client) we cannot create one, so we reuse the
-    caller's single existing MCP connection if there is exactly one, otherwise
-    raise. Does NOT record the call — see ``mark_seen`` for the heartbeat /
+    gets its own connection (one client == one provider). ``oauth_client_id``
+    is the OAuth Dynamic Client Registration client_id from the token; it is the
+    primary lookup key in stateless-HTTP mode where session memory is unavailable.
+    Does NOT record the call — see ``mark_seen`` for the heartbeat /
     usage-count side of a request.
     """
     access_token = _require_access_token(token)
     userinfo = _google_userinfo_from_token(access_token)
     user = await sync_google_user(db, userinfo)
-    connection = await mcp_connection_for(db, user, provider=provider)
+    connection = await mcp_connection_for(db, user, provider=provider, oauth_client_id=oauth_client_id)
     if connection is None:
         # No provider to key on and no single existing connection to fall back to —
         # we genuinely can't tell which AI client this is. Fail loud rather than
@@ -362,9 +363,12 @@ async def _resolve_oauth_connection(
     db: AsyncSession,
     token: object,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
-    provider = _client_provider_from_context()
+    # Use token.client_id as the primary lookup key. In stateless-HTTP mode
+    # session memory is wiped between requests, so _client_provider_from_context()
+    # always returns None on tool calls — the token is the only stable identity.
+    oauth_client_id = _require_access_token(token).client_id
     access_token, userinfo, connection = await _connection_from_token(
-        db, token, provider=provider
+        db, token, provider=None, oauth_client_id=oauth_client_id
     )
     await mark_seen(db, connection, key_hash=connection.key_lookup)
     return access_token, userinfo, connection
@@ -389,8 +393,9 @@ async def _bootstrap_signin_connection(
     the first tool call's ``_resolve_oauth_connection`` remains the authoritative
     place the connection is created and recorded.
     """
+    oauth_client_id = _require_access_token(token).client_id
     async with SessionLocal() as db:
-        await _connection_from_token(db, token, provider=provider)
+        await _connection_from_token(db, token, provider=provider, oauth_client_id=oauth_client_id)
         await db.commit()
 
 

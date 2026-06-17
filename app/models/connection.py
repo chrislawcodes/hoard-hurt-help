@@ -105,6 +105,7 @@ class Connection(Base):
         nullable=True,
     )
     runner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    oauth_client_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Lifetime usage counters for this connection, surfaced on the detail page so
     # an operator running interactive (MCP) play can see what it's costing them.
     # `api_call_count` counts every authenticated agent call (each is a paid model

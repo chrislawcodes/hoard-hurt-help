@@ -105,15 +105,48 @@ async def _mcp_connection_once(
     *,
     now: datetime,
     provider: ConnectionProvider | None,
+    oauth_client_id: str | None = None,
 ) -> Connection | None:
-    """Return the user's live MCP connection for ``provider``, creating or
-    resurrecting it as needed.
+    """Return the user's live MCP connection, creating or resurrecting it as needed.
 
-    ``provider`` is required to create a connection — each provider gets its own.
-    When ``provider`` is None (an unidentified client), we never create; we just
-    reuse the user's single existing connection if there is exactly one, else
-    return None.
+    Lookup priority:
+    1. ``oauth_client_id`` match — the stable per-registration key, works in
+       stateless-HTTP mode where session memory is wiped between requests.
+    2. ``provider`` match — used during ``initialize`` (when both are known) and
+       as a fallback for clients that haven't re-initialized since the deploy.
+    3. Single-connection fallback — only when provider is None and the user has
+       exactly one live connection (keeps working for pre-deploy clients).
+
+    ``provider`` is required to *create* a connection. When it is None and no
+    ``oauth_client_id`` matches, we never create; see case 3 above.
     """
+    if oauth_client_id is not None:
+        live_by_client = (
+            (
+                await db.execute(
+                    select(Connection)
+                    .options(joinedload(Connection.user).load_only(User.disabled_at))
+                    .where(
+                        Connection.user_id == user_id,
+                        Connection.oauth_client_id == oauth_client_id,
+                        Connection.mcp_connected_at.is_not(None),
+                        Connection.deleted_at.is_(None),
+                    )
+                    .order_by(Connection.id.desc())
+                    .limit(1)
+                )
+            )
+            .scalar_one_or_none()
+        )
+        if live_by_client is not None:
+            if live_by_client.status != ConnectionStatus.PAUSED:
+                live_by_client.last_seen_at = now
+                if live_by_client.first_connected_at is None:
+                    live_by_client.first_connected_at = now
+                if live_by_client.status == ConnectionStatus.PENDING:
+                    live_by_client.status = ConnectionStatus.ACTIVE
+            return live_by_client
+
     if provider is None:
         return await _existing_mcp_connection(db, user_id)
 
@@ -141,6 +174,8 @@ async def _mcp_connection_once(
                 live_connection.first_connected_at = now
             if live_connection.status == ConnectionStatus.PENDING:
                 live_connection.status = ConnectionStatus.ACTIVE
+        if oauth_client_id is not None and live_connection.oauth_client_id != oauth_client_id:
+            live_connection.oauth_client_id = oauth_client_id
         await _ensure_mcp_connection_provider(db, live_connection, provider)
         return live_connection
 
@@ -170,6 +205,8 @@ async def _mcp_connection_once(
         if deleted_connection.first_connected_at is None:
             deleted_connection.first_connected_at = now
         deleted_connection.last_seen_at = now
+        if oauth_client_id is not None:
+            deleted_connection.oauth_client_id = oauth_client_id
         await _ensure_mcp_connection_provider(db, deleted_connection, provider)
         return deleted_connection
 
@@ -177,6 +214,7 @@ async def _mcp_connection_once(
     connection = Connection(
         user_id=user_id,
         provider=provider,
+        oauth_client_id=oauth_client_id,
         key_lookup=bot_key_lookup(raw_key),
         key_hint=bot_key_hint(raw_key),
         status=ConnectionStatus.ACTIVE,
@@ -204,22 +242,21 @@ async def mcp_connection_for(
     user: User,
     *,
     provider: ConnectionProvider | None = None,
+    oauth_client_id: str | None = None,
     now: datetime | None = None,
     max_attempts: int = _MAX_ATTEMPTS,
 ) -> Connection | None:
-    """Return the user's MCP connection for ``provider``, creating it if new.
+    """Return the user's MCP connection, creating it if new.
 
-    ``provider`` is the single AI provider the connecting MCP client speaks for;
-    each provider gets its own connection (one client == one provider, #392).
-    ``provider`` is REQUIRED to create a connection. When it is ``None`` — the
-    caller cannot tell which client connected (e.g. the bare sign-in token
-    exchange) — nothing is created: we return the user's single existing MCP
-    connection if there is exactly one, otherwise ``None``.
+    Lookup priority: ``oauth_client_id`` (stable per-registration key, works in
+    stateless-HTTP mode) → ``provider`` (used on initialize, fallback for old
+    clients) → single-connection fallback (when provider is also None).
 
-    The helper is safe to call from concurrent OAuth callbacks or parallel first
-    tool calls. A partial unique index keeps only one live row per (user,
-    provider); retryable integrity/lock races are re-read and converge on the
-    same row.
+    ``provider`` is REQUIRED to create a new connection. ``oauth_client_id``
+    is written to the row on every match so re-registrations stay current.
+
+    Safe to call from concurrent OAuth callbacks: a partial unique index keeps
+    one live row per (user, provider); retryable races re-read and converge.
     """
     resolved_now = now or datetime.now(timezone.utc)
     user_id = user.id
@@ -229,7 +266,8 @@ async def mcp_connection_for(
             try:
                 async with db.begin_nested():
                     connection = await _mcp_connection_once(
-                        db, user_id, now=resolved_now, provider=provider
+                        db, user_id, now=resolved_now, provider=provider,
+                        oauth_client_id=oauth_client_id,
                     )
                     await db.flush()
                     return connection

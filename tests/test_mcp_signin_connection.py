@@ -85,17 +85,23 @@ async def test_signin_creates_active_connection_without_counting_a_call(
 @pytest.mark.asyncio
 async def test_tool_path_still_records_the_call(
     db_session_factory: async_sessionmaker[AsyncSession],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The tool path is unchanged: it records the authenticated call (cost
-    signal), unlike the sign-in handshake. The client is identified from context
-    (one client == one provider), so the call resolves to that provider's
-    connection."""
-    monkeypatch.setattr(
-        server, "_client_provider_from_context", lambda: ConnectionProvider.GEMINI
-    )
+    """The tool path records the authenticated call (cost signal), unlike the
+    sign-in handshake. The client is identified by token.client_id, which is
+    stable across stateless-HTTP requests. The initialize path creates the
+    connection; tool calls look it up via oauth_client_id and record the call."""
+    tok = _token()
     async with db_session_factory() as db:
-        _access, _userinfo, connection = await server._resolve_oauth_connection(db, _token())
+        # Simulate initialize: create the connection with provider + oauth_client_id.
+        await server._connection_from_token(
+            db, tok, provider=ConnectionProvider.GEMINI, oauth_client_id=tok.client_id
+        )
+        await db.commit()
+
+    async with db_session_factory() as db:
+        # Simulate a tool call: _resolve_oauth_connection uses token.client_id.
+        _access, _userinfo, connection = await server._resolve_oauth_connection(db, tok)
+        await db.commit()
         refreshed = (
             await db.execute(select(Connection).where(Connection.id == connection.id))
         ).scalar_one()
