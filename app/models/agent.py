@@ -16,6 +16,11 @@ from app.models.enum_types import FlexibleEnumType
 class AgentKind(str, enum.Enum):
     AI = "ai"
     BOT = "bot"
+    # A human-controlled seat. Like a bot, it has no Connection and no provider
+    # (a person drives it through the web, not an LLM); unlike a bot, its moves
+    # come from the play panel, not the deterministic runtime. Excluded from all
+    # connection/provider/capacity routing the same way BOT is.
+    HUMAN = "human"
 
 
 class AgentStatus(str, enum.Enum):

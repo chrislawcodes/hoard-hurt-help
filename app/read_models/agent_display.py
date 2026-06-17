@@ -29,6 +29,10 @@ def agent_display_name(agent: Agent, version: AgentVersion | None = None) -> str
         return _strip_internal_bot_prefix(_strip_archive_suffix(agent.name))
 
     base_name = _strip_archive_suffix(agent.name)
+    # A human has no model to append (the public in-match label is the seat name
+    # anyway); show just the name.
+    if agent.kind == AgentKind.HUMAN:
+        return base_name
     if version is not None:
         return f"{base_name} · {version.model}"
     return base_name

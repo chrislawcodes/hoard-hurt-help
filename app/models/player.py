@@ -53,6 +53,13 @@ class Player(Base):
     seat_reserved_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Human-player autopilot. Set when a human leaves a match in progress: the
+    # seat is NOT removed (that is `left_at`), it keeps playing on autopilot —
+    # the bot auto-submit pass records Hoard / an empty message for it every
+    # turn, immediately, so it never makes the table wait. The seat stays ranked.
+    autopilot_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     total_round_wins: Mapped[float] = mapped_column(default=0.0, nullable=False)
     total_round_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_round_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
