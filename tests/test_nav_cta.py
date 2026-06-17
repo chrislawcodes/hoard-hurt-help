@@ -66,10 +66,18 @@ def _desktop_nav_html(page: str) -> str:
 
 
 async def _connect(reset_db: async_sessionmaker, connection_id: int) -> None:
-    """Mark a connection as having connected at least once."""
+    """Mark a connection as having a current MCP setup.
+
+    The "Play now" bar moved from "connected once" (``first_connected_at``) to
+    "has current MCP setup" (a recent ``mcp_connected_at`` for an MCP provider),
+    so set both: ``first_connected_at`` for legacy signals and ``mcp_connected_at``
+    so the new readiness bar reads CONNECTED_NOT_LIVE.
+    """
     async with reset_db() as db:
         connection = (await db.execute(select(Connection).where(Connection.id == connection_id))).scalar_one()
-        connection.first_connected_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        connection.first_connected_at = now
+        connection.mcp_connected_at = now
         await db.commit()
 
 
@@ -122,11 +130,14 @@ async def test_cta_unconnected_agent_is_connect(reset_db):
 
 @pytest.mark.asyncio
 async def test_cta_connected_agent_is_play_now(reset_db):
+    # The "Play now" bar is now "has current MCP setup" (provider_readiness >=
+    # CONNECTED_NOT_LIVE), so a Claude (MCP) provider needs a recent mcp_connected_at.
     async with reset_db() as db:
         user = await make_user(db)
         connection, _ = await make_connection(db, user)
         await make_agent(db, user, connection=connection, name="Atlas")
         connection.first_connected_at = datetime.now(timezone.utc)
+        connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
         cta = await compute_nav_cta(db, user)
     assert cta.label == "Play now"
