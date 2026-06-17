@@ -19,13 +19,16 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
 from app.agent_prompt import MESSAGE_MAX_LENGTH
 from app.aware_datetime import ensure_aware
-from app.deps import DbSession, require_user
+from app.deps import DbSession, require_user, require_user_with_handle
+from app.engine.human_player import get_or_create_human_agent
 from app.engine.player_move import record_player_action
 from app.games import get as get_game_module
+from app.games import is_admin_only
 from app.games.base import GameError
 from app.identity import word_filter
 from app.models.agent import Agent, AgentKind
@@ -33,10 +36,28 @@ from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
+from app.read_models.matches import count_players
+from app.routes.web_support import _is_any_admin, _load_match_or_404
 
 router = APIRouter(tags=["web"])
 
 Phase = Literal["talk", "act"]
+
+# A human's public seat label: their handle/display name, capped to fit the column.
+_SEAT_NAME_MAX = 40
+
+
+def _unique_human_seat_name(base: str, existing: set[str]) -> str:
+    """A unique public seat name from a human's chosen display name."""
+    base = (base or "player").strip()[:_SEAT_NAME_MAX] or "player"
+    if base not in existing:
+        return base
+    for index in range(2, 100):
+        suffix = f" #{index}"
+        candidate = f"{base[: _SEAT_NAME_MAX - len(suffix)]}{suffix}"
+        if candidate not in existing:
+            return candidate
+    raise HTTPException(status_code=409, detail="Could not allocate a unique seat name.")
 
 
 def _play_error(code: str, message: str, http: int) -> HTTPException:
@@ -221,3 +242,118 @@ async def play_act(
         raise _play_error(exc.code, exc.message, status.HTTP_400_BAD_REQUEST) from exc
     await db.commit()
     return {"ok": True, "phase": "act", "resolves_at": turn.deadline_at.isoformat()}
+
+
+# --- join / leave ----------------------------------------------------------
+
+
+def _viewer_redirect(game: str, match_id: str) -> RedirectResponse:
+    return RedirectResponse(
+        url=f"/games/{game}/matches/{match_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/games/{game}/matches/{match_id}/play/join")
+async def play_join(
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    game: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
+    display_name: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    """Take a human seat in a scheduled match — no agent, no connection, no key.
+
+    Only a display name (defaulting to the user's handle) is needed. The seat is
+    active immediately (never held), and the human is reused as a kind=human agent
+    across their matches.
+    """
+    match = await _load_match_or_404(db, match_id)
+    if match.game != game:
+        raise HTTPException(status_code=404, detail="Match not found.")
+    if is_admin_only(match.game) and not _is_any_admin(user):
+        raise HTTPException(status_code=404, detail="Game not found.")
+    if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
+        raise HTTPException(status_code=409, detail="This match isn't open to join.")
+
+    # Already seated as a human? Go to the viewer rather than erroring.
+    already = (
+        await db.execute(
+            select(Player)
+            .join(Agent, Agent.id == Player.agent_id)
+            .where(
+                Player.match_id == match.id,
+                Player.user_id == user.id,
+                Agent.kind == AgentKind.HUMAN,
+                Player.left_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if already is not None:
+        return _viewer_redirect(match.game, match.id)
+
+    active = await count_players(db, match.id, active_only=True)
+    if active >= match.max_players:
+        raise HTTPException(status_code=409, detail="This match is full.")
+
+    agent, version = await get_or_create_human_agent(db, user, match.game)
+    existing_seats = set(
+        (
+            await db.execute(
+                select(Player.seat_name).where(Player.match_id == match.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    seat_name = _unique_human_seat_name(display_name or user.handle or "player", existing_seats)
+    db.add(
+        Player(
+            match_id=match.id,
+            user_id=user.id,
+            agent_id=agent.id,
+            agent_version_id=version.id,
+            seat_name=seat_name,
+        )
+    )
+    await db.commit()
+    return _viewer_redirect(match.game, match.id)
+
+
+@router.post("/games/{game}/matches/{match_id}/play/leave")
+async def play_leave(
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+    game: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
+) -> RedirectResponse:
+    """Leave a match. Before start the seat is freed; after start it auto-Hoards.
+
+    In-match leave is one-way for v1: the seat stays in the standings and plays
+    Hoard for the rest of the match (set via ``autopilot_at``), so the table is
+    never made to wait on a departed human.
+    """
+    row = (
+        await db.execute(
+            select(Player)
+            .join(Agent, Agent.id == Player.agent_id)
+            .where(
+                Player.match_id == match_id,
+                Player.user_id == user.id,
+                Agent.kind == AgentKind.HUMAN,
+                Player.left_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise _play_error(
+            "NOT_YOUR_SEAT", "You're not in this match.", status.HTTP_403_FORBIDDEN
+        )
+    match = await _load_match_or_404(db, match_id)
+    now = datetime.now(timezone.utc)
+    if match.state in (GameState.SCHEDULED, GameState.REGISTERING):
+        row.left_at = now  # pre-start: free the seat entirely
+    elif match.state == GameState.ACTIVE and row.autopilot_at is None:
+        row.autopilot_at = now  # in-match: seat auto-Hoards to the end
+    await db.commit()
+    return _viewer_redirect(game, match_id)
