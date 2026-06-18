@@ -466,9 +466,9 @@ async def test_connections_list_returning_state_shows_play_prompt(
     assert "Start playing" in text
     # The MCP play prompt leads the returning state.
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
-    assert "never ask me for a key or token" in text
+    assert "next_poll_after_seconds" in text
     assert "Reconnect below" in text
-    assert "get_chat" in text
+    assert "get_instructions" in text
     removed_tool = "get_" + "opponent_history"
     removed_stats_tool = "get_" + "standings"
     assert removed_tool not in text
@@ -510,7 +510,7 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
     assert "Tell your AI to play" in text
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
     assert "Negotiator · claude-haiku-4-5" in text
-    assert "get_chat" in text
+    assert "get_instructions" in text
     removed_tool = "get_" + "opponent_history"
     removed_stats_tool = "get_" + "standings"
     assert removed_tool not in text
