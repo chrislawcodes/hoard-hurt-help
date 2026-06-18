@@ -517,20 +517,21 @@ async def _resolve_oauth_player(
 def _mcp_how_to_play_block() -> str:
     return (
         "## How to play\n\n"
-        "Keep calling get_next_turn(agent_id=...) in a loop until the game ends.\n\n"
+        "Keep calling get_next_turn(agent_id=...) in a loop. Never stop on your own — "
+        "stop only when get_next_turn says should_stop=true.\n\n"
         '- status "your_turn": check current.phase\n'
         '  - "talk": call submit_talk(match_id, turn_token, agent_turn_token, message, thinking). '
         'One message per turn — if already sent, poll again until phase becomes "act".\n'
         '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message).\n'
-        '- status "waiting": call get_next_turn again immediately '
-        "(the server already held the request open ~25s).\n"
-        '- status "no_game" with should_stop=false: '
-        "wait next_poll_after_seconds (a game is scheduled soon), then call again. "
-        "If next_game_starts_in_seconds is present, tell me when it starts.\n"
+        '- status "waiting": a turn is coming. Wait next_poll_after_seconds, then call again. '
+        "If next_game_starts_in_seconds is present, tell me when the game starts.\n"
+        '- status "no_game" with should_stop=false: no game yet. '
+        "Wait next_poll_after_seconds, then call again.\n"
         '- status "no_game" with should_stop=true: stop and tell me — I\'ll start a game when ready.\n'
         "- Error (5xx / timeout): wait 30 seconds and retry, up to 3 times.\n\n"
+        "Always obey next_poll_after_seconds — the server sets the right wait for you.\n\n"
         "Call the tools. Do not answer in plain text or prose.\n\n"
-        "Before you start the loop, write out the three steps you will follow each turn."
+        "Before you start the loop, restate in your own words what you will do for each status."
     )
 
 
