@@ -471,7 +471,13 @@ def _idle_payload(idle: IdleStatus, *, waiting_poll_hint: int) -> dict[str, obje
     always-on connector ignores ``should_stop`` and keeps running by design.
     """
     if idle.has_game:
-        return {"status": "waiting", "next_poll_after_seconds": waiting_poll_hint}
+        waiting: dict[str, object] = {
+            "status": "waiting",
+            "next_poll_after_seconds": waiting_poll_hint,
+        }
+        if idle.seconds_to_next_start is not None:
+            waiting["next_game_starts_in_seconds"] = idle.seconds_to_next_start
+        return waiting
     payload: dict[str, object] = {
         "status": "no_game",
         "next_poll_after_seconds": waiting_poll_hint,

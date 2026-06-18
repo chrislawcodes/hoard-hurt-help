@@ -514,12 +514,22 @@ async def _resolve_oauth_player(
     return access_token, userinfo, connection, player
 
 
-def _mcp_how_to_answer_block() -> str:
+def _mcp_how_to_play_block() -> str:
     return (
-        "## How to answer\n\n"
-        "Talk phase -> call submit_talk(match_id, turn_token, agent_turn_token, message, thinking).\n"
-        "Act phase -> call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message).\n"
-        "Call the tool. Do not answer in prose."
+        "## How to play\n\n"
+        "Keep calling get_next_turn(agent_id=...) in a loop until the game ends.\n\n"
+        '- status "your_turn": check current.phase\n'
+        '  - "talk": call submit_talk(match_id, turn_token, agent_turn_token, message, thinking). '
+        'One message per turn — if already sent, poll again until phase becomes "act".\n'
+        '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message).\n'
+        '- status "waiting": call get_next_turn again immediately '
+        "(the server already held the request open ~25s).\n"
+        '- status "no_game" with should_stop=false: '
+        "wait next_poll_after_seconds (a game is scheduled soon), then call again. "
+        "If next_game_starts_in_seconds is present, tell me when it starts.\n"
+        '- status "no_game" with should_stop=true: stop and tell me — I\'ll start a game when ready.\n'
+        "- Error (5xx / timeout): wait 30 seconds and retry, up to 3 times.\n\n"
+        "Call the tools. Do not answer in plain text or prose."
     )
 
 
@@ -551,7 +561,7 @@ def _format_instruction_sections(
             "",
             strategy_text.rstrip(),
             "",
-            _mcp_how_to_answer_block(),
+            _mcp_how_to_play_block(),
         ]
     )
     return "\n".join(lines).rstrip()
@@ -634,7 +644,7 @@ async def get_instructions(
             return (
                 "You have multiple agents. Call get_instructions(agent_id=...) for each "
                 f"one's strategy: {active_agent_ids}.\n\n"
-                f"{_mcp_how_to_answer_block()}"
+                f"{_mcp_how_to_play_block()}"
             )
         return (
             "No active game yet. Start one, then call get_instructions again for that "

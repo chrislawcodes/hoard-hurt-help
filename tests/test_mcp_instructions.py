@@ -189,7 +189,7 @@ async def test_get_instructions_multiple_active_agents_returns_agent_note(
         assert "You have multiple agents" in text
         assert str(alpha.id) in text
         assert str(beta.id) in text
-        assert "## How to answer" in text
+        assert "## How to play" in text
         assert "## The rules" not in text
 
 
