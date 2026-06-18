@@ -529,7 +529,8 @@ def _mcp_how_to_play_block() -> str:
         "If next_game_starts_in_seconds is present, tell me when it starts.\n"
         '- status "no_game" with should_stop=true: stop and tell me — I\'ll start a game when ready.\n'
         "- Error (5xx / timeout): wait 30 seconds and retry, up to 3 times.\n\n"
-        "Call the tools. Do not answer in plain text or prose."
+        "Call the tools. Do not answer in plain text or prose.\n\n"
+        "Before you start the loop, write out the three steps you will follow each turn."
     )
 
 
