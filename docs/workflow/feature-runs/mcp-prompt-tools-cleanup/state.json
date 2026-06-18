@@ -668,5 +668,14 @@
     "blockers": []
   },
   "plan_adversarial_rounds": 4,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "heartbeats": [
+    {
+      "timestamp_pt": "2026-06-18T01:26:32.005708-07:00",
+      "timestamp_utc": "2026-06-18T08:26:32.005831+00:00",
+      "stage": "implement",
+      "activity": "codex running, last output 31s ago",
+      "elapsed_ms": 600005
+    }
+  ]
 }

@@ -75,6 +75,9 @@ class HoardHurtHelp(BaseGameModule):
     def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
         return make_rules_text(total_rounds, turns_per_round)
 
+    def semantic_rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
+        return make_game_rules_text(total_rounds, turns_per_round)
+
     def strategy_presets(self) -> list[StrategyPreset]:
         return PD_STRATEGY_PRESETS
 

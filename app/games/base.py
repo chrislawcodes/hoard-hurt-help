@@ -109,6 +109,10 @@ class GameModule(Protocol):
 
     def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str: ...
 
+    def semantic_rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
+        """Game rules text without the connector's response protocol."""
+        ...
+
     def strategy_presets(self) -> list[StrategyPreset]:
         """Named starting strategies offered to a player entering this game."""
         ...
@@ -328,6 +332,13 @@ class BaseGameModule:
         # Default: no per-move score effect to display in the viewer. Games whose
         # moves carry a nominal point value (e.g. PD) override this.
         return (0, None)
+
+    def semantic_rules_text(
+        self, total_rounds: int = 7, turns_per_round: int = 7
+    ) -> str:
+        # Default: no extra semantic rules block. Concrete games override this
+        # to keep MCP instructions free of the connector's JSON protocol.
+        return ""
 
     async def next_actor(self, db: AsyncSession, match: Match) -> str | None:
         # Simultaneous games resolve every player each turn — the scheduler does

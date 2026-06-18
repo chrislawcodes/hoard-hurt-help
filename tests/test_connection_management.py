@@ -467,10 +467,12 @@ async def test_connections_list_returning_state_shows_play_prompt(
     # The MCP play prompt leads the returning state.
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
     assert "never ask me for a key or token" in text
-    # The recovery nudge for returning users whose connection went to sleep:
-    # if the AI can't find the tools, reconnect below.
-    assert "can't find the game tools" in text
     assert "Reconnect below" in text
+    assert "get_chat" in text
+    removed_tool = "get_" + "opponent_history"
+    removed_stats_tool = "get_" + "standings"
+    assert removed_tool not in text
+    assert removed_stats_tool not in text
     # Full setup collapsed behind the "✓ Set up" disclosure.
     assert "✓ Set up" in text
     # Not live → still waiting; not the live block.
@@ -508,6 +510,11 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
     assert "Tell your AI to play" in text
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
     assert "Negotiator · claude-haiku-4-5" in text
+    assert "get_chat" in text
+    removed_tool = "get_" + "opponent_history"
+    removed_stats_tool = "get_" + "standings"
+    assert removed_tool not in text
+    assert removed_stats_tool not in text
     # No "Join a game" CTA — pasting the play-prompt is what starts play.
     assert "Join a game →" not in text
     # Not yet playing → not the success box, and not nudging to create an agent.
