@@ -252,7 +252,7 @@ async def test_seat_connect_shows_mcp_play_prompt_seen_not_polling(client, reset
     assert r.status_code == 200
     assert "bringing your AI online" in r.text
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in r.text
-    assert "never ask me for a key or token" in r.text
+    assert "next_poll_after_seconds" in r.text
     assert "sk_conn_" not in r.text
     assert "/api/agent/next-turn" not in r.text
 
