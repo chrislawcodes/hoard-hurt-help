@@ -47,7 +47,7 @@ from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import Match, GameState
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
+from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -200,6 +200,24 @@ async def _collect_candidates(
         ).first()
         if existing is not None:
             continue
+        # Talk-phase symmetry with the act check above: a player who has already
+        # broadcast their talk message has nothing left to do until the act phase
+        # opens. Without this, every poll during the talk->act gap re-serves the
+        # same full turn payload (entire history included), which bloats the AI's
+        # context and trips client-side loop detectors. Skip it so the loop
+        # long-polls and serves the act phase once, when it actually opens.
+        if turn.phase == "talk":
+            existing_message = (
+                await db.execute(
+                    select(TurnMessage.id).where(
+                        TurnMessage.turn_id == turn.id,
+                        TurnMessage.player_id == player.id,
+                        TurnMessage.was_defaulted.is_(False),
+                    )
+                )
+            ).first()
+            if existing_message is not None:
+                continue
         candidates.append(
             TurnCandidate(
                 match_id=match_id,

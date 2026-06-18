@@ -313,6 +313,63 @@ async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db
 
 
 @pytest.mark.asyncio
+async def test_next_turn_stops_reserving_talk_turn_after_message(
+    client, reset_db, monkeypatch
+):
+    """After a player submits its talk message, the next-turn loop must not keep
+    re-serving the same talk turn. It returns 'waiting' instead, so the loop
+    long-polls for the act phase rather than hammering the server with the full
+    turn payload every poll (which trips client-side loop detectors)."""
+    # Don't actually hold the request open — return the idle payload at once.
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0)
+
+    game, players = await _seed_game(reset_db)
+    key = players[0]._test_key
+    talk_turn = await _open_turn(reset_db, game.id, phase="talk")
+
+    # Before talking: it's the player's turn (talk phase).
+    r1 = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["status"] == "your_turn"
+
+    # The player submits its talk message.
+    async with reset_db() as db:
+        db_turn = (
+            await db.execute(select(Turn).where(Turn.id == talk_turn.id))
+        ).scalar_one()
+        db.add(
+            TurnMessage(
+                turn_id=db_turn.id,
+                player_id=players[0].id,
+                text="my talk",
+                thinking="secret",
+                was_defaulted=False,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    # After talking: the same talk turn is no longer served — we wait for act.
+    r2 = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["status"] == "waiting"
+
+    # When the phase flips to act, the turn is served again — exactly once.
+    async with reset_db() as db:
+        db_turn = (
+            await db.execute(select(Turn).where(Turn.id == talk_turn.id))
+        ).scalar_one()
+        db_turn.phase = "act"
+        await db.commit()
+
+    r3 = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r3.status_code == 200, r3.text
+    body3 = r3.json()
+    assert body3["status"] == "your_turn"
+    assert body3["current"]["phase"] == "act"
+
+
+@pytest.mark.asyncio
 async def test_agent_endpoints_do_not_leak_thinking(client, reset_db):
     game, players = await _seed_game(reset_db)
     key = players[0]._test_key

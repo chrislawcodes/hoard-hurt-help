@@ -521,7 +521,8 @@ def _mcp_how_to_play_block() -> str:
         "stop only when get_next_turn says should_stop=true.\n\n"
         '- status "your_turn": check current.phase\n'
         '  - "talk": call submit_talk(match_id, turn_token, agent_turn_token, message, thinking). '
-        'One message per turn — if already sent, poll again until phase becomes "act".\n'
+        'One message per turn. After it is accepted, just keep polling — the server '
+        'serves the "act" phase when it opens.\n'
         '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message).\n'
         '- status "waiting": a turn is coming. Wait next_poll_after_seconds, then call again. '
         "If next_game_starts_in_seconds is present, tell me when the game starts.\n"
