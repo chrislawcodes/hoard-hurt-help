@@ -486,6 +486,26 @@
         +'<span class="nm-rwin"></span></span>'
         +'<span class="sc">0<span class="sc-unit">pts</span></span>'
         +'<span class="track"><span class="bar"></span></span>';
+      // Add a "Coach" button to the viewer's own row, wired to the dialog.
+      if (id === VIEWER_SEAT) {
+        var coachWrap = document.getElementById('coach-dialog-wrap');
+        if (coachWrap) {
+          var armed = coachWrap.dataset.armed === 'true';
+          var coachBtn = document.createElement('button');
+          coachBtn.type = 'button';
+          coachBtn.className = 'rc-coach-btn' + (armed ? ' armed' : '');
+          coachBtn.title = armed ? 'Coaching note armed' : 'Coach this agent';
+          coachBtn.textContent = 'Coach';
+          coachBtn.onclick = function() { if (typeof openCoachPromptDialog === 'function') openCoachPromptDialog(); };
+          li.querySelector('.nm-name').appendChild(coachBtn);
+          document.addEventListener('coach:updated', function() {
+            var wrap = document.getElementById('coach-dialog-wrap');
+            var isArmed = !!(wrap && wrap.dataset.armed === 'true');
+            coachBtn.className = 'rc-coach-btn' + (isArmed ? ' armed' : '');
+            coachBtn.title = isArmed ? 'Coaching note armed' : 'Coach this agent';
+          });
+        }
+      }
       railEl.appendChild(li); railRowEl[id]=li;
     });
     railEl.style.height=(AGENTS.length*RAIL_ROW_H)+'px';

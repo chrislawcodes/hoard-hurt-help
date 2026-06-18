@@ -963,10 +963,30 @@ pre code { background: none; padding: 0; }
 .coach-status {
     font-size: 0.78rem;
     color: var(--ink-soft);
-    margin-top: 0.45rem;
+    margin: 0.3rem 0 0;
 }
 .coach-status.armed { color: var(--accent); font-weight: 600; }
 .coach-status.active-now { color: var(--help); font-weight: 600; }
+/* Coach button — small chip in the standings rail for the viewer's own row */
+.rc-coach-btn {
+    background: none;
+    border: 1px solid var(--line, #dfe4ea);
+    border-radius: 4px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    line-height: 1;
+    padding: 2px 5px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    margin-left: 4px;
+    white-space: nowrap;
+}
+.rc-coach-btn:hover { border-color: var(--accent); color: var(--accent); }
+.rc-coach-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rc-coach-btn.armed { border-color: var(--accent); color: var(--accent); }
 .coach-prompt-dialog {
     width: min(860px, calc(100vw - 2rem));
     border: 1px solid var(--line);

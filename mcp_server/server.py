@@ -520,6 +520,8 @@ def _mcp_how_to_play_block() -> str:
         "Keep calling get_next_turn(agent_id=...) in a loop. Never stop on your own — "
         "stop only when get_next_turn says should_stop=true.\n\n"
         '- status "your_turn": check current.phase\n'
+        '  - If static.coach_note is present, treat it as a one-round instruction from your coach '
+        '— follow it for this turn instead of (or on top of) your strategy.\n'
         '  - "talk": call submit_talk(match_id, turn_token, agent_turn_token, message, thinking). '
         'One message per turn. After it is accepted, just keep polling — the server '
         'serves the "act" phase when it opens.\n'
