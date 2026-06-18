@@ -26,31 +26,32 @@ from fastapi import HTTPException, status
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import SessionLocal
 from app.deps import assert_connection_usable, require_agent_player
 from app.engine.agent_play import (
+    agent_identity_for,
     chat_transcript,
     get_next_turn as play_get_next_turn,
     get_next_turns as play_get_next_turns,
-    opponent_history,
-    poll_turn,
-    standings,
     submit_action as play_submit_action,
     submit_talk as play_submit_talk,
-    turn_detail,
 )
 from app.engine.connection_activity import mark_seen
 from app.engine.mcp_client_identity import provider_from_client_name
 from app.engine.mcp_connection import mcp_connection_for
+from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection, ConnectionProvider
+from app.models.match import Match
 from app.models.player import Player
 from app.models.user import User
 from app.routes.auth import sync_google_user
 from app.routes.spectator_api import public_state
 from app.schemas.auth import GoogleUserInfo
+from app.games import get as get_game_module
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +250,6 @@ mcp_app = FastMCP(
 # off game state, but MCP clients cut requests sooner than a plain HTTP curl
 # (commonly ~30s), so we hold for less than that here.
 _NEXT_TURN_HOLD_SECONDS = 25.0
-_LAST_POLL: dict[int, float] = {}
 _LAST_PULL: dict[tuple[int, str], float] = {}
 
 
@@ -266,6 +266,26 @@ async def _session_scope() -> AsyncIterator[AsyncSession]:
     """
     async with SessionLocal() as session:
         yield session
+
+
+def _lean_payload_for_mcp(payload: dict[str, object]) -> dict[str, object]:
+    """Drop the MCP-only duplicated static prompt text from a turn payload."""
+    lean = dict(payload)
+    lean.pop("strategy", None)
+    static = lean.get("static")
+    if isinstance(static, dict):
+        lean_static = dict(static)
+        lean_static.pop("rules", None)
+        lean_static.pop("base_prompt", None)
+        lean_static.pop("your_strategy", None)
+        lean["static"] = lean_static
+    turns = lean.get("turns")
+    if isinstance(turns, list):
+        lean["turns"] = [
+            _lean_payload_for_mcp(turn) if isinstance(turn, dict) else turn
+            for turn in turns
+        ]
+    return lean
 
 
 def _resolve_match_id(match_id: str | None, game_id: str | None) -> str:
@@ -494,27 +514,47 @@ async def _resolve_oauth_player(
     return access_token, userinfo, connection, player
 
 
-@mcp_app.tool()
-async def get_turn(
+def _mcp_how_to_answer_block() -> str:
+    return (
+        "## How to answer\n\n"
+        "Talk phase -> call submit_talk(match_id, turn_token, agent_turn_token, message, thinking).\n"
+        "Act phase -> call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message).\n"
+        "Call the tool. Do not answer in prose."
+    )
+
+
+def _format_instruction_sections(
     *,
-    match_id: str | None = None,
-    game_id: str | None = None,
-    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
-) -> Any:
-    """Poll for the current turn."""
-    resolved_match_id = _resolve_match_id(match_id, game_id)
-    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
-        db,
-        token,
-        match_id=resolved_match_id,
+    match: Match,
+    your_agent_id: str,
+    all_agent_ids: list[object],
+    strategy_text: str,
+) -> str:
+    module = get_game_module(match.game)
+    other_agent_ids = [agent_id for agent_id in all_agent_ids if agent_id != your_agent_id]
+    lines = [
+        "## The rules",
+        "",
+        module.semantic_rules_text(match.total_rounds, match.turns_per_round).rstrip(),
+        "",
+        "## You",
+        "",
+        f'You are "{your_agent_id}". You can target: {other_agent_ids}.',
+    ]
+    if match.game == "liars-dice":
+        lines.extend(["Read your_private_state for your hidden dice.", ""])
+    else:
+        lines.append("")
+    lines.extend(
+        [
+            "## Your strategy",
+            "",
+            strategy_text.rstrip(),
+            "",
+            _mcp_how_to_answer_block(),
+        ]
     )
-    return await poll_turn(
-        db,
-        match_id=resolved_match_id,
-        player=player,
-        rate_state=_LAST_POLL,
-    )
+    return "\n".join(lines).rstrip()
 
 
 @mcp_app.tool()
@@ -535,9 +575,10 @@ async def get_next_turn(
     # Pacing (the wait number + whether to long-poll) is decided server-side off
     # the caller's soonest game — see app.engine.agent_idle.pace_idle. We only cap
     # the hold here, since MCP clients cut requests sooner than a plain HTTP curl.
-    return await play_get_next_turn(
+    payload = await play_get_next_turn(
         db, connection, agent_id=agent_id, max_hold_seconds=_NEXT_TURN_HOLD_SECONDS
     )
+    return _lean_payload_for_mcp(payload)
 
 
 @mcp_app.tool()
@@ -554,7 +595,57 @@ async def get_next_turns(
     both move inside the same turn window instead of waiting in line.
     """
     _access_token, _userinfo, connection = await _resolve_oauth_connection(db, token)
-    return await play_get_next_turns(db, connection)
+    payload = await play_get_next_turns(db, connection)
+    return _lean_payload_for_mcp(payload)
+
+
+@mcp_app.tool()
+async def get_instructions(
+    *,
+    agent_id: int | None = None,
+    match_id: str | None = None,
+    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
+) -> str:
+    """Return the static play instructions for one agent, if one can be selected."""
+    _access_token, _userinfo, connection = await _resolve_oauth_connection(db, token)
+    match, your_agent_id, all_agent_ids, strategy_text = await agent_identity_for(
+        db,
+        connection,
+        agent_id=agent_id,
+        match_id=match_id,
+    )
+    if match is None or your_agent_id is None or strategy_text is None:
+        active_agent_ids = sorted(
+            (
+                await db.execute(
+                    select(Agent.id).where(
+                        Agent.user_id == connection.user_id,
+                        Agent.kind == AgentKind.AI,
+                        Agent.status == AgentStatus.ACTIVE,
+                        Agent.archived_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if agent_id is None and len(active_agent_ids) > 1:
+            return (
+                "You have multiple agents. Call get_instructions(agent_id=...) for each "
+                f"one's strategy: {active_agent_ids}.\n\n"
+                f"{_mcp_how_to_answer_block()}"
+            )
+        return (
+            "No active game yet. Start one, then call get_instructions again for that "
+            "game's rules and your strategy."
+        )
+    return _format_instruction_sections(
+        match=match,
+        your_agent_id=your_agent_id,
+        all_agent_ids=all_agent_ids,
+        strategy_text=strategy_text,
+    )
 
 
 @mcp_app.tool()
@@ -640,31 +731,6 @@ async def get_game_state(
 
 
 @mcp_app.tool()
-async def get_opponent_history(
-    *,
-    match_id: str | None = None,
-    game_id: str | None = None,
-    opponent_id: str,
-    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
-) -> Any:
-    """Pull the full move history between the user and one opponent."""
-    resolved_match_id = _resolve_match_id(match_id, game_id)
-    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
-        db,
-        token,
-        match_id=resolved_match_id,
-    )
-    return await opponent_history(
-        db,
-        match_id=resolved_match_id,
-        opponent_id=opponent_id,
-        player=player,
-        rate_state=_LAST_PULL,
-    )
-
-
-@mcp_app.tool()
 async def get_chat(
     *,
     match_id: str | None = None,
@@ -686,56 +752,6 @@ async def get_chat(
         player=player,
         rate_state=_LAST_PULL,
         since=since,
-    )
-
-
-@mcp_app.tool()
-async def get_turn_detail(
-    *,
-    match_id: str | None = None,
-    game_id: str | None = None,
-    round: int,
-    turn: int,
-    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
-) -> Any:
-    """Pull one resolved turn in full."""
-    resolved_match_id = _resolve_match_id(match_id, game_id)
-    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
-        db,
-        token,
-        match_id=resolved_match_id,
-    )
-    return await turn_detail(
-        db,
-        match_id=resolved_match_id,
-        round=round,
-        turn=turn,
-        player=player,
-        rate_state=_LAST_PULL,
-    )
-
-
-@mcp_app.tool()
-async def get_standings(
-    *,
-    match_id: str | None = None,
-    game_id: str | None = None,
-    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
-) -> Any:
-    """Pull the full standings."""
-    resolved_match_id = _resolve_match_id(match_id, game_id)
-    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
-        db,
-        token,
-        match_id=resolved_match_id,
-    )
-    return await standings(
-        db,
-        match_id=resolved_match_id,
-        player=player,
-        rate_state=_LAST_PULL,
     )
 
 

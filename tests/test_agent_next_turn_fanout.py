@@ -253,6 +253,8 @@ async def test_one_connection_one_agent_one_match_returns_correct_version(
     assert body["seat_name"] == player.seat_name
     assert body["turn_token"] == body["current"]["turn_token"]
     assert body["agent_turn_token"] == f'{body["turn_token"]}:{agent.id}:M_0001'
+    assert "rules" in body["static"]
+    assert "base_prompt" in body["static"]
     assert f'as agent "{player.seat_name}"' in body["static"]["base_prompt"]
     assert "max 200 chars" in body["static"]["base_prompt"]
     assert "alpha strategy" not in body["static"]["base_prompt"]

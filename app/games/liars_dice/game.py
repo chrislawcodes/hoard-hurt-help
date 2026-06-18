@@ -240,6 +240,17 @@ class LiarsDice(BaseGameModule):
             turns_per_round=turns_per_round,
         )
 
+    def semantic_rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
+        cfg = self.config_defaults()
+        return make_game_rules_text(
+            wild_ones=True,
+            dice_per_player=_default_config()["dice_per_player"],
+            min_players=cfg.min_players,
+            max_players=cfg.max_players,
+            total_rounds=total_rounds,
+            turns_per_round=turns_per_round,
+        )
+
     def agent_base_prompt(
         self,
         *,

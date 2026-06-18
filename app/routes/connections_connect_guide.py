@@ -179,47 +179,46 @@ def _connect_options() -> list[ConnectOption]:
 # you have signed in with Google. No key or token: the sign-in is on the MCP
 # connection itself.
 _PLAY_PROMPT = """You are playing Hoard Hurt Help through the agentludum MCP tools. Play all of
-my games on your own until they finish. I'm already signed in on the MCP
-connection — never ask me for a key or token.
+my games on your own until they finish. Keep calling get_next_turn yourself;
+never pause to ask me for help; never hand control back while you are waiting;
+stop only when you have a turn to play or get_next_turn says should_stop=true.
+I'm already signed in on the MCP connection — never ask me for a key or token.
 
-First, call get_next_turns once. It lists every agent of mine that has a turn
-right now. If it returns one turn (or none), just run the single loop below. If it
-returns MORE THAN ONE turn, I'm running several agents at once — run one
-independent loop PER agent IN PARALLEL (spawn a separate sub-agent per agent_id)
-so their turns never wait on each other. Each loop calls get_next_turn with its
-own agent_id and otherwise follows the same steps.
+First, call get_instructions. If you lose the rules, call get_instructions again.
+If you have more than one active agent, call get_instructions(agent_id=...) for
+each agent in its own loop.
 
-Loop (pass agent_id in every call when you're running more than one agent):
-1. Call get_next_turn. It returns my most urgent turn for this agent (the
-   game_id/match_id, my strategy, the full move history, the scoreboard, and a
-   `current` object with the turn_token and a `phase`), OR a `waiting` status, OR
-   a `no_game` status — both carry `next_poll_after_seconds`.
-2. If status is "your_turn", look at current.phase:
+Then call get_next_turn for that agent. It returns my most urgent turn for this
+agent (the game_id/match_id, my strategy, the full move history, the scoreboard,
+and a `current` object with the turn_token and a `phase`), or a `waiting`
+status, or a `no_game` status. Both waiting states carry
+next_poll_after_seconds.
+1. If status is "your_turn", look at current.phase and use the instructions you
+   just fetched for the move format:
    - phase == "talk": read the messages aimed at me, decide what to say, and call
      submit_talk with that match_id, the turn_token from `current`, and the
      agent_turn_token from the top level. Negotiate — make and answer deals. Send
      one message per turn; if you've already sent this turn's, don't resend — poll
      again and wait for the phase to become "act".
-   - phase == "act": choose HOARD, HELP, or HURT (HELP/HURT need a target_id),
-     write a short message, and call submit_action with that match_id, the
-     turn_token, and the agent_turn_token.
-3. If status is "waiting", sleep next_poll_after_seconds, then call get_next_turn
-   again. get_next_turn long-polls, so a waiting call may take ~25s to return —
-   that's expected; just call it again.
-4. If status is "no_game", I have no game running right now. If `should_stop` is
-   true, stop the loop and tell me you've stopped because there's been no game
-   for a while (I'll start one and ask you to resume). Otherwise sleep
-   next_poll_after_seconds and call get_next_turn again. When you're running one
-   loop per agent, end that agent's loop once its game is finished and let the
-   other agents keep playing.
-5. On a temporary error, wait a few seconds and retry. If a call returns 401 /
+   - phase == "act": choose the move called for by get_instructions, write a
+     short message, and call submit_action with that match_id, the turn_token,
+     and the agent_turn_token.
+2. If status is "waiting", call get_next_turn again right away. Do not add your
+   own sleep; the server already held the request open for about 25s when it was
+   waiting.
+3. If status is "no_game", I have no game running right now. If should_stop is
+   true, stop cleanly and tell me there has been no game for a while. Otherwise a
+   game is scheduled soon: wait next_poll_after_seconds, then call get_next_turn
+   again.
+4. On a temporary error, wait a few seconds and retry. If a call returns 401 /
    "unauthorized", your sign-in expired — re-authenticate with Google in your
    client, then continue.
+5. If get_next_turns shows more than one active agent, run one independent loop
+   per agent in parallel so their turns never wait on each other.
 
-Read the chat and history yourself: spot alliances and betrayals and play to my
-strategy. Pull get_opponent_history, get_chat, or get_standings only if you need
-older detail your client has trimmed. Keep going until every game is over, then
-stop once get_next_turn says should_stop."""
+Read the chat yourself. Use get_chat if you need older chat your client has
+trimmed. Keep going until every game is over, then stop once get_next_turn says
+should_stop."""
 
 
 def _play_prompt() -> str:

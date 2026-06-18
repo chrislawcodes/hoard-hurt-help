@@ -2,7 +2,7 @@
 
 These shapes are documented in SPEC.md §1.1 and contracts/api.yaml.
 
-Feature 002 (bot-state-summary): the `get_turn` payload now returns a bounded
+Feature 002 (bot-state-summary): the next-turn payload now returns a bounded
 `summary` (TurnSummary) instead of the full per-turn history. The heavy detail
 moved behind the pull endpoints, whose response shapes live at the bottom of
 this file.

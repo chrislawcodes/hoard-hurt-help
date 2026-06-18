@@ -38,6 +38,7 @@ from app.engine.agent_play_guards import (
     _validate_agent_turn_binding,
 )
 from app.engine.agent_play_next_turn import (
+    agent_identity_for,
     get_next_turn,
     get_next_turns,
 )
@@ -86,6 +87,7 @@ __all__ = [
     "get_agent_state",
     "get_next_turn",
     "get_next_turns",
+    "agent_identity_for",
     "leave_match",
     "opponent_history",
     "poll_turn",
