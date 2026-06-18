@@ -754,7 +754,9 @@ async def test_enter_bot_into_game(client, reset_db):
             await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
     assert p.agent_id == agent.id
-    assert p.seat_name == f"{user.handle}/{agent.name}"
+    # Seat name is the agent name only — the owner's handle is never exposed.
+    assert p.seat_name == agent.name
+    assert user.handle not in p.seat_name
 
 
 @pytest.mark.asyncio
@@ -774,7 +776,7 @@ async def test_join_ignores_bad_display_name(client, reset_db):
         player = (
             await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
-    assert player.seat_name == f"{user.handle}/{agent.name}"
+    assert player.seat_name == agent.name
 
 
 @pytest.mark.asyncio
@@ -821,7 +823,7 @@ async def test_two_bots_one_game(client, reset_db):
             .scalars()
             .all()
         )
-    assert {p.seat_name for p in players} == {f"{user.handle}/One", f"{user.handle}/Two"}
+    assert {p.seat_name for p in players} == {"One", "Two"}
 
 
 @pytest.mark.asyncio
@@ -854,7 +856,7 @@ async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monk
             .scalars()
             .all()
         )
-    assert {p.seat_name for p in players} == {f"{user.handle}/One", f"{user.handle}/Two"}
+    assert {p.seat_name for p in players} == {"One", "Two"}
 
 
 @pytest.mark.asyncio
@@ -1027,7 +1029,7 @@ async def test_duplicate_display_name_does_not_block_join(client, reset_db):
             .scalars()
             .all()
         )
-    assert {p.seat_name for p in players} == {f"{user.handle}/One", f"{user.handle}/Two"}
+    assert {p.seat_name for p in players} == {"One", "Two"}
 
 
 @pytest.mark.asyncio
