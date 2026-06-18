@@ -63,6 +63,42 @@ def test_build_rc_data_includes_owner_map() -> None:
     assert data["owners"] == {"Napoleon": "alice", "BotX": "agentludum"}
 
 
+def test_build_rc_data_includes_provider_map() -> None:
+    """The rail's per-seat provider badge is driven by a providers map — only
+    seats with a known played provider appear (bots and unserved seats omitted)."""
+    scoreboard = [
+        {
+            "agent_id": "Napoleon",
+            "display_name": "AliceBot",
+            "round_score": 0,
+            "round_wins": 0,
+            "owner_handle": "alice",
+            "is_bot": False,
+            "provider": "Gemini",
+        },
+        {
+            "agent_id": "Wellington",
+            "display_name": "BobBot",
+            "round_score": 0,
+            "round_wins": 0,
+            "owner_handle": "bob",
+            "is_bot": False,
+            "provider": None,  # not yet served → no badge
+        },
+        {
+            "agent_id": "BotX",
+            "display_name": "Coalition Seeker",
+            "round_score": 0,
+            "round_wins": 0,
+            "owner_handle": "agentludum",
+            "is_bot": True,
+            "provider": None,
+        },
+    ]
+    data = json.loads(_build_rc_data(scoreboard, []))
+    assert data["providers"] == {"Napoleon": "Gemini"}
+
+
 async def test_viewer_shows_winner_owner_and_rail_data(reset_db, client):
     async with reset_db() as db:
         ua = await make_user(db, 1)  # handle "agent1"
@@ -79,7 +115,10 @@ async def test_viewer_shows_winner_owner_and_rail_data(reset_db, client):
         )
         db.add(match)
         await db.flush()
-        pa = Player(match_id=match.id, user_id=ua.id, agent_id=bot_a.id, seat_name="Napoleon")
+        pa = Player(
+            match_id=match.id, user_id=ua.id, agent_id=bot_a.id,
+            seat_name="Napoleon", played_provider="gemini",
+        )
         pb = Player(match_id=match.id, user_id=ub.id, agent_id=bot_b.id, seat_name="Wellington")
         db.add_all([pa, pb])
         await db.flush()
@@ -97,6 +136,9 @@ async def test_viewer_shows_winner_owner_and_rail_data(reset_db, client):
     assert data["labels"] == {"Napoleon": "AliceBot", "Wellington": "BobBot"}
     assert data["bots"] == {}
     assert data["owners"] == {"Napoleon": "agent1", "Wellington": "agent2"}
+    # The seat played by a Gemini connection carries a friendly provider badge;
+    # the unserved seat has none.
+    assert data["providers"] == {"Napoleon": "Gemini"}
 
 
 async def test_viewer_marks_bots_with_agentludum(reset_db, client):
