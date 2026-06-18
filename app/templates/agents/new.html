@@ -1,10 +1,8 @@
 {% extends "base.html" %}
 {% block title %}New Agent — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/me/agents">← Agents</a>
 <div class="page-head">
     <h1>New agent</h1>
-    <p class="sub">Pick a model and strategy.</p>
 </div>
 
 <div class="card agent-setup-card">
@@ -56,9 +54,21 @@
             </div>
             <small class="hint">Choose a chip or switch to Custom to edit the text yourself.</small>
         </div>
+        {% if existing_strategies %}
+        <div>
+            <label for="existing-strategy" class="field-label">Or start from an existing agent</label>
+            <select id="existing-strategy">
+                <option value="">— Start blank —</option>
+                {% for item in existing_strategies %}
+                <option value="{{ loop.index0 }}">{{ item.name }}</option>
+                {% endfor %}
+            </select>
+            <small class="hint">Copies that agent's current strategy into the box below so you can tweak it.</small>
+        </div>
+        {% endif %}
         <label>
             Strategy
-            <textarea id="strategy-text" name="strategy_text" rows="8" maxlength="2000" required>{{ selected_strategy_text }}</textarea>
+            <textarea id="strategy-text" name="strategy_text" rows="14" maxlength="2000" required>{{ selected_strategy_text }}</textarea>
             <small class="hint">The game also supplies shared rules and response instructions. <a href="/games/{{ default_game }}/agent-instructions">View base instructions</a>.</small>
         </label>
         <div class="form-actions">
@@ -72,6 +82,7 @@
     if (!document.getElementById('strategy-text')) return;
     const presets = {{ strategy_presets | tojson }};
     const defaultStrategy = {{ default_strategy | tojson }};
+    const existingStrategies = {{ existing_strategies | tojson }};
     const strategyBox = document.getElementById('strategy-text');
     const presetButtons = Array.from(document.querySelectorAll('[data-preset-id]'));
     let activePresetId = {{ selected_strategy_preset | tojson }};
@@ -111,6 +122,19 @@
             if (!preset || strategyBox.value !== preset.prompt) {
                 setActivePreset('custom');
             }
+        });
+    }
+
+    const existingSelect = document.getElementById('existing-strategy');
+    if (existingSelect) {
+        existingSelect.addEventListener('change', function () {
+            if (existingSelect.value === '') return;
+            const item = existingStrategies[Number(existingSelect.value)];
+            if (!item) return;
+            strategyBox.value = item.strategy;
+            setActivePreset('custom');
+            strategyBox.focus();
+            strategyBox.setSelectionRange(strategyBox.value.length, strategyBox.value.length);
         });
     }
 

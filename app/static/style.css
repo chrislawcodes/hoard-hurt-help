@@ -180,7 +180,7 @@ button:hover, .cta:hover { background: var(--accent-hover); }
 button.secondary, .cta.secondary { background: transparent; color: var(--accent); border: 1.5px solid var(--line-bold); }
 
 .save-confirm { color: #16a34a; font-weight: 600; margin-bottom: 0.75rem; }
-.agent-setup-card { max-width: 42rem; padding: 1rem 1.1rem 1.15rem; }
+.agent-setup-card { max-width: 52rem; padding: 1rem 1.1rem 1.15rem; }
 .agent-setup-form { display: grid; gap: 0.8rem; }
 .agent-setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
 .agent-setup-form label { display: grid; gap: 0.35rem; margin-bottom: 0; }
@@ -189,7 +189,7 @@ button.secondary, .cta.secondary { background: transparent; color: var(--accent)
 .agent-setup-form textarea {
     padding: 0.5rem 0.7rem;
 }
-.agent-setup-form textarea { min-height: 7rem; }
+.agent-setup-form textarea { min-height: 13rem; }
 .agent-setup-form .form-actions { margin-top: 0.15rem; justify-content: flex-end; }
 .preset-picker { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.35rem; }
 .preset-btn { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; padding: 0.28rem 0.65rem; border-radius: 999px; font-size: 0.88rem; }
