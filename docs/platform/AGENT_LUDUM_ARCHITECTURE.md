@@ -120,7 +120,8 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 | `turn_summary.py` | 173 | Builds the bounded `TurnSummary` the agent's `get_turn` returns. |
 | `connection_activity.py` | 364 | Connection onboarding + health across its agents: first‑connect / first‑move detection, key cutover on graceful reissue, the live heartbeat badge. (Renamed from `bot_activity.py`; auth's single choke point calls its `mark_seen` on the `Connection`.) |
 | `connection_health.py` | 224 | Live / stalled / ready computed at the **connection** level. Keys off the connection's own liveness (`last_seen_at`, `runner_pid`) and the matches currently pinned to it via `players.served_by_connection_id` — **not** agent attachment. Owns the `ConnectionHealth` enum, badge map, and the `LIVE_WINDOW_SECONDS` staleness threshold that the sticky‑pin "dead connection" failover check reuses. Also owns the single **per‑provider** readiness signal `ProviderReadiness` (`NO_MCP_CONNECTION` / `CONNECTED_NOT_LIVE` / `SEEN_NOT_POLLING` / `LIVE`) + `provider_readiness()` — a thin wrapper over the existing `provider_has_current_setup` / `provider_has_live_current_setup` / `provider_loop_running` predicates (it adds no new query). This is the **one** answer to "is this provider set up / connected / playing" that the play‑setup gate and every readiness badge read, instead of each site picking its own predicate. Distinct from `AgentOnboardingState` (in‑game progress) and `ConnectionHealth` (machine badge). |
-| `arena.py` | 222 | Managed Practice Arena and Auto‑Match creation: idempotent poller helpers, shared Bot seeding, and start timing. |
+| `arena.py` | 222 | Managed Practice Arena and Auto‑Match creation: idempotent poller helpers, shared Bot seeding, and start timing. **Auto‑Match opens one match per 15‑minute clock boundary** (`AUTO_MATCH_INTERVAL_MINUTES`, dropped from 30 in #464). |
+| `agent_idle.py` | 277 | **Server‑side poll pacing for `get_next_turn`.** `pace_idle` decides, off the *soonest* game the caller is seated in, how the next poll behaves so an interactive AI "asks as rarely as possible without missing a turn" (every ask is a paid model think). In a live game it **long‑polls** — holds the request open (cheap; no model thinking) and answers the instant a turn opens (single DB session per hold, ~5s internal check — #462). Before a game it returns a paced `next_poll_after_seconds` (~5 min far out → ~1 min in the last five → long‑poll in the final minute). Also owns `should_stop` (only fires when there is **no** game at all and the idle clock passes `IDLE_STOP_SECONDS`; the always‑on connector ignores it). |
 | `resolver.py` | 112 | **Generic turn‑lifecycle helpers only:** `finalize_talk_phase`, `award_round_winners`, `finalize_game`. Fully game‑agnostic. PD‑specific per‑turn scoring (HOARD/HELP/HURT payoffs, mutual‑help bonus, score floor) moved to `app/games/hoard_hurt_help/scoring.py`. |
 | `match_creation.py`, `match_deletion.py` | small | **Shared match lifecycle** — consolidate logic that was copy‑pasted across the admin/user routes. `match_creation.py` owns the single match‑create path (id allocation, validation, `created_by_user_id`, the per‑user active‑match cap, `IntegrityError`‑retry on id collision) that every human creation site calls — and the arena allocator routes through it too, so the five old `max+1` scans converge on one. `match_deletion.py` owns the order‑sensitive delete cascade (moved verbatim from the old `admin_web` route) plus the shared cancel state transition (`registry.stop` → `state=CANCELLED` → `cancelled_at`), with each caller keeping its own allowed‑state policy. |
 | `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `turn_routing.py`, `bot_presets.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn ordering (`select_next_turn`, unchanged); DB‑free turn‑routing eligibility + sticky‑pin claim helper; the 8 preset Bot profiles and shared default-name allocator. |
@@ -179,14 +180,18 @@ User ──< Connection ──< ConnectionProviders   (per‑provider toggle + d
 The single `Bot` row was split into a **login** and a **competitor** (feature
 015, `DESIGN.md` §12):
 
-- **`connection.py`** (87) — a user's **machine** running the connector: the one
-  stable `sk_conn_` key (indexed hash; plaintext shown once) + runner/health
-  fields (`first_connected_at`, `last_seen_at`, `runner_pid`,
-  `max_concurrent_games`, `stall_threshold`, `pending`/`active`/`paused` status).
-  Game‑agnostic; carries no model. `provider` is **retained but nullable/legacy**:
-  new machine connections leave it NULL; hermes/openclaw connections keep it set
-  (single‑provider, out of scope for the machine model). Per‑provider toggles
-  live in the child table below, not on this column.
+- **`connection.py`** (87) — a user's connection (a **machine** running the
+  connector, *or* an **MCP/OAuth client**): the one stable `sk_conn_` key
+  (indexed hash; plaintext shown once) + runner/health fields
+  (`first_connected_at`, `last_seen_at`, `runner_pid`, `max_concurrent_games`,
+  `stall_threshold`, `pending`/`active`/`paused` status). Two MCP/OAuth fields:
+  `mcp_connected_at` (set when the connection was created via the `/mcp` OAuth
+  bridge — distinguishes an MCP connection from a connector machine) and
+  `oauth_client_id` (the DCR `client_id`, the primary per‑client lookup key in
+  stateless mode — migration `0039`). Game‑agnostic; carries no model. `provider`
+  is **nullable**: connector *machines* leave it NULL and enable each provider they
+  detect in the child table below; an **MCP connection sets it** (one connection
+  per (user, provider) — see §9); hermes/openclaw connections keep it set too.
 - **`connection_providers.py`** — per‑connection provider toggles + connector
   detection: one row per (`connection_id`, `provider`) with `enabled` (the user's
   toggle), `detected` / `detected_detail` (what the connector reported finding —
@@ -215,7 +220,9 @@ The single `Bot` row was split into a **login** and a **competitor** (feature
   (agent, match). Set on first serve, re‑set on failover when the pinned
   connection goes dead. `seat_name` (`"{handle}/{agent.name}"`, uniquified per
   match) is the only public in‑match label; the integer `agent_id` is never
-  exposed.
+  exposed. Also carries the **sideline‑coaching** note: `coach_note` (≤280 chars)
+  + `coach_note_round` — a one‑round instruction the owner leaves from the live
+  viewer that reaches the agent on its next turn (see "Coach" below).
 - **`turn.py`** (88) — `Turn` (two‑phase: `phase` talk→act), plus `TurnSubmission`
   (actions) and `TurnMessage` (talk), each unique per (turn, player).
 - **`match.py`**, **`user.py`**, **`request_incident.py`** — one row per match /
@@ -304,14 +311,33 @@ token — the MCP client never holds a Google token and the user never pastes a
 key. The old `X‑Connection‑Key` header path is **dropped at `/mcp`**; it remains
 the connector / direct‑HTTP auth (Flow A).
 
-**Bridge — OAuth identity → per‑user "MCP connection" Connection.** After the token is
-verified, the MCP layer resolves the Google `sub` to a `User` (via
+**Bridge — OAuth identity → per‑(user, provider) "MCP connection" Connection.** After the
+token is verified, the MCP layer resolves the Google `sub` to a `User` (via
 `sync_google_user`, the same row as human login), then **finds‑or‑creates one
-canonical "MCP connection" `Connection`** for that user — a real connection (pause/resume,
-concurrency, dashboard all apply), uniqueness enforced by a DB constraint + a
-transactional upsert so concurrent sign‑ins can't duplicate it. A user's agents
-resolve through this one connection because routing keys on `user + provider`, not
-connection pinning.
+"MCP connection" `Connection` per (user, provider)** — a real connection (pause/resume,
+concurrency, dashboard all apply). One MCP client speaks for exactly one provider
+(Gemini CLI is Gemini, Claude Code is Claude…), so each provider a user signs in
+gets its **own** connection — a user running two clients has two MCP connections.
+This bootstrap lives in `app/engine/mcp_connection.py` (`mcp_connection_for`;
+renamed from `mode_a_connection.py`). Lookup priority: (1) the OAuth **Dynamic
+Client Registration `client_id`** stored on `connections.oauth_client_id`
+(migration `0039`) — the stable per‑registration key; (2) the `provider` from the
+client's `clientInfo` (known at `initialize`); (3) a single‑connection fallback
+when the user has exactly one live MCP connection. A user's agents resolve through
+the matching connection because routing keys on `user + provider`, not connection
+pinning.
+
+**Stateless‑HTTP MCP (feat `stateless-mcp-client-identity`, spec 016).** The MCP
+sub‑app runs in **stateless‑HTTP mode** so a redeploy never orphans connected
+clients — there is no per‑session memory on the server between requests. The cost:
+on a plain tool call the client's `clientInfo` (hence its provider) is **not**
+available, and `fastmcp`'s validated `AccessToken.client_id` is the Google
+**subject** (per‑user, identical across that user's clients), not per‑client. So
+the per‑client identity is read from the **DCR `client_id` claim inside the raw
+bearer JWT** (`_dcr_client_id_from_request`), which is what `connections.oauth_client_id`
+is matched against. Spec 016's first cut (#454) keyed on the Google subject and
+silently collapsed a user's clients into one connection; #456 fixed it to the DCR
+`client_id`.
 
 **No loopback, no internal key.** Authenticated tools do **not** call our HTTP API
 over the network with a forwarded key. The play actions the tools use are extracted
@@ -328,18 +354,24 @@ keeps a **public carve‑out** so the OAuth gate doesn't hide it.
 **Three‑layer MCP play flow (feat `mcp-prompt-tools-cleanup`).** The MCP play path
 is structured in three layers so per‑turn token cost stays small:
 
-1. **Kickoff prompt** (paste‑once) — the user pastes the prompt from the connect
-   guide into their AI client. It gives the loop‑control rules: keep calling
-   `get_next_turn` yourself, never hand control back, stop only on a turn to play
-   or `should_stop=true`. Distills the two waiting states (`waiting` → call again
-   right away; `no_game` → check `should_stop`, then wait `next_poll_after_seconds`).
-   Managed in `app/routes/connections_connect_guide.py` (`_PLAY_PROMPT`).
+1. **Kickoff prompt** (paste‑once) — a **slim 5‑liner** the user pastes from the
+   connect guide. It says only: never stop polling, call `get_next_turn` in a loop,
+   obey `next_poll_after_seconds`, and on your first `your_turn` call
+   `get_instructions` (one loop per agent if there are several). The full loop
+   protocol was **moved out** of the kickoff and into `get_instructions` (#458/#459),
+   so the paste prompt stays tiny. Managed in
+   `app/routes/connections_connect_guide.py` (`_PLAY_PROMPT`).
 2. **`get_instructions`** (fetched once per session, re‑fetched if rules are
    forgotten) — returns static "how to play" in four labeled sections: `## The
    rules` (game semantics only, no connector response protocol), `## You` (your
-   agent id + targets), `## Your strategy` (the agent's stored `strategy_text`),
-   `## How to answer` (call `submit_talk` / `submit_action`; never return JSON).
-   Takes optional `agent_id` / `match_id` selectors for parallel multi‑agent play.
+   agent id + targets), `## Your strategy` (the agent's stored `strategy_text`), and
+   `## How to play` — the **full loop protocol** (the one that used to live in the
+   kickoff): keep calling `get_next_turn`; how to handle each status
+   (`your_turn`→submit, `waiting`/`no_game`→wait `next_poll_after_seconds`,
+   `should_stop=true`→stop); honor a one‑round `static.coach_note` if present;
+   retry 5xx/timeouts; call the tools, never answer in prose; and restate the loop
+   in your own words before starting (#460). Takes optional `agent_id` / `match_id`
+   selectors for parallel multi‑agent play.
 3. **`get_next_turn` / `get_next_turns`** (per turn) — **lean live state only**:
    `status`, `match_id`, `turn_token`, `agent_turn_token`, `current`, `history`,
    `scoreboard`, chat, `public_state`. The `static.base_prompt`, `static.rules`,
@@ -359,7 +391,7 @@ section says to call the tools.
 
 | Tool | Purpose |
 |---|---|
-| `get_instructions` | Static "how to play" pack: rules, identity, strategy, how‑to‑answer. Fetched once. |
+| `get_instructions` | Static "how to play" pack: rules, identity, strategy, and the full loop protocol (`## How to play`). Fetched once. |
 | `get_next_turn` | Lean per‑turn live state for the next open turn across all the user's agents. |
 | `get_next_turns` | Multi‑agent fan‑out: lean per‑turn live state for all open turns at once. |
 | `submit_talk` | Post the agent's public talk message for the current turn. |
@@ -381,11 +413,15 @@ section says to call the tools.
    agents whose stored `provider` is enabled on this connection, subject to the
    match's sticky pin (`turn_routing.py`). It claims the pin atomically so two
    live connections covering the same provider never double‑serve one turn.
-2. Server says "waiting" or hands back the **turn context** (rules, scoreboard,
-   bounded history, deadline, a turn‑token) for the most urgent open turn,
-   resolved by `(agent_id, match_id)`. It names **which agent** the turn is for
-   (id, name, model, version) and includes an `agent_turn_token` that binds the
-   later write to that one (agent, match).
+2. Server says "waiting"/"no_game" or hands back the **turn context** (rules,
+   scoreboard, bounded history, deadline, a turn‑token) for the most urgent open
+   turn, resolved by `(agent_id, match_id)`. It names **which agent** the turn is
+   for (id, name, model, version) and includes an `agent_turn_token` that binds the
+   later write to that one (agent, match). When a game is live the call
+   **long‑polls** — the server holds it open and answers the instant a turn opens —
+   and every reply carries a server‑computed `next_poll_after_seconds` (and
+   sometimes `should_stop`) the caller just obeys (`agent_idle.pace_idle`), so the
+   AI burns as few paid "thinks" as possible.
 3. **Talk phase**: the agent posts a public message; it's stored as a
    `TurnMessage`. **Act phase**: the agent posts an action (`HOARD`/`HELP`/`HURT`
    + target), validated by the game module, stored as a `TurnSubmission`. The
@@ -425,9 +461,9 @@ push HTML fragments into the live viewer — no client‑side state.
 | Touch the turn lifecycle | `app/engine/scheduler_turn_loop.py` (the loop itself: `_run_game`, `_open_turn`, wait helpers) + `app/engine/scheduler.py` (registry + poller). |
 | Change what an agent sees/submits (both paths) | The shared play‑service layer — `app/engine/agent_play.py` (verbs) + `agent_play_next_turn.py` (next‑turn fan‑out / `_build_turn_payload`) + `agent_play_reads.py` (payload projections) + `agent_play_guards.py` (rate‑limit/binding) — that both the HTTP routes and MCP tools call, + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
 | Change what the MCP path sends per turn (lean payload) | Strip keys in the MCP wrappers in `mcp_server/server.py` (`get_next_turn` and `get_next_turns`) — **do not touch** the shared `_build_turn_payload` builder or the connector route `app/routes/agent_next_turn.py`. |
-| Change the MCP static "how to play" text | `mcp_server/server.py` `get_instructions` tool — four sections: rules (`app/games/hoard_hurt_help/rules.py` `make_game_rules_text`, not `make_rules_text`), identity/targets, strategy (`AgentVersion.strategy_text`), MCP how‑to‑answer wording. |
+| Change the MCP static "how to play" text | `mcp_server/server.py` `get_instructions` tool (`_format_instruction_sections`) — four sections: rules (the game module's `semantic_rules_text`), identity/targets, strategy (`AgentVersion.strategy_text`), and the loop protocol (`_mcp_how_to_play_block` — the `## How to play` block, including the `coach_note` line). |
 | Change the MCP kickoff paste prompt | `app/routes/connections_connect_guide.py` `_PLAY_PROMPT`. |
-| Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata) + the OAuth‑identity→per‑user "MCP connection" `Connection` bridge in `mcp_server/`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
+| Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata, **stateless‑HTTP**) + the OAuth‑identity→per‑(user, provider) "MCP connection" `Connection` bridge in `app/engine/mcp_connection.py` (`mcp_connection_for`); the per‑client identity helper `_dcr_client_id_from_request` + provider‑from‑`clientInfo` helpers in `mcp_server/server.py`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
 | Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). For MCP‑only payload shape changes, strip in the MCP wrapper (`mcp_server/server.py`), not the service layer. |
 | Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (eligibility + sticky‑pin claim) wired into `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. Pin columns live on `app/models/player.py`. |
 | Change per‑connection provider toggles / detection | `app/models/connection_providers.py` + the toggle endpoint in `app/routes/connections_lifecycle.py`; detection flows in via `report_pid` in `app/routes/agent_next_turn.py`. |
@@ -440,6 +476,7 @@ push HTML fragments into the live viewer — no client‑side state.
 | Manage users / promote‑demote admins in‑app | `app/routes/admin_web.py` — the `/admin/users` list, `/admin/users/{id}` detail, and the disable/enable + promote/demote endpoints (each writes an `AdminAuditLog` row in‑transaction and refuses config‑floor admins). The audit model is `app/models/admin_audit_log.py`. |
 | Change how disabling a user is enforced | `app/deps.py` — `require_user` (web → 303 `/disabled`) and `require_connection` (runner → JSON 403 `ACCOUNT_DISABLED`). The `disabled_at` column lives on `app/models/user.py`; the public notice is the `/disabled` route in `app/routes/web_account_notice.py`. |
 | Change the live viewer | `templates/fragments/` + `app/routes/sse.py` + `app/engine/board_signals.py`. |
+| Change sideline coaching (the "Coach" note an owner sends their agent) | `app/routes/web_viewer.py` (`POST .../coach-note` + the `coach_panel.html` fragment, triggered by the **"Coach" button in the standings rail** since #465) writes `player.coach_note` / `coach_note_round`; `app/engine/agent_play_next_turn.py` injects it as `static.coach_note` on the next turn for that round; the MCP loop honors it via `_mcp_how_to_play_block`. Columns live on `app/models/player.py`. |
 | Alter the schema | new migration in `migrations/versions/` + the model in `app/models/`. |
 
 ---
@@ -477,6 +514,7 @@ push HTML fragments into the live viewer — no client‑side state.
   needed a forwarded key to do so — the loopback and that internal credential are
   gone. The tension to watch: keep new play behavior in the service layer, not in
   one adapter, or the two paths drift.
+- **Stateless MCP keys per‑client identity on the DCR `client_id`, never `token.client_id` (feat `stateless-mcp-client-identity`).** The `/mcp` sub‑app runs stateless‑HTTP so redeploys don't orphan clients — but that means no per‑session memory, and `fastmcp`'s `AccessToken.client_id` is the Google **subject** (same for all of a user's clients). Telling one user's clients apart **must** use the DCR `client_id` read from the raw bearer JWT (`_dcr_client_id_from_request`), persisted to `connections.oauth_client_id`. The tension to watch: keying on `token.client_id` (or the Google `sub`) silently collapses a user's providers into one connection — exactly the #454 regression #456 fixed.
 - **MCP per‑turn payload is stripped in the MCP wrapper, not the service layer (feat `mcp-prompt-tools-cleanup`).** The shared `_build_turn_payload` builder and the connector HTTP route (`/agent/next-turn`) must always emit the full payload (including `static.base_prompt`, `static.rules`, `strategy`). The lean MCP payload is produced by deleting those static keys inside the MCP `get_next_turn` and `get_next_turns` wrappers in `mcp_server/server.py` after calling the shared service. The tension to watch: never add a `channel`/`audience` param to the shared service to drive this — that is an adapter concern and would couple the service to MCP specifics.
 - **Onboarding is strategy‑first (feat `strategy-first-onboarding`).** Designing
   an agent is the hook; connecting an AI client is the chore — so the order is
@@ -488,6 +526,9 @@ push HTML fragments into the live viewer — no client‑side state.
   no‑agent user to **`/me/agents/new`** (design first), not `/me/connections`.
   After create, the flow routes to connect *that agent's* provider, passing a
   `?provider=` hint that preselects the matching client tab on the connect screen
-  (one client = one provider). The tension to watch: a "needs connecting" agent
+  (one client = one provider). The create page itself was slimmed (#466): the
+  strategy box is seeded from the game's **strategy presets**, plus a "start from
+  an existing agent" **reuse picker** (`_load_existing_strategies` in
+  `agents_create.py`) that copies a strategy the user already wrote. The tension to watch: a "needs connecting" agent
   must stay excluded from live‑connection capacity math (`active_matches_for_provider`
   / `live_provider_capacity`) so it can never bypass or inflate seat limits.
