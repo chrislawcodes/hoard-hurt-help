@@ -56,7 +56,9 @@ IDLE_STOP_SECONDS = 600
 # cleanly rather than being cut by an intermediary.
 LONG_POLL_HOLD_SECONDS = 40
 # How often, inside a hold, to re-check the DB for a freshly opened turn.
-LONG_POLL_INTERVAL_SECONDS = 1.0
+# 5s is plenty: turns carry a 60-second deadline, so worst-case detection lag
+# is 5s. Tighter intervals multiply DB load across concurrent MCP sessions.
+LONG_POLL_INTERVAL_SECONDS = 5.0
 
 # In a live game (or the final approach to a start), after a hold returns nothing,
 # ask again this soon — a turn can open any moment.

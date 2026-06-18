@@ -529,16 +529,20 @@ async def get_next_turn(
 
     loop = asyncio.get_event_loop()
     deadline = loop.time() + hold_seconds
-    while loop.time() < deadline:
-        await asyncio.sleep(
-            max(0.0, min(LONG_POLL_INTERVAL_SECONDS, deadline - loop.time()))
-        )
-        async with db_module.SessionLocal() as check_db:
+    # One session for the whole hold — no repeated open/close per tick.
+    # populate_existing forces each re-query to reflect the live DB row even
+    # though the identity map has the Connection from earlier in this session.
+    async with db_module.SessionLocal() as check_db:
+        while loop.time() < deadline:
+            await asyncio.sleep(
+                max(0.0, min(LONG_POLL_INTERVAL_SECONDS, deadline - loop.time()))
+            )
             fresh = (
                 await check_db.execute(
                     select(Connection)
                     .options(joinedload(Connection.user).load_only(User.disabled_at))
                     .where(Connection.id == connection_id)
+                    .execution_options(populate_existing=True)
                 )
             ).scalar_one_or_none()
             if (
@@ -551,8 +555,8 @@ async def get_next_turn(
             served = await _serve_one_turn(
                 check_db, fresh, datetime.now(timezone.utc), agent_id=agent_id
             )
-        if served is not None:
-            return served
+            if served is not None:
+                return served
 
     return {"status": "waiting", "next_poll_after_seconds": next_poll}
 
