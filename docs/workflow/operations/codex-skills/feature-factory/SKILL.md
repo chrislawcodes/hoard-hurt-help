@@ -273,7 +273,7 @@ Tasks, diff, and closeout have no default reviews. Operators can add an extra Ge
 
 All reviews are adversarial — each one is looking for ways the artifact is wrong, incomplete, or risky. Spec and plan concentrate the default leverage because they are the cheapest places to catch bad assumptions before implementation starts. Gemini still gives a different perspective, but the runner now keeps that signal focused on the two design stages.
 
-Review rounds are tracked per stage and surfaced by `analyze-reviews` (it flags stages that needed 3+ rounds). There is no hard runner cap — reviewers should stay rigorous but converge, not assume the loop can keep refining forever.
+Review rounds are tracked per stage and surfaced by `analyze-reviews` (it flags stages that needed 3+ rounds). The runner enforces a hard cap of **`MAX_ADVERSARIAL_ROUNDS = 3`** per stage. If a stage hits the cap and still has open findings, the checkpoint blocks and tells you to rerun with `--accept-cap "one-sentence reason"`. That reason is recorded in `state.json` as a `cap_accepted` annotation so it's visible in audit and PR history. Use `--accept-cap` only when the remaining findings are minor enough that shipping without another round is a conscious, documented choice.
 
 The checkpoint runner selects the specific lenses by stage. Bundle 2 keeps the default Codex+Gemini lenses on `spec` and `plan`, and leaves `tasks` and `closeout` empty unless the operator explicitly opts in. The `diff` stage gets **one independent Gemini review, but only for substantial slices** — see "Size-gated diff review" below. Keep the Codex and Gemini lenses independent from each other when they are present.
 
