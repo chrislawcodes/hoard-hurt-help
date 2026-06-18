@@ -41,6 +41,12 @@ class Player(Base):
     )
     seat_name: Mapped[str] = mapped_column(String(40), nullable=False)
     model_self_report: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Provider that ACTUALLY played this seat, stamped when a connection first
+    # claims a turn for it (the sticky pin). Source of truth for the public
+    # "played by Claude/Gemini/…" badge — read from the connection that played,
+    # so it stays correct even if that connection is later deleted. NULL until
+    # the seat's first turn is claimed.
+    played_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

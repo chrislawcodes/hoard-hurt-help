@@ -69,13 +69,19 @@ def connection_covers_provider(
 
 def can_connection_claim_turn(
     connection: ConnectionRouteState,
-    provider: str | ConnectionProvider,
+    provider: str | ConnectionProvider | None,
     pin: TurnPin,
     *,
     now: datetime | None = None,
     connections_by_id: Mapping[int, ConnectionRouteState] | None = None,
 ) -> bool:
     """Return True when this connection may claim the player's next turn.
+
+    Agents are no longer tied to a provider: any of the user's live connections
+    may serve any of the user's agents. Pass ``provider=None`` for that
+    provider-agnostic routing. (A concrete ``provider`` still gates on the
+    connection covering it — kept for the routing unit tests and any future
+    provider-scoped use.)
 
     The sticky rule is:
     - no pin, or
@@ -84,7 +90,7 @@ def can_connection_claim_turn(
     """
     if connection_is_dead(connection, now=now):
         return False
-    if not connection_covers_provider(connection, provider):
+    if provider is not None and not connection_covers_provider(connection, provider):
         return False
 
     pinned_connection_id = pin.served_by_connection_id

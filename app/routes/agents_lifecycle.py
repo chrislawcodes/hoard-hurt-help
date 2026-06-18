@@ -10,11 +10,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, func, select
 from starlette.responses import Response
 
-from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.connection import ConnectionProvider
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
@@ -22,19 +20,6 @@ from app.routes.agents_setup import clean_agent_name
 from app.templating import templates
 
 router = APIRouter()
-
-
-def _sync_agent_provider(agent: Agent, model: str) -> None:
-    """Keep ``agent.provider`` in sync with its model on every model change.
-
-    claude/gemini/openai map to a provider uniquely; a freeform model
-    (hermes/openclaw) maps to nothing and leaves the stored provider as-is.
-    Without this, editing an agent to a cross-provider model would leave the
-    stored provider stale and route the agent to the wrong provider.
-    """
-    derived = provider_for_model(model)
-    if derived is not None:
-        agent.provider = ConnectionProvider(derived)
 
 
 async def _load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
@@ -116,7 +101,6 @@ async def _fork_version(
     db: DbSession,
     *,
     agent: Agent,
-    model: str,
     strategy_text: str,
 ) -> AgentVersion:
     next_version_no = (
@@ -129,7 +113,7 @@ async def _fork_version(
     version = AgentVersion(
         agent_id=agent.id,
         version_no=int(next_version_no) + 1,
-        model=model,
+        model=None,
         strategy_text=strategy_text,
         frozen_at=None,
     )
@@ -143,29 +127,21 @@ async def _apply_version_edit(
     db: DbSession,
     *,
     agent: Agent,
-    model: str | None = None,
-    strategy_text: str | None = None,
+    strategy_text: str,
 ) -> AgentVersion:
+    """Apply a strategy edit, forking a new version if the current one is frozen
+    or has rated history. Agents are just name + strategy now — there is no model
+    to edit."""
     current = await _load_current_version(db, agent)
     if await _version_has_active_match(db, current.id):
         raise HTTPException(status_code=409, detail="That version is mid-match and locked.")
-    if model is not None:
-        _sync_agent_provider(agent, model)
     current_has_rated_history = await _version_has_rated_history(db, current.id)
     if not current_has_rated_history and current.frozen_at is None:
-        if model is not None:
-            current.model = model
-        if strategy_text is not None:
-            current.strategy_text = strategy_text
+        current.strategy_text = strategy_text
         return current
     if current.frozen_at is None and current_has_rated_history:
         current.frozen_at = datetime.now(timezone.utc)
-    return await _fork_version(
-        db,
-        agent=agent,
-        model=model or current.model,
-        strategy_text=strategy_text or current.strategy_text,
-    )
+    return await _fork_version(db, agent=agent, strategy_text=strategy_text)
 
 
 @router.post("/{agent_id}/rename")
@@ -254,28 +230,6 @@ async def delete_agent(
     return RedirectResponse(url="/me/agents", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/{agent_id}/set-model")
-async def set_model(
-    agent_id: Annotated[int, Path()],
-    db: DbSession,
-    user: Annotated[User, Depends(require_user_with_handle)],
-    model: Annotated[str, Form()],
-) -> RedirectResponse:
-    agent = await _load_owned_agent(db, user, agent_id)
-    current = await _load_current_version(db, agent)
-    clean_model = model.strip()
-    if not clean_model:
-        raise HTTPException(status_code=400, detail="Model is required.")
-    # The model→provider derivation (_apply_version_edit) sets the agent's
-    # provider from the chosen model; no connection-based allowlist check.
-    current_model = current.model
-    if clean_model == current_model:
-        return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-    await _apply_version_edit(db, agent=agent, model=clean_model)
-    await db.commit()
-    return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-
-
 @router.post("/{agent_id}/set-strategy")
 async def set_strategy(
     agent_id: Annotated[int, Path()],
@@ -321,10 +275,6 @@ async def edit_agent_version_page(
     ).scalar_one_or_none()
     if version is None:
         raise HTTPException(status_code=400, detail="Agent has no current version.")
-    # Model choices come from the agent's stored provider (not a connection).
-    provider_models = (
-        PROVIDER_MODELS.get(agent.provider.value, []) if agent.provider else []
-    )
     max_version_no = await db.scalar(
         select(func.max(AgentVersion.version_no)).where(AgentVersion.agent_id == agent.id)
     )
@@ -338,7 +288,6 @@ async def edit_agent_version_page(
             "user": user,
             "agent": agent,
             "version": version,
-            "provider_models": provider_models,
             "next_version_no": next_version_no,
             "will_fork": will_fork,
         },
@@ -350,20 +299,16 @@ async def save_version(
     agent_id: Annotated[int, Path()],
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
-    model: Annotated[str, Form()],
     strategy_text: Annotated[str, Form()],
 ) -> RedirectResponse:
     agent = await _load_owned_agent(db, user, agent_id)
-    clean_model = model.strip()
-    if not clean_model:
-        raise HTTPException(status_code=400, detail="Model is required.")
     clean_strategy = strategy_text.strip()
     if not clean_strategy:
         raise HTTPException(status_code=400, detail="Strategy text is required.")
     current = await _load_current_version(db, agent)
-    if clean_model == current.model and clean_strategy == current.strategy_text.strip():
+    if clean_strategy == current.strategy_text.strip():
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-    await _apply_version_edit(db, agent=agent, model=clean_model, strategy_text=clean_strategy)
+    await _apply_version_edit(db, agent=agent, strategy_text=clean_strategy)
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -389,7 +334,5 @@ async def restore_version(
     if version.id == agent.current_version_id:
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
     agent.current_version_id = version.id
-    # Restoring an older version may change the model → re-derive the provider.
-    _sync_agent_provider(agent, version.model)
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)

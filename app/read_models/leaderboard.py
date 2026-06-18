@@ -20,6 +20,7 @@ from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
 from app.read_models.agent_display import agent_display_name
+from app.routes.provider_labels import PROVIDER_LABELS
 
 LeaderboardRatingMode = Literal["standard", "bonus"]
 LeaderboardIncluded = Literal["agents", "bot", "all"]
@@ -45,6 +46,9 @@ class LeaderboardRow:
     provisional: bool
     is_archived: bool
     archived_at: datetime | None
+    # Provider that played this agent's most recent match (Claude/Gemini/…), shown
+    # as a badge. None for bots and for agents not yet served by a connection.
+    provider: str | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +74,7 @@ class _Participant:
     round_wins: float
     total_score: int
     last_played_at: datetime
+    provider: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +97,7 @@ class _CompetitorState:
     archived_at: datetime | None = None
     display_name: str = ""
     owner_handle: str | None = None
+    provider: str | None = None
 
 
 def _agent_display_name(agent: Agent, version: AgentVersion | None) -> str:
@@ -121,7 +127,7 @@ def _merge_same_key_participants(participants: list[_Participant]) -> list[_Part
         else:
             avg_wins = sum(p.round_wins for p in group) / len(group)
             avg_score = sum(p.total_score for p in group) // len(group)
-            latest = max(p.last_played_at for p in group)
+            latest_participant = max(group, key=lambda p: p.last_played_at)
             merged.append(
                 _Participant(
                     competitor_key=key,
@@ -132,7 +138,8 @@ def _merge_same_key_participants(participants: list[_Participant]) -> list[_Part
                     archived_at=group[0].archived_at,
                     round_wins=avg_wins,
                     total_score=avg_score,
-                    last_played_at=latest,
+                    last_played_at=latest_participant.last_played_at,
+                    provider=latest_participant.provider,
                 )
             )
     return merged
@@ -239,6 +246,7 @@ async def load_leaderboard_sections(
                     round_wins=float(player.total_round_wins),
                     total_score=player.total_round_score,
                     last_played_at=match.completed_at or match.started_at or match.scheduled_start,
+                    provider=None if agent.kind == AgentKind.BOT else player.played_provider,
                 ),
             ],
             has_bots=bundle.has_bots or agent.kind == AgentKind.BOT,
@@ -362,6 +370,9 @@ async def load_leaderboard_sections(
                     )
                 state.rating = current_rating + match_delta
                 state.match_count += 1
+                # Keep the provider from the agent's most recent match.
+                if state.last_played_at is None or participant.last_played_at >= state.last_played_at:
+                    state.provider = participant.provider
                 state.last_played_at = max(
                     state.last_played_at or participant.last_played_at,
                     participant.last_played_at,
@@ -399,6 +410,11 @@ async def load_leaderboard_sections(
                     provisional=state.match_count < 5,
                     is_archived=state.is_archived,
                     archived_at=state.archived_at,
+                    provider=(
+                        PROVIDER_LABELS.get(state.provider, state.provider.title())
+                        if state.provider
+                        else None
+                    ),
                 )
             )
 

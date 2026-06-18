@@ -1207,3 +1207,49 @@ async def test_scheduled_game_keeps_caller_waiting_not_no_game(
     body = r.json()
     assert body["status"] == "waiting"
     assert "should_stop" not in body
+
+
+@pytest.mark.asyncio
+async def test_provider_agnostic_serving_stamps_played_provider(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """An agent with no provider is served by ANY of the user's live connections,
+    and the serving connection's provider is stamped onto the player as
+    played_provider (the source of truth for the public 'played by' badge)."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(
+            db, user, provider=ConnectionProvider.GEMINI
+        )
+        match, _turn = await _create_match_with_turn(db, "M_PA01", deadline_seconds=60)
+        agent, version, player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Decoupled",
+            agent_name="Decoupled",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        # Decoupled agent: no stored provider, no stored model.
+        agent.provider = None
+        version.model = None
+        await db.commit()
+        player_id = player.id
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "your_turn"
+    assert body["agent_name"] == "Decoupled"
+    # Payload provider reflects the serving connection, not the (absent) agent provider.
+    assert body["provider"] == "gemini"
+    assert body["model"] is None
+
+    async with session_factory() as db:
+        refreshed = (
+            await db.execute(select(Player).where(Player.id == player_id))
+        ).scalar_one()
+        assert refreshed.played_provider == "gemini"
+        assert refreshed.served_by_connection_id == connection.id

@@ -135,3 +135,59 @@ async def test_leaderboard_page_renders_owner_credit(reset_db, client):
     assert resp.status_code == 200
     assert "AliceBot" in resp.text
     assert "by @agent1" in resp.text
+
+
+async def test_leaderboard_shows_played_provider_badge(reset_db):
+    """The leaderboard surfaces the provider that actually played (from
+    Player.played_provider) as a friendly badge; unserved seats and bots have none."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        bot_owner = await make_user(db, 3)
+        agent, version = await make_agent(db, user, name="Gem")
+        agent2, version2 = await make_agent(db, user, name="Cla")
+        bot_agent, _ = await make_agent(
+            db,
+            bot_owner,
+            name="HouseBot",
+            kind=AgentKind.BOT,
+            bot_profile_name="HouseBot",
+            bot_strategy="coalition_seeker",
+        )
+        match = Match(
+            id="M_prov",
+            name="Ranked",
+            state=GameState.COMPLETED,
+            scheduled_start=datetime(2026, 6, 4, tzinfo=timezone.utc),
+            per_turn_deadline_seconds=60,
+            game="hoard-hurt-help",
+        )
+        db.add(match)
+        await db.flush()
+        db.add_all(
+            [
+                Player(
+                    match_id=match.id, user_id=user.id, agent_id=agent.id,
+                    seat_name="Gem", agent_version_id=version.id,
+                    total_round_wins=3, total_round_score=30, played_provider="gemini",
+                ),
+                Player(
+                    match_id=match.id, user_id=user.id, agent_id=agent2.id,
+                    seat_name="Cla", agent_version_id=version2.id,
+                    total_round_wins=1, total_round_score=10, played_provider=None,
+                ),
+                Player(
+                    match_id=match.id, user_id=bot_owner.id, agent_id=bot_agent.id,
+                    seat_name="HouseBot", total_round_wins=2, total_round_score=20,
+                    played_provider="gemini",  # must be ignored for bots
+                ),
+            ]
+        )
+        await db.commit()
+
+    async with reset_db() as db:
+        sections = await load_leaderboard_sections(db, included="all")
+    rows = {row.display_name: row for section in sections for row in section.rows}
+
+    assert rows["Gem"].provider == "Gemini"  # friendly label, from played_provider
+    assert rows["Cla"].provider is None  # seat never served → no badge
+    assert rows["HouseBot"].provider is None  # bots never carry a provider badge

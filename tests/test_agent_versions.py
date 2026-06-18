@@ -494,31 +494,3 @@ async def test_agent_in_active_practice_match_is_locked_against_delete_and_edit(
         cookies=cookies,
     )
     assert edit_resp.status_code == 409
-
-
-@pytest.mark.asyncio
-async def test_set_model_syncs_agent_provider(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
-) -> None:
-    """Editing an agent to a cross-provider model re-derives agent.provider so
-    routing never reads a stale provider (Codex plan finding)."""
-    async with session_factory() as db:
-        user = await _make_user(db, handle="syncer", i=42)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
-        agent = await _make_agent(db, user, connection=connection, name="Shifter")
-        await _make_version(db, agent, model="claude-sonnet-4-6", strategy_text="s")
-        agent.provider = ConnectionProvider.CLAUDE
-        await db.commit()
-        agent_id = agent.id
-
-    resp = await client.post(
-        f"/me/agents/{agent_id}/set-model",
-        cookies=_signed_in_cookies(user.id),
-        data={"model": "gemini-3.1-pro-preview"},
-        follow_redirects=False,
-    )
-    assert resp.status_code == 303, resp.text
-
-    async with session_factory() as db:
-        refreshed = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
-        assert refreshed.provider is ConnectionProvider.GEMINI

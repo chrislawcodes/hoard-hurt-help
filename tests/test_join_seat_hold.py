@@ -277,7 +277,7 @@ async def test_seat_connect_redirects_connected_not_live_provider_to_mcp_setup(
     )
     assert r.status_code == 303
     next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", safe="")
-    assert r.headers["location"] == f"/me/connections?provider=claude&next={next_url}"
+    assert r.headers["location"] == f"/me/connections?next={next_url}"
 
 
 @pytest.mark.asyncio
@@ -293,7 +293,7 @@ async def test_seat_connect_redirects_never_configured_provider_to_mcp_setup(cli
     )
     assert r.status_code == 303
     next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", safe="")
-    assert r.headers["location"] == f"/me/connections?provider=gemini&next={next_url}"
+    assert r.headers["location"] == f"/me/connections?next={next_url}"
 
 
 @pytest.mark.asyncio
@@ -322,7 +322,7 @@ async def test_join_never_configured_mcp_provider_redirects_to_mcp_setup(
         ).scalar_one()
         assert player.seat_reserved_until is not None
     next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{player.id}", safe="")
-    assert r.headers["location"] == f"/me/connections?provider={provider.value}&next={next_url}"
+    assert r.headers["location"] == f"/me/connections?next={next_url}"
 
 
 @pytest.mark.asyncio
@@ -352,7 +352,7 @@ async def test_join_machine_only_claude_connection_still_redirects_to_mcp_setup(
             await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
     next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{player.id}", safe="")
-    assert r.headers["location"] == f"/me/connections?provider=claude&next={next_url}"
+    assert r.headers["location"] == f"/me/connections?next={next_url}"
 
 
 @pytest.mark.asyncio
@@ -392,7 +392,7 @@ async def test_seat_connect_expired_mcp_connection_redirects_to_mcp_setup(
     )
     next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{pid}", safe="")
     assert r.status_code == 303
-    assert r.headers["location"] == f"/me/connections?provider=gemini&next={next_url}"
+    assert r.headers["location"] == f"/me/connections?next={next_url}"
 
 
 # ---------------------------------------------------------------------------
@@ -596,9 +596,10 @@ async def test_status_escalates_to_reconnect_after_grace_window(client, reset_db
         follow_redirects=False,
     )
     assert r.status_code == 200
-    assert "Reconnect Claude" in r.text
+    # The reconnect CTA is provider-agnostic now — any connection plays any agent.
+    assert "Reconnect your AI" in r.text
     assert "/me/connections" in r.text
-    assert "provider=claude" in r.text
+    assert "provider=" not in r.text
 
 
 @pytest.mark.asyncio

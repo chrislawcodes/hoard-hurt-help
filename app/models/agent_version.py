@@ -1,4 +1,10 @@
-"""AgentVersion table — immutable-once-played model + strategy snapshots."""
+"""AgentVersion table — immutable-once-played strategy snapshots.
+
+``model`` is legacy and now optional: agents are decoupled from a fixed AI
+model/provider (they are just name + strategy). New versions leave it NULL; the
+provider that actually played a match is recorded on the player row instead
+(``Player.played_provider``).
+"""
 
 from __future__ import annotations
 
@@ -25,7 +31,7 @@ class AgentVersion(Base):
         ForeignKey("agents.id"), nullable=False, index=True
     )
     version_no: Mapped[int] = mapped_column(Integer, nullable=False)
-    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     strategy_text: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

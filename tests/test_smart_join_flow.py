@@ -187,9 +187,9 @@ async def test_provider_but_no_agent_redirects_to_create_agent_with_next(client,
 
 @pytest.mark.asyncio
 async def test_agent_without_any_connection_shows_form_not_connected(client, reset_db):
-    # An agent whose provider is enabled on NO connection now SHOWS on the form,
-    # grouped under its provider as "Not connected" — the user can pick it and
-    # connect on the next screen instead of being bounced away.
+    # With no connection at all, the agent still SHOWS on the form and the overall
+    # status reads "No AI connected" — the user can pick it and connect on the next
+    # screen instead of being bounced away.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
@@ -199,7 +199,7 @@ async def test_agent_without_any_connection_shows_form_not_connected(client, res
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
     assert "Atlas" in r.text
-    assert "Not connected" in r.text
+    assert "No AI connected" in r.text
 
 
 @pytest.mark.asyncio

@@ -210,14 +210,13 @@ async def test_ready_user_never_redirected_to_setup_url(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_create_agent_provider_not_setup_redirects_to_connections(client, reset_db):
-    """POST /me/agents/new when the provider has no MCP connection → /me/connections."""
+    """POST /me/agents/new when the user has no connection at all → /me/connections."""
     user = await _user_with_handle(reset_db)
     # No connection at all → NO_MCP_CONNECTION
     r = await client.post(
         "/me/agents/new",
         data={
             "name": "MyBot",
-            "model": "claude-haiku-4-5",
             "strategy_text": "Play to win.",
         },
         cookies=_cookies(user.id),
@@ -225,8 +224,8 @@ async def test_create_agent_provider_not_setup_redirects_to_connections(client, 
     )
     assert r.status_code == 303
     loc = r.headers["location"]
-    assert "/me/connections" in loc
-    assert "provider=claude" in loc
+    # The connect page is generic now — no provider scoping.
+    assert loc == "/me/connections"
 
 
 @pytest.mark.asyncio
@@ -237,7 +236,6 @@ async def test_create_agent_provider_not_setup_carries_next_to_connections(clien
         "/me/agents/new",
         data={
             "name": "MyBot",
-            "model": "claude-haiku-4-5",
             "strategy_text": "Play to win.",
             "next": "/me/matches",
         },
@@ -247,7 +245,7 @@ async def test_create_agent_provider_not_setup_carries_next_to_connections(clien
     assert r.status_code == 303
     loc = r.headers["location"]
     assert "/me/connections" in loc
-    assert "provider=claude" in loc
+    assert "provider=" not in loc
     assert "next=" in loc
     assert "evil" not in loc
 

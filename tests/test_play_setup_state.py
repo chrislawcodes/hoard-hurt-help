@@ -141,7 +141,8 @@ async def test_agent_no_mcp_connection_needs_mcp_connection(
     await _mcp_agent(db_session, user, provider=ConnectionProvider.CLAUDE, mcp_connected_at=None)
     state = await resolve_play_setup_state(db_session, user)
     assert state.stage is PlaySetupStage.NEEDS_MCP_CONNECTION
-    assert state.next_url == "/me/connections?provider=claude"
+    # The connect page is no longer provider-scoped — any connection plays any agent.
+    assert state.next_url == "/me/connections"
 
 
 @pytest.mark.asyncio
@@ -284,15 +285,17 @@ async def test_archived_agent_is_excluded(db_session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_provider_null_agent_is_excluded(db_session: AsyncSession) -> None:
+async def test_provider_null_agent_is_now_seatable(db_session: AsyncSession) -> None:
+    # Agents are decoupled from a provider — a provider-NULL AI agent is the new
+    # normal and counts as a real agent. With no connection, the gate is
+    # NEEDS_MCP_CONNECTION (the agent exists; the user just needs to connect an AI).
     user = await make_user(db_session, 10)
-    # A BOT agent has provider=None; force an AI agent with no provider directly.
     agent, _ = await make_agent(db_session, user, name="no-provider", connection=None)
     agent.provider = None
     agent.kind = AgentKind.AI
     await db_session.flush()
     state = await resolve_play_setup_state(db_session, user)
-    assert state.stage is PlaySetupStage.NEEDS_AGENT
+    assert state.stage is PlaySetupStage.NEEDS_MCP_CONNECTION
 
 
 # ---------------------------------------------------------------------------
@@ -309,10 +312,9 @@ async def test_next_url_threads_join_for_setup_gate(db_session: AsyncSession) ->
         db_session, user, target_match=match, require=PlaySetupStage.READY
     )
     assert state.stage is PlaySetupStage.NEEDS_MCP_CONNECTION
-    # Provider query first (?), then the join next (&).
+    # The connect page is generic now; the join next is threaded with a leading ?.
     assert state.next_url == (
-        "/me/connections?provider=claude"
-        "&next=/games/hoard-hurt-help/matches/m-join-1/join"
+        "/me/connections?next=/games/hoard-hurt-help/matches/m-join-1/join"
     )
 
 
@@ -354,9 +356,14 @@ async def test_next_url_ready_with_target_match_is_match_url(
 
 
 @pytest.mark.asyncio
-async def test_target_agent_uses_that_agents_provider(db_session: AsyncSession) -> None:
-    # A ready gemini agent plus a target claude agent with no setup: the target
-    # scopes to claude, so the gate is NEEDS_MCP_CONNECTION (gemini doesn't help).
+async def test_target_agent_uses_overall_connection_readiness(
+    db_session: AsyncSession,
+) -> None:
+    # A target agent no longer scopes to a provider — readiness comes from ANY of
+    # the user's connections. A set-up-but-cold gemini connection makes the user
+    # CONNECTED_NOT_LIVE, so under require=READY the gate is NEEDS_LIVE (not
+    # NEEDS_MCP_CONNECTION) even though the target "claude" agent's own connection
+    # is cold — because any connection can play any agent now.
     user = await make_user(db_session, 14)
     await _mcp_agent(
         db_session,
@@ -366,18 +373,13 @@ async def test_target_agent_uses_that_agents_provider(db_session: AsyncSession) 
         last_seen_at=_cold(),
         name="ready-gemini",
     )
-    target, _ = await _mcp_agent(
-        db_session,
-        user,
-        provider=ConnectionProvider.CLAUDE,
-        mcp_connected_at=None,
-        name="cold-claude",
-    )
+    target, _ = await make_agent(db_session, user, name="plain-agent", connection=None)
+    target.provider = None
+    await db_session.flush()
     state = await resolve_play_setup_state(
         db_session, user, target_agent=target, require=PlaySetupStage.READY
     )
-    assert state.stage is PlaySetupStage.NEEDS_MCP_CONNECTION
-    assert state.next_url == "/me/connections?provider=claude"
+    assert state.stage is PlaySetupStage.NEEDS_LIVE
 
 
 # ---------------------------------------------------------------------------
@@ -391,10 +393,11 @@ async def test_single_provider_ready_query_bound(
 ) -> None:
     """A single-provider ready user resolves with a small, bounded query count.
 
-    The eligible-providers query is 1; the early-exit reduction clears the nav
-    bar on the first (only) provider after at most the 2 readiness predicates it
-    takes to reach CONNECTED_NOT_LIVE. We assert <= 4 total queries — well under
-    the naive 3·K bound and proving no per-agent blow-up.
+    Breakdown: 1 has-any-agent probe + 1 connection-providers query + the
+    readiness cascade over the single provider (≤3 predicates). Crucially the
+    count does NOT scale with the number of agents — the agent probe is a single
+    LIMIT 1 and providers come from connections, not a per-agent loop. We assert
+    <= 6 total queries, proving no per-agent blow-up.
     """
     user = await make_user(db_session, 15)
     # Two agents that SHARE one connection/provider — dedup must collapse them to
@@ -428,7 +431,7 @@ async def test_single_provider_ready_query_bound(
         event.remove(sync_engine, "before_cursor_execute", _count)
 
     assert state.stage is PlaySetupStage.READY
-    assert counter["n"] <= 4, f"expected <= 4 queries, got {counter['n']}"
+    assert counter["n"] <= 6, f"expected <= 6 queries, got {counter['n']}"
 
 
 # ---------------------------------------------------------------------------

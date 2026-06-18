@@ -11,35 +11,33 @@
     {% endif %}
 </div>
 
-{% if agent_groups %}
-<p class="hint">Pick an agent to join. Connected providers come first. If you pick one that isn't connected, you'll get a short window to connect it before the seat is released.</p>
+{% if any_agents %}
+<p class="hint">Pick an agent to join. Whatever AI you've connected plays it. If nothing is live yet, you'll get a short window to connect before the seat is released.</p>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
-{% for group in agent_groups %}
-<div class="card form provider-group provider-{{ group.status }}">
+<div class="card form provider-group provider-{{ connection_status }}">
     <div class="provider-head">
-        <span class="provider-name">{{ group.provider_label }}</span>
-        {% if group.status == 'live' %}
-        <span class="provider-status status-live"><span class="dot"></span>Connected</span>
-        {% elif group.status == 'offline' %}
+        <span class="provider-name">Your agents</span>
+        {% if connection_status == 'live' %}
+        <span class="provider-status status-live"><span class="dot"></span>AI connected</span>
+        {% elif connection_status == 'offline' %}
         <span class="provider-status status-off"><span class="dot dot-still"></span>Not running</span>
         {% else %}
-        <span class="provider-status status-off"><span class="dot dot-still"></span>Not connected</span>
+        <span class="provider-status status-off"><span class="dot dot-still"></span>No AI connected</span>
         {% endif %}
     </div>
-    {% for row in group.agents %}
+    {% for row in agent_rows %}
     <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" class="agent-row">
-        <span class="agent-row-name">{{ row.agent.name }}{% if row.model_label %} <small class="agent-row-model">{{ row.model_label }}</small>{% endif %}</span>
+        <span class="agent-row-name">{{ row.agent.name }}</span>
         {% if row.seated %}
         <span class="badge badge-done">Already seated</span>
         {% else %}
-        <button type="submit" name="agent_id" value="{{ row.agent.id }}" class="btn {% if group.status == 'live' %}btn-primary{% else %}btn-ghost{% endif %}">
-            {% if group.status == 'live' %}Join{% else %}Join &amp; connect{% endif %}
+        <button type="submit" name="agent_id" value="{{ row.agent.id }}" class="btn {% if connection_status == 'live' %}btn-primary{% else %}btn-ghost{% endif %}">
+            {% if connection_status == 'live' %}Join{% else %}Join &amp; connect{% endif %}
         </button>
         {% endif %}
     </form>
     {% endfor %}
 </div>
-{% endfor %}
 <p class="meta">Your in-match identity is <strong>{{ user.handle }}/agent-name</strong>, using that agent's current version. Manage agents and logins under <a href="/me/agents">Agents</a> and <a href="/me/connections">Connections</a>.</p>
 {% else %}
 <div class="card form">

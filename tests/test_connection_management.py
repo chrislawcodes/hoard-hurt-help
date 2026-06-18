@@ -509,7 +509,7 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
     # Leads with the play-prompt code block — the one thing to do now.
     assert "Tell your AI to play" in text
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
-    assert "Negotiator · claude-haiku-4-5" in text
+    assert "Negotiator" in text
     assert "get_instructions" in text
     removed_tool = "get_" + "opponent_history"
     removed_stats_tool = "get_" + "standings"

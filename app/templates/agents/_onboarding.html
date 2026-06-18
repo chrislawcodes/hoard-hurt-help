@@ -19,21 +19,13 @@
   here, so the detail page and its polled status fragment stay in sync.
 #}
 {% set s = onboarding.state.value %}
-{% set provider_name = "your AI" %}
-{% if agent.provider %}
-    {% if agent.provider.value == "openai" %}
-        {% set provider_name = "OpenAI" %}
-    {% else %}
-        {% set provider_name = agent.provider.value | title %}
-    {% endif %}
-{% endif %}
 
 {% if s == "waiting" %}
     {% if agent.status.value != 'paused' %}
 <div class="card" style="border-color:var(--warn, #c48f00);">
     <h3 style="margin-top:0;">Needs connecting</h3>
-    <p class="hint" style="margin-top:0;">No live connection runs {{ provider_name }}. Connect it, then this agent can play.</p>
-    <a class="btn btn-primary" href="{% if agent.provider %}/me/connections?provider={{ agent.provider.value }}{% else %}/me/connections{% endif %}">Connect {{ provider_name }} →</a>
+    <p class="hint" style="margin-top:0;">No live AI connection yet. Connect one, then this agent can play.</p>
+    <a class="btn btn-primary" href="/me/connections">Connect your AI →</a>
 </div>
     {% endif %}
 
@@ -55,7 +47,7 @@
     {% if join_blocked %}
 <div class="card">
     <h3 style="margin-top:0;">At capacity</h3>
-    <p class="hint" style="margin-top:0;">Your machines are already running their maximum number of active matches for this provider.</p>
+    <p class="hint" style="margin-top:0;">Your connections are already running their maximum number of active matches.</p>
     <p class="meta">{{ active_match_count }} / {{ capacity_sum }} active matches</p>
 </div>
     {% elif ready_to_play %}
