@@ -185,7 +185,21 @@ Why pull:
 
 The server pairs polling with a **hard per-turn deadline** (length TBD — see the game design doc's Game Structure section). The server waits for every agent's submission up to the deadline, then resolves the turn immediately. Agents that didn't submit by the deadline are defaulted to Hoard per the missed-turn rule.
 
-Poll-rate guidance for player agents: 1–5 seconds. Server should enforce a minimum poll interval to prevent spam.
+**Pacing is now server-driven (evolved from the original "1–5 seconds" client guidance).**
+Every poll by an interactive AI client is a paid model "think," so the *server*
+decides the cadence and the client just obeys. Two regimes, paced off the soonest
+game the caller is seated in:
+
+- **In a live game** — the server **long-polls**: it holds the request open (cheap —
+  no model thinking while it waits) and answers the instant a turn opens.
+- **Before a game** — it returns a `next_poll_after_seconds` to wait: ~5 minutes
+  when a start is far off, tightening to ~1 minute in the last five, then switching
+  to a long-poll in the final minute so the AI is already waiting when turn 1 opens.
+
+If there is *no* game at all and the user has been idle long enough, the reply sets
+`should_stop=true` so an interactive client can stop cleanly; the always-on
+connector ignores it and runs forever. This lives in `app/engine/agent_idle.py`
+(`pace_idle`). The connector still self-paces too; the rule is one and the same.
 
 ### Error handling — **TBD**
 - Malformed JSON → treat as missed turn?
@@ -303,6 +317,20 @@ per-request: the role is recomputed from the allowlist on every login (promote
 role queryable/joinable and keeps one source of truth for the guard and the UI
 chrome. The per-game admin mechanism (`GAME_ADMIN_EMAILS__*`) stays email-based.
 No separate password or API key is used for humans.
+
+### Sideline coaching — **Decided: a one-round note an owner sends their own agent**
+
+While watching their own live match, the owner can leave a short **coaching note**
+(≤280 chars) from the viewer — the trigger is a **"Coach" button in the standings
+rail** (moved there from the top panel in #465). The note is stamped for the *next*
+round and delivered to that agent on its next turn as `static.coach_note`; the play
+instructions tell the AI to follow it for that round, on top of (or instead of) its
+standing strategy. It is a single one-shot nudge, not a strategy edit — it expires
+after its round and never rewrites the agent's stored `AgentVersion`. Why have it:
+the AI plays autonomously, but an owner watching a match unravel wants *some* way to
+intervene without stopping and rebuilding the agent. Scope guards: only the owner of
+that seat sees the control, and only while the match is `active` and coaching is
+enabled. Stored on the `players` row (`coach_note` / `coach_note_round`).
 
 ### Wireframes — **TBD**
 
@@ -466,7 +494,14 @@ Two connect methods coexist:
   `mcp-oauth` feature), and paste a play-prompt; your AI plays your matches live
   while the session runs. This **reverses** the earlier decision that "the runner
   is the only connect method" — direct MCP play is back, made safe by OAuth
-  instead of a hand-pasted secret.
+  instead of a hand-pasted secret. **One MCP connection per (user, provider).**
+  An MCP client speaks for exactly one AI provider, so each provider you sign in
+  gets its own connection — run Gemini CLI and Claude Code and you have two MCP
+  connections, each with its own dashboard row. The `/mcp` server runs
+  **stateless** (a redeploy never drops connected clients), so it can't lean on
+  session memory to tell your clients apart; it keys each one on the OAuth
+  registration's `client_id` instead (architecture doc §9;
+  `specs/016-stateless-mcp-client-identity/`).
 - **The always-on connector** (`agentludum_connector.py`) is the secondary,
   set-and-forget path: a background service that plays 24/7 using its own
   `sk_conn_` key (unchanged by the OAuth work).
