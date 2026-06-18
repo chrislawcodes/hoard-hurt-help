@@ -249,6 +249,15 @@ def build_parser() -> argparse.ArgumentParser:
     # is the inner watchdog, not this wrapper killing a healthy long plan review.
     checkpoint_parser.add_argument("--repair-timeout-seconds", type=int, default=780)
     checkpoint_parser.add_argument("--allow-large-diff-rerun", action="store_true")
+    checkpoint_parser.add_argument(
+        "--accept-cap",
+        metavar="REASON",
+        default=None,
+        help=(
+            "Proceed past the MAX_ADVERSARIAL_ROUNDS hard cap. "
+            "Pass a one-sentence reason; it is recorded in state.json as a cap_accepted annotation."
+        ),
+    )
     checkpoint_parser.add_argument("--fallback", action="store_true")
     checkpoint_parser.add_argument("--json", action="store_true")
     checkpoint_parser.add_argument(
