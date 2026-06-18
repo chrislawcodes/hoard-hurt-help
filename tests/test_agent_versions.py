@@ -32,6 +32,7 @@ from app.routes.agents_status import router as agents_status_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
 from app.routes.connections_setup import router as connections_setup_router
+from app.routes.web_player import _seat_name
 
 
 @pytest.fixture
@@ -370,13 +371,19 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
         version_a = await _make_version(db, agent_a)
         version_b = await _make_version(db, agent_b)
         match = await _make_match(db, "M_2000", state=GameState.ACTIVE)
+        # Seat names expose the agent name only — never the owner's handle.
+        # Two users with the same agent name get a "#2" disambiguator.
+        existing: set[str] = set()
+        seat_a = _seat_name(agent_a.name, existing)
+        existing.add(seat_a)
+        seat_b = _seat_name(agent_b.name, existing)
         await _seat_player(
             db,
             match=match,
             user=user_a,
             agent=agent_a,
             version=version_a,
-            seat_name=f"{user_a.handle}/Alpha",
+            seat_name=seat_a,
         )
         await _seat_player(
             db,
@@ -384,14 +391,17 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
             user=user_b,
             agent=agent_b,
             version=version_b,
-            seat_name=f"{user_b.handle}/Alpha",
+            seat_name=seat_b,
         )
         await db.commit()
 
         seat_names = (
             await db.execute(select(Player.seat_name).where(Player.match_id == match.id))
         ).scalars().all()
-        assert seat_names == ["alice/Alpha", "bob/Alpha"]
+        assert seat_names == ["Alpha", "Alpha #2"]
+        # No owner handle leaked into either seat name.
+        assert "alice" not in "".join(seat_names)
+        assert "bob" not in "".join(seat_names)
 
 
 @pytest.mark.asyncio

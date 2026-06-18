@@ -65,12 +65,15 @@ def _hx_redirect(url: str) -> HTMLResponse:
     return HTMLResponse("", headers={"HX-Redirect": url})
 
 
-def _seat_name(handle: str, agent_name: str, existing: set[str]) -> str:
-    """Derive a public seat name and keep it unique within the match."""
-    base = f"{handle}/{agent_name}"
-    if len(base) > 40:
-        keep = max(1, 40 - len(handle) - 1)
-        base = f"{handle}/{agent_name[:keep]}"
+def _seat_name(agent_name: str, existing: set[str]) -> str:
+    """Derive a public seat name and keep it unique within the match.
+
+    The seat name shown to agents and spectators is the agent's name only —
+    never the owning user's handle, name, or email. Identity must not leak to
+    competing agents. The human-facing viewer shows the owner's handle as a
+    separate byline, sourced from its own query, not from this label.
+    """
+    base = agent_name[:40]
     if base not in existing:
         return base
     for index in range(2, 100):
@@ -411,7 +414,7 @@ async def _seat_user_agent(
         raise HTTPException(
             status_code=409, detail=f"{selected_agent.name} is already in this game."
         )
-    seat_name = _seat_name(user.handle or user.name or "", selected_agent.name, existing_seats)
+    seat_name = _seat_name(selected_agent.name, existing_seats)
     existing_seats.add(seat_name)
     model_label = f"{provider.value}/{version.model}" if version.model else provider.value
     return Player(
