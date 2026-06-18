@@ -72,6 +72,24 @@ async def _load_user_connections(db: DbSession, user_id: int) -> list[Connection
     return list(rows.scalars().all())
 
 
+async def _load_existing_strategies(db: DbSession, user_id: int) -> list[dict[str, str]]:
+    """Current strategy text of the user's other agents, for the "start from an
+    existing agent" picker. Lets a user reuse a strategy they already wrote
+    instead of retyping it. Purely a client-side fill — nothing here is stored.
+    """
+    rows = await db.execute(
+        select(Agent.name, AgentVersion.strategy_text)
+        .join(AgentVersion, AgentVersion.id == Agent.current_version_id)
+        .where(
+            Agent.user_id == user_id,
+            Agent.kind == AgentKind.AI,
+            Agent.archived_at.is_(None),
+        )
+        .order_by(Agent.name)
+    )
+    return [{"name": name, "strategy": strategy} for name, strategy in rows.all()]
+
+
 def _build_model_picker_groups(
     enabled_values: set[str], selected_model: str | None
 ) -> tuple[list[dict[str, object]], str | None, list[dict[str, str]]]:
@@ -124,6 +142,7 @@ async def new_agent_form(
 ) -> Response:
     await gc_pending_connections(db)
     connections = await _load_user_connections(db, user.id)
+    existing_strategies = await _load_existing_strategies(db, user.id)
     enabled_values = await enabled_provider_values(db, user.id)
     requested_provider = provider.strip().lower() if provider and provider.strip() else None
     selected_model = None
@@ -147,6 +166,7 @@ async def new_agent_form(
     context: dict[str, object] = {
         "user": user,
         "connections": connections,
+        "existing_strategies": existing_strategies,
         "model_groups": model_groups,
         "selected_model": selected_model,
         "availability_notes": availability_notes,

@@ -240,3 +240,42 @@ async def test_agent_detail_marks_paused_only_provider_as_needs_connecting(
     assert "Needs connecting" in resp.text
     assert "No live connection runs Claude" in resp.text
     assert 'href="/me/connections?provider=claude"' in resp.text
+
+
+@pytest.mark.asyncio
+async def test_new_agent_form_offers_existing_strategies(client, reset_db) -> None:
+    """The create form exposes the user's existing agents' strategies so they can
+    start a new agent from one instead of retyping it (PR 1: reuse picker)."""
+    async with reset_db() as db:
+        user = await make_user(db)
+        await make_agent(
+            db,
+            user,
+            name="Veteran",
+            strategy_text="Cooperate first, then mirror.",
+        )
+        await db.commit()
+
+    resp = await client.get("/me/agents/new", cookies=_signed_in_cookies(user.id))
+
+    assert resp.status_code == 200
+    # The existing agent is offered as a "start from" option...
+    assert 'id="existing-strategy"' in resp.text
+    assert "Veteran" in resp.text
+    # ...and its strategy text is available for the client-side fill.
+    assert "Cooperate first, then mirror." in resp.text
+
+
+@pytest.mark.asyncio
+async def test_new_agent_form_hides_reuse_picker_without_existing_agents(
+    client, reset_db
+) -> None:
+    """With no existing agents, the "start from existing" picker is not rendered."""
+    async with reset_db() as db:
+        user = await make_user(db)
+        await db.commit()
+
+    resp = await client.get("/me/agents/new", cookies=_signed_in_cookies(user.id))
+
+    assert resp.status_code == 200
+    assert 'id="existing-strategy"' not in resp.text
