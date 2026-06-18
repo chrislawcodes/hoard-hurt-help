@@ -314,17 +314,58 @@ resolve through this one connection because routing keys on `user + provider`, n
 connection pinning.
 
 **No loopback, no internal key.** Authenticated tools do **not** call our HTTP API
-over the network with a forwarded key. The play actions the tools use (next‑turn,
-get‑turn, submit‑talk, submit‑action, the read tools) are extracted into a
-**shared play‑service layer** (`app/engine/agent_play.py` plus its split siblings
-`agent_play_next_turn` / `agent_play_reads` / `agent_play_guards`) that **both** the
-agent HTTP routes (`agent_api.py` / `agent_next_turn.py`) and the MCP tools call.
-The HTTP route is a thin adapter (parse → `require_connection` /
+over the network with a forwarded key. The play actions the tools use are extracted
+into a **shared play‑service layer** (`app/engine/agent_play.py` plus its split
+siblings `agent_play_next_turn` / `agent_play_reads` / `agent_play_guards`) that
+**both** the agent HTTP routes (`agent_api.py` / `agent_next_turn.py`) and the MCP
+tools call. The HTTP route is a thin adapter (parse → `require_connection` /
 `require_agent_player` → service); the MCP tool is the other adapter (OAuth →
 resolve user → per‑user connection → same service). So the per‑user connection's
 key is never needed or stored — the key/hash machinery stays only on the
 connector/HTTP path — and there is one implementation, no drift. `get_game_state`
 keeps a **public carve‑out** so the OAuth gate doesn't hide it.
+
+**Three‑layer MCP play flow (feat `mcp-prompt-tools-cleanup`).** The MCP play path
+is structured in three layers so per‑turn token cost stays small:
+
+1. **Kickoff prompt** (paste‑once) — the user pastes the prompt from the connect
+   guide into their AI client. It gives the loop‑control rules: keep calling
+   `get_next_turn` yourself, never hand control back, stop only on a turn to play
+   or `should_stop=true`. Distills the two waiting states (`waiting` → call again
+   right away; `no_game` → check `should_stop`, then wait `next_poll_after_seconds`).
+   Managed in `app/routes/connections_connect_guide.py` (`_PLAY_PROMPT`).
+2. **`get_instructions`** (fetched once per session, re‑fetched if rules are
+   forgotten) — returns static "how to play" in four labeled sections: `## The
+   rules` (game semantics only, no connector response protocol), `## You` (your
+   agent id + targets), `## Your strategy` (the agent's stored `strategy_text`),
+   `## How to answer` (call `submit_talk` / `submit_action`; never return JSON).
+   Takes optional `agent_id` / `match_id` selectors for parallel multi‑agent play.
+3. **`get_next_turn` / `get_next_turns`** (per turn) — **lean live state only**:
+   `status`, `match_id`, `turn_token`, `agent_turn_token`, `current`, `history`,
+   `scoreboard`, chat, `public_state`. The `static.base_prompt`, `static.rules`,
+   and duplicated `strategy` keys are **stripped in the MCP wrappers** in
+   `mcp_server/server.py` before the response is returned. The underlying shared
+   builder (`_build_turn_payload` / `agent_play_next_turn.get_next_turn`) and the
+   connector HTTP route (`/agent/next-turn`) are **byte‑for‑byte unchanged** and
+   still emit the full payload — only the MCP layer strips the static fields.
+
+**Response‑format guidance split.** `RESPONSE_PROTOCOL` (the "return one JSON object"
+contract in `app/agent_prompt.py`) is used only on the **connector** path —
+`make_rules_text` and `make_agent_base_prompt` both embed it. Nothing emitted on
+the MCP path instructs the AI to return JSON; `get_instructions`'s "How to answer"
+section says to call the tools.
+
+**MCP tool surface (7 tools):**
+
+| Tool | Purpose |
+|---|---|
+| `get_instructions` | Static "how to play" pack: rules, identity, strategy, how‑to‑answer. Fetched once. |
+| `get_next_turn` | Lean per‑turn live state for the next open turn across all the user's agents. |
+| `get_next_turns` | Multi‑agent fan‑out: lean per‑turn live state for all open turns at once. |
+| `submit_talk` | Post the agent's public talk message for the current turn. |
+| `submit_action` | Post the agent's action for the current turn. |
+| `get_chat` | Fetch older chat (catch‑up if context was trimmed). |
+| `get_game_state` | Inspect any public game — unique "spectator" capability; part of the leak‑test surface. |
 
 ---
 
@@ -382,9 +423,12 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change Practice Arena / Auto-Match seeding | `app/engine/arena.py` + `app/engine/bot_presets.py` + `app/engine/bots/roster.py` + `app/routes/connections_*.py` / `agents_*.py`. |
 | Change an agent's model/strategy | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
 | Touch the turn lifecycle | `app/engine/scheduler_turn_loop.py` (the loop itself: `_run_game`, `_open_turn`, wait helpers) + `app/engine/scheduler.py` (registry + poller). |
-| Change what an agent sees/submits | The shared play‑service layer — `app/engine/agent_play.py` (verbs) + `agent_play_next_turn.py` (next‑turn fan‑out) + `agent_play_reads.py` (payload projections) + `agent_play_guards.py` (rate‑limit/binding) — that both the HTTP routes and MCP tools call, + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
+| Change what an agent sees/submits (both paths) | The shared play‑service layer — `app/engine/agent_play.py` (verbs) + `agent_play_next_turn.py` (next‑turn fan‑out / `_build_turn_payload`) + `agent_play_reads.py` (payload projections) + `agent_play_guards.py` (rate‑limit/binding) — that both the HTTP routes and MCP tools call, + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
+| Change what the MCP path sends per turn (lean payload) | Strip keys in the MCP wrappers in `mcp_server/server.py` (`get_next_turn` and `get_next_turns`) — **do not touch** the shared `_build_turn_payload` builder or the connector route `app/routes/agent_next_turn.py`. |
+| Change the MCP static "how to play" text | `mcp_server/server.py` `get_instructions` tool — four sections: rules (`app/games/hoard_hurt_help/rules.py` `make_game_rules_text`, not `make_rules_text`), identity/targets, strategy (`AgentVersion.strategy_text`), MCP how‑to‑answer wording. |
+| Change the MCP kickoff paste prompt | `app/routes/connections_connect_guide.py` `_PLAY_PROMPT`. |
 | Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata) + the OAuth‑identity→per‑user "MCP connection" `Connection` bridge in `mcp_server/`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
-| Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). |
+| Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). For MCP‑only payload shape changes, strip in the MCP wrapper (`mcp_server/server.py`), not the service layer. |
 | Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (eligibility + sticky‑pin claim) wired into `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. Pin columns live on `app/models/player.py`. |
 | Change per‑connection provider toggles / detection | `app/models/connection_providers.py` + the toggle endpoint in `app/routes/connections_lifecycle.py`; detection flows in via `report_pid` in `app/routes/agent_next_turn.py`. |
 | Change connection health / liveness | `app/engine/connection_health.py` (reads `last_seen_at`/`runner_pid` + `players.served_by_connection_id`, not agent attachment). |
@@ -433,6 +477,7 @@ push HTML fragments into the live viewer — no client‑side state.
   needed a forwarded key to do so — the loopback and that internal credential are
   gone. The tension to watch: keep new play behavior in the service layer, not in
   one adapter, or the two paths drift.
+- **MCP per‑turn payload is stripped in the MCP wrapper, not the service layer (feat `mcp-prompt-tools-cleanup`).** The shared `_build_turn_payload` builder and the connector HTTP route (`/agent/next-turn`) must always emit the full payload (including `static.base_prompt`, `static.rules`, `strategy`). The lean MCP payload is produced by deleting those static keys inside the MCP `get_next_turn` and `get_next_turns` wrappers in `mcp_server/server.py` after calling the shared service. The tension to watch: never add a `channel`/`audience` param to the shared service to drive this — that is an adapter concern and would couple the service to MCP specifics.
 - **Onboarding is strategy‑first (feat `strategy-first-onboarding`).** Designing
   an agent is the hook; connecting an AI client is the chore — so the order is
   *design first, connect after*. An agent can be created with **no connection at
