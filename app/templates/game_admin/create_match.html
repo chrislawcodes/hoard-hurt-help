@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Create Match — {{ game_slug }} Admin{% endblock %}
 {% block content %}
-<a class="backlink" href="/games/{{ game_slug }}/admin/">← {{ game_slug }} Admin</a>
 <div class="page-head"><h1>Create match</h1></div>
 
 <form method="post" action="/games/{{ game_slug }}/admin/matches/new" id="create-game-form" class="card form">

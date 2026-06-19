@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Incident {{ incident.request_id }} — Admin{% endblock %}
 {% block content %}
-<a class="backlink" href="/admin/incidents">← Incidents</a>
 <div class="page-head">
     <h1>{{ incident.request_id }}</h1>
     <p class="sub">{{ incident.method }} {{ incident.path }} · {{ incident.created_at | localdt }}</p>

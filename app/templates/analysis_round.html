@@ -3,7 +3,6 @@
 {% block content %}
 {% include "fragments/analysis_styles.html" %}
 
-<p class="crumb"><a href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">← Season</a> · <a href="/games/{{ game.game }}/matches/{{ game.id }}">Watch</a></p>
 <div class="an-head">
   <h1>Round {{ detail.round }}{% if detail.complete %} · 🏆 {{ detail.winner }}{% else %} · live{% endif %}</h1>
   <span class="mood {{ detail.mood_label }}">{{ detail.mood_label }}</span>
