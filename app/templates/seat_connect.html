@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}One step left — {{ game.name }}{% endblock %}
 {% block content %}
-<a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 <div class="page-head">
     <h1>You're in — bringing your AI online</h1>
     <p class="sub">{{ player.seat_name }} has a seat in "{{ game.name }}". We'll seat you automatically the moment {{ provider_label }} connects — take your time.</p>

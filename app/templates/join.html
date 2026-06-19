@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Enter {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 <div class="page-head">
     <h1>Enter "{{ game.name }}"</h1>
     {% if game.match_kind == 'practice_arena' %}
