@@ -191,3 +191,48 @@ async def test_leaderboard_shows_played_provider_badge(reset_db):
     assert rows["Gem"].provider == "Gemini"  # friendly label, from played_provider
     assert rows["Cla"].provider is None  # seat never served → no badge
     assert rows["HouseBot"].provider is None  # bots never carry a provider badge
+
+
+async def test_leaderboard_badge_survives_a_later_unserved_match(reset_db):
+    """If an agent's most recent match was never served (played_provider NULL),
+    the badge from an earlier genuinely-played match must NOT be wiped."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        foil_owner = await make_user(db, 2)
+        agent, version = await make_agent(db, user, name="Solo")
+        foil, foil_version = await make_agent(db, foil_owner, name="Foil")
+
+        # Earlier match: Solo was played by a Gemini connection.
+        early = Match(
+            id="M_early", name="Early", state=GameState.COMPLETED,
+            scheduled_start=datetime(2026, 6, 5, tzinfo=timezone.utc),
+            per_turn_deadline_seconds=60, game="hoard-hurt-help",
+        )
+        # Later match: Solo's seat was never served (no provider).
+        late = Match(
+            id="M_late", name="Late", state=GameState.COMPLETED,
+            scheduled_start=datetime(2026, 6, 9, tzinfo=timezone.utc),
+            per_turn_deadline_seconds=60, game="hoard-hurt-help",
+        )
+        db.add_all([early, late])
+        await db.flush()
+        db.add_all([
+            Player(match_id="M_early", user_id=user.id, agent_id=agent.id,
+                   seat_name="Solo", agent_version_id=version.id,
+                   total_round_wins=2, total_round_score=20, played_provider="gemini"),
+            Player(match_id="M_early", user_id=foil_owner.id, agent_id=foil.id,
+                   seat_name="Foil", agent_version_id=foil_version.id,
+                   total_round_wins=1, total_round_score=10),
+            Player(match_id="M_late", user_id=user.id, agent_id=agent.id,
+                   seat_name="Solo", agent_version_id=version.id,
+                   total_round_wins=2, total_round_score=20, played_provider=None),
+            Player(match_id="M_late", user_id=foil_owner.id, agent_id=foil.id,
+                   seat_name="Foil", agent_version_id=foil_version.id,
+                   total_round_wins=1, total_round_score=10),
+        ])
+        await db.commit()
+
+    async with reset_db() as db:
+        sections = await load_leaderboard_sections(db, included="agents")
+    rows = {row.display_name: row for section in sections for row in section.rows}
+    assert rows["Solo"].provider == "Gemini"  # earlier real badge preserved

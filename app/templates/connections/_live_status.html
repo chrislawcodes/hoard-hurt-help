@@ -38,7 +38,7 @@
                 <span class="byo-connected-check" aria-hidden="true">✓</span>
                 <div>
                     <p class="byo-connected-title">Connected</p>
-                    <p class="byo-connected-sub">This AI is linked and signed in — you're set for its models. Want other models? Connect another client (each one turns on its own provider).</p>
+                    <p class="byo-connected-sub">This AI is linked and signed in — it can play your agents. Want a different AI to play? Connect another client.</p>
                 </div>
             </div>
 
@@ -57,7 +57,7 @@
             {% else %}
                 <p class="byo-next-label">Next step</p>
                 <h3 class="byo-next-title">Create your agent</h3>
-                <p class="byo-next-body">Your agent is your AI player — the model it uses and the strategy it follows. Make one and you're ready to enter games.</p>
+                <p class="byo-next-body">Your agent is a name and a strategy — the AI you just connected plays it. Make one and you're ready to enter games.</p>
                 <a class="btn btn-primary" href="/me/agents/new{% if next_url or provider_hint %}?{% if provider_hint %}provider={{ provider_hint }}{% endif %}{% if next_url %}{% if provider_hint %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}">Create your agent →</a>
             {% endif %}
         </div>

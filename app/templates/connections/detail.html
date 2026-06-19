@@ -52,7 +52,7 @@
                     <h3>{{ row.agent.name }}</h3>
                     <p class="meta">
                         {{ row.agent.game }}
-                        {% if row.version %} · {{ row.version.model }} · v{{ row.version.version_no }}{% endif %}
+                        {% if row.version %} · v{{ row.version.version_no }}{% endif %}
                     </p>
                 </div>
             </article>
@@ -64,13 +64,13 @@
     {% if stranded_agents %}
     <div style="margin-top:1.5rem;">
         <h3 style="margin-top:0;">Agents waiting for a live connection</h3>
-        <p class="meta">No live connection currently covers these agents' providers — they'll resume the moment one comes up.</p>
+        <p class="meta">No live connection right now — they'll resume the moment one comes up.</p>
         {% for row in stranded_agents %}
         <article class="game-card">
             <div class="game-card-info">
                 <h3>{{ row.agent.name }}</h3>
                 <p class="meta">
-                    {{ row.agent.game }} · {{ row.agent.provider.value if row.agent.provider else "—" }}{% if row.version %} · {{ row.version.model }}{% endif %}
+                    {{ row.agent.game }}{% if row.version %} · v{{ row.version.version_no }}{% endif %}
                 </p>
             </div>
         </article>

@@ -370,8 +370,13 @@ async def load_leaderboard_sections(
                     )
                 state.rating = current_rating + match_delta
                 state.match_count += 1
-                # Keep the provider from the agent's most recent match.
-                if state.last_played_at is None or participant.last_played_at >= state.last_played_at:
+                # Keep the provider from the agent's most recent *served* match —
+                # a later match that no connection ever played (NULL provider)
+                # must not wipe an earlier real badge.
+                if participant.provider is not None and (
+                    state.last_played_at is None
+                    or participant.last_played_at >= state.last_played_at
+                ):
                     state.provider = participant.provider
                 state.last_played_at = max(
                     state.last_played_at or participant.last_played_at,
