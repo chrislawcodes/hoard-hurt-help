@@ -332,7 +332,8 @@ async def join_form(
     ]
     # The "which AI plays it?" picker: each supported AI with its state
     # (ready / connected-not-playing / not-connected / busy-in-another-game).
-    busy = await providers_busy_for_user(db, user.id)
+    # Exclude this match so reusing an AI for a second agent here isn't "busy".
+    busy = await providers_busy_for_user(db, user.id, exclude_match_id=match.id)
     ai_options = await _build_ai_options(db, user.id, busy)
     return templates.TemplateResponse(
         request,
@@ -401,9 +402,10 @@ async def _seat_user_agent(
         )
     provider_label = PROVIDER_LABELS[chosen_provider]
     # One AI = one game: refuse a provider already committed to another not-finished
-    # game (admins may overcommit for testing).
+    # game (admins may overcommit for testing). Excludes this match, so the user
+    # can field several agents in the same game on one AI.
     if not bypass_capacity:
-        busy = await providers_busy_for_user(db, user.id)
+        busy = await providers_busy_for_user(db, user.id, exclude_match_id=match.id)
         if chosen_provider in busy:
             raise HTTPException(
                 status_code=409,

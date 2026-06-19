@@ -664,16 +664,20 @@ async def live_user_capacity(db: AsyncSession, user_id: int) -> int:
     return sum(c.max_concurrent_games for c in rows if _connection_is_live(c, now))
 
 
-async def providers_busy_for_user(db: AsyncSession, user_id: int) -> dict[str, str]:
+async def providers_busy_for_user(
+    db: AsyncSession, user_id: int, *, exclude_match_id: str | None = None
+) -> dict[str, str]:
     """Map provider value → a match name for AIs already committed to a game.
 
     "One AI plays one game at a time": a provider is busy when it's the chosen AI
     of one of the user's seats in a match that hasn't finished — playing now
-    (ACTIVE) *or* booked upcoming (SCHEDULED / REGISTERING). The join picker greys
-    these out and the join gate refuses to pick one. Returns the match name so the
-    picker can say which game it's in.
+    (ACTIVE) *or* booked upcoming (SCHEDULED / REGISTERING). The constraint is
+    across *games*, not seats: pass ``exclude_match_id`` (the match being joined)
+    so a user can still field several agents in the *same* game on one AI. The
+    join picker greys busy AIs out and the join gate refuses to pick one. Returns
+    the match name so the picker can say which game it's in.
     """
-    rows = await db.execute(
+    stmt = (
         select(Player.chosen_provider, Match.name)
         .join(Match, Match.id == Player.match_id)
         .where(
@@ -683,8 +687,10 @@ async def providers_busy_for_user(db: AsyncSession, user_id: int) -> dict[str, s
             Match.state.notin_([GameState.COMPLETED, GameState.CANCELLED]),
         )
     )
+    if exclude_match_id is not None:
+        stmt = stmt.where(Player.match_id != exclude_match_id)
     busy: dict[str, str] = {}
-    for provider_value, match_name in rows.all():
+    for provider_value, match_name in (await db.execute(stmt)).all():
         if provider_value is not None:
             busy.setdefault(provider_value, match_name)
     return busy
