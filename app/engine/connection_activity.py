@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import broadcast
 from app.aware_datetime import ensure_aware
-from app.engine.connection_health import LIVE_WINDOW_SECONDS
+from app.engine.connection_health import LOOP_RUNNING_WINDOW_SECONDS
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState
 from app.models.player import Player
@@ -361,16 +361,17 @@ async def compute_bot_health(
 
     Precedence (top wins): Paused (owner intent) -> Stalled (in a live game but
     the runner is cold or every recent move defaulted) -> Live (warm + in a game)
-    -> Ready (warm, no game) -> Disconnected. "Warm" means the heartbeat
-    (``last_seen_at``) is within ``LIVE_WINDOW_SECONDS``; the displayed
-    last-connected time falls back to ``first_connected_at`` so bots that
-    connected before the heartbeat existed don't read as 'never connected'.
+    -> Ready (warm, no game) -> Disconnected. "Warm" means the play-loop heartbeat
+    (``last_polled_at``, bumped only by ``get_next_turn``) is within
+    ``LOOP_RUNNING_WINDOW_SECONDS``. Using ``last_polled_at`` instead of
+    ``last_seen_at`` prevents a one-off sign-in handshake from making a
+    non-running connection appear "ready".
     """
     now = now or datetime.now(timezone.utc)
-    last_seen = bot.last_seen_at
+    last_seen = bot.last_polled_at
     warm = (
         last_seen is not None
-        and (now - ensure_aware(last_seen)).total_seconds() <= LIVE_WINDOW_SECONDS
+        and (now - ensure_aware(last_seen)).total_seconds() <= LOOP_RUNNING_WINDOW_SECONDS
     )
     last_connected = bot.last_seen_at or bot.first_connected_at
     never = last_connected is None
