@@ -20,6 +20,7 @@ from app.engine.bot_presets import bot_presets
 from app.engine.tokens import bot_key_lookup
 from app.main import app
 from app.models import Base, Agent, AgentKind, Connection, ConnectionSetup, Match, GameState, Player, User
+from app.models.connection import ConnectionProvider
 from app.models.match import MatchKind
 from app.models.user import UserRole
 from app.engine.bots import pack_profile_choices
@@ -109,10 +110,11 @@ async def _seed_agent(
     user: User,
     key: str | None = None,
     name: str = "Atlas",
+    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
 ) -> tuple[Agent, str, int]:
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        connection, k = await make_connection(db, u, key=key)
+        connection, k = await make_connection(db, u, key=key, provider=provider)
         agent, _ = await make_agent(db, u, connection=connection, name=name)
         now = datetime.now(timezone.utc)
         existing_mcp = await db.scalar(
@@ -803,16 +805,19 @@ async def test_duplicate_bot_entry_blocked(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_two_bots_one_game(client, reset_db):
-    """A user fields multiple agents by running multiple connections."""
+    """A user fields multiple agents in one game by giving each a different AI
+    (one AI plays one seat at a time)."""
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
-    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
+    a2, _k2, _c2 = await _seed_agent(
+        reset_db, user, name="Two", provider=ConnectionProvider.GEMINI
+    )
     cookies = _signed_in_cookies(user.id)
-    for agent, name in [(a1, "AI_one"), (a2, "AI_two")]:
+    for agent, name, ai in [(a1, "AI_one", "claude"), (a2, "AI_two", "gemini")]:
         r = await client.post(
             "/games/hoard-hurt-help/matches/G_001/join",
-            data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": name},
+            data={"chosen_provider": ai, "agent_id": agent.id, "display_name": name},
             cookies=cookies,
             follow_redirects=False,
         )
@@ -1014,7 +1019,9 @@ async def test_duplicate_display_name_does_not_block_join(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
-    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
+    a2, _k2, _c2 = await _seed_agent(
+        reset_db, user, name="Two", provider=ConnectionProvider.GEMINI
+    )
     cookies = _signed_in_cookies(user.id)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
@@ -1024,7 +1031,7 @@ async def test_duplicate_display_name_does_not_block_join(client, reset_db):
     )
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"chosen_provider": "claude", "agent_id": a2.id, "display_name": "Dup"},
+        data={"chosen_provider": "gemini", "agent_id": a2.id, "display_name": "Dup"},
         cookies=cookies,
         follow_redirects=False,
     )

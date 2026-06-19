@@ -331,9 +331,9 @@ async def join_form(
         if agent.kind == AgentKind.AI and version is not None
     ]
     # The "which AI plays it?" picker: each supported AI with its state
-    # (ready / connected-not-playing / not-connected / busy-in-another-game).
-    # Exclude this match so reusing an AI for a second agent here isn't "busy".
-    busy = await providers_busy_for_user(db, user.id, exclude_match_id=match.id)
+    # (ready / connected-not-playing / not-connected / busy-in-a-game). One AI
+    # plays one seat at a time, so an AI already in any unfinished game is busy.
+    busy = await providers_busy_for_user(db, user.id)
     ai_options = await _build_ai_options(db, user.id, busy)
     return templates.TemplateResponse(
         request,
@@ -401,23 +401,7 @@ async def _seat_user_agent(
             status_code=409, detail=f"{selected_agent.name} has no current version."
         )
     provider_label = PROVIDER_LABELS[chosen_provider]
-    # One AI = one game: refuse a provider already committed to another not-finished
-    # game (admins may overcommit for testing). Excludes this match, so the user
-    # can field several agents in the same game on one AI.
-    if not bypass_capacity:
-        busy = await providers_busy_for_user(db, user.id, exclude_match_id=match.id)
-        if chosen_provider in busy:
-            raise HTTPException(
-                status_code=409,
-                detail=f"{provider_label} is already in a game (“{busy[chosen_provider]}”).",
-            )
-    # Confirm the seat only when the chosen AI is actually running its play loop
-    # (not merely seen recently). Otherwise hold the seat and let the next screen
-    # walk the user through starting that AI.
-    readiness = await provider_readiness(db, user.id, ConnectionProvider(chosen_provider))
-    reserved_until: datetime | None = None
-    if readiness != ProviderReadiness.LIVE:
-        reserved_until = hold_deadline(datetime.now(timezone.utc))
+    # Re-joining the same agent is the clearest error, so check it first.
     already_in = (
         await db.execute(
             select(Player.id).where(
@@ -431,6 +415,23 @@ async def _seat_user_agent(
         raise HTTPException(
             status_code=409, detail=f"{selected_agent.name} is already in this game."
         )
+    # One AI = one seat at a time: refuse a provider already chosen for any of the
+    # user's unfinished seats (admins may overcommit for testing). To field several
+    # agents in one game, pick a different AI for each.
+    if not bypass_capacity:
+        busy = await providers_busy_for_user(db, user.id)
+        if chosen_provider in busy:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{provider_label} is already in a game (“{busy[chosen_provider]}”).",
+            )
+    # Confirm the seat only when the chosen AI is actually running its play loop
+    # (not merely seen recently). Otherwise hold the seat and let the next screen
+    # walk the user through starting that AI.
+    readiness = await provider_readiness(db, user.id, ConnectionProvider(chosen_provider))
+    reserved_until: datetime | None = None
+    if readiness != ProviderReadiness.LIVE:
+        reserved_until = hold_deadline(datetime.now(timezone.utc))
     seat_name = _seat_name(selected_agent.name, existing_seats)
     existing_seats.add(seat_name)
     return Player(
