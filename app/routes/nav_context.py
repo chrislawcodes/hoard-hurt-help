@@ -96,32 +96,17 @@ async def user_connection_count(db: AsyncSession, user_id: int) -> int:
 
 
 async def user_live_connection_count(db: AsyncSession, user_id: int) -> int:
-    """Number of non-paused connections warm (seen within LIVE_WINDOW_SECONDS)."""
+    """Distinct providers with a live connection (seen within LIVE_WINDOW_SECONDS)."""
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=LIVE_WINDOW_SECONDS)
     stmt = (
-        select(func.count())
+        select(func.count(Connection.provider.distinct()))
         .select_from(Connection)
         .where(
             Connection.user_id == user_id,
             Connection.deleted_at.is_(None),
             Connection.status != ConnectionStatus.PAUSED,
+            Connection.provider.is_not(None),
             Connection.last_seen_at >= cutoff,
-        )
-    )
-    return (await db.scalar(stmt)) or 0
-
-
-async def user_disconnected_connection_count(db: AsyncSession, user_id: int) -> int:
-    """Number of non-paused connections that are not warm."""
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=LIVE_WINDOW_SECONDS)
-    stmt = (
-        select(func.count())
-        .select_from(Connection)
-        .where(
-            Connection.user_id == user_id,
-            Connection.deleted_at.is_(None),
-            Connection.status != ConnectionStatus.PAUSED,
-            (Connection.last_seen_at < cutoff) | Connection.last_seen_at.is_(None),
         )
     )
     return (await db.scalar(stmt)) or 0
@@ -339,7 +324,4 @@ async def populate_nav_cta(request: Request, db: DbSession) -> None:
     )
     request.state.live_connection_count = (
         await user_live_connection_count(db, user.id) if user else 0
-    )
-    request.state.disconnected_connection_count = (
-        await user_disconnected_connection_count(db, user.id) if user else 0
     )

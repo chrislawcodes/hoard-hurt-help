@@ -22,7 +22,6 @@ from app.models.agent import AgentKind
 from app.models.connection import Connection
 from app.routes.nav_context import (
     compute_nav_cta,
-    user_disconnected_connection_count,
     user_live_connection_count,
 )
 from tests.factories import make_agent, make_bot, make_connection, make_user
@@ -335,74 +334,24 @@ async def test_live_connection_count_one_when_connection_warm(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_disconnected_count_zero_when_no_connections(reset_db):
-    async with reset_db() as db:
-        user = await make_user(db)
-        await db.commit()
-        count = await user_disconnected_connection_count(db, user.id)
-    assert count == 0
-
-
-@pytest.mark.asyncio
-async def test_disconnected_count_one_when_never_seen(reset_db):
-    async with reset_db() as db:
-        user = await make_user(db)
-        await make_connection(db, user)  # last_seen_at stays NULL
-        await db.commit()
-        count = await user_disconnected_connection_count(db, user.id)
-    assert count == 1
-
-
-@pytest.mark.asyncio
-async def test_disconnected_count_one_when_stale(reset_db):
-    async with reset_db() as db:
-        user = await make_user(db)
-        connection, _ = await make_connection(db, user)
-        connection.last_seen_at = datetime.now(timezone.utc) - timedelta(
-            seconds=LIVE_WINDOW_SECONDS + 10
-        )
-        await db.commit()
-        count = await user_disconnected_connection_count(db, user.id)
-    assert count == 1
-
-
-@pytest.mark.asyncio
-async def test_disconnected_count_zero_when_warm(reset_db):
-    async with reset_db() as db:
-        user = await make_user(db)
-        connection, _ = await make_connection(db, user)
-        connection.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=10)
-        await db.commit()
-        count = await user_disconnected_connection_count(db, user.id)
-    assert count == 0
-
-
-@pytest.mark.asyncio
-async def test_nav_shows_mixed_counts(client, reset_db):
-    # 1 warm, 2 stale — green badge shows 1, red badge shows 2
+async def test_nav_shows_green_badge_for_warm_provider(client, reset_db):
+    # 1 warm connection → green badge shows, no red badge
     async with reset_db() as db:
         user = await make_user(db)
         warm, _ = await make_connection(db, user)
         warm.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=10)
-        stale1, _ = await make_connection(db, user)
-        stale1.last_seen_at = datetime.now(timezone.utc) - timedelta(
-            seconds=LIVE_WINDOW_SECONDS + 60
-        )
-        stale2, _ = await make_connection(db, user)
-        stale2.last_seen_at = datetime.now(timezone.utc) - timedelta(
-            seconds=LIVE_WINDOW_SECONDS + 120
-        )
         await db.commit()
         user_id = user.id
 
     r = await client.get("/games", cookies=_signed_in_cookies(user_id))
     assert r.status_code == 200
     assert "al-acct-badge-live" in r.text
-    assert "al-acct-badge-off" in r.text
+    assert "al-acct-badge-off" not in r.text
 
 
 @pytest.mark.asyncio
-async def test_nav_badge_not_green_when_connection_disconnected(client, reset_db):
+async def test_nav_badge_absent_when_connection_stale(client, reset_db):
+    # Stale connection → no badge at all (not live, no red dot)
     async with reset_db() as db:
         user = await make_user(db)
         connection, _ = await make_connection(db, user)
@@ -415,7 +364,7 @@ async def test_nav_badge_not_green_when_connection_disconnected(client, reset_db
     r = await client.get("/games", cookies=_signed_in_cookies(user_id))
     assert r.status_code == 200
     assert "al-acct-badge-live" not in r.text
-    assert "al-acct-badge-off" in r.text
+    assert "al-acct-badge-off" not in r.text
 
 
 @pytest.mark.asyncio

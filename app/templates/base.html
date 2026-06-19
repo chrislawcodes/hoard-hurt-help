@@ -80,7 +80,7 @@
                                sits above account items: spectators navigate far
                                more often than they manage their account. #}
                             <div class="al-acct-nav">{{ self.nav_links() }}</div>
-                            <a href="/me/connections" role="menuitem">Connections{% if live_connection_count > 0 %}<span class="al-acct-badge al-acct-badge-live"><span class="al-acct-dot"></span>{{ live_connection_count }}</span>{% endif %}{% if disconnected_connection_count > 0 %}<span class="al-acct-badge al-acct-badge-off"><span class="al-acct-dot"></span>{{ disconnected_connection_count }}</span>{% endif %}</a>
+                            <a href="/me/connections" role="menuitem">Connections{% if live_connection_count > 0 %}<span class="al-acct-badge al-acct-badge-live"><span class="al-acct-dot"></span>{{ live_connection_count }}</span>{% endif %}</a>
                             <a href="/me/agents" role="menuitem">Agents</a>
                             <a href="/me/matches" role="menuitem">My matches</a>
                             {% if is_admin %}
