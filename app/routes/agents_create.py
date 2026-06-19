@@ -8,7 +8,6 @@ is just a name + a strategy — so there is no model picker here.
 from __future__ import annotations
 
 from typing import Annotated
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,7 +15,6 @@ from sqlalchemy import String, select
 from starlette.responses import Response
 
 from app.deps import DbSession, require_user_with_handle
-from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
@@ -168,18 +166,12 @@ async def create_agent_or_connection(
         await db.flush()
         agent.current_version_id = version.id
         await db.commit()
+        # After creating an agent, go to wherever the user came from, else the
+        # lobby. We deliberately do NOT route to /me/connections: an agent no
+        # longer needs a provider set up to exist, and joining a game from the
+        # lobby already walks the user through connecting an AI if they haven't yet.
         next_url = safe_internal_next(next_after)
-        # Decide where to go next. NEEDS_MCP_CONNECTION means the user has no AI
-        # client connected at all → send them to connect one (any provider). Any
-        # higher stage means a connection exists → continue to next_url or the
-        # agent page.
-        state = await resolve_play_setup_state(db, user, target_agent=agent)
-        if state.stage == PlaySetupStage.NEEDS_MCP_CONNECTION:
-            destination = "/me/connections"
-            if next_url is not None:
-                destination += f"?next={quote(next_url, safe='')}"
-        else:
-            destination = next_url or f"/me/agents/{agent.id}"
+        destination = next_url or f"/games/{agent.game}"
         return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
 
     raise HTTPException(status_code=400, detail="Agent name is required.")

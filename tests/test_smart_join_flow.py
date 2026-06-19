@@ -327,8 +327,8 @@ async def test_create_agent_post_forwards_to_next(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_create_agent_post_rejects_external_next(client, reset_db):
-    # An external next is dropped; since the provider IS set up, we fall back to
-    # the agent's detail page (not the external target).
+    # An external next is dropped; we fall back to the lobby (not the external
+    # target). This is the security property: the evil URL never reaches Location.
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
@@ -339,7 +339,6 @@ async def test_create_agent_post_rejects_external_next(client, reset_db):
         "/me/agents/new",
         data={
             "name": "Atlas",
-            "model": "claude-haiku-4-5",
             "strategy_text": "Play to win.",
             "next": "https://evil.example.com",
         },
@@ -347,7 +346,7 @@ async def test_create_agent_post_rejects_external_next(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"].startswith("/me/agents/")
+    assert r.headers["location"] == "/games/hoard-hurt-help"
     assert "evil.example.com" not in r.headers["location"]
 
 

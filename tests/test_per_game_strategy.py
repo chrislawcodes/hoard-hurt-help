@@ -248,8 +248,8 @@ async def test_create_agent_page_without_any_connection_shows_full_form(
 async def test_create_agent_without_live_connection_still_creates_agent(
     client, reset_db
 ) -> None:
-    # Creating an agent always works (name + strategy). The user's only connection
-    # isn't live, so the next step is to connect an AI — a generic, un-scoped link.
+    # Creating an agent always works (name + strategy). Post-create lands on the
+    # lobby, where joining a game walks the user through connecting an AI.
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
@@ -265,7 +265,7 @@ async def test_create_agent_without_live_connection_still_creates_agent(
         follow_redirects=False,
     )
     assert r.status_code == 303, r.text
-    assert r.headers["location"] == "/me/connections"
+    assert r.headers["location"] == "/games/hoard-hurt-help"
 
     async with reset_db() as db:
         agent = (

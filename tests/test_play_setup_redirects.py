@@ -3,8 +3,8 @@
 Covers:
   - /play is dumb: signed-out → sign-in; any signed-in user → the lobby,
     regardless of setup state. All setup gating moved to the join flow.
-  - agents_create POST: provider not set up → /me/connections?provider=...; provider
-    set up (recent mcp_connected_at) → agent detail / next.
+  - agents_create POST: after create, go to ?next if present, else the lobby —
+    never a /me/connections detour (the agent exists regardless of setup).
 """
 
 from __future__ import annotations
@@ -209,77 +209,63 @@ async def test_ready_user_never_redirected_to_setup_url(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_create_agent_provider_not_setup_redirects_to_connections(client, reset_db):
-    """POST /me/agents/new when the user has no connection at all → /me/connections."""
+async def test_create_agent_no_next_no_connection_goes_to_lobby(client, reset_db):
+    """POST /me/agents/new with no ?next and no connection → the game lobby.
+
+    We don't route to /me/connections any more: the agent exists regardless of
+    setup, and joining a game from the lobby walks the user through connecting."""
     user = await _user_with_handle(reset_db)
-    # No connection at all → NO_MCP_CONNECTION
     r = await client.post(
         "/me/agents/new",
-        data={
-            "name": "MyBot",
-            "strategy_text": "Play to win.",
-        },
+        data={"name": "MyBot", "strategy_text": "Play to win."},
         cookies=_cookies(user.id),
         follow_redirects=False,
     )
     assert r.status_code == 303
-    loc = r.headers["location"]
-    # The connect page is generic now — no provider scoping.
-    assert loc == "/me/connections"
+    assert r.headers["location"] == "/games/hoard-hurt-help"
 
 
 @pytest.mark.asyncio
-async def test_create_agent_provider_not_setup_carries_next_to_connections(client, reset_db):
-    """The ?next param is threaded through to /me/connections when present."""
+async def test_create_agent_with_next_returns_to_next(client, reset_db):
+    """The ?next destination wins after create (e.g. back to the join the user
+    came from), regardless of connection state — no /me/connections detour."""
     user = await _user_with_handle(reset_db)
+    next_url = "/games/hoard-hurt-help/matches/G_001/join"
     r = await client.post(
         "/me/agents/new",
-        data={
-            "name": "MyBot",
-            "strategy_text": "Play to win.",
-            "next": "/me/matches",
-        },
+        data={"name": "MyBot", "strategy_text": "Play to win.", "next": next_url},
         cookies=_cookies(user.id),
         follow_redirects=False,
     )
     assert r.status_code == 303
     loc = r.headers["location"]
-    assert "/me/connections" in loc
-    assert "provider=" not in loc
-    assert "next=" in loc
+    assert loc == next_url
+    assert "/me/connections" not in loc
     assert "evil" not in loc
 
 
 @pytest.mark.asyncio
-async def test_create_agent_provider_setup_recent_mcp_redirects_to_next(client, reset_db):
-    """POST /me/agents/new when provider has a recent mcp_connected_at → next URL."""
+async def test_create_agent_with_connection_and_next_returns_to_next(client, reset_db):
+    """Even with a live connection, ?next still wins (no agent-detail/lobby detour)."""
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         connection, _ = await make_connection(db, u)
-        # Satisfy provider_has_recent_mcp_connection (the MCP-first gate)
         connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
     r = await client.post(
         "/me/agents/new",
-        data={
-            "name": "MyBot",
-            "model": "claude-haiku-4-5",
-            "strategy_text": "Play to win.",
-            "next": "/me/matches",
-        },
+        data={"name": "MyBot", "strategy_text": "Play to win.", "next": "/me/matches"},
         cookies=_cookies(user.id),
         follow_redirects=False,
     )
     assert r.status_code == 303
-    loc = r.headers["location"]
-    # Provider IS set up → goes to next, not connections
-    assert loc == "/me/matches"
+    assert r.headers["location"] == "/me/matches"
 
 
 @pytest.mark.asyncio
-async def test_create_agent_provider_setup_no_next_redirects_to_agent_detail(client, reset_db):
-    """POST /me/agents/new with provider set up and no next → /me/agents/<id>."""
+async def test_create_agent_with_connection_no_next_goes_to_lobby(client, reset_db):
+    """With a connection but no ?next, create lands on the lobby (not the agent page)."""
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
@@ -288,15 +274,9 @@ async def test_create_agent_provider_setup_no_next_redirects_to_agent_detail(cli
         await db.commit()
     r = await client.post(
         "/me/agents/new",
-        data={
-            "name": "MyBot",
-            "model": "claude-haiku-4-5",
-            "strategy_text": "Play to win.",
-        },
+        data={"name": "MyBot", "strategy_text": "Play to win."},
         cookies=_cookies(user.id),
         follow_redirects=False,
     )
     assert r.status_code == 303
-    loc = r.headers["location"]
-    assert loc.startswith("/me/agents/")
-    assert "connections" not in loc
+    assert r.headers["location"] == "/games/hoard-hurt-help"

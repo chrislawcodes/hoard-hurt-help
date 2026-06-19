@@ -10,7 +10,6 @@ import base64
 import json
 import re
 from datetime import datetime, timezone
-from urllib.parse import quote
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -57,11 +56,12 @@ def _signed_in_cookies(user_id: int) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_create_agent_without_connections_redirects_to_connect(
+async def test_create_agent_without_connections_goes_to_lobby(
     client, reset_db
 ) -> None:
     # Agents are name + strategy only — no model/provider is picked or stored.
-    # With no connection at all, post-create sends the user to connect any AI.
+    # With no connection at all, post-create sends the user to the lobby (joining
+    # a game from there walks them through connecting an AI).
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -77,8 +77,7 @@ async def test_create_agent_without_connections_redirects_to_connect(
     )
 
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/me/connections"
-    assert "/me/agents/" not in resp.headers["location"]
+    assert resp.headers["location"] == "/games/hoard-hurt-help"
 
     async with reset_db() as db:
         agent = (
@@ -113,9 +112,11 @@ async def test_new_agent_form_renders_without_connections(client, reset_db) -> N
 
 
 @pytest.mark.asyncio
-async def test_create_agent_without_connections_preserves_next_in_connect_redirect(
+async def test_create_agent_without_connections_returns_to_next(
     client, reset_db
 ) -> None:
+    # When the user came from a join (?next), create returns them straight there;
+    # the join flow then handles connecting an AI if needed.
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -133,7 +134,7 @@ async def test_create_agent_without_connections_preserves_next_in_connect_redire
     )
 
     assert resp.status_code == 303
-    assert resp.headers["location"] == f"/me/connections?next={quote(next_url, safe='')}"
+    assert resp.headers["location"] == next_url
 
 
 @pytest.mark.asyncio
