@@ -214,6 +214,8 @@ async def _seat_agent(
         agent_id=agent.id,
         agent_version_id=version.id,
         seat_name=seat_name,
+        # The seat is joined with the connection's AI; routing matches it.
+        chosen_provider=connection.provider.value if connection.provider else None,
         model_self_report=model,
     )
     db.add(player)
@@ -1253,3 +1255,45 @@ async def test_provider_agnostic_serving_stamps_played_provider(
         ).scalar_one()
         assert refreshed.played_provider == "gemini"
         assert refreshed.served_by_connection_id == connection.id
+
+
+@pytest.mark.asyncio
+async def test_connection_only_serves_seats_for_its_own_ai(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Matched routing: a seat joined with one AI is served only to a connection
+    that covers that AI. A different-provider connection of the same user is
+    handed nothing — so the seat plays as the AI the user picked, not whoever
+    polls first."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        _claude_conn, claude_key = await make_connection(
+            db, user, provider=ConnectionProvider.CLAUDE
+        )
+        gemini_conn, gemini_key = await make_connection(
+            db, user, provider=ConnectionProvider.GEMINI
+        )
+        match, _turn = await _create_match_with_turn(db, "M_MATCH", deadline_seconds=60)
+        # Seat is joined with the Gemini connection → chosen_provider = "gemini".
+        await _seat_agent(
+            db,
+            user=user,
+            connection=gemini_conn,
+            match=match,
+            seat_name=f"{user.handle}/Gem",
+            agent_name="Gem",
+            model="gemini-3.1-flash-lite",
+            strategy_text="s",
+        )
+        await db.commit()
+
+    # The Claude connection covers only "claude" → it is NOT handed the gemini seat.
+    r_claude = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": claude_key})
+    assert r_claude.status_code == 200, r_claude.text
+    assert r_claude.json()["status"] != "your_turn"
+
+    # The Gemini connection covers "gemini" → it gets the turn, as Gemini.
+    r_gemini = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": gemini_key})
+    assert r_gemini.status_code == 200, r_gemini.text
+    assert r_gemini.json()["status"] == "your_turn"
+    assert r_gemini.json()["provider"] == "gemini"

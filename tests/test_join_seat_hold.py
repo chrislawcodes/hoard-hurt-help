@@ -132,7 +132,7 @@ async def test_join_live_agent_confirms_and_goes_to_match(client, reset_db):
     user_id, agent_id = await _user_agent(reset_db, live=True)
     r = await client.post(
         JOIN_URL,
-        data={"agent_id": agent_id},
+        data={"agent_id": agent_id, "chosen_provider": "claude"},
         cookies=_cookies(user_id),
         follow_redirects=False,
     )
@@ -164,7 +164,7 @@ async def test_join_signed_in_but_not_looping_holds_not_confirms(client, reset_d
         user_id, agent_id = user.id, agent.id
     r = await client.post(
         JOIN_URL,
-        data={"agent_id": agent_id},
+        data={"agent_id": agent_id, "chosen_provider": "claude"},
         cookies=_cookies(user_id),
         follow_redirects=False,
     )
@@ -182,7 +182,7 @@ async def test_join_offline_agent_holds_and_goes_to_countdown(client, reset_db):
     user_id, agent_id = await _user_agent(reset_db, live=False)
     r = await client.post(
         JOIN_URL,
-        data={"agent_id": agent_id},
+        data={"agent_id": agent_id, "chosen_provider": "claude"},
         cookies=_cookies(user_id),
         follow_redirects=False,
     )
@@ -311,7 +311,7 @@ async def test_join_never_configured_mcp_provider_redirects_to_mcp_setup(
         uid, agent_id = user.id, agent.id
     r = await client.post(
         JOIN_URL,
-        data={"agent_id": agent_id},
+        data={"agent_id": agent_id, "chosen_provider": provider.value},
         cookies=_cookies(uid),
         follow_redirects=False,
     )
@@ -322,7 +322,8 @@ async def test_join_never_configured_mcp_provider_redirects_to_mcp_setup(
         ).scalar_one()
         assert player.seat_reserved_until is not None
     next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{player.id}", safe="")
-    assert r.headers["location"] == f"/me/connections?next={next_url}"
+    # The chosen AI isn't connected → setup is scoped to that provider.
+    assert r.headers["location"] == f"/me/connections?provider={provider.value}&next={next_url}"
 
 
 @pytest.mark.asyncio
@@ -342,7 +343,7 @@ async def test_join_machine_only_claude_connection_still_redirects_to_mcp_setup(
         uid, agent_id = user.id, agent.id
     r = await client.post(
         JOIN_URL,
-        data={"agent_id": agent_id},
+        data={"agent_id": agent_id, "chosen_provider": "claude"},
         cookies=_cookies(uid),
         follow_redirects=False,
     )
@@ -352,7 +353,7 @@ async def test_join_machine_only_claude_connection_still_redirects_to_mcp_setup(
             await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
     next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{player.id}", safe="")
-    assert r.headers["location"] == f"/me/connections?next={next_url}"
+    assert r.headers["location"] == f"/me/connections?provider=claude&next={next_url}"
 
 
 @pytest.mark.asyncio

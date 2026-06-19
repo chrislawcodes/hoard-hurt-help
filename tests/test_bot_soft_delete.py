@@ -252,7 +252,7 @@ async def test_archived_bot_cannot_join_new_game(client, reset_db):
 
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_002/join",
-        data={"agent_id": agent.id, "display_name": "atlas2", "strategy_prompt": ""},
+        data={"agent_id": agent.id, "chosen_provider": "claude", "display_name": "atlas2", "strategy_prompt": ""},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )

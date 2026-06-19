@@ -16,9 +16,8 @@ from app.config import settings
 from app.deps import DbSession, get_current_user, require_user, require_user_with_handle
 from app.engine.connection_health import (
     ProviderReadiness,
-    active_matches_for_user,
-    is_join_blocked,
-    live_user_capacity,
+    provider_readiness,
+    providers_busy_for_user,
     user_play_readiness,
 )
 from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
@@ -28,11 +27,13 @@ from app.games import get as get_game_module
 from app.games import is_admin_only
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
+from app.models.connection import ConnectionProvider
 from app.models.match import Match, GameState, MatchKind
 from app.models.player import Player
 from app.models.user import User, UserRole
 from app.request_logging import set_request_trace_context
 from app.routes.connections_connect_guide import _play_prompt
+from app.routes.provider_labels import PROVIDER_LABELS
 from app.routes.web_support import (
     _game_theme,
     _is_any_admin,
@@ -170,6 +171,77 @@ async def _load_user_agents(
     return [(agent, version) for agent, version in rows]
 
 
+# Order AIs in the join picker: ready first, then connected-but-idle, then
+# not-connected (set up next), with busy ones last (can't be picked).
+_AI_STATE_RANK = {"ready": 0, "idle": 1, "not_connected": 2, "busy": 3}
+
+
+async def _build_ai_options(
+    db: DbSession, user_id: int, busy: dict[str, str]
+) -> list[dict[str, object]]:
+    """The "which AI plays it?" picker: every supported provider with its state.
+
+    States: ``ready`` (live, plays now), ``idle`` (connected but not running yet),
+    ``not_connected`` (no MCP connection — picking routes to set it up), and
+    ``busy`` (already in another game — shown but not pickable).
+    """
+    options: list[dict[str, object]] = []
+    for value, label in PROVIDER_LABELS.items():
+        if value in busy:
+            options.append(
+                {
+                    "provider": value,
+                    "label": label,
+                    "state": "busy",
+                    "busy_match": busy[value],
+                    "can_pick": False,
+                }
+            )
+            continue
+        readiness = await provider_readiness(db, user_id, ConnectionProvider(value))
+        if readiness == ProviderReadiness.LIVE:
+            state = "ready"
+        elif readiness in (
+            ProviderReadiness.SEEN_NOT_POLLING,
+            ProviderReadiness.CONNECTED_NOT_LIVE,
+        ):
+            state = "idle"
+        else:
+            state = "not_connected"
+        options.append(
+            {
+                "provider": value,
+                "label": label,
+                "state": state,
+                "busy_match": None,
+                "can_pick": True,
+            }
+        )
+    options.sort(key=lambda o: (_AI_STATE_RANK[str(o["state"])], str(o["label"])))
+    return options
+
+
+async def _seat_provider_readiness(
+    db: DbSession, user_id: int, player: Player
+) -> ProviderReadiness:
+    """Readiness of the AI a seat was joined with (its chosen provider).
+
+    Legacy seats with no chosen provider fall back to the user's best readiness.
+    """
+    if player.chosen_provider:
+        return await provider_readiness(
+            db, user_id, ConnectionProvider(player.chosen_provider)
+        )
+    return await user_play_readiness(db, user_id)
+
+
+def _seat_provider_label(player: Player) -> str:
+    """Friendly name of the AI a seat was joined with."""
+    if player.chosen_provider:
+        return PROVIDER_LABELS.get(player.chosen_provider, player.chosen_provider.title())
+    return "your AI"
+
+
 async def _join_setup_redirect(
     db: DbSession, user: User, match: Match
 ) -> RedirectResponse | None:
@@ -249,21 +321,6 @@ async def join_form(
         .scalars()
         .all()
     )
-    # Agents are provider-agnostic: show a single flat list. One overall status
-    # tells the operator whether an AI is live to play them — "live" (a play loop
-    # is running), "offline" (a connection is set up but not running), or
-    # "unconfigured" (no connection yet). Picking an agent seats it; if nothing is
-    # live, the seat is held and the next screen walks the user through connecting.
-    readiness = await user_play_readiness(db, user.id)
-    if readiness == ProviderReadiness.LIVE:
-        connection_status = "live"
-    elif readiness in (
-        ProviderReadiness.SEEN_NOT_POLLING,
-        ProviderReadiness.CONNECTED_NOT_LIVE,
-    ):
-        connection_status = "offline"
-    else:
-        connection_status = "unconfigured"
     agent_rows = [
         {
             "agent": agent,
@@ -273,6 +330,11 @@ async def join_form(
         for agent, version in agents
         if agent.kind == AgentKind.AI and version is not None
     ]
+    # The "which AI plays it?" picker: each supported AI with its state
+    # (ready / connected-not-playing / not-connected / busy-in-a-game). One AI
+    # plays one seat at a time, so an AI already in any unfinished game is busy.
+    busy = await providers_busy_for_user(db, user.id)
+    ai_options = await _build_ai_options(db, user.id, busy)
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -283,8 +345,9 @@ async def join_form(
             "game_theme": _game_theme(match),
             "player_count": await _player_count(db, match.id),
             "agent_rows": agent_rows,
-            "connection_status": connection_status,
+            "ai_options": ai_options,
             "any_agents": bool(agent_rows),
+            "any_pickable_ai": any(o["can_pick"] for o in ai_options),
             # The "create another agent" CTA carries ?next back to this join page.
             "join_url": join_url,
             "base_url": settings.base_url,
@@ -300,23 +363,24 @@ async def _seat_user_agent(
     agent_id: int,
     existing_seats: set[str],
     *,
+    chosen_provider: str,
     bypass_capacity: bool = False,
 ) -> Player:
-    """Validate one of *user*'s agents and build its Player row for *match*.
+    """Validate one of *user*'s agents + chosen AI and build its Player row.
 
-    Runs the full per-agent gate (ownership, provider coverage, valid model,
-    connection capacity, not-already-seated) and derives a unique seat name.
-    Mutates *existing_seats* with the new seat so a batch added in one request
-    still gets distinct seats. Does not commit — the caller owns the transaction
-    so a failure on any agent rolls back the whole batch. Raises HTTPException on
-    any problem, naming the agent so the admin knows which one failed.
+    The user picks which AI plays the seat (*chosen_provider*). We record it so
+    routing only lets a connection covering that provider serve the seat. Runs the
+    gate (ownership, valid provider, "one AI = one game", not-already-seated) and
+    derives a unique seat name. Mutates *existing_seats*. Does not commit — the
+    caller owns the transaction. Raises HTTPException on any problem, naming the
+    agent.
 
-    *bypass_capacity* skips the SUM-based concurrency cap so an admin can seat an
-    agent that is already busy in another active match (the cap is "how many
-    matches my machine can serve at once", not a per-agent lock — admins testing
-    want to overcommit on purpose). Coverage is still required: the agent must
-    still have a live connection, or it genuinely cannot play.
+    *bypass_capacity* lets an admin reuse an AI that's already in another game
+    (the "one AI = one game" rule is a guard against timeouts, not a hard lock —
+    admins testing want to overcommit on purpose).
     """
+    if chosen_provider not in PROVIDER_LABELS:
+        raise HTTPException(status_code=400, detail="Pick an AI to play this agent.")
     agent_row = (
         await db.execute(
             select(Agent, AgentVersion)
@@ -336,35 +400,8 @@ async def _seat_user_agent(
         raise HTTPException(
             status_code=409, detail=f"{selected_agent.name} has no current version."
         )
-    # Agents are provider-agnostic — any of the user's live connections can play
-    # this one. Confirm the seat only when an AI is actually running the play loop
-    # (not merely seen recently — a sign-in handshake bumps last_seen without an
-    # AI playing). Otherwise hold the seat and let the next screen walk the user
-    # through starting their AI.
-    readiness = await user_play_readiness(db, user.id)
-    loop_running = readiness == ProviderReadiness.LIVE
-    reserved_until: datetime | None = None
-    if loop_running:
-        # Playing now — a confirmed seat. SUM-based join gate: active count vs. sum
-        # of capacities over the user's live connections. Admins bypass it so they
-        # can seat an agent already busy in another match (e.g. for testing).
-        if not bypass_capacity:
-            active_match_count = await active_matches_for_user(db, user.id)
-            capacity_sum = await live_user_capacity(db, user.id)
-            if is_join_blocked(active_match_count, capacity_sum):
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "Your connections are at capacity "
-                        f"({active_match_count}/{capacity_sum} active matches)."
-                    ),
-                )
-    else:
-        # Not live yet — hold the seat. The user has SEAT_HOLD_SECONDS to bring an
-        # AI online (the next screen walks them through it); if they don't, the
-        # seat is released. The capacity cap is about live machines, so it doesn't
-        # apply to a seat that isn't being served yet.
-        reserved_until = hold_deadline(datetime.now(timezone.utc))
+    provider_label = PROVIDER_LABELS[chosen_provider]
+    # Re-joining the same agent is the clearest error, so check it first.
     already_in = (
         await db.execute(
             select(Player.id).where(
@@ -378,16 +415,32 @@ async def _seat_user_agent(
         raise HTTPException(
             status_code=409, detail=f"{selected_agent.name} is already in this game."
         )
+    # One AI = one seat at a time: refuse a provider already chosen for any of the
+    # user's unfinished seats (admins may overcommit for testing). To field several
+    # agents in one game, pick a different AI for each.
+    if not bypass_capacity:
+        busy = await providers_busy_for_user(db, user.id)
+        if chosen_provider in busy:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{provider_label} is already in a game (“{busy[chosen_provider]}”).",
+            )
+    # Confirm the seat only when the chosen AI is actually running its play loop
+    # (not merely seen recently). Otherwise hold the seat and let the next screen
+    # walk the user through starting that AI.
+    readiness = await provider_readiness(db, user.id, ConnectionProvider(chosen_provider))
+    reserved_until: datetime | None = None
+    if readiness != ProviderReadiness.LIVE:
+        reserved_until = hold_deadline(datetime.now(timezone.utc))
     seat_name = _seat_name(selected_agent.name, existing_seats)
     existing_seats.add(seat_name)
-    # Which provider plays is unknown until a connection claims the first turn;
-    # it's stamped onto Player.played_provider then. Nothing to record here.
     return Player(
         match_id=match.id,
         user_id=user.id,
         agent_id=selected_agent.id,
         agent_version_id=version.id,
         seat_name=seat_name,
+        chosen_provider=chosen_provider,
         model_self_report=None,
         seat_reserved_until=reserved_until,
     )
@@ -402,6 +455,7 @@ async def join_submit(
     user: Annotated[User, Depends(require_user_with_handle)],
     agent_id: Annotated[list[int] | None, Form()] = None,
     bot_id: Annotated[list[int] | None, Form()] = None,
+    chosen_provider: Annotated[str | None, Form()] = None,
     display_name: Annotated[str | None, Form()] = None,
     strategy_prompt: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
@@ -416,6 +470,8 @@ async def join_submit(
     selected_ids = list(dict.fromkeys([*(agent_id or []), *(bot_id or [])]))
     if not selected_ids:
         raise HTTPException(status_code=400, detail="Choose an agent.")
+    if not chosen_provider:
+        raise HTTPException(status_code=400, detail="Pick an AI to play your agent.")
     is_admin = _is_any_admin(user)
     if len(selected_ids) > 1 and not is_admin:
         raise HTTPException(
@@ -449,7 +505,10 @@ async def join_submit(
         .all()
     )
     players = [
-        await _seat_user_agent(db, user, match, aid, existing_seats, bypass_capacity=is_admin)
+        await _seat_user_agent(
+            db, user, match, aid, existing_seats,
+            chosen_provider=chosen_provider, bypass_capacity=is_admin,
+        )
         for aid in selected_ids
     ]
     db.add_all(players)
@@ -463,13 +522,21 @@ async def join_submit(
         await start_game(db, match)
 
     if held:
-        # At least one seat is waiting on its AI. Send the user to the connect
-        # countdown for the first held seat so they can bring it online in time.
-        held_connect_url = f"/games/{match.game}/matches/{match.id}/connect/{held[0].id}"
-        if await user_play_readiness(db, user.id) == ProviderReadiness.NO_MCP_CONNECTION:
-            # No AI connected at all — send them to connect one first.
+        # At least one seat is waiting on its chosen AI. Send the user to the
+        # connect countdown for the first held seat so they can bring it online.
+        held_player = held[0]
+        held_connect_url = f"/games/{match.game}/matches/{match.id}/connect/{held_player.id}"
+        if (
+            await _seat_provider_readiness(db, user.id, held_player)
+            == ProviderReadiness.NO_MCP_CONNECTION
+        ):
+            # That AI isn't connected yet — set it up first (scoped to the pick).
+            next_q = quote(held_connect_url, safe="")
+            provider_q = (
+                f"provider={held_player.chosen_provider}&" if held_player.chosen_provider else ""
+            )
             return RedirectResponse(
-                url=f"/me/connections?next={quote(held_connect_url, safe='')}",
+                url=f"/me/connections?{provider_q}next={next_q}",
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         return RedirectResponse(
@@ -508,17 +575,20 @@ async def seat_connect(
         # Already confirmed (or never held) — nothing to wait for.
         return RedirectResponse(url=match_url, status_code=status.HTTP_303_SEE_OTHER)
 
-    provider_label = "your AI"
-    if await user_play_readiness(db, user.id) in (
+    provider_label = _seat_provider_label(player)
+    if await _seat_provider_readiness(db, user.id, player) in (
         ProviderReadiness.NO_MCP_CONNECTION,
         ProviderReadiness.CONNECTED_NOT_LIVE,
     ):
-        # No *active* connection: either nothing set up, or set up but not seen
-        # within LIVE_WINDOW_SECONDS. An inactive connection needs reconnect, not
-        # "start polling" — send it to /me/connections. Only SEEN_NOT_POLLING
-        # (active but not looping yet) belongs on the wait page below.
+        # That AI has no *active* connection: either nothing set up, or set up but
+        # not seen within LIVE_WINDOW_SECONDS. An inactive connection needs
+        # reconnect, not "start polling" — send it to /me/connections (scoped to
+        # the pick). Only SEEN_NOT_POLLING (active but not looping yet) belongs on
+        # the wait page below.
+        next_q = quote(f"{match_url}/connect/{player.id}", safe="")
+        provider_q = f"provider={player.chosen_provider}&" if player.chosen_provider else ""
         return RedirectResponse(
-            url=f"/me/connections?next={quote(f'{match_url}/connect/{player.id}', safe='')}",
+            url=f"/me/connections?{provider_q}next={next_q}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     status_url = f"{match_url}/connect/{player.id}/status"
@@ -578,8 +648,8 @@ async def seat_connect_status(
     if player.seat_reserved_until is None:
         return _hx_redirect(match_url)
 
-    provider_label = "your AI"
-    # Confirm on the spot if the AI just came online — don't wait for the
+    provider_label = _seat_provider_label(player)
+    # Confirm on the spot if the chosen AI just came online — don't wait for the
     # background poller, so the page reacts the instant it connects.
     if await confirm_seat_if_live(db, player):
         await db.commit()
@@ -608,13 +678,15 @@ async def seat_connect_status(
     deadline = ensure_aware(player.seat_reserved_until)
     waited_seconds = SEAT_HOLD_SECONDS - (deadline - now).total_seconds()
     is_configured = (
-        await user_play_readiness(db, user.id) != ProviderReadiness.NO_MCP_CONNECTION
+        await _seat_provider_readiness(db, user.id, player)
+        != ProviderReadiness.NO_MCP_CONNECTION
     )
     escalate = is_configured and waited_seconds >= _STALL_WAKE_SECONDS
     reconnect_url = None
     if escalate:
         connect_next = quote(f"{match_url}/connect/{player.id}", safe="")
-        reconnect_url = f"/me/connections?next={connect_next}"
+        provider_q = f"provider={player.chosen_provider}&" if player.chosen_provider else ""
+        reconnect_url = f"/me/connections?{provider_q}next={connect_next}"
     return templates.TemplateResponse(
         request,
         "fragments/seat_connect_status.html",
