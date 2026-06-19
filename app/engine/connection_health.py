@@ -662,3 +662,29 @@ async def live_user_capacity(db: AsyncSession, user_id: int) -> int:
         )
     ).scalars().all()
     return sum(c.max_concurrent_games for c in rows if _connection_is_live(c, now))
+
+
+async def providers_busy_for_user(db: AsyncSession, user_id: int) -> dict[str, str]:
+    """Map provider value → a match name for AIs already committed to a game.
+
+    "One AI plays one game at a time": a provider is busy when it's the chosen AI
+    of one of the user's seats in a match that hasn't finished — playing now
+    (ACTIVE) *or* booked upcoming (SCHEDULED / REGISTERING). The join picker greys
+    these out and the join gate refuses to pick one. Returns the match name so the
+    picker can say which game it's in.
+    """
+    rows = await db.execute(
+        select(Player.chosen_provider, Match.name)
+        .join(Match, Match.id == Player.match_id)
+        .where(
+            Player.user_id == user_id,
+            Player.left_at.is_(None),
+            Player.chosen_provider.is_not(None),
+            Match.state.notin_([GameState.COMPLETED, GameState.CANCELLED]),
+        )
+    )
+    busy: dict[str, str] = {}
+    for provider_value, match_name in rows.all():
+        if provider_value is not None:
+            busy.setdefault(provider_value, match_name)
+    return busy
