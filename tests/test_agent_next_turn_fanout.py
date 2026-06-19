@@ -1297,3 +1297,82 @@ async def test_connection_only_serves_seats_for_its_own_ai(
     assert r_gemini.status_code == 200, r_gemini.text
     assert r_gemini.json()["status"] == "your_turn"
     assert r_gemini.json()["provider"] == "gemini"
+
+
+@pytest.mark.asyncio
+async def test_next_turn_history_is_windowed_to_recent_turns(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The next-turn payload (the connector + MCP path) carries only the last
+    couple of resolved turns, not the whole transcript — so a long mid-game match
+    can't overflow a client's tool-output buffer and trip its loop detection."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        now = datetime.now(timezone.utc)
+        match = Match(
+            id="M_WIN",
+            name="match-M_WIN",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=4,
+        )
+        db.add(match)
+        await db.flush()
+        _agent, _version, player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        # Three resolved turns (1,1)..(1,3), then the open turn (1,4) the poll serves.
+        for t in (1, 2, 3):
+            resolved = Turn(
+                match_id=match.id,
+                round=1,
+                turn=t,
+                turn_token=generate_turn_token(),
+                opened_at=now,
+                deadline_at=now,
+                resolved_at=now,
+                phase="act",
+            )
+            db.add(resolved)
+            await db.flush()
+            db.add(
+                TurnSubmission(
+                    turn_id=resolved.id,
+                    player_id=player.id,
+                    action="HOARD",
+                    target_player_id=None,
+                    message=f"m{t}",
+                    points_delta=2,
+                    was_defaulted=False,
+                )
+            )
+        db.add(
+            Turn(
+                match_id=match.id,
+                round=1,
+                turn=4,
+                turn_token=generate_turn_token(),
+                opened_at=now,
+                deadline_at=now + timedelta(seconds=60),
+                phase="act",
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "your_turn"
+    # Only the last two resolved turns ride along — (1,1) is dropped from the poll.
+    assert [(t["round"], t["turn"]) for t in body["history"]] == [(1, 2), (1, 3)]

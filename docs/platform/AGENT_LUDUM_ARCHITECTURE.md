@@ -393,12 +393,16 @@ is structured in three layers so per‑turn token cost stays small:
    selectors for parallel multi‑agent play.
 3. **`get_next_turn` / `get_next_turns`** (per turn) — **lean live state only**:
    `status`, `match_id`, `turn_token`, `agent_turn_token`, `current`, `history`,
-   `scoreboard`, chat, `public_state`. The `static.base_prompt`, `static.rules`,
-   and duplicated `strategy` keys are **stripped in the MCP wrappers** in
-   `mcp_server/server.py` before the response is returned. The underlying shared
-   builder (`_build_turn_payload` / `agent_play_next_turn.get_next_turn`) and the
-   connector HTTP route (`/agent/next-turn`) are **byte‑for‑byte unchanged** and
-   still emit the full payload — only the MCP layer strips the static fields.
+   `scoreboard`, chat, `public_state`. Two separate things keep this small. (a)
+   `history` is a **rolling window of the last `RECENT_HISTORY_TURNS` resolved
+   turns**, not the whole transcript — windowed in the **shared** read
+   (`agent_play_reads._load_public_action_records(recent_turns=...)`), so the
+   connector route *and* the MCP wrappers get the same small history. (b) The
+   `static.base_prompt`, `static.rules`, and duplicated `strategy` keys are
+   **stripped in the MCP wrappers** in `mcp_server/server.py` — the connector
+   still needs them to prime its session, the MCP client has `get_instructions`.
+   The full transcript stays reachable on demand via `get_game_state` /
+   `get_chat` / `opponent_history` (all unwindowed).
 
 **Response‑format guidance split.** `RESPONSE_PROTOCOL` (the "return one JSON object"
 contract in `app/agent_prompt.py`) is used only on the **connector** path —
@@ -483,7 +487,7 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change the create‑agent form (name + strategy, no model/provider) | `app/routes/agents_create.py` + `app/templates/agents/new.html` — strategy seeded from the game's `strategy_presets()` plus the "start from an existing agent" reuse picker (`_load_existing_strategies`). |
 | Touch the turn lifecycle | `app/engine/scheduler_turn_loop.py` (the loop itself: `_run_game`, `_open_turn`, wait helpers) + `app/engine/scheduler.py` (registry + poller). |
 | Change what an agent sees/submits (both paths) | The shared play‑service layer — `app/engine/agent_play.py` (verbs) + `agent_play_next_turn.py` (next‑turn fan‑out / `_build_turn_payload`) + `agent_play_reads.py` (payload projections) + `agent_play_guards.py` (rate‑limit/binding) — that both the HTTP routes and MCP tools call, + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
-| Change what the MCP path sends per turn (lean payload) | Strip keys in the MCP wrappers in `mcp_server/server.py` (`get_next_turn` and `get_next_turns`) — **do not touch** the shared `_build_turn_payload` builder or the connector route `app/routes/agent_next_turn.py`. |
+| Change what the MCP path sends per turn (lean payload) | Two leanness seams. (a) The **history window** is in the shared read — `RECENT_HISTORY_TURNS` + `_load_public_action_records(recent_turns=...)` in `app/engine/agent_play_reads.py`, applied by `_build_turn_payload` and `poll_turn`, so **both** paths get it. (b) The duplicated **static prompt text** (`base_prompt`/`rules`/`strategy`) is stripped MCP-only in the wrappers in `mcp_server/server.py` (`get_next_turn`/`get_next_turns`) — do **not** strip those in the shared builder (the connector needs them to prime its session). |
 | Change the MCP static "how to play" text | `mcp_server/server.py` `get_instructions` tool (`_format_instruction_sections`) — four sections: rules (the game module's `semantic_rules_text`), identity/targets, strategy (`AgentVersion.strategy_text`), and the loop protocol (`_mcp_how_to_play_block` — the `## How to play` block, including the `coach_note` line). |
 | Change the MCP kickoff paste prompt | `app/routes/connections_connect_guide.py` `_PLAY_PROMPT`. |
 | Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata, **stateless‑HTTP**) + the OAuth‑identity→per‑(user, provider) "MCP connection" `Connection` bridge in `app/engine/mcp_connection.py` (`mcp_connection_for`); the per‑client identity helper `_dcr_client_id_from_request` + provider‑from‑`clientInfo` helpers in `mcp_server/server.py`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
@@ -554,6 +558,7 @@ push HTML fragments into the live viewer — no client‑side state.
   one adapter, or the two paths drift.
 - **Stateless MCP keys per‑client identity on the DCR `client_id`, never `token.client_id` (feat `stateless-mcp-client-identity`).** The `/mcp` sub‑app runs stateless‑HTTP so redeploys don't orphan clients — but that means no per‑session memory, and `fastmcp`'s `AccessToken.client_id` is the Google **subject** (same for all of a user's clients). Telling one user's clients apart **must** use the DCR `client_id` read from the raw bearer JWT (`_dcr_client_id_from_request`), persisted to `connections.oauth_client_id`. The tension to watch: keying on `token.client_id` (or the Google `sub`) silently collapses a user's providers into one connection — exactly the #454 regression #456 fixed.
 - **MCP per‑turn payload is stripped in the MCP wrapper, not the service layer (feat `mcp-prompt-tools-cleanup`).** The shared `_build_turn_payload` builder and the connector HTTP route (`/agent/next-turn`) must always emit the full payload (including `static.base_prompt`, `static.rules`, `strategy`). The lean MCP payload is produced by deleting those static keys inside the MCP `get_next_turn` and `get_next_turns` wrappers in `mcp_server/server.py` after calling the shared service. The tension to watch: never add a `channel`/`audience` param to the shared service to drive this — that is an adapter concern and would couple the service to MCP specifics.
+- **The per-poll history is a rolling window, not the whole transcript (feat `lean-poll-history`).** `_build_turn_payload` and `poll_turn` send only the last `RECENT_HISTORY_TURNS` resolved turns. The poll is re-served every loop, and re-sending the full transcript overflows an MCP client's tool-output buffer and trips its loop detection — which silently stops play. Unlike the static-prompt stripping above (MCP-only), this is windowed in the **shared** read (`agent_play_reads._load_public_action_records`), so the connector route and the MCP path get the *same* small history. The whole game stays reachable on demand (`get_game_state` / `opponent_history` / `get_chat`). The tension to watch: a session that opens MID-game needs more than the window to catch up — the connector pulls full state once when it primes a fresh chained session (`agentludum_connector._fetch_full_history`), and a direct MCP client calls `get_game_state` once. Don't shrink the window below what the connector's per-turn delta needs (it sends "history newer than my last move", so the window must survive a single skipped poll).
 - **Onboarding is strategy‑first (feat `strategy-first-onboarding`).** Designing
   an agent is the hook; connecting an AI client is the chore — so the order is
   *design first, connect after*. An agent can be created with **no connection at

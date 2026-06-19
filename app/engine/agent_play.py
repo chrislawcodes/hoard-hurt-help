@@ -43,6 +43,7 @@ from app.engine.agent_play_next_turn import (
     get_next_turns,
 )
 from app.engine.agent_play_reads import (
+    RECENT_HISTORY_TURNS,
     _build_current_turn,
     _existing_message_for_player,
     _existing_submission_for_player,
@@ -187,7 +188,14 @@ async def poll_turn(
         all_agent_ids=all_agent_ids,
         your_strategy=current_version.strategy_text if current_version else None,
     )
-    history = _group_into_turns(await _load_public_action_records(db, game.id, all_players))
+    # Same rolling window as the next-turn fan-out: this per-match poll is served
+    # every loop, so it carries only the recent turns and leaves the whole
+    # transcript to the on-demand reads (opponent_history / chat / turn_detail).
+    history = _group_into_turns(
+        await _load_public_action_records(
+            db, game.id, all_players, recent_turns=RECENT_HISTORY_TURNS
+        )
+    )
     return YourTurnResponse(
         static=static,
         history=history,

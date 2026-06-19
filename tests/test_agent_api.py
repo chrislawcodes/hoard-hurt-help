@@ -435,3 +435,77 @@ async def test_directed_message_appears_next_turn(client, reset_db):
     assert "stop hoarding" in hit["message"]
     # Current scores are present for the bot to read.
     assert any(s["agent_id"] == "AI_0" for s in body["scoreboard"])
+
+
+@pytest.mark.asyncio
+async def test_load_public_action_records_windows_to_recent_turns(reset_db):
+    """The read helper loads only the last N resolved turns when windowed, and the
+    whole transcript when not — the single knob the lean poll payload turns on."""
+    from sqlalchemy import select
+
+    from app.engine.agent_play_reads import _load_public_action_records
+
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    p0, _p1 = players
+    for t in range(1, 5):  # four resolved turns: (1,1)..(1,4)
+        await _seed_resolved_turn(
+            reset_db, "G_001", 1, t, [(p0.id, "HOARD", None, f"m{t}", 2, 2 * t)]
+        )
+
+    async with reset_db() as db:
+        ps = (
+            (await db.execute(select(Player).where(Player.match_id == "G_001")))
+            .scalars()
+            .all()
+        )
+        windowed = await _load_public_action_records(db, "G_001", ps, recent_turns=2)
+        full = await _load_public_action_records(db, "G_001", ps)
+
+    # Windowed → only the two most-recent resolved turns, oldest-to-newest.
+    assert [(r.round, r.turn) for r in windowed] == [(1, 3), (1, 4)]
+    # Unwindowed (default) → the whole transcript, unchanged.
+    assert [(r.round, r.turn) for r in full] == [(1, 1), (1, 2), (1, 3), (1, 4)]
+
+
+@pytest.mark.asyncio
+async def test_poll_payload_history_is_windowed_chat_is_full(client, reset_db):
+    """The per-poll payload carries only the recent-turns window (so it stays small
+    and a client's tool buffer never overflows), while the on-demand chat still
+    returns the whole transcript — the catch-up channel."""
+    from sqlalchemy import select
+
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    p0, _p1 = players
+    for t in range(1, 5):  # resolved turns (1,1)..(1,4)
+        await _seed_resolved_turn(
+            reset_db, "G_001", 1, t, [(p0.id, "HOARD", None, f"m{t}", 2, 2 * t)]
+        )
+    # Open a later turn so the poll returns 'your_turn' with the recent window.
+    async with reset_db() as db:
+        game = (await db.execute(select(Match).where(Match.id == "G_001"))).scalar_one()
+        game.current_round, game.current_turn = 1, 5
+        now = datetime.now(timezone.utc)
+        db.add(
+            Turn(
+                match_id="G_001",
+                round=1,
+                turn=5,
+                turn_token=generate_turn_token(),
+                opened_at=now,
+                deadline_at=now + timedelta(seconds=60),
+                phase="act",
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": p0._test_key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Poll payload: only the last two resolved turns ride along.
+    assert [(t["round"], t["turn"]) for t in body["history"]] == [(1, 3), (1, 4)]
+    assert body["scoreboard"]  # scoreboard is always full, never windowed
+
+    # Catch-up channel: chat returns the WHOLE transcript, unwindowed.
+    chat = await client.get("/api/games/G_001/chat", headers={"X-Connection-Key": p0._test_key})
+    assert chat.status_code == 200, chat.text
+    assert [m["message"] for m in chat.json()["messages"]] == ["m1", "m2", "m3", "m4"]

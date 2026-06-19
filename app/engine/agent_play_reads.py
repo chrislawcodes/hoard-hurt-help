@@ -32,6 +32,24 @@ from app.schemas.agent import (
     TalkMessage,
 )
 
+# How many of the most-recent resolved turns the per-poll payload carries. The
+# poll is served on every loop iteration, so it must stay small: re-sending the
+# whole transcript on each poll overflows an MCP client's tool-output buffer and
+# trips its loop detection, which stops the play loop dead.
+#
+# Two turns is the floor that still covers play:
+#   * Reactive strategies need only the LAST resolved turn — tit-for-tat mirrors
+#     "your opponent's last move"; Pavlov repeats/switches on "your last action".
+#   * The full scoreboard (always sent) already carries every rank-based signal
+#     (Pavlov's rank delta, Always-Defect's "hit the leader").
+#   * The extra turn is margin: the chained connector computes its per-turn delta
+#     as "history newer than my last move", so one spare turn means a single
+#     skipped poll never drops an event from that delta.
+# The whole transcript is still reachable on demand via get_game_state /
+# opponent_history / get_chat (all unwindowed), so nothing is lost — it is just
+# pulled once instead of pushed every poll.
+RECENT_HISTORY_TURNS = 2
+
 
 @dataclass(frozen=True)
 class _PublicActionRecord:
@@ -49,21 +67,29 @@ async def _load_public_action_records(
     db: AsyncSession,
     match_id: str,
     players: Sequence[Player],
+    *,
+    recent_turns: int | None = None,
 ) -> list[_PublicActionRecord]:
+    """Project resolved-turn actions into public records, oldest to newest.
+
+    When ``recent_turns`` is set, only the last N resolved turns are loaded (the
+    rolling window the per-poll payload carries); ``None`` loads the whole match
+    (the on-demand history channels). The limit is applied in the DB query, so a
+    windowed read also touches only those turns' messages and submissions.
+    """
     seat_name_by_agent_id = _seat_name_map(players)
     seat_name_by_player_id = {player.id: player.seat_name for player in players}
     public_actions: list[_PublicActionRecord] = []
-    turns = (
-        (
-            await db.execute(
-                select(Turn).where(
-                    Turn.match_id == match_id, Turn.resolved_at.is_not(None)
-                )
-            )
-        )
-        .scalars()
-        .all()
+    turns_stmt = select(Turn).where(
+        Turn.match_id == match_id, Turn.resolved_at.is_not(None)
     )
+    if recent_turns is not None:
+        # Take the newest N by (round, turn); the loop below re-sorts ascending so
+        # the window is still projected oldest-to-newest.
+        turns_stmt = turns_stmt.order_by(
+            Turn.round.desc(), Turn.turn.desc()
+        ).limit(recent_turns)
+    turns = (await db.execute(turns_stmt)).scalars().all()
     for turn in sorted(turns, key=lambda t: (t.round, t.turn)):
         message_rows = (
             (

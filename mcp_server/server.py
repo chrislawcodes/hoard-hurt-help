@@ -532,6 +532,10 @@ def _mcp_how_to_play_block() -> str:
         "Wait next_poll_after_seconds, then call again.\n"
         '- status "no_game" with should_stop=true: stop and tell me — I\'ll start a game when ready.\n'
         "- Error (5xx / timeout): wait 30 seconds and retry, up to 3 times.\n\n"
+        "The history in each turn is only the last couple of resolved turns — enough "
+        "to react to. You hold the rest in this conversation. If you ever need the whole "
+        "game (you joined one already in progress, or lost the thread), call "
+        "get_game_state(match_id) once to catch up.\n\n"
         "Always obey next_poll_after_seconds — the server sets the right wait for you.\n\n"
         "Call the tools. Do not answer in plain text or prose.\n\n"
         "Before you start the loop, restate in your own words what you will do for each status."
