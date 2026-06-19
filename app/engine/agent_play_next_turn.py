@@ -153,16 +153,16 @@ async def _collect_candidates(
                 connection.id,
             )
             continue
-        if agent.provider is None:
-            logger.warning("next-turn: AI agent %s has no provider; skipping", agent.id)
-            continue
         pin = TurnPin(
             served_by_connection_id=player.served_by_connection_id,
             served_pinned_at=player.served_pinned_at,
         )
+        # Provider-agnostic routing: any of the user's live connections may serve
+        # any of the user's agents. The sticky pin (handled inside) still keeps a
+        # single connection serving a given seat once it starts.
         if not can_connection_claim_turn(
             polling_state,
-            agent.provider,
+            None,
             pin,
             now=now,
             connections_by_id=connections_by_id,
@@ -376,14 +376,22 @@ async def _claim_pin(
                     else false(),
                 ),
             )
-            .values(served_by_connection_id=connection.id, served_pinned_at=now)
+            .values(
+                served_by_connection_id=connection.id,
+                served_pinned_at=now,
+                # Record who actually played this seat — the public provider badge
+                # reads this, so it survives the connection later being deleted.
+                played_provider=(
+                    connection.provider.value if connection.provider is not None else None
+                ),
+            )
         ),
     )
     return claim.rowcount == 1
 
 
 async def _build_turn_payload(
-    db: AsyncSession, cand: TurnCandidate, ctx: dict[str, object]
+    db: AsyncSession, cand: TurnCandidate, ctx: dict[str, object], connection: Connection
 ) -> dict[str, object]:
     agent_by_id = cast(dict[int, Agent], ctx["agent_by_id"])
     player_by_key = cast(dict[tuple[int, str], Player], ctx["player_by_key"])
@@ -439,7 +447,9 @@ async def _build_turn_payload(
         "game": match.game,
         "agent_id": agent.id,
         "agent_name": agent.name,
-        "provider": agent.provider.value if agent.provider is not None else None,
+        # The provider is the connection actually serving this turn — agents are
+        # no longer tied to one.
+        "provider": connection.provider.value if connection.provider is not None else None,
         "model": version.model,
         "strategy": version.strategy_text,
         "version_no": version.version_no,
@@ -476,7 +486,7 @@ async def _serve_one_turn(
         await db.rollback()
         return None
     await db.commit()
-    return await _build_turn_payload(db, chosen, ctx)
+    return await _build_turn_payload(db, chosen, ctx, connection)
 
 
 def _idle_payload(idle: IdleStatus, *, waiting_poll_hint: int) -> dict[str, object]:
@@ -601,5 +611,5 @@ async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, 
         idle = await compute_idle_status(db, connection, now=now)
         _, next_poll = pace_idle(idle)
         return _idle_payload(idle, waiting_poll_hint=next_poll)
-    turns = [await _build_turn_payload(db, cand, ctx) for cand in claimed]
+    turns = [await _build_turn_payload(db, cand, ctx, connection) for cand in claimed]
     return {"status": "your_turn", "turns": turns}

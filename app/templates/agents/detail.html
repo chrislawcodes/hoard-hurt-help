@@ -8,9 +8,6 @@
         <span class="agent-health-live" hx-get="/me/agents/{{ agent.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
             {% include "agents/_status.html" %}
         </span>
-        {% if provider_label %}
-            · {{ provider_label }}
-        {% endif %}
     </p>
 </div>
 
@@ -44,7 +41,7 @@
 <div class="card">
     <h3 style="margin-top:0;">Version</h3>
     {% if version %}
-    <p class="meta" style="margin-top:0;">v{{ version.version_no }} · {{ version.model }} · {{ version.created_at | localdt }}</p>
+    <p class="meta" style="margin-top:0;">v{{ version.version_no }} · {{ version.created_at | localdt }}</p>
     {% if version.strategy_text %}
     <p class="meta" style="margin-top:0.25rem;">{{ version.strategy_text[:120] }}{% if version.strategy_text | length > 120 %}…{% endif %}</p>
     {% endif %}

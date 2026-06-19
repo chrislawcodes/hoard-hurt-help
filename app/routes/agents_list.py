@@ -13,18 +13,16 @@ from app.deps import DbSession, require_user_with_handle
 from app.engine.connection_health import (
     ConnectionHealth,
     ProviderReadiness,
-    provider_readiness,
+    user_play_readiness,
 )
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.connection import ConnectionProvider
 from app.models.user import User
 from app.routes.agents_health_presenter import (
     AgentRow,
     _count_agent_matches_for_agents,
     _readiness_state,
 )
-from app.routes.connections_setup import _provider_label
 from app.templating import templates
 
 router = APIRouter()
@@ -56,21 +54,14 @@ async def list_agents(
     match_counts = await _count_agent_matches_for_agents(
         db, [agent.id for agent, _ in agents]
     )
-    # Compute provider_readiness ONCE per DISTINCT provider to bound query cost.
-    distinct_providers = {
-        agent.provider for agent, _ in agents if agent.provider is not None
-    }
-    readiness_by_provider: dict[ConnectionProvider, ProviderReadiness] = {
-        prov: await provider_readiness(db, user.id, prov)
-        for prov in distinct_providers
-    }
+    # Agents are provider-agnostic, so readiness is the same for all of them:
+    # whether the user has any live connection. Compute it once.
+    readiness = await user_play_readiness(db, user.id)
     rows: list[AgentRow] = []
     for agent, version in agents:
-        provider = agent.provider
-        provider_label = _provider_label(provider) if provider is not None else None
-        connect_url = (
-            f"/me/connections?provider={provider.value}" if provider is not None else None
-        )
+        # No per-agent provider any more; the connect CTA is generic.
+        provider_label = None
+        connect_url = "/me/connections"
         if agent.status == AgentStatus.PAUSED:
             health: object = {
                 "state": ConnectionHealth.PAUSED,
@@ -86,7 +77,7 @@ async def list_agents(
                 "agent_count": 0,
             }
             needs_connecting = False
-        elif provider is None or readiness_by_provider.get(provider) == ProviderReadiness.NO_MCP_CONNECTION:
+        elif readiness == ProviderReadiness.NO_MCP_CONNECTION:
             # NO_MCP_CONNECTION: no recent MCP setup at all → needs connecting.
             health = {
                 "state": ConnectionHealth.DISCONNECTED,

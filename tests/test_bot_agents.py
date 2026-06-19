@@ -252,7 +252,9 @@ async def test_leaderboard_labels_ai_and_bot_rows_and_filters(reset_db) -> None:
     bot_rows = _rows(bots_sections)
     both_rows = _rows(both_sections)
 
-    assert [row.display_name for row in agent_rows] == ["Beta · claude-haiku", "Alpha · claude-sonnet"]
+    # Display names no longer include the model — agents are name + strategy. The
+    # provider that played is a separate badge (row.provider), tested elsewhere.
+    assert [row.display_name for row in agent_rows] == ["Beta", "Alpha"]
     assert agent_rows[0].owner_handle == "agent2"
     assert agent_rows[0].is_bot is False
 
@@ -261,4 +263,4 @@ async def test_leaderboard_labels_ai_and_bot_rows_and_filters(reset_db) -> None:
     assert bot_rows[0].is_bot is True
 
     labels = {row.display_name for row in both_rows}
-    assert labels == {"Alpha · claude-sonnet", "Beta · claude-haiku", "Bot Alpha", "Bot Beta"}
+    assert labels == {"Alpha", "Beta", "Bot Alpha", "Bot Beta"}

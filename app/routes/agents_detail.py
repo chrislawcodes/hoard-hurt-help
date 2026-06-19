@@ -13,16 +13,15 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from starlette.responses import Response
 
-from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health import (
     ConnectionHealth,
     ProviderReadiness,
-    active_matches_for_provider,
+    active_matches_for_user,
     is_join_blocked,
-    live_provider_capacity,
-    provider_readiness,
+    live_user_capacity,
+    user_play_readiness,
 )
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -34,9 +33,6 @@ from app.routes.agents_health_presenter import (
     VersionRow,
     _count_agent_matches,
     _is_ready_to_play,
-)
-from app.routes.connections_setup import (
-    _provider_label,
 )
 from app.templating import templates
 
@@ -131,20 +127,14 @@ async def _build_agent_detail_context(
 ) -> dict[str, object]:
     """Build the template context for an agent detail / status page.
 
-    Health and readiness come from *provider coverage* — whether any of the
-    user's live connections has the agent's provider enabled — not from an
-    attached connection. There is no per-agent "attached connection" any more.
+    Health and readiness are provider-agnostic — they reflect whether ANY of the
+    user's live connections is up, since any connection can play any agent.
     """
-    provider = agent.provider
-    readiness = (
-        await provider_readiness(db, user.id, provider) if provider is not None else None
-    )
+    readiness = await user_play_readiness(db, user.id)
 
     # Build a health-like dict the templates can read (same keys as
-    # ConnectionHealthStatus but not the dataclass itself).
-    # Map provider_readiness rungs to the health display the template expects:
+    # ConnectionHealthStatus but not the dataclass itself). Map readiness rungs:
     #   PAUSED agent          → PAUSED state
-    #   no provider           → DISCONNECTED / "No provider"
     #   NO_MCP_CONNECTION     → DISCONNECTED / "No live connection" (needs connecting)
     #   CONNECTED_NOT_LIVE    → DISCONNECTED / "No live connection" (set up but offline)
     #   SEEN_NOT_POLLING/LIVE → READY (set up and recently seen or fully live)
@@ -156,20 +146,6 @@ async def _build_agent_detail_context(
             "pulse": False,
             "needs_reconnect": False,
             "never_connected": False,
-            "last_connected_at": None,
-            "last_connected_human": None,
-            "match_id": None,
-            "game_name": None,
-            "agent_count": 0,
-        }
-    elif provider is None:
-        health = {
-            "state": ConnectionHealth.DISCONNECTED,
-            "label": "No provider",
-            "badge_class": "badge-alert",
-            "pulse": False,
-            "needs_reconnect": True,
-            "never_connected": True,
             "last_connected_at": None,
             "last_connected_human": None,
             "match_id": None,
@@ -213,9 +189,6 @@ async def _build_agent_detail_context(
     ).scalar_one_or_none()
     versions = await _version_rows(db, agent.id)
 
-    # allowed_models and provider_label come from the agent's stored provider.
-    allowed_models = PROVIDER_MODELS.get(provider.value, []) if provider is not None else []
-
     active_matches = (
         await db.execute(
             select(Match.id)
@@ -229,15 +202,10 @@ async def _build_agent_detail_context(
         )
     ).first() is not None
 
-    # SUM-based join-gate: active matches for this provider vs. sum of capacities.
-    if provider is not None:
-        active_match_count = await active_matches_for_provider(db, user.id, provider)
-        capacity_sum = await live_provider_capacity(db, user.id, provider)
-        join_blocked = is_join_blocked(active_match_count, capacity_sum)
-    else:
-        active_match_count = 0
-        capacity_sum = 0
-        join_blocked = True
+    # SUM-based join-gate: the user's active matches vs. their total live capacity.
+    active_match_count = await active_matches_for_user(db, user.id)
+    capacity_sum = await live_user_capacity(db, user.id)
+    join_blocked = is_join_blocked(active_match_count, capacity_sum)
 
     return {
         "user": user,
@@ -245,8 +213,6 @@ async def _build_agent_detail_context(
         "version": version,
         "versions": versions,
         "health": health,
-        "provider_label": _provider_label(provider),
-        "provider_models": allowed_models,
         "active_matches": active_matches,
         "active_match_count": active_match_count,
         "capacity_sum": capacity_sum,

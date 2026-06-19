@@ -76,22 +76,8 @@ async def _load_user_agents(db: DbSession, user_id: int) -> list[AgentRow]:
 
 
 async def _load_attached_agents(db: DbSession, connection: Connection) -> list[AgentRow]:
-    """Agents this machine COVERS: the user's active AI agents whose provider is
-    enabled on this connection (agents are no longer attached to a connection)."""
-    enabled = (
-        (
-            await db.execute(
-                select(ConnectionProviderRow.provider).where(
-                    ConnectionProviderRow.connection_id == connection.id,
-                    ConnectionProviderRow.enabled.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not enabled:
-        return []
+    """Agents this machine COVERS: all the user's active AI agents. Any connection
+    can serve any agent now, so a connection covers everything its owner has."""
     rows = (
         (
             await db.execute(
@@ -101,7 +87,6 @@ async def _load_attached_agents(db: DbSession, connection: Connection) -> list[A
                     Agent.user_id == connection.user_id,
                     Agent.kind == AgentKind.AI,
                     Agent.archived_at.is_(None),
-                    Agent.provider.in_(enabled),
                 )
                 .order_by(Agent.name)
             )
@@ -112,27 +97,27 @@ async def _load_attached_agents(db: DbSession, connection: Connection) -> list[A
 
 
 async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
-    """Active AI agents whose provider is enabled on NO live connection — they
-    are waiting for a machine to come up that covers them."""
+    """Active AI agents waiting for an AI to come online.
+
+    Agents are provider-agnostic, so "stranded" is now all-or-nothing: if the
+    user has ANY live connection, nothing is stranded; if they have none, every
+    active agent is waiting for one."""
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=LIVE_WINDOW_SECONDS)
-    live_providers = set(
-        (
-            await db.execute(
-                select(ConnectionProviderRow.provider)
-                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
-                .where(
-                    ConnectionProviderRow.enabled.is_(True),
-                    Connection.user_id == user_id,
-                    Connection.deleted_at.is_(None),
-                    Connection.status != ConnectionStatus.PAUSED,
-                    Connection.last_seen_at.is_not(None),
-                    Connection.last_seen_at >= cutoff,
-                )
+    has_live_connection = (
+        await db.execute(
+            select(Connection.id)
+            .where(
+                Connection.user_id == user_id,
+                Connection.deleted_at.is_(None),
+                Connection.status != ConnectionStatus.PAUSED,
+                Connection.last_seen_at.is_not(None),
+                Connection.last_seen_at >= cutoff,
             )
+            .limit(1)
         )
-        .scalars()
-        .all()
-    )
+    ).first() is not None
+    if has_live_connection:
+        return []
     rows = (
         (
             await db.execute(
@@ -149,11 +134,7 @@ async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
         )
         .all()
     )
-    return [
-        AgentRow(agent=agent, version=version)
-        for agent, version in rows
-        if agent.provider not in live_providers
-    ]
+    return [AgentRow(agent=agent, version=version) for agent, version in rows]
 
 
 async def _load_connection_providers(
@@ -190,13 +171,10 @@ async def _load_owned_connection(db: DbSession, user: User, connection_id: int) 
 
 
 def _summarize_agent(agents: list[AgentRow]) -> tuple[bool, str | None]:
-    """Whether the user has an AI agent and the "name · model" summary of the first."""
+    """Whether the user has an AI agent, and the name of the first one."""
     if not agents:
         return False, None
-    first = agents[0]
-    model = first.version.model if first.version is not None else None
-    summary = f"{first.agent.name} · {model}" if model else first.agent.name
-    return True, summary
+    return True, agents[0].agent.name
 
 
 async def _live_status_context(

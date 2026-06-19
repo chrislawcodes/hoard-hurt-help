@@ -53,6 +53,7 @@ def sample_replay_data() -> str:
     payload.setdefault("labels", {agent_id: agent_id for agent_id in payload.get("agents", [])})
     payload.setdefault("bots", {})
     payload.setdefault("owners", {})
+    payload.setdefault("providers", {})
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -446,6 +447,10 @@ def _build_rc_data(
     # agent_id → owner handle, for the standings rail's muted "by @handle" line.
     # Only non-empty entries (bots and handle-less owners are omitted).
     owners = {r["agent_id"]: r["owner_handle"] for r in scoreboard if r.get("owner_handle")}
+    # agent_id → provider label (Claude/Gemini/…) that actually played the seat,
+    # for the standings rail's per-competitor badge. Omitted for bots and seats
+    # not yet served (no provider).
+    providers = {r["agent_id"]: r["provider"] for r in scoreboard if r.get("provider")}
 
     win_probs_by_turn = _compute_round_win_probs(scoreboard, history, turns_per_round)
 
@@ -533,6 +538,7 @@ def _build_rc_data(
         "labels": labels,
         "bots": bots,
         "owners": owners,
+        "providers": providers,
         "turns": turns,
         "max_round": max((t["round"] for t in turns), default=0),
         "sample": False,

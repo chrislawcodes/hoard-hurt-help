@@ -10,18 +10,17 @@ import base64
 import json
 import re
 from datetime import datetime, timezone
-from urllib.parse import quote
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
-from app.config import PROVIDER_MODELS, settings
+from app.config import settings
 from app.main import app
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
-from app.models.connection import ConnectionProvider, ConnectionStatus
+from app.models.connection import ConnectionStatus
 from app.routes.agents_health_presenter import _readiness_state
 from tests.factories import make_agent, make_connection, make_user
 
@@ -57,9 +56,12 @@ def _signed_in_cookies(user_id: int) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_create_agent_without_connections_redirects_to_provider_connect(
+async def test_create_agent_without_connections_goes_to_lobby(
     client, reset_db
 ) -> None:
+    # Agents are name + strategy only — no model/provider is picked or stored.
+    # With no connection at all, post-create sends the user to the lobby (joining
+    # a game from there walks them through connecting an AI).
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -69,15 +71,13 @@ async def test_create_agent_without_connections_redirects_to_provider_connect(
         cookies=_signed_in_cookies(user.id),
         data={
             "name": "Atlas",
-            "model": "gpt-5.4-mini",
             "strategy_text": "Play to win.",
         },
         follow_redirects=False,
     )
 
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/me/connections?provider=openai"
-    assert "/me/agents/" not in resp.headers["location"]
+    assert resp.headers["location"] == "/games/hoard-hurt-help"
 
     async with reset_db() as db:
         agent = (
@@ -89,16 +89,10 @@ async def test_create_agent_without_connections_redirects_to_provider_connect(
             )
         ).scalar_one()
 
-    assert agent.provider == ConnectionProvider.OPENAI
+    assert agent.provider is None
     assert agent.status.value == "active"
-    assert version.model == "gpt-5.4-mini"
+    assert version.model is None
     assert version.strategy_text == "Play to win."
-
-    follow = await client.get(resp.headers["location"], cookies=_signed_in_cookies(user.id))
-    assert follow.status_code == 200
-    assert 'id="byo-tab-codex"' in follow.text
-    assert re.search(r'id="byo-tab-codex"[\s\S]*?class="byo-tab-input" checked', follow.text)
-    assert 'hx-get="/me/connections/live-status?provider=openai"' in follow.text
 
 
 @pytest.mark.asyncio
@@ -111,23 +105,18 @@ async def test_new_agent_form_renders_without_connections(client, reset_db) -> N
 
     assert resp.status_code == 200
     assert "Connect an AI client first" not in resp.text
-    assert 'name="model"' in resp.text
+    # No model picker any more — agents are name + strategy.
+    assert 'name="model"' not in resp.text
+    assert "<optgroup" not in resp.text
     assert 'name="strategy_text"' in resp.text
-
-    for provider_value, models in PROVIDER_MODELS.items():
-        if not models:
-            continue
-        label = "OpenAI" if provider_value == "openai" else provider_value.capitalize()
-        assert f'<optgroup label="{label}">' in resp.text
-        assert f'<optgroup label="{label}" disabled>' not in resp.text
-        for model in models:
-            assert f'<option value="{model}"' in resp.text
 
 
 @pytest.mark.asyncio
-async def test_create_agent_without_connections_preserves_next_in_connect_redirect(
+async def test_create_agent_without_connections_returns_to_next(
     client, reset_db
 ) -> None:
+    # When the user came from a join (?next), create returns them straight there;
+    # the join flow then handles connecting an AI if needed.
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -138,7 +127,6 @@ async def test_create_agent_without_connections_preserves_next_in_connect_redire
         cookies=_signed_in_cookies(user.id),
         data={
             "name": "Atlas",
-            "model": "gpt-5.4-mini",
             "strategy_text": "Play to win.",
             "next": next_url,
         },
@@ -146,7 +134,7 @@ async def test_create_agent_without_connections_preserves_next_in_connect_redire
     )
 
     assert resp.status_code == 303
-    assert resp.headers["location"] == f"/me/connections?provider=openai&next={quote(next_url, safe='')}"
+    assert resp.headers["location"] == next_url
 
 
 @pytest.mark.asyncio
@@ -216,8 +204,8 @@ async def test_agent_list_marks_paused_only_provider_as_needs_connecting(
 
     assert resp.status_code == 200
     assert "Needs connecting" in resp.text
-    assert 'Connect Claude →' in resp.text
-    assert 'href="/me/connections?provider=claude"' in resp.text
+    assert 'Connect your AI →' in resp.text
+    assert 'href="/me/connections"' in resp.text
 
 
 @pytest.mark.asyncio
@@ -238,8 +226,8 @@ async def test_agent_detail_marks_paused_only_provider_as_needs_connecting(
 
     assert resp.status_code == 200
     assert "Needs connecting" in resp.text
-    assert "No live connection runs Claude" in resp.text
-    assert 'href="/me/connections?provider=claude"' in resp.text
+    assert "No live AI connection yet" in resp.text
+    assert 'href="/me/connections"' in resp.text
 
 
 @pytest.mark.asyncio

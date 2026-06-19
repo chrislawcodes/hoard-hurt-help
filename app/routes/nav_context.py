@@ -28,6 +28,7 @@ from app.deps import DbSession, get_current_user
 from app.engine.connection_health import (
     LIVE_WINDOW_SECONDS,
     ProviderReadiness,
+    enabled_provider_values,
     provider_readiness,
 )
 from app.models.agent import Agent, AgentKind
@@ -126,35 +127,37 @@ async def user_disconnected_connection_count(db: AsyncSession, user_id: int) -> 
     return (await db.scalar(stmt)) or 0
 
 
-async def _eligible_agent_providers(
+async def user_has_any_ai_agent(db: AsyncSession, user_id: int) -> bool:
+    """True when the user has at least one non-archived AI agent (seatable).
+
+    Agents are no longer tied to a provider, so existence is all that matters —
+    whichever AI client the user connects can play any of them.
+    """
+    row = (
+        await db.execute(
+            select(Agent.id)
+            .where(
+                Agent.user_id == user_id,
+                Agent.archived_at.is_(None),
+                Agent.kind == AgentKind.AI,
+            )
+            .limit(1)
+        )
+    ).first()
+    return row is not None
+
+
+async def _user_connection_providers(
     db: AsyncSession, user_id: int
 ) -> list[ConnectionProvider]:
-    """Distinct providers across the user's seatable AI agents.
+    """Distinct providers the user has set up on any connection.
 
-    Excludes ``kind=bot``, archived agents, and agents with a NULL provider —
-    none of those can be seated. Deduped to *distinct providers* so the
-    most-ready reduction runs at most once per provider, not once per agent
-    (AD-4: avoid a naive 3·K-query loop over agents that share a provider).
+    Connection readiness is provider-agnostic for play (any live connection can
+    serve any agent), but readiness itself is still computed per provider, so we
+    reduce over the providers the user actually has connected.
     """
-    rows = (
-        (
-            await db.execute(
-                select(Agent.provider)
-                .where(
-                    Agent.user_id == user_id,
-                    Agent.archived_at.is_(None),
-                    Agent.kind == AgentKind.AI,
-                    Agent.provider.is_not(None),
-                )
-                .distinct()
-            )
-        )
-        .scalars()
-        .all()
-    )
-    # provider IS NULL is filtered in SQL; the comprehension also narrows the row
-    # type from ConnectionProvider | None to ConnectionProvider for the checker.
-    return [p for p in rows if p is not None]
+    values = await enabled_provider_values(db, user_id)
+    return [ConnectionProvider(v) for v in values]
 
 
 def _setup_gate_url(
@@ -247,29 +250,29 @@ async def _first_unmet_gate(
     target_agent: Agent | None,
     require: PlaySetupStage,
 ) -> tuple[PlaySetupStage | None, ConnectionProvider | None]:
-    """Return (first-unmet gate, chosen provider). ``None`` gate ⇒ fully ready.
+    """Return (first-unmet gate, provider). ``None`` gate ⇒ fully ready.
 
-    The provider is returned so the caller can build a provider-scoped
-    ``/me/connections`` URL for the ``NEEDS_MCP_CONNECTION`` gate.
+    Provider is always ``None`` now: agents aren't tied to one and the connect
+    page is no longer provider-scoped. The slot is kept so callers/signatures
+    don't churn.
     """
     if user is None:
         return PlaySetupStage.NOT_SIGNED_IN, None
     if user.handle is None:
         return PlaySetupStage.NEEDS_HANDLE, None
 
-    if target_agent is not None:
-        provider = target_agent.provider
-        if provider is None:
-            # An agent with no provider can't be seated; treat as no agent.
-            return PlaySetupStage.NEEDS_AGENT, None
-        readiness = await provider_readiness(db, user.id, provider)
-        return _READINESS_TO_FIRST_UNMET.get(readiness), provider
-
-    providers = await _eligible_agent_providers(db, user.id)
-    if not providers:
+    # Need at least one agent to play. A target agent proves one exists.
+    if target_agent is None and not await user_has_any_ai_agent(db, user.id):
         return PlaySetupStage.NEEDS_AGENT, None
-    provider, readiness = await _reduce_most_ready(db, user.id, providers, require=require)
-    return _READINESS_TO_FIRST_UNMET.get(readiness), provider
+
+    # Connection readiness is provider-agnostic: any of the user's live
+    # connections can serve any agent. Reduce readiness over the providers the
+    # user actually has connected; no connection at all ⇒ NEEDS_MCP_CONNECTION.
+    providers = await _user_connection_providers(db, user.id)
+    if not providers:
+        return PlaySetupStage.NEEDS_MCP_CONNECTION, None
+    _provider, readiness = await _reduce_most_ready(db, user.id, providers, require=require)
+    return _READINESS_TO_FIRST_UNMET.get(readiness), None
 
 
 async def _reduce_most_ready(

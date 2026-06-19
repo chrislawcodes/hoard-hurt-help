@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
     <h1>Agents</h1>
-    <p class="sub">Build one competitor per game, model, and strategy.</p>
+    <p class="sub">Build a competitor with its own strategy. Whatever AI you connect plays it.</p>
 </div>
 
 <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
@@ -18,12 +18,12 @@
         <a class="agent-row" href="/me/agents/{{ row.agent.id }}">
             <span class="badge {{ row.health.badge_class }}">{% if row.health.pulse %}<span class="dot"></span>{% elif row.health.state.value == 'ready' %}<span class="dot dot-still"></span>{% endif %}{{ row.health.label }}</span>
             <span class="agent-row-name">{{ row.agent.name }}</span>
-            <span class="agent-row-meta">{% if row.version %}{{ row.version.model }} · v{{ row.version.version_no }} · {% endif %}{% if row.provider_label %}{{ row.provider_label }} · {% endif %}{{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}</span>
+            <span class="agent-row-meta">{% if row.version %}v{{ row.version.version_no }} · {% endif %}{{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}</span>
             <span class="agent-row-chevron">›</span>
         </a>
         {% if row.needs_connecting and row.connect_url %}
         <p class="hint" style="margin:0 0 0.75rem 0.75rem;">
-            Needs connecting — <a href="{{ row.connect_url }}">Connect {{ row.provider_label }} →</a>
+            Needs connecting — <a href="{{ row.connect_url }}">Connect your AI →</a>
         </p>
         {% endif %}
         {% endfor %}

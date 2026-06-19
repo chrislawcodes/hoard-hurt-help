@@ -161,35 +161,20 @@ async def compute_connection_health(
     if connection.status == ConnectionStatus.PAUSED:
         return build(ConnectionHealth.PAUSED)
 
-    # Agents this machine COVERS: the user's active AI agents whose provider is
-    # enabled on this connection. Drives the badge's agent_count only.
-    enabled_providers = (
-        (
-            await db.execute(
-                select(ConnectionProviderRow.provider).where(
-                    ConnectionProviderRow.connection_id == connection.id,
-                    ConnectionProviderRow.enabled.is_(True),
-                )
+    # Agents this machine COVERS: all the user's active AI agents — any
+    # connection can serve any agent now. Drives the badge's agent_count only.
+    covered_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(Agent)
+            .where(
+                Agent.user_id == connection.user_id,
+                Agent.kind == AgentKind.AI,
+                Agent.status == AgentStatus.ACTIVE,
+                Agent.archived_at.is_(None),
             )
         )
-        .scalars()
-        .all()
-    )
-    covered_count = 0
-    if enabled_providers:
-        covered_count = (
-            await db.execute(
-                select(func.count())
-                .select_from(Agent)
-                .where(
-                    Agent.user_id == connection.user_id,
-                    Agent.kind == AgentKind.AI,
-                    Agent.status == AgentStatus.ACTIVE,
-                    Agent.archived_at.is_(None),
-                    Agent.provider.in_(enabled_providers),
-                )
-            )
-        ).scalar() or 0
+    ).scalar() or 0
 
     # Matches this connection is currently SERVING (the sticky pin).
     player_rows = (
@@ -609,3 +594,71 @@ def is_join_blocked(active_count: int, capacity_sum: int) -> bool:
     capacity_sum == 0 means no live connection covers the provider → always blocked.
     """
     return active_count >= capacity_sum if capacity_sum > 0 else True
+
+
+# ---------------------------------------------------------------------------
+# User-level (provider-agnostic) readiness & capacity
+#
+# Agents are no longer tied to a provider: any of a user's live connections can
+# serve any of their agents. These reduce the per-provider primitives above over
+# *all* the user's connections, so play-setup and the join gate reason about
+# "do I have a live AI at all?" rather than "is provider X live?".
+# ---------------------------------------------------------------------------
+
+
+async def user_play_readiness(db: AsyncSession, user_id: int) -> ProviderReadiness:
+    """Best play-readiness across every provider the user has connected.
+
+    The user is as ready as their most-ready connection. ``NO_MCP_CONNECTION``
+    when nothing is set up.
+    """
+    rank = {
+        ProviderReadiness.NO_MCP_CONNECTION: 0,
+        ProviderReadiness.CONNECTED_NOT_LIVE: 1,
+        ProviderReadiness.SEEN_NOT_POLLING: 2,
+        ProviderReadiness.LIVE: 3,
+    }
+    best = ProviderReadiness.NO_MCP_CONNECTION
+    for value in await enabled_provider_values(db, user_id):
+        readiness = await provider_readiness(db, user_id, ConnectionProvider(value))
+        if rank[readiness] > rank[best]:
+            best = readiness
+        if best == ProviderReadiness.LIVE:
+            break
+    return best
+
+
+async def active_matches_for_user(db: AsyncSession, user_id: int) -> int:
+    """Count active matches across ALL the user's AI agents (provider-agnostic)."""
+    count = await db.scalar(
+        select(func.count(func.distinct(Match.id)))
+        .select_from(Agent)
+        .join(Player, Player.agent_id == Agent.id)
+        .join(Match, Match.id == Player.match_id)
+        .where(
+            Agent.user_id == user_id,
+            Agent.kind == AgentKind.AI,
+            Agent.status == AgentStatus.ACTIVE,
+            Agent.archived_at.is_(None),
+            Player.left_at.is_(None),
+            Match.state == GameState.ACTIVE,
+        )
+    )
+    return int(count or 0)
+
+
+async def live_user_capacity(db: AsyncSession, user_id: int) -> int:
+    """Sum of ``max_concurrent_games`` over the user's live connections (any provider).
+
+    Each connection is counted once. Returns 0 when none are live (join blocked).
+    """
+    now = datetime.now(timezone.utc)
+    rows = (
+        await db.execute(
+            select(Connection).where(
+                Connection.user_id == user_id,
+                Connection.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    return sum(c.max_concurrent_games for c in rows if _connection_is_live(c, now))

@@ -542,7 +542,7 @@ async def test_agent_detail_shows_no_live_connection_when_never_connected(
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
-    assert "No live connection runs" in resp.text
+    assert "No live AI connection yet" in resp.text
 
 
 @pytest.mark.asyncio
@@ -560,7 +560,7 @@ async def test_agent_detail_shows_no_live_connection_when_cold(
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
-    assert "No live connection runs" in resp.text
+    assert "No live AI connection yet" in resp.text
 
 
 @pytest.mark.asyncio

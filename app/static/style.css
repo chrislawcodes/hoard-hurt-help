@@ -1924,6 +1924,10 @@ button.danger:hover,
     color: var(--brand);
     border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
 }
+.lb-tag-provider {
+    color: var(--ink-soft);
+    border-color: var(--line);
+}
 .lb-empty { text-align: center; padding: 36px 20px; }
 .lb-empty-note { color: var(--ink-soft); margin-top: 10px; }
 

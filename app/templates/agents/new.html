@@ -3,29 +3,13 @@
 {% block content %}
 <div class="page-head">
     <h1>New agent</h1>
+    <p class="sub">An agent is a name and a strategy. Whatever AI you connect plays it.</p>
 </div>
 
 <div class="card agent-setup-card">
     <h3 style="margin-top:0;">Create the agent</h3>
     <form method="post" action="/me/agents/new" class="form agent-setup-form">
         {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
-        <label>
-            AI model
-            <select name="model" id="agent-model" required>
-                {% for group in model_groups %}
-                <optgroup label="{{ group.provider_label }}">
-                    {% for candidate in group.options %}
-                    <option value="{{ candidate.value }}"{% if candidate.value == selected_model %}selected{% endif %}>
-                        {{ candidate.label }}
-                    </option>
-                    {% endfor %}
-                </optgroup>
-                {% endfor %}
-            </select>
-            {% for note in availability_notes %}
-            <small class="hint">{{ note.provider_label }} isn't connected yet — <a href="/me/connections{% if next_url or note.provider_value %}?{% if note.provider_value %}provider={{ note.provider_value }}{% endif %}{% if next_url %}{% if note.provider_value %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}">connect {{ note.provider_label }} →</a> to use {{ note.provider_label }} models.</small>
-            {% endfor %}
-        </label>
         <label>
             Agent name
             <input type="text" name="name" maxlength="120" required autocomplete="off" placeholder="Alpha">

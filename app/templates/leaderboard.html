@@ -62,6 +62,8 @@
                         {{ row.display_name }}
                         {% if row.is_bot %}
                         <span class="lb-tag lb-tag-sim">Bot</span>
+                        {% elif row.provider %}
+                        <span class="lb-tag lb-tag-provider">{{ row.provider }}</span>
                         {% endif %}
                         {% if row.provisional %}
                         <span class="lb-tag lb-tag-provisional">Provisional</span>

@@ -2,8 +2,5 @@
 <span class="{{ health.badge_class }}{% if health.pulse %} badge-pulse{% endif %}">{{ health.label }}</span>
 {% endif %}
 {% if version %}
-· v{{ version.version_no }} · {{ version.model }}
-{% endif %}
-{% if provider_label %}
-· {{ provider_label }}
+· v{{ version.version_no }}
 {% endif %}

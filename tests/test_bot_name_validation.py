@@ -13,10 +13,11 @@ from datetime import datetime, timezone
 import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
+from sqlalchemy import select
 
 from app.config import settings
 from app.main import app
-from app.models import Base
+from app.models import Agent, Base
 from app.models.connection import ConnectionProvider
 from tests.factories import make_connection, make_user
 
@@ -69,13 +70,13 @@ async def test_long_name_with_spaces_is_accepted(reset_db) -> None:
     async with _authed_client(user.id) as c:
         r = await c.post(
             "/me/agents/new",
-            data={"name": name, "model": "claude-haiku-4-5"},
+            data={"name": name},
         )
-
-    # Lands on the new agent's detail page (200 after the redirect is followed),
-    # and the page shows the name we asked for.
-    assert r.status_code == 200, r.text
-    assert name in r.text
+        # Accepted (not a 400) — post-create lands on the lobby; the agent then
+        # shows on the /me/agents list with the exact name we asked for.
+        assert r.status_code == 200, r.text
+        agents_page = await c.get("/me/agents")
+    assert name in agents_page.text
 
 
 @pytest.mark.asyncio
@@ -115,16 +116,15 @@ async def test_rename_to_long_spaced_name_is_accepted(reset_db) -> None:
         await db.commit()
 
     async with _authed_client(user.id) as c:
-        created = await c.post(
-            "/me/agents/new",
-            data={
-                "name": "Atlas",
-                "model": "claude-haiku-4-5",
-            },
-        )
+        created = await c.post("/me/agents/new", data={"name": "Atlas"})
         assert created.status_code == 200, created.text
-        # The detail URL carries the new agent's id; rename through it.
-        agent_id = created.url.path.rsplit("/", 1)[-1]
+        # Create now lands on the lobby, so look the new agent's id up directly.
+        async with reset_db() as db:
+            agent_id = (
+                await db.execute(
+                    select(Agent.id).where(Agent.user_id == user.id, Agent.name == "Atlas")
+                )
+            ).scalar_one()
         new_name = "Atlas The Diplomatic Cooperator Agent"
         renamed = await c.post(f"/me/agents/{agent_id}/rename", data={"name": new_name})
 

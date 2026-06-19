@@ -187,9 +187,9 @@ async def test_provider_but_no_agent_redirects_to_create_agent_with_next(client,
 
 @pytest.mark.asyncio
 async def test_agent_without_any_connection_shows_form_not_connected(client, reset_db):
-    # An agent whose provider is enabled on NO connection now SHOWS on the form,
-    # grouped under its provider as "Not connected" — the user can pick it and
-    # connect on the next screen instead of being bounced away.
+    # With no connection at all, the agent still SHOWS on the form and the overall
+    # status reads "No AI connected" — the user can pick it and connect on the next
+    # screen instead of being bounced away.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
@@ -199,7 +199,7 @@ async def test_agent_without_any_connection_shows_form_not_connected(client, res
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
     assert "Atlas" in r.text
-    assert "Not connected" in r.text
+    assert "No AI connected" in r.text
 
 
 @pytest.mark.asyncio
@@ -327,8 +327,8 @@ async def test_create_agent_post_forwards_to_next(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_create_agent_post_rejects_external_next(client, reset_db):
-    # An external next is dropped; since the provider IS set up, we fall back to
-    # the agent's detail page (not the external target).
+    # An external next is dropped; we fall back to the lobby (not the external
+    # target). This is the security property: the evil URL never reaches Location.
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
@@ -339,7 +339,6 @@ async def test_create_agent_post_rejects_external_next(client, reset_db):
         "/me/agents/new",
         data={
             "name": "Atlas",
-            "model": "claude-haiku-4-5",
             "strategy_text": "Play to win.",
             "next": "https://evil.example.com",
         },
@@ -347,7 +346,7 @@ async def test_create_agent_post_rejects_external_next(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"].startswith("/me/agents/")
+    assert r.headers["location"] == "/games/hoard-hurt-help"
     assert "evil.example.com" not in r.headers["location"]
 
 
