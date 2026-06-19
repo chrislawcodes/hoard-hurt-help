@@ -283,6 +283,56 @@ def _delta_body(new_history: list, scoreboard: list, cur: dict) -> str:
     )
 
 
+def _fetch_full_history(base: str, match_id: str) -> tuple[list, list] | None:
+    """The whole resolved transcript + scoreboard for a match, or None on failure.
+
+    The per-turn poll payload now carries only a small rolling window of history
+    (the server stopped re-sending the whole transcript every poll). A chained
+    session is primed ONCE with the full game so far, so when we open a fresh
+    session mid-game we pull the rest here instead, from the public spectator
+    state. Mapped to the same shape as the poll payload's `history` so the model
+    sees one consistent format across the priming message and later deltas.
+
+    fail-open: advisory only — if the pull fails we return None and the caller
+    primes with the windowed history it already has. The agent still plays; it
+    just starts with less of the early game in view.
+    """
+    try:
+        resp = httpx.get(f"{base}/api/spectator/games/{match_id}/state", timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        print(
+            f"[agentludum-connector] WARNING: could not fetch full history for "
+            f"{match_id} ({exc}); priming with the recent-turns window instead.",
+            file=sys.stderr,
+        )
+        return None
+    history: list[dict] = []
+    for turn in data.get("history", []):
+        message_by_agent = {
+            msg["agent_id"]: msg.get("message", "")
+            for msg in turn.get("messages", [])
+        }
+        history.append(
+            {
+                "round": turn["round"],
+                "turn": turn["turn"],
+                "actions": [
+                    {
+                        "agent_id": action["agent_id"],
+                        "action": action["action"],
+                        "target_id": action.get("target_id"),
+                        "message": message_by_agent.get(action["agent_id"], ""),
+                        "points_delta": action.get("points_delta", 0),
+                    }
+                    for action in turn.get("actions", [])
+                ],
+            }
+        )
+    return history, data.get("scoreboard", [])
+
+
 # The AI CLIs run here, not wherever the operator happened to launch the
 # connector. A CLI that inspects "the working directory" then sees a neutral
 # scratch folder inside our own dotfolder — never the operator's Desktop /
@@ -1116,6 +1166,17 @@ def _handle_turn(
     match_id = _turn_match_id(turn)
     cur = turn["current"]
     phase = _phase(cur)
+    adapter = _ADAPTERS[str(sess.provider)]
+    # A session that is about to be PRIMED (a brand-new chained session, or a
+    # sessionless provider that re-primes every turn) gets the full game so far,
+    # not the small rolling window the poll payload carries. Pull it once here so
+    # the model opens with the whole match in view; a continuing session reads its
+    # delta straight from the windowed payload and skips the extra request.
+    if sess.token is None or not getattr(adapter, "supports_resume", True):
+        full = _fetch_full_history(base, match_id)
+        if full is not None:
+            history, scoreboard = full
+            turn = {**turn, "history": history, "scoreboard": scoreboard}
     if sess.token is None:
         agent_name = turn.get("agent_name", turn.get("agent_id", "unknown"))
         version_no = turn.get("version_no", "?")

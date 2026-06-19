@@ -267,6 +267,9 @@ async def test_get_next_turn_strips_duplicate_static_for_mcp(
     assert result["static"]["coach_note"] == "stay calm"
     assert result["your_private_state"] == {"dice": [1, 2, 3]}
     assert result["public_state"] == {"board": 1}
+    # History is the server's rolling window — the lean wrapper preserves it as-is
+    # (it only strips the duplicated static prompt text, never the live history).
+    assert result["history"] == []
     assert set(result["static"]) == {
         "match_id",
         "rules_version",
@@ -345,6 +348,7 @@ async def test_get_next_turns_strips_duplicate_static_for_mcp(
     assert turn["static"]["match_id"] == "M_001"
     assert turn["your_private_state"] == {"dice": [1, 2, 3]}
     assert turn["public_state"] == {"board": 1}
+    assert turn["history"] == []  # rolling window preserved, not stripped
 
 
 @pytest.mark.asyncio

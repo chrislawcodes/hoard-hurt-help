@@ -29,6 +29,7 @@ from app.engine.agent_idle import (
 )
 from app.engine.connection_activity import mark_polled
 from app.engine.agent_play_reads import (
+    RECENT_HISTORY_TURNS,
     _build_current_turn,
     _group_into_turns,
     _load_public_action_records,
@@ -409,7 +410,13 @@ async def _build_turn_payload(
         (await db.execute(select(Player).where(Player.match_id == match.id))).scalars().all()
     )
     seat_name_by_agent_id = {player.agent_id: player.seat_name for player in all_players}
-    history = _group_into_turns(await _load_public_action_records(db, match.id, all_players))
+    # Rolling window, not the whole transcript: this payload is re-served on every
+    # poll, so it must stay small (full history is reachable on demand instead).
+    history = _group_into_turns(
+        await _load_public_action_records(
+            db, match.id, all_players, recent_turns=RECENT_HISTORY_TURNS
+        )
+    )
     scoreboard = [
         {
             "agent_id": seat_name_by_agent_id[p.agent_id],

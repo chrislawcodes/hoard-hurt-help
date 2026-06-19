@@ -270,3 +270,151 @@ def test_decide_records_gemini_usage(runner, monkeypatch):
             },
         )
     ]
+
+
+def test_fetch_full_history_maps_spectator_state(runner, monkeypatch):
+    """The catch-up pull maps the public spectator state into the same history
+    shape the windowed poll payload uses: messages folded into each action, and
+    the game-specific bid fields (quantity/face) dropped, just like the payload."""
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "scoreboard": [{"agent_id": "seat-A", "round_score": 4, "round_wins": 0}],
+                "history": [
+                    {
+                        "round": 1,
+                        "turn": 1,
+                        "messages": [{"agent_id": "seat-A", "message": "hi"}],
+                        "actions": [
+                            {
+                                "agent_id": "seat-A",
+                                "action": "HURT",
+                                "target_id": "seat-B",
+                                "quantity": None,
+                                "face": None,
+                                "points_delta": 0,
+                            }
+                        ],
+                    }
+                ],
+            }
+
+    captured: dict[str, object] = {}
+
+    def fake_get(url, timeout=None):
+        captured["url"] = url
+        return FakeResp()
+
+    monkeypatch.setattr(runner.httpx, "get", fake_get)
+
+    result = runner._fetch_full_history("http://x", "M_1")
+
+    assert captured["url"] == "http://x/api/spectator/games/M_1/state"
+    assert result is not None
+    history, scoreboard = result
+    assert scoreboard == [{"agent_id": "seat-A", "round_score": 4, "round_wins": 0}]
+    assert history == [
+        {
+            "round": 1,
+            "turn": 1,
+            "actions": [
+                {
+                    "agent_id": "seat-A",
+                    "action": "HURT",
+                    "target_id": "seat-B",
+                    "message": "hi",
+                    "points_delta": 0,
+                }
+            ],
+        }
+    ]
+
+
+def test_fetch_full_history_fails_open_on_error(runner, monkeypatch):
+    """A failed pull returns None (fail-open) so the caller still primes with the
+    windowed history it already has — the agent keeps playing."""
+    import httpx
+
+    def boom(url, timeout=None):
+        raise httpx.HTTPError("network down")
+
+    monkeypatch.setattr(runner.httpx, "get", boom)
+    assert runner._fetch_full_history("http://x", "M_1") is None
+
+
+def test_handle_turn_primes_new_session_with_full_history(runner, monkeypatch):
+    """A brand-new chained session is primed with the FULL fetched history, not the
+    small window the poll payload carries — so a mid-game restart still opens with
+    the whole game in view."""
+    full_history = [
+        {
+            "round": 1,
+            "turn": 1,
+            "actions": [
+                {"agent_id": "seat-A", "action": "HOARD", "target_id": None,
+                 "message": "", "points_delta": 2}
+            ],
+        }
+    ]
+    full_scoreboard = [{"agent_id": "seat-A", "round_score": 2, "round_wins": 0}]
+    monkeypatch.setattr(
+        runner, "_fetch_full_history", lambda base, match_id: (full_history, full_scoreboard)
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_decide(turn, sess):
+        captured["history"] = turn.get("history")
+        captured["scoreboard"] = turn.get("scoreboard")
+        return None  # short-circuit before the submit POST
+
+    monkeypatch.setattr(runner, "_decide", fake_decide)
+
+    # The poll payload carries only the recent window; the prime must override it.
+    turn = _turn(
+        match_id="M_1", agent_id="A", agent_name="Alpha", model="claude-haiku-4-5",
+        version_no=1, turn_no=2, token="t",
+        history=[{"round": 1, "turn": 1, "actions": []}],
+    )
+    sess = runner._GameSession(provider="claude", model="claude-haiku-4-5")  # token=None
+
+    runner._handle_turn("http://x", {"X-Connection-Key": "k"}, turn, sess)
+
+    assert captured["history"] == full_history
+    assert captured["scoreboard"] == full_scoreboard
+
+
+def test_handle_turn_resumed_session_skips_the_full_history_pull(runner, monkeypatch):
+    """A continuing session reads its delta from the windowed payload and does NOT
+    make the extra catch-up request — the pull is for fresh sessions only."""
+    called = {"fetched": False}
+
+    def fake_fetch(base, match_id):
+        called["fetched"] = True
+        return ([], [])
+
+    monkeypatch.setattr(runner, "_fetch_full_history", fake_fetch)
+
+    captured: dict[str, object] = {}
+
+    def fake_decide(turn, sess):
+        captured["history"] = turn.get("history")
+        return None
+
+    monkeypatch.setattr(runner, "_decide", fake_decide)
+
+    windowed = [{"round": 1, "turn": 3, "actions": []}]
+    turn = _turn(
+        match_id="M_1", agent_id="A", agent_name="Alpha", model="claude-haiku-4-5",
+        version_no=1, turn_no=4, token="t", history=windowed,
+    )
+    sess = runner._GameSession(provider="claude", model="claude-haiku-4-5", token="session-1")
+
+    runner._handle_turn("http://x", {"X-Connection-Key": "k"}, turn, sess)
+
+    assert called["fetched"] is False
+    assert captured["history"] == windowed
