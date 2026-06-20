@@ -94,20 +94,14 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     play_ctx = await _build_human_play_context(
         db, g, players, viewer_player, kind_by_seat
     )
-    # Join/leave CTA flags. A signed-in user with no seat can join a not-yet-
-    # started match; a seated human can leave (pre-start frees the seat, in-match
-    # flips it to autopilot).
+    # Leave-CTA flag: a seated human can leave (pre-start frees the seat, in-match
+    # flips it to autopilot). The join entrance is the "Enter game" link, which
+    # leads to the join screen where "Play as yourself" is the first choice.
     viewer_seat_human = (
         viewer_player is not None
         and kind_by_seat.get(viewer_player.seat_name) == AgentKind.HUMAN
     )
-    can_join_human = (
-        user is not None
-        and viewer_player is None
-        and g.state in (GameState.SCHEDULED, GameState.REGISTERING)
-    )
     play_ctx["viewer_seat_human"] = viewer_seat_human
-    play_ctx["can_join_human"] = can_join_human
 
     # The game module owns its replay "story" — the enriched per-turn history and
     # any replay JSON its viewer fragment renders. The platform route stays

@@ -222,3 +222,53 @@ async def test_in_match_leave_sets_autopilot(reset_db, client) -> None:
         p = (await db.execute(select(Player))).scalar_one()
         assert p.left_at is None  # still seated / ranked
         assert p.autopilot_at is not None  # auto-Hoards to the end
+
+
+# --- consolidated join screen: "Play as yourself" is the first choice ---------
+
+
+async def test_join_screen_leads_with_human_option(reset_db, client) -> None:
+    """A signed-in user with no AI agent lands on the join form (not a redirect),
+    with "Play as yourself" pre-selected as the first choice."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await db.commit()
+
+    r = await client.get(
+        f"/games/{GAME}/matches/M_0001/join",
+        cookies=_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 200
+    assert "Play as yourself" in r.text
+    # The human radio is present and is the default (checked) choice.
+    assert 'name="play_as"' in r.text
+    assert "data-play-as-human" in r.text
+
+
+async def test_join_screen_human_submit_seats_player(reset_db, client) -> None:
+    """Posting the join form with play_as=human seats a kind=human player."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)  # handle "agent1"
+        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await db.commit()
+
+    r = await client.post(
+        f"/games/{GAME}/matches/M_0001/join",
+        data={"play_as": "human"},
+        cookies=_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/games/{GAME}/matches/M_0001"
+
+    async with reset_db() as db:
+        p = (await db.execute(select(Player))).scalar_one()
+        assert p.user_id == user.id
+        assert p.seat_name == "agent1"  # the user's handle
+        assert p.seat_reserved_until is None  # active immediately, never held
+        agent = (
+            await db.execute(select(Agent).where(Agent.id == p.agent_id))
+        ).scalar_one()
+        assert agent.kind == AgentKind.HUMAN

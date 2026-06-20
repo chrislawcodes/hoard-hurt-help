@@ -267,29 +267,20 @@ def _viewer_redirect(game: str, match_id: str) -> RedirectResponse:
     )
 
 
-@router.post("/games/{game}/matches/{match_id}/play/join")
-async def play_join(
-    db: DbSession,
-    user: Annotated[User, Depends(require_user_with_handle)],
-    game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
-    display_name: Annotated[str | None, Form()] = None,
-) -> RedirectResponse:
-    """Take a human seat in a scheduled match — no agent, no connection, no key.
+async def seat_human_player(
+    db: DbSession, user: User, match: Match, display_name: str | None
+) -> bool:
+    """Seat *user* as a human in *match* — no agent, no connection, no key.
 
-    Only a display name (defaulting to the user's handle) is needed. The seat is
-    active immediately (never held), and the human is reused as a kind=human agent
-    across their matches.
+    Idempotent: a no-op (returns ``False``) if the user already holds an active
+    human seat here, otherwise creates the seat and returns ``True``. Only a
+    display name (defaulting to the user's handle) is needed; the seat is active
+    immediately (never held) and reuses the user's ``kind=human`` agent across
+    matches. The caller owns transaction commit and the match-open / access
+    checks — this just builds the seat.
+
+    Raises HTTPException(409) if the match is full.
     """
-    match = await _load_match_or_404(db, match_id)
-    if match.game != game:
-        raise HTTPException(status_code=404, detail="Match not found.")
-    if is_admin_only(match.game) and not _is_any_admin(user):
-        raise HTTPException(status_code=404, detail="Game not found.")
-    if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
-        raise HTTPException(status_code=409, detail="This match isn't open to join.")
-
-    # Already seated as a human? Go to the viewer rather than erroring.
     already = (
         await db.execute(
             select(Player)
@@ -303,7 +294,7 @@ async def play_join(
         )
     ).scalar_one_or_none()
     if already is not None:
-        return _viewer_redirect(match.game, match.id)
+        return False
 
     active = await count_players(db, match.id, active_only=True)
     if active >= match.max_players:
@@ -329,6 +320,32 @@ async def play_join(
             seat_name=seat_name,
         )
     )
+    return True
+
+
+@router.post("/games/{game}/matches/{match_id}/play/join")
+async def play_join(
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    game: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
+    display_name: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    """Take a human seat in a scheduled match — no agent, no connection, no key.
+
+    The join screen is the primary entrance (pick "Play as yourself"); this
+    endpoint stays as the direct one-click path and shares ``seat_human_player``
+    with it, so the two can't drift.
+    """
+    match = await _load_match_or_404(db, match_id)
+    if match.game != game:
+        raise HTTPException(status_code=404, detail="Match not found.")
+    if is_admin_only(match.game) and not _is_any_admin(user):
+        raise HTTPException(status_code=404, detail="Game not found.")
+    if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
+        raise HTTPException(status_code=409, detail="This match isn't open to join.")
+
+    await seat_human_player(db, user, match, display_name)
     await db.commit()
     return _viewer_redirect(match.game, match.id)
 

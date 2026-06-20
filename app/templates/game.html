@@ -4,16 +4,10 @@
 <div class="page-head page-head-row">
     <h1>{{ game.name }}</h1>
     <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-        {% if can_join_human %}
-        {# One-click human seat. The submit handler asks for notification
-           permission up front (FR-027) so the clock is never interrupted later. #}
-        <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/play/join"
-              data-join-human style="display:inline;">
-            <button type="submit" class="btn btn-primary">Play this match →</button>
-        </form>
-        {% endif %}
         {% if user and game.state.value in ('scheduled', 'registering') %}
-        <a class="btn {% if can_join_human %}btn-ghost{% else %}btn-primary{% endif %}" href="/games/{{ game.game }}/matches/{{ game.id }}/join">
+        {# Single entrance: the join screen leads with "Play as yourself" (a human
+           seat) and offers the AI-agent picker below it. #}
+        <a class="btn btn-primary" href="/games/{{ game.game }}/matches/{{ game.id }}/join">
             {% if viewer_player_id %}+ Add another agent{% else %}Enter game →{% endif %}
         </a>
         {% endif %}
@@ -473,16 +467,8 @@
     const region = document.getElementById('live-region');
     if (!region) return;
 
-    // Ask for notification permission when the user commits to playing.
-    const joinForm = document.querySelector('[data-join-human]');
-    if (joinForm && 'Notification' in window) {
-        joinForm.addEventListener('submit', function () {
-            if (Notification.permission === 'default') {
-                try { Notification.requestPermission(); } catch (_e) { /* fail-open */ }
-            }
-        });
-    }
-
+    // Notification permission is requested up front on the join screen (when the
+    // user picks "Play as yourself"), so by here we only fire the alert.
     const baseTitle = document.title;
     let flashTimer = null;
     let lastPhase = null;

@@ -1,21 +1,18 @@
-"""Tests for the smart gated Join flow.
+"""Tests for the gated Join flow.
 
-The join page is the HUB. On GET it checks setup state and redirects to the
-FIRST missing thing, carrying ?next back to the join URL:
+The join page leads with "Play as yourself" (a human seat), so it always renders
+for a signed-in user with a handle — even one with zero agents and zero
+connections. Only the identity gates still redirect on GET:
 
   1. Not signed in           → /auth/google/login?next=<join>
   2. No handle               → /me/handle?next=<join>
-  3. No agent                → /me/agents/new?next=<join>   (design the agent)
-  4. Has no live provider     → /me/connections?provider=<x>&next=<join>
-  5. Has an AI agent         → render the join form (no Player seated)
+  3. Signed in + handle      → render the join form (no Player seated)
 
-Creating an agent no longer requires an already-connected provider, so a
-brand-new user (zero connections, zero agents) is sent to create an agent
-first. The follow-up step is the provider-specific connect flow for that agent.
-
-The form now shows ALL of the user's AI agents grouped by provider — including
-ones whose provider is offline or not set up — so an unconnected provider no
-longer bounces the user away; they can pick it and connect on the next screen.
+A user with no AI agent is NOT bounced away anymore: they land on the join form
+and can play as a human in one click. The AI-agent picker below is the opt-in
+path — it shows ALL of the user's AI agents (including ones whose provider is
+offline or not set up), so an unconnected provider no longer blocks the screen;
+they pick it and connect on the next screen.
 
 It also tests that each existing page HONORS ?next (forwards on completion) and
 that ?next is validated as an internal path (no open redirect).
@@ -156,22 +153,23 @@ async def test_no_handle_redirects_to_handle_with_next(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_fresh_user_no_connection_redirects_to_create_agent_with_next(client, reset_db):
-    # Brand-new user: handle, but ZERO connections and ZERO agents. The hub
-    # sends them to design an agent first, not to /me/connections.
+async def test_fresh_user_no_connection_lands_on_join_form_as_human(client, reset_db):
+    # Brand-new user: handle, but ZERO connections and ZERO agents. They are NOT
+    # bounced to setup — the join form renders with "Play as yourself" leading,
+    # and the AI path offers to create an agent.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)  # handle, no connection, no agent
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
-    assert r.status_code == 303
-    loc = r.headers["location"]
-    assert loc.startswith("/me/agents/new?next=")
-    assert JOIN_NEXT in loc
+    assert r.status_code == 200
+    assert "Play as yourself" in r.text
+    assert "Create one" in r.text  # the AI path, gated behind a missing agent
+    assert await _seated_players(reset_db) == 0  # GET seats nobody
 
 
 @pytest.mark.asyncio
-async def test_provider_but_no_agent_redirects_to_create_agent_with_next(client, reset_db):
-    # A connected provider but no agent yet: the hub sends them to create one,
-    # carrying ?next back to the join URL.
+async def test_provider_but_no_agent_lands_on_join_form_as_human(client, reset_db):
+    # A connected provider but no agent yet: still no bounce. The join form renders
+    # with the human option; the AI path waits until they create an agent.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
@@ -179,10 +177,9 @@ async def test_provider_but_no_agent_redirects_to_create_agent_with_next(client,
         await make_connection(db, u)  # enables a provider, but no agent created
         await db.commit()
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
-    assert r.status_code == 303
-    loc = r.headers["location"]
-    assert loc.startswith("/me/agents/new?next=")
-    assert JOIN_NEXT in loc
+    assert r.status_code == 200
+    assert "Play as yourself" in r.text
+    assert await _seated_players(reset_db) == 0
 
 
 @pytest.mark.asyncio
@@ -225,10 +222,10 @@ async def test_agent_but_stale_connection_shows_form_not_running(client, reset_d
 
 
 @pytest.mark.asyncio
-async def test_hub_chains_from_create_agent_to_connections_no_loop(client, reset_db):
-    # End-to-end of the gate chain with no loop: a user who has a (live) machine
-    # but no agent hits gate 1 (create agent); creating it forwards back to the
-    # hub, which now finds a seatable + live agent and renders the join form.
+async def test_create_agent_from_join_returns_and_shows_agent(client, reset_db):
+    # A user with a (live) machine but no agent lands on the join form (human
+    # option). The AI path's "create an agent" link carries ?next; creating the
+    # agent forwards straight back, and now it shows as a pickable AI agent.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
@@ -239,12 +236,12 @@ async def test_hub_chains_from_create_agent_to_connections_no_loop(client, reset
         await db.commit()
     cookies = _cookies(user.id)
 
-    # Gate 1: no seatable agent -> create-agent, carrying next.
+    # No agent yet: the join form still renders, leading with the human option.
     r1 = await client.get(JOIN_URL, cookies=cookies, follow_redirects=False)
-    assert r1.status_code == 303
-    assert r1.headers["location"].startswith("/me/agents/new?next=")
+    assert r1.status_code == 200
+    assert "Play as yourself" in r1.text
 
-    # Create the agent with that next -> forwards straight back to the join hub.
+    # Create the agent with that next -> forwards straight back to the join screen.
     r2 = await client.post(
         "/me/agents/new",
         data={
@@ -259,7 +256,7 @@ async def test_hub_chains_from_create_agent_to_connections_no_loop(client, reset
     assert r2.status_code == 303
     assert r2.headers["location"] == JOIN_URL
 
-    # Back at the hub: now seatable AND live -> the join form renders (no loop).
+    # Back at the join screen: the new agent now shows as a pickable AI option.
     r3 = await client.get(JOIN_URL, cookies=cookies, follow_redirects=False)
     assert r3.status_code == 200
     assert "Atlas" in r3.text
