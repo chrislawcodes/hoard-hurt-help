@@ -4,10 +4,25 @@
 <div class="page-head page-head-row">
     <h1>{{ game.name }}</h1>
     <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+        {% if can_join_human %}
+        {# One-click human seat. The submit handler asks for notification
+           permission up front (FR-027) so the clock is never interrupted later. #}
+        <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/play/join"
+              data-join-human style="display:inline;">
+            <button type="submit" class="btn btn-primary">Play this match →</button>
+        </form>
+        {% endif %}
         {% if user and game.state.value in ('scheduled', 'registering') %}
-        <a class="btn btn-primary" href="/games/{{ game.game }}/matches/{{ game.id }}/join">
+        <a class="btn {% if can_join_human %}btn-ghost{% else %}btn-primary{% endif %}" href="/games/{{ game.game }}/matches/{{ game.id }}/join">
             {% if viewer_player_id %}+ Add another agent{% else %}Enter game →{% endif %}
         </a>
+        {% endif %}
+        {% if viewer_seat_human and game.state.value in ('scheduled', 'registering', 'active') %}
+        <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/play/leave"
+              style="display:inline;"
+              onsubmit="return confirm('Leave this match? {% if game.state.value == 'active' %}Your seat will play Hoard for the rest of the match.{% endif %}');">
+            <button type="submit" class="btn btn-ghost">Leave</button>
+        </form>
         {% endif %}
         <a class="btn btn-ghost" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
     </div>
@@ -344,6 +359,171 @@
     region.addEventListener('rc:turn', function (e) { sync(e.detail.seq); });
     // The feed is replaced on each SSE swap — re-apply from the persisted seq.
     region.addEventListener('htmx:afterSwap', function () { sync(null); });
+})();
+</script>
+
+<script>
+// Human play panel: countdown, target show/hide, Pass, and near-deadline
+// auto-submit of the current selection. The panel HTML is re-rendered into
+// #live-region on every swap, so this re-applies on htmx:afterSwap (the same
+// pattern the round-nav uses). All panel-driving JS lives here (loaded once),
+// because scripts inside a swapped fragment don't reliably re-run.
+(function () {
+    const region = document.getElementById('live-region');
+    if (!region) return;
+    const SAFETY_MS = 2000;  // submit the selection a beat before the server clock
+    let timer = null;
+
+    function setupPanel() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        const panel = document.getElementById('play-panel');
+        if (!panel) return;
+
+        // Target picker shows only for HELP/HURT.
+        const actForm = document.getElementById('act-form');
+        if (actForm) {
+            const wrap = actForm.querySelector('[data-play-target-wrap]');
+            const radios = actForm.querySelectorAll('input[name="action"]');
+            const toggle = function () {
+                const sel = actForm.querySelector('input[name="action"]:checked');
+                const needs = sel && sel.value !== 'HOARD';
+                if (wrap) wrap.style.display = needs ? '' : 'none';
+            };
+            radios.forEach(function (r) { r.addEventListener('change', toggle); });
+            toggle();
+        }
+
+        // Talk character counter.
+        const msg = panel.querySelector('[data-play-msg]');
+        const counter = panel.querySelector('[data-play-counter]');
+        if (msg && counter) {
+            const updateCount = function () { counter.textContent = String(msg.value.length); };
+            msg.addEventListener('input', updateCount);
+            updateCount();
+        }
+
+        // Countdown + near-deadline auto-submit.
+        const clock = panel.querySelector('[data-play-clock]');
+        const iso = panel.dataset.playDeadline;
+        const yourTurn = panel.dataset.yourTurn;
+        if (clock && iso) {
+            const deadline = new Date(iso);
+            let autoFired = false;
+            const tick = function () {
+                const ms = deadline - new Date();
+                const s = Math.max(0, Math.ceil(ms / 1000));
+                clock.textContent = s + 's';
+                clock.classList.toggle('play-clock-low', ms <= 10000);
+                if (ms <= SAFETY_MS && !autoFired && yourTurn && actForm) {
+                    // Record whatever's selected (Hoard by default) before the
+                    // server clock closes the turn. Talk needs no client submit —
+                    // the server records an empty message on timeout.
+                    autoFired = true;
+                    if (typeof actForm.requestSubmit === 'function') actForm.requestSubmit();
+                    else actForm.submit();
+                }
+                if (ms > 0) timer = setTimeout(tick, 250);
+            };
+            tick();
+        }
+    }
+
+    // Pass = submit the talk phase with an empty message.
+    region.addEventListener('click', function (e) {
+        const pass = e.target.closest('[data-play-pass]');
+        if (!pass) return;
+        e.preventDefault();
+        const panel = document.getElementById('play-panel');
+        if (!panel) return;
+        htmx.ajax('POST',
+            '/games/' + panel.dataset.game + '/matches/' + panel.dataset.match + '/play/talk',
+            { target: '#live-region', swap: 'innerHTML', values: { message: '' } });
+    });
+
+    // Surface a friendly inline error if a submit is rejected (deadline race,
+    // illegal move) instead of silently doing nothing.
+    region.addEventListener('htmx:responseError', function (e) {
+        const panel = document.getElementById('play-panel');
+        const box = panel && panel.querySelector('[data-play-error]');
+        if (!box) return;
+        let msg = 'That move could not be recorded.';
+        try {
+            const detail = JSON.parse(e.detail.xhr.responseText);
+            if (detail && detail.detail && detail.detail.error && detail.detail.error.message) {
+                msg = detail.detail.error.message;
+            }
+        } catch (_err) { /* fail-open: advisory only, keep the default message */ }
+        box.textContent = msg;
+        box.hidden = false;
+    });
+
+    region.addEventListener('htmx:afterSwap', setupPanel);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setupPanel);
+    } else {
+        setupPanel();
+    }
+})();
+
+// Out-of-page alerts (FR-026/FR-027): when the seated viewer's turn opens, fire
+// a browser notification (if granted), flash the tab title, and play an optional
+// sound (default off). Permission is requested at join time (the Play CTA), not
+// mid-turn. The trigger is the existing /live swap — no new server events.
+(function () {
+    const region = document.getElementById('live-region');
+    if (!region) return;
+
+    // Ask for notification permission when the user commits to playing.
+    const joinForm = document.querySelector('[data-join-human]');
+    if (joinForm && 'Notification' in window) {
+        joinForm.addEventListener('submit', function () {
+            if (Notification.permission === 'default') {
+                try { Notification.requestPermission(); } catch (_e) { /* fail-open */ }
+            }
+        });
+    }
+
+    const baseTitle = document.title;
+    let flashTimer = null;
+    let lastPhase = null;
+
+    function clearFlash() {
+        if (flashTimer) { clearInterval(flashTimer); flashTimer = null; }
+        document.title = baseTitle;
+    }
+
+    function onYourTurn(phase) {
+        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+            try { new Notification('Your turn — Hoard Hurt Help', { body: 'Make your move before the clock runs out.' }); } catch (_e) { /* fail-open */ }
+        }
+        // Tab-title flash is the always-on fallback.
+        if (!flashTimer) {
+            let on = false;
+            flashTimer = setInterval(function () {
+                document.title = on ? baseTitle : '(Your turn!) ' + baseTitle;
+                on = !on;
+            }, 1000);
+        }
+    }
+
+    function check() {
+        const panel = document.getElementById('play-panel');
+        const phase = panel ? panel.dataset.yourTurn : null;
+        if (phase && phase !== lastPhase) {
+            onYourTurn(phase);
+        } else if (!phase) {
+            clearFlash();
+        }
+        lastPhase = phase || null;
+    }
+
+    window.addEventListener('focus', clearFlash);
+    region.addEventListener('htmx:afterSwap', check);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', check);
+    } else {
+        check();
+    }
 })();
 </script>
 {% endblock %}

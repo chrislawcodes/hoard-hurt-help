@@ -14,6 +14,7 @@ from app.engine.bots.runtime import (
     choose_bot_talk_decision,
 )
 from app.engine.bots.types import BotContext
+from app.engine.player_move import record_player_action
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.match import Match
 from app.models.player import Player
@@ -35,9 +36,14 @@ async def auto_submit_bot_phase(
     *,
     phase: Phase,
 ) -> int:
-    """Submit every eligible bot move for the current phase.
+    """Submit every server-driven move for the current phase.
 
-    Returns the number of bots that successfully posted a talk message or action.
+    "Server-driven" means a seat the platform plays for: scripted **bots**, plus
+    **human seats on autopilot** (a human who left a match in progress — their
+    seat keeps playing Hoard so the table never waits on them). Both are submitted
+    immediately, before the loop waits on live players.
+
+    Returns the number of seats that successfully posted a talk message or action.
     """
     active_players = await _load_active_players_with_bots(db, game.id)
     if not active_players:
@@ -57,7 +63,12 @@ async def auto_submit_bot_phase(
         for player, agent in active_players
         if agent.kind == AgentKind.BOT and agent.status == AgentStatus.ACTIVE
     ]
-    if not bot_players:
+    autopilot_players = [
+        player
+        for player, agent in active_players
+        if agent.kind == AgentKind.HUMAN and player.autopilot_at is not None
+    ]
+    if not bot_players and not autopilot_players:
         return 0
 
     history = await load_action_records(db, game.id)
@@ -108,27 +119,60 @@ async def auto_submit_bot_phase(
             )
         else:
             action_decision = choose_bot_action_decision(context, profile)
-            move = action_decision.move
-            module.validate_move(
-                move, your_agent_id=player.seat_name, all_agent_ids=all_agent_ids
-            )
-            # Hand record_submission the internal agent_id for the target, not
-            # the public seat name the bot chose.
-            internal_move: dict[str, Any] = {**move}
-            target_seat_name = move.get("target_id")
-            if target_seat_name is not None:
-                internal_move["target_id"] = agent_id_by_seat_name.get(target_seat_name)
             existing_submission = await _existing_submission(db, turn.id, player.id)
-            await module.record_submission(
+            await record_player_action(
                 db,
+                module,
                 turn,
                 player,
-                internal_move,
+                move=action_decision.move,
+                all_seat_names=all_agent_ids,
+                agent_id_by_seat_name=agent_id_by_seat_name,
                 existing=existing_submission,
             )
         posted += 1
 
+    posted += await _auto_submit_autopilot(
+        db, game, turn, module, autopilot_players, phase=phase
+    )
+
     await db.commit()
+    return posted
+
+
+async def _auto_submit_autopilot(
+    db: AsyncSession,
+    game: Match,
+    turn: Turn,
+    module: Any,
+    players: list[Player],
+    *,
+    phase: Phase,
+) -> int:
+    """Auto-submit for human seats that left mid-match (autopilot Hoard).
+
+    A leaver never deliberates: in the talk phase they send nothing, and in the
+    act phase they play the game's default move (Hoard for PD). Recorded
+    immediately so a departed human never makes the table wait on the clock.
+    """
+    posted = 0
+    for player in players:
+        if phase == "talk":
+            existing_message = await _existing_message(db, turn.id, player.id)
+            if existing_message is not None and not existing_message.was_defaulted:
+                continue
+            await module.record_message(
+                db, turn, player, "", "", existing=existing_message
+            )
+        else:
+            existing_submission = await _existing_submission(db, turn.id, player.id)
+            if existing_submission is not None and not existing_submission.was_defaulted:
+                continue
+            move = await module.default_move(db, game, player)
+            await module.record_submission(
+                db, turn, player, move, existing=existing_submission
+            )
+        posted += 1
     return posted
 
 
