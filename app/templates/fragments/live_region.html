@@ -14,6 +14,29 @@
     {% include "fragments/play_panel.html" %}
 {% endif %}
 
+{# Pre-start waiting room: confirm a seated viewer is in, and show who's registered
+   so joining lands on a roster, not a blank feed. #}
+{% if game.state.value in ('scheduled', 'registering') %}
+<section class="prestart">
+    {% if viewer_player_id %}
+    <p class="prestart-confirm">✓ You're in{% if viewer_agent_name %} as <strong>{{ viewer_agent_name }}</strong>{% endif %}.{% if game.scheduled_start %} Starts {{ game.scheduled_start | reltime }}.{% endif %}</p>
+    {% endif %}
+    <div class="section-head"><h2>Registered</h2><span class="count">{{ scoreboard | length }}</span></div>
+    {% if scoreboard %}
+    <ul class="roster-list">
+        {% for row in scoreboard %}
+        <li class="roster-row">
+            <span class="roster-name">{{ row.display_name }}</span>
+            {% if row.is_bot %}<span class="badge badge-soon">bot</span>{% elif row.owner_handle %}<span class="roster-owner mono">@{{ row.owner_handle }}</span>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No one's entered yet — be the first.</p>
+    {% endif %}
+</section>
+{% endif %}
+
 {# Fresh replay data, refreshed on every SSE swap. The robot-circle animation
    above is rendered once at page load and lives outside this live region, so its
    own #rc-data never updates. The page script reads this blob after each swap and

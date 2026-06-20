@@ -245,6 +245,48 @@ def _seat_provider_label(player: Player) -> str:
     return "your AI"
 
 
+async def _default_entry_choice(
+    db: DbSession, user_id: int, *, agent_pickable: bool
+) -> tuple[bool, bool]:
+    """Pre-check the join boxes to match how this user last entered a match.
+
+    Looks at the user's most recent match (their newest seat) and whether, in that
+    match, they held a human seat, an AI-agent seat, or both — then returns
+    ``(default_human, default_agent)`` to start the form in the same shape. A
+    brand-new user (no history) defaults to the human seat, the no-setup path.
+
+    The agent box can only default on when there's actually a pickable AI agent
+    right now; if the remembered choice was agent-only but none is pickable, fall
+    back to the human box so the form never starts with nothing selected.
+    """
+    last_match_id = (
+        await db.execute(
+            select(Player.match_id)
+            .where(Player.user_id == user_id)
+            .order_by(Player.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if last_match_id is None:
+        return True, False
+    last_kinds = set(
+        (
+            await db.execute(
+                select(Agent.kind)
+                .join(Player, Player.agent_id == Agent.id)
+                .where(Player.user_id == user_id, Player.match_id == last_match_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    default_human = AgentKind.HUMAN in last_kinds
+    default_agent = AgentKind.AI in last_kinds and agent_pickable
+    if not default_human and not default_agent:
+        default_human = True
+    return default_human, default_agent
+
+
 @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
 async def join_form(
     game: Annotated[str, Path()],
@@ -307,6 +349,17 @@ async def join_form(
     # plays one seat at a time, so an AI already in any unfinished game is busy.
     busy = await providers_busy_for_user(db, user.id)
     ai_options = await _build_ai_options(db, user.id, busy)
+    any_pickable_ai = any(o["can_pick"] for o in ai_options)
+    # An AI counts as "connected" once it's live or set-up-but-idle. When the user
+    # has at least one, the picker shows only those and tucks the rest behind a
+    # "connect another AI" link — so a set-up operator isn't wading through four
+    # "not connected" chips. With none connected, every provider stays visible so
+    # a cold-start user can pick one and be routed to set it up.
+    any_connected_ai = any(o["state"] in ("ready", "idle") for o in ai_options)
+
+    default_human, default_agent = await _default_entry_choice(
+        db, user.id, agent_pickable=bool(agent_rows) and any_pickable_ai
+    )
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -319,7 +372,11 @@ async def join_form(
             "agent_rows": agent_rows,
             "ai_options": ai_options,
             "any_agents": bool(agent_rows),
-            "any_pickable_ai": any(o["can_pick"] for o in ai_options),
+            "any_pickable_ai": any_pickable_ai,
+            "any_connected_ai": any_connected_ai,
+            # Remember how this user last entered a match so the boxes start there.
+            "default_human": default_human,
+            "default_agent": default_agent,
             # The "create another agent" CTA carries ?next back to this join page.
             "join_url": join_url,
             "base_url": settings.base_url,
