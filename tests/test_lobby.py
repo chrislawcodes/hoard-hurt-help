@@ -1280,4 +1280,4 @@ async def test_join_form_marks_busy_ai_in_another_game(client, reset_db):
         "/games/hoard-hurt-help/matches/G_B/join", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
-    assert "busy — in" in r.text  # the Claude row is greyed as busy
+    assert "▪ busy" in r.text  # the Claude row is greyed as busy

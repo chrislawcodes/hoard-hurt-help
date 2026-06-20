@@ -197,7 +197,7 @@ async def test_agent_without_any_connection_shows_form_not_connected(client, res
     assert r.status_code == 200
     assert "Atlas" in r.text
     # No connection at all → every AI in the picker offers to be set up.
-    assert "not connected — set it up next" in r.text
+    assert "not connected" in r.text
 
 
 @pytest.mark.asyncio
@@ -218,7 +218,7 @@ async def test_agent_but_stale_connection_shows_form_not_running(client, reset_d
     assert r.status_code == 200
     assert "Atlas" in r.text
     # Connected but never heartbeated → the AI shows as set-up-but-idle.
-    assert "connected — not playing yet" in r.text
+    assert "○ idle" in r.text
 
 
 @pytest.mark.asyncio

@@ -185,8 +185,11 @@ async def _build_ai_options(
     ``not_connected`` (no MCP connection — picking routes to set it up), and
     ``busy`` (already in another game — shown but not pickable).
     """
+    _ACTIVE = {"claude", "gemini", "openai"}
     options: list[dict[str, object]] = []
     for value, label in PROVIDER_LABELS.items():
+        if value not in _ACTIVE:
+            continue
         if value in busy:
             options.append(
                 {
