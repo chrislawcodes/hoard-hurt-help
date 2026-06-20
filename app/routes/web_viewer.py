@@ -171,6 +171,42 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     return ctx
 
 
+async def _build_turn_talk(
+    db: DbSession,
+    turn: Turn,
+    players: list[Player],
+    viewer_player: Player,
+) -> list[dict[str, Any]]:
+    """This turn's talk for the act-phase panel: who said what, who stayed quiet.
+
+    Speakers come first in the order they spoke; silent opponents follow as
+    "stayed quiet". The viewer's own message is left out — they wrote it.
+    """
+    rows = (
+        await db.execute(
+            select(TurnMessage.player_id, TurnMessage.text)
+            .where(TurnMessage.turn_id == turn.id)
+            .order_by(TurnMessage.id)
+        )
+    ).all()
+    text_by_player = {pid: (text or "").strip() for pid, text in rows}
+    seat_by_player = {p.id: p.seat_name for p in players}
+
+    talk: list[dict[str, Any]] = []
+    spoke: set[int] = set()
+    for pid, _text in rows:
+        said = text_by_player.get(pid, "")
+        if pid == viewer_player.id or not said or pid in spoke:
+            continue
+        spoke.add(pid)
+        talk.append({"who": seat_by_player.get(pid, "player"), "text": said, "quiet": False})
+    for p in players:
+        if p.left_at is not None or p.id == viewer_player.id or p.id in spoke:
+            continue
+        talk.append({"who": p.seat_name, "text": "", "quiet": True})
+    return talk
+
+
 async def _build_human_play_context(
     db: DbSession,
     match: Match,
@@ -194,6 +230,7 @@ async def _build_human_play_context(
         "play_action": None,
         "play_target": None,
         "play_targets": [],
+        "play_talk": [],
         "waiting_on": None,
         "message_max": MESSAGE_MAX_LENGTH,
     }
@@ -259,6 +296,12 @@ async def _build_human_play_context(
         base["play_targets"] = [
             p.seat_name for p in active if p.id != viewer_player.id
         ]
+        if phase == "act":
+            # Reveal this turn's talk so the human reads what was said before
+            # acting — the same transcript the bots get in their act-phase
+            # prompt. This open turn isn't in the feed yet (the feed only shows
+            # resolved turns), so without this the human would act blind.
+            base["play_talk"] = await _build_turn_talk(db, turn, players, viewer_player)
         if phase == "act" and submitted:
             sub = (
                 await db.execute(

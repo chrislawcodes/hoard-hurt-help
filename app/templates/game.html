@@ -403,6 +403,15 @@
             toggle();
         }
 
+        // Talk character counter.
+        const msg = panel.querySelector('[data-play-msg]');
+        const counter = panel.querySelector('[data-play-counter]');
+        if (msg && counter) {
+            const updateCount = function () { counter.textContent = String(msg.value.length); };
+            msg.addEventListener('input', updateCount);
+            updateCount();
+        }
+
         // Countdown + near-deadline auto-submit.
         const clock = panel.querySelector('[data-play-clock]');
         const iso = panel.dataset.playDeadline;

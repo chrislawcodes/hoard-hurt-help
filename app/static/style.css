@@ -2208,29 +2208,67 @@ button.danger:hover,
     border: 1.5px solid var(--line); border-radius: var(--radius);
     background: var(--surface); color: var(--ink); box-sizing: border-box;
 }
+.play-counter { margin: -0.4rem 0 0; text-align: right; font-size: 0.78rem; color: var(--ink-soft); }
+
+/* Act phase: three zones — pinned clock, scrollable talk, pinned action bar —
+   so a long transcript never pushes the move controls or the countdown off
+   screen. The panel caps its height and only the talk zone scrolls. */
+.play-act { display: flex; flex-direction: column; max-height: min(72vh, 40rem); min-height: 0; }
+.play-act-head { flex: none; margin-bottom: 0.6rem; }
+.play-said {
+    flex: 1 1 auto; min-height: 3rem; overflow-y: auto;
+    margin: 0 0 0.75rem; padding: 0.5rem 0.75rem;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.play-said-head {
+    position: sticky; top: 0; margin: 0 0 0.3rem; padding-bottom: 0.3rem;
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--ink-soft); background: var(--surface);
+}
+.play-said-line { margin: 0.35rem 0; font-size: 0.9rem; line-height: 1.4; }
+.play-said-who { font-weight: 800; }
+.play-said-quiet { color: var(--ink-soft); font-style: italic; }
+.play-actbar { flex: none; }
+
 .action-choices {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;
     border: 0; padding: 0; margin: 0;
 }
 .play-panel .action-card {
-    display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
-    padding: 0.8rem 0.4rem; min-height: 4.5rem; cursor: pointer;
+    position: relative; display: flex; flex-direction: column; align-items: center;
+    gap: 0.15rem; padding: 0.8rem 0.4rem; min-height: 4.75rem; cursor: pointer;
     border: 2px solid var(--line); border-radius: var(--radius);
     background: var(--surface); text-align: center;
 }
 .play-panel .action-card .ac-name { font-weight: 800; font-size: 1.05rem; }
-.play-panel .action-card .ac-payoff { font-size: 0.82rem; color: var(--ink-soft); }
+.play-panel .action-card .ac-payoff { font-size: 0.8rem; color: var(--ink-soft); }
+.play-panel .action-card .ac-mutual { font-weight: 800; color: var(--help); }
 .play-panel .action-card input { position: absolute; opacity: 0; pointer-events: none; }
 .play-panel .action-card-hoard { border-color: color-mix(in srgb, var(--hoard) 35%, var(--line)); }
 .play-panel .action-card-help  { border-color: color-mix(in srgb, var(--help) 35%, var(--line)); }
 .play-panel .action-card-hurt  { border-color: color-mix(in srgb, var(--hurt) 35%, var(--line)); }
-.play-panel .action-card:has(input:checked) {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
-    border-color: var(--accent);
+/* Selected = obviously a pressed button: the action's own color fills it, a
+   thick ring lifts it, the name takes the action color, and a ✓ badge reads
+   even past color. */
+.play-panel .action-card-hoard:has(input:checked) {
+    background: color-mix(in srgb, var(--hoard) 18%, var(--surface));
+    border-color: var(--hoard); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hoard) 38%, transparent);
 }
-.play-panel .action-card-hoard:has(input:checked) { background: color-mix(in srgb, var(--hoard) 12%, var(--surface)); }
-.play-panel .action-card-help:has(input:checked)  { background: color-mix(in srgb, var(--help) 12%, var(--surface)); }
-.play-panel .action-card-hurt:has(input:checked)  { background: color-mix(in srgb, var(--hurt) 12%, var(--surface)); }
+.play-panel .action-card-help:has(input:checked) {
+    background: color-mix(in srgb, var(--help) 18%, var(--surface));
+    border-color: var(--help); box-shadow: 0 0 0 3px color-mix(in srgb, var(--help) 38%, transparent);
+}
+.play-panel .action-card-hurt:has(input:checked) {
+    background: color-mix(in srgb, var(--hurt) 16%, var(--surface));
+    border-color: var(--hurt); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hurt) 38%, transparent);
+}
+.play-panel .action-card-hoard:has(input:checked) .ac-name { color: var(--hoard); }
+.play-panel .action-card-help:has(input:checked) .ac-name  { color: var(--help); }
+.play-panel .action-card-hurt:has(input:checked) .ac-name  { color: var(--hurt); }
+.play-panel .action-card:has(input:checked)::after {
+    content: "✓"; position: absolute; top: 0.3rem; right: 0.4rem;
+    font-size: 0.8rem; font-weight: 900; line-height: 1;
+}
 .play-target { display: flex; flex-direction: column; gap: 0.3rem; }
 .play-target-label { font-weight: 700; font-size: 0.9rem; }
 .play-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }

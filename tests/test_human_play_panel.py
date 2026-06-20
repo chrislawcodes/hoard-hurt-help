@@ -111,7 +111,8 @@ async def test_panel_renders_for_seated_human_on_act_turn(reset_db, client) -> N
     assert 'id="play-panel"' in html
     assert 'data-your-turn="act"' in html
     assert "Lock in my move" in html
-    assert "+4 to them" in html  # payoff hint
+    assert "+4 them" in html  # payoff hint
+    assert "+8 mutual" in html  # the cooperation upside lives on the Help card
     assert "bob" in html  # target option present
 
 
@@ -158,6 +159,33 @@ async def test_talk_panel_has_pass(reset_db, client) -> None:
     r = await client.get(LIVE, cookies=_cookies(user.id))
     assert "data-play-pass" in r.text
     assert "say something" in r.text
+    assert "data-play-counter" in r.text  # character counter wired up
+
+
+async def test_act_panel_reveals_this_turns_talk(reset_db, client) -> None:
+    """During act, the human sees what others said this turn — speakers and the
+    silent — since the open turn isn't in the feed yet."""
+    from app.models.turn import TurnMessage
+
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        human = await _seat_human(db, user, "alice")
+        bob = await seat_player(db, "M_0001", "bob", i=2)
+        await seat_player(db, "M_0001", "cy", i=3)  # stays silent this turn
+        turn = await _open_turn(db, "act")
+        # bob spoke this turn; cy stayed silent; the human's own note is hidden.
+        db.add(TurnMessage(turn_id=turn.id, player_id=bob.id, text="let's both help"))
+        db.add(TurnMessage(turn_id=turn.id, player_id=human.id, text="my private note"))
+        await db.commit()
+
+    r = await client.get(LIVE, cookies=_cookies(user.id))
+    html = r.text
+    assert "What was just said" in html
+    assert "let&#39;s both help" in html or "let's both help" in html
+    assert "bob" in html
+    assert "cy stayed quiet" in html
+    assert "my private note" not in html  # the viewer's own message isn't echoed
 
 
 async def test_join_cta_on_scheduled_viewer(reset_db, client) -> None:
