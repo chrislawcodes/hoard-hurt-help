@@ -20,11 +20,11 @@ from app.engine.connection_health import (
     providers_busy_for_user,
     user_play_readiness,
 )
-from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
 from app.engine.scheduler import start_game
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, confirm_seat_if_live, hold_deadline
 from app.games import get as get_game_module
 from app.games import is_admin_only
+from app.routes.web_play import seat_human_player
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
@@ -242,35 +242,6 @@ def _seat_provider_label(player: Player) -> str:
     return "your AI"
 
 
-async def _join_setup_redirect(
-    db: DbSession, user: User, match: Match
-) -> RedirectResponse | None:
-    """Send the user to the FIRST setup step they're missing, or None to render
-    the join form.
-
-    Uses the shared play-setup resolver with ``require=NEEDS_AGENT``: once the
-    user has an eligible AI agent (regardless of whether the provider is live
-    right now), the resolver returns READY and we render the join form. The join
-    form itself shows provider liveness status and handles the held-seat connect
-    flow for agents whose provider is offline.
-
-    ``target_match`` is NOT passed to the resolver so the stage-only URL is
-    returned; we then append a URL-encoded ``?next=`` pointing back to the match's
-    join URL. This preserves the URL-encoding contract that downstream pages and
-    tests rely on.
-    """
-    state = await resolve_play_setup_state(
-        db, user, require=PlaySetupStage.NEEDS_AGENT
-    )
-    if state.stage == PlaySetupStage.READY:
-        return None
-    join_url = f"/games/{match.game}/matches/{match.id}/join"
-    next_param = quote(join_url, safe="")
-    separator = "&" if "?" in state.next_url else "?"
-    redirect_url = f"{state.next_url}{separator}next={next_param}"
-    return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
-
-
 @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
 async def join_form(
     game: Annotated[str, Path()],
@@ -299,13 +270,11 @@ async def join_form(
     if is_admin_only(match.game) and not _is_any_admin(user):
         raise HTTPException(status_code=404, detail="Game not found.")
 
-    # Smart hub: if the operator is missing setup, walk them through ONLY the
-    # missing step on the existing pages, carrying ?next back to this join URL.
-    # Returns None once they have a seatable AI agent — then we render the
-    # join form below. No Player is seated here; backing out leaves no half-join.
-    if redirect := await _join_setup_redirect(db, user, match):
-        return redirect
-
+    # No setup gate here: the join screen always renders (given sign-in + handle
+    # above) with "Play as yourself" as the first, pre-selected choice, so a brand-
+    # new user with no AI can play as a human in one click. The AI-agent picker
+    # below is the opt-in path; picking an agent whose provider is offline routes
+    # to the held-seat connect flow on submit. No Player is seated on GET.
     join_url = f"/games/{game}/matches/{match_id}/join"
     agents = await _load_user_agents(db, user.id)
     # Agents already seated in this match stay visible, but they can't join
@@ -453,36 +422,28 @@ async def join_submit(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
+    play_as: Annotated[str, Form()] = "ai",
     agent_id: Annotated[list[int] | None, Form()] = None,
     bot_id: Annotated[list[int] | None, Form()] = None,
     chosen_provider: Annotated[str | None, Form()] = None,
     display_name: Annotated[str | None, Form()] = None,
     strategy_prompt: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
-    """Enter one or more of the user's agents into a game.
+    """Enter a match: as a human ("Play as yourself") or with one or more AI agents.
 
-    Regular users add a single agent. Admins may select several of their own
-    agents at once to fill a match for testing — the backend already allows one
-    user to field multiple (distinct) agents; this just lets them do it in one
-    submit instead of re-running the join flow per agent.
+    The join screen posts ``play_as`` — ``"human"`` is a one-click seat (no agent,
+    no connection), ``"ai"`` (the default) enters the picked agent(s). Regular
+    users add a single agent; admins may select several of their own at once to
+    fill a match for testing.
     """
     # Dedupe while preserving the picked order; `bot_id` is the legacy field name.
     selected_ids = list(dict.fromkeys([*(agent_id or []), *(bot_id or [])]))
-    if not selected_ids:
-        raise HTTPException(status_code=400, detail="Choose an agent.")
-    if not chosen_provider:
-        raise HTTPException(status_code=400, detail="Pick an AI to play your agent.")
     is_admin = _is_any_admin(user)
-    if len(selected_ids) > 1 and not is_admin:
-        raise HTTPException(
-            status_code=403,
-            detail="Only admins can add more than one agent to a match.",
-        )
     set_request_trace_context(
         request,
         match_id=match_id,
         stage="join_submit",
-        agent_id=selected_ids[0],
+        agent_id=selected_ids[0] if selected_ids else None,
     )
     match = await _load_match_or_404(db, match_id)
     if redirect := _redirect_if_game_slug_mismatch(
@@ -496,6 +457,27 @@ async def join_submit(
         raise HTTPException(status_code=404, detail="Game not found.")
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Match not open for registration.")
+
+    # Play as a human: a one-click seat with no agent or connection. Shares the
+    # seating logic with the direct /play/join endpoint so the two can't drift.
+    if play_as == "human":
+        await seat_human_player(db, user, match, display_name)
+        await db.commit()
+        return RedirectResponse(
+            url=f"/games/{match.game}/matches/{match.id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    # Otherwise enter one or more AI agents.
+    if not selected_ids:
+        raise HTTPException(status_code=400, detail="Choose an agent.")
+    if not chosen_provider:
+        raise HTTPException(status_code=400, detail="Pick an AI to play your agent.")
+    if len(selected_ids) > 1 and not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can add more than one agent to a match.",
+        )
 
     existing_seats = set(
         (
