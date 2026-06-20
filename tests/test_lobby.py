@@ -929,12 +929,15 @@ async def test_non_admin_cannot_stack_multiple_agents(client, reset_db):
         )
     assert count == 0
     # The single-agent path is unchanged for regular users — see test_enter_bot_into_game.
-    # The form lists each agent with its own Join button, not a multi-select.
+    # Agents are single-select radios, never a multi-select checkbox list. (The only
+    # checkboxes on the form are the two top-level "how to enter" choices: play as
+    # yourself / also send an agent.)
     form = await client.get(
         "/games/hoard-hurt-help/matches/G_001/join", cookies=_signed_in_cookies(user.id)
     )
-    assert 'type="checkbox"' not in form.text
     assert 'name="agent_id"' in form.text
+    assert 'class="agent-radio"' in form.text  # agent picker is radios…
+    assert 'type="checkbox" name="agent_id"' not in form.text  # …not a checkbox multi-select
 
 
 async def _seed_agent_busy_in_active_match(reset_db, user) -> int:

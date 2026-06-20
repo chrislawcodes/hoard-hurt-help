@@ -870,6 +870,7 @@ pre code { background: none; padding: 0; }
 /* Join page: per-agent cards with embedded AI picker. */
 .join-pick { display: grid; gap: 0.5rem; }
 .join-pick .form-actions { margin-top: 0.5rem; }
+.pick-hint-inline { font-weight: 400; font-size: 0.82rem; color: var(--ink-soft); }
 #agent-section { display: grid; gap: 0.5rem; }
 .agent-card {
     background: var(--surface);

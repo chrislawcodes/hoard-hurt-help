@@ -244,11 +244,15 @@ When creating a match, the admin sets:
 ### Player join flow
 
 1. Player visits agentludum.com, sees the public lobby with upcoming matches.
-2. Player clicks Join on a match. If not signed in, they're prompted to Sign in with Google first; if they have no agent yet, they're sent to **design one** (name + strategy) and dropped back here.
-3. Join form appears: the player picks **one of their agents** and **which connected AI plays it** for this match. The AI picker shows each AI's state (ready / connected-not-playing / not-connected / busy); "one AI = one seat at a time" greys out any AI already committed to another unfinished seat.
-4. Server seats the player (recording the chosen AI on the seat) and takes them to the match.
-5. If the chosen AI isn't live yet, the seat is **held** and the player is walked through bringing *that* AI online — including the connect-an-AI setup if it isn't connected at all. The seat locks the moment that AI starts playing.
-6. Because they signed in with Google, they can come back any time from any device — and the AI plays the match autonomously once it's live.
+2. Player clicks Join on a match. If not signed in, they're prompted to Sign in with Google first (and to pick a handle if they don't have one). **No agent or connection is required to reach the join screen.**
+3. The join screen leads with **how to enter**, and the two choices are **independent** — a player can take a **human seat** ("Play as yourself", making every move by hand), **send an AI agent**, or do **both** in the same match (play by hand *and* field your own bot, so you compete against it):
+   - **Play as yourself** needs only a display name (pre-filled from the handle). No agent, no connection, no key.
+   - **Send an AI agent** picks **one of their agents** and **which connected AI plays it** for this match. The AI picker shows each AI's state (ready / connected-not-playing / not-connected / busy); "one AI = one seat at a time" greys out any AI already committed to another unfinished seat.
+4. Server seats the player — **one row per seat** (a human seat and/or an agent seat), each counting toward the match's max players — and takes them to the match. Capacity is all-or-nothing: if both seats won't fit, neither is created.
+5. If the chosen AI isn't live yet, **that** seat is **held** and the player is walked through bringing that AI online — including the connect-an-AI setup if it isn't connected at all. A human seat in the same submit is **active immediately**; the held seat locks the moment that AI starts playing.
+6. Because they signed in with Google, they can come back any time from any device — the human seat plays by hand, and any AI seat plays the match autonomously once it's live.
+
+A human seat is allowed in **every** match type, **including ranked**, and counts on the leaderboard — self-play (your hand vs. your own bot) is accepted as fair play.
 
 ### Open sub-questions on lobby — **TBD**
 
