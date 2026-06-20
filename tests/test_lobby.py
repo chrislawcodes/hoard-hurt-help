@@ -893,9 +893,9 @@ async def test_match_page_shows_add_agent_affordance(client, reset_db):
     await _seed_game(reset_db)
     agent, _k, _c = await _seed_agent(reset_db, user, name="One")
     cookies = _signed_in_cookies(user.id)
-    # Before joining: a signed-in viewer sees an "Enter game" call to action.
+    # Before joining: a signed-in viewer sees a "Join" call to action.
     page = await client.get("/games/hoard-hurt-help/matches/G_001", cookies=cookies)
-    assert "Enter game" in page.text
+    assert "Join" in page.text
     # After joining: the same page now offers to add another agent.
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",

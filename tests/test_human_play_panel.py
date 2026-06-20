@@ -197,7 +197,7 @@ async def test_join_cta_on_scheduled_viewer(reset_db, client) -> None:
     r = await client.get(VIEWER, cookies=_cookies(user.id))
     assert r.status_code == 200
     # The single entrance is the join screen (where "Play as yourself" leads).
-    assert "Enter game" in r.text
+    assert "Join" in r.text
     assert f"{VIEWER}/join" in r.text
 
 
