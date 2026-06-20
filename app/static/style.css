@@ -907,7 +907,12 @@ pre code { background: none; padding: 0; }
     background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
 .ai-chip:not(.ai-chip-disabled):hover { border-color: var(--accent); }
-.ai-chip input[type="radio"] { display: none; }
+/* Hide the radio visually but keep it in the tab order and the a11y tree —
+   `display:none` would drop it from both, leaving the picker keyboard- and
+   screen-reader-unreachable. The label still toggles it on click. */
+.ai-chip input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+.ai-chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ai-chip-more { justify-content: center; text-decoration: none; color: var(--accent); font-weight: 600; font-size: 0.82rem; }
 .ai-chip-disabled { opacity: 0.5; cursor: not-allowed; }
 .ai-chip-name { font-weight: 600; font-size: 0.88rem; }
 .ai-chip-state { font-size: 0.78rem; color: var(--ink-soft); }
@@ -925,10 +930,33 @@ pre code { background: none; padding: 0; }
 .pick-disabled { cursor: not-allowed; opacity: 0.55; }
 .pick-disabled:hover { border-color: var(--line); background: transparent; }
 .pick-name { font-weight: 600; font-size: 0.9rem; flex-shrink: 0; min-width: 6rem; }
-.pick-sub { color: var(--ink-soft); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Let the description wrap instead of clipping to one line — on a phone the
+   single-line ellipsis hid the whole explanation. */
+.pick-sub { color: var(--ink-soft); font-size: 0.82rem; }
 .pick-state { margin-left: auto; font-size: 0.82rem; color: var(--ink-soft); white-space: nowrap; }
 .pick-state-ready { color: var(--help, #2d9a5a); font-weight: 600; }
 .pick-add { display: inline-block; margin-top: 0.45rem; font-size: 0.86rem; }
+/* On a narrow phone, let the name + description stack instead of crowding one row. */
+@media (max-width: 480px) {
+    .pick-row, .agent-card-hd { flex-wrap: wrap; }
+    .pick-name { min-width: 0; }
+}
+
+/* Pre-start waiting room on the match viewer: a "you're in" confirmation plus the
+   list of who's registered, so joining lands on something other than an empty feed. */
+.prestart { margin-bottom: 1rem; }
+.prestart-confirm {
+    background: color-mix(in srgb, var(--help, #2d9a5a) 12%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--help, #2d9a5a) 35%, var(--line));
+    border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.9rem; margin: 0 0 0.75rem;
+}
+.roster-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.3rem; }
+.roster-row {
+    display: flex; align-items: baseline; gap: 0.5rem;
+    padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 6px;
+}
+.roster-name { font-weight: 600; font-size: 0.9rem; }
+.roster-owner { color: var(--ink-soft); font-size: 0.82rem; }
 
 .badge {
     display: inline-flex;

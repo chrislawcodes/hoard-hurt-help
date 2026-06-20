@@ -201,6 +201,23 @@ async def test_join_cta_on_scheduled_viewer(reset_db, client) -> None:
     assert f"{VIEWER}/join" in r.text
 
 
+async def test_registering_viewer_shows_roster_and_confirmation(reset_db, client) -> None:
+    """A pre-start match shows who's registered plus a 'you're in' confirmation for
+    the seated viewer — so joining lands on a roster, not a blank feed."""
+    async with reset_db() as db:
+        viewer = await make_user(db, 1)
+        await _match(db, state=GameState.REGISTERING)
+        await _seat_human(db, viewer, "alice")
+        await seat_player(db, "M_0001", "bob", i=2)
+        await db.commit()
+
+    r = await client.get(VIEWER, cookies=_cookies(viewer.id))
+    assert r.status_code == 200
+    assert "Registered" in r.text
+    assert "bob" in r.text  # a registered opponent is listed
+    assert "You're in" in r.text  # the seated viewer's confirmation
+
+
 async def test_autopilot_panel_shows_left_state(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)

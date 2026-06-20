@@ -16,12 +16,12 @@
     <div class="pick-section">
         <div class="field-label">① How do you want to enter? <span class="pick-hint-inline">— pick one or both</span></div>
         <label class="pick-row">
-            <input type="checkbox" name="play_as" value="human" data-play-as-human checked>
+            <input type="checkbox" name="play_as" value="human" data-play-as-human{% if default_human %} checked{% endif %}>
             <span class="pick-name">Play as yourself</span>
             <span class="pick-sub">You ({{ user.handle }}) — make every move by hand. No AI, no setup.</span>
         </label>
         <label class="pick-row{% if not any_agents or not any_pickable_ai %} pick-disabled{% endif %}">
-            <input type="checkbox" data-play-as-agent
+            <input type="checkbox" data-play-as-agent{% if default_agent %} checked{% endif %}
                    {% if not any_agents or not any_pickable_ai %}disabled{% endif %}>
             <span class="pick-name">Also send an AI agent</span>
             {% if not any_agents %}
@@ -35,7 +35,7 @@
     </div>
 
     {% if any_agents and any_pickable_ai %}
-    <div id="agent-section" style="display:none;">
+    <div id="agent-section"{% if not default_agent %} style="display:none;"{% endif %}>
         {% set st = namespace(first_agent=true) %}
         {% for row in agent_rows %}
         {% set is_first = not row.seated and st.first_agent %}
@@ -59,6 +59,7 @@
                 {% set ai = namespace(first=true) %}
                 <div class="ai-chip-grid">
                     {% for opt in ai_options %}
+                    {% if not any_connected_ai or opt.state in ('ready', 'idle') %}
                     <label class="ai-chip{% if not opt.can_pick %} ai-chip-disabled{% endif %}">
                         <input type="radio" name="chosen_provider" value="{{ opt.provider }}"
                                class="ai-radio" disabled
@@ -72,7 +73,13 @@
                             {% else %}▪ busy{% endif %}
                         </span>
                     </label>
+                    {% endif %}
                     {% endfor %}
+                    {% if any_connected_ai %}
+                    {# Connected AIs are shown above; the rest live one click away so
+                       the picker stays short. #}
+                    <a class="ai-chip ai-chip-more" href="/me/connections{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">⊕ Connect another AI</a>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
@@ -175,7 +182,7 @@
         r.addEventListener('change', updateBtn);
     });
 
-    setAgentEnabled(false);  // default: human only, matching the pre-checked box
+    setAgentEnabled(agentBox ? agentBox.checked : false);  // honor the remembered default
     updateBtn();
 
     /* Notification permission when joining as a human (FR-027) — fail-open */
