@@ -11,13 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.config import PROVIDER_MODELS
 from app.games import get as get_game_module
 from app.main import app
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
-from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.agent import AgentStatus
 from tests.factories import make_connection, make_user
 
@@ -191,35 +189,20 @@ async def test_join_with_preset_strategy_seeds_preset_prompt(client, reset_db) -
 
 
 @pytest.mark.asyncio
-async def test_join_form_groups_models_even_when_providers_are_uncovered(
+async def test_create_form_has_no_model_picker_but_keeps_presets(
     client, reset_db
 ) -> None:
+    # Agents are decoupled from a model/provider — the create form has no model or
+    # provider picker. It still offers strategy presets and a free-text strategy.
     async with reset_db() as db:
         user = await make_user(db)
-        await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
-        openai, _ = await make_connection(db, user, provider=ConnectionProvider.OPENAI)
-        row = (
-            await db.execute(
-                select(ConnectionProviderRow).where(
-                    ConnectionProviderRow.connection_id == openai.id,
-                    ConnectionProviderRow.provider == ConnectionProvider.OPENAI,
-                )
-            )
-        ).scalar_one()
-        row.enabled = False
         await db.commit()
 
     r = await client.get("/me/agents/new", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
     assert 'name="provider"' not in r.text
-    assert 'name="model"' in r.text
-    assert '<optgroup label="Claude">' in r.text
-    assert '<optgroup label="Claude" disabled>' not in r.text
-    assert '<optgroup label="OpenAI" disabled>' not in r.text
-    # The disabled provider's note is now a real "connect it" link, not dead prose.
-    assert "OpenAI isn't connected yet" in r.text
-    assert 'href="/me/connections' in r.text
-    assert "connect OpenAI →" in r.text
+    assert 'name="model"' not in r.text
+    assert "<optgroup" not in r.text
     assert 'name="strategy_preset"' not in r.text
     assert 'name="strategy_text"' in r.text
     assert 'href="/games/hoard-hurt-help/agent-instructions"' in r.text
@@ -247,8 +230,8 @@ async def test_create_agent_page_without_any_connection_shows_full_form(
     client, reset_db
 ) -> None:
     # No provider connected at all: the create-agent page still renders the full
-    # design form so the player can name the agent, pick any provider, and save
-    # strategy before doing the technical setup.
+    # design form so the player can name the agent and save a strategy before
+    # doing the technical setup. There is no model/provider picker.
     async with reset_db() as db:
         user = await make_user(db)
         await db.commit()
@@ -256,21 +239,17 @@ async def test_create_agent_page_without_any_connection_shows_full_form(
     r = await client.get("/me/agents/new", cookies=_signed_in_cookies(user.id))
     assert r.status_code == 200
     assert "Connect an AI client first" not in r.text
-    assert 'name="model"' in r.text
+    assert 'name="model"' not in r.text
+    assert "<optgroup" not in r.text
     assert 'name="strategy_text"' in r.text
-    for provider_value, models in PROVIDER_MODELS.items():
-        if not models:
-            continue
-        label = provider_value.capitalize() if provider_value != "openai" else "OpenAI"
-        assert f'<optgroup label="{label}" disabled>' not in r.text
 
 
 @pytest.mark.asyncio
-async def test_create_agent_with_disconnected_provider_still_creates_agent(
+async def test_create_agent_without_live_connection_still_creates_agent(
     client, reset_db
 ) -> None:
-    # Posting a model for a provider that isn't connected still creates the
-    # agent. The old connect-first redirect is gone.
+    # Creating an agent always works (name + strategy). Post-create lands on the
+    # lobby, where joining a game walks the user through connecting an AI.
     async with reset_db() as db:
         user = await make_user(db)
         await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
@@ -280,22 +259,19 @@ async def test_create_agent_with_disconnected_provider_still_creates_agent(
         "/me/agents/new",
         data={
             "name": "Atlas",
-            "model": "gpt-5.4-mini",
             "strategy_text": "CUSTOM: always cooperate.",
         },
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
     assert r.status_code == 303, r.text
-    # Agent is created (no connect-first block); OpenAI isn't set up, so the next
-    # step is to connect that provider.
-    assert r.headers["location"] == "/me/connections?provider=openai"
+    assert r.headers["location"] == "/games/hoard-hurt-help"
 
     async with reset_db() as db:
         agent = (
             await db.execute(select(Agent).where(Agent.user_id == user.id, Agent.name == "Atlas"))
         ).scalar_one()
-    assert agent.provider == ConnectionProvider.OPENAI
+    assert agent.provider is None
     assert agent.status == AgentStatus.ACTIVE
 
 
@@ -308,7 +284,8 @@ async def test_create_agent_with_next_returns_to_next_target(
     join_url = "/games/hoard-hurt-help/matches/G_001/join"
     async with reset_db() as db:
         user = await make_user(db)
-        await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mcp_connected_at = datetime.now(timezone.utc)  # set up (MCP-recent)
         await db.commit()
 
     r = await client.post(

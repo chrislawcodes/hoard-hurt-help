@@ -180,7 +180,7 @@ button:hover, .cta:hover { background: var(--accent-hover); }
 button.secondary, .cta.secondary { background: transparent; color: var(--accent); border: 1.5px solid var(--line-bold); }
 
 .save-confirm { color: #16a34a; font-weight: 600; margin-bottom: 0.75rem; }
-.agent-setup-card { max-width: 42rem; padding: 1rem 1.1rem 1.15rem; }
+.agent-setup-card { max-width: 52rem; padding: 1rem 1.1rem 1.15rem; }
 .agent-setup-form { display: grid; gap: 0.8rem; }
 .agent-setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
 .agent-setup-form label { display: grid; gap: 0.35rem; margin-bottom: 0; }
@@ -189,7 +189,7 @@ button.secondary, .cta.secondary { background: transparent; color: var(--accent)
 .agent-setup-form textarea {
     padding: 0.5rem 0.7rem;
 }
-.agent-setup-form textarea { min-height: 7rem; }
+.agent-setup-form textarea { min-height: 13rem; }
 .agent-setup-form .form-actions { margin-top: 0.15rem; justify-content: flex-end; }
 .preset-picker { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.35rem; }
 .preset-btn { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; padding: 0.28rem 0.65rem; border-radius: 999px; font-size: 0.88rem; }
@@ -582,7 +582,7 @@ pre code { background: none; padding: 0; }
 .auth { text-align: center; margin: 4rem auto; }
 
 
-/* ---- Connect-your-AI (BYO Mode A) ---- */
+/* ---- Connect-your-AI (MCP connection) ---- */
 /* Readiness banner: green-tinted when an agent exists, accent-nudge when not. */
 .byo-readiness.is-ready { border-color: color-mix(in srgb, var(--help) 45%, var(--line)); }
 .byo-readiness.needs-agent { border-color: var(--accent); }
@@ -616,21 +616,6 @@ pre code { background: none; padding: 0; }
     user-select: none;
 }
 .byo-tab-label:hover { border-color: var(--accent); }
-/* "Easiest" badge on a connect tab (Codex). currentColor adapts to the label's
- * text color, so it stays readable whether the tab is selected or not. */
-.byo-easiest-badge {
-    display: inline-block;
-    margin-left: 0.4rem;
-    padding: 0.02rem 0.38rem;
-    border: 1px solid currentColor;
-    border-radius: 999px;
-    font-size: 0.66rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    opacity: 0.85;
-    vertical-align: middle;
-}
 .byo-tab-panel { display: none; }
 /* Map each checked radio to its label (highlight) and its panel (show). The
  * order matches the template's loop: Claude Code, Codex, Gemini, Claude Desktop. */
@@ -824,6 +809,7 @@ pre code { background: none; padding: 0; }
 }
 .byo-playing-title { margin: 0; font-weight: 700; }
 .byo-playing-sub { margin: 0.1rem 0 0; color: var(--ink-soft); font-size: 0.9rem; }
+.byo-playing-status { margin: 0.4rem 0 0; font-weight: 600; font-size: 0.9rem; }
 .byo-playing-actions { margin: 0.9rem 0 0; }
 
 
@@ -880,6 +866,26 @@ pre code { background: none; padding: 0; }
     .agent-row-meta { display: none; }
     .agent-row-chevron { opacity: 0.4; }
 }
+
+/* Join page: pick an agent + pick the AI that plays it. */
+.join-pick { display: grid; gap: 1.4rem; }
+.pick-section { display: grid; gap: 0.3rem; }
+.pick-row {
+    display: flex; align-items: baseline; gap: 0.6rem;
+    padding: 0.5rem 0.55rem; border: 1px solid var(--line); border-radius: 8px;
+    cursor: pointer; transition: border-color 0.12s, background 0.12s;
+}
+.pick-row + .pick-row { margin-top: 0.4rem; }
+.pick-row:hover { border-color: var(--accent); background: var(--surface-2); }
+.pick-row input[type="radio"] { margin: 0; flex-shrink: 0; align-self: center; }
+.pick-row:has(input:checked) { border-color: var(--accent); background: var(--surface-2); }
+.pick-disabled { cursor: not-allowed; opacity: 0.55; }
+.pick-disabled:hover { border-color: var(--line); background: transparent; }
+.pick-name { font-weight: 600; font-size: 0.9rem; flex-shrink: 0; min-width: 6rem; }
+.pick-sub { color: var(--ink-soft); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-state { margin-left: auto; font-size: 0.82rem; color: var(--ink-soft); white-space: nowrap; }
+.pick-state-ready { color: var(--help, #2d9a5a); font-weight: 600; }
+.pick-add { display: inline-block; margin-top: 0.45rem; font-size: 0.86rem; }
 
 .badge {
     display: inline-flex;
@@ -977,10 +983,30 @@ pre code { background: none; padding: 0; }
 .coach-status {
     font-size: 0.78rem;
     color: var(--ink-soft);
-    margin-top: 0.45rem;
+    margin: 0.3rem 0 0;
 }
 .coach-status.armed { color: var(--accent); font-weight: 600; }
 .coach-status.active-now { color: var(--help); font-weight: 600; }
+/* Coach button — small chip in the standings rail for the viewer's own row */
+.rc-coach-btn {
+    background: none;
+    border: 1px solid var(--line, #dfe4ea);
+    border-radius: 4px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    line-height: 1;
+    padding: 2px 5px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    margin-left: 4px;
+    white-space: nowrap;
+}
+.rc-coach-btn:hover { border-color: var(--accent); color: var(--accent); }
+.rc-coach-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rc-coach-btn.armed { border-color: var(--accent); color: var(--accent); }
 .coach-prompt-dialog {
     width: min(860px, calc(100vw - 2rem));
     border: 1px solid var(--line);
@@ -1917,6 +1943,10 @@ button.danger:hover,
 .lb-tag-provisional {
     color: var(--brand);
     border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
+}
+.lb-tag-provider {
+    color: var(--ink-soft);
+    border-color: var(--line);
 }
 .lb-empty { text-align: center; padding: 36px 20px; }
 .lb-empty-note { color: var(--ink-soft); margin-top: 10px; }

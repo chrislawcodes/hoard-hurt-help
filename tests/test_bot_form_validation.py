@@ -238,6 +238,7 @@ async def test_ai_agent_creation_is_unaffected(client, reset_db) -> None:
             key_lookup=bot_key_lookup(plain_key),
             key_hint=bot_key_hint(plain_key),
             status=ConnectionStatus.ACTIVE,
+            mcp_connected_at=datetime.now(timezone.utc),  # set up (MCP-recent)
         )
         db.add(conn)
         await db.flush()
@@ -257,12 +258,11 @@ async def test_ai_agent_creation_is_unaffected(client, reset_db) -> None:
         "/me/agents/new",
         data={
             "name": "My AI Agent",
-            "model": "claude-haiku-4-5",
             "strategy_text": "Play to win.",
         },
         cookies=cookies,
         follow_redirects=False,
     )
-    # 303 redirect to the new agent's detail page means creation succeeded.
+    # 303 redirect to the lobby means creation succeeded (no bot-validation gate).
     assert r.status_code == 303
-    assert "/me/agents/" in r.headers["location"]
+    assert r.headers["location"] == "/games/hoard-hurt-help"

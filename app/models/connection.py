@@ -33,19 +33,19 @@ class ConnectionStatus(str, enum.Enum):
 class Connection(Base):
     __tablename__ = "connections"
     __table_args__ = (
-        # One live MCP (Mode A) connection per user PER PROVIDER. An MCP client
+        # One live MCP connection per user PER PROVIDER. An MCP client
         # speaks for exactly one provider (one client == one provider, #392), so
         # each provider the user signs in gets its own connection — never one
         # connection that accumulates several. ``provider`` is therefore set on a
-        # Mode A connection (it is the connection's identity), unlike the legacy
+        # MCP connection (it is the connection's identity), unlike the legacy
         # accumulate-providers-on-one-row model.
         Index(
-            "uq_connections_mode_a_user_id_live",
+            "uq_connections_mcp_user_provider_live",
             "user_id",
             "provider",
             unique=True,
-            sqlite_where=text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
-            postgresql_where=text("mode_a_at IS NOT NULL AND deleted_at IS NULL"),
+            sqlite_where=text("mcp_connected_at IS NOT NULL AND deleted_at IS NULL"),
+            postgresql_where=text("mcp_connected_at IS NOT NULL AND deleted_at IS NULL"),
         ),
     )
 
@@ -84,7 +84,7 @@ class Connection(Base):
         DateTime(timezone=True),
         nullable=True,
     )
-    mode_a_at: Mapped[datetime | None] = mapped_column(
+    mcp_connected_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -105,6 +105,7 @@ class Connection(Base):
         nullable=True,
     )
     runner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    oauth_client_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Lifetime usage counters for this connection, surfaced on the detail page so
     # an operator running interactive (MCP) play can see what it's costing them.
     # `api_call_count` counts every authenticated agent call (each is a paid model

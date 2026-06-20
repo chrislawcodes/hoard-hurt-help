@@ -18,6 +18,7 @@ from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
 from app.read_models.matches import load_match_timeline, load_players
 from app.read_models.agent_display import agent_display_name
+from app.routes.provider_labels import PROVIDER_LABELS
 from app.routes.web_support import (
     _game_theme,
     _is_any_admin,
@@ -72,6 +73,13 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
                 "round_wins": p.total_round_wins,
                 "owner_handle": owner_handles.get(p.seat_name),
                 "is_bot": bot_flags.get(p.seat_name, False),
+                # Provider that actually played this seat (Claude/Gemini/…), shown
+                # as a badge. None for bots and seats not yet served.
+                "provider": (
+                    None
+                    if bot_flags.get(p.seat_name, False) or not p.played_provider
+                    else PROVIDER_LABELS.get(p.played_provider, p.played_provider.title())
+                ),
             }
             for p in players
         ),
@@ -132,7 +140,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         version = await _load_viewer_prompt_version(db, viewer_player.agent_version_id)
         if version is not None:
             viewer_prompt_text = version.strategy_text
-            viewer_prompt_label = f"v{version.version_no} · {version.model}"
+            viewer_prompt_label = f"v{version.version_no}"
     ctx = {
         "user": user,
         "is_admin": _is_any_admin(user),
@@ -401,7 +409,7 @@ async def post_coach_note(
         version = await _load_viewer_prompt_version(db, player.agent_version_id)
         if version is not None:
             viewer_prompt_text = version.strategy_text
-            viewer_prompt_label = f"v{version.version_no} · {version.model}"
+            viewer_prompt_label = f"v{version.version_no}"
 
     note = note.strip()[:280]
     if note:

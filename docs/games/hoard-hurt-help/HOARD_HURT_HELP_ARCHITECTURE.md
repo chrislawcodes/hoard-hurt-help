@@ -22,18 +22,23 @@ It is a thin adapter over the scoring/resolution code in `app/engine/`.
 
 | Module | Lines | Responsibility |
 |---|---:|---|
-| `hoard_hurt_help/game.py` | 191 | PD module — adapts the engine's scoring/resolution to the `GameModule` contract. |
-| `hoard_hurt_help/strategy.py` | 103 | PD strategy presets + the default pre‑fill. |
+| `hoard_hurt_help/game.py` | 267 | PD module — adapts scoring/resolution to the `GameModule` contract: `validate_move`, `record_submission`, `resolve_turn`, `award_round`, `finalize`, plus the game‑agnostic hooks (`action_names`, `default_move`, `display_name`, `tagline`, `theme`, `build_replay_view`, `viewer_fragment`, `semantic_rules_text`). |
+| `hoard_hurt_help/scoring.py` | 104 | **The PD scoring core.** Per‑turn HOARD/HELP/HURT payoff math, the +4 mutual‑help bonus, full Help/Hurt stacking, and the score‑floor‑at‑zero clip. Moved here out of `app/engine/resolver.py` so PD scoring lives inside the PD module. |
+| `hoard_hurt_help/rules.py` | 79 | PD constants + the rules text the agent sees (`semantic_rules_text` / payoff table). |
+| `hoard_hurt_help/strategy.py` | 88 | PD strategy presets + the default pre‑fill. |
+| `hoard_hurt_help/viewer.py` | 690 | PD replay/viewer payload (`build_replay_view`): the robot‑circle JSON, feed headlines, pact/betrayal story — the per‑game half of the platform viewer. |
 
-## The PD scoring core it adapts — `app/engine/resolver.py`
+## The generic lifecycle helpers it uses — `app/engine/resolver.py`
 
 | Module | Lines | Responsibility |
 |---|---:|---|
-| `resolver.py` | 200 | Turn resolution, round‑winner awarding, game finalization (PD scoring core the game module adapts). |
+| `resolver.py` | 112 | **Game‑agnostic** turn‑lifecycle helpers only: `finalize_talk_phase`, `award_round_winners`, `finalize_game`. No PD scoring left here. |
 
-Note: `resolver.py` lives in the platform's `app/engine/` directory, but it
-encodes PD scoring. The PD module (`game.py`) calls into it to score turns,
-award rounds, and finalize a game.
+Note: `resolver.py` lives in the platform's `app/engine/` directory and is now
+fully game‑agnostic. The PD‑specific per‑turn payoffs moved to
+`hoard_hurt_help/scoring.py`; `game.py` calls `scoring.py` to score a turn, then
+uses `resolver.py`'s generic helpers to close the talk phase, award round winners,
+and finalize the match.
 
 ---
 
@@ -41,7 +46,10 @@ award rounds, and finalize a game.
 
 | You want to… | Start here |
 |---|---|
-| Change PD rules / scoring | `app/games/hoard_hurt_help/game.py` + `app/engine/resolver.py`. |
+| Change PD payoffs / scoring (HOARD/HELP/HURT, mutual‑help bonus, floor) | `app/games/hoard_hurt_help/scoring.py`. |
+| Change PD rules text / constants | `app/games/hoard_hurt_help/rules.py`. |
+| Change move validation / turn resolution wiring | `app/games/hoard_hurt_help/game.py`. |
+| Change the PD replay / viewer (robot‑circle, feed, headlines) | `app/games/hoard_hurt_help/viewer.py`. |
 
 ---
 

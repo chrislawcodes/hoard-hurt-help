@@ -214,6 +214,8 @@ async def _seat_agent(
         agent_id=agent.id,
         agent_version_id=version.id,
         seat_name=seat_name,
+        # The seat is joined with the connection's AI; routing matches it.
+        chosen_provider=connection.provider.value if connection.provider else None,
         model_self_report=model,
     )
     db.add(player)
@@ -253,6 +255,8 @@ async def test_one_connection_one_agent_one_match_returns_correct_version(
     assert body["seat_name"] == player.seat_name
     assert body["turn_token"] == body["current"]["turn_token"]
     assert body["agent_turn_token"] == f'{body["turn_token"]}:{agent.id}:M_0001'
+    assert "rules" in body["static"]
+    assert "base_prompt" in body["static"]
     assert f'as agent "{player.seat_name}"' in body["static"]["base_prompt"]
     assert "max 200 chars" in body["static"]["base_prompt"]
     assert "alpha strategy" not in body["static"]["base_prompt"]
@@ -968,6 +972,76 @@ async def test_long_poll_returns_promptly_when_a_turn_opens(
 
 
 @pytest.mark.asyncio
+async def test_pacing_is_agent_scoped_when_a_loop_asks_for_one_agent(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A per-agent loop must pace off ITS own soonest game, not a busier sibling.
+
+    Agent A's game is 25 min off; sibling agent B is live. Connection-wide, a live
+    game means long-poll — but the loop scoped to A should see no live game and use
+    the cheap 5-minute waiting cadence, so A's loop doesn't burn the fast in-play
+    rate waiting on B's game."""
+    from app.engine.agent_idle import compute_idle_status, pace_idle
+
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, _key = await make_connection(db, user)
+        now = datetime.now(timezone.utc)
+        far = Match(
+            id="M_FAR",
+            name="match-M_FAR",
+            state=GameState.SCHEDULED,
+            scheduled_start=now + timedelta(minutes=25),
+            per_turn_deadline_seconds=60,
+            current_round=0,
+            current_turn=0,
+        )
+        live = Match(
+            id="M_LIVE",
+            name="match-M_LIVE",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=1,
+        )
+        db.add_all([far, live])
+        await db.flush()
+        agent_a, _va, _pa = await _seat_agent(
+            db, user=user, connection=connection, match=far,
+            seat_name=f"{user.handle}/A", agent_name="A",
+            model="claude-sonnet-4-6", strategy_text="s",
+        )
+        await _seat_agent(
+            db, user=user, connection=connection, match=live,
+            seat_name=f"{user.handle}/B", agent_name="B",
+            model="claude-sonnet-4-6", strategy_text="s",
+        )
+        await db.commit()
+        connection_id = connection.id
+        agent_a_id = agent_a.id
+
+    async with session_factory() as db:
+        conn = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+        # Connection-wide: B is live → long-poll.
+        whole = await compute_idle_status(db, conn)
+        assert whole.has_live_game is True
+        assert pace_idle(whole)[0] > 0  # holds the line open
+
+        # Scoped to agent A: its only game is 25 min off → no hold, 5-min cadence.
+        scoped = await compute_idle_status(db, conn, agent_id=agent_a_id)
+        assert scoped.has_live_game is False
+        assert scoped.seconds_to_next_start is not None
+        assert scoped.seconds_to_next_start > 600
+        hold, next_poll = pace_idle(scoped)
+        assert hold == 0.0
+        assert next_poll == 300
+
+
+@pytest.mark.asyncio
 async def test_api_call_count_increments_and_turn_count_on_real_submit(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1040,7 +1114,7 @@ async def test_no_game_after_idle_window_tells_client_to_stop(
         # Back-date every idle anchor well past the 10-minute window.
         long_ago = datetime.now(timezone.utc) - timedelta(minutes=20)
         connection.first_connected_at = long_ago
-        connection.mode_a_at = long_ago
+        connection.mcp_connected_at = long_ago
         connection.created_at = long_ago
         await db.commit()
 
@@ -1135,3 +1209,170 @@ async def test_scheduled_game_keeps_caller_waiting_not_no_game(
     body = r.json()
     assert body["status"] == "waiting"
     assert "should_stop" not in body
+
+
+@pytest.mark.asyncio
+async def test_provider_agnostic_serving_stamps_played_provider(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """An agent with no provider is served by ANY of the user's live connections,
+    and the serving connection's provider is stamped onto the player as
+    played_provider (the source of truth for the public 'played by' badge)."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(
+            db, user, provider=ConnectionProvider.GEMINI
+        )
+        match, _turn = await _create_match_with_turn(db, "M_PA01", deadline_seconds=60)
+        agent, version, player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Decoupled",
+            agent_name="Decoupled",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        # Decoupled agent: no stored provider, no stored model.
+        agent.provider = None
+        version.model = None
+        await db.commit()
+        player_id = player.id
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "your_turn"
+    assert body["agent_name"] == "Decoupled"
+    # Payload provider reflects the serving connection, not the (absent) agent provider.
+    assert body["provider"] == "gemini"
+    assert body["model"] is None
+
+    async with session_factory() as db:
+        refreshed = (
+            await db.execute(select(Player).where(Player.id == player_id))
+        ).scalar_one()
+        assert refreshed.played_provider == "gemini"
+        assert refreshed.served_by_connection_id == connection.id
+
+
+@pytest.mark.asyncio
+async def test_connection_only_serves_seats_for_its_own_ai(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Matched routing: a seat joined with one AI is served only to a connection
+    that covers that AI. A different-provider connection of the same user is
+    handed nothing — so the seat plays as the AI the user picked, not whoever
+    polls first."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        _claude_conn, claude_key = await make_connection(
+            db, user, provider=ConnectionProvider.CLAUDE
+        )
+        gemini_conn, gemini_key = await make_connection(
+            db, user, provider=ConnectionProvider.GEMINI
+        )
+        match, _turn = await _create_match_with_turn(db, "M_MATCH", deadline_seconds=60)
+        # Seat is joined with the Gemini connection → chosen_provider = "gemini".
+        await _seat_agent(
+            db,
+            user=user,
+            connection=gemini_conn,
+            match=match,
+            seat_name=f"{user.handle}/Gem",
+            agent_name="Gem",
+            model="gemini-3.1-flash-lite",
+            strategy_text="s",
+        )
+        await db.commit()
+
+    # The Claude connection covers only "claude" → it is NOT handed the gemini seat.
+    r_claude = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": claude_key})
+    assert r_claude.status_code == 200, r_claude.text
+    assert r_claude.json()["status"] != "your_turn"
+
+    # The Gemini connection covers "gemini" → it gets the turn, as Gemini.
+    r_gemini = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": gemini_key})
+    assert r_gemini.status_code == 200, r_gemini.text
+    assert r_gemini.json()["status"] == "your_turn"
+    assert r_gemini.json()["provider"] == "gemini"
+
+
+@pytest.mark.asyncio
+async def test_next_turn_history_is_windowed_to_recent_turns(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The next-turn payload (the connector + MCP path) carries only the last
+    couple of resolved turns, not the whole transcript — so a long mid-game match
+    can't overflow a client's tool-output buffer and trip its loop detection."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        now = datetime.now(timezone.utc)
+        match = Match(
+            id="M_WIN",
+            name="match-M_WIN",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=4,
+        )
+        db.add(match)
+        await db.flush()
+        _agent, _version, player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        # Three resolved turns (1,1)..(1,3), then the open turn (1,4) the poll serves.
+        for t in (1, 2, 3):
+            resolved = Turn(
+                match_id=match.id,
+                round=1,
+                turn=t,
+                turn_token=generate_turn_token(),
+                opened_at=now,
+                deadline_at=now,
+                resolved_at=now,
+                phase="act",
+            )
+            db.add(resolved)
+            await db.flush()
+            db.add(
+                TurnSubmission(
+                    turn_id=resolved.id,
+                    player_id=player.id,
+                    action="HOARD",
+                    target_player_id=None,
+                    message=f"m{t}",
+                    points_delta=2,
+                    was_defaulted=False,
+                )
+            )
+        db.add(
+            Turn(
+                match_id=match.id,
+                round=1,
+                turn=4,
+                turn_token=generate_turn_token(),
+                opened_at=now,
+                deadline_at=now + timedelta(seconds=60),
+                phase="act",
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "your_turn"
+    # Only the last two resolved turns ride along — (1,1) is dropped from the poll.
+    assert [(t["round"], t["turn"]) for t in body["history"]] == [(1, 2), (1, 3)]

@@ -21,18 +21,17 @@ def _strip_internal_bot_prefix(name: str) -> str:
 
 
 def agent_display_name(agent: Agent, version: AgentVersion | None = None) -> str:
-    """Return the name we should show publicly for an agent."""
+    """Return the name we should show publicly for an agent.
+
+    Agents are decoupled from a fixed model, so the display name is just the
+    agent's name — the provider that actually played is shown separately as a
+    badge (from ``Player.played_provider``). ``version`` is accepted for
+    backward-compatible call sites but no longer affects the name.
+    """
 
     if agent.kind == AgentKind.BOT:
         if agent.bot_profile_name:
             return agent.bot_profile_name
         return _strip_internal_bot_prefix(_strip_archive_suffix(agent.name))
 
-    base_name = _strip_archive_suffix(agent.name)
-    # A human has no model to append (the public in-match label is the seat name
-    # anyway); show just the name.
-    if agent.kind == AgentKind.HUMAN:
-        return base_name
-    if version is not None:
-        return f"{base_name} · {version.model}"
-    return base_name
+    return _strip_archive_suffix(agent.name)

@@ -32,6 +32,7 @@ from app.routes.agents_status import router as agents_status_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
 from app.routes.connections_setup import router as connections_setup_router
+from app.routes.web_player import _seat_name
 
 
 @pytest.fixture
@@ -263,7 +264,7 @@ async def test_create_connection_reuses_existing_pending_setup(
 
 
 @pytest.mark.asyncio
-async def test_new_agent_disconnected_provider_redirects_to_connections(
+async def test_new_agent_creates_and_goes_to_lobby(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
@@ -276,16 +277,14 @@ async def test_new_agent_disconnected_provider_redirects_to_connections(
         cookies=_signed_in_cookies(user.id),
         data={
             "name": "Alpha",
-            "model": "gpt-5.4-mini",
             "strategy_text": "Play to win.",
         },
         follow_redirects=False,
     )
-    # The model derives provider=openai, which no connection runs (only claude is
-    # enabled). Rather than 409-ing into a dead end, the POST redirects the user
-    # to connect that client first.
+    # Agents have no provider — creation always succeeds and lands on the lobby,
+    # where joining a game walks the user through connecting an AI if needed.
     assert resp.status_code == 303
-    assert resp.headers["location"].startswith("/me/connections")
+    assert resp.headers["location"] == "/games/hoard-hurt-help"
 
 
 @pytest.mark.asyncio
@@ -370,13 +369,19 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
         version_a = await _make_version(db, agent_a)
         version_b = await _make_version(db, agent_b)
         match = await _make_match(db, "M_2000", state=GameState.ACTIVE)
+        # Seat names expose the agent name only — never the owner's handle.
+        # Two users with the same agent name get a "#2" disambiguator.
+        existing: set[str] = set()
+        seat_a = _seat_name(agent_a.name, existing)
+        existing.add(seat_a)
+        seat_b = _seat_name(agent_b.name, existing)
         await _seat_player(
             db,
             match=match,
             user=user_a,
             agent=agent_a,
             version=version_a,
-            seat_name=f"{user_a.handle}/Alpha",
+            seat_name=seat_a,
         )
         await _seat_player(
             db,
@@ -384,14 +389,17 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
             user=user_b,
             agent=agent_b,
             version=version_b,
-            seat_name=f"{user_b.handle}/Alpha",
+            seat_name=seat_b,
         )
         await db.commit()
 
         seat_names = (
             await db.execute(select(Player.seat_name).where(Player.match_id == match.id))
         ).scalars().all()
-        assert seat_names == ["alice/Alpha", "bob/Alpha"]
+        assert seat_names == ["Alpha", "Alpha #2"]
+        # No owner handle leaked into either seat name.
+        assert "alice" not in "".join(seat_names)
+        assert "bob" not in "".join(seat_names)
 
 
 @pytest.mark.asyncio
@@ -418,6 +426,7 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
         # Set last_seen_at so the connection is warm (runner connected)
         connection.last_seen_at = recently
         connection.first_connected_at = recently
+        connection.mcp_connected_at = recently
         await db.flush()
         agent = await _make_agent(db, user, connection=connection, name="Alpha")
         version = await _make_version(db, agent)
@@ -483,31 +492,3 @@ async def test_agent_in_active_practice_match_is_locked_against_delete_and_edit(
         cookies=cookies,
     )
     assert edit_resp.status_code == 409
-
-
-@pytest.mark.asyncio
-async def test_set_model_syncs_agent_provider(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
-) -> None:
-    """Editing an agent to a cross-provider model re-derives agent.provider so
-    routing never reads a stale provider (Codex plan finding)."""
-    async with session_factory() as db:
-        user = await _make_user(db, handle="syncer", i=42)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
-        agent = await _make_agent(db, user, connection=connection, name="Shifter")
-        await _make_version(db, agent, model="claude-sonnet-4-6", strategy_text="s")
-        agent.provider = ConnectionProvider.CLAUDE
-        await db.commit()
-        agent_id = agent.id
-
-    resp = await client.post(
-        f"/me/agents/{agent_id}/set-model",
-        cookies=_signed_in_cookies(user.id),
-        data={"model": "gemini-3.1-pro-preview"},
-        follow_redirects=False,
-    )
-    assert resp.status_code == 303, resp.text
-
-    async with session_factory() as db:
-        refreshed = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
-        assert refreshed.provider is ConnectionProvider.GEMINI

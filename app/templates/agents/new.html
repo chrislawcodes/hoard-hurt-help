@@ -1,33 +1,15 @@
 {% extends "base.html" %}
 {% block title %}New Agent — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/me/agents">← Agents</a>
 <div class="page-head">
     <h1>New agent</h1>
-    <p class="sub">Pick a model and strategy.</p>
+    <p class="sub">An agent is a name and a strategy. Whatever AI you connect plays it.</p>
 </div>
 
 <div class="card agent-setup-card">
     <h3 style="margin-top:0;">Create the agent</h3>
     <form method="post" action="/me/agents/new" class="form agent-setup-form">
         {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
-        <label>
-            AI model
-            <select name="model" id="agent-model" required>
-                {% for group in model_groups %}
-                <optgroup label="{{ group.provider_label }}">
-                    {% for candidate in group.options %}
-                    <option value="{{ candidate.value }}"{% if candidate.value == selected_model %}selected{% endif %}>
-                        {{ candidate.label }}
-                    </option>
-                    {% endfor %}
-                </optgroup>
-                {% endfor %}
-            </select>
-            {% for note in availability_notes %}
-            <small class="hint">{{ note.provider_label }} isn't connected yet — <a href="/me/connections{% if next_url or note.provider_value %}?{% if note.provider_value %}provider={{ note.provider_value }}{% endif %}{% if next_url %}{% if note.provider_value %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}">connect {{ note.provider_label }} →</a> to use {{ note.provider_label }} models.</small>
-            {% endfor %}
-        </label>
         <label>
             Agent name
             <input type="text" name="name" maxlength="120" required autocomplete="off" placeholder="Alpha">
@@ -56,9 +38,21 @@
             </div>
             <small class="hint">Choose a chip or switch to Custom to edit the text yourself.</small>
         </div>
+        {% if existing_strategies %}
+        <div>
+            <label for="existing-strategy" class="field-label">Or start from an existing agent</label>
+            <select id="existing-strategy">
+                <option value="">— Start blank —</option>
+                {% for item in existing_strategies %}
+                <option value="{{ loop.index0 }}">{{ item.name }}</option>
+                {% endfor %}
+            </select>
+            <small class="hint">Copies that agent's current strategy into the box below so you can tweak it.</small>
+        </div>
+        {% endif %}
         <label>
             Strategy
-            <textarea id="strategy-text" name="strategy_text" rows="8" maxlength="2000" required>{{ selected_strategy_text }}</textarea>
+            <textarea id="strategy-text" name="strategy_text" rows="14" maxlength="2000" required>{{ selected_strategy_text }}</textarea>
             <small class="hint">The game also supplies shared rules and response instructions. <a href="/games/{{ default_game }}/agent-instructions">View base instructions</a>.</small>
         </label>
         <div class="form-actions">
@@ -72,6 +66,7 @@
     if (!document.getElementById('strategy-text')) return;
     const presets = {{ strategy_presets | tojson }};
     const defaultStrategy = {{ default_strategy | tojson }};
+    const existingStrategies = {{ existing_strategies | tojson }};
     const strategyBox = document.getElementById('strategy-text');
     const presetButtons = Array.from(document.querySelectorAll('[data-preset-id]'));
     let activePresetId = {{ selected_strategy_preset | tojson }};
@@ -111,6 +106,19 @@
             if (!preset || strategyBox.value !== preset.prompt) {
                 setActivePreset('custom');
             }
+        });
+    }
+
+    const existingSelect = document.getElementById('existing-strategy');
+    if (existingSelect) {
+        existingSelect.addEventListener('change', function () {
+            if (existingSelect.value === '') return;
+            const item = existingStrategies[Number(existingSelect.value)];
+            if (!item) return;
+            strategyBox.value = item.strategy;
+            setActivePreset('custom');
+            strategyBox.focus();
+            strategyBox.setSelectionRange(strategyBox.value.length, strategyBox.value.length);
         });
     }
 

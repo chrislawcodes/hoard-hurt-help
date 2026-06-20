@@ -94,7 +94,7 @@ async def test_connections_page_shows_inline_setup_instructions(reset_db) -> Non
         r = await c.get("/me/connections")
     assert r.status_code == 200, r.text
     body = r.text
-    # The connector command is now the secondary "always-on" option below Mode A.
+    # The connector command is now the secondary "always-on" option below MCP setup.
     assert "always-on connector" in body
     assert "Name this machine" in body
     assert "Paste this to your AI assistant:" in body

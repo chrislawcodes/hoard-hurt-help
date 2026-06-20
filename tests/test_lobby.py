@@ -20,6 +20,7 @@ from app.engine.bot_presets import bot_presets
 from app.engine.tokens import bot_key_lookup
 from app.main import app
 from app.models import Base, Agent, AgentKind, Connection, ConnectionSetup, Match, GameState, Player, User
+from app.models.connection import ConnectionProvider
 from app.models.match import MatchKind
 from app.models.user import UserRole
 from app.engine.bots import pack_profile_choices
@@ -109,12 +110,25 @@ async def _seed_agent(
     user: User,
     key: str | None = None,
     name: str = "Atlas",
+    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
 ) -> tuple[Agent, str, int]:
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        connection, k = await make_connection(db, u, key=key)
+        connection, k = await make_connection(db, u, key=key, provider=provider)
         agent, _ = await make_agent(db, u, connection=connection, name=name)
         now = datetime.now(timezone.utc)
+        existing_mcp = await db.scalar(
+            select(Connection.id)
+            .where(
+                Connection.user_id == u.id,
+                Connection.provider == connection.provider,
+                Connection.mcp_connected_at.is_not(None),
+                Connection.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        if existing_mcp is None:
+            connection.mcp_connected_at = now
         connection.first_connected_at = now
         connection.last_seen_at = now
         connection.last_polled_at = now  # AI is running the play loop → seats confirm
@@ -629,7 +643,7 @@ async def test_practice_arena_starts_when_player_joins(client, reset_db, monkeyp
 
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_PA/join",
-        data={"agent_id": agent.id, "display_name": "AI_joiner"},
+        data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": "AI_joiner"},
         cookies=cookies,
         follow_redirects=False,
     )
@@ -731,7 +745,7 @@ async def test_enter_bot_into_game(client, reset_db):
     agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": agent.id, "display_name": "AI_qa"},
+        data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": "AI_qa"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
@@ -742,7 +756,9 @@ async def test_enter_bot_into_game(client, reset_db):
             await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
     assert p.agent_id == agent.id
-    assert p.seat_name == f"{user.handle}/{agent.name}"
+    # Seat name is the agent name only — the owner's handle is never exposed.
+    assert p.seat_name == agent.name
+    assert user.handle not in p.seat_name
 
 
 @pytest.mark.asyncio
@@ -753,7 +769,7 @@ async def test_join_ignores_bad_display_name(client, reset_db):
     agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": agent.id, "display_name": "fuckwit"},
+        data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": "fuckwit"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
@@ -762,7 +778,7 @@ async def test_join_ignores_bad_display_name(client, reset_db):
         player = (
             await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
-    assert player.seat_name == f"{user.handle}/{agent.name}"
+    assert player.seat_name == agent.name
 
 
 @pytest.mark.asyncio
@@ -773,13 +789,13 @@ async def test_duplicate_bot_entry_blocked(client, reset_db):
     cookies = _signed_in_cookies(user.id)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": agent.id, "display_name": "AI_a"},
+        data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": "AI_a"},
         cookies=cookies,
         follow_redirects=False,
     )
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": agent.id, "display_name": "AI_b"},
+        data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": "AI_b"},
         cookies=cookies,
         follow_redirects=False,
     )
@@ -789,16 +805,19 @@ async def test_duplicate_bot_entry_blocked(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_two_bots_one_game(client, reset_db):
-    """A user fields multiple agents by running multiple connections."""
+    """A user fields multiple agents in one game by giving each a different AI
+    (one AI plays one seat at a time)."""
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
-    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
+    a2, _k2, _c2 = await _seed_agent(
+        reset_db, user, name="Two", provider=ConnectionProvider.GEMINI
+    )
     cookies = _signed_in_cookies(user.id)
-    for agent, name in [(a1, "AI_one"), (a2, "AI_two")]:
+    for agent, name, ai in [(a1, "AI_one", "claude"), (a2, "AI_two", "gemini")]:
         r = await client.post(
             "/games/hoard-hurt-help/matches/G_001/join",
-            data={"agent_id": agent.id, "display_name": name},
+            data={"chosen_provider": ai, "agent_id": agent.id, "display_name": name},
             cookies=cookies,
             follow_redirects=False,
         )
@@ -809,7 +828,7 @@ async def test_two_bots_one_game(client, reset_db):
             .scalars()
             .all()
         )
-    assert {p.seat_name for p in players} == {f"{user.handle}/One", f"{user.handle}/Two"}
+    assert {p.seat_name for p in players} == {"One", "Two"}
 
 
 @pytest.mark.asyncio
@@ -830,7 +849,7 @@ async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monk
 
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": [a1.id, a2.id]},  # httpx repeats the field
+        data={"chosen_provider": "claude", "agent_id": [a1.id, a2.id]},  # httpx repeats the field
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
@@ -842,12 +861,12 @@ async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monk
             .scalars()
             .all()
         )
-    assert {p.seat_name for p in players} == {f"{user.handle}/One", f"{user.handle}/Two"}
+    assert {p.seat_name for p in players} == {"One", "Two"}
 
 
 @pytest.mark.asyncio
-async def test_join_form_hides_already_seated_agents(client, reset_db):
-    """Re-entering the join form to add more shows only agents not yet seated."""
+async def test_join_form_shows_already_seated_agents(client, reset_db):
+    """Re-entering the join form keeps every agent visible and marks seated ones."""
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
@@ -855,13 +874,16 @@ async def test_join_form_hides_already_seated_agents(client, reset_db):
     cookies = _signed_in_cookies(user.id)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": a1.id},
+        data={"chosen_provider": "claude", "agent_id": a1.id},
         cookies=cookies,
         follow_redirects=False,
     )
     form = await client.get("/games/hoard-hurt-help/matches/G_001/join", cookies=cookies)
-    assert f'value="{a2.id}"' in form.text  # still available
-    assert f'value="{a1.id}"' not in form.text  # already seated → hidden
+    assert "One" in form.text  # still visible
+    assert "already in this game" in form.text  # seated agent is marked
+    # Both agents are listed as picker rows; the seated one is a disabled row.
+    assert f'value="{a1.id}"' in form.text
+    assert f'value="{a2.id}"' in form.text
 
 
 @pytest.mark.asyncio
@@ -877,7 +899,7 @@ async def test_match_page_shows_add_agent_affordance(client, reset_db):
     # After joining: the same page now offers to add another agent.
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": agent.id},
+        data={"chosen_provider": "claude", "agent_id": agent.id},
         cookies=cookies,
         follow_redirects=False,
     )
@@ -895,7 +917,7 @@ async def test_non_admin_cannot_stack_multiple_agents(client, reset_db):
     a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": [a1.id, a2.id]},
+        data={"chosen_provider": "claude", "agent_id": [a1.id, a2.id]},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
@@ -916,16 +938,17 @@ async def test_non_admin_cannot_stack_multiple_agents(client, reset_db):
 
 
 async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
-    """One agent seated in an ACTIVE match on a capacity-1 connection.
+    """One agent seated in an ACTIVE match, played by Claude.
 
-    The provider is now at capacity (1/1), so joining this agent into a second
-    match trips the SUM-based join gate. Seeds an open match G_B to join into.
-    Returns the agent id.
+    Claude is now the chosen AI of a not-finished game, so it reads as "busy" —
+    "one AI = one game" blocks picking Claude again (admins may override). Seeds an
+    open match G_B to join into. Returns the agent id.
     """
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        conn, _k = await make_connection(db, u, max_concurrent_games=1)
+        conn, _k = await make_connection(db, u)
         now = datetime.now(timezone.utc)
+        conn.mcp_connected_at = now
         conn.first_connected_at = now
         conn.last_seen_at = now
         conn.last_polled_at = now  # AI is running the play loop → seats confirm
@@ -941,7 +964,12 @@ async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
         )
         db.add_all([active, open_match])
         await db.flush()
-        db.add(Player(match_id="G_A", user_id=u.id, agent_id=agent.id, seat_name=f"{u.handle}/Busy"))
+        db.add(
+            Player(
+                match_id="G_A", user_id=u.id, agent_id=agent.id,
+                seat_name=f"{u.handle}/Busy", chosen_provider="claude",
+            )
+        )
         await db.commit()
         return agent.id
 
@@ -954,7 +982,7 @@ async def test_admin_can_seat_agent_already_busy_at_capacity(client, reset_db, m
     agent_id = await _seed_agent_busy_in_active_match(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_B/join",
-        data={"agent_id": agent_id},
+        data={"chosen_provider": "claude", "agent_id": agent_id},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
@@ -967,18 +995,18 @@ async def test_admin_can_seat_agent_already_busy_at_capacity(client, reset_db, m
 
 
 @pytest.mark.asyncio
-async def test_non_admin_still_blocked_by_capacity(client, reset_db):
-    """A regular user still hits the capacity gate — the bypass is admin-only."""
+async def test_non_admin_still_blocked_by_busy_ai(client, reset_db):
+    """A regular user can't reuse an AI already in a game — the bypass is admin-only."""
     user = await _seed_user(reset_db)  # not an admin
     agent_id = await _seed_agent_busy_in_active_match(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_B/join",
-        data={"agent_id": agent_id},
+        data={"chosen_provider": "claude", "agent_id": agent_id},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
     assert r.status_code == 409
-    assert "at capacity" in r.text
+    assert "already in a game" in r.text
     async with reset_db() as db:
         seated = (
             await db.execute(select(Player).where(Player.match_id == "G_B"))
@@ -991,17 +1019,19 @@ async def test_duplicate_display_name_does_not_block_join(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
-    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
+    a2, _k2, _c2 = await _seed_agent(
+        reset_db, user, name="Two", provider=ConnectionProvider.GEMINI
+    )
     cookies = _signed_in_cookies(user.id)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": a1.id, "display_name": "Dup"},
+        data={"chosen_provider": "claude", "agent_id": a1.id, "display_name": "Dup"},
         cookies=cookies,
         follow_redirects=False,
     )
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": a2.id, "display_name": "Dup"},
+        data={"chosen_provider": "gemini", "agent_id": a2.id, "display_name": "Dup"},
         cookies=cookies,
         follow_redirects=False,
     )
@@ -1012,7 +1042,7 @@ async def test_duplicate_display_name_does_not_block_join(client, reset_db):
             .scalars()
             .all()
         )
-    assert {p.seat_name for p in players} == {f"{user.handle}/One", f"{user.handle}/Two"}
+    assert {p.seat_name for p in players} == {"One", "Two"}
 
 
 @pytest.mark.asyncio
@@ -1052,7 +1082,7 @@ async def test_my_games_lists_user_games(client, reset_db):
     agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
-        data={"agent_id": agent.id, "display_name": "AI_qa"},
+        data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": "AI_qa"},
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
@@ -1237,3 +1267,17 @@ async def test_upcoming_fragment_renders_raw_datetime(client, reset_db):
     assert r.status_code == 200
     assert "Test Match" in r.text
     assert 'class="localtime"' in r.text
+
+
+@pytest.mark.asyncio
+async def test_join_form_marks_busy_ai_in_another_game(client, reset_db):
+    """An AI already in a different not-finished game shows as busy (and isn't
+    pickable) on the join form for another game."""
+    user = await _seed_user(reset_db)
+    # Seeds Claude busy in the active match G_A, plus an open match G_B to join.
+    await _seed_agent_busy_in_active_match(reset_db, user)
+    r = await client.get(
+        "/games/hoard-hurt-help/matches/G_B/join", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    assert "busy — in" in r.text  # the Claude row is greyed as busy

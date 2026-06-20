@@ -1,4 +1,4 @@
-# Connect screen redesign — "Play with your own AI" (Mode A)
+# Connect screen redesign — "Play with your own AI" (MCP connection)
 
 **Branch:** feat/connect-screen-polish (off origin/main)
 **Type:** Direct Path, pure-UI build
@@ -59,8 +59,9 @@ Google → paste the play-prompt.**
   → Authenticate (browser opens for Google). No `--header`.
 - **Codex** — a `~/.codex/config.toml` block (`[mcp_servers.agentludum]` / `url = …`, no
   `http_headers`); browser sign-in on first use.
-- **Gemini** — `gemini mcp add agentludum <url> --transport http`; browser sign-in on
-  first connect.
+- **Gemini** — `gemini mcp add agentludum <url> --transport http`, then paste:
+  `Use the agentludum MCP server now. If a browser opens for Google sign-in,
+  approve it. Then tell me when the tools are ready.`
 - **Claude Desktop** — Settings → Connectors → Add custom connector → paste the `/mcp` URL
   → enable it → sign in with Google. Labeled: great for trying it out; CLI or the always-on
   connector is steadier for long unattended play.

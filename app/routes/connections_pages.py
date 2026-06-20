@@ -19,9 +19,9 @@ from starlette.responses import Response
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
 from app.engine.connection_health import (
+    ProviderReadiness,
     compute_connection_health,
-    provider_enabled_on_any_connection,
-    provider_is_covered,
+    provider_readiness,
 )
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.models.connection import Connection, ConnectionProvider
@@ -32,7 +32,6 @@ from app.routes.connections_connect_guide import (
     _play_prompt,
     _provider_label,
     _setup_message,
-    self_setup_play_prompt,
 )
 from app.routes.connections_machine_setup import _ensure_pending_setup_and_key
 from app.routes.connections_queries import (
@@ -129,23 +128,22 @@ async def list_connections(
     #   LIVE      — at least one connection is LIVE or READY right now
     has_connected_before = bool(connections)
     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
-    target_provider_live = (
-        await provider_is_covered(db, user.id, target_provider)
+    target_provider_readiness = (
+        await provider_readiness(db, user.id, target_provider)
         if target_provider is not None
-        else False
+        else None
     )
-    target_provider_enabled = (
-        await provider_enabled_on_any_connection(db, user.id, target_provider)
-        if target_provider is not None
-        else False
+    # "set up at all" → readiness != NO_MCP_CONNECTION
+    target_provider_setup = (
+        target_provider_readiness is not None
+        and target_provider_readiness != ProviderReadiness.NO_MCP_CONNECTION
     )
     # Came to connect a SPECIFIC provider that isn't set up yet → lead with that
     # provider's connect steps. Without this, a different live provider (a live
     # Claude) makes the page read as "you're all set" and bounce the user back.
     connect_target = (
         target_provider is not None
-        and not target_provider_live
-        and not target_provider_enabled
+        and not target_provider_setup
     )
     target_provider_label = (
         _provider_label(target_provider) if target_provider is not None else None
@@ -155,20 +153,16 @@ async def list_connections(
     # the "Connected" box. The 4s poll covers the case where it goes live later.
     # Only short-circuit on the TARGET provider (or, with no target, any live
     # connection) — never bounce a Gemini connect just because Claude is live.
+    # Decision 4: advance the instant the MCP client is SEEN (SEEN_NOT_POLLING or
+    # LIVE), before the first turn poll.
+    target_provider_seen = target_provider_readiness in {
+        ProviderReadiness.SEEN_NOT_POLLING,
+        ProviderReadiness.LIVE,
+    }
     if next_url and (
-        target_provider_live or (provider_hint is None and is_live_now)
+        target_provider_seen or (provider_hint is None and is_live_now)
     ):
         return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
-    # AI self-setup path: a stable per-provider key + a paste-into-your-AI prompt
-    # that plays via the plain HTTP API (no MCP, no browser, no client commands).
-    # Only on a provider-specific page, since the key is scoped to that provider's
-    # agents. Reuses the same setup+session-key plumbing as the connector.
-    self_setup_prompt = None
-    if target_provider is not None:
-        _self_setup, self_play_key = await _ensure_pending_setup_and_key(
-            request, db, user.id, provider=target_provider
-        )
-        self_setup_prompt = self_setup_play_prompt(self_play_key)
     return templates.TemplateResponse(
         request,
         "connections/list.html",
@@ -179,10 +173,10 @@ async def list_connections(
             "setup_message": _setup_message(key),
             "connect_options": _connect_options(),
             "play_prompt": _play_prompt(),
-            "self_setup_prompt": self_setup_prompt,
             "has_connected_before": has_connected_before,
             "is_live_now": is_live_now,
             "is_playing_now": is_playing_now,
+            "next_game_status": status_flags["next_game_status"],
             "has_agent": has_agent,
             "agent_summary": agent_summary,
             "lobby_url": "/games/hoard-hurt-help",
@@ -225,9 +219,23 @@ async def live_status_fragment(
         db, user, next_url=next_url, provider=target_provider
     )
     context["provider_hint"] = provider_hint
+    # Decision 4: advance the instant the MCP client is SEEN (SEEN_NOT_POLLING or
+    # LIVE), before the first turn poll. Use the same rule as the page-load path.
+    poll_provider_seen = (
+        target_provider is not None
+        and (
+            await provider_readiness(db, user.id, target_provider)
+        )
+        in {ProviderReadiness.SEEN_NOT_POLLING, ProviderReadiness.LIVE}
+    )
+    # When the AI transitions to PLAYING, redirect to the lobby and set a session
+    # flag so the lobby shows the "Your agent is connected!" banner.
+    if context["is_playing_now"]:
+        redirect_target = next_url or str(context["lobby_url"])
+        request.session["agent_connected"] = True
+        return HTMLResponse("", headers={"HX-Redirect": redirect_target})
     if next_url and (
-        (provider_hint is not None and await provider_is_covered(db, user.id, ConnectionProvider(provider_hint)))
-        or (provider_hint is None and context["is_live_now"])
+        poll_provider_seen or (provider_hint is None and context["is_live_now"])
     ):
         # HTMX honors HX-Redirect by navigating the whole page. An empty body is
         # fine since the redirect replaces this fragment's container entirely.
@@ -266,14 +274,14 @@ async def connection_detail(
         }
         for p in ConnectionProvider
     ]
-    # An MCP (Mode A) connection is not a machine running several CLIs — the AI
+    # An MCP connection is not a machine running several CLIs — the AI
     # client you signed in with speaks for exactly one provider (one client ==
     # one provider, per #392). So it gets a read-only list of the provider(s) it
     # actually plays, not the machine-style multi-provider toggle box.
-    is_mode_a = connection.mode_a_at is not None
-    mode_a_providers = (
+    is_mcp_connection = connection.mcp_connected_at is not None
+    mcp_connection_providers = (
         [{"value": t["value"], "label": t["label"]} for t in provider_toggles if t["enabled"]]
-        if is_mode_a
+        if is_mcp_connection
         else []
     )
     setup_message = _setup_message(fresh_key) if fresh_key is not None else None
@@ -289,8 +297,8 @@ async def connection_detail(
             "setup_message": setup_message,
             "attached_agents": attached_agents,
             "stranded_agents": stranded_agents,
-            "is_mode_a": is_mode_a,
-            "mode_a_providers": mode_a_providers,
+            "is_mcp_connection": is_mcp_connection,
+            "mcp_connection_providers": mcp_connection_providers,
             "provider_toggles": provider_toggles,
             "provider_label": _provider_label(connection.provider),
             "provider_models": (

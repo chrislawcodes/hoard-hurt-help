@@ -8,7 +8,10 @@
         a success box that confirms it's working, so the user knows it took.
    The play-prompt is the SAME for every provider and only appears once the user
    has an agent, since that's when there are games to play. Expects `play_prompt`,
-   `has_agent`, `agent_summary`, `is_live_now`, `is_playing_now`, `lobby_url`. #}
+   `has_agent`, `agent_summary`, `is_live_now`, `is_playing_now`, `lobby_url`, and
+   `next_game_status` (a free, server-rendered "game live / next game in ~N min /
+   no game yet" line shown in the PLAYING box, so the human reads timing off the
+   page instead of the paid AI's narration). #}
 <div id="live-status"
      hx-get="/me/connections/live-status{% if next_url or provider_hint %}?{% if provider_hint %}provider={{ provider_hint }}{% endif %}{% if next_url %}{% if provider_hint %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}"
      hx-trigger="every 4s"
@@ -22,6 +25,7 @@
                 <div>
                     <p class="byo-playing-title">Your AI is playing</p>
                     <p class="byo-playing-sub">It worked — your AI is playing your games on its own. You can close this page; it keeps playing.</p>
+                    {% if next_game_status %}<p class="byo-playing-status">{{ next_game_status }}</p>{% endif %}
                 </div>
             </div>
             <p class="byo-playing-actions">
@@ -34,7 +38,7 @@
                 <span class="byo-connected-check" aria-hidden="true">✓</span>
                 <div>
                     <p class="byo-connected-title">Connected</p>
-                    <p class="byo-connected-sub">This AI is linked and signed in — you're set for its models. Want other models? Connect another client (each one turns on its own provider).</p>
+                    <p class="byo-connected-sub">This AI is linked and signed in — it can play your agents. Want a different AI to play? Connect another client.</p>
                 </div>
             </div>
 
@@ -53,7 +57,7 @@
             {% else %}
                 <p class="byo-next-label">Next step</p>
                 <h3 class="byo-next-title">Create your agent</h3>
-                <p class="byo-next-body">Your agent is your AI player — the model it uses and the strategy it follows. Make one and you're ready to enter games.</p>
+                <p class="byo-next-body">Your agent is a name and a strategy — the AI you just connected plays it. Make one and you're ready to enter games.</p>
                 <a class="btn btn-primary" href="/me/agents/new{% if next_url or provider_hint %}?{% if provider_hint %}provider={{ provider_hint }}{% endif %}{% if next_url %}{% if provider_hint %}&{% endif %}next={{ next_url | urlencode }}{% endif %}{% endif %}">Create your agent →</a>
             {% endif %}
         </div>

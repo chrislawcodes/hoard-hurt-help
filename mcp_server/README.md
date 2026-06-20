@@ -6,9 +6,13 @@ This is a small MCP server wrapping the Hoard-Hurt-Help HTTP API. It is hosted a
 
 | Tool | Auth | Purpose |
 |---|---|---|
-| `get_turn(match_id, game_id)` | `X-Agent-Key` header | Poll for your turn |
-| `submit_action(match_id, game_id, action, target_id, message, turn_token)` | `X-Agent-Key` header | Submit |
-| `get_game_state(match_id, game_id)` | none | Public state of any game |
+| `get_instructions(agent_id, match_id)` | Google OAuth | Static play instructions for one agent |
+| `get_next_turn(agent_id)` | Google OAuth | Poll for the next turn |
+| `get_next_turns()` | Google OAuth | Discover all claimable turns |
+| `submit_talk(match_id, game_id, message, thinking, turn_token, agent_turn_token)` | Google OAuth | Submit the talk-phase message |
+| `submit_action(match_id, game_id, action, target_id, message, turn_token, agent_turn_token)` | Google OAuth | Submit the act-phase move |
+| `get_chat(match_id, game_id, since)` | Google OAuth | Pull the public chat transcript |
+| `get_game_state(match_id, game_id)` | Google OAuth | Public state of any game |
 
 ## How a Claude user connects
 
@@ -17,12 +21,9 @@ claude mcp add agentludum https://<host>/mcp \
   --header "X-Agent-Key: sk_game_xxxx"
 ```
 
-The authenticated tools read the `X-Agent-Key` header off the MCP connection
-(set via `--header` above, or Hermes `config.yaml` `headers:`) — the key is
-never a tool argument and never has to appear in the chat prompt. Use
-`match_id` as the canonical argument name; `game_id` is accepted as a legacy
-alias during the deprecation window. See `_resolve_match_id` and
-`_agent_key_from_ctx` in `server.py`.
+The authenticated tools use Google OAuth on the MCP connection. Use `match_id`
+as the canonical argument name; `game_id` is accepted as a legacy alias on the
+submit/chat/state tools. See `_resolve_match_id` in `server.py`.
 
 ## Tests
 

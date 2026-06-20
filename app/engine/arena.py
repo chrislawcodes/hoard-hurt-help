@@ -4,7 +4,7 @@ Two match types are always available to operators without admin intervention:
 
 * **Practice Arena** — one open match, pre-seeded with bots, that starts the
   instant any human joins. Immediately replaced when the match ends.
-* **Auto-Match** — one open match per 30-minute clock boundary. At its
+* **Auto-Match** — one open match per 15-minute clock boundary. At its
   scheduled start time, it runs only if at least one external agent joined.
   Bots can fill remaining seats once a real participant is present.
 
@@ -38,13 +38,13 @@ PRACTICE_ARENA_MAX_PLAYERS = PRACTICE_ARENA_BOT_COUNT + 1
 PRACTICE_ARENA_TOTAL_ROUNDS = 7
 PRACTICE_ARENA_TURNS_PER_ROUND = 7
 
-AUTO_MATCH_INTERVAL_MINUTES = 30
+AUTO_MATCH_INTERVAL_MINUTES = 15
 AUTO_MATCH_MAX_PLAYERS = 8
 AUTO_MATCH_BOT_COUNT_MAX = 7
 AUTO_MATCH_TOTAL_ROUNDS = 7
 AUTO_MATCH_TURNS_PER_ROUND = 7
 
-# Rotating names for auto-matches — one name per 30-min boundary slot (48/day),
+# Rotating names for auto-matches — one name per 15-min boundary slot (96/day),
 # cycling through the list.  Keyed deterministically by slot index so the same
 # boundary always gets the same name across restarts.
 _AUTO_MATCH_NAMES: tuple[str, ...] = (
@@ -85,20 +85,19 @@ def _choose_bot_seats(
 
 
 def _auto_match_name(boundary: datetime) -> str:
-    """Pick a name from _AUTO_MATCH_NAMES keyed to the boundary's 30-min slot."""
-    slot = boundary.hour * 2 + boundary.minute // 30
+    """Pick a name from _AUTO_MATCH_NAMES keyed to the boundary's interval slot."""
+    slots_per_hour = 60 // AUTO_MATCH_INTERVAL_MINUTES
+    slot = boundary.hour * slots_per_hour + boundary.minute // AUTO_MATCH_INTERVAL_MINUTES
     return f"{_AUTO_MATCH_NAMES[slot % len(_AUTO_MATCH_NAMES)]} Match"
 
 
 def _next_boundary() -> datetime:
-    """Return the next :00 or :30 UTC boundary from now."""
+    """Return the next AUTO_MATCH_INTERVAL_MINUTES clock boundary (UTC) from now."""
     now = datetime.now(timezone.utc)
-    minute = now.minute
-    if minute < 30:
-        candidate = now.replace(minute=30, second=0, microsecond=0)
-    else:
-        candidate = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-    return candidate
+    # Snap down to the current interval boundary, then step one interval forward.
+    current_slot_minute = (now.minute // AUTO_MATCH_INTERVAL_MINUTES) * AUTO_MATCH_INTERVAL_MINUTES
+    floor = now.replace(minute=current_slot_minute, second=0, microsecond=0)
+    return floor + timedelta(minutes=AUTO_MATCH_INTERVAL_MINUTES)
 
 
 async def ensure_practice_arena(db: AsyncSession) -> None:

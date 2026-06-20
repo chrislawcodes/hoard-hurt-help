@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ player.seat_name }} in {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/me/agents/{{ agent.id }}">← Back to agent</a>
 <div class="page-head">
     <h1>{{ player.seat_name }}</h1>
     <p class="sub">
@@ -17,13 +16,13 @@
 
 <div class="card">
     <p>This seat uses the agent's current version. Manage the agent itself on
-    <a href="/me/agents/{{ agent.id }}">the agent page</a> if you want to change its model or strategy.</p>
+    <a href="/me/agents/{{ agent.id }}">the agent page</a> if you want to change its strategy.</p>
 </div>
 
 <h2>Version for this match</h2>
 <div class="card">
     {% if version %}
-    <p class="meta">v{{ version.version_no }} · {{ version.model }} · created {{ version.created_at | localdt }}</p>
+    <p class="meta">v{{ version.version_no }} · created {{ version.created_at | localdt }}</p>
     <pre>{{ strategy }}</pre>
     {% else %}
     <p class="empty">No version is attached to this player yet.</p>

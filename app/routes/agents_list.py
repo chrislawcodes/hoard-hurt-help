@@ -12,7 +12,8 @@ from starlette.responses import Response
 from app.deps import DbSession, require_user_with_handle
 from app.engine.connection_health import (
     ConnectionHealth,
-    enabled_provider_values_on_nonpaused_connections,
+    ProviderReadiness,
+    user_play_readiness,
 )
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -22,7 +23,6 @@ from app.routes.agents_health_presenter import (
     _count_agent_matches_for_agents,
     _readiness_state,
 )
-from app.routes.connections_setup import _provider_label
 from app.templating import templates
 
 router = APIRouter()
@@ -51,19 +51,17 @@ async def list_agents(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
     agents = await _load_user_agents(db, user.id)
-    setup_provider_values = await enabled_provider_values_on_nonpaused_connections(
-        db, user.id
-    )
     match_counts = await _count_agent_matches_for_agents(
         db, [agent.id for agent, _ in agents]
     )
+    # Agents are provider-agnostic, so readiness is the same for all of them:
+    # whether the user has any live connection. Compute it once.
+    readiness = await user_play_readiness(db, user.id)
     rows: list[AgentRow] = []
     for agent, version in agents:
-        provider = agent.provider
-        provider_label = _provider_label(provider) if provider is not None else None
-        connect_url = (
-            f"/me/connections?provider={provider.value}" if provider is not None else None
-        )
+        # No per-agent provider any more; the connect CTA is generic.
+        provider_label = None
+        connect_url = "/me/connections"
         if agent.status == AgentStatus.PAUSED:
             health: object = {
                 "state": ConnectionHealth.PAUSED,
@@ -79,7 +77,8 @@ async def list_agents(
                 "agent_count": 0,
             }
             needs_connecting = False
-        elif provider is None or provider.value not in setup_provider_values:
+        elif readiness == ProviderReadiness.NO_MCP_CONNECTION:
+            # NO_MCP_CONNECTION: no recent MCP setup at all → needs connecting.
             health = {
                 "state": ConnectionHealth.DISCONNECTED,
                 "label": "Needs connecting",
@@ -94,6 +93,8 @@ async def list_agents(
                 "agent_count": 0,
             }
         else:
+            # Any rung above NO_MCP_CONNECTION means the provider has a current
+            # MCP setup (CONNECTED_NOT_LIVE / SEEN_NOT_POLLING / LIVE) → ready.
             health = {
                 "state": ConnectionHealth.READY,
                 "label": "Ready",

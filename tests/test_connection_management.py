@@ -352,7 +352,7 @@ async def test_connections_list_shows_inline_setup_and_no_provider_picker(
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
     # One unified setup prompt, inline, using the single connector download. The
-    # connector is now the secondary "always-on" option below the Mode A flow.
+    # connector is now the secondary "always-on" option below the MCP flow.
     assert "always-on connector" in resp.text
     assert "Name this machine" in resp.text
     assert "Paste this to your AI assistant:" in resp.text
@@ -389,7 +389,8 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     # The connect step reads as numbered sub-steps (paste in terminal / sign in).
     assert "Connect your AI provider" in text
     assert "Paste this in your terminal" in text
-    assert "Sign in with Google" in text
+    # Every provider's step guides a Google sign-in (titles vary by client now).
+    assert "Google sign-in" in text
     # Hero "add the server" command for Claude Code, OAuth-shaped (no key, no
     # chained play one-liner — the real flow is add → sign in → reload → paste).
     assert "claude mcp add --transport http agentludum" in text
@@ -401,26 +402,35 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     assert "X-Connection-Key" not in connect_block
     assert "sk_conn_" not in connect_block
     assert "--header" not in connect_block
-    # Codex renders as one copyable terminal command (add + login in a single
-    # paste), not a file edit and not two blocks — its sign-in is bundled in.
+    # Codex: step 1 is a single `mcp add` command (which does the OAuth itself —
+    # no `mcp login`, that just starts a second redundant sign-in). Step 2 is the
+    # full play prompt pasted into a fresh Codex session, which fires the connect
+    # handshake AND starts the poll loop in one go.
     codex_block = text.split("byo-panel-codex", 1)[1].split("</section>", 1)[0]
     assert "codex mcp add agentludum --url" in codex_block
-    assert "codex mcp login agentludum" in codex_block
+    assert "codex mcp login agentludum" not in codex_block  # no redundant login
     assert "config.toml" not in codex_block
     assert "X-Connection-Key" not in codex_block
     assert "sk_conn_" not in codex_block
-    assert "byo-signin-codex" not in codex_block  # no separate sign-in block
+    # Step 2 carries the play prompt as a copyable block.
+    assert "byo-signin-codex" in codex_block
+    assert "agentludum MCP tools" in codex_block
     # The Copy button sits to the RIGHT of the command text (text before button).
     assert codex_block.index("byo-cmd-text") < codex_block.index("byo-cmd-btn")
-    # Claude Code is the default (first) tab — the audience default. Codex carries
-    # an "Easiest" badge as the zero-/mcp path.
+    # Claude Code is the default (first) tab — the audience default.
     assert text.index('for="byo-tab-claude-code"') < text.index('for="byo-tab-codex"')
-    assert "byo-easiest-badge" in text
+    # No provider carries an "Easiest" badge anymore.
+    assert "byo-easiest-badge" not in text
     # Claude Code needs a second paste to sign in: the /mcp chip. Its step-2
     # heading names the real action (paste /mcp into Claude Code), not the effect.
     assert "byo-signin-claude-code" in connect_block
     assert "/mcp" in connect_block
     assert "In Claude Code, paste /mcp" in connect_block
+    # Gemini gets the real /mcp auth slash command, not a vague NL prompt that
+    # doesn't trigger sign-in (and that wrongly asked Gemini to approve the OAuth).
+    gemini_block = text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
+    assert "In Gemini, run /mcp auth agentludum" in gemini_block
+    assert "/mcp auth agentludum" in gemini_block
     # All four clients are offered; Cursor dropped.
     assert 'for="byo-tab-claude-code"' in text
     assert 'for="byo-tab-codex"' in text
@@ -440,7 +450,7 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
 async def test_connections_list_returning_state_shows_play_prompt(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """RETURNING user (connected before, nothing live now): lead with the Mode A
+    """RETURNING user (connected before, nothing live now): lead with the MCP connection
     play-prompt (the recurring action); the full add-server setup is collapsed."""
     async with session_factory() as db:
         user = await _make_user(db)
@@ -454,13 +464,15 @@ async def test_connections_list_returning_state_shows_play_prompt(
     text = resp.text
 
     assert "Start playing" in text
-    # The Mode A play-prompt leads the returning state.
+    # The MCP play prompt leads the returning state.
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
-    assert "never ask me for a key or token" in text
-    # The recovery nudge for returning users whose connection went to sleep:
-    # if the AI can't find the tools, reconnect below.
-    assert "can't find the game tools" in text
+    assert "next_poll_after_seconds" in text
     assert "Reconnect below" in text
+    assert "get_instructions" in text
+    removed_tool = "get_" + "opponent_history"
+    removed_stats_tool = "get_" + "standings"
+    assert removed_tool not in text
+    assert removed_stats_tool not in text
     # Full setup collapsed behind the "✓ Set up" disclosure.
     assert "✓ Set up" in text
     # Not live → still waiting; not the live block.
@@ -497,7 +509,12 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
     # Leads with the play-prompt code block — the one thing to do now.
     assert "Tell your AI to play" in text
     assert "You are playing Hoard Hurt Help through the agentludum MCP tools." in text
-    assert "Negotiator · claude-haiku-4-5" in text
+    assert "Negotiator" in text
+    assert "get_instructions" in text
+    removed_tool = "get_" + "opponent_history"
+    removed_stats_tool = "get_" + "standings"
+    assert removed_tool not in text
+    assert removed_stats_tool not in text
     # No "Join a game" CTA — pasting the play-prompt is what starts play.
     assert "Join a game →" not in text
     # Not yet playing → not the success box, and not nudging to create an agent.
@@ -532,13 +549,15 @@ async def test_connections_list_playing_state_shows_success(
     assert "You can close this page" in text
     assert "byo-playing" in text
     assert "Watch your games →" in text
-    # The connect/play-prompt step is gone — and so is any Join button. (The
-    # always-on connector below has its own "Paste this…" copy, so check for the
-    # play-prompt block specifically, not that phrase.)
+    # The leading connect/play-prompt step is gone — and so is any Join button.
+    # Check for the live-status play-prompt block specifically (byo-play-prompt-live):
+    # the play-prompt text itself still appears in the collapsed Codex "Set up"
+    # picker (its step 2), so a global text-absence check would wrongly fail.
     assert "Tell your AI to play" not in text
     assert "byo-play-prompt-live" not in text
-    assert "You are playing Hoard Hurt Help through the agentludum MCP tools." not in text
     assert "Join a game →" not in text
+    # The free, server-rendered game-status line: this user has no game seated yet.
+    assert "No game yet" in text
 
 
 @pytest.mark.asyncio
@@ -619,7 +638,7 @@ async def test_connections_list_renders_existing_connection(
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
     assert "Your connections" in resp.text
-    # No mode_a_at on this connection, so it reads as the always-on connector kind.
+    # No mcp_connected_at on this connection, so it reads as the always-on connector kind.
     assert "Machine connection" in resp.text
     assert "My Claude" in resp.text
     assert "Manage →" in resp.text
@@ -972,16 +991,16 @@ async def test_detail_renders_provider_toggles_and_install_hint(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_detail_shows_read_only_provider_not_machine_toggles(
+async def test_mcp_connection_detail_shows_read_only_provider_not_machine_toggles(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """An MCP (Mode A) connection plays one provider via the AI client you signed
+    """An MCP connection plays one provider via the AI client you signed
     in with — so its detail page shows that provider read-only, NOT the machine
     multi-provider toggle box with CLI-detection language."""
     async with session_factory() as db:
         user = await _make_user(db)
         connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
-        connection.mode_a_at = datetime.now(timezone.utc)
+        connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
         conn_id = connection.id
 
@@ -1029,7 +1048,7 @@ async def test_connection_controls_live_in_status_card(
 
 
 @pytest.mark.asyncio
-async def test_mode_a_status_card_hides_rotate_key(
+async def test_mcp_connection_status_card_hides_rotate_key(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Rotate Key issues a fresh paste-in key — a machine idea. An MCP connection
@@ -1038,7 +1057,7 @@ async def test_mode_a_status_card_hides_rotate_key(
     async with session_factory() as db:
         user = await _make_user(db)
         connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
-        connection.mode_a_at = datetime.now(timezone.utc)
+        connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
         conn_id = connection.id
 

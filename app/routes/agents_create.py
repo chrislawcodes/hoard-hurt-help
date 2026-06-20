@@ -1,35 +1,25 @@
-"""The `/me/agents/new` create flow — name, model, and strategy a new agent.
+"""The `/me/agents/new` create flow — name and strategy a new agent.
 
-Owns name validation, the connection/provider lookups that decide which models
-the user can pick, the model-picker grouping, the GET form, and the POST that
-creates the Agent + its first AgentVersion.
+Owns name validation, the GET form, and the POST that creates the Agent + its
+first AgentVersion. Agents are decoupled from any AI model/provider — an agent
+is just a name + a strategy — so there is no model picker here.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import String, select
 from starlette.responses import Response
 
-from app.config import PROVIDER_MODELS, provider_for_model
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import (
-    enabled_provider_values,
-    enabled_provider_values_on_nonpaused_connections,
-)
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.connection import Connection, ConnectionProvider
 from app.models.user import User
-from app.routes.connections_setup import (
-    _provider_label,
-)
 from app.routes.web_support import safe_internal_next
 from app.templating import templates
 
@@ -61,57 +51,22 @@ def clean_agent_name(raw: str) -> str:
     return name
 
 
-async def _load_user_connections(db: DbSession, user_id: int) -> list[Connection]:
-    rows = (
-        await db.execute(
-            select(Connection)
-            .where(Connection.user_id == user_id, Connection.deleted_at.is_(None))
-            .order_by(Connection.created_at.desc(), Connection.id.desc())
-        )
-    )
-    return list(rows.scalars().all())
-
-
-def _build_model_picker_groups(
-    enabled_values: set[str], selected_model: str | None
-) -> tuple[list[dict[str, object]], str | None, list[dict[str, str]]]:
-    """Return grouped model options, the first selectable model, and per-provider
-    "connect this provider" notes for the ones that aren't connected yet.
-
-    Each note is a dict (provider label + value) so the template can render a real
-    "Connect {Provider} →" link carrying ?next, rather than dead prose.
+async def _load_existing_strategies(db: DbSession, user_id: int) -> list[dict[str, str]]:
+    """Current strategy text of the user's other agents, for the "start from an
+    existing agent" picker. Lets a user reuse a strategy they already wrote
+    instead of retyping it. Purely a client-side fill — nothing here is stored.
     """
-    groups: list[dict[str, object]] = []
-    notes: list[dict[str, str]] = []
-    first_enabled: str | None = None
-    first_any: str | None = None
-    for provider_value, models in PROVIDER_MODELS.items():
-        provider = ConnectionProvider(provider_value)
-        enabled = provider_value in enabled_values
-        options: list[dict[str, str]] = [{"value": model, "label": model} for model in models]
-        if options and first_any is None:
-            first_any = options[0]["value"]
-        if enabled and options and first_enabled is None:
-            first_enabled = options[0]["value"]
-        if not enabled:
-            notes.append(
-                {
-                    "provider_value": provider_value,
-                    "provider_label": _provider_label(provider),
-                }
-            )
-        groups.append(
-            {
-                "provider_value": provider_value,
-                "provider_label": _provider_label(provider),
-                "enabled": enabled,
-                "options": options,
-            }
+    rows = await db.execute(
+        select(Agent.name, AgentVersion.strategy_text)
+        .join(AgentVersion, AgentVersion.id == Agent.current_version_id)
+        .where(
+            Agent.user_id == user_id,
+            Agent.kind == AgentKind.AI,
+            Agent.archived_at.is_(None),
         )
-    selected = selected_model
-    if selected is None:
-        selected = first_enabled or first_any
-    return groups, selected, notes
+        .order_by(Agent.name)
+    )
+    return [{"name": name, "strategy": strategy} for name, strategy in rows.all()]
 
 
 @router.get("/new", response_class=HTMLResponse)
@@ -119,22 +74,13 @@ async def new_agent_form(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
-    provider: str | None = None,
     next: str | None = None,
 ) -> Response:
+    # Agents are decoupled from any AI model/provider: an agent is just a name +
+    # a strategy. Whatever AI client the user connects plays it, so there is no
+    # model to pick here.
     await gc_pending_connections(db)
-    connections = await _load_user_connections(db, user.id)
-    enabled_values = await enabled_provider_values(db, user.id)
-    requested_provider = provider.strip().lower() if provider and provider.strip() else None
-    selected_model = None
-    if requested_provider is not None:
-        for provider_value, models in PROVIDER_MODELS.items():
-            if provider_value == requested_provider and models:
-                selected_model = models[0]
-                break
-    model_groups, selected_model, availability_notes = _build_model_picker_groups(
-        enabled_values, selected_model
-    )
+    existing_strategies = await _load_existing_strategies(db, user.id)
     strategy_presets = [
         {
             "id": preset.id,
@@ -146,10 +92,7 @@ async def new_agent_form(
     ]
     context: dict[str, object] = {
         "user": user,
-        "connections": connections,
-        "model_groups": model_groups,
-        "selected_model": selected_model,
-        "availability_notes": availability_notes,
+        "existing_strategies": existing_strategies,
         "default_game": _DEFAULT_GAME,
         "default_strategy": get_game_module(_DEFAULT_GAME).default_strategy(),
         "strategy_presets": strategy_presets,
@@ -169,7 +112,6 @@ async def create_agent_or_connection(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     name: Annotated[str | None, Form()] = None,
-    model: Annotated[str | None, Form()] = None,
     strategy_text: Annotated[str | None, Form()] = None,
     strategy_preset: Annotated[str | None, Form()] = None,
     # Aliased to the "next" form field but named to avoid shadowing the next()
@@ -190,13 +132,6 @@ async def create_agent_or_connection(
         if existing is not None:
             raise HTTPException(status_code=409, detail="You already have an agent with that name.")
 
-        clean_model = (model or "").strip()
-        if not clean_model:
-            raise HTTPException(status_code=400, detail="Model is required.")
-        derived = provider_for_model(clean_model)
-        if derived is None:
-            raise HTTPException(status_code=400, detail="Unknown model.")
-        agent_provider = ConnectionProvider(derived)
         clean_strategy = (strategy_text or "").strip()
         if not clean_strategy and strategy_preset:
             preset = next(
@@ -209,9 +144,11 @@ async def create_agent_or_connection(
             )
             clean_strategy = preset.prompt if preset is not None else ""
         version_text = clean_strategy or get_game_module(_DEFAULT_GAME).default_strategy()
+        # No provider/model: the agent is name + strategy. Whatever AI the user
+        # has connected plays it.
         agent = Agent(
             user_id=user.id,
-            provider=agent_provider,
+            provider=None,
             kind=AgentKind.AI,
             name=clean_name,
             game=_DEFAULT_GAME,
@@ -222,28 +159,19 @@ async def create_agent_or_connection(
         version = AgentVersion(
             agent_id=agent.id,
             version_no=1,
-            model=clean_model,
+            model=None,
             strategy_text=version_text,
         )
         db.add(version)
         await db.flush()
         agent.current_version_id = version.id
         await db.commit()
+        # After creating an agent, go to wherever the user came from, else the
+        # lobby. We deliberately do NOT route to /me/connections: an agent no
+        # longer needs a provider set up to exist, and joining a game from the
+        # lobby already walks the user through connecting an AI if they haven't yet.
         next_url = safe_internal_next(next_after)
-        # If the provider is already set up (enabled on a non-paused connection),
-        # skip the connect step and continue to the next hop (or the agent detail
-        # page when no next was supplied). This matches the agent-list readiness
-        # signal (enabled, status-aware), not the stricter live-now window — a
-        # set-up-but-idle provider is woken by the Join held-seat flow, not here.
-        setup_providers = await enabled_provider_values_on_nonpaused_connections(
-            db, user.id
-        )
-        if agent_provider.value in setup_providers:
-            destination = next_url or f"/me/agents/{agent.id}"
-        else:
-            destination = f"/me/connections?provider={agent_provider.value}"
-            if next_url is not None:
-                destination += f"&next={quote(next_url, safe='')}"
+        destination = next_url or f"/games/{agent.game}"
         return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
 
     raise HTTPException(status_code=400, detail="Agent name is required.")

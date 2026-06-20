@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ display_name }} — Connections{% endblock %}
 {% block content %}
-<a class="backlink" href="/me/connections">← Connections</a>
 <div class="page-head">
     <h1>{{ display_name }}</h1>
     <p class="sub">
@@ -52,7 +51,7 @@
                     <h3>{{ row.agent.name }}</h3>
                     <p class="meta">
                         {{ row.agent.game }}
-                        {% if row.version %} · {{ row.version.model }} · v{{ row.version.version_no }}{% endif %}
+                        {% if row.version %} · v{{ row.version.version_no }}{% endif %}
                     </p>
                 </div>
             </article>
@@ -64,13 +63,13 @@
     {% if stranded_agents %}
     <div style="margin-top:1.5rem;">
         <h3 style="margin-top:0;">Agents waiting for a live connection</h3>
-        <p class="meta">No live connection currently covers these agents' providers — they'll resume the moment one comes up.</p>
+        <p class="meta">No live connection right now — they'll resume the moment one comes up.</p>
         {% for row in stranded_agents %}
         <article class="game-card">
             <div class="game-card-info">
                 <h3>{{ row.agent.name }}</h3>
                 <p class="meta">
-                    {{ row.agent.game }} · {{ row.agent.provider.value if row.agent.provider else "—" }}{% if row.version %} · {{ row.version.model }}{% endif %}
+                    {{ row.agent.game }}
                 </p>
             </div>
         </article>
@@ -80,15 +79,15 @@
 </details>
 
 <div class="card">
-{% if is_mode_a %}
+{% if is_mcp_connection %}
     {# MCP connection: the AI client you signed in with speaks for one provider.
        Read-only — no per-provider toggles and no local-CLI detection. To add a
        provider, connect another AI client (a separate sign-in / connection). #}
     <h3 style="margin-top:0;">AI provider</h3>
     <p class="meta">This is an MCP connection. The AI client you signed in with plays through it, and each client speaks for one AI provider. To play another provider, connect that provider's AI client — it becomes its own connection.</p>
-    {% if mode_a_providers %}
+    {% if mcp_connection_providers %}
     <div class="provider-row">
-        <span class="provider-name">{{ mode_a_providers | map(attribute='label') | join(', ') }}</span>
+        <span class="provider-name">{{ mcp_connection_providers | map(attribute='label') | join(', ') }}</span>
         <span class="provider-state"><span class="provider-detected">Playing</span></span>
     </div>
     {% else %}

@@ -10,8 +10,7 @@
                 {% if row.frozen %}<span class="badge">Frozen</span>{% endif %}
             </h4>
             <p class="meta">
-                {{ row.version.model }}
-                · {{ row.version.created_at | localdt }}
+                {{ row.version.created_at | localdt }}
                 · {{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}
                 {% if row.match_count > 0 %} · Rank {{ row.rank }}{% endif %}
             </p>

@@ -291,7 +291,7 @@ async def test_game_view_shows_prompt_window(
         cookies=_signed_in(user_id),
     )
     assert r.status_code == 200, r.text
-    assert "Open existing prompt" in r.text
+    assert 'id="coach-dialog-wrap"' in r.text
     assert "Existing prompt" in r.text
     assert "Course correction" in r.text
     assert "Play to win." in r.text

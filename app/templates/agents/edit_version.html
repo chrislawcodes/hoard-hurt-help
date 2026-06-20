@@ -14,18 +14,6 @@
 <div class="card">
     <form method="post" action="/me/agents/{{ agent.id }}/save-version" class="form">
         <label>
-            Model
-            {% if provider_models %}
-            <select name="model" required>
-                {% for candidate in provider_models %}
-                <option value="{{ candidate }}" {% if candidate == version.model %}selected{% endif %}>{{ candidate }}</option>
-                {% endfor %}
-            </select>
-            {% else %}
-            <input type="text" name="model" value="{{ version.model }}" required>
-            {% endif %}
-        </label>
-        <label style="margin-top:0.75rem;">
             Strategy
             <textarea name="strategy_text" rows="10" maxlength="2000" required>{{ version.strategy_text }}</textarea>
             <small class="hint">The game also supplies shared rules and response instructions. <a href="/games/{{ agent.game }}/agent-instructions">View base instructions</a>.</small>

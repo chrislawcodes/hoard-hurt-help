@@ -1,0 +1,4 @@
+{
+  "session_id": "manual-subagent-fallback",
+  "response": "Manual independent sub-agent testability-adversarial pass (gemini CLI unavailable). Verdict: PASS-WITH-CHANGES. Testability findings: (1) the 'grep for select(/db.execute' verification is meaningless since queries live in callees — replace with a before_cursor_execute SQL-counter asserting <=3 queries; (2) missing non-MCP (hermes/openclaw) boundary tests, load-bearing given the cascade-order fix; (3) /play has no named redirect-Location test despite being a spec §4 ⚠ change; (4) agent-list and agent-detail ⚠ badge swaps have no named before/after tests; (5) confirm_seat_if_live<->resolver LIVE parity test must cover all four states incl. non-MCP stale-seen-but-polling, not one happy path; (6) add provider IS NULL / kind=bot / archived exclusion tests and a mixed MCP+non-MCP reduction test. All folded into the plan's slice test lists and residual-risk verifications."
+}

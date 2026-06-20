@@ -16,10 +16,12 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.deps import DbSession
+from app.engine.agent_idle import GameTiming, game_timing_for_user
 from app.engine.connection_health import (
     LIVE_WINDOW_SECONDS,
     ConnectionHealth,
     compute_connection_health,
+    provider_uses_mcp_connection,
 )
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -37,10 +39,10 @@ class AgentRow:
 
 
 def _connection_display_name(connection: Connection) -> str:
-    # A Mode A connection is one MCP client, which speaks for exactly one AI
+    # A MCP connection is one MCP client, which speaks for exactly one AI
     # provider — so it is named by that provider (Claude, OpenAI…), never
     # user-nicknamed. (Nicknaming is a machine idea: you name your computer.)
-    if connection.mode_a_at:
+    if connection.mcp_connected_at:
         if connection.provider is not None:
             return PROVIDER_LABELS.get(
                 connection.provider.value, connection.provider.value.title()
@@ -74,22 +76,8 @@ async def _load_user_agents(db: DbSession, user_id: int) -> list[AgentRow]:
 
 
 async def _load_attached_agents(db: DbSession, connection: Connection) -> list[AgentRow]:
-    """Agents this machine COVERS: the user's active AI agents whose provider is
-    enabled on this connection (agents are no longer attached to a connection)."""
-    enabled = (
-        (
-            await db.execute(
-                select(ConnectionProviderRow.provider).where(
-                    ConnectionProviderRow.connection_id == connection.id,
-                    ConnectionProviderRow.enabled.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not enabled:
-        return []
+    """Agents this machine COVERS: all the user's active AI agents. Any connection
+    can serve any agent now, so a connection covers everything its owner has."""
     rows = (
         (
             await db.execute(
@@ -99,7 +87,6 @@ async def _load_attached_agents(db: DbSession, connection: Connection) -> list[A
                     Agent.user_id == connection.user_id,
                     Agent.kind == AgentKind.AI,
                     Agent.archived_at.is_(None),
-                    Agent.provider.in_(enabled),
                 )
                 .order_by(Agent.name)
             )
@@ -110,27 +97,27 @@ async def _load_attached_agents(db: DbSession, connection: Connection) -> list[A
 
 
 async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
-    """Active AI agents whose provider is enabled on NO live connection — they
-    are waiting for a machine to come up that covers them."""
+    """Active AI agents waiting for an AI to come online.
+
+    Agents are provider-agnostic, so "stranded" is now all-or-nothing: if the
+    user has ANY live connection, nothing is stranded; if they have none, every
+    active agent is waiting for one."""
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=LIVE_WINDOW_SECONDS)
-    live_providers = set(
-        (
-            await db.execute(
-                select(ConnectionProviderRow.provider)
-                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
-                .where(
-                    ConnectionProviderRow.enabled.is_(True),
-                    Connection.user_id == user_id,
-                    Connection.deleted_at.is_(None),
-                    Connection.status != ConnectionStatus.PAUSED,
-                    Connection.last_seen_at.is_not(None),
-                    Connection.last_seen_at >= cutoff,
-                )
+    has_live_connection = (
+        await db.execute(
+            select(Connection.id)
+            .where(
+                Connection.user_id == user_id,
+                Connection.deleted_at.is_(None),
+                Connection.status != ConnectionStatus.PAUSED,
+                Connection.last_seen_at.is_not(None),
+                Connection.last_seen_at >= cutoff,
             )
+            .limit(1)
         )
-        .scalars()
-        .all()
-    )
+    ).first() is not None
+    if has_live_connection:
+        return []
     rows = (
         (
             await db.execute(
@@ -147,11 +134,7 @@ async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
         )
         .all()
     )
-    return [
-        AgentRow(agent=agent, version=version)
-        for agent, version in rows
-        if agent.provider not in live_providers
-    ]
+    return [AgentRow(agent=agent, version=version) for agent, version in rows]
 
 
 async def _load_connection_providers(
@@ -188,13 +171,10 @@ async def _load_owned_connection(db: DbSession, user: User, connection_id: int) 
 
 
 def _summarize_agent(agents: list[AgentRow]) -> tuple[bool, str | None]:
-    """Whether the user has an AI agent and the "name · model" summary of the first."""
+    """Whether the user has an AI agent, and the name of the first one."""
     if not agents:
         return False, None
-    first = agents[0]
-    model = first.version.model if first.version is not None else None
-    summary = f"{first.agent.name} · {model}" if model else first.agent.name
-    return True, summary
+    return True, agents[0].agent.name
 
 
 async def _live_status_context(
@@ -228,6 +208,8 @@ async def _live_status_context(
             ConnectionProviderRow.provider == provider,
             ConnectionProviderRow.enabled.is_(True),
         )
+        if provider_uses_mcp_connection(provider):
+            conn_query = conn_query.where(Connection.mcp_connected_at.is_not(None))
     connections = (
         (
             await db.execute(
@@ -249,9 +231,13 @@ async def _live_status_context(
                 is_playing_now = True
                 break
     has_agent, agent_summary = _summarize_agent(await _load_user_agents(db, user.id))
+    # The free, server-rendered "what's my AI waiting for" line — so the human
+    # reads game timing off the page, not off the (paid) AI's narration.
+    next_game_status = _next_game_line(await game_timing_for_user(db, user.id))
     return {
         "is_live_now": is_live_now,
         "is_playing_now": is_playing_now,
+        "next_game_status": next_game_status,
         "has_agent": has_agent,
         "agent_summary": agent_summary,
         "play_prompt": _play_prompt(),
@@ -260,3 +246,15 @@ async def _live_status_context(
         # (a join hub sent the user to start their machine). None = stay put.
         "next_url": next_url,
     }
+
+
+def _next_game_line(timing: GameTiming) -> str:
+    """One plain line for the status box: what the running AI is waiting on."""
+    if timing.has_live_game:
+        return "A game is live now — your AI is playing it."
+    seconds = timing.seconds_to_next_start
+    if seconds is not None:
+        if seconds < 90:
+            return "Your next game is starting now."
+        return f"Your next game starts in about {round(seconds / 60)} min."
+    return "No game yet — join one and your AI will jump in."

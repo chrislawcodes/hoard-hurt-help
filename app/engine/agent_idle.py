@@ -1,10 +1,10 @@
 """Idle / no-game detection and poll pacing for the connection-scoped next-turn
 endpoint.
 
-The "running AI" (Claude / Codex / Gemini following the self-setup play-prompt, or
-the always-on connector) polls ``get_next_turn`` in a loop. The server decides how
-soon it should ask again — the AI just obeys the number. Every "ask" by a
-pasted-in AI is a paid model think, so the goal is: ask as rarely as possible
+The "running AI" (an MCP client following the play prompt, or the always-on
+connector) polls ``get_next_turn`` in a loop. The server decides how
+soon it should ask again — the AI just obeys the number. Every "ask" by an
+interactive client is a paid model think, so the goal is: ask as rarely as possible
 without missing a turn.
 
 Two regimes, paced off the SOONEST game the caller is seated in:
@@ -56,7 +56,9 @@ IDLE_STOP_SECONDS = 600
 # cleanly rather than being cut by an intermediary.
 LONG_POLL_HOLD_SECONDS = 40
 # How often, inside a hold, to re-check the DB for a freshly opened turn.
-LONG_POLL_INTERVAL_SECONDS = 1.0
+# 5s is plenty: turns carry a 60-second deadline, so worst-case detection lag
+# is 5s. Tighter intervals multiply DB load across concurrent MCP sessions.
+LONG_POLL_INTERVAL_SECONDS = 5.0
 
 # In a live game (or the final approach to a start), after a hold returns nothing,
 # ask again this soon — a turn can open any moment.
@@ -78,6 +80,22 @@ _HAS_GAME_STATES = (
     GameState.REGISTERING,
 )
 _UPCOMING_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
+
+
+@dataclass(frozen=True)
+class GameTiming:
+    """What games the user has right now and how soon the soonest one starts.
+
+    The raw facts behind both the loop's pacing and the on-page status line — so
+    the two can never disagree about "you have a game / it starts in N seconds."
+    """
+
+    has_game: bool
+    # Any seated game in the ACTIVE state — a turn could open any second.
+    has_live_game: bool
+    # Seconds until the soonest scheduled/registering game starts, floored at 0.
+    # ``None`` when no upcoming game is scheduled (no game, or only live games).
+    seconds_to_next_start: int | None
 
 
 @dataclass(frozen=True)
@@ -129,26 +147,59 @@ def pace_idle(idle: IdleStatus) -> tuple[float, int]:
 
 
 async def _seated_game_states(
-    db: AsyncSession, user_id: int
+    db: AsyncSession, user_id: int, *, agent_id: int | None = None
 ) -> list[tuple[GameState, datetime | None]]:
     """The (state, scheduled_start) of every live-or-upcoming game the user's
-    active AI agents are seated in."""
-    rows = (
-        await db.execute(
-            select(Match.state, Match.scheduled_start)
-            .join(Player, Player.match_id == Match.id)
-            .join(Agent, Agent.id == Player.agent_id)
-            .where(
-                Agent.user_id == user_id,
-                Agent.kind == AgentKind.AI,
-                Agent.status == AgentStatus.ACTIVE,
-                Agent.archived_at.is_(None),
-                Player.left_at.is_(None),
-                Match.state.in_(_HAS_GAME_STATES),
-            )
+    active AI agents are seated in.
+
+    When ``agent_id`` is given, restrict to that one agent — so a per-agent loop
+    paces off ITS own soonest game, not the whole connection's busiest agent.
+    """
+    stmt = (
+        select(Match.state, Match.scheduled_start)
+        .join(Player, Player.match_id == Match.id)
+        .join(Agent, Agent.id == Player.agent_id)
+        .where(
+            Agent.user_id == user_id,
+            Agent.kind == AgentKind.AI,
+            Agent.status == AgentStatus.ACTIVE,
+            Agent.archived_at.is_(None),
+            Player.left_at.is_(None),
+            Match.state.in_(_HAS_GAME_STATES),
         )
-    ).all()
+    )
+    if agent_id is not None:
+        stmt = stmt.where(Agent.id == agent_id)
+    rows = (await db.execute(stmt)).all()
     return [(state, start) for state, start in rows]
+
+
+async def game_timing_for_user(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    now: datetime | None = None,
+    agent_id: int | None = None,
+) -> GameTiming:
+    """The user's live-or-upcoming game picture: do they have a game, is one live,
+    and how soon does the soonest scheduled one start.
+
+    Shared by the play loop's pacing and the on-page "next game" status line, so
+    both read the same truth. Pass ``agent_id`` to scope to one agent.
+    """
+    now = now or datetime.now(timezone.utc)
+    games = await _seated_game_states(db, user_id, agent_id=agent_id)
+    has_live = any(state == GameState.ACTIVE for state, _ in games)
+    starts = [
+        max(0, int((ensure_aware(start) - now).total_seconds()))
+        for state, start in games
+        if state in _UPCOMING_STATES and start is not None
+    ]
+    return GameTiming(
+        has_game=bool(games),
+        has_live_game=has_live,
+        seconds_to_next_start=min(starts) if starts else None,
+    )
 
 
 async def _last_activity_at(db: AsyncSession, connection: Connection) -> datetime:
@@ -176,7 +227,7 @@ async def _last_activity_at(db: AsyncSession, connection: Connection) -> datetim
     if last_submit is not None:
         return ensure_aware(last_submit)
     fallback = (
-        connection.mode_a_at
+        connection.mcp_connected_at
         or connection.first_connected_at
         or connection.created_at
     )
@@ -184,27 +235,31 @@ async def _last_activity_at(db: AsyncSession, connection: Connection) -> datetim
 
 
 async def compute_idle_status(
-    db: AsyncSession, connection: Connection, *, now: datetime | None = None
+    db: AsyncSession,
+    connection: Connection,
+    *,
+    now: datetime | None = None,
+    agent_id: int | None = None,
 ) -> IdleStatus:
     """Resolve whether the caller has a game, how soon the soonest one starts, and
     — when there's no game — how long it's been idle.
 
     ``should_stop`` is only ever True when there's NO game and the idle window has
     elapsed; a client with a game live or scheduled is never told to stop.
+
+    When ``agent_id`` is given (a per-agent loop), the game picture is scoped to
+    that agent, so its pacing follows its own soonest game — not a busier sibling
+    agent on the same connection.
     """
     now = now or datetime.now(timezone.utc)
-    games = await _seated_game_states(db, connection.user_id)
-    if games:
-        has_live = any(state == GameState.ACTIVE for state, _ in games)
-        starts = [
-            max(0, int((ensure_aware(start) - now).total_seconds()))
-            for state, start in games
-            if state in _UPCOMING_STATES and start is not None
-        ]
+    timing = await game_timing_for_user(
+        db, connection.user_id, now=now, agent_id=agent_id
+    )
+    if timing.has_game:
         return IdleStatus(
             has_game=True,
-            has_live_game=has_live,
-            seconds_to_next_start=min(starts) if starts else None,
+            has_live_game=timing.has_live_game,
+            seconds_to_next_start=timing.seconds_to_next_start,
             idle_seconds=0,
             should_stop=False,
             stop_reason=None,

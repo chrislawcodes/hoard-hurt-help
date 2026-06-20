@@ -3,7 +3,6 @@
 {% block content %}
 {% include "fragments/analysis_styles.html" %}
 
-<p class="crumb"><a href="/games/{{ game.game }}/matches/{{ game.id }}">← Watch {{ game.name }}</a></p>
 <div class="an-head">
   <h1>Analysis · {{ game.name }}</h1>
   <span class="an-state">{{ game.state.value | capitalize }} · Round {{ game.current_round }}/{{ game.total_rounds }}</span>

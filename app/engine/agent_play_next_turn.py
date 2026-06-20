@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import cast
+from typing import Any, cast
 
 from sqlalchemy import false, or_, select, update
 from sqlalchemy.engine import CursorResult
@@ -29,6 +29,7 @@ from app.engine.agent_idle import (
 )
 from app.engine.connection_activity import mark_polled
 from app.engine.agent_play_reads import (
+    RECENT_HISTORY_TURNS,
     _build_current_turn,
     _group_into_turns,
     _load_public_action_records,
@@ -47,7 +48,7 @@ from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import Match, GameState
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
+from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -153,16 +154,18 @@ async def _collect_candidates(
                 connection.id,
             )
             continue
-        if agent.provider is None:
-            logger.warning("next-turn: AI agent %s has no provider; skipping", agent.id)
-            continue
         pin = TurnPin(
             served_by_connection_id=player.served_by_connection_id,
             served_pinned_at=player.served_pinned_at,
         )
+        # Route by the AI the user picked for this seat: only a connection that
+        # covers the seat's chosen provider may claim it. The sticky pin (handled
+        # inside) still keeps a single connection serving a seat once it starts.
+        # Legacy seats with no chosen provider (None) fall back to "any
+        # connection" so pre-feature in-flight games keep playing.
         if not can_connection_claim_turn(
             polling_state,
-            agent.provider,
+            player.chosen_provider,
             pin,
             now=now,
             connections_by_id=connections_by_id,
@@ -200,6 +203,24 @@ async def _collect_candidates(
         ).first()
         if existing is not None:
             continue
+        # Talk-phase symmetry with the act check above: a player who has already
+        # broadcast their talk message has nothing left to do until the act phase
+        # opens. Without this, every poll during the talk->act gap re-serves the
+        # same full turn payload (entire history included), which bloats the AI's
+        # context and trips client-side loop detectors. Skip it so the loop
+        # long-polls and serves the act phase once, when it actually opens.
+        if turn.phase == "talk":
+            existing_message = (
+                await db.execute(
+                    select(TurnMessage.id).where(
+                        TurnMessage.turn_id == turn.id,
+                        TurnMessage.player_id == player.id,
+                        TurnMessage.was_defaulted.is_(False),
+                    )
+                )
+            ).first()
+            if existing_message is not None:
+                continue
         candidates.append(
             TurnCandidate(
                 match_id=match_id,
@@ -216,6 +237,122 @@ async def _collect_candidates(
         "latest_turn_by_match": latest_turn_by_match,
         "dead_ids": dead_ids,
     }
+
+
+async def agent_identity_for(
+    db: AsyncSession,
+    connection: Connection,
+    *,
+    agent_id: int | None = None,
+    match_id: str | None = None,
+) -> tuple[Match | None, str | None, list[Any], str | None]:
+    """Resolve one active agent's match, identity, targets, and strategy.
+
+    This is for the MCP instructions flow, not turn claiming. It looks at the
+    user's active AI agents and their live or upcoming matches, but it never
+    claims a turn and it does not depend on an open turn window.
+    """
+
+    active_agent_ids = sorted(
+        (
+            await db.execute(
+                select(Agent.id).where(
+                    Agent.user_id == connection.user_id,
+                    Agent.kind == AgentKind.AI,
+                    Agent.status == AgentStatus.ACTIVE,
+                    Agent.archived_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not active_agent_ids:
+        return None, None, [], None
+    if agent_id is None and len(active_agent_ids) > 1:
+        return None, None, active_agent_ids, None
+
+    selected_agent_id = agent_id or active_agent_ids[0]
+    if selected_agent_id not in active_agent_ids:
+        return None, None, [], None
+
+    candidate_rows = (
+        await db.execute(
+            select(Agent, Player, Match, AgentVersion)
+            .join(Player, Player.agent_id == Agent.id)
+            .join(Match, Match.id == Player.match_id)
+            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+            .where(
+                Agent.user_id == connection.user_id,
+                Agent.kind == AgentKind.AI,
+                Agent.status == AgentStatus.ACTIVE,
+                Agent.archived_at.is_(None),
+                Player.left_at.is_(None),
+                Match.state.in_(
+                    [GameState.ACTIVE, GameState.SCHEDULED, GameState.REGISTERING]
+                ),
+            )
+        )
+    ).all()
+    if not candidate_rows:
+        return None, None, [], None
+
+    rows_by_match_id: dict[str, list[tuple[Agent, Player, Match, AgentVersion | None]]] = {}
+    for row in candidate_rows:
+        agent, player, match, version = row
+        rows_by_match_id.setdefault(match.id, []).append((agent, player, match, version))
+
+    match_rows = [
+        rows
+        for rows in rows_by_match_id.values()
+        if any(agent.id == selected_agent_id for agent, _player, _match, _version in rows)
+    ]
+    if not match_rows:
+        return None, None, [], None
+    if match_id is not None:
+        match_rows = [rows for rows in match_rows if rows[0][2].id == match_id]
+        if not match_rows:
+            return None, None, [], None
+
+    ranked_rows: list[tuple[tuple[object, ...], list[tuple[Agent, Player, Match, AgentVersion | None]]]] = []
+    for rows in match_rows:
+        _agent, _player, match, _version = rows[0]
+        current_turn = None
+        if match.state == GameState.ACTIVE:
+            current_turn = (
+                await db.execute(
+                    select(Turn)
+                    .where(
+                        Turn.match_id == match.id,
+                        Turn.resolved_at.is_(None),
+                    )
+                    .order_by(Turn.round.desc(), Turn.turn.desc(), Turn.id.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+        if current_turn is not None:
+            when = ensure_aware(current_turn.deadline_at)
+        elif match.scheduled_start is not None:
+            when = ensure_aware(match.scheduled_start)
+        else:
+            when = datetime.max.replace(tzinfo=timezone.utc)
+        ranked_rows.append(((0 if match.state == GameState.ACTIVE else 1, when, match.id), rows))
+
+    selected_rows = min(ranked_rows, key=lambda item: item[0])[1]
+    match = selected_rows[0][2]
+    your_player = next(
+        (player for agent, player, _match, _version in selected_rows if agent.id == selected_agent_id),
+        None,
+    )
+    version = next(
+        (version for agent, _player, _match, version in selected_rows if agent.id == selected_agent_id and version is not None),
+        None,
+    )
+    if your_player is None or version is None:
+        return None, None, [], None
+    seat_name_by_agent_id = {player.agent_id: player.seat_name for _agent, player, _match, _version in selected_rows}
+    all_agent_ids = sorted(seat_name_by_agent_id.values())
+    return match, seat_name_by_agent_id[your_player.agent_id], all_agent_ids, version.strategy_text
 
 
 async def _claim_pin(
@@ -242,7 +379,14 @@ async def _claim_pin(
                     else false(),
                 ),
             )
-            .values(served_by_connection_id=connection.id, served_pinned_at=now)
+            .values(
+                served_by_connection_id=connection.id,
+                served_pinned_at=now,
+                # The AI that actually played this seat is the one the user picked
+                # (routing guarantees the serving connection covers it). Stamping
+                # it on first claim drives the public "played by …" badge.
+                played_provider=player.chosen_provider,
+            )
         ),
     )
     return claim.rowcount == 1
@@ -266,7 +410,13 @@ async def _build_turn_payload(
         (await db.execute(select(Player).where(Player.match_id == match.id))).scalars().all()
     )
     seat_name_by_agent_id = {player.agent_id: player.seat_name for player in all_players}
-    history = _group_into_turns(await _load_public_action_records(db, match.id, all_players))
+    # Rolling window, not the whole transcript: this payload is re-served on every
+    # poll, so it must stay small (full history is reachable on demand instead).
+    history = _group_into_turns(
+        await _load_public_action_records(
+            db, match.id, all_players, recent_turns=RECENT_HISTORY_TURNS
+        )
+    )
     scoreboard = [
         {
             "agent_id": seat_name_by_agent_id[p.agent_id],
@@ -305,7 +455,9 @@ async def _build_turn_payload(
         "game": match.game,
         "agent_id": agent.id,
         "agent_name": agent.name,
-        "provider": agent.provider.value if agent.provider is not None else None,
+        # The AI the user picked for this seat — the connector reads this to run
+        # the matching CLI; an MCP client ignores it and just plays as itself.
+        "provider": player.chosen_provider,
         "model": version.model,
         "strategy": version.strategy_text,
         "version_no": version.version_no,
@@ -355,7 +507,13 @@ def _idle_payload(idle: IdleStatus, *, waiting_poll_hint: int) -> dict[str, obje
     always-on connector ignores ``should_stop`` and keeps running by design.
     """
     if idle.has_game:
-        return {"status": "waiting", "next_poll_after_seconds": waiting_poll_hint}
+        waiting: dict[str, object] = {
+            "status": "waiting",
+            "next_poll_after_seconds": waiting_poll_hint,
+        }
+        if idle.seconds_to_next_start is not None:
+            waiting["next_game_starts_in_seconds"] = idle.seconds_to_next_start
+        return waiting
     payload: dict[str, object] = {
         "status": "no_game",
         "next_poll_after_seconds": waiting_poll_hint,
@@ -392,7 +550,8 @@ async def get_next_turn(
 
     # No turn right now. Pace off the soonest game: a live (or imminent) game
     # long-polls; everything else gets a plain "wait N seconds" and returns at once.
-    idle = await compute_idle_status(db, connection, now=now)
+    # Scope to agent_id when a per-agent loop asks, so it paces off its own game.
+    idle = await compute_idle_status(db, connection, now=now, agent_id=agent_id)
     hold_seconds, next_poll = pace_idle(idle)
     if max_hold_seconds is not None:
         hold_seconds = min(hold_seconds, max_hold_seconds)
@@ -406,16 +565,20 @@ async def get_next_turn(
 
     loop = asyncio.get_event_loop()
     deadline = loop.time() + hold_seconds
-    while loop.time() < deadline:
-        await asyncio.sleep(
-            max(0.0, min(LONG_POLL_INTERVAL_SECONDS, deadline - loop.time()))
-        )
-        async with db_module.SessionLocal() as check_db:
+    # One session for the whole hold — no repeated open/close per tick.
+    # populate_existing forces each re-query to reflect the live DB row even
+    # though the identity map has the Connection from earlier in this session.
+    async with db_module.SessionLocal() as check_db:
+        while loop.time() < deadline:
+            await asyncio.sleep(
+                max(0.0, min(LONG_POLL_INTERVAL_SECONDS, deadline - loop.time()))
+            )
             fresh = (
                 await check_db.execute(
                     select(Connection)
                     .options(joinedload(Connection.user).load_only(User.disabled_at))
                     .where(Connection.id == connection_id)
+                    .execution_options(populate_existing=True)
                 )
             ).scalar_one_or_none()
             if (
@@ -428,14 +591,21 @@ async def get_next_turn(
             served = await _serve_one_turn(
                 check_db, fresh, datetime.now(timezone.utc), agent_id=agent_id
             )
-        if served is not None:
-            return served
+            if served is not None:
+                return served
 
     return {"status": "waiting", "next_poll_after_seconds": next_poll}
 
 
 async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, object]:
     now = datetime.now(timezone.utc)
+    # Play-loop heartbeat: calling get_next_turns is the AI actively polling for
+    # work, exactly like get_next_turn. Stamp it (throttled) BEFORE collecting, so
+    # an agent that only ever discovers turns through this fan-out endpoint — e.g.
+    # one waiting for its first match to start — still counts as LIVE. Without this,
+    # last_polled_at never advances on the discovery path, provider_readiness never
+    # reaches LIVE, and a held seat's connect page waits forever.
+    await mark_polled(db, connection, now=now)
     candidates, ctx = await _collect_candidates(db, connection, now)
     ordered = sorted(
         candidates,

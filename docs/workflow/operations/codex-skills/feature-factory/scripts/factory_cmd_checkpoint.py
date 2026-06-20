@@ -90,6 +90,8 @@ from factory_next_action import recommended_next_action  # noqa: E402
 from workflow_utils import normalized_artifact_hash  # noqa: E402
 from factory_mutating import mutates_state  # noqa: E402
 
+MAX_ADVERSARIAL_ROUNDS = 3
+
 
 def _ensure_stage_state_blob(state: dict, stage: str) -> dict:
     stages = state.setdefault("stages", {})
@@ -479,6 +481,26 @@ def command_checkpoint(args: argparse.Namespace) -> int:
     with with_locked_state(args.slug) as state:
         stage_state = _ensure_stage_state_blob(state, args.stage)
         current_rounds = _stage_int(stage_state, "adversarial_rounds")
+        if current_rounds >= MAX_ADVERSARIAL_ROUNDS:
+            accept_cap: str = getattr(args, "accept_cap", None) or ""
+            if not accept_cap.strip():
+                print(
+                    f"checkpoint blocked: {args.stage} has already completed {current_rounds} adversarial "
+                    f"review round(s) — hard cap is {MAX_ADVERSARIAL_ROUNDS}.\n"
+                    f"If remaining findings are acceptable risk, rerun with:\n"
+                    f"  --accept-cap \"<one sentence explaining why you're proceeding>\"",
+                    file=sys.stderr,
+                )
+                return 1
+            ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+            annotations = state.setdefault("annotations", [])
+            annotations.append({
+                "stage": args.stage,
+                "ts": ts,
+                "type": "cap_accepted",
+                "reason": accept_cap.strip(),
+                "rounds_at_cap": current_rounds,
+            })
         next_rounds = current_rounds + 1
         stage_state["adversarial_rounds"] = next_rounds
         stage_state["adversarial_sha_history"] = list(stage_state.get("adversarial_sha_history", []))

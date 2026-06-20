@@ -146,6 +146,17 @@ async def _make_connection(
         max_concurrent_games=max_concurrent_games,
         last_seen_at=last_seen_at,
         first_connected_at=first_connected_at,
+        mcp_connected_at=(
+            first_connected_at
+            or last_seen_at
+            if provider
+            in {
+                ConnectionProvider.CLAUDE,
+                ConnectionProvider.OPENAI,
+                ConnectionProvider.GEMINI,
+            }
+            else None
+        ),
     )
     db.add(conn)
     await db.flush()
@@ -531,7 +542,7 @@ async def test_agent_detail_shows_no_live_connection_when_never_connected(
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
-    assert "No live connection runs" in resp.text
+    assert "No live AI connection yet" in resp.text
 
 
 @pytest.mark.asyncio
@@ -549,7 +560,7 @@ async def test_agent_detail_shows_no_live_connection_when_cold(
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
-    assert "No live connection runs" in resp.text
+    assert "No live AI connection yet" in resp.text
 
 
 @pytest.mark.asyncio

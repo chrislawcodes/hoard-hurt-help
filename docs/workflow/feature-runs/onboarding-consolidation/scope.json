@@ -1,0 +1,11 @@
+{
+  "paths": [
+    "app/engine",
+    "app/routes"
+  ],
+  "allowed_dirty_paths": [
+    "app/engine",
+    "app/routes",
+    "docs/workflow/feature-runs/onboarding-consolidation"
+  ]
+}

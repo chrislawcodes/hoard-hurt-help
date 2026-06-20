@@ -1,4 +1,4 @@
-"""Assemble the bounded `TurnSummary` that the agent's get_turn now returns.
+"""Assemble the bounded `TurnSummary` that the agent's next-turn call now returns.
 
 Pure orchestration over `opponent_stats` and `board_signals`, plus the cheap
 parts (your situation, compressed standings, the last-turn delta, and the

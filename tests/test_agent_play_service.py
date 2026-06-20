@@ -201,3 +201,28 @@ async def test_next_turn_stamps_play_loop_heartbeat(reset_db):
             )
         ).scalar_one()
         assert refreshed.last_polled_at is not None
+
+
+@pytest.mark.asyncio
+async def test_next_turns_stamps_play_loop_heartbeat_when_waiting(reset_db):
+    """get_next_turns (the fan-out discovery call) is the AI running its play loop
+    too, so it must stamp the heartbeat (last_polled_at) EVEN when no turn is due.
+
+    Regression: a freshly connected agent waiting for its first match to start
+    polls only get_next_turns and gets "waiting" back. If that path doesn't stamp
+    last_polled_at, provider_readiness never reaches LIVE, the held seat never
+    auto-confirms, and the connect page waits forever.
+    """
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _key = await make_connection(db, user)
+        assert connection.last_polled_at is None
+        # No match or turn seeded → the AI is waiting, not serving a turn.
+        response = await agent_play.get_next_turns(db, connection)
+        assert response["status"] != "your_turn"
+        connection_id = connection.id
+    async with reset_db() as db:
+        refreshed = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+        assert refreshed.last_polled_at is not None

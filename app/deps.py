@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from fastapi import Depends, Header, HTTPException, Path, Query, Request, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -325,21 +325,13 @@ async def require_agent_player(
             )
 
     candidate_match_ids = match_id_candidates(match_id)
-    # An agent is no longer pinned to a connection. This connection may act for
-    # the agent in this match when it belongs to the same user AND the agent's
-    # stored provider is enabled on this connection (join connection_providers).
+    # Agents are no longer tied to a provider. This connection may act for the
+    # agent in this match whenever the agent belongs to the same user — any of a
+    # user's live connections can serve any of that user's agents.
     rows = (
         await db.execute(
             select(Player, Agent)
             .join(Agent, Agent.id == Player.agent_id)
-            .join(
-                ConnectionProviderRow,
-                and_(
-                    ConnectionProviderRow.connection_id == connection.id,
-                    ConnectionProviderRow.provider == Agent.provider,
-                    ConnectionProviderRow.enabled.is_(True),
-                ),
-            )
             .where(
                 Player.match_id.in_(candidate_match_ids),
                 Player.left_at.is_(None),

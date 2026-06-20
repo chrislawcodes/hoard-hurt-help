@@ -1,7 +1,7 @@
 """MCP server for Hoard Hurt Help.
 
 The MCP layer uses Google OAuth, resolves the signed-in user to the canonical
-Mode A connection, and calls the shared play service in-process.
+MCP connection, and calls the shared play service in-process.
 """
 
 from __future__ import annotations
@@ -16,36 +16,42 @@ from typing import Any, cast
 from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentAccessToken, Depends
 from fastmcp.server.auth.providers.google import GoogleProvider
-from fastmcp.server.dependencies import AccessToken, get_access_token, get_context
+from fastmcp.server.dependencies import (
+    AccessToken,
+    get_access_token,
+    get_context,
+    get_http_request,
+)
 from fastapi import HTTPException, status
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import SessionLocal
 from app.deps import assert_connection_usable, require_agent_player
 from app.engine.agent_play import (
+    agent_identity_for,
     chat_transcript,
     get_next_turn as play_get_next_turn,
     get_next_turns as play_get_next_turns,
-    opponent_history,
-    poll_turn,
-    standings,
     submit_action as play_submit_action,
     submit_talk as play_submit_talk,
-    turn_detail,
 )
 from app.engine.connection_activity import mark_seen
 from app.engine.mcp_client_identity import provider_from_client_name
-from app.engine.mode_a_connection import mode_a_connection_for
+from app.engine.mcp_connection import mcp_connection_for
+from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection, ConnectionProvider
+from app.models.match import Match
 from app.models.player import Player
 from app.models.user import User
 from app.routes.auth import sync_google_user
 from app.routes.spectator_api import public_state
 from app.schemas.auth import GoogleUserInfo
+from app.games import get as get_game_module
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +135,7 @@ async def _bootstrap_signin_connection_from_idp(idp_tokens: Mapping[str, Any]) -
     Runs inside the token exchange (see _ConnectAtSignInGoogleProvider) — the one
     server-side point that fires exactly once per sign-in AND already knows who
     the user is. We do NOT create a connection here: each provider gets its own
-    Mode A connection, and at sign-in we don't yet know which AI client (provider)
+    MCP connection, and at sign-in we don't yet know which AI client (provider)
     is connecting. The connection is created a moment later at the MCP initialize
     handshake, where ``clientInfo`` names the provider. Identity comes from the
     Google id_token in the token response.
@@ -155,7 +161,7 @@ async def _sync_signin_user(
 
 
 class _ConnectAtSignInGoogleProvider(GoogleProvider):
-    """GoogleProvider that records the Mode A connection as soon as sign-in
+    """GoogleProvider that records the MCP connection as soon as sign-in
     finishes, so the connections page does not wait for the first MCP request.
 
     ``_extract_upstream_claims`` is FastMCP's documented override point for
@@ -244,7 +250,6 @@ mcp_app = FastMCP(
 # off game state, but MCP clients cut requests sooner than a plain HTTP curl
 # (commonly ~30s), so we hold for less than that here.
 _NEXT_TURN_HOLD_SECONDS = 25.0
-_LAST_POLL: dict[int, float] = {}
 _LAST_PULL: dict[tuple[int, str], float] = {}
 
 
@@ -261,6 +266,26 @@ async def _session_scope() -> AsyncIterator[AsyncSession]:
     """
     async with SessionLocal() as session:
         yield session
+
+
+def _lean_payload_for_mcp(payload: dict[str, object]) -> dict[str, object]:
+    """Drop the MCP-only duplicated static prompt text from a turn payload."""
+    lean = dict(payload)
+    lean.pop("strategy", None)
+    static = lean.get("static")
+    if isinstance(static, dict):
+        lean_static = dict(static)
+        lean_static.pop("rules", None)
+        lean_static.pop("base_prompt", None)
+        lean_static.pop("your_strategy", None)
+        lean["static"] = lean_static
+    turns = lean.get("turns")
+    if isinstance(turns, list):
+        lean["turns"] = [
+            _lean_payload_for_mcp(turn) if isinstance(turn, dict) else turn
+            for turn in turns
+        ]
+    return lean
 
 
 def _resolve_match_id(match_id: str | None, game_id: str | None) -> str:
@@ -317,26 +342,69 @@ def _client_provider_from_initialize(message: object) -> ConnectionProvider | No
     return provider_from_client_name(name)
 
 
+def _dcr_client_id_from_request() -> str | None:
+    """The per-client OAuth registration id, read from the raw bearer token.
+
+    Why not ``token.client_id``? After FastMCP validates a request it hands us an
+    ``AccessToken`` whose ``client_id`` is the Google *subject* — the user's
+    account id, identical for every AI client the same person signs in with (see
+    fastmcp ``providers/google.py``: ``AccessToken(client_id=sub)``). That cannot
+    tell one user's Codex from their Gemini, so it must not be used to route
+    between a user's connections.
+
+    The genuinely per-client id is the Dynamic Client Registration ``client_id``
+    (a UUID minted once per ``mcp add``). FastMCP embeds it in the reference JWT it
+    issues to the client but drops it during token validation, so we read it back
+    from the raw ``Authorization: Bearer`` header. The client sends the same JWT
+    on every request, so this is a stable per-client key. The bearer is already
+    verified by FastMCP before any of our code runs (the request reached an
+    authenticated tool/middleware), so we only decode the JWT payload to read the
+    routing claim — we do not re-verify the signature here.
+
+    fail-open: advisory routing only — any problem returns ``None`` and the caller
+    falls back to the provider / single-connection lookup.
+    """
+    try:
+        request = get_http_request()
+        header = request.headers.get("authorization") or ""
+        scheme, _, raw = header.partition(" ")
+        if scheme.lower() != "bearer" or not raw:
+            return None
+        segments = raw.split(".")
+        if len(segments) != 3:
+            return None  # not a JWT (e.g. an opaque token) — nothing to read
+        body = segments[1]
+        body += "=" * (-len(body) % 4)  # restore base64url padding
+        claims = json.loads(base64.urlsafe_b64decode(body))
+        client_id = claims.get("client_id")
+        return client_id if isinstance(client_id, str) and client_id else None
+    except Exception:
+        # fail-open: advisory routing only — fall back to provider/single lookup.
+        logger.debug("could not read DCR client_id from bearer token", exc_info=True)
+        return None
+
+
 async def _connection_from_token(
     db: AsyncSession,
     token: object,
     *,
     provider: ConnectionProvider | None,
+    oauth_client_id: str | None = None,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
-    """Resolve a verified OAuth token to the caller's Mode A connection.
+    """Resolve a verified OAuth token to the caller's MCP connection.
 
     Creates the connection on first sight and reuses it thereafter. ``provider``
     is the single provider the connecting MCP client speaks for — each provider
-    gets its own connection (one client == one provider). When ``provider`` is
-    ``None`` (an unidentified client) we cannot create one, so we reuse the
-    caller's single existing Mode A connection if there is exactly one, otherwise
-    raise. Does NOT record the call — see ``mark_seen`` for the heartbeat /
+    gets its own connection (one client == one provider). ``oauth_client_id``
+    is the OAuth Dynamic Client Registration client_id from the token; it is the
+    primary lookup key in stateless-HTTP mode where session memory is unavailable.
+    Does NOT record the call — see ``mark_seen`` for the heartbeat /
     usage-count side of a request.
     """
     access_token = _require_access_token(token)
     userinfo = _google_userinfo_from_token(access_token)
     user = await sync_google_user(db, userinfo)
-    connection = await mode_a_connection_for(db, user, provider=provider)
+    connection = await mcp_connection_for(db, user, provider=provider, oauth_client_id=oauth_client_id)
     if connection is None:
         # No provider to key on and no single existing connection to fall back to —
         # we genuinely can't tell which AI client this is. Fail loud rather than
@@ -362,9 +430,14 @@ async def _resolve_oauth_connection(
     db: AsyncSession,
     token: object,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
-    provider = _client_provider_from_context()
+    # The per-client identity is the DCR client_id read from the raw bearer JWT.
+    # In stateless-HTTP mode the session's clientInfo is wiped between requests, so
+    # the provider can't be read on a tool call; and token.client_id is the Google
+    # subject (one value per user, shared by all their clients), so it can't route
+    # between a user's Codex and Gemini. The DCR id is the only stable per-client key.
+    oauth_client_id = _dcr_client_id_from_request()
     access_token, userinfo, connection = await _connection_from_token(
-        db, token, provider=provider
+        db, token, provider=None, oauth_client_id=oauth_client_id
     )
     await mark_seen(db, connection, key_hash=connection.key_lookup)
     return access_token, userinfo, connection
@@ -373,7 +446,7 @@ async def _resolve_oauth_connection(
 async def _bootstrap_signin_connection(
     token: object, provider: ConnectionProvider | None
 ) -> None:
-    """Create/resume the caller's Mode A connection when their session starts.
+    """Create/resume the caller's MCP connection when their session starts.
 
     Runs once per MCP session, on the ``initialize`` handshake, so the
     /me/connections page flips to "connected" as soon as the client signs in —
@@ -383,19 +456,20 @@ async def _bootstrap_signin_connection(
     The handshake is not a paid model inference, so this deliberately skips
     ``mark_seen`` (which bumps the ``api_call_count`` cost counter) and only
     writes the connection's existence and connected timestamps via
-    ``mode_a_connection_for``.
+    ``mcp_connection_for``.
 
     fail-open: advisory only — if this fails the session still initializes, and
     the first tool call's ``_resolve_oauth_connection`` remains the authoritative
     place the connection is created and recorded.
     """
+    oauth_client_id = _dcr_client_id_from_request()
     async with SessionLocal() as db:
-        await _connection_from_token(db, token, provider=provider)
+        await _connection_from_token(db, token, provider=provider, oauth_client_id=oauth_client_id)
         await db.commit()
 
 
 class SigninConnectionMiddleware(Middleware):
-    """Bootstrap the Mode A connection when a client initializes a session."""
+    """Bootstrap the MCP connection when a client initializes a session."""
 
     async def on_initialize(
         self,
@@ -440,27 +514,66 @@ async def _resolve_oauth_player(
     return access_token, userinfo, connection, player
 
 
-@mcp_app.tool()
-async def get_turn(
+def _mcp_how_to_play_block() -> str:
+    return (
+        "## How to play\n\n"
+        "Keep calling get_next_turn(agent_id=...) in a loop. Never stop on your own — "
+        "stop only when get_next_turn says should_stop=true.\n\n"
+        '- status "your_turn": check current.phase\n'
+        '  - If static.coach_note is present, treat it as a one-round instruction from your coach '
+        '— follow it for this turn instead of (or on top of) your strategy.\n'
+        '  - "talk": call submit_talk(match_id, turn_token, agent_turn_token, message, thinking). '
+        'One message per turn. After it is accepted, just keep polling — the server '
+        'serves the "act" phase when it opens.\n'
+        '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message).\n'
+        '- status "waiting": a turn is coming. Wait next_poll_after_seconds, then call again. '
+        "If next_game_starts_in_seconds is present, tell me when the game starts.\n"
+        '- status "no_game" with should_stop=false: no game yet. '
+        "Wait next_poll_after_seconds, then call again.\n"
+        '- status "no_game" with should_stop=true: stop and tell me — I\'ll start a game when ready.\n'
+        "- Error (5xx / timeout): wait 30 seconds and retry, up to 3 times.\n\n"
+        "The history in each turn is only the last couple of resolved turns — enough "
+        "to react to. You hold the rest in this conversation. If you ever need the whole "
+        "game (you joined one already in progress, or lost the thread), call "
+        "get_game_state(match_id) once to catch up.\n\n"
+        "Always obey next_poll_after_seconds — the server sets the right wait for you.\n\n"
+        "Call the tools. Do not answer in plain text or prose.\n\n"
+        "Before you start the loop, restate in your own words what you will do for each status."
+    )
+
+
+def _format_instruction_sections(
     *,
-    match_id: str | None = None,
-    game_id: str | None = None,
-    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
-) -> Any:
-    """Poll for the current turn."""
-    resolved_match_id = _resolve_match_id(match_id, game_id)
-    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
-        db,
-        token,
-        match_id=resolved_match_id,
+    match: Match,
+    your_agent_id: str,
+    all_agent_ids: list[object],
+    strategy_text: str,
+) -> str:
+    module = get_game_module(match.game)
+    other_agent_ids = [agent_id for agent_id in all_agent_ids if agent_id != your_agent_id]
+    lines = [
+        "## The rules",
+        "",
+        module.semantic_rules_text(match.total_rounds, match.turns_per_round).rstrip(),
+        "",
+        "## You",
+        "",
+        f'You are "{your_agent_id}". You can target: {other_agent_ids}.',
+    ]
+    if match.game == "liars-dice":
+        lines.extend(["Read your_private_state for your hidden dice.", ""])
+    else:
+        lines.append("")
+    lines.extend(
+        [
+            "## Your strategy",
+            "",
+            strategy_text.rstrip(),
+            "",
+            _mcp_how_to_play_block(),
+        ]
     )
-    return await poll_turn(
-        db,
-        match_id=resolved_match_id,
-        player=player,
-        rate_state=_LAST_POLL,
-    )
+    return "\n".join(lines).rstrip()
 
 
 @mcp_app.tool()
@@ -481,9 +594,10 @@ async def get_next_turn(
     # Pacing (the wait number + whether to long-poll) is decided server-side off
     # the caller's soonest game — see app.engine.agent_idle.pace_idle. We only cap
     # the hold here, since MCP clients cut requests sooner than a plain HTTP curl.
-    return await play_get_next_turn(
+    payload = await play_get_next_turn(
         db, connection, agent_id=agent_id, max_hold_seconds=_NEXT_TURN_HOLD_SECONDS
     )
+    return _lean_payload_for_mcp(payload)
 
 
 @mcp_app.tool()
@@ -500,7 +614,57 @@ async def get_next_turns(
     both move inside the same turn window instead of waiting in line.
     """
     _access_token, _userinfo, connection = await _resolve_oauth_connection(db, token)
-    return await play_get_next_turns(db, connection)
+    payload = await play_get_next_turns(db, connection)
+    return _lean_payload_for_mcp(payload)
+
+
+@mcp_app.tool()
+async def get_instructions(
+    *,
+    agent_id: int | None = None,
+    match_id: str | None = None,
+    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
+    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
+) -> str:
+    """Return the static play instructions for one agent, if one can be selected."""
+    _access_token, _userinfo, connection = await _resolve_oauth_connection(db, token)
+    match, your_agent_id, all_agent_ids, strategy_text = await agent_identity_for(
+        db,
+        connection,
+        agent_id=agent_id,
+        match_id=match_id,
+    )
+    if match is None or your_agent_id is None or strategy_text is None:
+        active_agent_ids = sorted(
+            (
+                await db.execute(
+                    select(Agent.id).where(
+                        Agent.user_id == connection.user_id,
+                        Agent.kind == AgentKind.AI,
+                        Agent.status == AgentStatus.ACTIVE,
+                        Agent.archived_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if agent_id is None and len(active_agent_ids) > 1:
+            return (
+                "You have multiple agents. Call get_instructions(agent_id=...) for each "
+                f"one's strategy: {active_agent_ids}.\n\n"
+                f"{_mcp_how_to_play_block()}"
+            )
+        return (
+            "No active game yet. Start one, then call get_instructions again for that "
+            "game's rules and your strategy."
+        )
+    return _format_instruction_sections(
+        match=match,
+        your_agent_id=your_agent_id,
+        all_agent_ids=all_agent_ids,
+        strategy_text=strategy_text,
+    )
 
 
 @mcp_app.tool()
@@ -586,31 +750,6 @@ async def get_game_state(
 
 
 @mcp_app.tool()
-async def get_opponent_history(
-    *,
-    match_id: str | None = None,
-    game_id: str | None = None,
-    opponent_id: str,
-    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
-) -> Any:
-    """Pull the full move history between the user and one opponent."""
-    resolved_match_id = _resolve_match_id(match_id, game_id)
-    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
-        db,
-        token,
-        match_id=resolved_match_id,
-    )
-    return await opponent_history(
-        db,
-        match_id=resolved_match_id,
-        opponent_id=opponent_id,
-        player=player,
-        rate_state=_LAST_PULL,
-    )
-
-
-@mcp_app.tool()
 async def get_chat(
     *,
     match_id: str | None = None,
@@ -635,57 +774,19 @@ async def get_chat(
     )
 
 
-@mcp_app.tool()
-async def get_turn_detail(
-    *,
-    match_id: str | None = None,
-    game_id: str | None = None,
-    round: int,
-    turn: int,
-    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
-) -> Any:
-    """Pull one resolved turn in full."""
-    resolved_match_id = _resolve_match_id(match_id, game_id)
-    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
-        db,
-        token,
-        match_id=resolved_match_id,
-    )
-    return await turn_detail(
-        db,
-        match_id=resolved_match_id,
-        round=round,
-        turn=turn,
-        player=player,
-        rate_state=_LAST_PULL,
-    )
-
-
-@mcp_app.tool()
-async def get_standings(
-    *,
-    match_id: str | None = None,
-    game_id: str | None = None,
-    token: AccessToken = cast(AccessToken, CurrentAccessToken()),
-    db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
-) -> Any:
-    """Pull the full standings."""
-    resolved_match_id = _resolve_match_id(match_id, game_id)
-    _access_token, _userinfo, _connection, player = await _resolve_oauth_player(
-        db,
-        token,
-        match_id=resolved_match_id,
-    )
-    return await standings(
-        db,
-        match_id=resolved_match_id,
-        player=player,
-        rate_state=_LAST_PULL,
-    )
-
-
 # The parent FastAPI app mounts this at the public root so the auth discovery
 # URLs stay rooted at `/.well-known/...` while the MCP endpoint itself remains
 # `/mcp`.
-asgi_app = mcp_app.http_app(path="/mcp", transport="streamable-http")
+#
+# stateless_http=True: do NOT keep per-client session state in process memory.
+# A stateful server hands each client an Mcp-Session-Id and tracks it in RAM, so
+# every redeploy (Railway rolling-deploys on each merge) wipes that map and every
+# connected client's next call fails with "Session not found" until the human
+# manually reconnects — silently dropping active players mid-game. We don't use
+# the features that statefulness buys (server-initiated SSE notifications): play
+# is poll-based request/response, the long-poll lives inside a single request, and
+# auth is per-call via a reference token. Going stateless makes each request
+# self-contained, so a restart can't orphan a client.
+asgi_app = mcp_app.http_app(
+    path="/mcp", transport="streamable-http", stateless_http=True
+)

@@ -187,9 +187,9 @@ async def test_provider_but_no_agent_redirects_to_create_agent_with_next(client,
 
 @pytest.mark.asyncio
 async def test_agent_without_any_connection_shows_form_not_connected(client, reset_db):
-    # An agent whose provider is enabled on NO connection now SHOWS on the form,
-    # grouped under its provider as "Not connected" — the user can pick it and
-    # connect on the next screen instead of being bounced away.
+    # With no connection at all, the agent still SHOWS on the form and the overall
+    # status reads "No AI connected" — the user can pick it and connect on the next
+    # screen instead of being bounced away.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
@@ -199,7 +199,8 @@ async def test_agent_without_any_connection_shows_form_not_connected(client, res
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
     assert "Atlas" in r.text
-    assert "Not connected" in r.text
+    # No connection at all → every AI in the picker offers to be set up.
+    assert "not connected — set it up next" in r.text
 
 
 @pytest.mark.asyncio
@@ -212,12 +213,15 @@ async def test_agent_but_stale_connection_shows_form_not_running(client, reset_d
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         connection, _ = await make_connection(db, u)
         await make_agent(db, u, connection=connection, name="Atlas")
+        connection.mcp_connected_at = datetime.now(timezone.utc)
+        connection.first_connected_at = connection.mcp_connected_at
         connection.last_seen_at = None  # never heartbeated => not live
         await db.commit()
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
     assert "Atlas" in r.text
-    assert "Not running" in r.text
+    # Connected but never heartbeated → the AI shows as set-up-but-idle.
+    assert "connected — not playing yet" in r.text
 
 
 @pytest.mark.asyncio
@@ -231,6 +235,7 @@ async def test_hub_chains_from_create_agent_to_connections_no_loop(client, reset
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         connection, _ = await make_connection(db, u)
         connection.last_seen_at = datetime.now(timezone.utc)  # LIVE machine, no agent yet
+        connection.mcp_connected_at = datetime.now(timezone.utc)  # set up (MCP-recent)
         await db.commit()
     cookies = _cookies(user.id)
 
@@ -303,7 +308,8 @@ async def test_create_agent_post_forwards_to_next(client, reset_db):
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        await make_connection(db, u)  # provider is enabled but not live yet
+        connection, _ = await make_connection(db, u)  # set up via a recent MCP connection
+        connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
     r = await client.post(
         "/me/agents/new",
@@ -323,18 +329,18 @@ async def test_create_agent_post_forwards_to_next(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_create_agent_post_rejects_external_next(client, reset_db):
-    # An external next is dropped; since the provider IS set up, we fall back to
-    # the agent's detail page (not the external target).
+    # An external next is dropped; we fall back to the lobby (not the external
+    # target). This is the security property: the evil URL never reaches Location.
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        await make_connection(db, u)
+        connection, _ = await make_connection(db, u)
+        connection.mcp_connected_at = datetime.now(timezone.utc)  # set up (MCP-recent)
         await db.commit()
     r = await client.post(
         "/me/agents/new",
         data={
             "name": "Atlas",
-            "model": "claude-haiku-4-5",
             "strategy_text": "Play to win.",
             "next": "https://evil.example.com",
         },
@@ -342,7 +348,7 @@ async def test_create_agent_post_rejects_external_next(client, reset_db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"].startswith("/me/agents/")
+    assert r.headers["location"] == "/games/hoard-hurt-help"
     assert "evil.example.com" not in r.headers["location"]
 
 
@@ -384,9 +390,10 @@ async def test_connect_target_provider_not_bounced_by_a_different_live_provider(
         follow_redirects=False,
     )
     assert r.status_code == 200  # rendered, NOT bounced back
-    # Leads with the Gemini-specific path (the self-setup prompt), not "you're set".
-    assert "Play with Gemini" in r.text
-    assert "X-Connection-Key" in r.text  # the self-setup prompt is shown
+    # Leads with the Gemini-specific MCP setup path, not "you're set".
+    assert "Connect Gemini" in r.text
+    assert "gemini mcp add agentludum" in r.text
+    assert "X-Connection-Key" not in r.text
 
 
 @pytest.mark.asyncio
@@ -407,33 +414,13 @@ async def test_connect_gemini_status_ignores_a_playing_claude(client, reset_db):
     )
     assert r.status_code == 200
     assert "Your AI is playing" not in r.text  # that's Claude, not Gemini
-    assert "Play with Gemini" in r.text
-
-
-def test_self_setup_prompt_contract():
-    """The self-setup prompt must carry the full play contract: the key, the
-    get/submit endpoints, a move example, and server-driven timing/stop."""
-    from app.routes.connections_connect_guide import self_setup_play_prompt
-
-    p = self_setup_play_prompt("sk_conn_deadbeef")
-    assert "sk_conn_deadbeef" in p
-    assert "X-Connection-Key" in p
-    assert "/api/agent/next-turn" in p
-    assert "/submit" in p and "agent_turn_token" in p
-    assert "HOARD" in p and "HURT" in p  # a concrete move example
-    assert "platform" in p  # framed as a platform, not one game
-    # Timing is server-driven: obey the wait number, stop only when told.
-    assert "next_poll_after_seconds" in p  # respect the server's wait hint
-    assert "should_stop" in p  # stop is the server's call, not a self-timer
-    assert "right away" not in p  # no "ask again right away" busy loop
-    # The prompt must not bake in its own timing rule (server owns pacing).
-    assert "10 minutes" not in p
+    assert "Connect Gemini" in r.text
 
 
 @pytest.mark.asyncio
-async def test_connect_target_shows_self_setup_prompt_with_a_key(client, reset_db):
-    """The connect-a-provider page leads with the AI self-setup prompt: a real
-    sk_conn_ key + the HTTP play loop, so the AI can set itself up and play."""
+async def test_connect_target_shows_mcp_setup_without_self_setup_key(client, reset_db):
+    """The connect-a-provider page leads with MCP setup, not the raw HTTP
+    self-setup key prompt."""
     user = await _user_with_handle(reset_db)
     r = await client.get(
         f"/me/connections?provider=gemini&next={JOIN_NEXT}",
@@ -441,9 +428,12 @@ async def test_connect_target_shows_self_setup_prompt_with_a_key(client, reset_d
         follow_redirects=False,
     )
     assert r.status_code == 200
-    assert "sk_conn_" in r.text  # a usable key is embedded
-    assert "/api/agent/next-turn" in r.text  # the loop contract
-    assert "Easiest" in r.text
+    gemini_block = r.text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
+    assert "gemini mcp add agentludum" in gemini_block
+    assert "/mcp auth agentludum" in gemini_block
+    assert "sk_conn_" not in gemini_block
+    assert "/api/agent/next-turn" not in gemini_block
+    assert "X-Connection-Key" not in gemini_block
 
 
 @pytest.mark.asyncio

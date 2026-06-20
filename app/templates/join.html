@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Enter {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
-<a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 <div class="page-head">
     <h1>Enter "{{ game.name }}"</h1>
     {% if game.match_kind == 'practice_arena' %}
@@ -11,31 +10,57 @@
     {% endif %}
 </div>
 
-{% if agent_groups %}
-<p class="hint">Pick an agent to join. Connected providers come first. If you pick one that isn't connected, you'll get a short window to connect it before the seat is released.</p>
+{% if any_agents %}
+<p class="hint">Pick an agent, then pick the AI that plays it for this game.</p>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
-{% for group in agent_groups %}
-<div class="card form provider-group provider-{{ group.status }}">
-    <div class="provider-head">
-        <span class="provider-name">{{ group.provider_label }}</span>
-        {% if group.status == 'live' %}
-        <span class="provider-status status-live"><span class="dot"></span>Connected</span>
-        {% elif group.status == 'offline' %}
-        <span class="provider-status status-off"><span class="dot dot-still"></span>Not running</span>
-        {% else %}
-        <span class="provider-status status-off"><span class="dot dot-still"></span>Not connected</span>
+<form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" class="card form join-pick">
+
+    <div class="pick-section">
+        <div class="field-label">① Pick an agent</div>
+        {% set ag = namespace(checked=false) %}
+        {% for row in agent_rows %}
+        <label class="pick-row{% if row.seated %} pick-disabled{% endif %}">
+            <input type="radio" name="agent_id" value="{{ row.agent.id }}"
+                   {% if row.seated %}disabled{% elif not ag.checked %}checked{% endif %}>
+            {% if not row.seated %}{% set ag.checked = true %}{% endif %}
+            <span class="pick-name">{{ row.agent.name }}</span>
+            {% if row.seated %}
+            <span class="badge badge-done">already in this game</span>
+            {% elif row.version %}
+            <span class="pick-sub">{{ row.version.strategy_text[:64] }}{% if row.version.strategy_text | length > 64 %}…{% endif %}</span>
+            {% endif %}
+        </label>
+        {% endfor %}
+        <a class="pick-add" href="/me/agents/new{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">+ New agent</a>
+    </div>
+
+    <div class="pick-section">
+        <div class="field-label">② Which AI plays it?</div>
+        <p class="hint" style="margin-top:0;">One AI plays one game at a time.</p>
+        {% set ai = namespace(checked=false) %}
+        {% for opt in ai_options %}
+        <label class="pick-row{% if not opt.can_pick %} pick-disabled{% endif %}">
+            <input type="radio" name="chosen_provider" value="{{ opt.provider }}"
+                   {% if not opt.can_pick %}disabled{% elif not ai.checked %}checked{% endif %}>
+            {% if opt.can_pick %}{% set ai.checked = true %}{% endif %}
+            <span class="pick-name">{{ opt.label }}</span>
+            <span class="pick-state pick-state-{{ opt.state }}">
+                {% if opt.state == 'ready' %}● ready to play
+                {% elif opt.state == 'idle' %}○ connected — not playing yet
+                {% elif opt.state == 'not_connected' %}⊕ not connected — set it up next
+                {% else %}▪ busy — in “{{ opt.busy_match }}”{% endif %}
+            </span>
+        </label>
+        {% endfor %}
+        {% if not any_pickable_ai %}
+        <p class="hint">Every AI you have is busy in another game. Wait for one to finish, or connect another from <a href="/me/connections">Connections</a>.</p>
         {% endif %}
     </div>
-    {% for row in group.agents %}
-    <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" class="agent-row">
-        <span class="agent-row-name">{{ row.agent.name }}{% if row.model_label %} <small class="agent-row-model">{{ row.model_label }}</small>{% endif %}</span>
-        <button type="submit" name="agent_id" value="{{ row.agent.id }}" class="btn {% if group.status == 'live' %}btn-primary{% else %}btn-ghost{% endif %}">
-            {% if group.status == 'live' %}Join{% else %}Join &amp; connect{% endif %}
-        </button>
-    </form>
-    {% endfor %}
-</div>
-{% endfor %}
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary"{% if not any_pickable_ai %} disabled{% endif %}>Join game →</button>
+    </div>
+</form>
 <p class="meta">Your in-match identity is <strong>{{ user.handle }}/agent-name</strong>, using that agent's current version. Manage agents and logins under <a href="/me/agents">Agents</a> and <a href="/me/connections">Connections</a>.</p>
 {% else %}
 <div class="card form">

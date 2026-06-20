@@ -1,24 +1,9 @@
 {% if viewer_player_id and game.state.value == 'active' and coaching_enabled %}
-{# Coach panel — HTMX swaps this div in place on every POST.
-   The prompt dialog lives inside the same fragment so a successful save
-   replaces the whole panel and closes the window naturally. #}
-<div id="coach-panel" class="coach-panel">
-    <div class="coach-panel-head">
-        <h3>Coach {{ viewer_agent_name }}</h3>
-        <button type="button" class="coach-panel-link" onclick="openCoachPromptDialog()">Open existing prompt</button>
-    </div>
-
-    {% if viewer_coach_note %}
-        {% if viewer_coach_note_round > game.current_round %}
-        <p class="coach-status armed">→ Armed: reaches your agent at Round {{ viewer_coach_note_round }}</p>
-        {% elif viewer_coach_note_round == game.current_round %}
-        <p class="coach-status active-now">✓ Coaching your agent this round</p>
-        {% else %}
-        <p class="coach-status">Delivered in Round {{ viewer_coach_note_round }} · <em>{{ viewer_coach_note }}</em></p>
-        {% endif %}
-    {% else %}
-    <p class="coach-status">No note queued. Open the prompt window to course-correct.</p>
-    {% endif %}
+{# Coach dialog wrapper — HTMX swaps this div on every POST.
+   No visible chrome of its own; the trigger is the "Coach" button in the
+   standings rail (robot_circle.html). data-armed signals the rail button. #}
+<div id="coach-dialog-wrap"
+     data-armed="{% if viewer_coach_note_round and viewer_coach_note_round > game.current_round %}true{% else %}false{% endif %}">
 
     <dialog id="coach-prompt-dialog" class="coach-prompt-dialog" aria-labelledby="coach-prompt-title">
         <div class="coach-prompt-shell">
@@ -26,6 +11,15 @@
                 <div>
                     <h4 id="coach-prompt-title">Existing prompt{% if viewer_prompt_label %} · {{ viewer_prompt_label }}{% endif %}</h4>
                     <p class="hint">Read the current prompt, then add course correction for the next round below.</p>
+                    {% if viewer_coach_note %}
+                        {% if viewer_coach_note_round > game.current_round %}
+                        <p class="coach-status armed">→ Armed: reaches your agent at Round {{ viewer_coach_note_round }}</p>
+                        {% elif viewer_coach_note_round == game.current_round %}
+                        <p class="coach-status active-now">✓ Coaching your agent this round</p>
+                        {% else %}
+                        <p class="coach-status">Delivered in Round {{ viewer_coach_note_round }} · <em>{{ viewer_coach_note }}</em></p>
+                        {% endif %}
+                    {% endif %}
                 </div>
                 <button type="button" class="coach-dialog-close" onclick="closeCoachPromptDialog()" aria-label="Close prompt window">×</button>
             </div>
@@ -35,7 +29,7 @@
                     <div class="coach-prompt-label">Prompt</div>
                     <pre class="coach-prompt-copy">{{ viewer_prompt_text or "No strategy snapshot is available for this player." }}</pre>
                     <p class="coach-prompt-footnote">
-                        If you want to rewrite the strategy itself, open <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">the strategy page</a>.
+                        To rewrite the strategy itself, open <a href="/me/players/{{ viewer_player_id }}" target="_blank" rel="noopener">the strategy page</a>.
                     </p>
                 </div>
 
@@ -44,9 +38,9 @@
                     method="post"
                     action="/games/{{ game.game }}/matches/{{ game.id }}/coach-note"
                     hx-post="/games/{{ game.game }}/matches/{{ game.id }}/coach-note"
-                    hx-target="#coach-panel"
+                    hx-target="#coach-dialog-wrap"
                     hx-swap="outerHTML"
-                    hx-indicator="#coach-panel"
+                    hx-indicator="#coach-dialog-wrap"
                 >
                     <label class="coach-prompt-field">
                         <span class="field-label">Course correction</span>
@@ -77,15 +71,11 @@
     var dialog = document.getElementById('coach-prompt-dialog');
     var textarea = dialog ? dialog.querySelector('textarea[name="note"]') : null;
 
-    function focusTextarea() {
-        if (textarea) textarea.focus();
-    }
-
     window.openCoachPromptDialog = function () {
         if (!dialog) return;
         if (typeof dialog.showModal === 'function') dialog.showModal();
         else dialog.setAttribute('open', '');
-        focusTextarea();
+        if (textarea) textarea.focus();
     };
 
     window.closeCoachPromptDialog = function () {
@@ -111,6 +101,9 @@
             closeCoachPromptDialog();
         }
     });
+
+    // Notify the standings rail button to refresh its armed state.
+    document.dispatchEvent(new CustomEvent('coach:updated'));
 })();
 </script>
 {% endif %}

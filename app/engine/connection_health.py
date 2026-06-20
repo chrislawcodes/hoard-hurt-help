@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,14 @@ _HEARTBEAT_THROTTLE_SECONDS = 10
 # Generous: covers the ~25s long-poll hold PLUS an LLM's think-and-submit gap
 # between polls, so a busy agent is never mistaken for a stopped one.
 LOOP_RUNNING_WINDOW_SECONDS = 120
+MCP_CONNECTION_VALID_DAYS = 90
+MCP_CONNECTION_PROVIDERS = frozenset(
+    {
+        ConnectionProvider.CLAUDE,
+        ConnectionProvider.OPENAI,
+        ConnectionProvider.GEMINI,
+    }
+)
 
 
 def _humanize_since(dt: datetime, now: datetime) -> str:
@@ -153,35 +161,20 @@ async def compute_connection_health(
     if connection.status == ConnectionStatus.PAUSED:
         return build(ConnectionHealth.PAUSED)
 
-    # Agents this machine COVERS: the user's active AI agents whose provider is
-    # enabled on this connection. Drives the badge's agent_count only.
-    enabled_providers = (
-        (
-            await db.execute(
-                select(ConnectionProviderRow.provider).where(
-                    ConnectionProviderRow.connection_id == connection.id,
-                    ConnectionProviderRow.enabled.is_(True),
-                )
+    # Agents this machine COVERS: all the user's active AI agents — any
+    # connection can serve any agent now. Drives the badge's agent_count only.
+    covered_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(Agent)
+            .where(
+                Agent.user_id == connection.user_id,
+                Agent.kind == AgentKind.AI,
+                Agent.status == AgentStatus.ACTIVE,
+                Agent.archived_at.is_(None),
             )
         )
-        .scalars()
-        .all()
-    )
-    covered_count = 0
-    if enabled_providers:
-        covered_count = (
-            await db.execute(
-                select(func.count())
-                .select_from(Agent)
-                .where(
-                    Agent.user_id == connection.user_id,
-                    Agent.kind == AgentKind.AI,
-                    Agent.status == AgentStatus.ACTIVE,
-                    Agent.archived_at.is_(None),
-                    Agent.provider.in_(enabled_providers),
-                )
-            )
-        ).scalar() or 0
+    ).scalar() or 0
 
     # Matches this connection is currently SERVING (the sticky pin).
     player_rows = (
@@ -324,6 +317,97 @@ async def provider_enabled_on_any_connection(
     return row is not None
 
 
+def provider_uses_mcp_connection(provider: ConnectionProvider) -> bool:
+    """True when this provider's user-facing setup path is OAuth MCP."""
+    return provider in MCP_CONNECTION_PROVIDERS
+
+
+async def provider_has_recent_mcp_connection(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when *provider* has an MCP connection used in the last 90 days.
+
+    For Claude, OpenAI, and Gemini, "set up" means the user has connected that
+    provider's MCP client recently enough that the Google OAuth token should
+    still be valid. A machine/header-style connection does not satisfy this
+    check.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MCP_CONNECTION_VALID_DAYS)
+    rows = (
+        (
+            await db.execute(
+                select(Connection)
+                .join(
+                    ConnectionProviderRow,
+                    ConnectionProviderRow.connection_id == Connection.id,
+                )
+                .where(
+                    Connection.user_id == user_id,
+                    Connection.deleted_at.is_(None),
+                    Connection.mcp_connected_at.is_not(None),
+                    ConnectionProviderRow.provider == provider,
+                    ConnectionProviderRow.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for connection in rows:
+        seen_values = [
+            dt
+            for dt in (
+                connection.last_seen_at,
+                connection.first_connected_at,
+                connection.mcp_connected_at,
+            )
+            if dt is not None
+        ]
+        if seen_values and max(ensure_aware(dt) for dt in seen_values) >= cutoff:
+            return True
+    return False
+
+
+async def provider_has_current_setup(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when the provider has the setup path we currently support.
+
+    Claude/OpenAI/Gemini are now MCP-first, so they require a recent MCP
+    connection. Hermes/OpenClaw still use the older connection signal until their
+    MCP setup path is handled separately.
+    """
+    if provider_uses_mcp_connection(provider):
+        return await provider_has_recent_mcp_connection(db, user_id, provider)
+    return await provider_enabled_on_any_connection(db, user_id, provider)
+
+
+async def provider_has_live_current_setup(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when the provider's current setup path is connected right now."""
+    if not provider_uses_mcp_connection(provider):
+        return await provider_is_covered(db, user_id, provider)
+    now = datetime.now(timezone.utc)
+    rows = (
+        await db.execute(
+            select(Connection)
+            .join(
+                ConnectionProviderRow,
+                ConnectionProviderRow.connection_id == Connection.id,
+            )
+            .where(
+                Connection.user_id == user_id,
+                Connection.deleted_at.is_(None),
+                Connection.mcp_connected_at.is_not(None),
+                ConnectionProviderRow.provider == provider,
+                ConnectionProviderRow.enabled.is_(True),
+            )
+        )
+    ).scalars().all()
+    return any(_connection_is_live(connection, now) for connection in rows)
+
+
 async def provider_loop_running(
     db: AsyncSession, user_id: int, provider: ConnectionProvider
 ) -> bool:
@@ -337,22 +421,25 @@ async def provider_loop_running(
     while the user starts their AI.
     """
     now = datetime.now(timezone.utc)
+    query = (
+        select(Connection.last_polled_at)
+        .join(
+            ConnectionProviderRow,
+            ConnectionProviderRow.connection_id == Connection.id,
+        )
+        .where(
+            Connection.user_id == user_id,
+            Connection.deleted_at.is_(None),
+            Connection.status != ConnectionStatus.PAUSED,
+            ConnectionProviderRow.provider == provider,
+            ConnectionProviderRow.enabled.is_(True),
+        )
+    )
+    if provider_uses_mcp_connection(provider):
+        query = query.where(Connection.mcp_connected_at.is_not(None))
     polled = (
         (
-            await db.execute(
-                select(Connection.last_polled_at)
-                .join(
-                    ConnectionProviderRow,
-                    ConnectionProviderRow.connection_id == Connection.id,
-                )
-                .where(
-                    Connection.user_id == user_id,
-                    Connection.deleted_at.is_(None),
-                    Connection.status != ConnectionStatus.PAUSED,
-                    ConnectionProviderRow.provider == provider,
-                    ConnectionProviderRow.enabled.is_(True),
-                )
-            )
+            await db.execute(query)
         )
         .scalars()
         .all()
@@ -368,6 +455,57 @@ async def provider_loop_running(
         if (now - aware).total_seconds() <= LOOP_RUNNING_WINDOW_SECONDS:
             return True
     return False
+
+
+class ProviderReadiness(str, enum.Enum):
+    """How ready a provider is to actually play, as a single ladder rung.
+
+    Ordered worst→best in intent: ``NO_MCP_CONNECTION`` < ``CONNECTED_NOT_LIVE``
+    < ``SEEN_NOT_POLLING`` < ``LIVE``. ``provider_readiness`` resolves the rung.
+    """
+
+    NO_MCP_CONNECTION = "no_mcp_connection"
+    CONNECTED_NOT_LIVE = "connected_not_live"
+    SEEN_NOT_POLLING = "seen_not_polling"
+    LIVE = "live"
+
+
+async def provider_readiness(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> ProviderReadiness:
+    """Resolve a single readiness rung for *provider* as a top-down cascade.
+
+    First match wins, evaluating highest readiness first:
+
+    - ``provider_loop_running`` → ``LIVE`` (an AI is polling get_next_turn now)
+    - ``provider_has_live_current_setup`` → ``SEEN_NOT_POLLING`` (connected and
+      seen recently, but no play loop running)
+    - ``provider_has_current_setup`` → ``CONNECTED_NOT_LIVE`` (set up, but not
+      seen live right now)
+    - otherwise → ``NO_MCP_CONNECTION`` (no usable setup at all)
+
+    The cascade order is load-bearing for **non-MCP providers** (hermes/openclaw),
+    whose predicates fall back to liveness-free / ``last_seen_at``-based checks. A
+    non-MCP connection with a fresh ``last_polled_at`` but a stale ``last_seen_at``
+    is genuinely ``LIVE`` even though ``provider_has_live_current_setup`` (→
+    ``provider_is_covered``, which keys on ``last_seen_at``) is False. Checking
+    ``provider_loop_running`` first makes that case resolve correctly. Evaluating
+    the predicates in any other order could let a lower rung win over ``LIVE``.
+
+    A PAUSED-only connection naturally lands in ``CONNECTED_NOT_LIVE``: there is no
+    PAUSED special-case here. ``provider_has_current_setup`` ignores PAUSED while
+    ``provider_has_live_current_setup`` and ``provider_loop_running`` exclude it,
+    so the cascade falls through to the third rung on its own.
+
+    Adds no new SQL — this is a thin cascade over the three existing predicates.
+    """
+    if await provider_loop_running(db, user_id, provider):
+        return ProviderReadiness.LIVE
+    if await provider_has_live_current_setup(db, user_id, provider):
+        return ProviderReadiness.SEEN_NOT_POLLING
+    if await provider_has_current_setup(db, user_id, provider):
+        return ProviderReadiness.CONNECTED_NOT_LIVE
+    return ProviderReadiness.NO_MCP_CONNECTION
 
 
 async def enabled_provider_values(db: AsyncSession, user_id: int) -> set[str]:
@@ -387,34 +525,6 @@ async def enabled_provider_values(db: AsyncSession, user_id: int) -> set[str]:
                 .where(
                     Connection.user_id == user_id,
                     Connection.deleted_at.is_(None),
-                    ConnectionProviderRow.enabled.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return {p.value for p in rows}
-
-
-async def enabled_provider_values_on_nonpaused_connections(
-    db: AsyncSession, user_id: int
-) -> set[str]:
-    """Provider values enabled on any non-paused, non-deleted connection.
-
-    This is the coverage signal for the agent list's ready-vs-needs-connecting
-    state. A provider enabled only on a paused connection still needs
-    reconnecting, so paused rows are excluded here on purpose.
-    """
-    rows = (
-        (
-            await db.execute(
-                select(ConnectionProviderRow.provider)
-                .join(Connection, Connection.id == ConnectionProviderRow.connection_id)
-                .where(
-                    Connection.user_id == user_id,
-                    Connection.deleted_at.is_(None),
-                    Connection.status != ConnectionStatus.PAUSED,
                     ConnectionProviderRow.enabled.is_(True),
                 )
             )
@@ -458,21 +568,22 @@ async def live_provider_capacity(
     Returns 0 when no live connection covers the provider (join is always blocked).
     """
     now = datetime.now(timezone.utc)
-    rows = (
-        await db.execute(
-            select(Connection)
-            .join(
-                ConnectionProviderRow,
-                ConnectionProviderRow.connection_id == Connection.id,
-            )
-            .where(
-                Connection.user_id == user_id,
-                Connection.deleted_at.is_(None),
-                ConnectionProviderRow.provider == provider,
-                ConnectionProviderRow.enabled.is_(True),
-            )
+    query = (
+        select(Connection)
+        .join(
+            ConnectionProviderRow,
+            ConnectionProviderRow.connection_id == Connection.id,
         )
-    ).scalars().all()
+        .where(
+            Connection.user_id == user_id,
+            Connection.deleted_at.is_(None),
+            ConnectionProviderRow.provider == provider,
+            ConnectionProviderRow.enabled.is_(True),
+        )
+    )
+    if provider_uses_mcp_connection(provider):
+        query = query.where(Connection.mcp_connected_at.is_not(None))
+    rows = (await db.execute(query)).scalars().all()
     return sum(c.max_concurrent_games for c in rows if _connection_is_live(c, now))
 
 
@@ -483,3 +594,99 @@ def is_join_blocked(active_count: int, capacity_sum: int) -> bool:
     capacity_sum == 0 means no live connection covers the provider → always blocked.
     """
     return active_count >= capacity_sum if capacity_sum > 0 else True
+
+
+# ---------------------------------------------------------------------------
+# User-level (provider-agnostic) readiness & capacity
+#
+# Agents are no longer tied to a provider: any of a user's live connections can
+# serve any of their agents. These reduce the per-provider primitives above over
+# *all* the user's connections, so play-setup and the join gate reason about
+# "do I have a live AI at all?" rather than "is provider X live?".
+# ---------------------------------------------------------------------------
+
+
+async def user_play_readiness(db: AsyncSession, user_id: int) -> ProviderReadiness:
+    """Best play-readiness across every provider the user has connected.
+
+    The user is as ready as their most-ready connection. ``NO_MCP_CONNECTION``
+    when nothing is set up.
+    """
+    rank = {
+        ProviderReadiness.NO_MCP_CONNECTION: 0,
+        ProviderReadiness.CONNECTED_NOT_LIVE: 1,
+        ProviderReadiness.SEEN_NOT_POLLING: 2,
+        ProviderReadiness.LIVE: 3,
+    }
+    best = ProviderReadiness.NO_MCP_CONNECTION
+    for value in await enabled_provider_values(db, user_id):
+        readiness = await provider_readiness(db, user_id, ConnectionProvider(value))
+        if rank[readiness] > rank[best]:
+            best = readiness
+        if best == ProviderReadiness.LIVE:
+            break
+    return best
+
+
+async def active_matches_for_user(db: AsyncSession, user_id: int) -> int:
+    """Count active matches across ALL the user's AI agents (provider-agnostic)."""
+    count = await db.scalar(
+        select(func.count(func.distinct(Match.id)))
+        .select_from(Agent)
+        .join(Player, Player.agent_id == Agent.id)
+        .join(Match, Match.id == Player.match_id)
+        .where(
+            Agent.user_id == user_id,
+            Agent.kind == AgentKind.AI,
+            Agent.status == AgentStatus.ACTIVE,
+            Agent.archived_at.is_(None),
+            Player.left_at.is_(None),
+            Match.state == GameState.ACTIVE,
+        )
+    )
+    return int(count or 0)
+
+
+async def live_user_capacity(db: AsyncSession, user_id: int) -> int:
+    """Sum of ``max_concurrent_games`` over the user's live connections (any provider).
+
+    Each connection is counted once. Returns 0 when none are live (join blocked).
+    """
+    now = datetime.now(timezone.utc)
+    rows = (
+        await db.execute(
+            select(Connection).where(
+                Connection.user_id == user_id,
+                Connection.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    return sum(c.max_concurrent_games for c in rows if _connection_is_live(c, now))
+
+
+async def providers_busy_for_user(db: AsyncSession, user_id: int) -> dict[str, str]:
+    """Map provider value → a match name for AIs already committed to a seat.
+
+    "One AI plays one game at a time" — strictly, one AI fills one seat at a time:
+    a provider is busy when it's the chosen AI of ANY of the user's seats in a
+    match that hasn't finished, playing now (ACTIVE) or booked upcoming
+    (SCHEDULED / REGISTERING), including a seat in the same game. To field several
+    agents in one game, pick a different AI for each. The join picker greys busy
+    AIs out and the join gate refuses to pick one. Returns the match name so the
+    picker can say which game it's in.
+    """
+    rows = await db.execute(
+        select(Player.chosen_provider, Match.name)
+        .join(Match, Match.id == Player.match_id)
+        .where(
+            Player.user_id == user_id,
+            Player.left_at.is_(None),
+            Player.chosen_provider.is_not(None),
+            Match.state.notin_([GameState.COMPLETED, GameState.CANCELLED]),
+        )
+    )
+    busy: dict[str, str] = {}
+    for provider_value, match_name in rows.all():
+        if provider_value is not None:
+            busy.setdefault(provider_value, match_name)
+    return busy

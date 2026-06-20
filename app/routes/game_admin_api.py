@@ -180,7 +180,7 @@ async def export_json(
         players_payload.append(
             {
                 "agent_id": p.agent_id,
-                "model_self_report": p.model_self_report,
+                "model_self_report": p.played_provider,
                 "total_round_wins": p.total_round_wins,
                 "total_round_score": p.total_round_score,
                 "strategy_prompt": version.strategy_text if version else None,

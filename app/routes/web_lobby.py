@@ -179,9 +179,10 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     bots_only_games = finished_views["bots_only"]
 
     # Onboarding banner: shown when the user has a warm agent but hasn't joined a
-    # match yet. Disappears naturally once they're in a game.
-    show_onboarding_banner = False
-    if user is not None:
+    # match yet. Disappears naturally once they're in a game. Also shown immediately
+    # after redirect from the connections page (session flag set when AI goes PLAYING).
+    show_onboarding_banner = bool(request.session.pop("agent_connected", False))
+    if user is not None and not show_onboarding_banner:
         # Agents are no longer attached to a connection: the user has a "warm
         # agent" when they own an AI agent and have a live/ready connection to
         # serve it. compute_bot_health already reflects provider coverage.

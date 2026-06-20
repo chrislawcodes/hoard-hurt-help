@@ -1,20 +1,19 @@
 {% extends "base.html" %}
 {% block title %}One step left — {{ game.name }}{% endblock %}
 {% block content %}
-<a class="backlink" href="/games/{{ game.game }}">← Lobby</a>
 <div class="page-head">
     <h1>You're in — bringing your AI online</h1>
     <p class="sub">{{ player.seat_name }} has a seat in "{{ game.name }}". We'll seat you automatically the moment {{ provider_label }} connects — take your time.</p>
 </div>
 <div class="card form seat-connect">
-    {# One path: paste the self-setup prompt into the AI and it plays via the HTTP
-       API (no MCP, no sign-in). The seat-status poll below confirms the seat the
-       moment the AI starts playing. #}
-    <p>Paste this into {{ provider_label }} (or any AI that can run commands). It sets itself up and plays your games on its own — no sign-in, no setup commands.</p>
-    {% if self_setup_prompt %}
+    {# Returning path: this provider is already connected. Paste the MCP play prompt
+       into the same AI client to wake the play loop. Never-configured providers are
+       redirected to /me/connections?provider=... before this page renders. #}
+    <p>{{ provider_label }} MCP connection is setup. Paste this into the same AI client to start checking for your turns. We'll seat you automatically once it starts playing.</p>
+    {% if play_prompt %}
     <button type="button" class="btn-copy"
-            onclick="copyWithFeedback(this, document.getElementById('seat-self-setup').textContent)">Copy</button>
-    <pre id="seat-self-setup">{{ self_setup_prompt }}</pre>
+            onclick="copyWithFeedback(this, document.getElementById('seat-play-prompt').textContent)">Copy</button>
+    <pre id="seat-play-prompt">{{ play_prompt }}</pre>
     {% endif %}
     <div class="form-actions" style="margin-top:0.8rem;">
         <a class="btn btn-ghost" href="/games/{{ game.game }}">Leave seat</a>

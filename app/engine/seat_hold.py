@@ -21,8 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.aware_datetime import ensure_aware
 from app.db import SessionLocal
-from app.engine.connection_health import provider_loop_running
-from app.models.agent import Agent
+from app.engine.connection_health import (
+    ProviderReadiness,
+    provider_readiness,
+    user_play_readiness,
+)
+from app.models.connection import ConnectionProvider
 from app.models.player import Player
 
 # How long a held seat is kept while the user brings their AI online. This is a
@@ -40,20 +44,23 @@ def hold_deadline(now: datetime) -> datetime:
 
 
 async def confirm_seat_if_live(db: AsyncSession, player: Player) -> bool:
-    """Clear the hold on *player* once an AI is actually running the play loop for
-    its agent's provider.
+    """Clear the hold on *player* once the AI it was joined with is running.
 
-    Keys off the play-loop heartbeat (``provider_loop_running``), not mere
-    connection liveness — so a held seat confirms when the user's AI genuinely
-    starts playing, which is the same bar the join gate uses. Returns True when the
-    seat was confirmed. Does not commit — the caller owns the transaction.
+    Keys off the play-loop heartbeat (``ProviderReadiness.LIVE``) for the seat's
+    *chosen* provider — so the seat confirms only when the AI the user actually
+    picked starts playing, the same bar the join gate uses. Legacy seats with no
+    chosen provider fall back to "any live connection". Returns True when the seat
+    was confirmed. Does not commit — the caller owns the transaction.
     """
     if player.seat_reserved_until is None:
         return False
-    provider = await db.scalar(select(Agent.provider).where(Agent.id == player.agent_id))
-    if provider is None:
-        return False
-    if await provider_loop_running(db, player.user_id, provider):
+    if player.chosen_provider:
+        readiness = await provider_readiness(
+            db, player.user_id, ConnectionProvider(player.chosen_provider)
+        )
+    else:
+        readiness = await user_play_readiness(db, player.user_id)
+    if readiness == ProviderReadiness.LIVE:
         player.seat_reserved_until = None
         return True
     return False

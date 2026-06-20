@@ -42,22 +42,19 @@ async def db_session_factory(
 
 @pytest.mark.asyncio
 async def test_mcp_tools_registered() -> None:
-    """The MCP tool set still includes the public game and play actions."""
+    """The MCP tool set matches the cleaned 7-tool surface."""
     from mcp_server.server import mcp_app
 
     tool_names = {tool.name for tool in await mcp_app.list_tools()}
-    assert {
-        "get_turn",
+    assert tool_names == {
+        "get_instructions",
         "get_next_turn",
         "get_next_turns",
         "submit_talk",
         "submit_action",
-        "get_game_state",
-        "get_opponent_history",
         "get_chat",
-        "get_turn_detail",
-        "get_standings",
-    }.issubset(tool_names)
+        "get_game_state",
+    }
 
 
 @pytest.mark.asyncio
@@ -70,6 +67,7 @@ async def test_get_next_turn_exposes_agent_id_for_parallel_play() -> None:
         for t in await mcp_app.list_tools()
     }
     assert "agent_id" in schemas["get_next_turn"]
+    assert "agent_id" in schemas["get_instructions"]
     # The batch discovery tool takes no LLM-facing args beyond the hidden plumbing.
     assert "token" not in schemas["get_next_turns"]
     assert "db" not in schemas["get_next_turns"]
@@ -85,15 +83,13 @@ async def test_authed_tools_hide_token_and_db_from_schema() -> None:
         for t in await mcp_app.list_tools()
     }
     for name in (
-        "get_turn",
+        "get_instructions",
         "get_next_turn",
+        "get_next_turns",
         "submit_talk",
         "submit_action",
         "get_game_state",
-        "get_opponent_history",
         "get_chat",
-        "get_turn_detail",
-        "get_standings",
     ):
         assert "token" not in schemas[name]
         assert "db" not in schemas[name]
@@ -101,12 +97,37 @@ async def test_authed_tools_hide_token_and_db_from_schema() -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_discovery_requires_bearer_token() -> None:
-    """The MCP endpoint advertises OAuth discovery instead of a secret header."""
+    """The MCP endpoint advertises OAuth discovery instead of a secret header.
+
+    The server runs stateless (no in-memory session map, so a redeploy can't
+    orphan a client). Stateless streamable-HTTP serves no server->client SSE
+    stream, so an unauthenticated GET is 405, not the auth challenge. Real clients
+    discover OAuth on the POST `initialize` path they actually use: an
+    unauthenticated POST returns 401 with the Bearer challenge and the
+    resource-metadata discovery URL.
+    """
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/mcp")
-        assert response.status_code == 401
-        challenge = response.headers["www-authenticate"]
+        # No server-push stream in stateless mode.
+        assert (await client.get("/mcp")).status_code == 405
+
+        # The OAuth challenge rides the POST initialize path real clients use.
+        init = await client.post(
+            "/mcp",
+            headers={"Accept": "application/json, text/event-stream"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "gemini-cli-mcp-client", "version": "1"},
+                },
+            },
+        )
+        assert init.status_code == 401
+        challenge = init.headers["www-authenticate"]
         assert "Bearer" in challenge
         assert "/.well-known/oauth-protected-resource/mcp" in challenge
 
@@ -122,10 +143,10 @@ async def test_mcp_discovery_requires_bearer_token() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
+async def test_get_next_turn_uses_google_identity_and_mcp_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The bridge resolves the Google identity and builds the Mode A connection."""
+    """The bridge resolves the Google identity and builds the MCP connection."""
     from mcp_server import server
 
     captured: dict[str, object] = {}
@@ -134,8 +155,8 @@ async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
-    async def fake_mode_a_connection_for(
-        db: object, user: object, *, provider: object = None
+    async def fake_mcp_connection_for(
+        db: object, user: object, *, provider: object = None, oauth_client_id: object = None
     ) -> SimpleNamespace:
         captured["user"] = user
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
@@ -160,7 +181,7 @@ async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
         return {"status": "waiting", "next_poll_after_seconds": 2}
 
     monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mode_a_connection_for", fake_mode_a_connection_for)
+    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
     monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
     monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
     monkeypatch.setattr(server, "play_get_next_turn", fake_get_next_turn)
@@ -179,72 +200,155 @@ async def test_get_next_turn_uses_google_identity_and_mode_a_connection(
 
 
 @pytest.mark.asyncio
-async def test_get_turn_uses_oauth_player_resolution(
+async def test_get_next_turn_strips_duplicate_static_for_mcp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Match-scoped tools resolve the signed-in user's player, not a header key."""
     from mcp_server import server
 
-    captured: dict[str, object] = {}
-
     async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
-        captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
-    async def fake_mode_a_connection_for(
-        db: object, user: object, *, provider: object = None
+    async def fake_mcp_connection_for(
+        db: object, user: object, *, provider: object = None, oauth_client_id: object = None
     ) -> SimpleNamespace:
-        captured["user"] = user
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
 
     def fake_assert_connection_usable(connection: object) -> None:
-        captured["checked_connection"] = connection
+        pass
 
     async def fake_mark_seen(db: object, connection: object, *, key_hash: str) -> None:
-        captured["mark_seen_key_hash"] = key_hash
+        pass
 
-    async def fake_require_agent_player(
-        *,
-        match_id: str,
+    async def fake_get_next_turn(
         db: object,
         connection: object,
-        agent_id: int | None = None,
-        agent_turn_token: str | None = None,
-    ) -> SimpleNamespace:
-        captured["resolved_match_id"] = match_id
-        captured["resolved_connection"] = connection
-        captured["resolved_agent_turn_token"] = agent_turn_token
-        return SimpleNamespace(id=99, agent_id=17, seat_name="AI-17")
-
-    async def fake_poll_turn(
-        db: object,
         *,
-        match_id: str,
-        player: object,
-        rate_state: dict[int, float],
+        agent_id: int | None = None,
+        max_hold_seconds: float | None = None,
     ) -> dict[str, object]:
-        captured["poll_match_id"] = match_id
-        captured["poll_player"] = player
-        captured["poll_rate_state"] = rate_state
-        return {"status": "your_turn", "current": {"phase": "talk"}}
+        return {
+            "status": "your_turn",
+            "match_id": "M_001",
+            "turn_token": "turn-1",
+            "agent_turn_token": "turn-1:1:M_001",
+            "strategy": "keep it short",
+            "static": {
+                "match_id": "M_001",
+                "rules_version": "v1",
+                "rules": "rules text",
+                "base_prompt": "prompt text",
+                "your_strategy": "keep it short",
+                "total_rounds": 7,
+                "turns_per_round": 7,
+                "your_agent_id": "A",
+                "all_agent_ids": ["A", "B"],
+                "coach_note": "stay calm",
+            },
+            "history": [],
+            "scoreboard": [],
+            "current": {"phase": "act", "turn_token": "turn-1"},
+            "your_private_state": {"dice": [1, 2, 3]},
+            "public_state": {"board": 1},
+        }
 
     monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mode_a_connection_for", fake_mode_a_connection_for)
+    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
     monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
     monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
-    monkeypatch.setattr(server, "require_agent_player", fake_require_agent_player)
-    monkeypatch.setattr(server, "poll_turn", fake_poll_turn)
+    monkeypatch.setattr(server, "play_get_next_turn", fake_get_next_turn)
 
-    result = await server.get_turn(match_id="M_001", token=_token(), db=object())
+    result = await server.get_next_turn(token=_token(), db=object())
 
     assert result["status"] == "your_turn"
-    assert captured["userinfo"].sub == "sub-123"
-    assert captured["resolved_match_id"] == "M_001"
-    assert captured["resolved_connection"].id == 7
-    assert captured["resolved_agent_turn_token"] is None
-    assert captured["poll_match_id"] == "M_001"
-    assert captured["poll_player"].seat_name == "AI-17"
-    assert isinstance(captured["poll_rate_state"], dict)
+    assert "strategy" not in result
+    assert "base_prompt" not in result["static"]
+    assert "rules" not in result["static"]
+    assert "your_strategy" not in result["static"]
+    assert result["static"]["coach_note"] == "stay calm"
+    assert result["your_private_state"] == {"dice": [1, 2, 3]}
+    assert result["public_state"] == {"board": 1}
+    # History is the server's rolling window — the lean wrapper preserves it as-is
+    # (it only strips the duplicated static prompt text, never the live history).
+    assert result["history"] == []
+    assert set(result["static"]) == {
+        "match_id",
+        "rules_version",
+        "total_rounds",
+        "turns_per_round",
+        "your_agent_id",
+        "all_agent_ids",
+        "coach_note",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_next_turns_strips_duplicate_static_for_mcp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mcp_server import server
+
+    async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
+        return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
+
+    async def fake_mcp_connection_for(
+        db: object, user: object, *, provider: object = None, oauth_client_id: object = None
+    ) -> SimpleNamespace:
+        return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
+
+    def fake_assert_connection_usable(connection: object) -> None:
+        pass
+
+    async def fake_mark_seen(db: object, connection: object, *, key_hash: str) -> None:
+        pass
+
+    async def fake_get_next_turns(db: object, connection: object) -> dict[str, object]:
+        return {
+            "status": "your_turn",
+            "turns": [
+                {
+                    "status": "your_turn",
+                    "match_id": "M_001",
+                    "turn_token": "turn-1",
+                    "agent_turn_token": "turn-1:1:M_001",
+                    "strategy": "keep it short",
+                    "static": {
+                        "match_id": "M_001",
+                        "rules_version": "v1",
+                        "rules": "rules text",
+                        "base_prompt": "prompt text",
+                        "your_strategy": "keep it short",
+                        "total_rounds": 7,
+                        "turns_per_round": 7,
+                        "your_agent_id": "A",
+                        "all_agent_ids": ["A", "B"],
+                    },
+                    "history": [],
+                    "scoreboard": [],
+                    "current": {"phase": "act", "turn_token": "turn-1"},
+                    "your_private_state": {"dice": [1, 2, 3]},
+                    "public_state": {"board": 1},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
+    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
+    monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
+    monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
+    monkeypatch.setattr(server, "play_get_next_turns", fake_get_next_turns)
+
+    result = await server.get_next_turns(token=_token(), db=object())
+
+    assert result["status"] == "your_turn"
+    turn = result["turns"][0]
+    assert "strategy" not in turn
+    assert "base_prompt" not in turn["static"]
+    assert "rules" not in turn["static"]
+    assert "your_strategy" not in turn["static"]
+    assert turn["static"]["match_id"] == "M_001"
+    assert turn["your_private_state"] == {"dice": [1, 2, 3]}
+    assert turn["public_state"] == {"board": 1}
+    assert turn["history"] == []  # rolling window preserved, not stripped
 
 
 @pytest.mark.asyncio
@@ -289,8 +393,8 @@ async def test_pull_tools_use_shared_oauth_resolution(
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
-    async def fake_mode_a_connection_for(
-        db: object, user: object, *, provider: object = None
+    async def fake_mcp_connection_for(
+        db: object, user: object, *, provider: object = None, oauth_client_id: object = None
     ) -> SimpleNamespace:
         return SimpleNamespace(id=7, key_lookup="lookup-7", user=user)
 
@@ -325,32 +429,115 @@ async def test_pull_tools_use_shared_oauth_resolution(
         return {"status": "ok"}
 
     monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mode_a_connection_for", fake_mode_a_connection_for)
+    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
     monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
     monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
     monkeypatch.setattr(server, "require_agent_player", fake_require_agent_player)
-    monkeypatch.setattr(server, "opponent_history", fake_pull)
     monkeypatch.setattr(server, "chat_transcript", fake_pull)
-    monkeypatch.setattr(server, "turn_detail", fake_pull)
-    monkeypatch.setattr(server, "standings", fake_pull)
 
     token = _token()
-    assert await server.get_opponent_history(
-        match_id="M_001",
-        opponent_id="AI-2",
-        token=token,
-        db=object(),
-    ) == {"status": "ok"}
     assert await server.get_chat(match_id="M_001", token=token, db=object()) == {
         "status": "ok"
     }
-    assert await server.get_turn_detail(
-        match_id="M_001",
-        round=1,
-        turn=1,
-        token=token,
-        db=object(),
-    ) == {"status": "ok"}
-    assert await server.get_standings(match_id="M_001", token=token, db=object()) == {
-        "status": "ok"
-    }
+
+
+# ---------------------------------------------------------------------------
+# Stateless-mode client identity — regression tests for spec 016
+# ---------------------------------------------------------------------------
+
+
+def test_client_provider_from_context_returns_none_without_active_session() -> None:
+    """_client_provider_from_context() fails open (returns None) outside a live request.
+
+    In stateless_http mode every tool-call request arrives with no persistent
+    session, so session.client_params is None. The function catches this and returns
+    None — expected behavior. Tool calls instead key on the DCR client_id read from
+    the raw bearer JWT (see _dcr_client_id_from_request / _resolve_oauth_connection).
+    """
+    from mcp_server.server import _client_provider_from_context
+
+    provider = _client_provider_from_context()
+    assert provider is None
+
+
+def test_dcr_client_id_from_request_decodes_bearer_jwt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_dcr_client_id_from_request() reads the per-client DCR id from the bearer JWT.
+
+    The reference JWT FastMCP issues to a client carries its DCR client_id (a UUID)
+    in the payload. We decode that payload to get a stable per-client key — unlike
+    the validated AccessToken, whose client_id is the shared Google subject.
+    """
+    import base64
+    import json
+
+    from mcp_server import server
+
+    payload = {"iss": "x", "client_id": "dcr-uuid-codex", "jti": "abc"}
+    seg = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    jwt = f"HEADER.{seg}.SIG"
+    fake_request = SimpleNamespace(headers={"authorization": f"Bearer {jwt}"})
+    monkeypatch.setattr(server, "get_http_request", lambda: fake_request)
+
+    assert server._dcr_client_id_from_request() == "dcr-uuid-codex"
+
+
+def test_dcr_client_id_from_request_fails_open_without_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No/!bearer/opaque token → None, so the caller falls back to provider lookup."""
+    from mcp_server import server
+
+    for header in ({}, {"authorization": "Basic abc"}, {"authorization": "Bearer opaque"}):
+        monkeypatch.setattr(
+            server, "get_http_request", lambda h=header: SimpleNamespace(headers=h)
+        )
+        assert server._dcr_client_id_from_request() is None
+
+
+@pytest.mark.asyncio
+async def test_multi_connection_user_resolves_via_oauth_client_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A user with 2+ MCP connections resolves correctly via the per-client id.
+
+    Full chain after the fix:
+      1. the DCR client_id (from the bearer JWT) is passed as oauth_client_id
+      2. mcp_connection_for(oauth_client_id=...) finds the matching connection
+      3. tool call succeeds — no UNKNOWN_MCP_CLIENT
+    """
+    from app.models.connection import ConnectionStatus
+
+    from mcp_server import server
+
+    EXPECTED_CLIENT_ID = "dcr-uuid-client"  # the per-client DCR id used for routing
+
+    async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
+        return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
+
+    async def fake_mcp_connection_for(
+        db: object,
+        user: object,
+        *,
+        provider: object = None,
+        oauth_client_id: object = None,
+    ) -> SimpleNamespace | None:
+        # Simulates a user with 2 connections: oauth_client_id picks the right one
+        if oauth_client_id == EXPECTED_CLIENT_ID:
+            return SimpleNamespace(
+                deleted_at=None,
+                status=ConnectionStatus.ACTIVE,
+                key_lookup="some-key-hash",
+            )
+        return None
+
+    monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
+    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
+    monkeypatch.setattr(server, "assert_connection_usable", lambda conn: None)
+
+    access_token, _userinfo, connection = await server._connection_from_token(
+        object(), _token(), provider=None, oauth_client_id=EXPECTED_CLIENT_ID
+    )
+    assert connection is not None
+    assert connection.key_lookup == "some-key-hash"

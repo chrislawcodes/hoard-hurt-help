@@ -352,6 +352,7 @@
   var LABELS = DATA.labels || {};
   var BOTS = DATA.bots || {};
   var OWNERS = DATA.owners || {};
+  var PROVIDERS = DATA.providers || {};
   var VIEWER_SEAT = DATA.viewer_seat || null;
   // Taller rail rows whenever the owner byline is shown.
   var RAIL_ROW_H = Object.keys(OWNERS).length ? 60 : 52;
@@ -474,18 +475,43 @@
       var label = labelOf(id);
       var isBot = !!BOTS[id];
       var owner = OWNERS[id] || null;
+      var provider = PROVIDERS[id] || null;
       var li=document.createElement('li');
       li.className='rc-rail-row'+(id===VIEWER_SEAT?' rc-you':''); li.style.setProperty('--c', colorOf[id]);
       li.style.height=RAIL_ROW_H+'px';
+      // A seat shows either the Bot tag or the provider that actually played it.
+      var seatTag = isBot
+        ? '<span class="lb-tag lb-tag-sim rc-bot-tag">Bot</span>'
+        : (provider ? '<span class="lb-tag lb-tag-provider rc-bot-tag">'+esc(provider)+'</span>' : '');
       li.innerHTML='<span class="rk">1</span>'
         +'<span class="nm"><span class="nm-name" title="'+esc(label)+'"><span class="nm-name-text">'+esc(label)+'</span>'
-        +(isBot?'<span class="lb-tag lb-tag-sim rc-bot-tag">Bot</span>':'')
+        +seatTag
         +'</span>'
         +(owner?'<span class="nm-owner">by @'+esc(owner)+'</span>':'')
         +'<span class="nm-pts">0 rounds won</span>'
         +'<span class="nm-rwin"></span></span>'
         +'<span class="sc">0<span class="sc-unit">pts</span></span>'
         +'<span class="track"><span class="bar"></span></span>';
+      // Add a "Coach" button to the viewer's own row, wired to the dialog.
+      if (id === VIEWER_SEAT) {
+        var coachWrap = document.getElementById('coach-dialog-wrap');
+        if (coachWrap) {
+          var armed = coachWrap.dataset.armed === 'true';
+          var coachBtn = document.createElement('button');
+          coachBtn.type = 'button';
+          coachBtn.className = 'rc-coach-btn' + (armed ? ' armed' : '');
+          coachBtn.title = armed ? 'Coaching note armed' : 'Coach this agent';
+          coachBtn.textContent = 'Coach';
+          coachBtn.onclick = function() { if (typeof openCoachPromptDialog === 'function') openCoachPromptDialog(); };
+          li.querySelector('.nm-name').appendChild(coachBtn);
+          document.addEventListener('coach:updated', function() {
+            var wrap = document.getElementById('coach-dialog-wrap');
+            var isArmed = !!(wrap && wrap.dataset.armed === 'true');
+            coachBtn.className = 'rc-coach-btn' + (isArmed ? ' armed' : '');
+            coachBtn.title = isArmed ? 'Coaching note armed' : 'Coach this agent';
+          });
+        }
+      }
       railEl.appendChild(li); railRowEl[id]=li;
     });
     railEl.style.height=(AGENTS.length*RAIL_ROW_H)+'px';
