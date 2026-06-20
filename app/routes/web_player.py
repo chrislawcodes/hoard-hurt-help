@@ -432,16 +432,26 @@ async def join_submit(
     display_name: Annotated[str | None, Form()] = None,
     strategy_prompt: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
-    """Enter a match: as a human ("Play as yourself") or with one or more AI agents.
+    """Enter a match: play as a human, send AI agent(s), or both at once.
 
-    The join screen posts ``play_as`` — ``"human"`` is a one-click seat (no agent,
-    no connection), ``"ai"`` (the default) enters the picked agent(s). Regular
-    users add a single agent; admins may select several of their own at once to
-    fill a match for testing.
+    The join screen posts independent intents:
+
+    - ``play_as="human"`` adds a **human seat** (no agent, no connection) — shared
+      with the direct ``/play/join`` endpoint via ``seat_human_player`` so the two
+      can't drift.
+    - one or more ``agent_id`` + a ``chosen_provider`` adds **AI-agent seat(s)**.
+
+    Either, or **both**, may be present — a user can play by hand *and* field their
+    own bot in the same match (and compete against it). Regular users add a single
+    agent; admins may select several of their own at once to fill a match for
+    testing. Both seats are created in **one transaction**, so capacity is
+    all-or-nothing.
     """
     # Dedupe while preserving the picked order; `bot_id` is the legacy field name.
     selected_ids = list(dict.fromkeys([*(agent_id or []), *(bot_id or [])]))
     is_admin = _is_any_admin(user)
+    want_human = play_as == "human"
+    want_agent = bool(selected_ids)
     set_request_trace_context(
         request,
         match_id=match_id,
@@ -461,42 +471,50 @@ async def join_submit(
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Match not open for registration.")
 
-    # Play as a human: a one-click seat with no agent or connection. Shares the
-    # seating logic with the direct /play/join endpoint so the two can't drift.
-    if play_as == "human":
-        await seat_human_player(db, user, match, display_name)
-        await db.commit()
-        return RedirectResponse(
-            url=f"/games/{match.game}/matches/{match.id}",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-
-    # Otherwise enter one or more AI agents.
-    if not selected_ids:
-        raise HTTPException(status_code=400, detail="Choose an agent.")
-    if not chosen_provider:
-        raise HTTPException(status_code=400, detail="Pick an AI to play your agent.")
-    if len(selected_ids) > 1 and not is_admin:
+    if not want_human and not want_agent:
         raise HTTPException(
-            status_code=403,
-            detail="Only admins can add more than one agent to a match.",
+            status_code=400,
+            detail="Choose how to enter — play as yourself, send an agent, or both.",
         )
 
-    existing_seats = set(
-        (
-            await db.execute(select(Player.seat_name).where(Player.match_id == match.id))
+    # Build the AI-agent seat(s) FIRST, then the human seat. Seating the human
+    # last means its capacity check (`seat_human_player` → `count_players`) also
+    # counts the agent rows just added (SQLAlchemy autoflush), so a human + an
+    # agent that together overflow `max_players` fail as one — nothing commits.
+    players: list[Player] = []
+    if want_agent:
+        if not chosen_provider:
+            raise HTTPException(
+                status_code=400, detail="Pick an AI to play your agent."
+            )
+        if len(selected_ids) > 1 and not is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Only admins can add more than one agent to a match.",
+            )
+        existing_seats = set(
+            (
+                await db.execute(
+                    select(Player.seat_name).where(Player.match_id == match.id)
+                )
+            )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
-    players = [
-        await _seat_user_agent(
-            db, user, match, aid, existing_seats,
-            chosen_provider=chosen_provider, bypass_capacity=is_admin,
-        )
-        for aid in selected_ids
-    ]
-    db.add_all(players)
+        players = [
+            await _seat_user_agent(
+                db, user, match, aid, existing_seats,
+                chosen_provider=chosen_provider, bypass_capacity=is_admin,
+            )
+            for aid in selected_ids
+        ]
+        db.add_all(players)
+
+    # A one-click human seat: no agent, no connection. Idempotent (a no-op if the
+    # user already holds an active human seat here) and active immediately.
+    if want_human:
+        await seat_human_player(db, user, match, display_name)
+
     await db.commit()
 
     held = [p for p in players if p.seat_reserved_until is not None]

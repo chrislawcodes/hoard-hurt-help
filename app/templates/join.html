@@ -14,25 +14,28 @@
 <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" class="card join-pick" data-join-form>
 
     <div class="pick-section">
-        <div class="field-label">① How do you want to play?</div>
+        <div class="field-label">① How do you want to enter? <span class="pick-hint-inline">— pick one or both</span></div>
         <label class="pick-row">
-            <input type="radio" name="play_as" value="human" data-play-as-human checked>
+            <input type="checkbox" name="play_as" value="human" data-play-as-human checked>
             <span class="pick-name">Play as yourself</span>
             <span class="pick-sub">You ({{ user.handle }}) — make every move by hand. No AI, no setup.</span>
         </label>
-        <label class="pick-row{% if not any_agents %} pick-disabled{% endif %}">
-            <input type="radio" name="play_as" value="ai"{% if not any_agents %} disabled{% endif %}>
-            <span class="pick-name">Send an AI agent</span>
-            {% if any_agents %}
-            <span class="pick-sub">An AI you control plays your strategy for you.</span>
-            {% else %}
+        <label class="pick-row{% if not any_agents or not any_pickable_ai %} pick-disabled{% endif %}">
+            <input type="checkbox" data-play-as-agent
+                   {% if not any_agents or not any_pickable_ai %}disabled{% endif %}>
+            <span class="pick-name">Also send an AI agent</span>
+            {% if not any_agents %}
             <span class="pick-sub">You have no agents yet. <a href="/me/agents/new{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">Create one</a> to send an AI.</span>
+            {% elif not any_pickable_ai %}
+            <span class="pick-sub">Every AI you have is busy in another game. Connect another from <a href="/me/connections">Connections</a>.</span>
+            {% else %}
+            <span class="pick-sub">An AI you control plays your strategy — you compete against it.</span>
             {% endif %}
         </label>
     </div>
 
-    {% if any_agents %}
-    <div id="agent-section">
+    {% if any_agents and any_pickable_ai %}
+    <div id="agent-section" style="display:none;">
         {% set st = namespace(first_agent=true) %}
         {% for row in agent_rows %}
         {% set is_first = not row.seated and st.first_agent %}
@@ -40,8 +43,9 @@
         <div class="agent-card{% if row.seated %} agent-card-taken{% endif %}">
             <label class="agent-card-hd">
                 <input type="radio" name="agent_id" value="{{ row.agent.id }}"
-                       class="agent-radio"
-                       {% if row.seated %}disabled{% elif is_first %}checked{% endif %}>
+                       class="agent-radio" disabled
+                       {% if is_first %}data-default-agent="1"{% endif %}
+                       {% if row.seated %}data-orig-disabled="1"{% endif %}>
                 <span class="pick-name">{{ row.agent.name }}</span>
                 {% if row.seated %}
                 <span class="badge badge-done">already in this game</span>
@@ -50,19 +54,16 @@
                 {% endif %}
             </label>
             {% if not row.seated %}
-            <div class="agent-ai-picker{% if not is_first %} ai-picker-hidden{% endif %}">
+            <div class="agent-ai-picker ai-picker-hidden">
                 <div class="field-label">Which AI plays {{ row.agent.name }}?</div>
-                {% if not any_pickable_ai %}
-                <p class="hint" style="margin:0.3rem 0 0;">Every AI you have is busy. Wait for one to finish, or connect another from <a href="/me/connections">Connections</a>.</p>
-                {% else %}
-                {% set ai = namespace(checked=false) %}
+                {% set ai = namespace(first=true) %}
                 <div class="ai-chip-grid">
                     {% for opt in ai_options %}
                     <label class="ai-chip{% if not opt.can_pick %} ai-chip-disabled{% endif %}">
                         <input type="radio" name="chosen_provider" value="{{ opt.provider }}"
-                               class="ai-radio"
-                               {% if not opt.can_pick %}disabled data-orig-disabled="1"{% elif is_first and not ai.checked %}checked{% endif %}>
-                        {% if opt.can_pick and not ai.checked %}{% set ai.checked = true %}{% endif %}
+                               class="ai-radio" disabled
+                               {% if not opt.can_pick %}data-orig-disabled="1"{% elif ai.first %}data-default-ai="1"{% endif %}>
+                        {% if opt.can_pick and ai.first %}{% set ai.first = false %}{% endif %}
                         <span class="ai-chip-name">{{ opt.label }}</span>
                         <span class="ai-chip-state ai-chip-state-{{ opt.state }}">
                             {% if opt.state == 'ready' %}● ready
@@ -73,7 +74,6 @@
                     </label>
                     {% endfor %}
                 </div>
-                {% endif %}
             </div>
             {% endif %}
         </div>
@@ -86,79 +86,103 @@
         <button type="submit" class="btn btn-primary join-btn">Join game →</button>
     </div>
 </form>
-<p class="meta">Playing as yourself, your seat is your handle <strong>{{ user.handle }}</strong>. Sending an AI, your identity is <strong>{{ user.handle }}/agent-name</strong>. Manage agents and logins under <a href="/me/agents">Agents</a> and <a href="/me/connections">Connections</a>.</p>
+<p class="meta">Playing as yourself, your seat is your handle <strong>{{ user.handle }}</strong>. Sending an AI, its seat is the agent's name. You can do both in one match. Manage agents and logins under <a href="/me/agents">Agents</a> and <a href="/me/connections">Connections</a>.</p>
 
 <script>
 (function () {
     var agentSection = document.getElementById('agent-section');
+    var humanBox = document.querySelector('[data-play-as-human]');
+    var agentBox = document.querySelector('[data-play-as-agent]');
 
-    function onPlayAsChange() {
+    // Show one card's AI picker; disable every other card's AI radios so only the
+    // selected agent submits a provider. Returns nothing.
+    function selectCard(card) {
+        document.querySelectorAll('.agent-ai-picker').forEach(function (p) {
+            p.classList.add('ai-picker-hidden');
+            p.querySelectorAll('.ai-radio').forEach(function (r) {
+                r.disabled = true;
+                r.checked = false;
+            });
+        });
+        if (!card) return;
+        var picker = card.querySelector('.agent-ai-picker');
+        if (!picker) return;
+        picker.classList.remove('ai-picker-hidden');
+        picker.querySelectorAll('.ai-radio:not([data-orig-disabled])').forEach(function (r) {
+            r.disabled = false;
+        });
+        var pick = picker.querySelector('.ai-radio[data-default-ai]:not(:disabled)')
+            || picker.querySelector('.ai-radio:not(:disabled)');
+        if (pick) pick.checked = true;
+    }
+
+    // Turn the agent section on/off as a whole (the "Also send an AI agent" box).
+    function setAgentEnabled(on) {
         if (!agentSection) return;
-        var human = document.querySelector('[data-play-as-human]');
-        agentSection.style.display = (human && human.checked) ? 'none' : '';
+        agentSection.style.display = on ? '' : 'none';
+        if (on) {
+            agentSection.querySelectorAll('.agent-radio:not([data-orig-disabled])').forEach(function (r) {
+                r.disabled = false;
+            });
+            var chosen = agentSection.querySelector('.agent-radio:checked:not(:disabled)')
+                || agentSection.querySelector('.agent-radio[data-default-agent]:not(:disabled)')
+                || agentSection.querySelector('.agent-radio:not(:disabled)');
+            if (chosen) {
+                chosen.checked = true;
+                selectCard(chosen.closest('.agent-card'));
+            }
+        } else {
+            agentSection.querySelectorAll('.agent-radio').forEach(function (r) {
+                r.disabled = true;
+                r.checked = false;
+            });
+            selectCard(null);
+        }
         updateBtn();
     }
-    document.querySelectorAll('[name="play_as"]').forEach(function (r) {
-        r.addEventListener('change', onPlayAsChange);
-    });
-    onPlayAsChange();
 
-    document.querySelectorAll('.agent-ai-picker.ai-picker-hidden .ai-radio').forEach(function (r) {
-        r.disabled = true;
-    });
+    function humanOn() { return humanBox && humanBox.checked; }
+    function agentOn() { return agentBox && agentBox.checked && !agentBox.disabled; }
 
     function updateBtn() {
         var btn = document.querySelector('.join-btn');
         if (!btn) return;
-        var human = document.querySelector('[data-play-as-human]');
-        if (human && human.checked) {
-            btn.textContent = 'Join game →';
-            return;
+        var parts = [];
+        if (humanOn()) parts.push('yourself');
+        if (agentOn()) {
+            var agentRadio = document.querySelector('.agent-radio:checked:not(:disabled)');
+            var aiRadio = document.querySelector('.ai-radio:checked:not(:disabled)');
+            if (agentRadio && aiRadio) {
+                var agentName = agentRadio.closest('.agent-card').querySelector('.pick-name').textContent.trim();
+                var aiName = aiRadio.closest('.ai-chip').querySelector('.ai-chip-name').textContent.trim();
+                parts.push(agentName + ' (' + aiName + ')');
+            }
         }
-        var agentRadio = document.querySelector('.agent-radio:checked');
-        var aiRadio = document.querySelector('.ai-radio:checked:not(:disabled)');
-        if (agentRadio && aiRadio) {
-            var agentName = agentRadio.closest('.agent-card').querySelector('.pick-name').textContent.trim();
-            var aiName = aiRadio.closest('.ai-chip').querySelector('.ai-chip-name').textContent.trim();
-            btn.textContent = 'Join as ' + agentName + ' with ' + aiName + ' →';
-        }
+        btn.disabled = parts.length === 0;
+        btn.textContent = parts.length ? 'Join as ' + parts.join(' + ') + ' →' : 'Pick how to enter →';
     }
+
+    if (humanBox) humanBox.addEventListener('change', updateBtn);
+    if (agentBox) agentBox.addEventListener('change', function () { setAgentEnabled(agentBox.checked); });
 
     document.querySelectorAll('.agent-radio').forEach(function (radio) {
         radio.addEventListener('change', function () {
-            var card = radio.closest('.agent-card');
-            document.querySelectorAll('.agent-ai-picker').forEach(function (p) {
-                p.classList.add('ai-picker-hidden');
-                p.querySelectorAll('.ai-radio').forEach(function (r) {
-                    r.disabled = true;
-                    r.checked = false;
-                });
-            });
-            var picker = card.querySelector('.agent-ai-picker');
-            if (picker) {
-                picker.classList.remove('ai-picker-hidden');
-                picker.querySelectorAll('.ai-radio:not([data-orig-disabled])').forEach(function (r) {
-                    r.disabled = false;
-                });
-                var first = picker.querySelector('.ai-radio:not(:disabled)');
-                if (first) first.checked = true;
-            }
+            selectCard(radio.closest('.agent-card'));
             updateBtn();
         });
     });
-
     document.querySelectorAll('.ai-radio').forEach(function (r) {
         r.addEventListener('change', updateBtn);
     });
 
+    setAgentEnabled(false);  // default: human only, matching the pre-checked box
     updateBtn();
 
-    /* Notification permission when joining as human (FR-027) — fail-open */
+    /* Notification permission when joining as a human (FR-027) — fail-open */
     var form = document.querySelector('[data-join-form]');
     if (form && 'Notification' in window) {
         form.addEventListener('submit', function () {
-            var h = form.querySelector('[data-play-as-human]');
-            if (h && h.checked && Notification.permission === 'default') {
+            if (humanOn() && Notification.permission === 'default') {
                 try { Notification.requestPermission(); } catch (_e) { /* fail-open: advisory only */ }
             }
         });
