@@ -8,7 +8,7 @@
         {# Single entrance: the join screen leads with "Play as yourself" (a human
            seat) and offers the AI-agent picker below it. #}
         <a class="btn btn-primary" href="/games/{{ game.game }}/matches/{{ game.id }}/join">
-            {% if viewer_player_id %}+ Add another agent{% else %}Enter game →{% endif %}
+            {% if viewer_player_id %}+ Add another agent{% else %}Join{% endif %}
         </a>
         {% endif %}
         {% if viewer_seat_human and game.state.value in ('scheduled', 'registering', 'active') %}
