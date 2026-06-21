@@ -7,41 +7,17 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.engine.tokens import bot_key_lookup
-from app.main import app
-from app.models import Base, ConnectionSetup, User
+from app.models import ConnectionSetup, User
 from app.models.user import UserRole
 from app.routes.auth import sync_google_user
 from app.schemas.auth import GoogleUserInfo
 from tests.conftest import make_connection, make_user
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine as _make_engine
-
-    test_engine = _make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-
-    yield test_factory
-    await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def _signed_in(user_id: int) -> dict[str, str]:

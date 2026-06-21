@@ -3,12 +3,9 @@
 from datetime import datetime, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from app.main import app
 from app.models import (
-    Base,
     Match,
     GameState,
     Player,
@@ -18,28 +15,6 @@ from app.models import (
     User,
 )
 from tests.factories import make_agent
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    yield test_factory
-    await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 async def _seed(reset_db, state=GameState.ACTIVE, *, scheduled_start=None, match_kind="manual"):

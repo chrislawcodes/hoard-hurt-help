@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db import make_engine
 from app.engine.bots import (
     BotContext,
     BotProfile,
@@ -16,7 +13,6 @@ from app.models import (
     Agent,
     AgentKind,
     AgentVersion,
-    Base,
     Connection,
     ConnectionProvider,
     ConnectionStatus,
@@ -27,20 +23,6 @@ from app.models import (
 )
 from app.read_models.leaderboard import load_leaderboard_sections
 from app.schemas.agent import ScoreboardRow
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-
-    yield test_factory
-    await test_engine.dispose()
 
 
 async def _seed_user(db, index: int, handle: str | None = None) -> User:

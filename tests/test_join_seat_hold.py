@@ -15,16 +15,13 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.engine.scheduler import _active_player_count
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, sweep_held_seats
-from app.main import app
-from app.models import Base, ConnectionProvider, GameState, Match, Player, User
+from app.models import ConnectionProvider, GameState, Match, Player, User
 from tests.factories import make_agent, make_connection, make_user
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
@@ -33,29 +30,6 @@ MCP_PROVIDER_MODELS = [
     (ConnectionProvider.OPENAI, "gpt-5.4-mini"),
     (ConnectionProvider.GEMINI, "gemini-3.1-flash-lite"),
 ]
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-
-    yield test_factory
-    await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def _cookies(user_id: int) -> dict:

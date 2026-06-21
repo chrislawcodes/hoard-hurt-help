@@ -12,12 +12,10 @@ import re
 from datetime import datetime, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
 from app.config import settings
-from app.main import app
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionStatus
@@ -38,13 +36,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.db.engine", test_engine)
     yield test_factory
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def _signed_in_cookies(user_id: int) -> dict[str, str]:

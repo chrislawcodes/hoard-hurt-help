@@ -13,7 +13,6 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -23,7 +22,6 @@ from app.engine.bots.service import auto_submit_bot_phase
 from app.engine.human_player import get_or_create_human_agent
 from app.engine.tokens import generate_turn_token
 from app.games import get as get_game_module
-from app.main import app
 from app.models import Base, GameState, Match, Player, User
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from tests.factories import make_user, seat_player
@@ -58,13 +56,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.db.engine", engine)
     yield factory
     await engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def _cookies(user_id: int) -> dict:

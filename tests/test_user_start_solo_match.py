@@ -14,43 +14,16 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.engine.arena import fill_match_with_bots
 from app.engine.user_match_start import viewer_start_eligibility
-from app.main import app
-from app.models import Base
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from tests.factories import make_user, seat_player
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-
-    yield test_factory
-    await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def _cookies(user_id: int) -> dict:

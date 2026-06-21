@@ -26,13 +26,11 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.main import app
 from app.models import Base, GameState, Match, Player, User
 from app.routes.web_support import safe_internal_next
 from tests.factories import make_agent, make_connection, make_user
@@ -55,13 +53,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def _cookies(user_id: int) -> dict:

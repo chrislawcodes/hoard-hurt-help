@@ -9,16 +9,8 @@ from sqlalchemy import func, select
 from app.engine import scheduler
 from app.engine.scheduler import _all_submitted, _wait_for_turn
 from app.engine.tokens import generate_turn_token
-from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
+from app.models import Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
-
-
-@pytest.fixture
-async def db(engine, session_factory):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    async with session_factory() as session:
-        yield session
 
 
 def _same_session_factory(session):

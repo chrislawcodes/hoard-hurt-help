@@ -6,10 +6,8 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.main import app
 from app.models.agent import AgentKind
 from app.models import Base, GameState, Match, Player
 from app.games.hoard_hurt_help.viewer import _build_rc_data
@@ -29,13 +27,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.db.engine", test_engine)
     yield test_factory
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def test_build_rc_data_includes_owner_map() -> None:
