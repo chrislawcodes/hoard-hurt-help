@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from starlette.responses import Response
@@ -23,7 +23,7 @@ from app.engine.connection_health import (
     live_user_capacity,
     user_play_readiness,
 )
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -34,6 +34,7 @@ from app.routes.agents_health_presenter import (
     _count_agent_matches,
     _is_ready_to_play,
 )
+from app.routes.agents_queries import load_owned_agent
 from app.templating import templates
 
 router = APIRouter()
@@ -228,18 +229,7 @@ async def agent_detail(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
-    agent = (
-        await db.execute(
-            select(Agent).where(
-                Agent.id == agent_id,
-                Agent.user_id == user.id,
-                Agent.kind == AgentKind.AI,
-                Agent.archived_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found.")
+    agent = await load_owned_agent(db, user, agent_id)
     context = await _build_agent_detail_context(db, request, user, agent)
     matches = await _load_agent_matches(db, agent.id)
     # Under coverage-based routing, "connected" means the provider is currently
