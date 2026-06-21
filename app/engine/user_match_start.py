@@ -1,15 +1,16 @@
 """User-initiated match start: let the only player kick off their own match.
 
-A normal match (``MatchKind.MANUAL``) sits in REGISTERING until its scheduled
-time, then the poller starts it only if it has at least
-``MIN_PLAYERS_TO_START`` players. That leaves a gap: someone who set up a match
-with only their own players (one or more agents, and/or themselves as a human)
-must wait for the clock — and risks an auto-cancel if no strangers show up.
+A match sits in REGISTERING until its scheduled time, then the poller starts it
+only if it has at least ``MIN_PLAYERS_TO_START`` players. That leaves a gap:
+someone who is the only player — whether they created the match or joined an
+auto-scheduled one — must wait for the clock, and risks an auto-cancel if no
+strangers show up.
 
 This module fills that gap. When the signed-in viewer is the *only* person with
-a human/agent seat in the match (bots don't count), they may start it now. Any
-empty seats below the start floor fill with bots so the match can actually run,
-mirroring how Practice Arena and auto-matches already seat bots.
+a human/agent seat in the match (bots don't count), they may start it now,
+whatever the match kind. Any empty seats below the start floor fill with bots so
+the match can actually run, mirroring how Practice Arena and auto-matches already
+seat bots.
 
 The eligibility check is shared by the viewer (to decide whether to show the
 "Start now" button) and the start route (to authorize the POST), so the button
@@ -24,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent, AgentKind
-from app.models.match import GameState, Match, MatchKind
+from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
 
@@ -53,9 +54,7 @@ async def viewer_start_eligibility(
     Eligible only when ALL of these hold:
 
     * the viewer is signed in and the match is still pre-start
-      (SCHEDULED/REGISTERING),
-    * the match is a normal one — Practice Arena and auto-matches manage their
-      own start, so this never offers a button there,
+      (SCHEDULED/REGISTERING) — any match kind, including an auto-scheduled one,
     * the viewer holds at least one *confirmed* (not held, not left) human or
       agent seat, and
     * no other user holds a human or agent seat — bots don't count, so a table
@@ -72,8 +71,6 @@ async def viewer_start_eligibility(
     if user is None:
         return _CANNOT_START
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
-        return _CANNOT_START
-    if match.match_kind != MatchKind.MANUAL.value:
         return _CANNOT_START
 
     rows = (

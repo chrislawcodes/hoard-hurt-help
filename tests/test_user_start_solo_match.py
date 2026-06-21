@@ -190,14 +190,18 @@ async def test_active_match_cannot_be_started(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_managed_match_kinds_are_not_user_startable(reset_db):
+async def test_auto_match_is_user_startable_when_solo(reset_db):
+    # The reported gap: a solo player in an auto-scheduled match saw no button.
+    # Match kind must not matter — only "am I the only one here".
     async with reset_db() as db:
         user = await make_user(db, 1)
         match = await _make_match(db, "M_AUTO", kind=MatchKind.AUTO_SCHEDULED)
         await seat_player(db, match.id, "Mine", user=user)
         await db.commit()
 
-        assert (await viewer_start_eligibility(db, match, user)).can_start is False
+        elig = await viewer_start_eligibility(db, match, user)
+        assert elig.can_start is True
+        assert elig.bots_to_add == 2
 
 
 @pytest.mark.asyncio
@@ -242,6 +246,39 @@ async def test_start_route_fills_bots_and_activates(client, reset_db, monkeypatc
         assert match.state == GameState.ACTIVE
         assert await _confirmed_player_count(db, "M_GO") == 3
         assert await _bot_count(db, "M_GO") == 2
+
+
+@pytest.mark.asyncio
+async def test_human_can_start_auto_match_end_to_end(client, reset_db, monkeypatch):
+    # The exact reported scenario: join an auto-match as a human, then start it.
+    from app.engine import scheduler
+
+    monkeypatch.setattr(scheduler.registry, "start", lambda gid: None)
+
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _make_match(db, "M_AUTOH", kind=MatchKind.AUTO_SCHEDULED)
+        await db.commit()
+        user_id = user.id
+
+    join = await client.post(
+        "/games/hoard-hurt-help/matches/M_AUTOH/play/join",
+        cookies=_cookies(user_id),
+        follow_redirects=False,
+    )
+    assert join.status_code == 303
+
+    start = await client.post(
+        "/games/hoard-hurt-help/matches/M_AUTOH/start",
+        cookies=_cookies(user_id),
+        follow_redirects=False,
+    )
+    assert start.status_code == 303
+
+    async with reset_db() as db:
+        match = await db.get(Match, "M_AUTOH")
+        assert match.state == GameState.ACTIVE
+        assert await _confirmed_player_count(db, "M_AUTOH") == 3  # human + 2 bots
 
 
 @pytest.mark.asyncio

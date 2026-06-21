@@ -127,7 +127,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     viewer_seat_human = viewer_human is not None
     play_ctx["viewer_seat_human"] = viewer_seat_human
 
-    # Solo-start CTA: when this viewer is the only person with a seat in a normal
+    # Solo-start CTA: when this viewer is the only person with a seat in a
     # pre-start match, they can start it now (bots fill the table to the floor).
     start_eligibility = await viewer_start_eligibility(db, g, user)
 
