@@ -16,11 +16,12 @@ the feed order for the player view. There is **no DB or model change** and **no
 new dependency**.
 
 **Design decisions resolved 2026-06-20** (design session, `ux-design` skill):
-chat-screen pattern with the input docked at the bottom on every device;
-newest message at the bottom for the player view; a collapsible standings panel
-(10 players max) plus a tiny always-on score chip on every name; tap a name in
-the chat to set your target; the animated replay steps aside during live play for
-the player and returns when the game ends.
+the input is **docked at the bottom** on every device (always in reach); the feed
+stays **newest-at-top**, like the rest of the site, with the live turn's talk
+carried in the dock next to your controls; a collapsible standings panel
+(**10 players max**) plus a tiny always-on score chip on every name; tap a name to
+set your target; the animated replay steps aside during live play and returns when
+the game ends.
 
 ---
 
@@ -56,9 +57,10 @@ submit it before the clock — without hunting for anything.*
   described below instead of the spectator replay layout.
 - **Input docked at the bottom** on phone and desktop, phase-aware (talk box →
   action cards), reusing the existing `play_panel.html` controls.
-- **Chat-order feed** for the player view: newest at the bottom, auto-scroll to
-  latest, "↓ new" catch when scrolled up. Names are **attributed and tappable**;
-  each name carries a **score chip**.
+- **Feed** stays **newest-at-top** (today's order, for everyone — no reversal).
+  In the player view, names are **attributed and tappable** and each carries a
+  **score chip**; the live turn's talk is shown in the dock next to your controls
+  so you read-and-act together.
 - **Tap-to-target:** tapping a name fills the act-phase "Who?" target.
 - **Integrated standings:** desktop = an always-open side panel (all 10); phone =
   a collapsed summary that expands to all 10 on one screen. Shows this-round
@@ -102,20 +104,24 @@ Same chat column, but the standings move out of the way into a **persistent
 right-hand panel** (all 10 always visible, since there's room). The input stays
 docked at the bottom of the chat column. The title bar + clock sit on top.
 
-### The chat feed
+### The feed and the dock
 
-- **Order:** newest at the **bottom** for the player view (a reverse of today's
-  newest-first feed). The freshest message sits directly above the input.
-- **Auto-scroll:** when a new turn lands and you're already at the bottom, scroll
-  to it. If you've scrolled up to read history, **don't** yank the view — show a
-  **"↓ new"** button instead; clicking it jumps to the latest.
+- **Why the input is docked at the bottom:** so it's always in reach (thumb-
+  friendly on a phone), never below the fold. This is separate from feed order.
+- **Feed order: newest at the top, flowing down** — the same as today's feed and
+  the rest of the site, so it reads naturally and nothing jumps. A newly resolved
+  turn appears at the top of the feed.
+- **The live moment lives in the dock, not the feed.** During the **act** phase
+  the dock shows **this turn's revealed talk** right above your controls (the
+  shipped "What was just said" block), so the thing you act on is next to your
+  buttons — you never scroll to the top to read it. During the **talk** phase you
+  write blind, so the dock is just your message box; the feed's top entry is the
+  **previous** turn, which is what you base your message on.
 - **Attribution:** every message is `Name: "message"`, reusing `turn_block.html`'s
   existing `who-name` + `said` rendering.
-- **Talk vs act content:** during the **talk** phase you write blind (messages
-  reveal together at the deadline), so the newest thing in the feed is the
-  **previous** turn — that's what you base your message on. During the **act**
-  phase the talk has revealed, so the newest block is **this turn's** talk, with
-  tappable names.
+- **Catch-up:** if a new turn resolves while you're reading history lower down, a
+  small **"↑ new turn"** marker appears. The dock's "your turn" prompt is the real
+  signal that you need to act, so the feed never has to yank your view.
 
 ### The docked input (reuse `play_panel.html`)
 
@@ -190,7 +196,7 @@ Each state names what shows and the exact words.
 | **Submitted (either phase)** | Dock stays, choice shown as set, can still change | "Submitted — you can still change this until the clock ends." |
 | **Waiting on others** | Dock shows a calm waiting state; feed live | "Waiting on N player(s)…" (reuse existing indicator) |
 | **You missed a turn** | The defaulted turn appears in the feed, flagged | "You missed the deadline → auto-Hoard +2" (reuse `was_defaulted` "missed turn" tag) |
-| **You came back / it's your move** | On load, view is scrolled to the latest; dock shows your turn; a one-line catch-up if turns passed | "↩ While you were away: N turns played. You're caught up — it's your move." |
+| **You came back / it's your move** | On load, the feed is at the top (latest); the dock shows your turn; a one-line catch-up if turns passed | "↩ While you were away: N turns played. You're caught up — it's your move." |
 | **Round boundary** | A divider in the feed; scores reset note | "— Round X · scores reset —" |
 | **On autopilot (you left)** | Dock replaced by a notice; feed keeps streaming | "You left this match. Your seat plays **Hoard** for the rest — you can keep watching." (existing copy) |
 | **Game over** | Full robot-circle replay returns; dock gone; result shown | "Game over. Find your next match →" (existing) |
@@ -214,11 +220,11 @@ Grounded in the current code. All front-end unless noted.
 | [`app/templates/game.html`](../../app/templates/game.html) | Add a **player-mode** branch: when `viewer_is_human` and game `active`, render the chat cockpit and **skip** the `rc-layout` stage; keep the full stage for spectators and completed games. Extend the existing panel JS for auto-scroll, "↓ new", tap-to-target fill, and standings collapse/expand. |
 | [`app/templates/fragments/live_region.html`](../../app/templates/fragments/live_region.html) | Reorder for player mode: standings summary + chat feed + the **docked** `play_panel` at the bottom. Spectator path unchanged. |
 | [`app/templates/fragments/play_panel.html`](../../app/templates/fragments/play_panel.html) | Mostly reused as-is. Make it render as the bottom dock; the act-phase "What was just said" block becomes redundant once the feed shows revealed talk inline — drop or keep minimal. |
-| [`app/templates/fragments/pd_live_region.html`](../../app/templates/fragments/pd_live_region.html) + [`turn_block.html`](../../app/templates/fragments/turn_block.html) | Player rendering: **reverse order** (newest at bottom), add **score chips** on `who-name`, make names **tappable** in act phase. Gate on `viewer_is_human` so spectators keep newest-first. |
+| [`app/templates/fragments/pd_live_region.html`](../../app/templates/fragments/pd_live_region.html) + [`turn_block.html`](../../app/templates/fragments/turn_block.html) | Keep today's **newest-first** order (no reversal). For the player (`viewer_is_human`), add **score chips** on `who-name` and make names **tappable** in the act phase. |
 | **New:** `app/templates/fragments/play_standings.html` | The collapsible standings (summary + expanded list). Desktop = side panel; phone = collapse/expand. Reuses `scoreboard` + round-win data. |
 | [`app/static/style.css`](../../app/static/style.css) | New: chat-column layout (fixed-height app view), bottom dock, standings panel/collapse, name chips, "↓ new" button, clock-low state. Extend the existing `.play-panel` / `.rc-layout` rules; do **not** fork the type scale or color vars. |
 | [`app/routes/web_viewer.py`](../../app/routes/web_viewer.py) | Context: add a **name → in-round score** map and **ranks** for the chips and the standings; a flag to suppress the replay stage in player mode. Reuse `scoreboard`, `play_targets`, `play_*` already built. |
-| *(optional)* [`app/routes/matches_user.py`](../../app/routes/matches_user.py) + [`game_admin_web.py`](../../app/routes/game_admin_web.py) | If we cap matches at 10, change the create defaults (currently 20; game hard cap 100). **Open decision below.** |
+| [`app/routes/matches_user.py`](../../app/routes/matches_user.py) + [`game_admin_web.py`](../../app/routes/game_admin_web.py) | **Cap matches at 10:** lower the create default/limit from 20 to 10 (game hard cap stays 100). Add a validation guard + test. |
 
 ---
 
@@ -249,8 +255,9 @@ Grounded in the current code. All front-end unless noted.
 2. **Transcript is visible and attributed.** The chat feed showing other players'
    names + messages is on screen with the input, in both phases. *(Fixes
    complaint 2.)*
-3. **Newest-at-bottom + catch.** A new turn appends at the bottom and auto-scrolls
-   when at bottom; shows "↓ new" when scrolled up.
+3. **Newest-at-top feed.** A newly resolved turn appears at the top of the feed;
+   the dock shows your turn so you never rely on scrolling to know it's your move;
+   a "↑ new turn" marker appears if you're reading history lower down.
 4. **Tap-to-target.** Tapping a name in the act phase fills "Who?" with that name.
 5. **Score chips.** Every name in the feed shows the player's current in-round
    score; you and the leader are emphasized.
@@ -263,19 +270,16 @@ Grounded in the current code. All front-end unless noted.
    existing `tests/test_human_play_routes.py` / `test_human_player.py` still pass,
    plus new template/context tests for the player-mode branch and chip/rank data.
 
-## Open decisions (need your call)
+## Resolved decisions (2026-06-20)
 
-1. **Cap matches at 10?** The create form defaults to 20 and the game hard cap is
-   100. Tighten the create default/limit to 10 as part of this, or leave it and
-   just make the standings survive more than 10?
-2. **Feed order — player only, or everyone?** This spec flips to newest-at-bottom
-   for the **player view only**; spectators keep newest-first beside the replay.
-   Flip it for everyone instead?
-3. **Standings on phone — top or above the dock?** Spec puts the collapsed summary
-   at the **top** (per the live-match-broadcast model), leaning on name chips for
-   per-player detail near the controls. Move it directly above the dock instead?
-4. **Clock loudness.** Red + pulse under 10s — enough, or a louder warning (sound
-   / bigger banner) given a miss auto-Hoards you?
+1. **Cap matches at 10** — yes. Lower the create default from 20 to 10 as part of
+   this work (in scope above; game hard cap stays 100).
+2. **Feed order — newest at the top, for everyone.** No reversal; today's order
+   stays. The input is docked at the bottom for reach, and the live turn's talk
+   rides in the dock so it sits next to your controls.
+3. **Standings on phone — at the top** (collapsed summary), with per-player
+   numbers carried on the name chips down where you act.
+4. **Clock warning — red + pulse under 10 seconds.** No sound.
 
 ## Out of scope / future
 
