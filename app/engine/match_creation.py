@@ -10,7 +10,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.tokens import generate_match_id
 from app.games import known_types
+from app.models.game_state import MatchState
 from app.models.match import GameState, Match, MatchKind
+
+
+def player_count_error(
+    *,
+    min_players: int,
+    max_players: int,
+    cfg_min_players: int,
+    cfg_max_players: int,
+    range_message: str,
+    order_message: str,
+) -> str | None:
+    """Validate requested player counts against a game's allowed range.
+
+    HTTP-agnostic: returns an error string to surface, or ``None`` when the
+    counts are valid. Each caller supplies its own ``range_message`` (used for
+    both an out-of-range min and an out-of-range max, matching current
+    behavior) and ``order_message`` (used when ``min_players > max_players``)
+    so per-route wording stays exactly as it is today.
+    """
+    if not (cfg_min_players <= min_players <= cfg_max_players):
+        return range_message
+    if not (cfg_min_players <= max_players <= cfg_max_players):
+        return range_message
+    if min_players > max_players:
+        return order_message
+    return None
 
 
 def _numeric_suffix(match_id: str) -> int | None:
@@ -94,3 +121,46 @@ async def create_match(
                 raise
 
     raise RuntimeError("match creation retry loop exhausted")
+
+
+async def create_match_with_state(
+    db: AsyncSession,
+    *,
+    game: str,
+    name: str,
+    scheduled_start: datetime,
+    min_players: int,
+    max_players: int,
+    per_turn_deadline_seconds: int,
+    total_rounds: int,
+    turns_per_round: int,
+    state_config: dict,
+    state: GameState = GameState.REGISTERING,
+    created_by_user_id: int | None = None,
+    match_kind: str = MatchKind.MANUAL.value,
+) -> Match:
+    """Create a match and seed its module-owned ``MatchState`` in one commit.
+
+    Wraps the shared ``create_match(..., commit=False)`` + ``MatchState`` insert
+    + single ``commit`` that the admin creators all repeated. The caller builds
+    ``state_config`` (stored as ``{"config": state_config}``); this helper owns
+    only the persistence, not the config shape.
+    """
+    match = await create_match(
+        db,
+        game=game,
+        name=name,
+        scheduled_start=scheduled_start,
+        min_players=min_players,
+        max_players=max_players,
+        per_turn_deadline_seconds=per_turn_deadline_seconds,
+        total_rounds=total_rounds,
+        turns_per_round=turns_per_round,
+        state=state,
+        created_by_user_id=created_by_user_id,
+        match_kind=match_kind,
+        commit=False,
+    )
+    db.add(MatchState(match_id=match.id, state_json={"config": state_config}))
+    await db.commit()
+    return match
