@@ -10,6 +10,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.api_errors import api_error
 from app.config import settings
 from app.auth.session import get_user_from_session
 from app.db import get_session
@@ -36,15 +37,10 @@ async def get_current_user(request: Request, db: DbSession) -> User | None:
 async def require_user(request: Request, db: DbSession) -> User:
     user = await get_user_from_session(request, db)
     if user is None:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "error": {
-                    "code": "NOT_SIGNED_IN",
-                    "message": "Sign in with Google to continue.",
-                    "details": {},
-                }
-            },
+            code="NOT_SIGNED_IN",
+            message="Sign in with Google to continue.",
         )
     if user.disabled_at is not None:
         from app.auth.session import raise_account_disabled
@@ -77,15 +73,10 @@ async def require_platform_admin(request: Request, db: DbSession) -> User:
     """Require the user to have platform-admin role."""
     user = await require_user(request, db)
     if user.role != UserRole.ADMIN:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "NOT_PLATFORM_ADMIN",
-                    "message": "Platform admin access required.",
-                    "details": {},
-                }
-            },
+            code="NOT_PLATFORM_ADMIN",
+            message="Platform admin access required.",
         )
     return user
 
@@ -98,15 +89,10 @@ async def require_game_admin(
     """Require the user to be a game admin for the {game} path parameter."""
     user = await require_user(request, db)
     if user.email.lower() not in settings.game_admin_emails_for(game):
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "NOT_GAME_ADMIN",
-                    "message": f"Game admin access required for {game}.",
-                    "details": {},
-                }
-            },
+            code="NOT_GAME_ADMIN",
+            message=f"Game admin access required for {game}.",
         )
     return user
 
@@ -114,37 +100,22 @@ async def require_game_admin(
 def assert_connection_usable(connection: Connection) -> None:
     """Raise the same lifecycle errors that guard direct connection auth."""
     if connection.deleted_at is not None:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_410_GONE,
-            detail={
-                "error": {
-                    "code": "CONNECTION_DELETED",
-                    "message": "This connection was deleted. Stop the runner.",
-                    "details": {},
-                }
-            },
+            code="CONNECTION_DELETED",
+            message="This connection was deleted. Stop the runner.",
         )
     if connection.status == ConnectionStatus.PAUSED:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "CONNECTION_PAUSED",
-                    "message": "This connection is paused; resume it to play.",
-                    "details": {},
-                }
-            },
+            code="CONNECTION_PAUSED",
+            message="This connection is paused; resume it to play.",
         )
     if connection.user.disabled_at is not None:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "ACCOUNT_DISABLED",
-                    "message": "This account has been disabled.",
-                    "details": {},
-                }
-            },
+            code="ACCOUNT_DISABLED",
+            message="This account has been disabled.",
         )
 
 
@@ -154,26 +125,16 @@ def _parse_agent_turn_token(agent_turn_token: str) -> tuple[str, int, str]:
         turn_token, agent_id_text, token_match_id = agent_turn_token.rsplit(":", 2)
         agent_id = int(agent_id_text)
     except ValueError as exc:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": {
-                    "code": "INVALID_AGENT_TURN_TOKEN",
-                    "message": "Invalid agent_turn_token.",
-                    "details": {},
-                }
-            },
+            code="INVALID_AGENT_TURN_TOKEN",
+            message="Invalid agent_turn_token.",
         ) from exc
     if not turn_token or not token_match_id:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": {
-                    "code": "INVALID_AGENT_TURN_TOKEN",
-                    "message": "Invalid agent_turn_token.",
-                    "details": {},
-                }
-            },
+            code="INVALID_AGENT_TURN_TOKEN",
+            message="Invalid agent_turn_token.",
         )
     return turn_token, agent_id, token_match_id
 
@@ -185,27 +146,17 @@ async def require_connection(
     """Validate `X-Connection-Key` as a stable connection key and return it."""
     if not x_connection_key:
         logger.warning("agent auth failed: missing X-Connection-Key header")
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "error": {
-                    "code": "INVALID_KEY",
-                    "message": "Missing X-Connection-Key header.",
-                    "details": {},
-                }
-            },
+            code="INVALID_KEY",
+            message="Missing X-Connection-Key header.",
         )
     if not x_connection_key.startswith("sk_conn_"):
         logger.warning("agent auth failed: bad key prefix %s", x_connection_key[:11])
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "error": {
-                    "code": "INVALID_KEY",
-                    "message": "Invalid X-Connection-Key.",
-                    "details": {},
-                }
-            },
+            code="INVALID_KEY",
+            message="Invalid X-Connection-Key.",
         )
 
     key_hash = bot_key_lookup(x_connection_key)
@@ -234,15 +185,10 @@ async def require_connection(
             logger.warning(
                 "agent auth failed: no connection for key prefix %s", x_connection_key[:11]
             )
-            raise HTTPException(
+            raise api_error(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={
-                    "error": {
-                        "code": "INVALID_KEY",
-                        "message": "Invalid X-Connection-Key.",
-                        "details": {},
-                    }
-                },
+                code="INVALID_KEY",
+                message="Invalid X-Connection-Key.",
             )
         connection = Connection(
             user_id=setup.user_id,
@@ -300,28 +246,18 @@ async def require_agent_player(
     if agent_turn_token is not None:
         _, token_agent_id, token_match_id = _parse_agent_turn_token(agent_turn_token)
         if token_match_id != match_id:
-            raise HTTPException(
+            raise api_error(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": {
-                        "code": "STALE_TURN_TOKEN",
-                        "message": "agent_turn_token doesn't match the match.",
-                        "details": {},
-                    }
-                },
+                code="STALE_TURN_TOKEN",
+                message="agent_turn_token doesn't match the match.",
             )
         if agent_id is None:
             agent_id = token_agent_id
         elif agent_id != token_agent_id:
-            raise HTTPException(
+            raise api_error(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": {
-                        "code": "STALE_TURN_TOKEN",
-                        "message": "agent_turn_token doesn't match the selected agent.",
-                        "details": {},
-                    }
-                },
+                code="STALE_TURN_TOKEN",
+                message="agent_turn_token doesn't match the selected agent.",
             )
 
     candidate_match_ids = match_id_candidates(match_id)
@@ -347,37 +283,22 @@ async def require_agent_player(
         if len(players) == 1:
             return players[0]
         if not players:
-            raise HTTPException(
+            raise api_error(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": {
-                        "code": "NOT_IN_GAME",
-                        "message": "This connection has no player in that match.",
-                        "details": {},
-                    }
-                },
+                code="NOT_IN_GAME",
+                message="This connection has no player in that match.",
             )
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": {
-                    "code": "AGENT_ID_REQUIRED",
-                    "message": "Provide agent_id for this match.",
-                    "details": {},
-                }
-            },
+            code="AGENT_ID_REQUIRED",
+            message="Provide agent_id for this match.",
         )
 
     player = next((p for p in players if p.agent_id == agent_id), None)
     if player is None:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": {
-                    "code": "NOT_IN_GAME",
-                    "message": "This connection has no player in that match.",
-                    "details": {},
-                }
-            },
+            code="NOT_IN_GAME",
+            message="This connection has no player in that match.",
         )
     return player
