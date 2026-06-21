@@ -11,10 +11,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, require_game_admin
-from app.engine.match_creation import create_match
-from app.engine.match_deletion import cancel_match
+from app.engine.match_creation import create_match_with_state, player_count_error
+from app.engine.match_deletion import cancel_blocked_reason, cancel_match
 from app.games import GameError, get as get_game_module, known_types
-from app.models.game_state import MatchState
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
 from app.models.player import Player
@@ -50,19 +49,17 @@ async def create_game(
     except GameError as exc:
         raise HTTPException(404, detail="Game not found.") from exc
     cfg = module.config_defaults()
-    if not (cfg.min_players <= body.min_players <= cfg.max_players):
-        raise HTTPException(
-            400,
-            detail=f"{game} supports {cfg.min_players}-{cfg.max_players} players.",
-        )
-    if not (cfg.min_players <= body.max_players <= cfg.max_players):
-        raise HTTPException(
-            400,
-            detail=f"{game} supports {cfg.min_players}-{cfg.max_players} players.",
-        )
-    if body.min_players > body.max_players:
-        raise HTTPException(400, detail="min_players must be <= max_players.")
-    g = await create_match(
+    count_error = player_count_error(
+        min_players=body.min_players,
+        max_players=body.max_players,
+        cfg_min_players=cfg.min_players,
+        cfg_max_players=cfg.max_players,
+        range_message=f"{game} supports {cfg.min_players}-{cfg.max_players} players.",
+        order_message="min_players must be <= max_players.",
+    )
+    if count_error is not None:
+        raise HTTPException(400, detail=count_error)
+    g = await create_match_with_state(
         db,
         game=game,
         name=body.name,
@@ -74,20 +71,11 @@ async def create_game(
         turns_per_round=body.turns_per_round,
         state=GameState.REGISTERING,
         created_by_user_id=user.id,
-        commit=False,
+        state_config={
+            "wild_ones": body.wild_ones,
+            "dice_per_player": body.dice_per_player,
+        },
     )
-    db.add(
-        MatchState(
-            match_id=g.id,
-            state_json={
-                "config": {
-                    "wild_ones": body.wild_ones,
-                    "dice_per_player": body.dice_per_player,
-                }
-            },
-        )
-    )
-    await db.commit()
     return GameRecord(
         id=g.id,
         name=g.name,
@@ -113,10 +101,9 @@ async def cancel_game(
     _: Annotated[User, Depends(require_game_admin)],
 ) -> CancelResponse:
     g = await _load_game_match_or_404(db, game, match_id)
-    if g.state == GameState.ACTIVE:
-        raise HTTPException(409, detail="Match already started.")
-    if g.state in (GameState.COMPLETED, GameState.CANCELLED):
-        raise HTTPException(409, detail="Match already ended.")
+    reason = cancel_blocked_reason(g)
+    if reason is not None:
+        raise HTTPException(409, detail=reason)
     await cancel_match(db, g)
     return CancelResponse()
 
