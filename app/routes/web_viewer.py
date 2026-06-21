@@ -13,7 +13,7 @@ from app.engine.user_match_start import viewer_start_eligibility
 from app.games import get as get_game_module
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
-from app.models.match import GameState, Match
+from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
@@ -140,11 +140,21 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         if version is not None:
             viewer_prompt_text = version.strategy_text
             viewer_prompt_label = f"v{version.version_no}"
+    # Pre-start countdown target for the viewer stage: a big clock in the centre
+    # of the robot ring while the match waits to begin. Only a real waiting match
+    # gets one — a practice arena starts on join (no fixed time), so it has none.
+    countdown_start_iso = (
+        ensure_aware(g.scheduled_start).isoformat()
+        if g.state in (GameState.SCHEDULED, GameState.REGISTERING)
+        and g.match_kind != MatchKind.PRACTICE_ARENA.value
+        else None
+    )
     ctx = {
         "user": user,
         "is_admin": _is_any_admin(user),
         "is_game_admin": _is_game_admin(user, g.game),
         "game": g,
+        "countdown_start_iso": countdown_start_iso,
         "game_theme": _game_theme(g),
         "scoreboard": scoreboard,
         "history": history,

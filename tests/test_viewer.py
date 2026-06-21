@@ -42,7 +42,7 @@ async def client():
         yield c
 
 
-async def _seed(reset_db, state=GameState.ACTIVE):
+async def _seed(reset_db, state=GameState.ACTIVE, *, scheduled_start=None, match_kind="manual"):
     async with reset_db() as db:
         u = User(google_sub="u", email="u@t.com")
         db.add(u)
@@ -51,7 +51,8 @@ async def _seed(reset_db, state=GameState.ACTIVE):
             id="G_001",
             name="Test",
             state=state,
-            scheduled_start=datetime.now(timezone.utc),
+            scheduled_start=scheduled_start or datetime.now(timezone.utc),
+            match_kind=match_kind,
             current_round=1,
             current_turn=1,
         )
@@ -371,3 +372,48 @@ async def test_list_games_public_filter_by_state(client, reset_db):
     assert r.json() == []
     r2 = await client.get("/api/games?state=completed")
     assert len(r2.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_scheduled_viewer_shows_start_countdown(client, reset_db):
+    """A waiting match centres a big start-countdown clock in the robot ring."""
+    start = datetime(2099, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    await _seed(reset_db, GameState.SCHEDULED, scheduled_start=start)
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
+    assert r.status_code == 200
+    assert 'id="rc-countdown"' in r.text
+    # The clock counts down to the match's scheduled start time.
+    assert 'data-start="2099-01-02T03:04:05' in r.text
+
+
+@pytest.mark.asyncio
+async def test_registering_viewer_shows_start_countdown(client, reset_db):
+    await _seed(reset_db, GameState.REGISTERING)
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
+    assert r.status_code == 200
+    assert 'id="rc-countdown"' in r.text
+
+
+@pytest.mark.asyncio
+async def test_active_viewer_has_no_start_countdown(client, reset_db):
+    await _seed(reset_db, GameState.ACTIVE)
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
+    assert r.status_code == 200
+    assert 'id="rc-countdown"' not in r.text
+
+
+@pytest.mark.asyncio
+async def test_completed_viewer_has_no_start_countdown(client, reset_db):
+    await _seed(reset_db, GameState.COMPLETED)
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
+    assert r.status_code == 200
+    assert 'id="rc-countdown"' not in r.text
+
+
+@pytest.mark.asyncio
+async def test_practice_arena_has_no_start_countdown(client, reset_db):
+    """A practice arena starts on join (no fixed time), so it gets no clock."""
+    await _seed(reset_db, GameState.SCHEDULED, match_kind="practice_arena")
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
+    assert r.status_code == 200
+    assert 'id="rc-countdown"' not in r.text
