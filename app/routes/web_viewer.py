@@ -117,9 +117,21 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     coach_player = viewer_agent or viewer_human
     public_state = await module.public_state_for(db, g, viewer_player)
     viewer_seat = viewer_player.seat_name if viewer_player else None
+
+    # The game module owns its replay "story" — the enriched per-turn history and
+    # any replay JSON its viewer fragment renders. Built before the play cockpit
+    # so the talk-phase panel can recap the turn that just resolved (the mirror of
+    # the act-phase "what was just said" reveal). The platform route stays
+    # game-agnostic: it builds the generic skeleton above and merges the module's
+    # display payload (history, rc_data, …) into the template context below.
+    replay_view = await module.build_replay_view(
+        db, g, players, scoreboard, timeline, viewer_seat
+    )
+    history: list[dict[str, Any]] = replay_view.get("history", [])
+
     # The cockpit is for the human seat only — pass it, not the agent seat.
     play_ctx = await _build_human_play_context(
-        db, g, players, viewer_human, kind_by_seat
+        db, g, players, viewer_human, kind_by_seat, history
     )
     # Leave-CTA flag: a seated human can leave (pre-start frees the seat, in-match
     # flips it to autopilot). The join entrance is the "Enter game" link, which
@@ -130,15 +142,6 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     # Solo-start CTA: when this viewer is the only person with a seat in a
     # pre-start match, they can start it now (bots fill the table to the floor).
     start_eligibility = await viewer_start_eligibility(db, g, user)
-
-    # The game module owns its replay "story" — the enriched per-turn history and
-    # any replay JSON its viewer fragment renders. The platform route stays
-    # game-agnostic: it builds the generic skeleton above and merges the module's
-    # display payload (history, rc_data, …) into the template context below.
-    replay_view = await module.build_replay_view(
-        db, g, players, scoreboard, timeline, viewer_seat
-    )
-    history: list[dict[str, Any]] = replay_view.get("history", [])
 
     # Keep the server data in chronological order. The template reverses it for
     # the newest-first feed while round navigation can still reason about order.
@@ -269,6 +272,7 @@ async def _build_human_play_context(
     players: list[Player],
     viewer_player: Player | None,
     kind_by_seat: dict[str, AgentKind],
+    history: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Per-viewer play-panel state + the everyone-visible 'waiting on N' count.
 
@@ -277,6 +281,11 @@ async def _build_human_play_context(
     stays in place; the turn-specific keys (phase, deadline, can_play, …) only
     fill in while a turn is open. When the match isn't active everything stays
     falsy and the template renders nothing extra.
+
+    ``history`` is the module's resolved-turn replay (chronological). In the talk
+    phase its last entry is the turn that just ended, surfaced as
+    ``play_last_result`` so the human reads the outcome before speaking again —
+    the mirror of the act phase's ``play_talk`` reveal.
     """
     base: dict[str, Any] = {
         "viewer_is_human": False,
@@ -289,6 +298,8 @@ async def _build_human_play_context(
         "play_target": None,
         "play_targets": [],
         "play_talk": [],
+        "play_last_result": [],
+        "play_last_label": None,
         "waiting_on": None,
         "message_max": MESSAGE_MAX_LENGTH,
     }
@@ -366,6 +377,15 @@ async def _build_human_play_context(
         base["play_targets"] = [
             p.seat_name for p in active if p.id != viewer_player.id
         ]
+        if phase == "talk" and history:
+            # Recap the turn that just ended so the human reads the outcome
+            # (who did what, for how many points) before speaking again. This is
+            # the talk-phase mirror of the act-phase talk reveal below. The open
+            # talk turn isn't in `history` (it lists resolved turns only), so the
+            # last entry is the turn that just resolved.
+            last = history[-1]
+            base["play_last_result"] = last["feed_actions"]
+            base["play_last_label"] = f"Round {last['round']} · Turn {last['turn']}"
         if phase == "act":
             # Reveal this turn's talk so the human reads what was said before
             # acting — the same transcript the bots get in their act-phase

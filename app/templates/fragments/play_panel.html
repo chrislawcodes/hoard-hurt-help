@@ -28,6 +28,34 @@
 
     <div class="play-body">
       {% if play_phase == "talk" %}
+        {% if play_last_result %}
+        <div class="play-said play-recap">
+          <h4 class="play-said-head">📊 What just happened{% if play_last_label %} <span class="play-said-hint">{{ play_last_label }}</span>{% endif %}</h4>
+          {# `play_last_result` is the just-resolved turn's feed_actions, already
+             sorted highlights-first. Show the interactions (help/hurt/pact/
+             betrayal) line by line and fold the quiet hoards into one count, so a
+             10-player turn never buries the talk box below the fold. #}
+          {% set moves = play_last_result | rejectattr('action', 'equalto', 'HOARD') | list %}
+          {% set hoards = play_last_result | selectattr('action', 'equalto', 'HOARD') | list %}
+          {% if moves %}
+            {% for a in moves %}
+            <p class="play-said-line play-recap-line">
+              <span class="play-said-who{% if a.agent_id == viewer_seat %} is-you{% endif %}">{{ a.agent_id }}</span>
+              <span class="act act-{{ a.action | lower }}">{{ a.display_action }}</span>
+              {% if a.target_id %}<span class="arrow" aria-hidden="true">→</span> <span class="play-said-who{% if a.target_id == viewer_seat %} is-you{% endif %}">{{ a.target_id }}</span>{% endif %}
+              {% if a.betrayal %}<span class="tag tag-betrayal">betrayal</span>{% elif a.mutual %}<span class="tag tag-pact">pact</span>{% endif %}
+              {% if a.display_delta is not none %}<span class="delta {{ 'pos' if a.display_delta > 0 else ('neg' if a.display_delta < 0 else 'zero') }}">{{ "%+d" | format(a.display_delta) }}</span>{% endif %}
+              {% if a.was_defaulted %}<span class="missed">missed</span>{% endif %}
+            </p>
+            {% endfor %}
+            {% if hoards %}
+            <p class="play-said-line play-said-quiet">+{{ hoards | length }} hoarded (+2 each)</p>
+            {% endif %}
+          {% else %}
+            <p class="play-said-line play-said-quiet">Everyone hoarded — a quiet turn.</p>
+          {% endif %}
+        </div>
+        {% endif %}
         {% if play_submitted %}
           <p class="play-status">Submitted — you can still change this until the clock ends.</p>
         {% endif %}
