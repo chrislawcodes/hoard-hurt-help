@@ -221,6 +221,52 @@ async def test_registering_viewer_shows_roster_and_confirmation(reset_db, client
     assert "You're in" in r.text  # the seated viewer's confirmation
 
 
+async def test_dual_seat_human_sees_cockpit(reset_db, client) -> None:
+    """A user who joined as a human AND sent their own AI agent (#478) still gets
+    the play cockpit. The human seat drives the controls even though the agent
+    seat sorts first by name — the case that used to silently hide the panel."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        # Agent seat name sorts before the human seat name. This is exactly what
+        # made the old single `next(...)` pick the agent and drop the controls.
+        await seat_player(db, "M_0001", "aiagent", user=user)
+        await _seat_human(db, user, "zoe")
+        await _open_turn(db, "act")
+        await db.commit()
+
+    r = await client.get(LIVE, cookies=_cookies(user.id))
+    assert r.status_code == 200
+    html = r.text
+    assert 'id="play-panel"' in html  # the cockpit renders for the human seat
+    assert 'data-your-turn="act"' in html  # the human can act, not just spectate
+    assert "Lock in my move" in html
+
+
+async def test_dual_seat_coach_note_targets_agent(reset_db, client) -> None:
+    """Saving a coach note for a dual-seat user lands on the AI agent (the seat
+    with a strategy), not the human seat — and the two-seat fetch doesn't crash
+    (the old `.one_or_none()` raised MultipleResultsFound for these users)."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        agent_player = await seat_player(db, "M_0001", "aiagent", user=user)
+        human_player = await _seat_human(db, user, "zoe")
+        await db.commit()
+        agent_pid, human_pid = agent_player.id, human_player.id
+
+    r = await client.post(
+        f"{VIEWER}/coach-note", data={"note": "play nicer"}, cookies=_cookies(user.id)
+    )
+    assert r.status_code == 200  # no MultipleResultsFound crash
+
+    async with reset_db() as db:
+        agent_row = await db.get(Player, agent_pid)
+        human_row = await db.get(Player, human_pid)
+        assert agent_row.coach_note == "play nicer"  # coaching hit the agent seat
+        assert human_row.coach_note is None  # not the human seat
+
+
 async def test_autopilot_panel_shows_left_state(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)
