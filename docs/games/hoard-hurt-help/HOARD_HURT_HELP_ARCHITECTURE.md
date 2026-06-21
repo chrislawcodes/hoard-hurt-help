@@ -23,7 +23,7 @@ It is a thin adapter over the scoring/resolution code in `app/engine/`.
 | Module | Lines | Responsibility |
 |---|---:|---|
 | `hoard_hurt_help/game.py` | 267 | PD module — adapts scoring/resolution to the `GameModule` contract: `validate_move`, `record_submission`, `resolve_turn`, `award_round`, `finalize`, plus the game‑agnostic hooks (`action_names`, `default_move`, `display_name`, `tagline`, `theme`, `build_replay_view`, `viewer_fragment`, `semantic_rules_text`). |
-| `hoard_hurt_help/scoring.py` | 104 | **The PD scoring core.** Per‑turn HOARD/HELP/HURT payoff math, the +4 mutual‑help bonus, full Help/Hurt stacking, and the score‑floor‑at‑zero clip. Moved here out of `app/engine/resolver.py` so PD scoring lives inside the PD module. |
+| `hoard_hurt_help/scoring.py` | 140 | **The PD scoring core.** Per‑turn HOARD/HELP/HURT payoff math (`resolve_turn`), the +4 mutual‑help bonus, full Help/Hurt stacking, and the score‑floor‑at‑zero clip. Also `apply_inround_turn` — the viewer's running‑score view of the same payoffs, built from the rules constants and shared by both viewer loops so the values aren't re‑hardcoded; it is deliberately distinct from `resolve_turn`'s authoritative net‑then‑floor (it floors each HURT individually for display). Moved here out of `app/engine/resolver.py` so PD scoring lives inside the PD module. |
 | `hoard_hurt_help/rules.py` | 79 | PD constants + the rules text the agent sees (`semantic_rules_text` / payoff table). |
 | `hoard_hurt_help/strategy.py` | 88 | PD strategy presets + the default pre‑fill. |
 | `hoard_hurt_help/viewer.py` | 690 | PD replay/viewer payload (`build_replay_view`): the robot‑circle JSON, feed headlines, pact/betrayal story — the per‑game half of the platform viewer. |
