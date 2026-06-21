@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.agent_prompt import MESSAGE_MAX_LENGTH
 from app.aware_datetime import ensure_aware
 from app.deps import DbSession, get_current_user, require_user
+from app.engine.user_match_start import viewer_start_eligibility
 from app.games import get as get_game_module
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
@@ -103,6 +104,10 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     )
     play_ctx["viewer_seat_human"] = viewer_seat_human
 
+    # Solo-start CTA: when this viewer is the only person with a seat in a normal
+    # pre-start match, they can start it now (bots fill the table to the floor).
+    start_eligibility = await viewer_start_eligibility(db, g, user)
+
     # The game module owns its replay "story" — the enriched per-turn history and
     # any replay JSON its viewer fragment renders. The platform route stays
     # game-agnostic: it builds the generic skeleton above and merges the module's
@@ -164,6 +169,8 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         "show_replay_stage": False,
     }
     ctx.update(play_ctx)
+    ctx["viewer_can_start"] = start_eligibility.can_start
+    ctx["viewer_start_bots"] = start_eligibility.bots_to_add
     # Merge the module's display payload (rc_data and any other replay fields).
     # `history` is read above to build the generic round grouping; the rest of the
     # game-specific payload (e.g. rc_data) flows straight into the context.

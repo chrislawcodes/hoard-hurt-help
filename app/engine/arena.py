@@ -84,6 +84,56 @@ def _choose_bot_seats(
     return seats
 
 
+async def fill_match_with_bots(
+    db: AsyncSession, match: Match, target_active: int
+) -> int:
+    """Seat bots until the match has ``target_active`` confirmed players.
+
+    "Confirmed" = ``left_at IS NULL AND seat_reserved_until IS NULL`` — a held
+    seat isn't a real player yet, and bots are always confirmed. Never seats past
+    ``max_players`` (counting every not-left seat). Commits via
+    :func:`add_bots_to_game`. Returns the number of bots seated — 0 if the match
+    already meets the target or the table is full.
+    """
+    confirmed = (
+        await db.scalar(
+            select(func.count())
+            .select_from(Player)
+            .where(
+                Player.match_id == match.id,
+                Player.left_at.is_(None),
+                Player.seat_reserved_until.is_(None),
+            )
+        )
+    ) or 0
+    seated = (
+        await db.scalar(
+            select(func.count())
+            .select_from(Player)
+            .where(Player.match_id == match.id, Player.left_at.is_(None))
+        )
+    ) or 0
+    n_bots = min(max(0, target_active - confirmed), max(0, match.max_players - seated))
+    if n_bots <= 0:
+        return 0
+    used_names = set(
+        (
+            await db.execute(
+                select(Player.seat_name).where(
+                    Player.match_id == match.id, Player.left_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    seats = _choose_bot_seats(n_bots, used_names=used_names)
+    if not seats:
+        return 0
+    await add_bots_to_game(db, match, seats)
+    return len(seats)
+
+
 def _auto_match_name(boundary: datetime) -> str:
     """Pick a name from _AUTO_MATCH_NAMES keyed to the boundary's interval slot."""
     slots_per_hour = 60 // AUTO_MATCH_INTERVAL_MINUTES
