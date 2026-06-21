@@ -21,7 +21,9 @@
         <a class="btn btn-ghost" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
     </div>
 </div>
-{% if viewer_player_id %}
+{# Coaching is for an owner whose AI plays the seat — never for a human playing
+   by hand (you don't coach yourself). #}
+{% if viewer_player_id and not viewer_is_human %}
 {% include "fragments/coach_panel.html" %}
 {% endif %}
 
@@ -54,7 +56,7 @@
    event. We deliberately do NOT use htmx's sse extension here — in htmx 1.9.x it
    never wires `hx-trigger="sse:..."` to the `sse-connect` source, so live updates
    silently never fired and the page only changed on a manual reload. #}
-<div id="live-region" class="view-cards"
+<div id="live-region" class="view-cards{% if player_mode %} cockpit{% endif %}"
      data-state="{{ game.state.value }}"
      {% if game.state.value == "active" %}data-stream-url="/games/{{ game.game }}/matches/{{ game.id }}/stream"
      data-live-url="/games/{{ game.game }}/matches/{{ game.id }}/live"{% endif %}>
@@ -432,6 +434,38 @@
         htmx.ajax('POST',
             '/games/' + panel.dataset.game + '/matches/' + panel.dataset.match + '/play/talk',
             { target: '#live-region', swap: 'innerHTML', values: { message: '' } });
+    });
+
+    // Tap a player's name (in the dock's "what was just said" or in the feed) to
+    // set them as the act-phase target. If no Help/Hurt is chosen yet, default to
+    // Help so the target applies — the player can still switch to Hurt.
+    function applyTarget(name) {
+        const actForm = document.getElementById('act-form');
+        if (!actForm || !name) return;
+        const targetInput = actForm.querySelector('input[name="target"]');
+        if (!targetInput) return;
+        const checked = actForm.querySelector('input[name="action"]:checked');
+        if (!checked || checked.value === 'HOARD') {
+            const help = actForm.querySelector('input[name="action"][value="HELP"]');
+            if (help) { help.checked = true; help.dispatchEvent(new Event('change', { bubbles: true })); }
+        }
+        targetInput.value = name;
+        const wrap = actForm.querySelector('[data-play-target-wrap]');
+        if (wrap) wrap.style.display = '';
+        targetInput.focus();
+    }
+    region.addEventListener('click', function (e) {
+        const el = e.target.closest('[data-target-name]');
+        if (!el) return;
+        e.preventDefault();
+        applyTarget(el.getAttribute('data-target-name'));
+    });
+    region.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const el = e.target.closest('[data-target-name]');
+        if (!el) return;
+        e.preventDefault();
+        applyTarget(el.getAttribute('data-target-name'));
     });
 
     // Surface a friendly inline error if a submit is rejected (deadline race,

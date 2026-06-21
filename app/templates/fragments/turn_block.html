@@ -21,9 +21,9 @@
         {% for a in turn.feed_actions %}
         <li class="move-row action-card {{ a.action | lower }}{% if a.betrayal %} is-betrayal{% elif a.action == 'HURT' %} is-hurt{% endif %}">
             <div class="move-line action-line">
-                <strong class="who-name">{{ a.agent_id }}</strong>
+                <strong class="who-name{% if player_mode and a.agent_id == viewer_seat %} is-you{% elif player_mode and a.agent_id == leader_seat %} is-leader{% endif %}"{% if player_mode and play_phase == 'act' and a.agent_id != viewer_seat %} role="button" tabindex="0" data-target-name="{{ a.agent_id }}"{% endif %}>{{ a.agent_id }}</strong>{% if player_mode and score_by_name and a.agent_id in score_by_name %}<span class="who-score">{{ score_by_name[a.agent_id] }}</span>{% endif %}
                 <span class="act act-{{ a.action | lower }}">{{ a.display_action }}</span>
-                {% if a.target_id %}<span class="arrow" aria-hidden="true">→</span><strong class="who-name">{{ a.target_id }}</strong>{% endif %}
+                {% if a.target_id %}<span class="arrow" aria-hidden="true">→</span><strong class="who-name{% if player_mode and a.target_id == viewer_seat %} is-you{% elif player_mode and a.target_id == leader_seat %} is-leader{% endif %}"{% if player_mode and play_phase == 'act' and a.target_id != viewer_seat %} role="button" tabindex="0" data-target-name="{{ a.target_id }}"{% endif %}>{{ a.target_id }}</strong>{% if player_mode and score_by_name and a.target_id in score_by_name %}<span class="who-score">{{ score_by_name[a.target_id] }}</span>{% endif %}{% endif %}
                 {% if a.mutual %}<span class="mutual-note">(mutual)</span>{% endif %}
                 {% if a.display_delta is not none %}
                 <span class="delta {{ 'pos' if a.display_delta > 0 else ('neg' if a.display_delta < 0 else 'zero') }}">{{ "%+d" | format(a.display_delta) }}</span>

@@ -132,7 +132,7 @@ async def create_match_submit(
     name: Annotated[str, Form()],
     scheduled_start: Annotated[str, Form()],
     min_players: Annotated[int, Form()] = 6,
-    max_players: Annotated[int, Form()] = 20,
+    max_players: Annotated[int, Form()] = 10,
     per_turn_deadline_seconds: Annotated[int, Form()] = 60,
     total_rounds: Annotated[int, Form()] = 7,
     turns_per_round: Annotated[int, Form()] = 7,

@@ -23,7 +23,9 @@ router = APIRouter(tags=["web"])
 
 _CREATE_DEFAULTS = {
     "min_players": 6,
-    "max_players": 20,
+    # Matches top out at 10 players (spec 018). The game's hard cap stays higher
+    # for admin-run experiments; this is the cap for the normal create path.
+    "max_players": 10,
     "per_turn_deadline_seconds": 60,
     "total_rounds": 7,
     "turns_per_round": 7,

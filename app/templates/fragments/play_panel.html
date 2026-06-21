@@ -41,12 +41,12 @@
 
       {% if play_talk %}
       <div class="play-said">
-        <h4 class="play-said-head">💬 What was just said</h4>
+        <h4 class="play-said-head">💬 What was just said <span class="play-said-hint">tap a name to target</span></h4>
         {% for m in play_talk %}
           {% if m.quiet %}
-          <p class="play-said-line play-said-quiet">{{ m.who }} stayed quiet.</p>
+          <p class="play-said-line play-said-quiet"><span class="play-said-who" role="button" tabindex="0" data-target-name="{{ m.who }}">{{ m.who }}</span>{% if score_by_name and m.who in score_by_name %}<span class="who-score">{{ score_by_name[m.who] }}</span>{% endif %} stayed quiet.</p>
           {% else %}
-          <p class="play-said-line"><span class="play-said-who">{{ m.who }}:</span> “{{ m.text }}”</p>
+          <p class="play-said-line"><span class="play-said-who" role="button" tabindex="0" data-target-name="{{ m.who }}">{{ m.who }}</span>{% if score_by_name and m.who in score_by_name %}<span class="who-score">{{ score_by_name[m.who] }}</span>{% endif %}: “{{ m.text }}”</p>
           {% endif %}
         {% endfor %}
       </div>
