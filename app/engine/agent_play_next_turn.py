@@ -33,6 +33,8 @@ from app.engine.agent_play_reads import (
     _build_current_turn,
     _group_into_turns,
     _load_public_action_records,
+    build_public_scoreboard_dicts,
+    sorted_seat_names,
 )
 from app.engine.next_turn import TurnCandidate, select_next_turn
 from app.engine.turn_routing import (
@@ -351,7 +353,7 @@ async def agent_identity_for(
     if your_player is None or version is None:
         return None, None, [], None
     seat_name_by_agent_id = {player.agent_id: player.seat_name for _agent, player, _match, _version in selected_rows}
-    all_agent_ids = sorted(seat_name_by_agent_id.values())
+    all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
     return match, seat_name_by_agent_id[your_player.agent_id], all_agent_ids, version.strategy_text
 
 
@@ -417,17 +419,10 @@ async def _build_turn_payload(
             db, match.id, all_players, recent_turns=RECENT_HISTORY_TURNS
         )
     )
-    scoreboard = [
-        {
-            "agent_id": seat_name_by_agent_id[p.agent_id],
-            "round_score": p.current_round_score,
-            "round_wins": p.total_round_wins,
-        }
-        for p in sorted(all_players, key=lambda p: (-p.current_round_score, p.seat_name))
-    ]
+    scoreboard = build_public_scoreboard_dicts(all_players)
     module = get_game_module(match.game)
     your_agent_id = seat_name_by_agent_id[player.agent_id]
-    all_agent_ids = sorted(seat_name_by_agent_id.values())
+    all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
     static = {
         "match_id": match.id,
         "game_id": match.id,
