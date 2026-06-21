@@ -51,7 +51,7 @@
 {% if show_replay_stage and rc_data %}
 <div class="rc-layout">
     {% include "fragments/robot_circle_standings.html" %}
-    <div>{% with rc_autoplay = true, rc_countdown_iso = countdown_start_iso %}{% include "fragments/robot_circle.html" %}{% endwith %}</div>
+    <div>{% with rc_autoplay = true, rc_countdown_iso = countdown_start_iso, rc_can_start = viewer_can_start, rc_start_bots = viewer_start_bots, rc_start_game = game.game, rc_start_match = game.id %}{% include "fragments/robot_circle.html" %}{% endwith %}</div>
 </div>
 {# Narration dock: the single story source during playback. The booth
    coordinator below fills it from the turn the animation is currently playing —
