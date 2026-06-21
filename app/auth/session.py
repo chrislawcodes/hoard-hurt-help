@@ -4,6 +4,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api_errors import api_error
 from app.models.user import User
 
 SESSION_USER_KEY = "user_id"
@@ -43,26 +44,16 @@ def raise_account_disabled(request: Request) -> None:
             status_code=status.HTTP_303_SEE_OTHER,
             headers={"Location": "/disabled"},
         )
-    raise HTTPException(
+    raise api_error(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail={
-            "error": {
-                "code": "ACCOUNT_DISABLED",
-                "message": "This account has been disabled.",
-                "details": {},
-            }
-        },
+        code="ACCOUNT_DISABLED",
+        message="This account has been disabled.",
     )
 
 
 def raise_not_signed_in() -> None:
-    raise HTTPException(
+    raise api_error(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail={
-            "error": {
-                "code": "NOT_SIGNED_IN",
-                "message": "Sign in with Google to continue.",
-                "details": {},
-            }
-        },
+        code="NOT_SIGNED_IN",
+        message="Sign in with Google to continue.",
     )
