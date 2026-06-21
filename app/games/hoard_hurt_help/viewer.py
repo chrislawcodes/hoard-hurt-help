@@ -19,6 +19,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.games.hoard_hurt_help.scoring import apply_inround_turn
+from app.games.viewer_common import (
+    project_turn_messages,
+    rc_envelope,
+    rc_scoreboard_maps,
+    rc_talk,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -432,15 +438,10 @@ def _build_rc_data(
     viewer_seat: str | None = None,
 ) -> str:
     """Serialize game history as the robot-circle viewer JSON format."""
-    agents = [r["agent_id"] for r in scoreboard]
-    labels = {r["agent_id"]: r.get("display_name") or r["agent_id"] for r in scoreboard}
-    bots = {r["agent_id"]: True for r in scoreboard if r.get("is_bot")}
-    # agent_id → owner handle, for the standings rail's muted "by @handle" line.
-    # Only non-empty entries (bots and handle-less owners are omitted).
-    owners = {r["agent_id"]: r["owner_handle"] for r in scoreboard if r.get("owner_handle")}
+    agents, labels, bots, owners = rc_scoreboard_maps(scoreboard)
     # agent_id → provider label (Claude/Gemini/…) that actually played the seat,
     # for the standings rail's per-competitor badge. Omitted for bots and seats
-    # not yet served (no provider).
+    # not yet served (no provider). PD-only enrichment on top of the shared maps.
     providers = {r["agent_id"]: r["provider"] for r in scoreboard if r.get("provider")}
 
     win_probs_by_turn = _compute_round_win_probs(scoreboard, history, turns_per_round)
@@ -505,12 +506,6 @@ def _build_rc_data(
         else:
             badge, cap = "Hoard", "A quiet turn — everyone banks a coin."
 
-        talk = [
-            {"agent": m["agent_id"], "text": m["text"].strip()}
-            for m in h["messages"]
-            if m["text"].strip()
-        ]
-
         turns.append(
             {
                 "round": h["round"],
@@ -519,24 +514,22 @@ def _build_rc_data(
                 "cap": cap,
                 "spotlight": sorted(spot),
                 "actions": rc_actions,
-                "talk": talk,
+                "talk": rc_talk(h),
                 "win_probs": win_probs_by_turn.get((h["round"], h["turn"]), {}),
             }
         )
 
-    payload: dict[str, object] = {
-        "agents": agents,
-        "labels": labels,
-        "bots": bots,
-        "owners": owners,
-        "providers": providers,
-        "turns": turns,
-        "max_round": max((t["round"] for t in turns), default=0),
-        "sample": False,
-    }
-    if viewer_seat is not None:
-        payload["viewer_seat"] = viewer_seat
-    return json.dumps(payload, ensure_ascii=False)
+    return rc_envelope(
+        agents=agents,
+        labels=labels,
+        bots=bots,
+        owners=owners,
+        turns=turns,
+        viewer_seat=viewer_seat,
+        # PD enriches the shared envelope with a per-seat provider badge map;
+        # it slots in right after `owners`, matching PD's historical key order.
+        extra_maps={"providers": providers},
+    )
 
 
 async def build_pd_replay_view(
@@ -567,15 +560,7 @@ async def build_pd_replay_view(
     inround: dict[str, int] = {}
     inround_round: int | None = None
     for seq, t in enumerate(timeline, start=1):
-        messages: list[dict[str, Any]] = [
-            {
-                "agent_id": message.agent_id,
-                "text": message.text,
-                "thinking": message.thinking,
-                "was_defaulted": message.was_defaulted,
-            }
-            for message in t.messages
-        ]
+        messages, messages_by_agent = project_turn_messages(t)
         actions: list[dict[str, Any]] = []
         for action in t.actions:
             actor_delta, target_delta = _move_effect_for(g.game, action.action)
@@ -616,7 +601,6 @@ async def build_pd_replay_view(
                 a["betrayal"] = True
         prev_mutual = this_mutual
 
-        messages_by_agent = {m["agent_id"]: m for m in messages}
         for a in actions:
             paired_message = messages_by_agent.get(a["agent_id"])
             if paired_message is not None:
