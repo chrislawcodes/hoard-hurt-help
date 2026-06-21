@@ -1169,8 +1169,9 @@
   }
   // Room-size awareness: a scene may tag itself room:'small'|'mid'|'big' and is
   // only eligible when the lobby size matches, so count lines read true (no
-  // "Full house" in a 4-bot room). Untagged scenes play at any size.
-  var ROOM_BAND = AGENTS.length<=5 ? 'small' : (AGENTS.length>=12 ? 'big' : 'mid');
+  // "Full house" in a half-empty room). Untagged scenes play at any size.
+  // Matches hold 6-10 players, so the bands are: small=6-7, mid=8, big=9-10.
+  var ROOM_BAND = AGENTS.length<=7 ? 'small' : (AGENTS.length>=9 ? 'big' : 'mid');
   function roomOk(scene){ return !scene.room || scene.room===ROOM_BAND; }
   function pickScene(){
     var B=window.RC_BANTER; if(!B) return null;

@@ -405,7 +405,7 @@ async def test_platform_admin_api_records_creator(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_admin_api_rejects_games_over_twenty_players(client, reset_db):
+async def test_admin_api_rejects_player_count_over_max(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
@@ -413,14 +413,14 @@ async def test_admin_api_rejects_games_over_twenty_players(client, reset_db):
         json={
             "name": "Too Big",
             "scheduled_start": when,
-            "min_players": 5,
-            "max_players": 10,
+            "min_players": 6,
+            "max_players": 11,
             "per_turn_deadline_seconds": 30,
         },
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 400
-    assert "supports 6-100 players" in r.text
+    assert "supports 6-10 players" in r.text
 
 
 @pytest.mark.asyncio
@@ -494,7 +494,7 @@ async def test_create_game_via_web_form(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_web_form_rejects_games_over_twenty_players(client, reset_db):
+async def test_web_form_rejects_player_count_over_max(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
         "%Y-%m-%dT%H:%M:00.000Z"
@@ -504,15 +504,15 @@ async def test_web_form_rejects_games_over_twenty_players(client, reset_db):
         data={
             "name": "Too Big",
             "scheduled_start": future,
-            "min_players": "5",
-            "max_players": "10",
+            "min_players": "6",
+            "max_players": "11",
             "per_turn_deadline_seconds": "60",
         },
         cookies=_cookies(admin.id),
         follow_redirects=False,
     )
     assert r.status_code == 400
-    assert "6 to 100" in r.text
+    assert "6 to 10" in r.text
 
 
 @pytest.mark.asyncio

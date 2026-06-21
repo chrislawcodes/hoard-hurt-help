@@ -57,9 +57,9 @@ class Match(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    min_players: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    min_players: Mapped[int] = mapped_column(Integer, default=6, nullable=False)
     max_players: Mapped[int] = mapped_column(
-        Integer, default=20, server_default="20", nullable=False
+        Integer, default=10, server_default="10", nullable=False
     )
     per_turn_deadline_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     total_rounds: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
