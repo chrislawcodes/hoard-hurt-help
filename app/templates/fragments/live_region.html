@@ -33,6 +33,14 @@
     {% if viewer_player_id %}
     <p class="prestart-confirm">✓ You're in{% if viewer_agent_name %} as <strong>{{ viewer_agent_name }}</strong>{% endif %}.{% if game.scheduled_start %} Starts {{ game.scheduled_start | reltime }}.{% endif %}</p>
     {% endif %}
+    {# Solo start: you're the only player here, so you can kick off now instead of
+       waiting for the clock. Empty seats fill with bots so the match can run. #}
+    {% if viewer_can_start %}
+    <form class="prestart-start" method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/start">
+        <button type="submit" class="btn btn-primary">Start now</button>
+        <span class="hint">{% if viewer_start_bots > 0 %}You're the only one here — {{ viewer_start_bots }} bot{{ "s" if viewer_start_bots != 1 else "" }} will fill the table so the match can run.{% else %}You're the only one here — start now instead of waiting for the scheduled time.{% endif %}</span>
+    </form>
+    {% endif %}
     <div class="section-head"><h2>Registered</h2><span class="count">{{ scoreboard | length }}</span></div>
     {% if scoreboard %}
     <ul class="roster-list">

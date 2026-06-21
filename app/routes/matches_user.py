@@ -13,6 +13,7 @@ from app.config import settings
 from app.deps import DbSession, require_platform_admin, require_user
 from app.engine.match_creation import create_match
 from app.engine.match_deletion import cancel_match, delete_match
+from app.engine.user_match_start import start_match_for_user, viewer_start_eligibility
 from app.games import GameError, get as get_game_module, is_admin_only
 from app.models.match import GameState, Match
 from app.models.user import User, UserRole
@@ -173,6 +174,42 @@ async def create_match_submit(
         return _html_error(request, user, game, message=str(exc))
 
     return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/games/{game}/matches/{match_id}/start")
+async def start_match_submit(
+    game: Annotated[str, Path()],
+    match_id: Annotated[str, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    """Let the only player in a match start it now (filling bots to the floor).
+
+    Shown as the "Start now" button only when ``viewer_start_eligibility`` says
+    yes; re-checked here so a stale page can't start a match the user no longer
+    solely owns. Bots fill any empty seats up to the start floor so the match can
+    actually run, then the match goes ACTIVE.
+    """
+    match = await _load_match_or_404(db, match_id)
+    if match.game != game:
+        raise HTTPException(status_code=404, detail="Match not found.")
+    eligibility = await viewer_start_eligibility(db, match, user)
+    if not eligibility.can_start:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": {
+                    "code": "CANNOT_START",
+                    "message": "You can't start this match yet.",
+                    "details": {},
+                }
+            },
+        )
+    await start_match_for_user(db, match)
+    return RedirectResponse(
+        url=f"/games/{match.game}/matches/{match.id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @router.post("/matches/{match_id}/delete")
