@@ -2463,3 +2463,51 @@ button.danger:hover,
 .ps-pts { font-variant-numeric: tabular-nums; font-weight: 700; justify-self: end; }
 .ps-win { color: var(--hoard); font-size: 0.78rem; font-variant-numeric: tabular-nums; text-align: right; }
 .ps-foot { margin: 0; padding: 0.4rem 0.8rem 0.6rem; font-size: 0.72rem; color: var(--ink-soft); }
+.ps-rt {
+    font-size: 0.74rem; font-weight: 700; color: var(--ink-soft);
+    background: var(--bg-2); border-radius: 999px; padding: 0.1rem 0.5rem;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.ps-wait { font-size: 0.74rem; color: var(--ink-soft); }
+.ps-wait::before { content: "· "; }
+
+/* --- mobile-focused cockpit chrome (spec 018) ---
+   Cut the wasted space above the move panel so a player's job reaches the top
+   of a phone: a slim site nav (no "Play now"), a compact play header, and the
+   reader's history controls hidden on mobile. */
+.cockpit-page .al-nav { padding-top: 0.35rem; padding-bottom: 0.35rem; }
+
+.cockpit-head { display: flex; align-items: center; gap: 0.5rem; margin: 0.6rem 0 0.5rem; }
+.cockpit-match {
+    font-size: 0.95rem; font-weight: 700; color: var(--ink-soft);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cockpit-menu { margin-left: auto; position: relative; }
+.cockpit-menu > summary {
+    list-style: none; cursor: pointer; width: 2rem; height: 2rem;
+    display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid var(--line); border-radius: var(--radius);
+    font-size: 1.2rem; line-height: 1; color: var(--ink);
+}
+.cockpit-menu > summary::-webkit-details-marker { display: none; }
+.cockpit-menu-panel {
+    position: absolute; right: 0; top: 2.4rem; z-index: 20; min-width: 11rem;
+    background: var(--surface-2); border: 2px solid var(--line-bold);
+    border-radius: var(--radius); box-shadow: var(--al-shadow, none);
+    padding: 0.4rem; display: flex; flex-direction: column; gap: 0.15rem;
+}
+.cockpit-menu-panel a,
+.cockpit-menu-panel button {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    padding: 0.55rem 0.6rem; font: inherit; font-size: 0.92rem; color: var(--ink);
+    border-radius: 7px; cursor: pointer;
+}
+.cockpit-menu-panel a:hover,
+.cockpit-menu-panel button:hover { background: var(--bg-2); }
+.cockpit-menu-leave { color: var(--hurt); font-weight: 700; }
+
+@media (max-width: 620px) {
+    .cockpit-page .al-navlinks { display: none; }
+    .cockpit .round-nav,
+    .cockpit .feed-legend { display: none; }
+}

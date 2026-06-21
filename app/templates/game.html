@@ -1,6 +1,26 @@
 {% extends "base.html" %}
 {% block title %}{{ game.name }} — Hoard-Hurt-Help{% endblock %}
+{# Player cockpit (spec 018): a slim site nav (no "Play now" — you're already
+   playing) and a compact play header, so the move panel reaches the top of a
+   phone instead of sitting under a stack of chrome. #}
+{% block body_class %}{% if player_mode %}cockpit-page{% endif %}{% endblock %}
+{% block nav_cta %}{% if not player_mode %}{{ super() }}{% endif %}{% endblock %}
 {% block content %}
+{% if player_mode %}
+<div class="cockpit-head">
+    <span class="cockpit-match">{{ game.name }}</span>
+    <details class="cockpit-menu">
+        <summary class="cockpit-menu-btn" aria-label="Match menu" aria-haspopup="menu">⋯</summary>
+        <div class="cockpit-menu-panel">
+            <a href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
+            <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/play/leave"
+                  onsubmit="return confirm('Leave this match? Your seat will play Hoard for the rest of the match.');">
+                <button type="submit" class="cockpit-menu-leave">Leave match</button>
+            </form>
+        </div>
+    </details>
+</div>
+{% else %}
 <div class="page-head page-head-row">
     <h1>{{ game.name }}</h1>
     <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
@@ -21,6 +41,7 @@
         <a class="btn btn-ghost" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
     </div>
 </div>
+{% endif %}
 {# Coaching is for an owner whose AI plays the seat — never for a human playing
    by hand (you don't coach yourself). #}
 {% if viewer_player_id and not viewer_is_human %}

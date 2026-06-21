@@ -6,7 +6,7 @@
 {% set me = (scoreboard | selectattr('agent_id', 'equalto', viewer_seat) | first) %}
 <details class="play-standings" id="play-standings">
   <summary class="ps-summary">
-    <span class="ps-trophy" aria-hidden="true">🏆</span>
+    <span class="ps-rt">R{{ game.current_round }}·T{{ game.current_turn }}</span>
     {% if me %}<span class="ps-me"><strong>You {{ me.round_score }}</strong> · #{{ me.rank }}</span>{% endif %}
     {% if scoreboard %}
       {% if me and scoreboard[0].agent_id == viewer_seat %}
@@ -15,6 +15,7 @@
       <span class="ps-leader">{{ scoreboard[0].display_name }} leads {{ scoreboard[0].round_score }}</span>
       {% endif %}
     {% endif %}
+    {% if waiting_on %}<span class="ps-wait">{{ waiting_on }} to move</span>{% endif %}
     <span class="ps-toggle">Standings ({{ scoreboard | length }}) ▾</span>
   </summary>
   <ol class="ps-list">

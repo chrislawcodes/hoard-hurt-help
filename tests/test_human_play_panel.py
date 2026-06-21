@@ -184,10 +184,10 @@ async def test_act_panel_reveals_this_turns_talk(reset_db, client) -> None:
     assert "What was just said" in html
     assert "let&#39;s both help" in html or "let's both help" in html
     assert "bob" in html
-    # cy stayed silent this turn — shown as quiet, and still a tappable target
-    # (spec 018 wraps each name in a tappable span + score chip).
+    assert 'data-target-name="bob"' in html  # the speaker is tappable to target
+    # The silent are folded into one "+N stayed quiet" line (spec 018) so a
+    # 10-player turn never buries the action cards below the fold.
     assert "stayed quiet" in html
-    assert 'data-target-name="cy"' in html
     assert "my private note" not in html  # the viewer's own message isn't echoed
 
 

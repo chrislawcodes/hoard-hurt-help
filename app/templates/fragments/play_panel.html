@@ -42,13 +42,18 @@
       {% if play_talk %}
       <div class="play-said">
         <h4 class="play-said-head">💬 What was just said <span class="play-said-hint">tap a name to target</span></h4>
-        {% for m in play_talk %}
-          {% if m.quiet %}
-          <p class="play-said-line play-said-quiet"><span class="play-said-who" role="button" tabindex="0" data-target-name="{{ m.who }}">{{ m.who }}</span>{% if score_by_name and m.who in score_by_name %}<span class="who-score">{{ score_by_name[m.who] }}</span>{% endif %} stayed quiet.</p>
-          {% else %}
+        {# Show who spoke; fold the silent into one line so 10 players never bury
+           the action cards below the fold. #}
+        {% set spoke = play_talk | rejectattr('quiet') | list %}
+        {% set quiet = play_talk | selectattr('quiet') | list %}
+        {% for m in spoke %}
           <p class="play-said-line"><span class="play-said-who" role="button" tabindex="0" data-target-name="{{ m.who }}">{{ m.who }}</span>{% if score_by_name and m.who in score_by_name %}<span class="who-score">{{ score_by_name[m.who] }}</span>{% endif %}: “{{ m.text }}”</p>
-          {% endif %}
+        {% else %}
+          <p class="play-said-line play-said-quiet">No one's spoken yet this turn.</p>
         {% endfor %}
+        {% if spoke and quiet %}
+        <p class="play-said-line play-said-quiet">+{{ quiet | length }} stayed quiet</p>
+        {% endif %}
       </div>
       {% endif %}
 
