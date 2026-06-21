@@ -113,6 +113,15 @@ class GameModule(Protocol):
         """Game rules text without the connector's response protocol."""
         ...
 
+    def mcp_setup_hint_lines(self) -> list[str]:
+        """Extra setup lines for the MCP "## You" section. Default: none.
+
+        Returned lines are appended verbatim under the agent-identity line in the
+        MCP instructions (a game that hides per-player state uses this to point
+        the agent at your_private_state). Keeps the platform's MCP layer from
+        branching on a specific game id."""
+        ...
+
     def strategy_presets(self) -> list[StrategyPreset]:
         """Named starting strategies offered to a player entering this game."""
         ...
@@ -339,6 +348,13 @@ class BaseGameModule:
         # Default: no extra semantic rules block. Concrete games override this
         # to keep MCP instructions free of the connector's JSON protocol.
         return ""
+
+    def mcp_setup_hint_lines(self) -> list[str]:
+        # Deliberately empty: most games (e.g. PD, with no hidden per-player
+        # state) need no extra setup hint in the MCP "## You" section, so an
+        # empty list is the correct default — not a missing override. Games with
+        # hidden state (e.g. Liar's Dice) override this to add their hint line.
+        return []
 
     async def next_actor(self, db: AsyncSession, match: Match) -> str | None:
         # Simultaneous games resolve every player each turn — the scheduler does
