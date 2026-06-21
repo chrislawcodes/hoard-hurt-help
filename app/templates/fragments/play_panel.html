@@ -5,7 +5,7 @@
    re-applies on every swap. #}
 <div id="play-panel" class="play-panel"
      data-game="{{ game.game }}" data-match="{{ game.id }}"
-     data-play-phase="{{ play_phase }}"
+     data-play-phase="{{ play_phase or '' }}"
      {% if play_deadline_at %}data-play-deadline="{{ play_deadline_at }}"{% endif %}
      {% if can_play and not play_submitted %}data-your-turn="{{ play_phase }}"{% endif %}>
 
@@ -17,7 +17,8 @@
     {# Handle: always visible. On a phone, tap it to expand/collapse the body. #}
     <button type="button" class="play-handle" data-play-toggle aria-expanded="false">
       <span class="play-handle-title">
-        {%- if play_submitted -%}✓ Locked in
+        {%- if not play_phase -%}Waiting for the next turn…
+        {%- elif play_submitted -%}✓ Locked in
         {%- elif play_phase == "talk" -%}Your turn — say something
         {%- else -%}Your turn — make your move{%- endif -%}
       </span>
@@ -102,6 +103,12 @@
             <button type="submit" class="play-btn play-btn-primary">Lock in my move</button>
           </div>
         </form>
+
+      {% else %}
+        {# Between turns: no turn is open yet. Keep the cockpit in place (rather
+           than dropping the seated human to the spectator view) and show a calm
+           waiting line until the next turn opens. #}
+        <p class="play-status">Hang tight — the next turn is about to open.</p>
       {% endif %}
     </div>
   {% endif %}

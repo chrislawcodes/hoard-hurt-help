@@ -272,9 +272,11 @@ async def _build_human_play_context(
 ) -> dict[str, Any]:
     """Per-viewer play-panel state + the everyone-visible 'waiting on N' count.
 
-    Returns a flat dict merged into the viewer context. When there is no open
-    turn (or the match isn't active) the panel-specific keys stay falsy so the
-    template renders nothing extra.
+    Returns a flat dict merged into the viewer context. A seated human in an
+    active match is flagged ``viewer_is_human`` even between turns, so the cockpit
+    stays in place; the turn-specific keys (phase, deadline, can_play, …) only
+    fill in while a turn is open. When the match isn't active everything stays
+    falsy and the template renders nothing extra.
     """
     base: dict[str, Any] = {
         "viewer_is_human": False,
@@ -293,6 +295,18 @@ async def _build_human_play_context(
     if match.state != GameState.ACTIVE:
         return base
 
+    # Identity first: is the viewer a seated human in this match? This does not
+    # depend on whether a turn is open right now, so the cockpit stays put in the
+    # gap between turns instead of blinking to the spectator view (and back).
+    viewer_is_human = (
+        viewer_player is not None
+        and viewer_player.left_at is None
+        and kind_by_seat.get(viewer_player.seat_name) == AgentKind.HUMAN
+    )
+    if viewer_player is not None and viewer_is_human:
+        base["viewer_is_human"] = True
+        base["viewer_on_autopilot"] = viewer_player.autopilot_at is not None
+
     turn = (
         (
             await db.execute(
@@ -305,6 +319,9 @@ async def _build_human_play_context(
         .first()
     )
     if turn is None:
+        # Between turns: no open turn. A seated human keeps the cockpit (set
+        # above) but gets no active move form — can_play stays False and
+        # play_phase stays None, which the panel renders as a brief wait.
         return base
 
     phase = turn.phase
@@ -340,12 +357,9 @@ async def _build_human_play_context(
     base["play_deadline_at"] = ensure_aware(turn.deadline_at).isoformat()
     base["waiting_on"] = sum(1 for p in active if p.id not in acted_ids)
 
-    if (
-        viewer_player is not None
-        and kind_by_seat.get(viewer_player.seat_name) == AgentKind.HUMAN
-    ):
-        base["viewer_is_human"] = True
-        base["viewer_on_autopilot"] = viewer_player.autopilot_at is not None
+    if viewer_player is not None and viewer_is_human:
+        # Identity (viewer_is_human / on_autopilot) is set above; here we add the
+        # turn-specific move state now that we know a turn is open.
         submitted = viewer_player.id in acted_ids
         base["play_submitted"] = submitted
         base["can_play"] = viewer_player.autopilot_at is None

@@ -132,6 +132,44 @@ async def test_spectator_sees_no_panel_but_sees_waiting(reset_db, client) -> Non
     assert "Waiting on" in r.text  # additive pace indicator visible to all
 
 
+async def test_cockpit_persists_between_turns_for_human(reset_db, client) -> None:
+    """A seated human stays in the play cockpit during the gap between turns (no
+    open turn), instead of the page dropping to the spectator view. The move form
+    is replaced by a calm 'waiting' line until the next turn opens."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        await _seat_human(db, user, "alice")
+        await seat_player(db, "M_0001", "bob", i=2)
+        # No _open_turn(...): the match is active but between turns.
+        await db.commit()
+
+    r = await client.get(LIVE, cookies=_cookies(user.id))
+    assert r.status_code == 200
+    html = r.text
+    assert 'id="play-panel"' in html  # the cockpit stays put between turns
+    assert "the next turn is about to open" in html  # the waiting state
+    assert "Lock in my move" not in html  # no active move form yet
+    assert "data-your-turn" not in html  # and no false "your turn" signal
+
+
+async def test_spectator_sees_no_cockpit_between_turns(reset_db, client) -> None:
+    """Keeping the human's cockpit alive between turns must not leak a panel to a
+    non-seated spectator."""
+    async with reset_db() as db:
+        human = await make_user(db, 1)
+        spectator = await make_user(db, 9)
+        await _match(db, state=GameState.ACTIVE)
+        await _seat_human(db, human, "alice")
+        # No open turn.
+        await db.commit()
+        spectator_id = spectator.id
+
+    r = await client.get(LIVE, cookies=_cookies(spectator_id))
+    assert r.status_code == 200
+    assert 'id="play-panel"' not in r.text
+
+
 async def test_panel_shows_submitted_state(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)
