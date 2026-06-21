@@ -85,6 +85,91 @@
 .rc-robot.eyes-happy .eye{background:transparent;border-bottom:0;border-top:3px solid var(--c);border-radius:7px 7px 0 0;height:5px;animation:rc-smile .42s ease}
 @keyframes rc-smile{0%{transform:translateY(2px) scaleY(.3)}55%{transform:translateY(-1px) scaleY(1.25)}100%{transform:none}}
 
+/* ===== Idle fidgets =====================================================
+   Small ambient loops that give the ring life while it waits. Each is built
+   from the robot's real parts (eyes, antenna stalk + LED tip, head, the two
+   arm bars, the body), uses transforms/opacity only, and starts AND ends at
+   the resting pose so a bot can snap into a real move the instant it acts.
+   The class lands on .rc-bot (like act-hoard / recoil); the selector reaches
+   the part that moves. Names are namespaced idle-* so they never collide with
+   the action vocabulary, and the motion is kept deliberately distinct from it
+   (no full squash = hoard, no sideways body recoil = hurt, no 180 = betray,
+   no up-float pulse = talk). The JS traffic cop (scheduleIdle) decides who
+   fidgets, how often, and that only one "loud" one runs at a time. */
+
+/* — Eyes (the most legible thing at 44px) — */
+.rc-bot.idle-glance .eye{animation:rc-glance 1.6s ease}
+@keyframes rc-glance{0%,100%{transform:none}20%,35%{transform:translateX(2.2px)}55%,72%{transform:translateX(-2.2px)}}
+.rc-bot.idle-blink2 .eye{animation:rc-blink2 .55s ease}
+@keyframes rc-blink2{0%,30%,60%,100%{transform:scaleY(1)}15%,45%{transform:scaleY(.1)}}
+.rc-bot.idle-wink .eye.e2{animation:rc-wink .5s ease}
+@keyframes rc-wink{0%,100%{transform:scaleY(1)}30%,55%{transform:scaleY(.12)}}
+.rc-bot.idle-droop .eye{animation:rc-droop 2.4s ease}
+@keyframes rc-droop{0%,100%{transform:scaleY(1)}25%,70%{transform:scaleY(.45)}}
+.rc-bot.idle-cross .eye.e1{animation:rc-crossL 1.4s ease}
+.rc-bot.idle-cross .eye.e2{animation:rc-crossR 1.4s ease}
+@keyframes rc-crossL{0%,100%{transform:none}30%,70%{transform:translateX(2px)}}
+@keyframes rc-crossR{0%,100%{transform:none}30%,70%{transform:translateX(-2px)}}
+
+/* — Antenna (a status LED + a mood stick; no-antenna bots no-op) — */
+.rc-bot.idle-antwobble .ant{animation:rc-antwob 1.8s ease-in-out;transform-origin:50% 100%}
+@keyframes rc-antwob{0%,100%{transform:translateX(-50%) rotate(0)}30%{transform:translateX(-50%) rotate(12deg)}65%{transform:translateX(-50%) rotate(-10deg)}}
+.rc-bot.idle-tippulse .ant::after{animation:rc-tippulse 1.4s ease-in-out}
+@keyframes rc-tippulse{0%,100%{transform:translateX(-50%) scale(1);opacity:1}50%{transform:translateX(-50%) scale(1.5);opacity:.65}}
+.rc-bot.idle-scan .ant{animation:rc-scan 2.6s ease-in-out;transform-origin:50% 100%}
+@keyframes rc-scan{0%,100%{transform:translateX(-50%) rotate(0)}40%,60%{transform:translateX(-50%) rotate(-22deg)}}
+.rc-bot.idle-perk .ant{animation:rc-perk .7s ease;transform-origin:50% 100%}
+@keyframes rc-perk{0%,100%{transform:translateX(-50%) scaleY(1)}30%,55%{transform:translateX(-50%) scaleY(1.5)}}
+
+/* — Head (small tilts only, so it never reads as the hurt recoil) — */
+.rc-bot.idle-tilt .head{animation:rc-tilt 1.8s ease;transform-origin:50% 90%}
+@keyframes rc-tilt{0%,100%{transform:rotate(0)}30%,70%{transform:rotate(-9deg)}}
+.rc-bot.idle-nod .head{animation:rc-nod 1.2s ease;transform-origin:50% 90%}
+@keyframes rc-nod{0%,100%{transform:translateY(0) rotate(0)}40%{transform:translateY(3px) rotate(3deg)}}
+.rc-bot.idle-hshake .head{animation:rc-hshake .8s ease;transform-origin:50% 90%}
+@keyframes rc-hshake{0%,100%{transform:rotate(0)}20%{transform:rotate(7deg)}50%{transform:rotate(-7deg)}80%{transform:rotate(4deg)}}
+
+/* — Arms (9px bars, so the moves are broad; origin = the shoulder end) — */
+.rc-bot.idle-wave .arm.r{animation:rc-wave 1.1s ease;transform-origin:left center}
+@keyframes rc-wave{0%,100%{transform:rotate(0)}20%{transform:rotate(-38deg)}45%{transform:rotate(-18deg)}70%{transform:rotate(-38deg)}}
+.rc-bot.idle-stretch .arm.l{animation:rc-stretchL 1.6s ease;transform-origin:right center}
+.rc-bot.idle-stretch .arm.r{animation:rc-stretchR 1.6s ease;transform-origin:left center}
+@keyframes rc-stretchL{0%,100%{transform:rotate(0)}35%,65%{transform:rotate(38deg)}}
+@keyframes rc-stretchR{0%,100%{transform:rotate(0)}35%,65%{transform:rotate(-38deg)}}
+.rc-bot.idle-tap .arm.r{animation:rc-tap 1s ease;transform-origin:left center}
+@keyframes rc-tap{0%,100%{transform:rotate(0)}15%,45%,75%{transform:rotate(-13deg)}30%,60%{transform:rotate(0)}}
+
+/* — Body / posture (gentle; slower + subtler than the talk pulse) — */
+.rc-bot.idle-breath .rc-body{animation:rc-breath 3.2s ease-in-out}
+@keyframes rc-breath{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.03) translateY(-1px)}}
+.rc-bot.idle-sway .rc-body{animation:rc-sway 3s ease-in-out;transform-origin:50% 100%}
+@keyframes rc-sway{0%,100%{transform:rotate(0)}30%{transform:rotate(-3.5deg) translateX(-1px)}70%{transform:rotate(3.5deg) translateX(1px)}}
+.rc-bot.idle-hop .rc-body{animation:rc-hop .7s ease}
+@keyframes rc-hop{0%,100%{transform:translateY(0)}35%{transform:translateY(-7px)}72%{transform:translateY(0) scaleY(.96)}86%{transform:scaleY(1.02)}}
+
+/* — Character treats (combos; the rare ones the traffic cop hands out slowly) — */
+.rc-bot.idle-yawn .head{animation:rc-yawnhead 2.2s ease;transform-origin:50% 100%}
+@keyframes rc-yawnhead{0%,100%{transform:rotate(0)}30%,55%{transform:rotate(-12deg)}}
+.rc-bot.idle-yawn .eye{animation:rc-yawneyes 2.2s ease}
+@keyframes rc-yawneyes{0%,100%{transform:scaleY(1)}30%,55%{transform:scaleY(.15)}}
+.rc-bot.idle-yawn .rc-body{animation:rc-yawnbody 2.2s ease}
+@keyframes rc-yawnbody{0%,100%{transform:scaleY(1)}40%{transform:scaleY(1.07) translateY(-2px)}72%{transform:scaleY(.98)}}
+.rc-bot.idle-yawn .ant{animation:rc-yawnant 2.2s ease;transform-origin:50% 100%}
+@keyframes rc-yawnant{0%,100%{transform:translateX(-50%) rotate(0)}45%{transform:translateX(-50%) rotate(-16deg)}}
+.rc-bot.idle-nodoff .eye{animation:rc-nodeyes 3s ease}
+@keyframes rc-nodeyes{0%{transform:scaleY(1)}20%,55%{transform:scaleY(.12)}63%{transform:scaleY(1.4)}82%{transform:scaleY(1.4)}100%{transform:scaleY(1)}}
+.rc-bot.idle-nodoff .head{animation:rc-nodhead 3s ease;transform-origin:50% 100%}
+@keyframes rc-nodhead{0%,100%{transform:translateY(0) rotate(0)}28%{transform:translateY(2px) rotate(8deg)}55%{transform:translateY(3px) rotate(12deg)}63%{transform:translateY(-1px) rotate(0)}}
+.rc-bot.idle-nodoff .ant{animation:rc-nodant 3s ease;transform-origin:50% 100%}
+@keyframes rc-nodant{0%,100%{transform:translateX(-50%) rotate(0)}50%{transform:translateX(-50%) rotate(20deg)}63%{transform:translateX(-50%) scaleY(1.4)}80%{transform:translateX(-50%) scaleY(1.4)}}
+
+/* Accessibility: a calmer ring under reduced motion. The JS scheduler already
+   falls back to blink-only, but hard-stop every fidget here too as a backstop. */
+@media (prefers-reduced-motion:reduce){
+  .rc-bot[class*="idle-"] .eye,.rc-bot[class*="idle-"] .ant,.rc-bot[class*="idle-"] .ant::after,
+  .rc-bot[class*="idle-"] .head,.rc-bot[class*="idle-"] .arm,.rc-bot[class*="idle-"] .rc-body{animation:none}
+}
+
 /* Side-profile robot — swapped in when carrying a gift or bat */
 .rc-robot-side{display:none;width:44px;height:52px;position:relative}
 .rc-bot.carrying-gift .rc-robot{display:none}
@@ -147,6 +232,10 @@
   background:var(--surface,#fff);border:2px solid var(--c,var(--line,#e2e6ea));box-shadow:0 8px 24px rgba(20,20,40,.16);
   opacity:0;transform:translate(-50%,-50%) scale(.96);transition:opacity .2s ease,transform .2s ease}
 .rc-saybubble.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+/* Compact lobby banter bubble — lighter + smaller than the match talk bubble. */
+.rc-saybubble.rc-banter-bubble{max-width:230px;padding:8px 13px;box-shadow:0 4px 14px rgba(20,20,40,.14)}
+.rc-banter-bubble .rc-say-text{font-size:13.5px;line-height:1.35;-webkit-line-clamp:3}
+@media (max-width:560px){.rc-saybubble.rc-banter-bubble{max-width:180px;padding:6px 10px}.rc-banter-bubble .rc-say-text{font-size:12px}}
 /* SVG tail that spans the full distance from the bubble edge to the talking bot.
    positionSay() draws two filled polygons into this SVG: an outer triangle in the
    speaker colour and a slightly inset inner triangle in the bubble surface colour,
@@ -365,6 +454,7 @@
     </div>
 </div>
 
+<script src="/static/rc-lobby-banter.js"></script>
 <script type="application/json" id="rc-data">{{ rc_data | safe }}</script>
 <script>
 (function(){
@@ -635,7 +725,7 @@
       +'</div>';
     stage.appendChild(el); botEls[id]=el;
   });
-  AGENTS.forEach(scheduleBlink);
+  AGENTS.forEach(scheduleIdle);
 
   // Tap-to-reveal owner: who runs this agent. On demand only — nothing stands on
   // the stage, so the narrative never gets cluttered. Tap a robot to show its
@@ -949,16 +1039,208 @@
     if(state) r.classList.add('eyes-'+state);
     if(state && ms) setTimeout(function(){ r.classList.remove('eyes-'+state); }, ms);
   }
-  // Idle blink — staggered per bot so a crowd never strobes in unison.
-  function scheduleBlink(id){
-    setTimeout(function(){
-      var r=botEls[id]&&botEls[id].querySelector('.rc-robot');
-      if(r && r.className.indexOf('eyes-')<0){
-        r.classList.add('blink'); setTimeout(function(){ r.classList.remove('blink'); }, 220);
-      }
-      scheduleBlink(id);
-    }, 2600+Math.random()*4200);
+  // ===== Idle fidgets — the "traffic cop" ================================
+  // Generalises the old single-blink loop into a calm, varied idle system for
+  // the waiting room. Two tiers: QUIET fidgets are tiny and may overlap freely
+  // across the ring; LOUD ones draw the eye, so only ONE plays at a time
+  // ring-wide (a global gate) with a short cooldown between them. TREATs (yawn,
+  // nod-off) are rare LOUDs. Each bot also favours a stable "signature" loud
+  // fidget derived from its id, so regulars read as characters, not a shuffle.
+  // Outside the waiting room we fall back to the original occasional blink, so
+  // the live match / replay viewer is untouched. Uses the UNSCALED _setTimeout
+  // so the waiting-room cadence is independent of the replay speed control.
+  var rcWaiting = !TURNS.length;            // true only before the first turn
+  var loudBusy = false, loudCooldownUntil = 0;
+  function _tag(arr,tier){ arr.forEach(function(f){ f.tier=tier; f.cls=f.cls||('idle-'+f.key); }); return arr; }
+  var QUIET = _tag([
+    {key:'breath',dur:3200},{key:'blink2',dur:550},{key:'glance',dur:1600},
+    {key:'droop',dur:2400},{key:'sway',dur:3000},
+    {key:'tippulse',dur:1400,ant:true},{key:'antwobble',dur:1800,ant:true},
+    {key:'blink',cls:'blink',dur:220,on:'robot'}   // legacy single blink, kept frequent
+  ],'quiet');
+  var LOUD = _tag([
+    {key:'tilt',dur:1800},{key:'nod',dur:1200},{key:'hshake',dur:800},
+    {key:'wave',dur:1100},{key:'stretch',dur:1600},{key:'tap',dur:1000},
+    {key:'hop',dur:700},{key:'wink',dur:500},{key:'cross',dur:1400},
+    {key:'scan',dur:2600,ant:true},{key:'perk',dur:700,ant:true}
+  ],'loud');
+  var TREAT = _tag([{key:'yawn',dur:2200},{key:'nodoff',dur:3000}],'treat');
+  var sigOf = {};   // stable per-bot signature loud fidget (reuses the id hash)
+  AGENTS.forEach(function(id){ sigOf[id] = LOUD[rcHash(id) % LOUD.length]; });
+
+  // A bot may fidget only when standing idle — not mid-move, mid-blink, mid-line,
+  // or already running a fidget. (In the waiting room nothing else touches it.)
+  function idleFidgetable(id){
+    var el=botEls[id]; if(!el) return false;
+    if(/\b(idle-|act-|recoil|betray|hit|carrying|turning|grabbing|speaking|banter-)/.test(el.className)) return false;
+    var r=el.querySelector('.rc-robot');
+    if(r && /\b(eyes-|blink)/.test(r.className)) return false;
+    return true;
   }
+  // Antenna-only fidgets are dropped for no-antenna silhouettes (ant===2).
+  function pickFidget(pool, ident, id){
+    var avail=pool.filter(function(f){ return !(f.ant && ident && ident.ant===2); });
+    if(!avail.length) return null;
+    if(id && pool===LOUD && avail.indexOf(sigOf[id])>=0 && Math.random()<0.5) return sigOf[id];
+    return avail[(Math.random()*avail.length)|0];
+  }
+  function applyFidget(id, f){
+    var el=botEls[id]; if(!el || !f) return;
+    var target = f.on==='robot' ? el.querySelector('.rc-robot') : el;
+    if(!target) return;
+    target.classList.add(f.cls);
+    _setTimeout(function(){
+      target.classList.remove(f.cls);
+      if(f.tier!=='quiet'){ loudBusy=false; loudCooldownUntil=Date.now()+1400; }
+    }, f.dur+40);
+  }
+  function doFidget(id){
+    var ident=identOf[id]||{};
+    var f=null;
+    if(!loudBusy && !sceneActive && Date.now()>loudCooldownUntil && Math.random()<0.16){
+      f = (Math.random()<0.14) ? pickFidget(TREAT,ident,id) : pickFidget(LOUD,ident,id);
+    }
+    if(!f) f=pickFidget(QUIET,ident,id);
+    if(!f) return;
+    if(f.tier!=='quiet') loudBusy=true;
+    applyFidget(id,f);
+  }
+  // Per-bot loop, staggered so the crowd never moves in unison.
+  function scheduleIdle(id){
+    _setTimeout(function(){
+      if(idleFidgetable(id)){
+        if(rcWaiting && !_reduced){ doFidget(id); }
+        else {                                  // outside the waiting room: gentle blink, as before
+          var r=botEls[id]&&botEls[id].querySelector('.rc-robot');
+          if(r && r.className.indexOf('eyes-')<0){
+            r.classList.add('blink'); _setTimeout(function(){ r.classList.remove('blink'); }, 220);
+          }
+        }
+      }
+      scheduleIdle(id);
+    }, (rcWaiting?1700:2600) + Math.random()*(rcWaiting?2600:4200));
+  }
+
+  // ===== Lobby banter — little scripted scenes in the waiting room =========
+  // Reuses the speech bubble, placed NEAR the speaker (off the centre countdown).
+  // ONE scene at a time, weighted toward quick one-liners with the bigger
+  // call/response, back-and-forth and third-bot scenes rarer. Casts real bots
+  // (neighbours for two-handers; the third cuts in from across the ring) and
+  // fills {model}/{owner}/{seat}/{count} from data we already have. Honest by
+  // construction — it only ever runs BEFORE the match, never over real talk.
+  var sceneActive=false, banterTimers=[], banterCast=[], banterSpeaker=null;
+  var FIDGET_DUR={}; [].concat(QUIET,LOUD,TREAT).forEach(function(f){ FIDGET_DUR[f.key]=f.dur; });
+  function cap(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
+  function fillSlots(text, id, cast){
+    text=String(text)
+      .replace(/\{model\}/g, cap(PROVIDERS[id]||'a model'))
+      .replace(/\{owner\}/g, OWNERS[id]||'someone')
+      .replace(/\{seat\}/g, (AGENTS.indexOf(id)+1))
+      .replace(/\{count\}/g, AGENTS.length)
+      .replace(/\{name\}/g, labelOf(id));
+    if(cast){ ['A','B','C'].forEach(function(r){ if(!cast[r]) return;
+      text=text.replace(new RegExp('\\{seat'+r+'\\}','g'), (AGENTS.indexOf(cast[r])+1))
+               .replace(new RegExp('\\{name'+r+'\\}','g'), labelOf(cast[r])); }); }
+    return text;
+  }
+  function rolesOf(scene){ var r={}; scene.beats.forEach(function(b){ r[b.role]=1; }); return Object.keys(r); }
+  function sceneFillable(scene, cast){
+    return scene.beats.every(function(b){ var id=cast[b.role];
+      if(!id) return false;
+      if(/\{owner\}/.test(b.text) && !OWNERS[id]) return false;
+      if(/\{model\}/.test(b.text) && !PROVIDERS[id]) return false;
+      return true; });
+  }
+  function castScene(scene){
+    var roles=rolesOf(scene), N=AGENTS.length;
+    if(N<roles.length) return null;
+    var i=(Math.random()*N)|0, cast={A:AGENTS[i]};
+    if(roles.indexOf('B')>=0){ var nb=((Math.random()<0.5?i+1:i-1)+N)%N; cast.B=AGENTS[nb]; }
+    if(roles.indexOf('C')>=0){
+      var across=(i+((N/2)|0)+(((Math.random()*3)|0)-1)+N)%N, used={}, g=0;
+      used[cast.A]=1; if(cast.B) used[cast.B]=1;
+      while(used[AGENTS[across]] && g++<N){ across=(across+1)%N; }
+      cast.C=AGENTS[across];
+    }
+    var ids=roles.map(function(r){return cast[r];});
+    var uniq={}; ids.forEach(function(x){uniq[x]=1;});
+    if(Object.keys(uniq).length!==roles.length) return null;
+    return sceneFillable(scene, cast) ? cast : null;
+  }
+  function pickScene(){
+    var B=window.RC_BANTER; if(!B) return null;
+    var pools=[[B.oneLiners,50],[B.callResponse,25],[B.backForth,15],[B.thirdBot,10]];
+    var total=0; pools.forEach(function(p){ if(p[0]&&p[0].length) total+=p[1]; });
+    if(!total) return null;
+    var r=Math.random()*total;
+    for(var k=0;k<pools.length;k++){ if(!pools[k][0]||!pools[k][0].length) continue;
+      r-=pools[k][1]; if(r<=0){ var pool=pools[k][0]; return pool[(Math.random()*pool.length)|0]; } }
+    return null;
+  }
+  function clearIdleClasses(el){
+    Array.prototype.slice.call(el.classList).forEach(function(c){ if(c.indexOf('idle-')===0) el.classList.remove(c); });
+  }
+  // The compact lobby bubble sits just inside the ring from the speaker, so it
+  // never lands on the centre countdown. No tail — proximity + colour + the lit,
+  // fidgeting speaker make it clear who's talking.
+  function bSay(id,text){
+    var bot=botEls[id]; if(!bot) return;
+    sayTextEl.textContent=text;
+    sayEl.style.setProperty('--c', colorOf[id]);
+    sayEl.classList.add('rc-banter-bubble','show');
+    banterSpeaker=id; saySpeaker=null;
+    var cx=sayGeo.cx, cy=sayGeo.cy, bx=+bot.dataset.x, by=+bot.dataset.y;
+    var w=stage.clientWidth, h=stage.clientHeight;
+    // Sit on a "bubble ring" inside the bots, at the speaker's angle: close to the
+    // bot but always clear of the centre countdown — and scaled to the ring size
+    // so it works on the tight mobile stage too (a fixed inset overlapped it).
+    var ang=Math.atan2(by-cy, bx-cx), d=Math.hypot(bx-cx, by-cy)||1;
+    var rb=Math.min(Math.min(w,h)*0.30, d-14);
+    var px=cx+Math.cos(ang)*rb, py=cy+Math.sin(ang)*rb;
+    var hw=sayEl.offsetWidth/2, hh=sayEl.offsetHeight/2, m=8;
+    sayEl.style.left=Math.min(Math.max(px,hw+m), w-hw-m)+'px';
+    sayEl.style.top =Math.min(Math.max(py,hh+m), h-hh-m)+'px';
+    tailSvg.innerHTML='';
+  }
+  function clearBanter(){
+    banterTimers.forEach(function(t){ clearTimeout(t); }); banterTimers=[];
+    banterCast.forEach(function(id){ var e=botEls[id]; if(e){ clearIdleClasses(e); e.classList.remove('banter-cast','lit'); } });
+    banterCast=[]; sceneActive=false; banterSpeaker=null;
+    sayEl.classList.remove('rc-banter-bubble'); sayReset();
+  }
+  function beatHold(text){ return Math.min(3200, Math.max(1650, 850+text.length*38)); }
+  function playScene(scene, done){
+    var cast = scene ? castScene(scene) : null;
+    if(!cast){ done(); return; }
+    sceneActive=true;
+    banterCast = rolesOf(scene).map(function(r){return cast[r];});
+    banterCast.forEach(function(id){ var e=botEls[id]; if(e) e.classList.add('banter-cast'); });
+    var cursor=0, prevRole=null, prevId=null;
+    scene.beats.forEach(function(b,bi){
+      var id=cast[b.role], text=fillSlots(b.text, id, cast);
+      cursor += (bi===0)?0:(b.role===prevRole?750:480);   // longer beat before a same-speaker line
+      (function(at, sid, stext, fidget, prev){
+        banterTimers.push(_setTimeout(function(){
+          if(!rcWaiting){ clearBanter(); return; }
+          if(prev && prev!==sid){ var pe=botEls[prev]; if(pe) pe.classList.remove('lit'); }
+          litUp(sid);
+          var el=botEls[sid];
+          if(el){ clearIdleClasses(el); var fc='idle-'+fidget; el.classList.add(fc);
+            _setTimeout(function(){ el.classList.remove(fc); }, FIDGET_DUR[fidget]||1200); }
+          bSay(sid, stext);
+        }, at));
+      })(cursor, id, text, b.fidget||'nod', prevId);
+      prevRole=b.role; prevId=id; cursor += beatHold(text);
+    });
+    banterTimers.push(_setTimeout(function(){ clearBanter(); done(); }, cursor+250));
+  }
+  // The loop: in the waiting room, play a scene, then quiet for a few seconds.
+  function banterLoop(){
+    if(!window.RC_BANTER) return;                         // content not loaded → no banter
+    if(!rcWaiting || _reduced || sceneActive){ _setTimeout(banterLoop, 2200); return; }
+    playScene(pickScene(), function(){ _setTimeout(banterLoop, 2600+Math.random()*3600); });
+  }
+  if(rcWaiting && !_reduced){ _setTimeout(banterLoop, 2600); }
 
   function playAction(a){
     var el=botEls[a.agent]; if(!el) return;
@@ -1156,6 +1438,10 @@
   function primeFirstRender(){
     if(primed || !TURNS.length) return;
     primed=true;
+    // The match is starting: leave waiting-room mode so idles fall back to the
+    // gentle blink, the banter loop stops on its next tick, and any lobby bubble
+    // is cleared before the real turn animates.
+    rcWaiting=false; clearBanter();
     if(_reduced){ idx=TURNS.length-1; }
     renderTurn(idx);
     if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !_reduced){
