@@ -11,30 +11,16 @@ from sqlalchemy import delete, func, select
 from starlette.responses import Response
 
 from app.deps import DbSession, require_user_with_handle
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
+from app.routes.agents_queries import load_owned_agent
 from app.routes.agents_setup import clean_agent_name
 from app.templating import templates
 
 router = APIRouter()
-
-
-async def _load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
-    agent = (
-        await db.execute(
-            select(Agent).where(
-                Agent.id == agent_id,
-                Agent.user_id == user.id,
-                Agent.kind == AgentKind.AI,
-            )
-        )
-    ).scalar_one_or_none()
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found.")
-    return agent
 
 
 async def _load_current_version(db: DbSession, agent: Agent) -> AgentVersion:
@@ -151,7 +137,7 @@ async def rename_agent(
     user: Annotated[User, Depends(require_user_with_handle)],
     name: Annotated[str, Form()],
 ) -> RedirectResponse:
-    agent = await _load_owned_agent(db, user, agent_id)
+    agent = await load_owned_agent(db, user, agent_id)
     clean_name = clean_agent_name(name)
     clash = (
         await db.execute(
@@ -176,7 +162,7 @@ async def pause_agent(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
-    agent = await _load_owned_agent(db, user, agent_id)
+    agent = await load_owned_agent(db, user, agent_id)
     agent.status = AgentStatus.PAUSED
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
@@ -188,7 +174,7 @@ async def resume_agent(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
-    agent = await _load_owned_agent(db, user, agent_id)
+    agent = await load_owned_agent(db, user, agent_id)
     # Agents are no longer attached to a connection — resume just makes it
     # ACTIVE. Whether it can actually play depends on provider coverage, shown
     # as the "no live connection runs <provider>" warning, not a hard block.
@@ -203,7 +189,7 @@ async def delete_agent(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
-    agent = await _load_owned_agent(db, user, agent_id)
+    agent = await load_owned_agent(db, user, agent_id)
     if await _agent_has_active_match(db, agent.id):
         raise HTTPException(
             status_code=409,
@@ -237,7 +223,7 @@ async def set_strategy(
     user: Annotated[User, Depends(require_user_with_handle)],
     strategy_text: Annotated[str, Form()],
 ) -> RedirectResponse:
-    agent = await _load_owned_agent(db, user, agent_id)
+    agent = await load_owned_agent(db, user, agent_id)
     clean_strategy = strategy_text.strip()
     if not clean_strategy:
         raise HTTPException(status_code=400, detail="Strategy text is required.")
@@ -256,18 +242,7 @@ async def edit_agent_version_page(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
-    agent = (
-        await db.execute(
-            select(Agent).where(
-                Agent.id == agent_id,
-                Agent.user_id == user.id,
-                Agent.kind == AgentKind.AI,
-                Agent.archived_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found.")
+    agent = await load_owned_agent(db, user, agent_id)
     version = (
         await db.execute(
             select(AgentVersion).where(AgentVersion.id == agent.current_version_id)
@@ -301,7 +276,7 @@ async def save_version(
     user: Annotated[User, Depends(require_user_with_handle)],
     strategy_text: Annotated[str, Form()],
 ) -> RedirectResponse:
-    agent = await _load_owned_agent(db, user, agent_id)
+    agent = await load_owned_agent(db, user, agent_id)
     clean_strategy = strategy_text.strip()
     if not clean_strategy:
         raise HTTPException(status_code=400, detail="Strategy text is required.")
@@ -320,7 +295,7 @@ async def restore_version(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
-    agent = await _load_owned_agent(db, user, agent_id)
+    agent = await load_owned_agent(db, user, agent_id)
     version = (
         await db.execute(
             select(AgentVersion).where(

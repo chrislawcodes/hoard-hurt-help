@@ -5,17 +5,16 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
-from sqlalchemy import select
 from starlette.responses import Response
 
 from app.broadcast import subscribe
 from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health import ConnectionHealth
-from app.models.agent import Agent, AgentKind
 from app.models.user import User
+from app.routes.agents_queries import load_owned_agent
 from app.routes.agents_setup import (
     _build_agent_detail_context,
     _is_ready_to_play,
@@ -26,22 +25,6 @@ from app.templating import templates
 router = APIRouter()
 
 
-async def _load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
-    agent = (
-        await db.execute(
-            select(Agent).where(
-                Agent.id == agent_id,
-                Agent.user_id == user.id,
-                Agent.kind == AgentKind.AI,
-                Agent.archived_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found.")
-    return agent
-
-
 @router.get("/{agent_id}/status", response_class=HTMLResponse)
 async def agent_status_fragment(
     agent_id: Annotated[int, Path()],
@@ -50,7 +33,7 @@ async def agent_status_fragment(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
     """Polled onboarding card fragment — replaces the ready-to-play slot live."""
-    agent = await _load_owned_agent(db, user, agent_id)
+    agent = await load_owned_agent(db, user, agent_id)
     context = await _build_agent_detail_context(db, request, user, agent)
     matches = await _load_agent_matches(db, agent_id)
     # Coverage-based: pass a non-None sentinel when the provider is live-covered.
@@ -94,7 +77,7 @@ async def agent_health_badge_fragment(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
-    agent = await _load_owned_agent(db, user, agent_id)
+    agent = await load_owned_agent(db, user, agent_id)
     context = await _build_agent_detail_context(db, request, user, agent)
     return templates.TemplateResponse(request, "agents/_status.html", context)
 
@@ -105,7 +88,7 @@ async def agent_stream(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> StreamingResponse:
-    await _load_owned_agent(db, user, agent_id)
+    await load_owned_agent(db, user, agent_id)
 
     async def event_gen() -> AsyncIterator[str]:
         async for msg in subscribe(f"bot:{agent_id}"):

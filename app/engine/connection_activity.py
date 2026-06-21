@@ -24,11 +24,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import broadcast
 from app.aware_datetime import ensure_aware
-from app.engine.connection_health import LOOP_RUNNING_WINDOW_SECONDS
+from app.engine.connection_health import (
+    LOOP_RUNNING_WINDOW_SECONDS,
+    agent_is_defaulting,
+    humanize_since,
+)
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
+from app.models.turn import TurnSubmission
 
 Bot = Any
 BotStatus = ConnectionStatus
@@ -313,47 +317,6 @@ class BotHealthStatus:
     game_name: str | None = None
 
 
-def _humanize_since(dt: datetime, now: datetime) -> str:
-    """Plain 'time ago' for the badge, e.g. 'just now', '4m ago', '2h ago'."""
-    secs = int((now - ensure_aware(dt)).total_seconds())
-    if secs < 10:
-        return "just now"
-    if secs < 60:
-        return f"{secs}s ago"
-    mins = secs // 60
-    if mins < 60:
-        return f"{mins}m ago"
-    hours = mins // 60
-    if hours < 24:
-        return f"{hours}h ago"
-    return f"{hours // 24}d ago"
-
-
-async def _is_defaulting(
-    db: AsyncSession, bot_id: int, match_id: str, threshold: int
-) -> bool:
-    """True if the bot's last ``threshold`` submissions in this game all defaulted.
-
-    Catches the runner-alive-but-failing case: it keeps polling (so the heartbeat
-    stays warm) yet every move lands as a default. Bounded to ``threshold`` rows.
-    """
-    flags = (
-        (
-            await db.execute(
-                select(TurnSubmission.was_defaulted)
-                .join(Turn, Turn.id == TurnSubmission.turn_id)
-                .join(Player, Player.id == TurnSubmission.player_id)
-                .where(Player.agent_id == bot_id, Player.match_id == match_id)
-                .order_by(Turn.round.desc(), Turn.turn.desc())
-                .limit(threshold)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return len(flags) >= threshold and all(flags)
-
-
 async def compute_bot_health(
     db: AsyncSession, bot: Bot, *, now: datetime | None = None
 ) -> BotHealthStatus:
@@ -376,7 +339,7 @@ async def compute_bot_health(
     last_connected = bot.last_seen_at or bot.first_connected_at
     never = last_connected is None
     last_connected_aware = ensure_aware(last_connected) if last_connected is not None else None
-    human = None if last_connected is None else _humanize_since(last_connected, now)
+    human = None if last_connected is None else humanize_since(last_connected, now)
 
     def build(
         state: BotHealth, *, game: Match | None = None, needs_reconnect: bool = False
@@ -413,7 +376,7 @@ async def compute_bot_health(
 
     if active is not None:
         threshold = max(1, bot.stall_threshold)
-        if not warm or await _is_defaulting(db, bot.id, active.id, threshold):
+        if not warm or await agent_is_defaulting(db, bot.id, active.id, threshold):
             return build(BotHealth.STALLED, game=active, needs_reconnect=True)
         return build(BotHealth.LIVE, game=active)
 
