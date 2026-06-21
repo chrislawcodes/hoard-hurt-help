@@ -2329,6 +2329,11 @@ button.danger:hover,
 .play-said-line { margin: 0.35rem 0; font-size: 0.9rem; line-height: 1.4; }
 .play-said-who { font-weight: 800; }
 .play-said-quiet { color: var(--ink-soft); font-style: italic; }
+/* Talk-phase recap: the just-resolved turn's interactions, shown in the dock so
+   a human reads the outcome before speaking again (mirror of the act reveal).
+   Each interaction is a neat flex row: who · action · → target · tag · delta. */
+.play-recap-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; }
+.play-recap-line .arrow { color: var(--ink-soft); }
 .play-actbar { flex: none; }
 
 .action-choices {

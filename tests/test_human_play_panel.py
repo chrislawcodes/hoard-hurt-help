@@ -229,6 +229,90 @@ async def test_act_panel_reveals_this_turns_talk(reset_db, client) -> None:
     assert "my private note" not in html  # the viewer's own message isn't echoed
 
 
+async def test_talk_panel_recaps_last_resolved_turn(reset_db, client) -> None:
+    """When a new talk phase opens, the dock recaps the turn that just resolved —
+    who did what and for how many points — so the human isn't asked to speak
+    again blind to the result. The mirror of the act-phase talk reveal."""
+    from app.models.turn import TurnSubmission
+
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        human = await _seat_human(db, user, "alice")
+        bob = await seat_player(db, "M_0001", "bob", i=2)
+        cy = await seat_player(db, "M_0001", "cy", i=3)
+        now = datetime.now(timezone.utc)
+        # Turn 1 has resolved: bob hurt the human, cy helped the human, and the
+        # human hoarded. resolved_at is set so it lands in the replay history.
+        resolved = Turn(
+            match_id="M_0001",
+            round=1,
+            turn=1,
+            turn_token=generate_turn_token(),
+            opened_at=now,
+            deadline_at=now,
+            phase="act",
+            resolved_at=now,
+        )
+        db.add(resolved)
+        await db.flush()
+        db.add(
+            TurnSubmission(
+                turn_id=resolved.id, player_id=bob.id, action="HURT",
+                target_player_id=human.id,
+            )
+        )
+        db.add(
+            TurnSubmission(
+                turn_id=resolved.id, player_id=cy.id, action="HELP",
+                target_player_id=human.id,
+            )
+        )
+        db.add(TurnSubmission(turn_id=resolved.id, player_id=human.id, action="HOARD"))
+        # Turn 2's talk phase is now open — the human is asked to speak again.
+        db.add(
+            Turn(
+                match_id="M_0001",
+                round=1,
+                turn=2,
+                turn_token=generate_turn_token(),
+                opened_at=now,
+                deadline_at=now + timedelta(seconds=60),
+                phase="talk",
+            )
+        )
+        await db.commit()
+
+    r = await client.get(LIVE, cookies=_cookies(user.id))
+    assert r.status_code == 200
+    html = r.text
+    assert "say something" in html  # it's the talk phase
+    assert "What just happened" in html  # the recap header is present
+    assert "Round 1 · Turn 1" in html  # labelled with the turn that resolved
+    # The interactions are spelled out (feed_actions, highlights-first).
+    assert "HURT" in html
+    assert "Help" in html
+    # The human's own hoard folds into the quiet count, not a separate row.
+    assert "1 hoarded" in html
+
+
+async def test_first_talk_turn_has_no_recap(reset_db, client) -> None:
+    """The very first talk phase has nothing to recap — no turn has resolved yet —
+    so the dock shows the talk box with no 'what just happened' block."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        await _seat_human(db, user, "alice")
+        await seat_player(db, "M_0001", "bob", i=2)
+        await _open_turn(db, "talk")  # round 1, turn 1 — nothing resolved before it
+        await db.commit()
+
+    r = await client.get(LIVE, cookies=_cookies(user.id))
+    assert r.status_code == 200
+    assert "say something" in r.text  # the talk box is present
+    assert "What just happened" not in r.text  # but no recap on the first turn
+
+
 async def test_join_cta_on_scheduled_viewer(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)
