@@ -1,3 +1,14 @@
+{% if player_mode %}
+{# Player cockpit (spec 018): a seated human in a live match. Standings on top,
+   the feed (who said what) in the middle, and the play panel docked at the
+   bottom — the input is always in reach and never below the fold. The animated
+   replay is suppressed while you play (it returns once the game is over). #}
+    {% include "fragments/play_standings.html" %}
+    <div class="cockpit-feed">
+        {% include viewer_fragment %}
+    </div>
+    {% include "fragments/play_panel.html" %}
+{% else %}
 <div class="game-head">
     {% include "fragments/game_status.html" %}
 </div>
@@ -9,7 +20,8 @@
    player{{ "s" if waiting_on != 1 else "" }}…</p>
 {% endif %}
 
-{# The human play panel renders only for the seated human on their open turn. #}
+{# The human play panel renders only for the seated human on their open turn.
+   (Player mode docks it at the bottom in the cockpit branch above.) #}
 {% if viewer_is_human %}
     {% include "fragments/play_panel.html" %}
 {% endif %}
@@ -46,3 +58,4 @@
    Which feed renders is module-driven: each game declares its live-region
    fragment via `viewer_fragment`, so the platform never forks on game type. #}
 {% include viewer_fragment %}
+{% endif %}

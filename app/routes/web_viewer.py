@@ -170,6 +170,19 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     for key, value in replay_view.items():
         if key != "history":
             ctx[key] = value
+
+    # Player-mode cockpit (spec 018). When the seated viewer is a HUMAN in a LIVE
+    # match the page becomes a play cockpit: the input docks at the bottom, feed
+    # names carry score chips, and the animated replay steps aside (it returns as
+    # the lead once the game is completed). These keys also feed the /live
+    # fragment, so chips + standings survive every SSE swap.
+    ctx["viewer_seat"] = viewer_seat
+    ctx["leader_seat"] = scoreboard[0]["agent_id"] if scoreboard else None
+    ctx["score_by_name"] = {row["agent_id"]: row["round_score"] for row in scoreboard}
+    player_mode = bool(play_ctx.get("viewer_is_human")) and g.state == GameState.ACTIVE
+    ctx["player_mode"] = player_mode
+    if player_mode:
+        ctx["show_replay_stage"] = False
     return ctx
 
 

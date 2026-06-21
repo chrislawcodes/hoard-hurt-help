@@ -398,3 +398,47 @@ async def test_untouched_human_defaults_to_hoard(reset_db, client) -> None:
         sub = (await db.execute(select(TurnSubmission))).scalar_one()
         assert sub.action == "HOARD"
         assert sub.was_defaulted is True
+
+
+# --- cockpit layout (spec 018) ---------------------------------------------
+
+
+async def test_player_mode_renders_cockpit(reset_db, client) -> None:
+    """A seated human on an open turn gets the play cockpit: the live region is
+    tagged `cockpit`, with collapsible standings and the docked play panel."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        match = await make_match(db, "M_0001", state=GameState.ACTIVE)
+        await _seat_human(db, match.id, user, "alice")
+        await seat_player(db, match.id, "bob", i=2)
+        await _open_turn(db, match.id, "act")
+        await db.commit()
+
+    r = await client.get(f"/games/{GAME}/matches/M_0001", cookies=_cookies(user.id))
+    assert r.status_code == 200, r.text
+    html = r.text
+    assert "view-cards cockpit" in html
+    assert 'id="play-standings"' in html
+    assert 'id="play-panel"' in html
+
+
+async def test_spectator_gets_no_cockpit(reset_db, client) -> None:
+    """A viewer with no seat sees the normal layout, not the play cockpit."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        match = await make_match(db, "M_0001", state=GameState.ACTIVE)
+        await _seat_human(db, match.id, user, "alice")
+        await _open_turn(db, match.id, "act")
+        await db.commit()
+
+    # signed out → not the seated human → no cockpit
+    r = await client.get(f"/games/{GAME}/matches/M_0001")
+    assert r.status_code == 200, r.text
+    assert "view-cards cockpit" not in r.text
+
+
+def test_user_created_matches_cap_at_ten() -> None:
+    """Spec 018: the normal create path tops out at 10 players."""
+    from app.routes.matches_user import _CREATE_DEFAULTS
+
+    assert _CREATE_DEFAULTS["max_players"] == 10

@@ -1,0 +1,32 @@
+{# Collapsible standings for the play cockpit (spec 018). The summary line is
+   always visible (you + the leader); the full ranked list opens on tap. Native
+   <details>, so no JS. Server-rendered from `scoreboard`, already ranked by
+   round-wins then this-round score. Per-player scores also ride on the name
+   chips in the feed, so this stays collapsed by default. #}
+{% set me = (scoreboard | selectattr('agent_id', 'equalto', viewer_seat) | first) %}
+<details class="play-standings" id="play-standings">
+  <summary class="ps-summary">
+    <span class="ps-rt">R{{ game.current_round }}·T{{ game.current_turn }}</span>
+    {% if me %}<span class="ps-me"><strong>You {{ me.round_score }}</strong> · #{{ me.rank }}</span>{% endif %}
+    {% if scoreboard %}
+      {% if me and scoreboard[0].agent_id == viewer_seat %}
+      <span class="ps-leader">you're in front</span>
+      {% else %}
+      <span class="ps-leader">{{ scoreboard[0].display_name }} leads {{ scoreboard[0].round_score }}</span>
+      {% endif %}
+    {% endif %}
+    {% if waiting_on %}<span class="ps-wait">{{ waiting_on }} to move</span>{% endif %}
+    <span class="ps-toggle">Standings ({{ scoreboard | length }}) ▾</span>
+  </summary>
+  <ol class="ps-list">
+    {% for row in scoreboard %}
+    <li class="ps-row{% if row.agent_id == viewer_seat %} is-you{% endif %}">
+      <span class="ps-rk">{{ row.rank }}</span>
+      <span class="ps-nm">{{ row.display_name }}{% if row.is_bot %} <span class="ps-bot">bot</span>{% endif %}</span>
+      <span class="ps-pts">{{ row.round_score }}</span>
+      <span class="ps-win" title="round wins">{% if row.round_wins %}● {{ "%g" | format(row.round_wins) }}{% else %}—{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ol>
+  <p class="ps-foot">● = round wins (takes the game) · number = points this round</p>
+</details>
