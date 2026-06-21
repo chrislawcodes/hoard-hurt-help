@@ -12,8 +12,14 @@ the live region carries.
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any
+
+from app.games.viewer_common import (
+    project_turn_messages,
+    rc_envelope,
+    rc_scoreboard_maps,
+    rc_talk,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,11 +40,13 @@ def _build_rc_data(
     region still embeds a ``#rc-data-live`` blob (the page's generic refresh
     path reads it); this keeps that blob present and well-formed without any PD
     pact/betrayal concepts.
+
+    Reuses the shared rc_data scaffolding (scoreboard maps, talk list, envelope)
+    from ``viewer_common``; the only LD-specific part is the per-turn body, which
+    carries just the bid/challenge actions and talk (no PD delta/mutual/betrayal,
+    badge, spotlight, or win_probs).
     """
-    agents = [r["agent_id"] for r in scoreboard]
-    labels = {r["agent_id"]: r.get("display_name") or r["agent_id"] for r in scoreboard}
-    bots = {r["agent_id"]: True for r in scoreboard if r.get("is_bot")}
-    owners = {r["agent_id"]: r["owner_handle"] for r in scoreboard if r.get("owner_handle")}
+    agents, labels, bots, owners = rc_scoreboard_maps(scoreboard)
 
     turns = []
     for h in history:
@@ -52,32 +60,23 @@ def _build_rc_data(
             }
             for a in h["actions"]
         ]
-        talk = [
-            {"agent": m["agent_id"], "text": m["text"].strip()}
-            for m in h["messages"]
-            if m["text"].strip()
-        ]
         turns.append(
             {
                 "round": h["round"],
                 "turn": h["turn"],
                 "actions": rc_actions,
-                "talk": talk,
+                "talk": rc_talk(h),
             }
         )
 
-    payload: dict[str, object] = {
-        "agents": agents,
-        "labels": labels,
-        "bots": bots,
-        "owners": owners,
-        "turns": turns,
-        "max_round": max((t["round"] for t in turns), default=0),
-        "sample": False,
-    }
-    if viewer_seat is not None:
-        payload["viewer_seat"] = viewer_seat
-    return json.dumps(payload, ensure_ascii=False)
+    return rc_envelope(
+        agents=agents,
+        labels=labels,
+        bots=bots,
+        owners=owners,
+        turns=turns,
+        viewer_seat=viewer_seat,
+    )
 
 
 async def build_liars_dice_replay_view(
@@ -96,16 +95,7 @@ async def build_liars_dice_replay_view(
     """
     history: list[dict[str, Any]] = []
     for seq, t in enumerate(timeline, start=1):
-        messages: list[dict[str, Any]] = [
-            {
-                "agent_id": message.agent_id,
-                "text": message.text,
-                "thinking": message.thinking,
-                "was_defaulted": message.was_defaulted,
-            }
-            for message in t.messages
-        ]
-        messages_by_agent = {m["agent_id"]: m for m in messages}
+        messages, messages_by_agent = project_turn_messages(t)
         actions: list[dict[str, Any]] = []
         for action in t.actions:
             paired = messages_by_agent.get(action.agent_id)
