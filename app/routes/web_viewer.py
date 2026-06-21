@@ -89,19 +89,42 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     for i, row in enumerate(scoreboard, start=1):
         row["rank"] = i
 
-    viewer_player = next((p for p in players if user and p.user_id == user.id), None)
+    # A user can hold two seats in one match since #478 (join as a human AND send
+    # an AI agent). Resolve each separately: the human seat you steer drives the
+    # play cockpit and the "you" highlight, while the agent you sent drives the
+    # strategy/coach panels. The old single `next(...)` returned whichever seat
+    # sorted first by name, so a human who also sent an agent silently got the
+    # agent seat — and never saw their move controls.
+    my_players = [p for p in players if user and p.user_id == user.id]
+    viewer_human = next(
+        (
+            p
+            for p in my_players
+            if p.left_at is None
+            and kind_by_seat.get(p.seat_name) == AgentKind.HUMAN
+        ),
+        None,
+    )
+    viewer_agent = next(
+        (p for p in my_players if kind_by_seat.get(p.seat_name) != AgentKind.HUMAN),
+        None,
+    )
+    # "You" on the page (cockpit, standings highlight, board perspective): the
+    # human seat you steer, else the agent you sent.
+    viewer_player = viewer_human or viewer_agent
+    # The strategy prompt + coach note describe the agent you sent (a human seat
+    # has neither); fall back to the human seat so a solo human still resolves.
+    coach_player = viewer_agent or viewer_human
     public_state = await module.public_state_for(db, g, viewer_player)
     viewer_seat = viewer_player.seat_name if viewer_player else None
+    # The cockpit is for the human seat only — pass it, not the agent seat.
     play_ctx = await _build_human_play_context(
-        db, g, players, viewer_player, kind_by_seat
+        db, g, players, viewer_human, kind_by_seat
     )
     # Leave-CTA flag: a seated human can leave (pre-start frees the seat, in-match
     # flips it to autopilot). The join entrance is the "Enter game" link, which
     # leads to the join screen where "Play as yourself" is the first choice.
-    viewer_seat_human = (
-        viewer_player is not None
-        and kind_by_seat.get(viewer_player.seat_name) == AgentKind.HUMAN
-    )
+    viewer_seat_human = viewer_human is not None
     play_ctx["viewer_seat_human"] = viewer_seat_human
 
     # Solo-start CTA: when this viewer is the only person with a seat in a normal
@@ -135,8 +158,8 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
 
     viewer_prompt_text = None
     viewer_prompt_label = None
-    if viewer_player and viewer_player.agent_version_id is not None:
-        version = await _load_viewer_prompt_version(db, viewer_player.agent_version_id)
+    if coach_player is not None and coach_player.agent_version_id is not None:
+        version = await _load_viewer_prompt_version(db, coach_player.agent_version_id)
         if version is not None:
             viewer_prompt_text = version.strategy_text
             viewer_prompt_label = f"v{version.version_no}"
@@ -162,10 +185,11 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         "max_played_round": max_played_round,
         "winner_agent_id": winner_agent_id,
         "winner_owner_handle": owner_handles.get(winner_agent_id) if winner_agent_id else None,
-        "viewer_player_id": viewer_player.id if viewer_player else None,
+        # The coach panel (strategy link + note) is about the agent you sent.
+        "viewer_player_id": coach_player.id if coach_player else None,
         "viewer_agent_name": agent_names.get(viewer_player.seat_name) if viewer_player else None,
-        "viewer_coach_note": viewer_player.coach_note if viewer_player else None,
-        "viewer_coach_note_round": viewer_player.coach_note_round if viewer_player else None,
+        "viewer_coach_note": coach_player.coach_note if coach_player else None,
+        "viewer_coach_note_round": coach_player.coach_note_round if coach_player else None,
         "viewer_prompt_text": viewer_prompt_text,
         "viewer_prompt_label": viewer_prompt_label,
         "coaching_enabled": bool(g.coaching) if hasattr(g, "coaching") else True,
@@ -417,16 +441,22 @@ async def post_coach_note(
         return redirect  # type: ignore[return-value]
     if match.state.value != "active":
         raise HTTPException(status_code=409, detail="Match is not active.")
-    player_row = (
+    player_rows = (
         await db.execute(
             select(Player, Agent)
             .join(Agent, Agent.id == Player.agent_id)
             .where(Player.match_id == match_id, Agent.user_id == user.id)
         )
-    ).one_or_none()
-    if player_row is None:
+    ).all()
+    if not player_rows:
         raise HTTPException(status_code=403, detail="You are not a player in this match.")
-    player, agent = player_row
+    # Coaching targets the AI agent you sent — a human seat has no strategy to
+    # coach. Since #478 a user can hold both a human and an agent seat here, so a
+    # one-row fetch would raise for them; prefer the agent seat, else the only one.
+    player, agent = next(
+        ((p, a) for (p, a) in player_rows if a.kind != AgentKind.HUMAN),
+        player_rows[0],
+    )
     viewer_prompt_text = None
     viewer_prompt_label = None
     if player.agent_version_id is not None:
