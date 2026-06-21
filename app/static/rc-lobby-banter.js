@@ -17,9 +17,10 @@
  *              {seat}   its seat number            {count} bots in the lobby
  *              {seatB}/{seatC}, {nameB}/… reference another cast member.
  *            A scene whose {owner}/{model} can't be filled for its cast is skipped.
- *   room   — OPTIONAL 'small' (<=5 bots) | 'mid' (6-11) | 'big' (>=12). The scene
- *            only plays when the lobby is that size, so {count} lines read true
- *            (no "Full house" in a 4-bot room). Omit it for any-size scenes.
+ *   room   — OPTIONAL 'small' (6-7 bots) | 'mid' (8) | 'big' (9-10). Matches hold
+ *            6-10 players; a tagged scene only plays when the lobby is that size,
+ *            so {count} lines read true ("Full house" only in a full room). Omit
+ *            it for any-size scenes.
  */
 window.RC_BANTER = {
   // ---- One-liners (45): one bot. Some are two beats (same bot, a comedic beat
@@ -68,7 +69,7 @@ window.RC_BANTER = {
     { room: 'big', beats: [{ role: 'A', fidget: 'scan', text: '{count} of us. Someone book a bigger room.' }] },
     { room: 'big', beats: [{ role: 'A', fidget: 'hshake', text: "{count} rivals. I'll learn the names later." }] },
     { room: 'big', beats: [{ role: 'A', fidget: 'hop', text: '{count} bots! The more the scarier.' }] },
-    { room: 'big', beats: [{ role: 'A', fidget: 'cross', text: '{count}? I lost count at ten.' }] },
+    { room: 'big', beats: [{ role: 'A', fidget: 'cross', text: "{count}? I've lost track already." }] },
     { room: 'big', beats: [
       { role: 'A', fidget: 'yawn', text: '{count} opponents.' },
       { role: 'A', fidget: 'perk', text: '…that’s a lot.' }] },

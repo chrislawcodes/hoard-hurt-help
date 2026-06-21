@@ -64,7 +64,7 @@ class HoardHurtHelp(BaseGameModule):
             turns_per_round=7,
             per_turn_deadline_seconds=60,
             min_players=6,
-            max_players=100,
+            max_players=10,
         )
 
     def action_names(self) -> tuple[str, ...]:

@@ -39,7 +39,7 @@ def test_historical_bot_name_pool_has_curated_display_safe_names() -> None:
 
 
 @pytest.mark.asyncio
-async def test_game_defaults_to_twenty_player_cap(reset_db):
+async def test_game_defaults_to_ten_player_cap(reset_db):
     async with reset_db() as db:
         g = Match(
             id="G_BOT",
@@ -49,7 +49,7 @@ async def test_game_defaults_to_twenty_player_cap(reset_db):
         )
         db.add(g)
         await db.flush()
-        assert g.max_players == 20
+        assert g.max_players == 10
 
 
 @pytest.mark.asyncio
