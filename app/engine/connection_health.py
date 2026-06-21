@@ -33,7 +33,7 @@ MCP_CONNECTION_PROVIDERS = frozenset(
 )
 
 
-def _humanize_since(dt: datetime, now: datetime) -> str:
+def humanize_since(dt: datetime, now: datetime) -> str:
     """Return a small relative time string for the UI badge."""
     secs = int((now - ensure_aware(dt)).total_seconds())
     if secs < 10:
@@ -85,19 +85,21 @@ class ConnectionHealthStatus:
     agent_count: int = 0
 
 
-async def _is_defaulting(
-    db: AsyncSession, player_id: int, match_id: str, threshold: int
+async def agent_is_defaulting(
+    db: AsyncSession, agent_id: int, match_id: str, threshold: int
 ) -> bool:
-    """True when the player's last `threshold` submissions in this match defaulted."""
+    """True when this seat's last ``threshold`` submissions in the match all defaulted.
+
+    Keyed on (agent_id, match_id), which uniquely identifies a seat, and ordered
+    by (round, turn, id) descending so the window is selected deterministically.
+    """
     flags = (
         (
             await db.execute(
                 select(TurnSubmission.was_defaulted)
                 .join(Turn, Turn.id == TurnSubmission.turn_id)
-                .where(
-                    TurnSubmission.player_id == player_id,
-                    Turn.match_id == match_id,
-                )
+                .join(Player, Player.id == TurnSubmission.player_id)
+                .where(Player.agent_id == agent_id, Player.match_id == match_id)
                 .order_by(Turn.round.desc(), Turn.turn.desc(), Turn.id.desc())
                 .limit(threshold)
             )
@@ -133,7 +135,7 @@ async def compute_connection_health(
         ensure_aware(last_connected) if last_connected is not None else None
     )
     last_connected_human = (
-        None if last_connected is None else _humanize_since(last_connected, now)
+        None if last_connected is None else humanize_since(last_connected, now)
     )
 
     def build(
@@ -215,7 +217,7 @@ async def compute_connection_health(
             break
         threshold = max(1, connection.stall_threshold)
         for player in players:
-            if await _is_defaulting(db, player.id, match_id, threshold):
+            if await agent_is_defaulting(db, player.agent_id, match_id, threshold):
                 stalled_match = match_by_id[match_id]
                 break
         if stalled_match is not None:
