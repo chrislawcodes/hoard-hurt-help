@@ -14,6 +14,22 @@ from app.models.request_incident import RequestIncident
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 
 
+def cancel_blocked_reason(match: Match) -> str | None:
+    """Return why a match cannot be cancelled, or ``None`` if it can.
+
+    HTTP-agnostic decision helper for the allowed-state policy the admin cancel
+    handlers all repeated. Returns ``"Match already started."`` for an ACTIVE
+    match, ``"Match already ended."`` for a COMPLETED/CANCELLED one, else
+    ``None``. Callers map a non-None reason to their own response (JSON 409 or
+    an HTML error) and only call ``cancel_match`` when this returns ``None``.
+    """
+    if match.state == GameState.ACTIVE:
+        return "Match already started."
+    if match.state in (GameState.COMPLETED, GameState.CANCELLED):
+        return "Match already ended."
+    return None
+
+
 async def cancel_match(db: AsyncSession, match: Match) -> None:
     """Cancel a match: stop its scheduler task and mark it CANCELLED.
 

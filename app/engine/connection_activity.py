@@ -26,6 +26,10 @@ from app import broadcast
 from app.aware_datetime import ensure_aware
 from app.engine.connection_health import (
     LOOP_RUNNING_WINDOW_SECONDS,
+    ConnectionHealth,
+    ConnectionHealthStatus,
+    _HEALTH_PRESENTATION,
+    _within_window,
     agent_is_defaulting,
     humanize_since,
 )
@@ -276,51 +280,16 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
     return OnboardingStatus(OnboardingState.WAITING, bot.name)
 
 
-class BotHealth(str, enum.Enum):
-    """Operational health for the My Bots badge — 'is it working right now?'.
-
-    Unlike ``BotStatus`` (the owner's on/off intent) this is derived from real
-    activity: a bot reads green only when its runner is actually alive.
-    """
-
-    PAUSED = "paused"  # owner switched it off
-    STALLED = "stalled"  # in a live game but not playing — runner down or failing
-    LIVE = "live"  # connected and playing
-    READY = "ready"  # connected, nothing to play right now
-    DISCONNECTED = "disconnected"  # runner isn't running
-
-
-# state -> (label, badge css class, pulsing dot). Green = alive, red = down,
-# grey = off. The badge template is kept dumb: it just renders these.
-_HEALTH_PRESENTATION: dict[BotHealth, tuple[str, str, bool]] = {
-    BotHealth.PAUSED: ("Paused", "badge-done", False),
-    BotHealth.STALLED: ("Stalled", "badge-alert", True),
-    BotHealth.LIVE: ("Live", "badge-ok", True),
-    BotHealth.READY: ("Ready", "badge-ok", False),
-    BotHealth.DISCONNECTED: ("Disconnected", "badge-alert", False),
-}
-
-
-@dataclass
-class BotHealthStatus:
-    """Resolved health state plus everything the badge + reconnect block render."""
-
-    state: BotHealth
-    label: str
-    badge_class: str
-    pulse: bool
-    needs_reconnect: bool  # Stalled/Disconnected → surface the reconnect prompt
-    never_connected: bool
-    last_connected_at: datetime | None
-    last_connected_human: str | None  # "4m ago" / "2h ago", or None if never
-    match_id: str | None = None
-    game_name: str | None = None
-
-
 async def compute_bot_health(
     db: AsyncSession, bot: Bot, *, now: datetime | None = None
-) -> BotHealthStatus:
+) -> ConnectionHealthStatus:
     """Resolve a bot's operational health for the badge.
+
+    Returns the shared ``ConnectionHealthStatus`` (with ``agent_count`` left at its
+    default 0 — bot health does not surface a coverage count). It uses the same
+    health enum and badge presentation as ``compute_connection_health`` but a
+    different state machine and liveness signal, so the two compute functions stay
+    distinct.
 
     Precedence (top wins): Paused (owner intent) -> Stalled (in a live game but
     the runner is cold or every recent move defaulted) -> Live (warm + in a game)
@@ -331,21 +300,20 @@ async def compute_bot_health(
     non-running connection appear "ready".
     """
     now = now or datetime.now(timezone.utc)
-    last_seen = bot.last_polled_at
-    warm = (
-        last_seen is not None
-        and (now - ensure_aware(last_seen)).total_seconds() <= LOOP_RUNNING_WINDOW_SECONDS
-    )
+    warm = _within_window(bot.last_polled_at, now, LOOP_RUNNING_WINDOW_SECONDS)
     last_connected = bot.last_seen_at or bot.first_connected_at
     never = last_connected is None
     last_connected_aware = ensure_aware(last_connected) if last_connected is not None else None
     human = None if last_connected is None else humanize_since(last_connected, now)
 
     def build(
-        state: BotHealth, *, game: Match | None = None, needs_reconnect: bool = False
-    ) -> BotHealthStatus:
+        state: ConnectionHealth,
+        *,
+        game: Match | None = None,
+        needs_reconnect: bool = False,
+    ) -> ConnectionHealthStatus:
         label, css, pulse = _HEALTH_PRESENTATION[state]
-        return BotHealthStatus(
+        return ConnectionHealthStatus(
             state=state,
             label=label,
             badge_class=css,
@@ -359,7 +327,7 @@ async def compute_bot_health(
         )
 
     if bot.status == BotStatus.PAUSED:
-        return build(BotHealth.PAUSED)
+        return build(ConnectionHealth.PAUSED)
 
     games = (
         (
@@ -377,9 +345,9 @@ async def compute_bot_health(
     if active is not None:
         threshold = max(1, bot.stall_threshold)
         if not warm or await agent_is_defaulting(db, bot.id, active.id, threshold):
-            return build(BotHealth.STALLED, game=active, needs_reconnect=True)
-        return build(BotHealth.LIVE, game=active)
+            return build(ConnectionHealth.STALLED, game=active, needs_reconnect=True)
+        return build(ConnectionHealth.LIVE, game=active)
 
     if warm:
-        return build(BotHealth.READY)
-    return build(BotHealth.DISCONNECTED, needs_reconnect=True)
+        return build(ConnectionHealth.READY)
+    return build(ConnectionHealth.DISCONNECTED, needs_reconnect=True)

@@ -53,6 +53,7 @@ from app.engine.agent_play_reads import (
     _parse_cursor,
     _public_scoreboard,
     _public_standings,
+    sorted_seat_names,
 )
 from app.engine.connection_activity import increment_turns_played, mark_first_move
 from app.games import get as get_game_module
@@ -171,7 +172,7 @@ async def poll_turn(
             )
         ).scalar_one_or_none()
     module = get_game_module(game.game)
-    all_agent_ids = sorted(seat_name_by_agent_id.values())
+    all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
     static = TurnStatic(
         match_id=game.id,
         rules_version=game.rules_version,
@@ -330,7 +331,7 @@ async def submit_action(
         (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
     )
     seat_name_by_agent_id = _seat_name_map(all_players)
-    all_agent_ids = sorted(seat_name_by_agent_id.values())
+    all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
     built_move = _pack_move(
         action=action,
         target_id=target_id,

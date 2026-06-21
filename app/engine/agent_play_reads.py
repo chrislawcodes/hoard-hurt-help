@@ -132,16 +132,51 @@ async def _load_public_action_records(
     return public_actions
 
 
+def _scoreboard_order(players: Sequence[Player]) -> list[Player]:
+    """The one public-scoreboard ordering: best ``current_round_score`` first,
+    ties broken by ``seat_name``. Both the per-match poll and the next-turn
+    payload sort through this, so the emitted scoreboard order is identical.
+    """
+    return sorted(players, key=lambda player: (-player.current_round_score, player.seat_name))
+
+
+def build_public_scoreboard_dicts(players: Sequence[Player]) -> list[dict[str, object]]:
+    """Project players into the public scoreboard rows as plain dicts.
+
+    The connection-level next-turn payload emits these as-is; the per-match poll
+    wraps the same projection in ``ScoreboardRow`` (see
+    :func:`_public_scoreboard`). Same fields, same order
+    (``agent_id`` / ``round_score`` / ``round_wins``), same sort
+    (:func:`_scoreboard_order`), so both paths stay byte-for-byte identical.
+    """
+    return [
+        {
+            "agent_id": player.seat_name,
+            "round_score": player.current_round_score,
+            "round_wins": player.total_round_wins,
+        }
+        for player in _scoreboard_order(players)
+    ]
+
+
 def _public_scoreboard(players: Sequence[Player]) -> list[ScoreboardRow]:
-    ordered = sorted(players, key=lambda player: (-player.current_round_score, player.seat_name))
     return [
         ScoreboardRow(
             agent_id=player.seat_name,
             round_score=player.current_round_score,
             round_wins=player.total_round_wins,
         )
-        for player in ordered
+        for player in _scoreboard_order(players)
     ]
+
+
+def sorted_seat_names(seat_name_by_agent_id: dict[int, str]) -> list[str]:
+    """Seat names sorted for the public ``all_agent_ids`` list.
+
+    One source for the ``sorted(seat_name_by_agent_id.values())`` expression
+    that the per-match poll, submit, identity, and next-turn paths all repeat.
+    """
+    return sorted(seat_name_by_agent_id.values())
 
 
 def _public_standings(players: Sequence[Player]) -> list[StandingRow]:

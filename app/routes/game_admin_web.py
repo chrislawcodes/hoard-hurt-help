@@ -10,8 +10,8 @@ from sqlalchemy import select
 
 from app.deps import DbSession, require_game_admin
 from app.engine.bot_presets import bot_preset_by_id
-from app.engine.match_creation import create_match
-from app.engine.match_deletion import cancel_match
+from app.engine.match_creation import create_match_with_state, player_count_error
+from app.engine.match_deletion import cancel_blocked_reason, cancel_match
 from app.engine.scheduler import start_game
 from app.engine.bots import validate_bot_profile_fields
 from app.engine.bots.roster import PACKS, PERSONALITIES, BOT_NAME_POOL
@@ -19,7 +19,6 @@ from app.engine.bots.seating import BotSeatingError, add_bots_to_game
 from app.engine.state_machine import TransitionError
 from app.games import GameError, get as get_game_module, known_types
 from app.games.base import GameConfig
-from app.models.game_state import MatchState
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
@@ -164,18 +163,22 @@ async def create_match_submit(
         when = when.replace(tzinfo=timezone.utc)
     if when <= datetime.now(timezone.utc):
         return _error("Start time must be in the future.")
-    if not (cfg.min_players <= min_players <= cfg.max_players):
-        return _error(f"Player counts must be {cfg.min_players} to {cfg.max_players}.")
-    if not (cfg.min_players <= max_players <= cfg.max_players):
-        return _error(f"Player counts must be {cfg.min_players} to {cfg.max_players}.")
-    if min_players > max_players:
-        return _error("Min players cannot be greater than max players.")
+    count_error = player_count_error(
+        min_players=min_players,
+        max_players=max_players,
+        cfg_min_players=cfg.min_players,
+        cfg_max_players=cfg.max_players,
+        range_message=f"Player counts must be {cfg.min_players} to {cfg.max_players}.",
+        order_message="Min players cannot be greater than max players.",
+    )
+    if count_error is not None:
+        return _error(count_error)
     if not (3 <= total_rounds <= 20):
         return _error("Total rounds must be 3 to 20.")
     if not (3 <= turns_per_round <= 20):
         return _error("Turns per round must be 3 to 20.")
 
-    g = await create_match(
+    await create_match_with_state(
         db,
         game=game,
         name=name,
@@ -187,20 +190,11 @@ async def create_match_submit(
         turns_per_round=turns_per_round,
         state=GameState.REGISTERING,
         created_by_user_id=user.id,
-        commit=False,
+        state_config={
+            "wild_ones": wild_ones is not None,
+            "dice_per_player": dice_per_player,
+        },
     )
-    db.add(
-        MatchState(
-            match_id=g.id,
-            state_json={
-                "config": {
-                    "wild_ones": wild_ones is not None,
-                    "dice_per_player": dice_per_player,
-                }
-            },
-        )
-    )
-    await db.commit()
     return RedirectResponse(
         url=f"/games/{game}/admin", status_code=status.HTTP_303_SEE_OTHER
     )
@@ -476,10 +470,9 @@ async def game_admin_cancel_match(
     user: Annotated[User, Depends(require_game_admin)],
 ):
     g = await _load_game_match_or_404(db, game, match_id)
-    if g.state == GameState.ACTIVE:
-        raise HTTPException(409, detail="Match already started.")
-    if g.state in (GameState.COMPLETED, GameState.CANCELLED):
-        raise HTTPException(409, detail="Match already ended.")
+    reason = cancel_blocked_reason(g)
+    if reason is not None:
+        raise HTTPException(409, detail=reason)
     await cancel_match(db, g)
     return RedirectResponse(
         url=f"/games/{game}/admin",
