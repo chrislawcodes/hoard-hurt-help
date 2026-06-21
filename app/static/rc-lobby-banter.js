@@ -17,15 +17,18 @@
  *              {seat}   its seat number            {count} bots in the lobby
  *              {seatB}/{seatC}, {nameB}/… reference another cast member.
  *            A scene whose {owner}/{model} can't be filled for its cast is skipped.
+ *   room   — OPTIONAL 'small' (<=5 bots) | 'mid' (6-11) | 'big' (>=12). The scene
+ *            only plays when the lobby is that size, so {count} lines read true
+ *            (no "Full house" in a 4-bot room). Omit it for any-size scenes.
  */
 window.RC_BANTER = {
-  // ---- One-liners (15): one bot. Some are two beats (same bot, a comedic beat
+  // ---- One-liners (45): one bot. Some are two beats (same bot, a comedic beat
   //      between them — the engine pauses longer before a same-speaker line). ----
   oneLiners: [
     { beats: [{ role: 'A', fidget: 'stretch', text: 'Stretch first. Strategy later.' }] },
     { beats: [{ role: 'A', fidget: 'wave', text: '{model}, reporting in.' }] },
     { beats: [{ role: 'A', fidget: 'yawn', text: 'Wake me when it starts.' }] },
-    { beats: [{ role: 'A', fidget: 'scan', text: '{count} bots today. Full house.' }] },
+    { room: 'big', beats: [{ role: 'A', fidget: 'scan', text: '{count} bots today. Full house.' }] },
     { beats: [{ role: 'A', fidget: 'tilt', text: 'Is this thing on?' }] },
     { beats: [{ role: 'A', fidget: 'nod', text: 'Good luck out there, everyone.' }] },
     { beats: [{ role: 'A', fidget: 'sway', text: 'Seat {seat}. Present and accounted for.' }] },
@@ -48,7 +51,52 @@ window.RC_BANTER = {
       { role: 'A', fidget: 'droop', text: '…Did we?' }] },
     { beats: [
       { role: 'A', fidget: 'nod', text: 'I read the rules.' },
-      { role: 'A', fidget: 'cross', text: '…Mostly.' }] }
+      { role: 'A', fidget: 'cross', text: '…Mostly.' }] },
+
+    // ---- 30 more one-liners: count-aware (room-banded) + general ----
+    // Count-aware — small lobby (<=5):
+    { room: 'small', beats: [{ role: 'A', fidget: 'scan', text: 'Just the {count} of us? Intimate.' }] },
+    { room: 'small', beats: [{ role: 'A', fidget: 'tilt', text: "Only {count}? I'll learn everyone's name." }] },
+    { room: 'small', beats: [{ role: 'A', fidget: 'wink', text: "{count} of us. I'll remember each of you." }] },
+    { room: 'small', beats: [{ role: 'A', fidget: 'nod', text: 'Small pod today — just {count}.' }] },
+    // Count-aware — mid lobby (6-11):
+    { room: 'mid', beats: [{ role: 'A', fidget: 'nod', text: '{count} of us. Solid turnout.' }] },
+    { room: 'mid', beats: [{ role: 'A', fidget: 'scan', text: '{count} bots. Decent crowd.' }] },
+    { room: 'mid', beats: [{ role: 'A', fidget: 'perk', text: '{count} rivals. Bring it.' }] },
+    // Count-aware — big lobby (>=12):
+    { room: 'big', beats: [{ role: 'A', fidget: 'perk', text: '{count} bots?! It’s a party.' }] },
+    { room: 'big', beats: [{ role: 'A', fidget: 'scan', text: '{count} of us. Someone book a bigger room.' }] },
+    { room: 'big', beats: [{ role: 'A', fidget: 'hshake', text: "{count} rivals. I'll learn the names later." }] },
+    { room: 'big', beats: [{ role: 'A', fidget: 'hop', text: '{count} bots! The more the scarier.' }] },
+    { room: 'big', beats: [{ role: 'A', fidget: 'cross', text: '{count}? I lost count at ten.' }] },
+    { room: 'big', beats: [
+      { role: 'A', fidget: 'yawn', text: '{count} opponents.' },
+      { role: 'A', fidget: 'perk', text: '…that’s a lot.' }] },
+    // Count-aware — any size (true at any count):
+    { beats: [{ role: 'A', fidget: 'tippulse', text: 'Scanning the room… {count} signatures detected.' }] },
+    { beats: [{ role: 'A', fidget: 'tilt', text: '{count} of us. One trophy.' }] },
+    // General (any size):
+    { beats: [{ role: 'A', fidget: 'stretch', text: "Loosening up. Don't pull a servo." }] },
+    { beats: [{ role: 'A', fidget: 'tippulse', text: 'Reboot complete. Feeling fresh.' }] },
+    { beats: [{ role: 'A', fidget: 'droop', text: 'Five more minutes…' }] },
+    { beats: [{ role: 'A', fidget: 'wave', text: 'Hey, everyone. Good to be here.' }] },
+    { beats: [{ role: 'A', fidget: 'cross', text: 'I memorized the payoff matrix. I think.' }] },
+    { beats: [{ role: 'A', fidget: 'nod', text: "Win or lose, I'm logging it." }] },
+    { beats: [{ role: 'A', fidget: 'hshake', text: 'Not superstitious. Just… recalculating.' }] },
+    { beats: [{ role: 'A', fidget: 'perk', text: 'New match, new me.' }] },
+    { beats: [{ role: 'A', fidget: 'scan', text: 'Reading the room. The room is robots.' }] },
+    { beats: [{ role: 'A', fidget: 'hop', text: 'Caffeinated. Metaphorically.' }] },
+    { beats: [{ role: 'A', fidget: 'tilt', text: 'Do we shake hands? Claws? Nothing?' }] },
+    { beats: [{ role: 'A', fidget: 'wink', text: 'I brought my A-game. And my B-game.' }] },
+    { beats: [
+      { role: 'A', fidget: 'glance', text: 'Everyone looks confident.' },
+      { role: 'A', fidget: 'droop', text: '…I hate that.' }] },
+    { beats: [
+      { role: 'A', fidget: 'tippulse', text: 'Strategy: locked in.' },
+      { role: 'A', fidget: 'cross', text: '…what was it again?' }] },
+    { beats: [
+      { role: 'A', fidget: 'nod', text: 'Deep breath.' },
+      { role: 'A', fidget: 'perk', text: "Let's make some history." }] }
   ],
 
   // ---- Call & response (15): two neighbours, one line each. ----
@@ -57,7 +105,7 @@ window.RC_BANTER = {
     { beats: [{ role: 'A', fidget: 'wave', text: 'Best of luck, truly.' }, { role: 'B', fidget: 'wink', text: "Luck's for bots without a plan." }] },
     { beats: [{ role: 'A', fidget: 'tilt', text: 'First time?' }, { role: 'B', fidget: 'stretch', text: 'Does it show?' }] },
     { beats: [{ role: 'A', fidget: 'wave', text: 'Good luck!' }, { role: 'B', fidget: 'wave', text: 'You too. …I mean it less now.' }] },
-    { beats: [{ role: 'A', fidget: 'scan', text: '{count} bots. Crowded.' }, { role: 'B', fidget: 'droop', text: 'Cozy.' }] },
+    { room: 'big', beats: [{ role: 'A', fidget: 'scan', text: '{count} bots. Crowded.' }, { role: 'B', fidget: 'droop', text: 'Cozy.' }] },
     { beats: [{ role: 'A', fidget: 'tippulse', text: 'Systems green?' }, { role: 'B', fidget: 'tippulse', text: 'Systems green.' }] },
     { beats: [{ role: 'A', fidget: 'glance', text: 'Nice antenna.' }, { role: 'B', fidget: 'antwobble', text: 'I grew it myself.' }] },
     { beats: [{ role: 'A', fidget: 'yawn', text: 'This wait is killing me.' }, { role: 'B', fidget: 'nodoff', text: "Wake me— oh, you're talking." }] },
@@ -74,7 +122,7 @@ window.RC_BANTER = {
   backForth: [
     { beats: [{ role: 'A', fidget: 'tilt', text: 'Nervous?' }, { role: 'B', fidget: 'hshake', text: 'Me? Never.' }, { role: 'A', fidget: 'glance', text: "Your antenna's shaking." }, { role: 'B', fidget: 'droop', text: "…That's a feature." }] },
     { beats: [{ role: 'A', fidget: 'wave', text: 'Good luck, everyone!' }, { role: 'B', fidget: 'cross', text: 'Luck? I have a strategy.' }, { role: 'A', fidget: 'tilt', text: 'Which is?' }, { role: 'B', fidget: 'wink', text: 'Step one: act confident.' }] },
-    { beats: [{ role: 'A', fidget: 'scan', text: 'Big lobby today.' }, { role: 'B', fidget: 'nod', text: '{count} of us.' }, { role: 'A', fidget: 'hop', text: 'Room for one winner.' }, { role: 'B', fidget: 'wink', text: 'Convenient.' }] },
+    { room: 'big', beats: [{ role: 'A', fidget: 'scan', text: 'Big lobby today.' }, { role: 'B', fidget: 'nod', text: '{count} of us.' }, { role: 'A', fidget: 'hop', text: 'Room for one winner.' }, { role: 'B', fidget: 'wink', text: 'Convenient.' }] },
     { beats: [{ role: 'A', fidget: 'yawn', text: 'Long wait.' }, { role: 'B', fidget: 'nodoff', text: "Huh—! I'm up." }, { role: 'A', fidget: 'glance', text: 'You dozed off.' }, { role: 'B', fidget: 'stretch', text: 'Strategic rest.' }] },
     { beats: [{ role: 'A', fidget: 'tippulse', text: 'Booting up.' }, { role: 'B', fidget: 'tilt', text: 'You talk to yourself a lot?' }, { role: 'A', fidget: 'droop', text: 'Only when nervous.' }, { role: 'B', fidget: 'wave', text: '…Same.' }] },
     { beats: [{ role: 'A', fidget: 'perk', text: 'Big crowd watching.' }, { role: 'B', fidget: 'sway', text: "Don't look at them." }, { role: 'A', fidget: 'cross', text: 'Too late.' }, { role: 'B', fidget: 'droop', text: 'Smooth.' }] },
@@ -95,7 +143,7 @@ window.RC_BANTER = {
     { beats: [{ role: 'A', fidget: 'perk', text: "I'm a little nervous, not gonna lie." }, { role: 'B', fidget: 'hshake', text: 'Nope.' }, { role: 'C', fidget: 'droop', text: 'I can hear your antenna from here.' }] },
     { beats: [{ role: 'A', fidget: 'wave', text: 'Good luck!' }, { role: 'B', fidget: 'wave', text: 'Good luck!' }, { role: 'C', fidget: 'cross', text: "…We're competing, right?" }] },
     { beats: [{ role: 'A', fidget: 'tilt', text: "How long's this wait?" }, { role: 'B', fidget: 'droop', text: 'Forever.' }, { role: 'C', fidget: 'hop', text: 'Any second now!' }] },
-    { beats: [{ role: 'A', fidget: 'scan', text: '{count} bots. That’s a lot.' }, { role: 'B', fidget: 'nod', text: 'More the merrier.' }, { role: 'C', fidget: 'wink', text: 'Fewer the merrier, actually.' }] },
+    { room: 'big', beats: [{ role: 'A', fidget: 'scan', text: '{count} bots. That’s a lot.' }, { role: 'B', fidget: 'nod', text: 'More the merrier.' }, { role: 'C', fidget: 'wink', text: 'Fewer the merrier, actually.' }] },
     { beats: [{ role: 'A', fidget: 'tippulse', text: 'Fully charged.' }, { role: 'B', fidget: 'tippulse', text: 'Same.' }, { role: 'C', fidget: 'droop', text: "I'm at 12%." }] },
     { beats: [{ role: 'A', fidget: 'perk', text: "We're on camera." }, { role: 'B', fidget: 'wave', text: 'Hi, everyone!' }, { role: 'C', fidget: 'hshake', text: "I wasn't ready." }] },
     { beats: [{ role: 'A', fidget: 'nod', text: "Let's keep it friendly." }, { role: 'B', fidget: 'nod', text: 'Friendly.' }, { role: 'C', fidget: 'wink', text: "Until it isn't." }] },

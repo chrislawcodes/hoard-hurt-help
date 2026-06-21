@@ -1167,14 +1167,20 @@
     if(Object.keys(uniq).length!==roles.length) return null;
     return sceneFillable(scene, cast) ? cast : null;
   }
+  // Room-size awareness: a scene may tag itself room:'small'|'mid'|'big' and is
+  // only eligible when the lobby size matches, so count lines read true (no
+  // "Full house" in a 4-bot room). Untagged scenes play at any size.
+  var ROOM_BAND = AGENTS.length<=5 ? 'small' : (AGENTS.length>=12 ? 'big' : 'mid');
+  function roomOk(scene){ return !scene.room || scene.room===ROOM_BAND; }
   function pickScene(){
     var B=window.RC_BANTER; if(!B) return null;
     var pools=[[B.oneLiners,50],[B.callResponse,25],[B.backForth,15],[B.thirdBot,10]];
-    var total=0; pools.forEach(function(p){ if(p[0]&&p[0].length) total+=p[1]; });
+    // filter each pool to scenes that fit this room size before weighting
+    var total=0; pools.forEach(function(p){ p[2]=(p[0]||[]).filter(roomOk); if(p[2].length) total+=p[1]; });
     if(!total) return null;
     var r=Math.random()*total;
-    for(var k=0;k<pools.length;k++){ if(!pools[k][0]||!pools[k][0].length) continue;
-      r-=pools[k][1]; if(r<=0){ var pool=pools[k][0]; return pool[(Math.random()*pool.length)|0]; } }
+    for(var k=0;k<pools.length;k++){ if(!pools[k][2].length) continue;
+      r-=pools[k][1]; if(r<=0){ var pool=pools[k][2]; return pool[(Math.random()*pool.length)|0]; } }
     return null;
   }
   function clearIdleClasses(el){
