@@ -8,9 +8,9 @@ strangers show up.
 
 This module fills that gap. When the signed-in viewer is the *only* person with
 a human/agent seat in the match (bots don't count), they may start it now,
-whatever the match kind. Any empty seats below the start floor fill with bots so
-the match can actually run, mirroring how Practice Arena and auto-matches already
-seat bots.
+whatever the match kind. Every empty seat fills with bots up to ``max_players``
+so the match starts a full table, mirroring how Practice Arena and auto-matches
+already seat bots.
 
 The eligibility check is shared by the viewer (to decide whether to show the
 "Start now" button) and the start route (to authorize the POST), so the button
@@ -60,9 +60,10 @@ async def viewer_start_eligibility(
     * no other user holds a human or agent seat — bots don't count, so a table
       that is just you plus bots still reads as solo.
 
-    ``bots_to_add`` is how many bots starting now would seat to reach the start
-    floor (0 if you already have enough players). If the table is too full to
-    reach the floor even after filling bots, the verdict is "can't start".
+    ``bots_to_add`` is how many bots starting now would seat to fill the table
+    up to ``max_players`` (0 if it's already full). If the confirmed seats plus
+    those bots still can't reach ``MIN_PLAYERS_TO_START``, the verdict is
+    "can't start".
     """
     # Imported here (not at module load) to avoid a cycle: scheduler imports
     # arena, which would otherwise pull this module in transitively.
@@ -93,28 +94,29 @@ async def viewer_start_eligibility(
     if not viewer_is_live:
         return _CANNOT_START
 
-    # Confirmed seats (bots included) are what count toward the start floor; a
-    # held seat occupies the table but isn't a real player yet.
+    # Confirmed seats (bots included) are the real players; a held seat occupies
+    # the table but isn't a real player yet. An early start fills every empty
+    # seat with bots so the match begins a FULL table (up to max_players), not
+    # the bare floor — `bots_to_add` is how many that takes.
     confirmed = sum(1 for r in rows if r.seat_reserved_until is None)
-    room = max(0, match.max_players - len(rows))
-    bots_to_add = min(max(0, MIN_PLAYERS_TO_START - confirmed), room)
+    bots_to_add = max(0, match.max_players - len(rows))
     if confirmed + bots_to_add < MIN_PLAYERS_TO_START:
         return _CANNOT_START  # can't reach the floor even after filling bots
     return StartEligibility(can_start=True, bots_to_add=bots_to_add)
 
 
 async def start_match_for_user(db: AsyncSession, match: Match) -> None:
-    """Fill empty seats with bots up to the floor, then start the match.
+    """Fill every empty seat with bots up to ``max_players``, then start the match.
 
     The caller must have authorized via :func:`viewer_start_eligibility`. Safe
     against a concurrent start (the background poller): it re-reads state and
     no-ops if the match already left the pre-start states.
     """
     from app.engine.arena import fill_match_with_bots
-    from app.engine.scheduler import MIN_PLAYERS_TO_START, start_game
+    from app.engine.scheduler import start_game
 
     await db.refresh(match)
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         return  # already started or cancelled elsewhere — nothing to do
-    await fill_match_with_bots(db, match, MIN_PLAYERS_TO_START)
+    await fill_match_with_bots(db, match, match.max_players)
     await start_game(db, match)
