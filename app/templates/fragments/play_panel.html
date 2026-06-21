@@ -1,7 +1,8 @@
-{# Human play panel. Rendered into #live-region for the seated human only, on
-   their open turn. The panel-driving JS (countdown, target toggle, Pass,
-   talk counter, near-deadline auto-submit) lives in game.html and re-applies
-   on every swap. #}
+{# Human play panel — the docked move controls. A handle (title + clock) is
+   always visible; on a phone the body collapses so the transcript stays readable,
+   and the player taps the handle to expand and act (spec 018). The panel-driving
+   JS (countdown, target toggle, Pass, dock toggle) lives in game.html and
+   re-applies on every swap. #}
 <div id="play-panel" class="play-panel"
      data-game="{{ game.game }}" data-match="{{ game.id }}"
      data-play-phase="{{ play_phase }}"
@@ -12,52 +13,54 @@
     <p class="play-left">You left this match. Your seat plays <strong>Hoard</strong>
        for the rest of the match — you can keep watching.</p>
 
-  {% elif play_phase == "talk" %}
-    <div class="play-head">
-      <h3 class="play-title">Your turn — say something <span class="play-sub">(optional)</span></h3>
+  {% else %}
+    {# Handle: always visible. On a phone, tap it to expand/collapse the body. #}
+    <button type="button" class="play-handle" data-play-toggle aria-expanded="false">
+      <span class="play-handle-title">
+        {%- if play_submitted -%}✓ Locked in
+        {%- elif play_phase == "talk" -%}Your turn — say something
+        {%- else -%}Your turn — make your move{%- endif -%}
+      </span>
       <span class="play-clock" data-play-clock aria-live="polite">—</span>
-    </div>
-    {% if play_submitted %}
-      <p class="play-status">Submitted — you can still change this until the clock ends.</p>
-    {% endif %}
-    <form class="play-form" hx-post="/games/{{ game.game }}/matches/{{ game.id }}/play/talk"
-          hx-target="#live-region" hx-swap="innerHTML">
-      <input class="play-msg" type="text" name="message" maxlength="{{ message_max }}"
-             placeholder="Bluff, promise, or threaten… (optional)" autocomplete="off"
-             data-play-msg>
-      <p class="play-counter"><span data-play-counter>0</span> / {{ message_max }}</p>
-      <div class="play-actions">
-        <button type="submit" class="play-btn play-btn-primary">Send</button>
-        <button type="button" class="play-btn play-btn-ghost" data-play-pass>Stay quiet</button>
-      </div>
-    </form>
+      <span class="play-caret" aria-hidden="true">▾</span>
+    </button>
 
-  {% elif play_phase == "act" %}
-    <div class="play-act">
-      <div class="play-head play-act-head">
-        <h3 class="play-title">Your turn — make your move</h3>
-        <span class="play-clock" data-play-clock aria-live="polite">—</span>
-      </div>
-
-      {% if play_talk %}
-      <div class="play-said">
-        <h4 class="play-said-head">💬 What was just said <span class="play-said-hint">tap a name to target</span></h4>
-        {# Show who spoke; fold the silent into one line so 10 players never bury
-           the action cards below the fold. #}
-        {% set spoke = play_talk | rejectattr('quiet') | list %}
-        {% set quiet = play_talk | selectattr('quiet') | list %}
-        {% for m in spoke %}
-          <p class="play-said-line"><span class="play-said-who" role="button" tabindex="0" data-target-name="{{ m.who }}">{{ m.who }}</span>{% if score_by_name and m.who in score_by_name %}<span class="who-score">{{ score_by_name[m.who] }}</span>{% endif %}: “{{ m.text }}”</p>
-        {% else %}
-          <p class="play-said-line play-said-quiet">No one's spoken yet this turn.</p>
-        {% endfor %}
-        {% if spoke and quiet %}
-        <p class="play-said-line play-said-quiet">+{{ quiet | length }} stayed quiet</p>
+    <div class="play-body">
+      {% if play_phase == "talk" %}
+        {% if play_submitted %}
+          <p class="play-status">Submitted — you can still change this until the clock ends.</p>
         {% endif %}
-      </div>
-      {% endif %}
+        <form class="play-form" hx-post="/games/{{ game.game }}/matches/{{ game.id }}/play/talk"
+              hx-target="#live-region" hx-swap="innerHTML">
+          <input class="play-msg" type="text" name="message" maxlength="{{ message_max }}"
+                 placeholder="Bluff, promise, or threaten… (optional)" autocomplete="off"
+                 data-play-msg>
+          <p class="play-counter"><span data-play-counter>0</span> / {{ message_max }}</p>
+          <div class="play-actions">
+            <button type="submit" class="play-btn play-btn-primary">Send</button>
+            <button type="button" class="play-btn play-btn-ghost" data-play-pass>Stay quiet</button>
+          </div>
+        </form>
 
-      <div class="play-actbar">
+      {% elif play_phase == "act" %}
+        {% if play_talk %}
+        <div class="play-said">
+          <h4 class="play-said-head">💬 What was just said <span class="play-said-hint">tap a name to target</span></h4>
+          {# Show who spoke; fold the silent into one line so 10 players never bury
+             the action cards below the fold. #}
+          {% set spoke = play_talk | rejectattr('quiet') | list %}
+          {% set quiet = play_talk | selectattr('quiet') | list %}
+          {% for m in spoke %}
+            <p class="play-said-line"><span class="play-said-who" role="button" tabindex="0" data-target-name="{{ m.who }}">{{ m.who }}</span>{% if score_by_name and m.who in score_by_name %}<span class="who-score">{{ score_by_name[m.who] }}</span>{% endif %}: “{{ m.text }}”</p>
+          {% else %}
+            <p class="play-said-line play-said-quiet">No one's spoken yet this turn.</p>
+          {% endfor %}
+          {% if spoke and quiet %}
+          <p class="play-said-line play-said-quiet">+{{ quiet | length }} stayed quiet</p>
+          {% endif %}
+        </div>
+        {% endif %}
+
         {% if play_submitted %}
           <p class="play-status">Submitted — you can still change this until the clock ends.</p>
         {% endif %}
@@ -99,7 +102,7 @@
             <button type="submit" class="play-btn play-btn-primary">Lock in my move</button>
           </div>
         </form>
-      </div>
+      {% endif %}
     </div>
   {% endif %}
 

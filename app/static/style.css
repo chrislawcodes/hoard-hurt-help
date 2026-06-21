@@ -2511,3 +2511,34 @@ button.danger:hover,
     .cockpit .round-nav,
     .cockpit .feed-legend { display: none; }
 }
+
+/* --- collapsible move dock (spec 018) ---
+   The handle (title + clock) is always visible. On a phone the body collapses so
+   the transcript stays readable; the player taps to expand and act. No auto-open. */
+.play-handle {
+    display: flex; align-items: baseline; gap: 0.6rem; width: 100%; margin: 0;
+    background: none; border: none; padding: 0 0 0.5rem; font: inherit;
+    text-align: left; color: var(--ink); cursor: default;
+}
+.play-handle-title { font-size: 1.1rem; font-weight: 800; }
+.play-handle .play-clock { margin-left: auto; }
+.play-caret { display: none; color: var(--ink-soft); font-size: 0.85rem; transition: transform 0.15s ease; }
+
+.cockpit-page .al-footer { display: none; }  /* no site footer on a live game screen */
+
+@media (max-width: 620px) {
+    .play-handle { cursor: pointer; }
+    .play-caret { display: inline-block; }
+    /* Collapsed (default): only the handle shows, so the transcript fills the
+       screen. The player taps the handle to act. */
+    .cockpit #play-panel:not(.is-open) .play-body { display: none; }
+    /* Expanded: cap the dock so 4+ transcript rows stay visible above it; the
+       body scrolls inside when the controls are taller than the cap. */
+    .cockpit #play-panel.is-open {
+        display: flex; flex-direction: column; max-height: calc(100dvh - 22rem);
+    }
+    .cockpit #play-panel.is-open .play-handle { flex: none; }
+    .cockpit #play-panel.is-open .play-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+    .cockpit #play-panel.is-open .play-caret { transform: rotate(180deg); }
+    .cockpit #play-panel .play-said { max-height: 15vh; }
+}

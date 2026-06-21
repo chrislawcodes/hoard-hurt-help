@@ -390,6 +390,15 @@
     if (!region) return;
     const SAFETY_MS = 2000;  // submit the selection a beat before the server clock
     let timer = null;
+    let dockOpen = false;  // mobile: collapsed by default; tap the handle to act.
+
+    function applyDock() {
+        const panel = document.getElementById('play-panel');
+        if (!panel) return;
+        panel.classList.toggle('is-open', dockOpen);
+        const handle = panel.querySelector('[data-play-toggle]');
+        if (handle) handle.setAttribute('aria-expanded', dockOpen ? 'true' : 'false');
+    }
 
     function setupPanel() {
         if (timer) { clearTimeout(timer); timer = null; }
@@ -443,7 +452,16 @@
             };
             tick();
         }
+        applyDock();
     }
+
+    // Tap the dock handle to expand/collapse the move controls (mobile). No
+    // auto-open: it stays as the player left it across turns and swaps.
+    region.addEventListener('click', function (e) {
+        if (!e.target.closest('[data-play-toggle]')) return;
+        dockOpen = !dockOpen;
+        applyDock();
+    });
 
     // Pass = submit the talk phase with an empty message.
     region.addEventListener('click', function (e) {
@@ -473,7 +491,7 @@
         targetInput.value = name;
         const wrap = actForm.querySelector('[data-play-target-wrap]');
         if (wrap) wrap.style.display = '';
-        targetInput.focus();
+        dockOpen = true; applyDock();  // tapping a name means "I want to act" — open the dock
     }
     region.addEventListener('click', function (e) {
         const el = e.target.closest('[data-target-name]');
