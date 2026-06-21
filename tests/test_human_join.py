@@ -6,41 +6,16 @@ import base64
 import json
 from datetime import datetime, timezone
 
-import pytest
-from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.engine.human_player import get_or_create_human_agent
-from app.main import app
-from app.models import Base, GameState, Match, Player
+from app.models import GameState, Match, Player
 from app.models.agent import Agent, AgentKind
 from tests.factories import make_agent, make_user
 
 GAME = "hoard-hurt-help"
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-
-    engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", factory)
-    monkeypatch.setattr("app.db.engine", engine)
-    yield factory
-    await engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def _cookies(user_id: int) -> dict:

@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import event, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -18,7 +18,6 @@ import app.db as app_db
 from app.config import settings
 from app.engine.bot_presets import bot_presets
 from app.engine.tokens import bot_key_lookup
-from app.main import app
 from app.models import Base, Agent, AgentKind, Connection, ConnectionSetup, Match, GameState, Player, User
 from app.models.connection import ConnectionProvider
 from app.models.match import MatchKind
@@ -42,13 +41,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def _signed_in_cookies(user_id: int) -> dict:

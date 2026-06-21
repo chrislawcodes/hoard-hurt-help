@@ -12,19 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine.resolver import award_round_winners, finalize_game
 from app.games.hoard_hurt_help.rules import DEFAULT_MISSED_MESSAGE
 from app.games.hoard_hurt_help.scoring import resolve_turn
-from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
+from app.models import Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
 
 
 # --- Fixtures ---
-
-
-@pytest.fixture
-async def db(engine, session_factory):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    async with session_factory() as session:
-        yield session
 
 
 async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Match, list[Player]]:

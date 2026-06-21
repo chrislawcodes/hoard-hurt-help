@@ -6,32 +6,17 @@ version, idempotent per (user, game), and excluded from the AI-agent surfaces.
 
 from __future__ import annotations
 
-import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db import make_engine
 from app.engine.human_player import HUMAN_VERSION_MODEL, get_or_create_human_agent
 from app.models import (
     Agent,
     AgentKind,
     AgentVersion,
-    Base,
     User,
 )
 
 GAME = "hoard-hurt-help"
-
-
-@pytest.fixture
-async def db():
-    engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-    await engine.dispose()
 
 
 async def _make_user(db, i: int = 0) -> User:

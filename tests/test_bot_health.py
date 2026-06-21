@@ -6,34 +6,16 @@ Green (Live/Ready) only when the runner is actually alive (warm heartbeat); red
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from app.engine.connection_health import ConnectionHealth, compute_connection_health
 from app.engine.tokens import generate_turn_token
-from app.models import Base, Match, GameState, Player, Turn, TurnSubmission
+from app.models import Match, GameState, Player, Turn, TurnSubmission
 from app.models.connection import ConnectionStatus
 from tests.factories import make_agent, make_connection, make_user
 
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
 COLD = NOW - timedelta(minutes=10)  # well past the 90s live window
 WARM = NOW - timedelta(seconds=20)  # inside the live window
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    from app.db import make_engine
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    yield test_factory
-    await test_engine.dispose()
 
 
 async def _game(db, gid: str, state: GameState) -> Match:

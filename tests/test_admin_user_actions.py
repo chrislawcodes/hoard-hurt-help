@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.main import app
-from app.models import AdminAuditLog, Base
+from app.models import AdminAuditLog
 from app.models.user import UserRole
 from app.services.admin_user_actions import (
     demote_user,
@@ -25,29 +23,6 @@ from app.services.admin_user_actions import (
     reset_handle,
 )
 from tests.conftest import make_user
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(
-    monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[async_sessionmaker]:
-    from app.db import make_engine
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    yield factory
-    await test_engine.dispose()
-
-
-@pytest.fixture
-async def client() -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 def _signed_in(user_id: int) -> dict[str, str]:

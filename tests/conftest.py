@@ -3,22 +3,51 @@
 - Async event loop config via pytest-asyncio (asyncio_mode = "auto" in pyproject).
 - In-memory SQLite engine, fresh per test.
 - FastAPI TestClient bound to the in-memory engine.
+
+Canonical home for the fixtures every DB/HTTP test reuses:
+``reset_db`` (rebinds the app to a fresh in-memory SQLite), ``db`` (a bare
+session for direct-logic tests), ``client`` (an httpx client bound to the app),
+plus ``session_cookie`` / ``signed_in_cookies`` for signed-in requests. Tests
+that need different setup (a file-backed DB, an ``app`` fixture override, extra
+monkeypatches) keep their own local copies, which override these by name.
 """
 
+from __future__ import annotations
+
 import asyncio
+import base64
 import hashlib
-from collections.abc import AsyncIterator, Iterator
+import json
 import secrets
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
+from httpx import ASGITransport, AsyncClient
+from itsdangerous import TimestampSigner
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.config import settings
 from app.db import make_engine
+from app.models import Base
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
+
+# Re-export the canonical user factory so existing `from tests.conftest import
+# make_user` call sites keep working while `tests.factories` stays the single
+# home for it (the two definitions were byte-identical).
+from tests.factories import make_user
+
+__all__ = [
+    "make_user",
+    "make_connection",
+    "make_agent",
+    "make_agent_version",
+    "session_cookie",
+    "signed_in_cookies",
+]
 
 
 # Fixtures whose presence means a test boots the in-memory DB or the HTTP
@@ -105,17 +134,74 @@ async def session_factory(engine: AsyncEngine) -> async_sessionmaker:
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def make_user(db: AsyncSession, i: int = 0) -> User:
-    """Create a unique user for tests."""
-    user = User(
-        google_sub=f"sub-{i}",
-        email=f"u{i}@t.com",
-        handle=f"agent{i}",
-        handle_key=f"agent{i}",
-    )
-    db.add(user)
-    await db.flush()
-    return user
+@pytest.fixture
+async def reset_db(
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[async_sessionmaker]:
+    """Rebind the production session factory/engine to in-memory SQLite per test.
+
+    Yields the session factory so tests can open their own sessions
+    (`async with reset_db() as db: ...`). Both `app.db.SessionLocal` and
+    `app.db.engine` are rebound so route handlers hit the in-memory DB.
+
+    NOTE: this is intentionally NOT autouse. The fast-lane tagging in
+    `pytest_collection_modifyitems` keys off `reset_db` appearing in a test's
+    fixturenames; an autouse version would tag the entire suite `integration`
+    and collapse the fast lane. Tests request it explicitly (directly or via
+    another fixture).
+    """
+    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    monkeypatch.setattr("app.db.SessionLocal", test_factory)
+    monkeypatch.setattr("app.db.engine", test_engine)
+    yield test_factory
+    await test_engine.dispose()
+
+
+@pytest.fixture
+async def db(
+    engine: AsyncEngine, session_factory: async_sessionmaker
+) -> AsyncIterator[AsyncSession]:
+    """A bare in-memory session for direct-logic tests.
+
+    Creates the schema on the fresh `engine` and yields one open session. This
+    does NOT rebind `app.db` — use `reset_db` for tests that drive route
+    handlers.
+    """
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with session_factory() as session:
+        yield session
+
+
+@pytest.fixture
+async def client() -> AsyncIterator[AsyncClient]:
+    """An httpx client bound to the FastAPI app via ASGITransport."""
+    from app.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+def session_cookie(user_id: int) -> str:
+    """Return a signed Starlette session cookie value for `user_id`.
+
+    Matches the cookie the auth layer issues on sign-in. The payload carries
+    `next_after_login` (the app only reads `user_id`, but keeping the full shape
+    mirrors production).
+    """
+    signer = TimestampSigner(settings.session_secret)
+    data = {"user_id": user_id, "next_after_login": None}
+    payload = base64.b64encode(json.dumps(data).encode()).decode()
+    return signer.sign(payload).decode()
+
+
+def signed_in_cookies(user_id: int) -> dict[str, str]:
+    """Return a cookies dict that authenticates an httpx request as `user_id`."""
+    return {"hhh_session": session_cookie(user_id)}
 
 
 async def make_connection(

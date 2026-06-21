@@ -17,24 +17,9 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.main import app
-from app.models import Agent, Base
+from app.models import Agent
 from app.models.connection import ConnectionProvider
 from tests.factories import make_connection, make_user
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    yield test_factory
-    await test_engine.dispose()
 
 
 def _cookie(user_id: int) -> str:

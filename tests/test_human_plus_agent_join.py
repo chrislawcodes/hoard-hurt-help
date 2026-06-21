@@ -16,11 +16,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.main import app
-from app.models import Base, GameState, Match, Player
+from app.models import GameState, Match, Player
 from app.models.agent import Agent, AgentKind
 from app.models.connection import ConnectionProvider
 from app.models.match import MatchKind
@@ -28,20 +27,6 @@ from tests.factories import make_agent, make_connection, make_user
 
 GAME = "hoard-hurt-help"
 JOIN_URL = f"/games/{GAME}/matches/M_0001/join"
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-
-    engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", factory)
-    monkeypatch.setattr("app.db.engine", engine)
-    yield factory
-    await engine.dispose()
 
 
 @pytest.fixture

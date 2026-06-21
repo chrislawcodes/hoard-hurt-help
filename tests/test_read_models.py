@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.models import Base, GameState, Match, Turn, TurnMessage, TurnSubmission
+from app.models import GameState, Match, Turn, TurnMessage, TurnSubmission
 from app.models.agent import AgentKind
 from app.models.player import Player
 from app.read_models.matches import (
@@ -44,14 +44,6 @@ def _count_selects(engine: AsyncEngine) -> Iterator[dict[str, int]]:
         yield counter
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", _on_exec)
-
-
-@pytest.fixture
-async def db(engine, session_factory: async_sessionmaker) -> AsyncIterator[AsyncSession]:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    async with session_factory() as session:
-        yield session
 
 
 async def _match(db: AsyncSession, match_id: str = "M_001") -> Match:

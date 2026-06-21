@@ -8,15 +8,6 @@ import pytest
 from sqlalchemy import select
 
 from app.models import User
-from app.models.base import Base
-
-
-@pytest.fixture
-async def db(engine, session_factory):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    async with session_factory() as session:
-        yield session
 
 
 @pytest.mark.asyncio
