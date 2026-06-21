@@ -251,6 +251,11 @@ class LiarsDice(BaseGameModule):
             turns_per_round=turns_per_round,
         )
 
+    def mcp_setup_hint_lines(self) -> list[str]:
+        # Liar's Dice hides each player's roll, so point the agent at its
+        # private state in the MCP "## You" section.
+        return ["Read your_private_state for your hidden dice.", ""]
+
     def agent_base_prompt(
         self,
         *,

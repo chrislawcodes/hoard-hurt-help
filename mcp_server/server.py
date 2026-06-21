@@ -560,10 +560,9 @@ def _format_instruction_sections(
         "",
         f'You are "{your_agent_id}". You can target: {other_agent_ids}.',
     ]
-    if match.game == "liars-dice":
-        lines.extend(["Read your_private_state for your hidden dice.", ""])
-    else:
-        lines.append("")
+    # A game with hidden per-player state contributes its own setup hint (plus a
+    # trailing blank); games with none fall back to a single blank separator.
+    lines.extend(module.mcp_setup_hint_lines() or [""])
     lines.extend(
         [
             "## Your strategy",
