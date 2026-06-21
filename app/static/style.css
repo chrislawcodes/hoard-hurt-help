@@ -950,7 +950,6 @@ pre code { background: none; padding: 0; }
     border: 1px solid color-mix(in srgb, var(--help, #2d9a5a) 35%, var(--line));
     border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.9rem; margin: 0 0 0.75rem;
 }
-.prestart-start { margin: 0 0 0.75rem; }
 .roster-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.3rem; }
 .roster-row {
     display: flex; align-items: baseline; gap: 0.5rem;

@@ -339,7 +339,12 @@ async def test_viewer_page_shows_start_button_for_sole_owner(client, reset_db):
     )
     assert r.status_code == 200
     assert "Start now" in r.text
-    assert 'action="/games/hoard-hurt-help/matches/M_BTN/start"' in r.text
+    # The button now lives inside the countdown ring — the form must appear after
+    # the ring element, not in a separate section.
+    ring_idx = r.text.find('id="rc-countdown"')
+    form_idx = r.text.find('action="/games/hoard-hurt-help/matches/M_BTN/start"')
+    assert ring_idx != -1
+    assert form_idx > ring_idx
 
 
 @pytest.mark.asyncio
@@ -356,4 +361,7 @@ async def test_viewer_page_hides_start_button_from_stranger(client, reset_db):
         "/games/hoard-hurt-help/matches/M_BTN2", cookies=_cookies(stranger_id)
     )
     assert r.status_code == 200
-    assert "Start now" not in r.text
+    # The countdown ring renders for everyone; only the start *form* is gated.
+    # Assert on the form action (the button label "Start now" also appears in a
+    # CSS comment in the always-rendered <style> block, so it's not a clean probe).
+    assert 'action="/games/hoard-hurt-help/matches/M_BTN2/start"' not in r.text
