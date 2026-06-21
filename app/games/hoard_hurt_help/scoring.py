@@ -7,6 +7,9 @@ Read it with spec.md §5 alongside.
 
 from datetime import datetime, timezone
 
+from collections.abc import Iterable, Mapping
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -102,3 +105,36 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
 
     turn.resolved_at = datetime.now(timezone.utc)
     await db.commit()
+
+
+def apply_inround_turn(
+    inround: Mapping[str, int], actions: Iterable[Mapping[str, Any]]
+) -> dict[str, int]:
+    """Return a new in-round score map after applying one turn's actions.
+
+    This is the *viewer's* running-score view — used for lead tracking and the
+    win-probability features. It floors each HURT individually and credits a
+    mutual-help actor the full net (HELP_POINTS + MUTUAL_HELP_BONUS). It is a
+    display approximation and is deliberately distinct from `resolve_turn`,
+    which is authoritative and floors the summed per-player delta. Keep them
+    separate; do not route resolution through this helper.
+
+    Action dicts use keys: "action", "agent_id", optional "target_id",
+    optional "mutual".
+    """
+    new_inround = dict(inround)
+    mutual_help = HELP_POINTS + MUTUAL_HELP_BONUS
+    for a in actions:
+        action = a["action"]
+        actor = a["agent_id"]
+        target = a.get("target_id")
+        mutual = a.get("mutual", False)
+        if action == "HOARD":
+            new_inround[actor] = new_inround.get(actor, 0) + HOARD_POINTS
+        elif action == "HELP" and mutual:
+            new_inround[actor] = new_inround.get(actor, 0) + mutual_help
+        elif action == "HELP" and target:
+            new_inround[target] = new_inround.get(target, 0) + HELP_POINTS
+        elif action == "HURT" and target:
+            new_inround[target] = max(0, new_inround.get(target, 0) - HURT_POINTS)
+    return new_inround

@@ -18,6 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from app.games.hoard_hurt_help.scoring import apply_inround_turn
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -370,18 +372,7 @@ def _compute_round_win_probs(
         scores_before = dict(inround)
 
         # Apply this turn's actions to get post-turn scores.
-        new_inround = dict(inround)
-        for a in h["actions"]:
-            act, actor = a["action"], a["agent_id"]
-            target, mutual = a.get("target_id"), a.get("mutual", False)
-            if act == "HOARD":
-                new_inround[actor] = new_inround.get(actor, 0) + 2
-            elif act == "HELP" and mutual:
-                new_inround[actor] = new_inround.get(actor, 0) + 8
-            elif act == "HELP" and target:
-                new_inround[target] = new_inround.get(target, 0) + 4
-            elif act == "HURT" and target:
-                new_inround[target] = max(0, new_inround.get(target, 0) - 4)
+        new_inround = apply_inround_turn(inround, h["actions"])
 
         for a in h["actions"]:
             actor = a["agent_id"]
@@ -652,15 +643,7 @@ async def build_pd_replay_view(
         if t.round != inround_round:
             inround_round = t.round
             inround = {p.seat_name: 0 for p in players}
-        for a in actions:
-            if a["action"] == "HOARD":
-                inround[a["agent_id"]] = inround.get(a["agent_id"], 0) + 2
-            elif a["action"] == "HELP" and a["mutual"]:
-                inround[a["agent_id"]] = inround.get(a["agent_id"], 0) + 8
-            elif a["action"] == "HELP" and a["target_id"]:
-                inround[a["target_id"]] = inround.get(a["target_id"], 0) + 4
-            elif a["action"] == "HURT" and a["target_id"]:
-                inround[a["target_id"]] = max(0, inround.get(a["target_id"], 0) - 4)
+        inround = apply_inround_turn(inround, actions)
         # Highest score, ties broken alphabetically — deterministic.
         leader = min(inround, key=lambda k: (-inround[k], k)) if inround else None
         headline = _turn_headline(actions, prev_actions, leader, prev_leader, seq)
