@@ -1,10 +1,10 @@
 """Tests for the solo-owner "Start now" flow.
 
 When the signed-in viewer is the only person with a human/agent seat in a normal
-pre-start match, they may start it immediately; bots fill the table up to the
-start floor so the match can run. Covered here: the eligibility rule
-(`viewer_start_eligibility`), the bot-fill helper (`fill_match_with_bots`), the
-POST `/start` route, and the button's presence on the viewer page.
+pre-start match, they may start it immediately; bots fill every empty seat up to
+``max_players`` so the match starts a full table. Covered here: the eligibility
+rule (`viewer_start_eligibility`), the bot-fill helper (`fill_match_with_bots`),
+the POST `/start` route, and the button's presence on the viewer page.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ async def _make_match(
     *,
     state: GameState = GameState.REGISTERING,
     kind: MatchKind = MatchKind.MANUAL,
-    max_players: int = 20,
+    max_players: int = 10,
 ) -> Match:
     match = Match(
         id=match_id,
@@ -111,44 +111,44 @@ async def _bot_count(db, match_id: str) -> int:
 
 
 @pytest.mark.asyncio
-async def test_sole_owner_one_seat_can_start_and_needs_two_bots(reset_db):
+async def test_sole_owner_one_seat_fills_table_to_max(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_SOLO1")
+        match = await _make_match(db, "M_SOLO1")  # max_players = 10
         await seat_player(db, match.id, "My Agent", user=user)
         await db.commit()
 
         elig = await viewer_start_eligibility(db, match, user)
         assert elig.can_start is True
-        assert elig.bots_to_add == 2  # 1 player + 2 bots = the 3-player floor
+        assert elig.bots_to_add == 9  # 1 player + 9 bots = a full 10-seat table
 
 
 @pytest.mark.asyncio
-async def test_sole_owner_with_three_seats_needs_no_bots(reset_db):
+async def test_sole_owner_with_three_seats_still_fills_to_max(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_SOLO3")
+        match = await _make_match(db, "M_SOLO3")  # max_players = 10
         for n in range(3):
             await seat_player(db, match.id, f"Agent {n}", user=user)
         await db.commit()
 
         elig = await viewer_start_eligibility(db, match, user)
         assert elig.can_start is True
-        assert elig.bots_to_add == 0
+        assert elig.bots_to_add == 7  # 3 seats + 7 bots = a full 10-seat table
 
 
 @pytest.mark.asyncio
-async def test_seat_plus_existing_bots_counts_toward_floor(reset_db):
+async def test_seat_plus_existing_bots_fills_remaining_to_max(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_BOTS")
+        match = await _make_match(db, "M_BOTS")  # max_players = 10
         await seat_player(db, match.id, "My Agent", user=user)
         await db.commit()
         await fill_match_with_bots(db, match, 3)  # tops the table up to 3
 
         elig = await viewer_start_eligibility(db, match, user)
         assert elig.can_start is True
-        assert elig.bots_to_add == 0  # already at the floor, no more needed
+        assert elig.bots_to_add == 7  # 3 seated + 7 more bots = a full table
 
 
 @pytest.mark.asyncio
@@ -201,7 +201,7 @@ async def test_auto_match_is_user_startable_when_solo(reset_db):
 
         elig = await viewer_start_eligibility(db, match, user)
         assert elig.can_start is True
-        assert elig.bots_to_add == 2
+        assert elig.bots_to_add == 9  # match kind aside, fill to the 10-seat max
 
 
 @pytest.mark.asyncio
@@ -244,8 +244,9 @@ async def test_start_route_fills_bots_and_activates(client, reset_db, monkeypatc
     async with reset_db() as db:
         match = await db.get(Match, "M_GO")
         assert match.state == GameState.ACTIVE
-        assert await _confirmed_player_count(db, "M_GO") == 3
-        assert await _bot_count(db, "M_GO") == 2
+        # 1 human/agent seat + 9 bots = a full 10-seat table.
+        assert await _confirmed_player_count(db, "M_GO") == 10
+        assert await _bot_count(db, "M_GO") == 9
 
 
 @pytest.mark.asyncio
@@ -278,7 +279,7 @@ async def test_human_can_start_auto_match_end_to_end(client, reset_db, monkeypat
     async with reset_db() as db:
         match = await db.get(Match, "M_AUTOH")
         assert match.state == GameState.ACTIVE
-        assert await _confirmed_player_count(db, "M_AUTOH") == 3  # human + 2 bots
+        assert await _confirmed_player_count(db, "M_AUTOH") == 10  # human + 9 bots
 
 
 @pytest.mark.asyncio
