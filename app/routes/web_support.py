@@ -25,6 +25,28 @@ _GENERAL_NAMES: tuple[str, ...] = (
     "Khalid", "Saladin", "Genghis", "Sun Tzu", "Bolivar",
 )
 
+# Public seat names are capped to fit the standings column.
+SEAT_NAME_MAX = 40
+
+
+def unique_seat_name(base: str, existing: set[str]) -> str:
+    """Keep an already-normalized seat name unique within a match.
+
+    Returns *base* unchanged if it's free, otherwise appends a ` #2`, ` #3`, …
+    suffix (truncating *base* so the result stays within ``SEAT_NAME_MAX``) until
+    it finds an unused name. Callers do their own base normalization (agent name
+    vs. human display name) before passing it in. Raises ``HTTPException(409)``
+    if the whole suffix range is taken.
+    """
+    if base not in existing:
+        return base
+    for index in range(2, 100):
+        suffix = f" #{index}"
+        candidate = f"{base[: SEAT_NAME_MAX - len(suffix)]}{suffix}"
+        if candidate not in existing:
+            return candidate
+    raise HTTPException(status_code=409, detail="Could not allocate a unique seat name.")
+
 
 def safe_internal_next(raw: str | None) -> str | None:
     """Accept a `?next` value only when it's an internal path; else return None.

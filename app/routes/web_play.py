@@ -39,27 +39,27 @@ from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
 from app.read_models.matches import count_players
-from app.routes.web_support import _is_any_admin, _load_match_or_404
+from app.routes.web_support import (
+    SEAT_NAME_MAX,
+    _is_any_admin,
+    _load_match_or_404,
+    unique_seat_name,
+)
 
 router = APIRouter(tags=["web"])
 
 Phase = Literal["talk", "act"]
 
-# A human's public seat label: their handle/display name, capped to fit the column.
-_SEAT_NAME_MAX = 40
-
 
 def _unique_human_seat_name(base: str, existing: set[str]) -> str:
-    """A unique public seat name from a human's chosen display name."""
-    base = (base or "player").strip()[:_SEAT_NAME_MAX] or "player"
-    if base not in existing:
-        return base
-    for index in range(2, 100):
-        suffix = f" #{index}"
-        candidate = f"{base[: _SEAT_NAME_MAX - len(suffix)]}{suffix}"
-        if candidate not in existing:
-            return candidate
-    raise HTTPException(status_code=409, detail="Could not allocate a unique seat name.")
+    """A unique public seat name from a human's chosen display name.
+
+    Normalizes the human's display name (a missing/blank name becomes "player",
+    capped to fit the standings column), then delegates the uniqueness suffixing
+    to the shared ``unique_seat_name`` helper.
+    """
+    normalized = (base or "player").strip()[:SEAT_NAME_MAX] or "player"
+    return unique_seat_name(normalized, existing)
 
 
 def _play_error(code: str, message: str, http: int) -> HTTPException:
