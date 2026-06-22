@@ -1,8 +1,10 @@
 {% if player_mode %}
-{# Player cockpit (spec 018): a seated human in a live match. Standings on top,
-   the feed (who said what) in the middle, and the play panel docked at the
-   bottom — the input is always in reach and never below the fold. The animated
-   replay is suppressed while you play (it returns once the game is over). #}
+{# Player cockpit (spec 018, phase-led in 019): a seated human in a live match.
+   Standings strip on top, the feed in the middle, the controls docked at the
+   bottom — always in reach. In the ACT phase a live "this turn" reveal block
+   leads the feed (everyone's message, full-size) instead of a cramped box in
+   the dock. The animated replay is suppressed while you play (it returns once
+   the game is over). #}
     {% include "fragments/play_standings.html" %}
     <div class="cockpit-feed">
         {% include viewer_fragment %}

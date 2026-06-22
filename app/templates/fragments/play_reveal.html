@@ -1,0 +1,29 @@
+{# Act-phase reveal (spec 019): the live, current turn rendered as the TOP card
+   of the one feed — same look as every other turn, just with talk and no
+   resolved moves yet (they land when the turn resolves). This replaces the
+   cramped "What was just said" box that used to sit in the dock and duplicate
+   the feed. Each row is one chat-style line — name, score chip, then the message
+   inline — so a 10-player turn stays compact. The viewer's own message is
+   excluded (they wrote it); silent players fold into one "+N stayed quiet" line.
+   Names are tappable to set the act-phase target (handled by game.html JS).
+   Renders only for a seated human in the act phase with talk to show; in the talk
+   phase you write blind, so there is nothing to reveal and the feed's top is the
+   previous resolved turn. #}
+{% if player_mode and play_phase == "act" and play_talk %}
+{% set spoke = play_talk | rejectattr('quiet') | list %}
+{% set quiet = play_talk | selectattr('quiet') | list %}
+<article class="turn-block turn-live" aria-label="This turn — what everyone said">
+  {# No header line — the round/turn already shows in the standings strip, and the
+     orange "live" accent marks this as the current turn (spec 019). #}
+  <ul class="moves">
+    {% for m in spoke %}
+    <li class="move-row move-row-talk"><strong class="who-name" role="button" tabindex="0" data-target-name="{{ m.who }}">{{ m.who }}</strong>{% if score_by_name and m.who in score_by_name %}<span class="who-score">{{ score_by_name[m.who] }}</span>{% endif %}<span class="talk-msg">“{{ m.text }}”</span></li>
+    {% else %}
+    <li class="move-row move-row-talk"><span class="said no-message">No one spoke this turn.</span></li>
+    {% endfor %}
+    {% if spoke and quiet %}
+    <li class="move-row move-row-talk move-row-quiet"><span class="said no-message">+{{ quiet | length }} stayed quiet</span></li>
+    {% endif %}
+  </ul>
+</article>
+{% endif %}

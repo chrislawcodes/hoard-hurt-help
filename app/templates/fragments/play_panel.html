@@ -1,8 +1,10 @@
-{# Human play panel — the docked move controls. A handle (title + clock) is
-   always visible; on a phone the body collapses so the transcript stays readable,
-   and the player taps the handle to expand and act (spec 018). The panel-driving
-   JS (countdown, target toggle, Pass, dock toggle) lives in game.html and
-   re-applies on every swap. #}
+{# Human play panel — the docked move controls (spec 019). Controls ONLY: the
+   "what just happened" recap and the act-phase reveal now live in the feed
+   (the transcript + play_reveal.html), so the dock never holds talk and never
+   duplicates the feed. A header line (title + clock) sits on top; the body is
+   always visible — the feed scrolls above the dock, the dock stays in reach.
+   Panel-driving JS (countdown, target toggle, Pass, near-deadline auto-submit)
+   lives in game.html and re-applies on every swap. #}
 <div id="play-panel" class="play-panel"
      data-game="{{ game.game }}" data-match="{{ game.id }}"
      data-play-phase="{{ play_phase or '' }}"
@@ -14,50 +16,12 @@
        for the rest of the match — you can keep watching.</p>
 
   {% else %}
-    {# Handle: always visible. On a phone, tap it to expand/collapse the body. #}
-    <button type="button" class="play-handle" data-play-toggle aria-expanded="false">
-      <span class="play-handle-title">
-        {%- if not play_phase -%}Waiting for the next turn…
-        {%- elif play_submitted -%}✓ Locked in
-        {%- elif play_phase == "talk" -%}Your turn — say something
-        {%- else -%}Your turn — make your move{%- endif -%}
-      </span>
-      <span class="play-clock" data-play-clock aria-live="polite">—</span>
-      <span class="play-caret" aria-hidden="true">▾</span>
-    </button>
-
+    {# Controls only — the round/turn, standings link and countdown live in the
+       top-bar standings strip now (spec 019). #}
     <div class="play-body">
       {% if play_phase == "talk" %}
-        {% if play_last_result %}
-        <div class="play-said play-recap">
-          <h4 class="play-said-head">📊 What just happened{% if play_last_label %} <span class="play-said-hint">{{ play_last_label }}</span>{% endif %}</h4>
-          {# `play_last_result` is the just-resolved turn's feed_actions, already
-             sorted highlights-first. Show the interactions (help/hurt/pact/
-             betrayal) line by line and fold the quiet hoards into one count, so a
-             10-player turn never buries the talk box below the fold. #}
-          {% set moves = play_last_result | rejectattr('action', 'equalto', 'HOARD') | list %}
-          {% set hoards = play_last_result | selectattr('action', 'equalto', 'HOARD') | list %}
-          {% if moves %}
-            {% for a in moves %}
-            <p class="play-said-line play-recap-line">
-              <span class="play-said-who{% if a.agent_id == viewer_seat %} is-you{% endif %}">{{ a.agent_id }}</span>
-              <span class="act act-{{ a.action | lower }}">{{ a.display_action }}</span>
-              {% if a.target_id %}<span class="arrow" aria-hidden="true">→</span> <span class="play-said-who{% if a.target_id == viewer_seat %} is-you{% endif %}">{{ a.target_id }}</span>{% endif %}
-              {% if a.betrayal %}<span class="tag tag-betrayal">betrayal</span>{% elif a.mutual %}<span class="tag tag-pact">pact</span>{% endif %}
-              {% if a.display_delta is not none %}<span class="delta {{ 'pos' if a.display_delta > 0 else ('neg' if a.display_delta < 0 else 'zero') }}">{{ "%+d" | format(a.display_delta) }}</span>{% endif %}
-              {% if a.was_defaulted %}<span class="missed">missed</span>{% endif %}
-            </p>
-            {% endfor %}
-            {% if hoards %}
-            <p class="play-said-line play-said-quiet">+{{ hoards | length }} hoarded (+2 each)</p>
-            {% endif %}
-          {% else %}
-            <p class="play-said-line play-said-quiet">Everyone hoarded — a quiet turn.</p>
-          {% endif %}
-        </div>
-        {% endif %}
         {% if play_submitted %}
-          <p class="play-status">Submitted — you can still change this until the clock ends.</p>
+          <p class="play-status">{% if waiting_on %}Sent — waiting on {{ waiting_on }} player{{ "s" if waiting_on != 1 else "" }}.{% else %}Sent.{% endif %} You can still change this until the clock ends.</p>
         {% endif %}
         <form class="play-form" hx-post="/games/{{ game.game }}/matches/{{ game.id }}/play/talk"
               hx-target="#live-region" hx-swap="innerHTML">
@@ -72,26 +36,8 @@
         </form>
 
       {% elif play_phase == "act" %}
-        {% if play_talk %}
-        <div class="play-said">
-          <h4 class="play-said-head">💬 What was just said <span class="play-said-hint">tap a name to target</span></h4>
-          {# Show who spoke; fold the silent into one line so 10 players never bury
-             the action cards below the fold. #}
-          {% set spoke = play_talk | rejectattr('quiet') | list %}
-          {% set quiet = play_talk | selectattr('quiet') | list %}
-          {% for m in spoke %}
-            <p class="play-said-line"><span class="play-said-who" role="button" tabindex="0" data-target-name="{{ m.who }}">{{ m.who }}</span>{% if score_by_name and m.who in score_by_name %}<span class="who-score">{{ score_by_name[m.who] }}</span>{% endif %}: “{{ m.text }}”</p>
-          {% else %}
-            <p class="play-said-line play-said-quiet">No one's spoken yet this turn.</p>
-          {% endfor %}
-          {% if spoke and quiet %}
-          <p class="play-said-line play-said-quiet">+{{ quiet | length }} stayed quiet</p>
-          {% endif %}
-        </div>
-        {% endif %}
-
         {% if play_submitted %}
-          <p class="play-status">Submitted — you can still change this until the clock ends.</p>
+          <p class="play-status">{% if waiting_on %}Locked in — waiting on {{ waiting_on }} player{{ "s" if waiting_on != 1 else "" }}.{% else %}Locked in.{% endif %} You can still change this until the clock ends.</p>
         {% endif %}
         <form class="play-form" id="act-form"
               hx-post="/games/{{ game.game }}/matches/{{ game.id }}/play/act"
@@ -119,7 +65,7 @@
             </label>
           </fieldset>
           <div class="play-target" data-play-target-wrap>
-            <label class="play-target-label" for="play-target-input">Who?</label>
+            <label class="play-target-label" for="play-target-input">Who? <span class="play-target-hint">(or tap a name above)</span></label>
             <input id="play-target-input" class="play-target-input" name="target"
                    list="play-targets" placeholder="Type a name…" autocomplete="off"
                    value="{{ play_target or '' }}">

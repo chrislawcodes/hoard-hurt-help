@@ -158,7 +158,7 @@ async def test_panel_shows_submitted_state(reset_db, client) -> None:
         f"{VIEWER}/play/act", data={"action": "HOARD"}, cookies=_cookies(user.id)
     )
     r = await client.get(LIVE, cookies=_cookies(user.id))
-    assert "Submitted — you can still change this" in r.text
+    assert "You can still change this" in r.text  # submitted state, dock controls-only
 
 
 async def test_talk_panel_has_pass(reset_db, client) -> None:
@@ -171,13 +171,14 @@ async def test_talk_panel_has_pass(reset_db, client) -> None:
 
     r = await client.get(LIVE, cookies=_cookies(user.id))
     assert "data-play-pass" in r.text
-    assert "say something" in r.text
+    assert "Stay quiet" in r.text  # talk-phase control (the dock title was cut)
     assert "data-play-counter" in r.text  # character counter wired up
 
 
-async def test_act_panel_reveals_this_turns_talk(reset_db, client) -> None:
+async def test_act_phase_reveals_this_turns_talk_in_feed(reset_db, client) -> None:
     """During act, the human sees what others said this turn — speakers and the
-    silent — since the open turn isn't in the feed yet."""
+    silent — as the live top card of the one feed (spec 019), not a box in the
+    dock. The open turn isn't in the resolved feed yet, so this card carries it."""
     from app.models.turn import TurnMessage
 
     async with reset_db() as db:
@@ -194,7 +195,8 @@ async def test_act_panel_reveals_this_turns_talk(reset_db, client) -> None:
 
     r = await client.get(LIVE, cookies=_cookies(user.id))
     html = r.text
-    assert "What was just said" in html
+    assert "This turn — what everyone said" in html  # the live feed card header
+    assert "turn-live" in html  # rendered as the feed's top card, not a dock box
     assert "let&#39;s both help" in html or "let's both help" in html
     assert "bob" in html
     assert 'data-target-name="bob"' in html  # the speaker is tappable to target
@@ -204,10 +206,10 @@ async def test_act_panel_reveals_this_turns_talk(reset_db, client) -> None:
     assert "my private note" not in html  # the viewer's own message isn't echoed
 
 
-async def test_talk_panel_recaps_last_resolved_turn(reset_db, client) -> None:
-    """When a new talk phase opens, the dock recaps the turn that just resolved —
-    who did what and for how many points — so the human isn't asked to speak
-    again blind to the result. The mirror of the act-phase talk reveal."""
+async def test_talk_phase_shows_last_result_in_feed_not_dock(reset_db, client) -> None:
+    """When a new talk phase opens, the just-resolved turn shows in the FEED as its
+    top card — not as a recap box in the dock. Spec 019 makes the dock controls
+    only; the human reads the result from the one feed before speaking again."""
     from app.models.turn import TurnSubmission
 
     async with reset_db() as db:
@@ -261,14 +263,9 @@ async def test_talk_panel_recaps_last_resolved_turn(reset_db, client) -> None:
     r = await client.get(LIVE, cookies=_cookies(user.id))
     assert r.status_code == 200
     html = r.text
-    assert "say something" in html  # it's the talk phase
-    assert "What just happened" in html  # the recap header is present
-    assert "Round 1 · Turn 1" in html  # labelled with the turn that resolved
-    # The interactions are spelled out (feed_actions, highlights-first).
-    assert "HURT" in html
-    assert "Help" in html
-    # The human's own hoard folds into the quiet count, not a separate row.
-    assert "1 hoarded" in html
+    assert "Stay quiet" in html  # it's the talk phase
+    assert "What just happened" not in html  # no dock recap (spec 019)
+    assert "Round 1 · Turn 1" in html  # the just-resolved turn shows in the feed
 
 
 async def test_first_talk_turn_has_no_recap(reset_db, client) -> None:
@@ -284,7 +281,7 @@ async def test_first_talk_turn_has_no_recap(reset_db, client) -> None:
 
     r = await client.get(LIVE, cookies=_cookies(user.id))
     assert r.status_code == 200
-    assert "say something" in r.text  # the talk box is present
+    assert "Stay quiet" in r.text  # talk-phase control (the dock title was cut)  # the talk box is present
     assert "What just happened" not in r.text  # but no recap on the first turn
 
 
