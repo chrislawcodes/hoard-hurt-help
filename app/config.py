@@ -14,6 +14,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _log = logging.getLogger(__name__)
 
 
+def _parse_email_set(raw: str) -> set[str]:
+    """Split a comma-separated email list into a normalized lowercased set."""
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
 class Settings(BaseSettings):
     """Runtime configuration."""
 
@@ -98,7 +103,7 @@ class Settings(BaseSettings):
     @property
     def admin_emails_set(self) -> set[str]:
         """Normalized lowercased set of admin emails (legacy; prefer platform_admin_emails_set)."""
-        return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
+        return _parse_email_set(self.admin_emails)
 
     @property
     def platform_admin_emails_set(self) -> set[str]:
@@ -110,7 +115,7 @@ class Settings(BaseSettings):
             _log.warning(
                 "ADMIN_EMAILS fallback active — set PLATFORM_ADMIN_EMAILS to remove"
             )
-        return {e.strip().lower() for e in raw.split(",") if e.strip()}
+        return _parse_email_set(raw)
 
     def game_admin_emails_for(self, game: str) -> set[str]:
         """Return the game-admin email set for a slug like 'hoard-hurt-help'.
@@ -129,14 +134,14 @@ class Settings(BaseSettings):
             raw = self.admin_emails
         if not raw:
             return set()
-        return {e.strip().lower() for e in raw.split(",") if e.strip()}
+        return _parse_email_set(raw)
 
     @property
     def all_game_admin_emails_set(self) -> set[str]:
         """Union of all game-admin emails across every configured game."""
         result: set[str] = set()
         for raw in self._game_admin_emails_raw.values():
-            result.update(e.strip().lower() for e in raw.split(",") if e.strip())
+            result.update(_parse_email_set(raw))
         return result
 
 

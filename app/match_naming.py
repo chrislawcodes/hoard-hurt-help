@@ -17,3 +17,8 @@ TEST_NAME_PREFIX = "prod smoke"
 def is_smoke_test_match_name(name: str) -> bool:
     """True when a match name marks it as a deploy smoke test (not a real game)."""
     return name.strip().lower().startswith(TEST_NAME_PREFIX)
+
+
+def humanize_game_type(slug: str) -> str:
+    """Title-case a game-type slug for display (e.g. 'stub-game' -> 'Stub Game')."""
+    return slug.replace("-", " ").title()

@@ -26,8 +26,8 @@ from app.models.connection import ConnectionProvider
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
+from app.provider_labels import PROVIDER_LABELS
 from app.request_logging import set_request_trace_context
-from app.routes.provider_labels import PROVIDER_LABELS
 from app.routes.web_play import seat_human_player
 from app.routes.web_player_shared import (
     _load_user_agents,

@@ -16,6 +16,7 @@ from app.deps import DbSession, get_current_user
 from app.games import get as get_game_module
 from app.games import is_admin_only, visible_types
 from app.games.base import GameError
+from app.match_naming import humanize_game_type
 from app.routes.nav_context import LOBBY_URL
 from app.routes.web_support import _is_any_admin
 from app.templating import templates
@@ -30,7 +31,7 @@ def _game_display_name(game_type: str) -> str:
     try:
         return get_game_module(game_type).display_name()
     except GameError:
-        return game_type.replace("-", " ").title()
+        return humanize_game_type(game_type)
 
 
 def _game_tagline(game_type: str) -> str:

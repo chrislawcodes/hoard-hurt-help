@@ -4,21 +4,15 @@ All route modules import `templates` from here so filters are registered
 once in a single place.
 """
 
-import re
 from datetime import datetime, timezone
 
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.requests import Request
 
-_ARCHIVE_SUFFIX_RE = re.compile(
-    r"\s+\(archived\s[^)]+\)(?:\s*#\d+)?$|\s+#\d+$"
-)
-
-
-def strip_archive_suffix(name: str) -> str:
-    """Remove the archived suffix used in display labels."""
-    return _ARCHIVE_SUFFIX_RE.sub("", name)
+# Re-exported for the Jinja filter below; the canonical definition lives in
+# app.read_models.agent_display, which owns agent display-name formatting.
+from app.read_models.agent_display import strip_archive_suffix
 
 
 def _nav_cta_context(request: Request) -> dict[str, object]:
