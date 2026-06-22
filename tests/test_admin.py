@@ -17,6 +17,7 @@ from app.models.user import UserRole
 from app.read_models.admin_reports import load_turn_timing_report
 from app.routes import admin_web
 from app.routes import game_admin_web
+from app.routes import web_support
 from tests.factories import make_agent
 
 
@@ -851,10 +852,12 @@ async def test_game_admin_dashboard_handles_missing_start_time(monkeypatch):
                 ]
             )
 
-    async def _count_players(_db, _match_id):
-        return 0
+    async def _no_counts(_db, _match_ids, **_kwargs):
+        # The dashboard batches seated-player counts in one grouped query; the
+        # fake match row has no players, so return an empty map (absent → 0).
+        return {}
 
-    monkeypatch.setattr(game_admin_web, "_seated_player_count", _count_players)
+    monkeypatch.setattr(web_support, "count_players_by_match", _no_counts)
 
     async def receive():
         return {"type": "http.request", "body": b"", "more_body": False}
@@ -911,10 +914,12 @@ async def test_platform_admin_dashboard_handles_missing_start_time(monkeypatch):
                 ]
             )
 
-    async def _count_players(_db, _match_id):
-        return 0
+    async def _no_counts(_db, _match_ids, **_kwargs):
+        # The dashboard batches seated-player counts in one grouped query; the
+        # fake match row has no players, so return an empty map (absent → 0).
+        return {}
 
-    monkeypatch.setattr(admin_web, "_seated_player_count", _count_players)
+    monkeypatch.setattr(web_support, "count_players_by_match", _no_counts)
 
     async def receive():
         return {"type": "http.request", "body": b"", "more_body": False}

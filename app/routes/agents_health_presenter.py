@@ -14,11 +14,35 @@ from datetime import datetime
 from sqlalchemy import func, select
 
 from app.deps import DbSession
-from app.engine.connection_health import ConnectionHealth
+from app.engine.connection_health import ConnectionHealth, ConnectionHealthStatus
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState
 from app.models.player import Player
+
+
+def health_view(status: ConnectionHealthStatus) -> dict[str, object]:
+    """Build the health dict the agent templates read from a ``ConnectionHealthStatus``.
+
+    The agent list and detail pages render a plain dict (not the dataclass) with
+    the same keys as ``ConnectionHealthStatus``. Both pages synthesize a status
+    from the user's coverage-based readiness, then call this to get the dict the
+    templates consume, so the two pages can't drift in which keys/values they
+    emit.
+    """
+    return {
+        "state": status.state,
+        "label": status.label,
+        "badge_class": status.badge_class,
+        "pulse": status.pulse,
+        "needs_reconnect": status.needs_reconnect,
+        "never_connected": status.never_connected,
+        "last_connected_at": status.last_connected_at,
+        "last_connected_human": status.last_connected_human,
+        "match_id": status.match_id,
+        "game_name": status.game_name,
+        "agent_count": status.agent_count,
+    }
 
 
 @dataclass(frozen=True)

@@ -24,7 +24,7 @@ from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User
-from app.routes.web_support import _seated_player_count
+from app.routes.web_support import _bucket_matches
 from app.templating import templates
 
 router = APIRouter(prefix="/games/{game}/admin", tags=["game-admin"])
@@ -68,23 +68,18 @@ async def game_admin_dashboard(
         .scalars()
         .all()
     )
-    active, scheduled, completed = [], [], []
-    for m in all_matches:
-        view = {
+    def _view(m: Match, player_count: int) -> dict:
+        return {
             "id": m.id,
             "name": m.name,
             "scheduled_start": m.scheduled_start,
             "current_round": m.current_round,
             "total_rounds": m.total_rounds,
             "state": m.state,
-            "player_count": await _seated_player_count(db, m.id),
+            "player_count": player_count,
         }
-        if m.state == GameState.ACTIVE:
-            active.append(view)
-        elif m.state in (GameState.SCHEDULED, GameState.REGISTERING):
-            scheduled.append(view)
-        else:
-            completed.append(view)
+
+    active, scheduled, completed = await _bucket_matches(db, all_matches, _view)
     return templates.TemplateResponse(
         request,
         "game_admin/dashboard.html",
