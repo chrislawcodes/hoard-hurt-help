@@ -12,7 +12,6 @@ modules, so they live here to avoid a circular import between siblings:
 
 from __future__ import annotations
 
-from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
@@ -27,6 +26,7 @@ from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
 from app.models.player import Player
 from app.provider_labels import provider_label
+from app.routes.web_support import SEAT_NAME_MAX, unique_seat_name
 
 
 def _hx_redirect(url: str) -> HTMLResponse:
@@ -42,16 +42,7 @@ def _seat_name(agent_name: str, existing: set[str]) -> str:
     competing agents. The human-facing viewer shows the owner's handle as a
     separate byline, sourced from its own query, not from this label.
     """
-    base = agent_name[:40]
-    if base not in existing:
-        return base
-    for index in range(2, 100):
-        suffix = f" #{index}"
-        max_base = 40 - len(suffix)
-        candidate = base[:max_base] + suffix if len(base) > max_base else f"{base}{suffix}"
-        if candidate not in existing:
-            return candidate
-    raise HTTPException(status_code=409, detail="Could not allocate a unique seat name.")
+    return unique_seat_name(agent_name[:SEAT_NAME_MAX], existing)
 
 
 async def _load_user_agents(
