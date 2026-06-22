@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
+from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
@@ -84,7 +84,7 @@ async def _existing_mcp_connection(
         (
             await db.execute(
                 select(Connection)
-                .options(joinedload(Connection.user).load_only(User.disabled_at))
+                .options(connection_user_load_options())
                 .where(
                     Connection.user_id == user_id,
                     Connection.mcp_connected_at.is_not(None),
@@ -125,7 +125,7 @@ async def _mcp_connection_once(
             (
                 await db.execute(
                     select(Connection)
-                    .options(joinedload(Connection.user).load_only(User.disabled_at))
+                    .options(connection_user_load_options())
                     .where(
                         Connection.user_id == user_id,
                         Connection.oauth_client_id == oauth_client_id,
@@ -154,7 +154,7 @@ async def _mcp_connection_once(
         (
             await db.execute(
                 select(Connection)
-                .options(joinedload(Connection.user).load_only(User.disabled_at))
+                .options(connection_user_load_options())
                 .where(
                     Connection.user_id == user_id,
                     Connection.mcp_connected_at.is_not(None),
@@ -183,7 +183,7 @@ async def _mcp_connection_once(
         (
             await db.execute(
                 select(Connection)
-                .options(joinedload(Connection.user).load_only(User.disabled_at))
+                .options(connection_user_load_options())
                 .where(
                     Connection.user_id == user_id,
                     Connection.mcp_connected_at.is_not(None),
@@ -229,7 +229,7 @@ async def _mcp_connection_once(
         (
             await db.execute(
                 select(Connection)
-                .options(joinedload(Connection.user).load_only(User.disabled_at))
+                .options(connection_user_load_options())
                 .where(Connection.id == connection.id)
             )
         )
