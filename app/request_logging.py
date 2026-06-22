@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, Response
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.request_incident import RequestIncident
 
@@ -64,11 +65,7 @@ async def _record_incident(
     exc: Exception,
     status_code: int,
 ) -> None:
-    try:
-        from app import db as app_db
-    except Exception:
-        logger.exception("Failed to import db module for request incident capture")
-        return
+    from app import db as app_db
 
     ctx = _trace_context(request)
     path_params = _path_params(request)
@@ -106,7 +103,9 @@ async def _record_incident(
         async with app_db.SessionLocal() as db:
             db.add(RequestIncident(**payload))
             await db.commit()
-    except Exception:
+    except SQLAlchemyError:
+        # fail-open: advisory only — persisting an incident must never crash the
+        # request that already failed; log and move on.
         logger.exception(
             "Failed to persist request incident request_id=%s path=%s status=%s",
             request_id,
@@ -132,11 +131,7 @@ async def record_background_incident(
     a ``SELECT ... WHERE match_id=`` surfaces background crashes alongside
     request failures.
     """
-    try:
-        from app import db as app_db
-    except Exception:
-        logger.exception("Failed to import db module for background incident capture")
-        return
+    from app import db as app_db
 
     stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     payload = {
@@ -160,7 +155,9 @@ async def record_background_incident(
         async with app_db.SessionLocal() as db:
             db.add(RequestIncident(**payload))
             await db.commit()
-    except Exception:
+    except SQLAlchemyError:
+        # fail-open: advisory only — a background task's incident row is best
+        # effort; failing to write it must not crash the scheduler/poller.
         logger.exception(
             "Failed to persist background incident source=%s match_id=%s",
             source,

@@ -1,8 +1,5 @@
 """Game-admin JSON API — per-game match management (create/cancel/export)."""
 
-import csv
-import io
-import json
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -14,11 +11,9 @@ from app.deps import DbSession, require_game_admin
 from app.engine.match_creation import create_match_with_state, player_count_error
 from app.engine.match_deletion import cancel_blocked_reason, cancel_match
 from app.games import GameError, get as get_game_module, known_types
-from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
-from app.models.player import Player
 from app.models.user import User
-from app.read_models.matches import load_match_timeline
+from app.read_models.match_export import build_csv_export, build_json_export
 from app.schemas.admin import CancelResponse, CreateGameRequest, GameRecord
 
 router = APIRouter(prefix="/api/game-admin/{game}", tags=["game-admin"])
@@ -108,40 +103,15 @@ async def cancel_game(
     return CancelResponse()
 
 
-_EXPORT_COLUMNS = [
-    "match_id",
-    "round",
-    "turn",
-    "agent_id",
-    "action",
-    "target_id",
-    "message",
-    "points_delta",
-    "round_score_after",
-    "submitted_at",
-    "was_defaulted",
-]
-
-
 @router.get("/matches/{match_id}/export.csv")
 async def export_csv(
     game: Annotated[str, Path()],
     match_id: Annotated[str, Path()],
     db: DbSession,
     _: Annotated[User, Depends(require_game_admin)],
-):
+) -> StreamingResponse:
     await _load_game_match_or_404(db, game, match_id)
-    rows = await _gather_export_rows(db, match_id)
-    out = io.StringIO()
-    w = csv.writer(out)
-    w.writerow(_EXPORT_COLUMNS)
-    for r in rows:
-        w.writerow([r[k] for k in _EXPORT_COLUMNS])
-    return StreamingResponse(
-        iter([out.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{match_id}.csv"'},
-    )
+    return await build_csv_export(db, match_id)
 
 
 @router.get("/matches/{match_id}/export.json")
@@ -150,69 +120,6 @@ async def export_json(
     match_id: Annotated[str, Path()],
     db: DbSession,
     _: Annotated[User, Depends(require_game_admin)],
-):
+) -> StreamingResponse:
     g = await _load_game_match_or_404(db, game, match_id)
-    players = (
-        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
-    )
-    players_payload = []
-    for p in players:
-        version = None
-        if p.agent_version_id is not None:
-            version = (
-                await db.execute(
-                    select(AgentVersion).where(AgentVersion.id == p.agent_version_id)
-                )
-            ).scalar_one_or_none()
-        players_payload.append(
-            {
-                "agent_id": p.agent_id,
-                "model_self_report": p.played_provider,
-                "total_round_wins": p.total_round_wins,
-                "total_round_score": p.total_round_score,
-                "strategy_prompt": version.strategy_text if version else None,
-            }
-        )
-    rows = await _gather_export_rows(db, match_id)
-    payload = {
-        "game": {
-            "id": g.id,
-            "name": g.name,
-            "state": g.state.value,
-            "scheduled_start": g.scheduled_start.isoformat() if g.scheduled_start else None,
-            "started_at": g.started_at.isoformat() if g.started_at else None,
-            "completed_at": g.completed_at.isoformat() if g.completed_at else None,
-            "rules_version": g.rules_version,
-        },
-        "players": players_payload,
-        "submissions": rows,
-    }
-    return StreamingResponse(
-        iter([json.dumps(payload, indent=2)]),
-        media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{match_id}.json"'},
-    )
-
-
-async def _gather_export_rows(db, match_id: str) -> list[dict]:
-    rows = []
-    for turn in await load_match_timeline(db, match_id, resolved_only=False):
-        for action in turn.actions:
-            rows.append(
-                {
-                    "match_id": match_id,
-                    "round": turn.round,
-                    "turn": turn.turn,
-                    "agent_id": action.agent_id,
-                    "action": action.action,
-                    "target_id": action.target_id or "",
-                    "message": action.message,
-                    "points_delta": action.points_delta,
-                    "round_score_after": action.round_score_after,
-                    "submitted_at": action.submitted_at.isoformat()
-                    if action.submitted_at
-                    else "",
-                    "was_defaulted": action.was_defaulted,
-                }
-            )
-    return rows
+    return await build_json_export(db, g)

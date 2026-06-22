@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import Sequence
 
 from app.models.agent import Agent, AgentKind
@@ -12,6 +11,7 @@ from .phrases import render_phrase
 from .signals import extract_talk_signals
 from .strategies import (
     VALID_STRATEGIES,
+    _seed_int,
     choose_action_plan,
     choose_talk_plan,
     normalize_strategy_name,
@@ -244,11 +244,3 @@ def _leader_id(scoreboard: Sequence[ScoreboardRow]) -> str | None:
     top = max(row.round_score for row in scoreboard)
     tied = [row.agent_id for row in scoreboard if row.round_score == top]
     return min(tied, key=lambda aid: _seed_int("leader", aid))
-
-
-def _seed_int(*parts: object) -> int:
-    payload = "||".join(
-        p.seed_basis() if isinstance(p, BotContext) else str(p) for p in parts
-    )
-    digest = hashlib.sha256(payload.encode()).hexdigest()
-    return int(digest[:16], 16)
