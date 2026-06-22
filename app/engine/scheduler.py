@@ -218,7 +218,10 @@ class SchedulerRegistry:
         """
         try:
             await coro_factory()
-        except Exception:  # never let the poller die on a transient error
+        except Exception:
+            # fail-open: advisory only — the poller runs every subsystem in one
+            # loop, so one subsystem's failure must not kill the loop and starve
+            # the others. We log/escalate below instead of propagating.
             count = self._subsystem_failures.get(name, 0) + 1
             self._subsystem_failures[name] = count
             log_ops_event(
