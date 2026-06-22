@@ -15,12 +15,12 @@ from app.games import known_types
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection
-from app.models.match import Match, GameState
+from app.models.match import Match
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
 from app.models.user import User
 from app.read_models.admin_reports import load_turn_timing_report
-from app.routes.web_support import _seated_player_count
+from app.routes.web_support import _bucket_matches
 from app.services.admin_user_actions import (
     demote_user,
     disable_user,
@@ -43,9 +43,8 @@ async def admin_dashboard(
     all_games = (
         (await db.execute(select(Match).order_by(Match.scheduled_start.desc()))).scalars().all()
     )
-    active, scheduled, completed = [], [], []
-    for g in all_games:
-        view = {
+    def _view(g: Match, player_count: int) -> dict:
+        return {
             "id": g.id,
             "game": g.game,
             "name": g.name,
@@ -54,14 +53,10 @@ async def admin_dashboard(
             "min_players": g.min_players,
             "max_players": g.max_players,
             "state": g.state,
-            "player_count": await _seated_player_count(db, g.id),
+            "player_count": player_count,
         }
-        if g.state == GameState.ACTIVE:
-            active.append(view)
-        elif g.state in (GameState.SCHEDULED, GameState.REGISTERING):
-            scheduled.append(view)
-        else:
-            completed.append(view)
+
+    active, scheduled, completed = await _bucket_matches(db, all_games, _view)
     return templates.TemplateResponse(
         request,
         "admin/dashboard.html",

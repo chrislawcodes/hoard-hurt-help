@@ -2,7 +2,7 @@
 
 from fastapi import HTTPException, status
 from fastapi.responses import RedirectResponse
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,9 +82,33 @@ async def _agent_counts(db, match_ids: Sequence[str]) -> dict[str, int]:
     return {match_id: int(count) for match_id, count in rows}
 
 
-async def _seated_player_count(db, match_id: str) -> int:
-    """All seated players, including agents that later left."""
-    return await count_players(db, match_id)
+async def _bucket_matches(
+    db,
+    matches: Sequence[Match],
+    view_builder: Callable[[Match, int], dict],
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Split matches into (active, scheduled, completed) view buckets.
+
+    Shared by the platform-admin and game-admin dashboards, which apply the same
+    state tests but render different view dicts. ``view_builder`` turns one match
+    plus its seated-player count into that page's view dict. Seated-player counts
+    are fetched for all matches in a single grouped query (``count_players_by_match``)
+    instead of one query per match, so the buckets are identical to the old
+    per-match counting but without the N+1.
+    """
+    counts = await count_players_by_match(db, [m.id for m in matches])
+    active: list[dict] = []
+    scheduled: list[dict] = []
+    completed: list[dict] = []
+    for m in matches:
+        view = view_builder(m, counts.get(m.id, 0))
+        if m.state == GameState.ACTIVE:
+            active.append(view)
+        elif m.state in (GameState.SCHEDULED, GameState.REGISTERING):
+            scheduled.append(view)
+        else:
+            completed.append(view)
+    return active, scheduled, completed
 
 
 def _is_any_admin(user: User | None) -> bool:

@@ -17,6 +17,7 @@ from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health import (
     ConnectionHealth,
+    ConnectionHealthStatus,
     ProviderReadiness,
     active_matches_for_user,
     is_join_blocked,
@@ -33,6 +34,7 @@ from app.routes.agents_health_presenter import (
     VersionRow,
     _count_agent_matches,
     _is_ready_to_play,
+    health_view,
 )
 from app.routes.agents_queries import load_owned_agent
 from app.templating import templates
@@ -140,48 +142,40 @@ async def _build_agent_detail_context(
     #   CONNECTED_NOT_LIVE    → DISCONNECTED / "No live connection" (set up but offline)
     #   SEEN_NOT_POLLING/LIVE → READY (set up and recently seen or fully live)
     if agent.status == AgentStatus.PAUSED:
-        health: object = {
-            "state": ConnectionHealth.PAUSED,
-            "label": "Paused",
-            "badge_class": "badge-done",
-            "pulse": False,
-            "needs_reconnect": False,
-            "never_connected": False,
-            "last_connected_at": None,
-            "last_connected_human": None,
-            "match_id": None,
-            "game_name": None,
-            "agent_count": 0,
-        }
+        status = ConnectionHealthStatus(
+            state=ConnectionHealth.PAUSED,
+            label="Paused",
+            badge_class="badge-done",
+            pulse=False,
+            needs_reconnect=False,
+            never_connected=False,
+            last_connected_at=None,
+            last_connected_human=None,
+        )
     elif readiness in (ProviderReadiness.NO_MCP_CONNECTION, ProviderReadiness.CONNECTED_NOT_LIVE):
-        health = {
-            "state": ConnectionHealth.DISCONNECTED,
-            "label": "No live connection",
-            "badge_class": "badge-alert",
-            "pulse": False,
-            "needs_reconnect": True,
-            "never_connected": True,
-            "last_connected_at": None,
-            "last_connected_human": None,
-            "match_id": None,
-            "game_name": None,
-            "agent_count": 0,
-        }
+        status = ConnectionHealthStatus(
+            state=ConnectionHealth.DISCONNECTED,
+            label="No live connection",
+            badge_class="badge-alert",
+            pulse=False,
+            needs_reconnect=True,
+            never_connected=True,
+            last_connected_at=None,
+            last_connected_human=None,
+        )
     else:
         # SEEN_NOT_POLLING or LIVE → ready to accept matches
-        health = {
-            "state": ConnectionHealth.READY,
-            "label": "Ready",
-            "badge_class": "badge-ok",
-            "pulse": False,
-            "needs_reconnect": False,
-            "never_connected": False,
-            "last_connected_at": None,
-            "last_connected_human": None,
-            "match_id": None,
-            "game_name": None,
-            "agent_count": 0,
-        }
+        status = ConnectionHealthStatus(
+            state=ConnectionHealth.READY,
+            label="Ready",
+            badge_class="badge-ok",
+            pulse=False,
+            needs_reconnect=False,
+            never_connected=False,
+            last_connected_at=None,
+            last_connected_human=None,
+        )
+    health: object = health_view(status)
 
     version = (
         await db.execute(

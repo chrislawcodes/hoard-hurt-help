@@ -69,27 +69,36 @@ def _play_error(code: str, message: str, http: int) -> HTTPException:
     )
 
 
-async def _resolve_human_player(db: DbSession, match_id: str, user: User) -> Player:
-    """The signed-in user's active human seat in this match, or a friendly error."""
-    row = (
+async def _active_human_seat(db: DbSession, match_id: str, user_id: int) -> Player | None:
+    """The user's active (non-left) human seat in this match, or ``None``.
+
+    The single source of truth for "does this user hold a live human seat here?"
+    Shared by the talk/act submit path, the join idempotency check, and leave so
+    they can't drift in which seats they count.
+    """
+    return (
         await db.execute(
-            select(Player, Agent)
+            select(Player)
             .join(Agent, Agent.id == Player.agent_id)
             .where(
                 Player.match_id == match_id,
-                Player.user_id == user.id,
+                Player.user_id == user_id,
                 Agent.kind == AgentKind.HUMAN,
                 Player.left_at.is_(None),
             )
         )
-    ).first()
-    if row is None:
+    ).scalar_one_or_none()
+
+
+async def _resolve_human_player(db: DbSession, match_id: str, user: User) -> Player:
+    """The signed-in user's active human seat in this match, or a friendly error."""
+    player = await _active_human_seat(db, match_id, user.id)
+    if player is None:
         raise _play_error(
             "NOT_YOUR_SEAT",
             "You're not playing in this match.",
             status.HTTP_403_FORBIDDEN,
         )
-    player, _agent = row
     if player.autopilot_at is not None:
         raise _play_error(
             "LEFT_MATCH",
@@ -281,18 +290,7 @@ async def seat_human_player(
 
     Raises HTTPException(409) if the match is full.
     """
-    already = (
-        await db.execute(
-            select(Player)
-            .join(Agent, Agent.id == Player.agent_id)
-            .where(
-                Player.match_id == match.id,
-                Player.user_id == user.id,
-                Agent.kind == AgentKind.HUMAN,
-                Player.left_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
+    already = await _active_human_seat(db, match.id, user.id)
     if already is not None:
         return False
 
@@ -363,18 +361,7 @@ async def play_leave(
     Hoard for the rest of the match (set via ``autopilot_at``), so the table is
     never made to wait on a departed human.
     """
-    row = (
-        await db.execute(
-            select(Player)
-            .join(Agent, Agent.id == Player.agent_id)
-            .where(
-                Player.match_id == match_id,
-                Player.user_id == user.id,
-                Agent.kind == AgentKind.HUMAN,
-                Player.left_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
+    row = await _active_human_seat(db, match_id, user.id)
     if row is None:
         raise _play_error(
             "NOT_YOUR_SEAT", "You're not in this match.", status.HTTP_403_FORBIDDEN
