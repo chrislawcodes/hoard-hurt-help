@@ -60,78 +60,128 @@ class SimultaneousDriver:
     async def run_match(
         self, db: AsyncSession, game: Match, module: GameModule
     ) -> None:
-        # publish / auto_submit_bot_phase / the _wait_for_* helpers are read off
-        # `scheduler` so the suite's `scheduler.publish` (etc.) patches reach this
-        # loop — the same patch surface from before the split. Lazy import keeps
-        # the scheduler<->turn_loop cycle from closing at module load.
-        from app.engine import scheduler
-
-        # Resume from current_round/current_turn — supports mid-game restart.
+        # Resume from current_round/current_turn — supports mid-game restart. The
+        # resume decisions (which round resets scores, where the first round picks
+        # up) are computed here and passed into `_run_round` so the round/turn
+        # bodies stay plain loops with no resume branching of their own.
         start_round = game.current_round if game.current_round else 1
         start_turn = game.current_turn if game.current_turn else 1
 
         for round_num in range(start_round, game.total_rounds + 1):
-            if round_num != start_round or start_turn == 1:
-                # Reset round scores at start of each fresh round.
-                players: list[Player] = list(
-                    (await db.execute(select(Player).where(Player.match_id == game.id)))
-                    .scalars()
-                    .all()
-                )
-                for p in players:
-                    p.current_round_score = 0
-                await db.commit()
-
+            # Reset round scores at the start of every fresh round, but NOT when
+            # resuming mid-round (round == start_round and start_turn != 1).
+            reset_scores = round_num != start_round or start_turn == 1
             # If resuming mid-round, continue from start_turn; else start at 1.
             first_turn = start_turn if round_num == start_round else 1
+            await _run_round(
+                db,
+                game,
+                module,
+                round_num,
+                first_turn=first_turn,
+                reset_scores=reset_scores,
+            )
 
-            for turn_num in range(first_turn, game.turns_per_round + 1):
-                turn = await _open_turn(db, game, round_num, turn_num)
-                if turn.resolved_at is not None:
-                    continue
-                # --- TALK phase (skip if already talk-resolved on resume) ---
-                if turn.talk_resolved_at is None:
-                    await scheduler.publish(
-                        game.id,
-                        "turn_opened",
-                        {
-                            "round": round_num,
-                            "turn": turn_num,
-                            "phase": "talk",
-                            "deadline": turn.deadline_at.isoformat(),
-                        },
-                    )
-                    await scheduler.auto_submit_bot_phase(db, game, turn, module, phase="talk")
-                    await scheduler._wait_for_messages(db, turn)
-                    await resolver.finalize_talk_phase(db, turn)
-                    await _begin_act_phase(db, game, turn)
-                    await scheduler.publish(game.id, "turn_talked", {"round": round_num, "turn": turn_num})
-                elif turn.phase != "act":
-                    await _begin_act_phase(db, game, turn)
-                # --- ACT phase ---
-                await scheduler.publish(
-                    game.id,
-                    "turn_opened",
-                    {
-                        "round": round_num,
-                        "turn": turn_num,
-                        "phase": "act",
-                        "deadline": turn.deadline_at.isoformat(),
-                    },
-                )
-                await scheduler.auto_submit_bot_phase(db, game, turn, module, phase="act")
-                await scheduler._wait_for_turn(db, turn)
-                await module.resolve_turn(db, turn)
-                await scheduler.publish(
-                    game.id,
-                    "turn_resolved",
-                    {"round": round_num, "turn": turn_num},
-                )
-            await module.award_round(db, game, round_num)
-            await scheduler.publish(game.id, "round_ended", {"round": round_num})
+        # publish is read off `scheduler` so the suite's `scheduler.publish` patch
+        # reaches it; lazy import avoids closing the scheduler<->turn_loop cycle.
+        from app.engine import scheduler
 
         await module.finalize(db, game)
         await scheduler.publish(game.id, "game_completed", {"winner_player_id": game.winner_player_id})
+
+
+async def _run_round(
+    db: AsyncSession,
+    game: Match,
+    module: GameModule,
+    round_num: int,
+    *,
+    first_turn: int,
+    reset_scores: bool,
+) -> None:
+    """Run one round: optional score reset, each turn in order, then award it.
+
+    `reset_scores` / `first_turn` carry `run_match`'s resume decision so mid-game
+    restart behaves identically — a round resumed partway through neither re-zeroes
+    scores nor replays turns it already finished.
+    """
+    from app.engine import scheduler
+
+    if reset_scores:
+        players: list[Player] = list(
+            (await db.execute(select(Player).where(Player.match_id == game.id)))
+            .scalars()
+            .all()
+        )
+        for p in players:
+            p.current_round_score = 0
+        await db.commit()
+
+    for turn_num in range(first_turn, game.turns_per_round + 1):
+        await _run_turn(db, game, module, round_num, turn_num)
+
+    await module.award_round(db, game, round_num)
+    await scheduler.publish(game.id, "round_ended", {"round": round_num})
+
+
+async def _run_turn(
+    db: AsyncSession,
+    game: Match,
+    module: GameModule,
+    round_num: int,
+    turn_num: int,
+) -> None:
+    """Run one turn's talk→act lifecycle. Idempotent on resume: an already-resolved
+    turn returns immediately, and the talk phase is skipped if already talk-resolved.
+
+    `publish` / `auto_submit_bot_phase` / the `_wait_for_*` helpers are read off
+    `scheduler` so the suite's `scheduler.publish` (etc.) patches reach this loop —
+    the same patch surface as before the split. The lazy import keeps the
+    scheduler<->turn_loop cycle from closing at module load.
+    """
+    from app.engine import scheduler
+
+    turn = await _open_turn(db, game, round_num, turn_num)
+    if turn.resolved_at is not None:
+        return
+    # --- TALK phase (skip if already talk-resolved on resume) ---
+    if turn.talk_resolved_at is None:
+        await scheduler.publish(
+            game.id,
+            "turn_opened",
+            {
+                "round": round_num,
+                "turn": turn_num,
+                "phase": "talk",
+                "deadline": turn.deadline_at.isoformat(),
+            },
+        )
+        await scheduler.auto_submit_bot_phase(db, game, turn, module, phase="talk")
+        await scheduler._wait_for_messages(db, turn)
+        await resolver.finalize_talk_phase(db, turn)
+        await _begin_act_phase(db, game, turn)
+        await scheduler.publish(game.id, "turn_talked", {"round": round_num, "turn": turn_num})
+    elif turn.phase != "act":
+        await _begin_act_phase(db, game, turn)
+    # --- ACT phase ---
+    await scheduler.publish(
+        game.id,
+        "turn_opened",
+        {
+            "round": round_num,
+            "turn": turn_num,
+            "phase": "act",
+            "deadline": turn.deadline_at.isoformat(),
+        },
+    )
+    await scheduler.auto_submit_bot_phase(db, game, turn, module, phase="act")
+    await scheduler._wait_for_turn(db, turn)
+    await module.resolve_turn(db, turn)
+    await scheduler.publish(
+        game.id,
+        "turn_resolved",
+        {"round": round_num, "turn": turn_num},
+    )
 
 
 def _select_driver(module: GameModule) -> TurnDriver:
