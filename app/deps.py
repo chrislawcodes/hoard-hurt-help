@@ -8,13 +8,13 @@ from urllib.parse import quote
 from fastapi import Depends, Header, HTTPException, Path, Query, Request, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 from app.api_errors import api_error
 from app.config import settings
 from app.auth.session import get_user_from_session
 from app.db import get_session
 from app.engine.connection_activity import mark_seen
+from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.match_id_rewrite import match_id_candidates
 from app.engine.tokens import bot_key_lookup
 from app.models.agent import Agent, AgentKind, AgentStatus
@@ -163,7 +163,7 @@ async def require_connection(
     connection = (
         await db.execute(
             select(Connection)
-            .options(joinedload(Connection.user).load_only(User.disabled_at))
+            .options(connection_user_load_options())
             .where(
                 or_(
                     Connection.key_lookup == key_hash,
@@ -219,7 +219,7 @@ async def require_connection(
         connection = (
             await db.execute(
                 select(Connection)
-                .options(joinedload(Connection.user).load_only(User.disabled_at))
+                .options(connection_user_load_options())
                 .where(Connection.id == connection.id)
             )
         ).scalar_one()

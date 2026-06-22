@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from sqlalchemy import false, or_, select, update
+from sqlalchemy import Row, false, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 import app.db as db_module
 from app.aware_datetime import ensure_aware
@@ -28,6 +28,7 @@ from app.engine.agent_idle import (
     pace_idle,
 )
 from app.engine.connection_activity import mark_polled
+from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.agent_play_reads import (
     RECENT_HISTORY_TURNS,
     _build_current_turn,
@@ -51,9 +52,25 @@ from app.models.connection_provider import ConnectionProvider as ConnectionProvi
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
-from app.models.user import User
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CandidateContext:
+    """Lookups gathered while collecting candidates, reused to claim and serve.
+
+    ``_collect_candidates`` fills these once; ``_claim_pin`` and
+    ``_build_turn_payload`` read them back without a second query. The maps are
+    keyed exactly as the original context dict was, so claim and payload behavior
+    is unchanged.
+    """
+
+    agent_by_id: dict[int, Agent] = field(default_factory=dict)
+    player_by_key: dict[tuple[int, str], Player] = field(default_factory=dict)
+    version_by_agent_id: dict[int, AgentVersion] = field(default_factory=dict)
+    latest_turn_by_match: dict[str, Turn] = field(default_factory=dict)
+    dead_ids: list[int] = field(default_factory=list)
 
 
 async def _load_route_states(
@@ -100,17 +117,18 @@ async def _load_route_states(
     return by_id, polling
 
 
-async def _collect_candidates(
+async def _fetch_active_agent_rows(
     db: AsyncSession,
     connection: Connection,
-    now: datetime,
     *,
-    agent_id: int | None = None,
-) -> tuple[list[TurnCandidate], dict[str, object]]:
-    connections_by_id, polling_state = await _load_route_states(db, connection)
+    agent_id: int | None,
+) -> list[Row[tuple[Agent, Player, Match, AgentVersion]]]:
+    """Every (agent, player, match, version) the connection's user has in play.
 
-    # When agent_id is given, restrict to that single agent so a caller running one
-    # parallel loop per agent only ever sees (and claims) its own agent's turn.
+    Restricted to the user's active AI agents seated in active matches. When
+    ``agent_id`` is given, restrict to that single agent so a caller running one
+    parallel loop per agent only ever sees (and claims) its own agent's turn.
+    """
     agents_stmt = (
         select(Agent, Player, Match, AgentVersion)
         .join(Player, Player.agent_id == Agent.id)
@@ -127,27 +145,29 @@ async def _collect_candidates(
     )
     if agent_id is not None:
         agents_stmt = agents_stmt.where(Agent.id == agent_id)
-    agent_rows = (await db.execute(agents_stmt)).all()
+    return list((await db.execute(agents_stmt)).all())
 
-    latest_turn_by_match: dict[str, Turn] = {}
-    player_by_key: dict[tuple[int, str], Player] = {}
-    agent_by_id: dict[int, Agent] = {}
-    version_by_agent_id: dict[int, AgentVersion] = {}
+
+async def _build_candidate_lookups(
+    db: AsyncSession,
+    connection: Connection,
+    agent_rows: list[Row[tuple[Agent, Player, Match, AgentVersion]]],
+    *,
+    polling_state: ConnectionRouteState,
+    connections_by_id: dict[int, ConnectionRouteState],
+    now: datetime,
+) -> CandidateContext:
+    """Fold the agent rows into the lookup maps used to claim and serve turns.
+
+    Only rows the polling connection is allowed to claim survive (routing + the
+    sticky pin). For each surviving match we load its single open turn once.
+    """
     dead_ids = [
         cid
         for cid, state in connections_by_id.items()
         if connection_is_dead(state, now=now)
     ]
-
-    if not agent_rows:
-        return [], {
-            "agent_by_id": agent_by_id,
-            "player_by_key": player_by_key,
-            "version_by_agent_id": version_by_agent_id,
-            "latest_turn_by_match": latest_turn_by_match,
-            "dead_ids": dead_ids,
-        }
-
+    ctx = CandidateContext(dead_ids=dead_ids)
     for agent, player, match, version in agent_rows:
         if version is None:
             logger.warning(
@@ -173,10 +193,10 @@ async def _collect_candidates(
             connections_by_id=connections_by_id,
         ):
             continue
-        player_by_key[(agent.id, match.id)] = player
-        agent_by_id[agent.id] = agent
-        version_by_agent_id[agent.id] = version
-        if match.id not in latest_turn_by_match:
+        ctx.player_by_key[(agent.id, match.id)] = player
+        ctx.agent_by_id[agent.id] = agent
+        ctx.version_by_agent_id[agent.id] = version
+        if match.id not in ctx.latest_turn_by_match:
             turn = (
                 await db.execute(
                     select(Turn)
@@ -186,12 +206,23 @@ async def _collect_candidates(
                 )
             ).scalar_one_or_none()
             if turn is not None:
-                latest_turn_by_match[match.id] = turn
+                ctx.latest_turn_by_match[match.id] = turn
+    return ctx
 
+
+async def _filter_to_candidates(
+    db: AsyncSession, ctx: CandidateContext
+) -> list[TurnCandidate]:
+    """Keep only the open turns the player still owes a move on.
+
+    Drops a turn the player already acted on, and — during the talk phase — one
+    the player already broadcast a message for, since there is nothing left to do
+    until the act phase opens.
+    """
     candidates: list[TurnCandidate] = []
-    for agent_id, match_id in player_by_key:
-        player = player_by_key[(agent_id, match_id)]
-        turn = latest_turn_by_match.get(match_id)
+    for agent_id, match_id in ctx.player_by_key:
+        player = ctx.player_by_key[(agent_id, match_id)]
+        turn = ctx.latest_turn_by_match.get(match_id)
         if turn is None:
             continue
         existing = (
@@ -232,13 +263,28 @@ async def _collect_candidates(
                 agent_id=agent_id,
             )
         )
-    return candidates, {
-        "agent_by_id": agent_by_id,
-        "player_by_key": player_by_key,
-        "version_by_agent_id": version_by_agent_id,
-        "latest_turn_by_match": latest_turn_by_match,
-        "dead_ids": dead_ids,
-    }
+    return candidates
+
+
+async def _collect_candidates(
+    db: AsyncSession,
+    connection: Connection,
+    now: datetime,
+    *,
+    agent_id: int | None = None,
+) -> tuple[list[TurnCandidate], CandidateContext]:
+    connections_by_id, polling_state = await _load_route_states(db, connection)
+    agent_rows = await _fetch_active_agent_rows(db, connection, agent_id=agent_id)
+    ctx = await _build_candidate_lookups(
+        db,
+        connection,
+        agent_rows,
+        polling_state=polling_state,
+        connections_by_id=connections_by_id,
+        now=now,
+    )
+    candidates = await _filter_to_candidates(db, ctx)
+    return candidates, ctx
 
 
 async def agent_identity_for(
@@ -361,12 +407,11 @@ async def _claim_pin(
     db: AsyncSession,
     connection: Connection,
     cand: TurnCandidate,
-    ctx: dict[str, object],
+    ctx: CandidateContext,
     now: datetime,
 ) -> bool:
-    player_by_key = cast(dict[tuple[int, str], Player], ctx["player_by_key"])
-    dead_ids = cast(list[int], ctx["dead_ids"])
-    player = player_by_key[(cand.agent_id, cand.match_id)]
+    dead_ids = ctx.dead_ids
+    player = ctx.player_by_key[(cand.agent_id, cand.match_id)]
     claim = cast(
         CursorResult,
         await db.execute(
@@ -395,19 +440,15 @@ async def _claim_pin(
 
 
 async def _build_turn_payload(
-    db: AsyncSession, cand: TurnCandidate, ctx: dict[str, object]
+    db: AsyncSession, cand: TurnCandidate, ctx: CandidateContext
 ) -> dict[str, object]:
-    agent_by_id = cast(dict[int, Agent], ctx["agent_by_id"])
-    player_by_key = cast(dict[tuple[int, str], Player], ctx["player_by_key"])
-    version_by_agent_id = cast(dict[int, AgentVersion], ctx["version_by_agent_id"])
-    latest_turn_by_match = cast(dict[str, Turn], ctx["latest_turn_by_match"])
-    agent = agent_by_id[cand.agent_id]
-    player = player_by_key[(cand.agent_id, cand.match_id)]
-    version = version_by_agent_id[cand.agent_id]
+    agent = ctx.agent_by_id[cand.agent_id]
+    player = ctx.player_by_key[(cand.agent_id, cand.match_id)]
+    version = ctx.version_by_agent_id[cand.agent_id]
     match = (
         await db.execute(select(Match).where(Match.id == cand.match_id))
     ).scalar_one()
-    turn = latest_turn_by_match[cand.match_id]
+    turn = ctx.latest_turn_by_match[cand.match_id]
     all_players = (
         (await db.execute(select(Player).where(Player.match_id == match.id))).scalars().all()
     )
@@ -571,7 +612,7 @@ async def get_next_turn(
             fresh = (
                 await check_db.execute(
                     select(Connection)
-                    .options(joinedload(Connection.user).load_only(User.disabled_at))
+                    .options(connection_user_load_options())
                     .where(Connection.id == connection_id)
                     .execution_options(populate_existing=True)
                 )
