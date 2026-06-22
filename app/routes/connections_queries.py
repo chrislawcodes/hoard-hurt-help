@@ -28,8 +28,8 @@ from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
+from app.provider_labels import provider_label
 from app.routes.connections_connect_guide import _play_prompt
-from app.routes.provider_labels import PROVIDER_LABELS
 
 
 @dataclass(frozen=True)
@@ -44,9 +44,7 @@ def _connection_display_name(connection: Connection) -> str:
     # user-nicknamed. (Nicknaming is a machine idea: you name your computer.)
     if connection.mcp_connected_at:
         if connection.provider is not None:
-            return PROVIDER_LABELS.get(
-                connection.provider.value, connection.provider.value.title()
-            )
+            return provider_label(connection.provider.value)
         return "MCP connection"
     # A machine connection runs several CLIs at once, so the user names the box.
     if connection.nickname:

@@ -10,7 +10,8 @@ from app.models.agent_version import AgentVersion
 _ARCHIVE_SUFFIX_RE = re.compile(r"\s+\(archived\s[^)]+\)(?:\s*#\d+)?$|\s+#\d+$")
 
 
-def _strip_archive_suffix(name: str) -> str:
+def strip_archive_suffix(name: str) -> str:
+    """Remove the archived suffix used in display labels."""
     return _ARCHIVE_SUFFIX_RE.sub("", name)
 
 
@@ -32,6 +33,6 @@ def agent_display_name(agent: Agent, version: AgentVersion | None = None) -> str
     if agent.kind == AgentKind.BOT:
         if agent.bot_profile_name:
             return agent.bot_profile_name
-        return _strip_internal_bot_prefix(_strip_archive_suffix(agent.name))
+        return _strip_internal_bot_prefix(strip_archive_suffix(agent.name))
 
-    return _strip_archive_suffix(agent.name)
+    return strip_archive_suffix(agent.name)

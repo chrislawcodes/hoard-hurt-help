@@ -19,8 +19,9 @@ from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
+from app.match_naming import humanize_game_type, is_smoke_test_match_name
+from app.provider_labels import provider_label
 from app.read_models.agent_display import agent_display_name
-from app.routes.provider_labels import PROVIDER_LABELS
 
 LeaderboardRatingMode = Literal["standard", "bonus"]
 LeaderboardIncluded = Literal["agents", "bot", "all"]
@@ -29,7 +30,6 @@ LEADERBOARD_CUTOFF = datetime(2026, 6, 3, tzinfo=timezone.utc)
 INITIAL_RATING = 1500.0
 K_FACTOR = 24.0
 FIRST_PLACE_WEIGHT = 1.2
-_TEST_NAME_PREFIX = "prod smoke"
 @dataclass(frozen=True)
 class LeaderboardRow:
     """One ranked competitor inside a game section."""
@@ -152,11 +152,7 @@ def _game_display_name(game_type: str) -> str:
     try:
         return get_game_module(game_type).display_name()
     except GameError:
-        return game_type.replace("-", " ").title()
-
-
-def _is_test_match(match_name: str) -> bool:
-    return match_name.strip().lower().startswith(_TEST_NAME_PREFIX)
+        return humanize_game_type(game_type)
 
 
 def _normalize_rating_mode(rating_mode: str) -> LeaderboardRatingMode:
@@ -214,7 +210,7 @@ async def load_leaderboard_sections(
     for match, player, agent, version, user in rows:
         if match.id in skipped_matches:
             continue
-        if _is_test_match(match.name):
+        if is_smoke_test_match_name(match.name):
             skipped_matches.add(match.id)
             match_groups.pop(match.id, None)
             continue
@@ -416,9 +412,7 @@ async def load_leaderboard_sections(
                     is_archived=state.is_archived,
                     archived_at=state.archived_at,
                     provider=(
-                        PROVIDER_LABELS.get(state.provider, state.provider.title())
-                        if state.provider
-                        else None
+                        provider_label(state.provider) if state.provider else None
                     ),
                 )
             )

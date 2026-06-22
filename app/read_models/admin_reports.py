@@ -11,10 +11,9 @@ from statistics import mean, median
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.match_naming import TEST_NAME_PREFIX
 from app.models.match import GameState, Match
 from app.models.turn import Turn, TurnSubmission
-
-_TEST_NAME_PREFIX = "prod smoke"
 
 _BUCKETS: list[tuple[str, float, float | None]] = [
     ("0-10s", 0.0, 10.0),
@@ -72,10 +71,6 @@ class TurnTimingReport:
     matches: list[TurnTimingMatchRow]
 
 
-def _is_test_match(name: str) -> bool:
-    return name.strip().lower().startswith(_TEST_NAME_PREFIX)
-
-
 def _percentile(values: list[float], percentile_rank: float) -> float | None:
     if not values:
         return None
@@ -111,7 +106,7 @@ async def load_turn_timing_report(
 
     filters = [
         Match.state == GameState.COMPLETED,
-        ~Match.name.ilike(f"{_TEST_NAME_PREFIX}%"),
+        ~Match.name.ilike(f"{TEST_NAME_PREFIX}%"),
     ]
     if completed_after is not None:
         filters.append(Match.completed_at >= completed_after)

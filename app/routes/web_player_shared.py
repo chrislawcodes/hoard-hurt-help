@@ -26,7 +26,7 @@ from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
 from app.models.player import Player
-from app.routes.provider_labels import PROVIDER_LABELS
+from app.provider_labels import provider_label
 
 
 def _hx_redirect(url: str) -> HTMLResponse:
@@ -85,5 +85,5 @@ async def _seat_provider_readiness(
 def _seat_provider_label(player: Player) -> str:
     """Friendly name of the AI a seat was joined with."""
     if player.chosen_provider:
-        return PROVIDER_LABELS.get(player.chosen_provider, player.chosen_provider.title())
+        return provider_label(player.chosen_provider)
     return "your AI"
