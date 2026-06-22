@@ -3,20 +3,11 @@
    <details>, so no JS. Server-rendered from `scoreboard`, already ranked by
    round-wins then this-round score. Per-player scores also ride on the name
    chips in the feed, so this stays collapsed by default. #}
-{% set me = (scoreboard | selectattr('agent_id', 'equalto', viewer_seat) | first) %}
 <details class="play-standings" id="play-standings">
   <summary class="ps-summary">
     <span class="ps-rt">R{{ game.current_round }}·T{{ game.current_turn }}</span>
-    {% if me %}<span class="ps-me"><strong>You {{ me.round_score }}</strong> · #{{ me.rank }}</span>{% endif %}
-    {% if scoreboard %}
-      {% if me and scoreboard[0].agent_id == viewer_seat %}
-      <span class="ps-leader">you're in front</span>
-      {% else %}
-      <span class="ps-leader">{{ scoreboard[0].display_name }} leads {{ scoreboard[0].round_score }}</span>
-      {% endif %}
-    {% endif %}
-    {% if waiting_on %}<span class="ps-wait">{{ waiting_on }} to move</span>{% endif %}
-    <span class="ps-toggle">Standings ({{ scoreboard | length }}) ▾</span>
+    <span class="ps-toggle">Standings ▾</span>
+    {% if play_deadline_at %}<span class="ps-clock play-clock" data-play-clock aria-live="polite">—</span>{% endif %}
   </summary>
   <ol class="ps-list">
     {% for row in scoreboard %}
@@ -29,4 +20,11 @@
     {% endfor %}
   </ol>
   <p class="ps-foot">● = round wins (takes the game) · number = points this round</p>
+  <div class="ps-actions">
+    <a class="ps-action" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">Analysis</a>
+    <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/play/leave"
+          onsubmit="return confirm('Leave this match? Your seat plays Hoard for the rest of the match.');">
+      <button type="submit" class="ps-action ps-leave">Leave match</button>
+    </form>
+  </div>
 </details>

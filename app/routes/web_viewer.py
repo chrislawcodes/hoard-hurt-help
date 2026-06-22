@@ -222,7 +222,16 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     # fragment, so chips + standings survive every SSE swap.
     ctx["viewer_seat"] = viewer_seat
     ctx["leader_seat"] = scoreboard[0]["agent_id"] if scoreboard else None
-    ctx["score_by_name"] = {row["agent_id"]: row["round_score"] for row in scoreboard}
+    score_by_name = {row["agent_id"]: row["round_score"] for row in scoreboard}
+    ctx["score_by_name"] = score_by_name
+    # Order this turn's revealed talk by round score (highest first; silent last),
+    # so the live reveal reads in standings order (spec 019).
+    talk = play_ctx.get("play_talk") or []
+    if talk:
+        spoke = [m for m in talk if not m.get("quiet")]
+        quiet = [m for m in talk if m.get("quiet")]
+        spoke.sort(key=lambda m: (-score_by_name.get(m["who"], 0), m["who"]))
+        ctx["play_talk"] = spoke + quiet
     player_mode = bool(play_ctx.get("viewer_is_human")) and g.state == GameState.ACTIVE
     ctx["player_mode"] = player_mode
     if player_mode:

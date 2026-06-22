@@ -342,6 +342,14 @@ tr:last-child td { border-bottom: none; }
 .turn-block .effect .who { color: var(--ink-soft); }
 .turn-block .effect .sep { color: var(--ink-soft); margin: 0 0.2rem; }
 .turn-block .turn-empty { color: var(--ink-soft); list-style: none; }
+/* The live, current turn at the top of the feed (spec 019): the same card as any
+   other turn, accented like the current turn, showing this turn's revealed talk
+   (moves land when it resolves). Keeps the cockpit a single feed — no extra box. */
+.turn-block.turn-live { border-color: var(--accent); box-shadow: inset 3px 0 0 0 var(--accent); }
+/* Live reveal rows: one compact chat line — name, score chip, then the message
+   inline — so a 10-player turn fits without a name-on-its-own-line per message. */
+.move-row-talk { line-height: 1.45; }
+.talk-msg { margin-left: 0.3rem; }
 .action-card.help { border-color: color-mix(in srgb, var(--help) 28%, var(--line)); background: color-mix(in srgb, var(--help) 7%, var(--surface)); }
 .action-card.hoard { border-color: color-mix(in srgb, var(--hoard) 24%, var(--line)); }
 .action-card.hurt, .action-card.is-betrayal { border-color: var(--bad-line); background: var(--bad-bg); }
@@ -2311,30 +2319,10 @@ button.danger:hover,
 }
 .play-counter { margin: -0.4rem 0 0; text-align: right; font-size: 0.78rem; color: var(--ink-soft); }
 
-/* Act phase: three zones — pinned clock, scrollable talk, pinned action bar —
-   so a long transcript never pushes the move controls or the countdown off
-   screen. The panel caps its height and only the talk zone scrolls. */
-.play-act { display: flex; flex-direction: column; max-height: min(72vh, 40rem); min-height: 0; }
-.play-act-head { flex: none; margin-bottom: 0.6rem; }
-.play-said {
-    flex: 1 1 auto; min-height: 3rem; overflow-y: auto;
-    margin: 0 0 0.75rem; padding: 0.5rem 0.75rem;
-    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-}
-.play-said-head {
-    position: sticky; top: 0; margin: 0 0 0.3rem; padding-bottom: 0.3rem;
-    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--ink-soft); background: var(--surface);
-}
-.play-said-line { margin: 0.35rem 0; font-size: 0.9rem; line-height: 1.4; }
-.play-said-who { font-weight: 800; }
-.play-said-quiet { color: var(--ink-soft); font-style: italic; }
-/* Talk-phase recap: the just-resolved turn's interactions, shown in the dock so
-   a human reads the outcome before speaking again (mirror of the act reveal).
-   Each interaction is a neat flex row: who · action · → target · tag · delta. */
-.play-recap-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; }
-.play-recap-line .arrow { color: var(--ink-soft); }
-.play-actbar { flex: none; }
+/* (spec 019) The dock is controls-only: the act-phase reveal and the
+   "what just happened" recap moved into the feed, so the old in-dock
+   .play-act / .play-said / .play-recap styles were removed. */
+.play-target-hint { font-weight: 400; font-size: 0.78rem; color: var(--ink-soft); }
 
 .action-choices {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;
@@ -2342,12 +2330,12 @@ button.danger:hover,
 }
 .play-panel .action-card {
     position: relative; display: flex; flex-direction: column; align-items: center;
-    gap: 0.15rem; padding: 0.8rem 0.4rem; min-height: 4.75rem; cursor: pointer;
+    gap: 0.1rem; padding: 0.5rem 0.35rem; min-height: 3.5rem; cursor: pointer;
     border: 2px solid var(--line); border-radius: var(--radius);
     background: var(--surface); text-align: center;
 }
-.play-panel .action-card .ac-name { font-weight: 800; font-size: 1.05rem; }
-.play-panel .action-card .ac-payoff { font-size: 0.8rem; color: var(--ink-soft); }
+.play-panel .action-card .ac-name { font-weight: 800; font-size: 0.98rem; }
+.play-panel .action-card .ac-payoff { font-size: 0.74rem; color: var(--ink-soft); line-height: 1.25; }
 .play-panel .action-card .ac-mutual { font-weight: 800; color: var(--help); }
 .play-panel .action-card input { position: absolute; opacity: 0; pointer-events: none; }
 .play-panel .action-card-hoard { border-color: color-mix(in srgb, var(--hoard) 35%, var(--line)); }
@@ -2397,8 +2385,21 @@ button.danger:hover,
    the input is always in reach and never below the fold. Everything is scoped to
    .cockpit, so the spectator / replay view is untouched. */
 .cockpit { display: flex; flex-direction: column; gap: 0.75rem; }
-/* Space below the feed so its last rows can scroll clear of the sticky dock. */
-.cockpit-feed { min-width: 0; padding-bottom: 7rem; }
+/* Space below the feed so its last rows can scroll clear of the always-open
+   sticky dock (spec 019: the controls no longer collapse, so reserve more). The
+   slim dock is ~180px with Hoard selected and grows when Help/Hurt shows the
+   target picker, so reserve enough to clear the taller case. */
+.cockpit-feed { min-width: 0; padding-bottom: 17rem; }
+
+/* Compact the cockpit so more messages fit (spec 019): tighter feed cards and a
+   slimmer standings strip. Scoped to .cockpit so the spectator feed is untouched.
+   The message-card trim repeats per message, so it is the biggest win. */
+.cockpit .turn-block { padding: 0.55rem 0.65rem; margin-bottom: 0.5rem; }
+.cockpit .turn-head { margin-bottom: 0.35rem; }
+.cockpit .turn-block .move-row { padding: 0.4rem 0.6rem; margin-bottom: 0.35rem; }
+.cockpit .turn-block .said { margin-top: 0.2rem; line-height: 1.4; }
+.cockpit .ps-summary { padding: 0.4rem 0.7rem; font-size: 0.85rem; gap: 0.25rem 0.4rem; }
+.cockpit .ps-foot, .cockpit .ps-list { font-size: 0.85rem; }
 
 /* The dock: pinned to the bottom of the viewport while the feed scrolls behind
    it (window scroll). Sticky — not fixed — so it never overlaps feed content. */
@@ -2406,17 +2407,17 @@ button.danger:hover,
     position: sticky; bottom: 0; z-index: 5; margin: 0;
     box-shadow: 0 -6px 16px color-mix(in srgb, var(--ink) 12%, transparent);
 }
-.cockpit #play-panel .play-act { max-height: 46vh; }
-.cockpit #play-panel .play-said { max-height: 20vh; }
 
 /* Final 10 seconds: the dock pulses, because a missed clock auto-Hoards you. */
-.cockpit #play-panel:has(.play-clock-low) {
+/* Near deadline (clock < 10s) the top bar flashes red, since the countdown now
+   lives there (spec 019); a missed clock auto-Hoards you. */
+.play-standings:has(.play-clock-low) {
     border-color: var(--hurt);
-    animation: cockpit-pulse 1s ease-in-out infinite;
+    animation: topbar-pulse 1s ease-in-out infinite;
 }
-@keyframes cockpit-pulse {
-    0%, 100% { box-shadow: 0 -6px 16px color-mix(in srgb, var(--ink) 12%, transparent); }
-    50% { box-shadow: 0 -6px 20px color-mix(in srgb, var(--hurt) 45%, transparent); }
+@keyframes topbar-pulse {
+    0%, 100% { background: var(--surface-2); }
+    50% { background: color-mix(in srgb, var(--hurt) 14%, var(--surface-2)); }
 }
 
 /* --- score chip on a player's name (feed + dock) --- */
@@ -2430,14 +2431,13 @@ button.danger:hover,
 .who-name.is-you + .who-score { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 
 /* tappable names → tap to set the act-phase target */
-.who-name[data-target-name], .play-said-who[data-target-name] {
+.who-name[data-target-name] {
     cursor: pointer; border-bottom: 1px dotted currentColor;
 }
-.who-name[data-target-name]:hover, .play-said-who[data-target-name]:hover,
-.who-name[data-target-name]:focus, .play-said-who[data-target-name]:focus {
+.who-name[data-target-name]:hover,
+.who-name[data-target-name]:focus {
     color: var(--accent); outline: none;
 }
-.play-said-hint { font-weight: 400; font-size: 0.72rem; color: var(--ink-soft); }
 
 /* --- collapsible standings --- */
 .play-standings {
@@ -2451,7 +2451,13 @@ button.danger:hover,
 .ps-summary::-webkit-details-marker { display: none; }
 .ps-me { font-weight: 700; }
 .ps-leader { color: var(--ink-soft); }
-.ps-toggle { margin-left: auto; color: var(--accent); font-weight: 700; font-size: 0.82rem; }
+.ps-toggle { color: var(--accent); font-weight: 700; font-size: 0.82rem; }
+/* Countdown timer in the top bar (spec 019): pushed to the far right. */
+.ps-clock { margin-left: auto; font-size: 1rem; font-weight: 700; flex: none; }
+/* Match actions, tucked in the standings drawer (replaces the old ⋯ menu). */
+.ps-actions { display: flex; gap: 1rem; align-items: center; padding: 0.1rem 0.8rem 0.6rem; }
+.ps-action { font-size: 0.85rem; color: var(--accent); background: none; border: none; padding: 0.3rem 0; cursor: pointer; font: inherit; text-decoration: none; }
+.ps-leave { color: var(--hurt); font-weight: 700; }
 .ps-list {
     list-style: none; margin: 0; padding: 0.2rem 0.4rem 0.4rem;
     border-top: 1px solid var(--line);
@@ -2480,9 +2486,11 @@ button.danger:hover,
    Cut the wasted space above the move panel so a player's job reaches the top
    of a phone: a slim site nav (no "Play now"), a compact play header, and the
    reader's history controls hidden on mobile. */
-.cockpit-page .al-nav { padding-top: 0.35rem; padding-bottom: 0.35rem; }
+.cockpit-page .al-nav { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.cockpit-page .al-nav-inner { height: 48px; }
+.cockpit-page .al-logo { width: 30px; height: 30px; }
 
-.cockpit-head { display: flex; align-items: center; gap: 0.5rem; margin: 0.6rem 0 0.5rem; }
+.cockpit-head { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0 0.35rem; }
 .cockpit-match {
     font-size: 0.95rem; font-weight: 700; color: var(--ink-soft);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2517,33 +2525,17 @@ button.danger:hover,
     .cockpit .feed-legend { display: none; }
 }
 
-/* --- collapsible move dock (spec 018) ---
-   The handle (title + clock) is always visible. On a phone the body collapses so
-   the transcript stays readable; the player taps to expand and act. No auto-open. */
-.play-handle {
-    display: flex; align-items: baseline; gap: 0.6rem; width: 100%; margin: 0;
-    background: none; border: none; padding: 0 0 0.5rem; font: inherit;
-    text-align: left; color: var(--ink); cursor: default;
-}
-.play-handle-title { font-size: 1.1rem; font-weight: 800; }
-.play-handle .play-clock { margin-left: auto; }
-.play-caret { display: none; color: var(--ink-soft); font-size: 0.85rem; transition: transform 0.15s ease; }
-
+/* The dock is controls-only (spec 019): no header — the round/turn, standings
+   link and countdown live in the top-bar standings strip. */
 .cockpit-page .al-footer { display: none; }  /* no site footer on a live game screen */
 
 @media (max-width: 620px) {
-    .play-handle { cursor: pointer; }
-    .play-caret { display: inline-block; }
-    /* Collapsed (default): only the handle shows, so the transcript fills the
-       screen. The player taps the handle to act. */
-    .cockpit #play-panel:not(.is-open) .play-body { display: none; }
-    /* Expanded: cap the dock so 4+ transcript rows stay visible above it; the
-       body scrolls inside when the controls are taller than the cap. */
-    .cockpit #play-panel.is-open {
-        display: flex; flex-direction: column; max-height: calc(100dvh - 22rem);
-    }
-    .cockpit #play-panel.is-open .play-handle { flex: none; }
-    .cockpit #play-panel.is-open .play-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-    .cockpit #play-panel.is-open .play-caret { transform: rotate(180deg); }
-    .cockpit #play-panel .play-said { max-height: 15vh; }
+    /* Compact the dock on a phone so more of the feed shows above it (spec 019). */
+    .cockpit #play-panel { padding: 0.55rem 0.75rem; }
+    .cockpit #play-panel .play-form { gap: 0.5rem; }
+    .cockpit #play-panel .play-counter { margin-top: -0.25rem; }
+    .cockpit #play-panel .play-btn { min-height: 2.85rem; padding: 0.55rem 1rem; }
+    /* Safety cap: the dock never eats the whole screen — its body scrolls inside
+       if the controls are unusually tall, while the feed scrolls above it. */
+    .cockpit #play-panel .play-body { max-height: 52vh; overflow-y: auto; }
 }

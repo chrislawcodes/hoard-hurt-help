@@ -6,21 +6,10 @@
 {% block body_class %}{% if player_mode %}cockpit-page{% endif %}{% endblock %}
 {% block nav_cta %}{% if not player_mode %}{{ super() }}{% endif %}{% endblock %}
 {% block content %}
-{% if player_mode %}
-<div class="cockpit-head">
-    <span class="cockpit-match">{{ game.name }}</span>
-    <details class="cockpit-menu">
-        <summary class="cockpit-menu-btn" aria-label="Match menu" aria-haspopup="menu">⋯</summary>
-        <div class="cockpit-menu-panel">
-            <a href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
-            <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/play/leave"
-                  onsubmit="return confirm('Leave this match? Your seat will play Hoard for the rest of the match.');">
-                <button type="submit" class="cockpit-menu-leave">Leave match</button>
-            </form>
-        </div>
-    </details>
-</div>
-{% else %}
+{# Player cockpit (spec 019): no top chrome here — the round/turn, standings link
+   and timer live in the top-bar standings strip inside the live region, and Leave
+   / Analysis moved into the standings drawer. #}
+{% if not player_mode %}
 <div class="page-head page-head-row">
     <h1>{{ game.name }}</h1>
     <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
@@ -390,15 +379,6 @@
     if (!region) return;
     const SAFETY_MS = 2000;  // submit the selection a beat before the server clock
     let timer = null;
-    let dockOpen = false;  // mobile: collapsed by default; tap the handle to act.
-
-    function applyDock() {
-        const panel = document.getElementById('play-panel');
-        if (!panel) return;
-        panel.classList.toggle('is-open', dockOpen);
-        const handle = panel.querySelector('[data-play-toggle]');
-        if (handle) handle.setAttribute('aria-expanded', dockOpen ? 'true' : 'false');
-    }
 
     function setupPanel() {
         if (timer) { clearTimeout(timer); timer = null; }
@@ -429,7 +409,9 @@
         }
 
         // Countdown + near-deadline auto-submit.
-        const clock = panel.querySelector('[data-play-clock]');
+        // The countdown lives in the top-bar standings strip now (spec 019), so
+        // find it in the whole live region, not just the dock panel.
+        const clock = region.querySelector('[data-play-clock]');
         const iso = panel.dataset.playDeadline;
         const yourTurn = panel.dataset.yourTurn;
         if (clock && iso) {
@@ -452,16 +434,7 @@
             };
             tick();
         }
-        applyDock();
     }
-
-    // Tap the dock handle to expand/collapse the move controls (mobile). No
-    // auto-open: it stays as the player left it across turns and swaps.
-    region.addEventListener('click', function (e) {
-        if (!e.target.closest('[data-play-toggle]')) return;
-        dockOpen = !dockOpen;
-        applyDock();
-    });
 
     // Pass = submit the talk phase with an empty message.
     region.addEventListener('click', function (e) {
@@ -475,9 +448,9 @@
             { target: '#live-region', swap: 'innerHTML', values: { message: '' } });
     });
 
-    // Tap a player's name (in the dock's "what was just said" or in the feed) to
-    // set them as the act-phase target. If no Help/Hurt is chosen yet, default to
-    // Help so the target applies — the player can still switch to Hurt.
+    // Tap a player's name in the feed (or the live "this turn" card) to set them
+    // as the act-phase target. If no Help/Hurt is chosen yet, default to Help so
+    // the target applies — the player can still switch to Hurt.
     function applyTarget(name) {
         const actForm = document.getElementById('act-form');
         if (!actForm || !name) return;
@@ -491,7 +464,6 @@
         targetInput.value = name;
         const wrap = actForm.querySelector('[data-play-target-wrap]');
         if (wrap) wrap.style.display = '';
-        dockOpen = true; applyDock();  // tapping a name means "I want to act" — open the dock
     }
     region.addEventListener('click', function (e) {
         const el = e.target.closest('[data-target-name]');
