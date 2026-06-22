@@ -154,6 +154,120 @@ def resolve_showdown(bid: Bid, all_dice: list[int], *, wild: bool) -> tuple[bool
 
 
 # ---------------------------------------------------------------------------
+# resolve_showdown_outcome
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ShowdownOutcome:
+    """The pure result of a challenge showdown.
+
+    Holds every *decision* a showdown makes; the caller is responsible for the
+    DB/state persistence (popping the loser's die, writing scores, appending to
+    the elimination order). Fields:
+
+    - bid_holds / actual_count: as from `resolve_showdown`.
+    - winner_seat / loser_seat: the bidder or challenger, per `bid_holds`.
+    - loser_new_count: the loser's dice count after losing one die (clamped at
+      0); None when there is no loser seat in play.
+    - eliminated_seat: the loser's seat iff this showdown drops it to 0 dice and
+      it is not already in `elimination_order`; None otherwise.
+    - next_leader: the seat that opens the next hand (the loser if still alive,
+      else the next alive seat after the loser); None when undecidable.
+    - counts: per-seat dice counts AFTER the loser's die is removed.
+    """
+
+    bid_holds: bool
+    actual_count: int
+    winner_seat: str | None
+    loser_seat: str | None
+    loser_new_count: int | None
+    eliminated_seat: str | None
+    next_leader: str | None
+    counts: dict[str, int]
+
+
+def resolve_showdown_outcome(
+    bid: Bid,
+    *,
+    revealed: dict[str, list[int]],
+    seat_order: list[str],
+    bidder: str | None,
+    challenger: str | None,
+    elimination_order: list[str],
+    wild: bool,
+) -> ShowdownOutcome:
+    """Resolve a full showdown into the decisions the round needs.
+
+    `revealed` maps each seat to its rolled dice (the source of truth for both
+    the aggregate count and per-seat counts). `seat_order` drives the
+    next-leader search; `bidder`/`challenger` name the two seats at stake;
+    `elimination_order` is the seats already eliminated (used only to avoid
+    re-recording an elimination). Pure: returns decisions, mutates nothing.
+    """
+    all_dice: list[int] = []
+    counts: dict[str, int] = {}
+    for seat, dice in revealed.items():
+        counts[seat] = len(dice)
+        all_dice.extend(dice)
+
+    bid_holds, actual_count = resolve_showdown(bid, all_dice, wild=wild)
+    loser_seat = bidder if not bid_holds else challenger
+    winner_seat = challenger if not bid_holds else bidder
+
+    loser_new_count: int | None = None
+    eliminated_seat: str | None = None
+    if loser_seat is not None and loser_seat in counts:
+        loser_new_count = max(0, counts[loser_seat] - 1)
+        counts[loser_seat] = loser_new_count
+        if loser_new_count == 0 and loser_seat not in elimination_order:
+            eliminated_seat = loser_seat
+
+    next_leader: str | None = None
+    if loser_seat is not None and loser_seat in counts:
+        if counts.get(loser_seat, 0) > 0:
+            next_leader = loser_seat
+        else:
+            next_leader = _next_alive_seat(seat_order, counts, loser_seat)
+
+    return ShowdownOutcome(
+        bid_holds=bid_holds,
+        actual_count=actual_count,
+        winner_seat=winner_seat,
+        loser_seat=loser_seat,
+        loser_new_count=loser_new_count,
+        eliminated_seat=eliminated_seat,
+        next_leader=next_leader,
+        counts=counts,
+    )
+
+
+def _next_alive_seat(
+    seat_order: list[str], counts: dict[str, int], current_seat: str | None
+) -> str | None:
+    """Next seat after `current_seat` with dice left, scanning `seat_order`.
+
+    Mirrors the round's turn-advance rule: from the seat after `current_seat`,
+    wrap around `seat_order` and return the first seat with a positive count;
+    None if no seat has dice. When `current_seat` is not in `seat_order`, scan
+    from the front.
+    """
+    if not seat_order:
+        return None
+    if current_seat not in seat_order:
+        for seat in seat_order:
+            if counts.get(seat, 0) > 0:
+                return seat
+        return None
+    start = seat_order.index(current_seat)
+    for offset in range(1, len(seat_order) + 1):
+        seat = seat_order[(start + offset) % len(seat_order)]
+        if counts.get(seat, 0) > 0:
+            return seat
+    return None
+
+
+# ---------------------------------------------------------------------------
 # is_legal_raise
 # ---------------------------------------------------------------------------
 
