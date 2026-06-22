@@ -11,7 +11,7 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Literal
 
-from app.engine.action_vocab import pd_action_names
+from app.engine.action_vocab import action_counts, pd_action_names
 from app.engine.game_records import ActionRecord, PlayerRecord
 from app.schemas.agent import OpponentsAggregate, OpponentStat, StyleMix
 
@@ -179,15 +179,16 @@ def _aggregate(
         return None
     folded_set = set(folded)
     hoard_action, help_action, hurt_action = pd_action_names()
-    hoard = help = hurt = 0
+    counts: Counter[str] = Counter()
     if last_rt is not None:
-        for a in actions:
-            if (a.round, a.turn) != last_rt or a.actor_id not in folded_set:
-                continue
-            if a.action == hoard_action:
-                hoard += 1
-            elif a.action == help_action:
-                help += 1
-            elif a.action == hurt_action:
-                hurt += 1
-    return OpponentsAggregate(count=len(folded), hoard=hoard, help=help, hurt=hurt)
+        counts = action_counts(
+            a
+            for a in actions
+            if (a.round, a.turn) == last_rt and a.actor_id in folded_set
+        )
+    return OpponentsAggregate(
+        count=len(folded),
+        hoard=counts[hoard_action],
+        help=counts[help_action],
+        hurt=counts[hurt_action],
+    )
