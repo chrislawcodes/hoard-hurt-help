@@ -17,8 +17,6 @@ import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from typing import Any
-
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +36,9 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import TurnSubmission
 
-Bot = Any
+# A "bot" here is the user's AI Connection (runner/MCP login). Aliased so the
+# onboarding/health signatures read in bot terms while keeping the real type.
+Bot = Connection
 BotStatus = ConnectionStatus
 
 _PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
@@ -234,6 +234,9 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
     active = next((g for g in games if g.state == GameState.ACTIVE), None)
     pregame = next((g for g in games if g.state in _PREGAME_STATES), None)
     connected = bot.first_connected_at is not None
+    # A Connection has no `name`; its display name is the user-set nickname (a
+    # machine connection is named after the box) with a stable fallback.
+    name = bot.nickname or "Machine connection"
 
     if await _has_moved(db, bot.id):
         # Established bot. The detail page hides the onboarding panel entirely for
@@ -243,7 +246,7 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
         # dead "Watch live" link.
         return OnboardingStatus(
             OnboardingState.PLAYING,
-            bot_name=bot.name,
+            bot_name=name,
             match_id=active.id if active else None,
             game_name=active.name if active else None,
             game_type=active.game if active else None,
@@ -253,7 +256,7 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
         if active is not None:
             return OnboardingStatus(
                 OnboardingState.IN_GAME_NO_MOVE,
-                bot.name,
+                name,
                 active.id,
                 active.name,
                 active.game,
@@ -261,23 +264,23 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
         if pregame is not None:
             return OnboardingStatus(
                 OnboardingState.CONNECTED_PREGAME,
-                bot.name,
+                name,
                 pregame.id,
                 pregame.name,
                 pregame.game,
             )
-        return OnboardingStatus(OnboardingState.CONNECTED_NO_GAME, bot.name)
+        return OnboardingStatus(OnboardingState.CONNECTED_NO_GAME, name)
 
     waiting_game = active or pregame
     if waiting_game is not None:
         return OnboardingStatus(
             OnboardingState.WAITING_IN_GAME,
-            bot.name,
+            name,
             waiting_game.id,
             waiting_game.name,
             waiting_game.game,
         )
-    return OnboardingStatus(OnboardingState.WAITING, bot.name)
+    return OnboardingStatus(OnboardingState.WAITING, name)
 
 
 async def compute_bot_health(

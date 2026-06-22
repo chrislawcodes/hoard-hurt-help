@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from collections.abc import Sequence
 from typing import Literal
 
-from app.engine.action_vocab import pd_action_names
+from app.engine.action_vocab import action_counts, pd_action_names
 from app.engine.game_records import ActionRecord, PlayerRecord
 from app.schemas.agent import Alliance, BoardSignals
 
@@ -48,8 +48,9 @@ def compute_board_signals(
 
 def _temperature(round_actions: Sequence[ActionRecord]) -> tuple[float, TemperatureLabel]:
     _, help_action, hurt_action = pd_action_names()
-    helps = sum(1 for a in round_actions if a.action == help_action)
-    hurts = sum(1 for a in round_actions if a.action == hurt_action)
+    counts = action_counts(round_actions)
+    helps = counts[help_action]
+    hurts = counts[hurt_action]
     if helps + hurts == 0:
         return 0.5, "mixed"
     temp = helps / (helps + hurts)

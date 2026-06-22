@@ -26,7 +26,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from app.engine.action_vocab import pd_action_names
+from app.engine.action_vocab import action_counts, pd_action_names
 from app.engine.game_records import ActionRecord, PlayerRecord
 
 _MODEL_DIR = Path(__file__).resolve().parents[2] / "data"
@@ -45,9 +45,19 @@ def _load(name: str, path: Path) -> Any | None:
             try:
                 with open(path, "rb") as fh:
                     _model_cache[name] = pickle.load(fh)["model"]
-            except Exception as exc:
-                # sklearn (or another dep) not installed in this environment;
-                # degrade gracefully — callers return empty dicts.
+            except (
+                ImportError,
+                ModuleNotFoundError,
+                OSError,
+                pickle.UnpicklingError,
+                KeyError,
+            ) as exc:
+                # fail-open: advisory only. Win-probability is an optional overlay,
+                # so a model that can't load degrades the feature to empty dicts
+                # rather than failing the turn. We only swallow the realistic load
+                # failures — a missing dep (sklearn et al. not installed),
+                # unreadable/corrupt file, or an unexpected pickle shape (no
+                # "model" key). Anything else propagates so genuine bugs stay loud.
                 logger.warning("Win-probability model %r unavailable: %s", name, exc)
                 _model_cache[name] = None
         else:
@@ -199,19 +209,21 @@ class _Ctx:
         # built from; for PD they resolve to HOARD/HELP/HURT (unchanged).
         hoard_action, help_action, hurt_action = pd_action_names()
         my = [a for a in self.prior if a.actor_id == agent_id]
+        counts = action_counts(my)
         return (
-            sum(1 for a in my if a.action == help_action),
-            sum(1 for a in my if a.action == hurt_action),
-            sum(1 for a in my if a.action == hoard_action),
+            counts[help_action],
+            counts[hurt_action],
+            counts[hoard_action],
             sum(1 for a in self.prior if a.action == hurt_action and a.target_id == agent_id),
         )
 
     def _table(self, agent_id: str) -> tuple[int, int, int, int, int, int]:
         """(help_cnt, hurt_cnt, hoard_cnt, was_piled, pile_max, mutual) for current turn."""
         hoard_action, help_action, hurt_action = pd_action_names()
-        tbl_help = sum(1 for a in self.cur if a.action == help_action)
-        tbl_hurt = sum(1 for a in self.cur if a.action == hurt_action)
-        tbl_hoard = sum(1 for a in self.cur if a.action == hoard_action)
+        counts = action_counts(self.cur)
+        tbl_help = counts[help_action]
+        tbl_hurt = counts[hurt_action]
+        tbl_hoard = counts[hoard_action]
 
         hurt_on: dict[str, int] = defaultdict(int)
         for a in self.cur:
@@ -234,9 +246,10 @@ class _Ctx:
         if total == 0:
             return 0.0, 0.0
         _, help_action, hurt_action = pd_action_names()
+        counts = action_counts(self.prior)
         return (
-            sum(1 for a in self.prior if a.action == help_action) / total,
-            sum(1 for a in self.prior if a.action == hurt_action) / total,
+            counts[help_action] / total,
+            counts[hurt_action] / total,
         )
 
     # --- public feature builders ---
