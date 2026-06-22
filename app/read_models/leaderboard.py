@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import pow
@@ -179,17 +180,9 @@ def _logistic_expected(rating_a: float, rating_b: float) -> float:
     return 1.0 / (1.0 + pow(10.0, (rating_b - rating_a) / 400.0))
 
 
-async def load_leaderboard_sections(
-    db: AsyncSession,
-    *,
-    rating_mode: str = "standard",
-    included: str = "agents",
-) -> list[LeaderboardSection]:
-    """Load game-grouped leaderboard sections from completed matches."""
-
-    rating_mode_choice = _normalize_rating_mode(rating_mode)
-    included_choice = _normalize_included(included)
-
+async def _load_match_bundles(db: AsyncSession) -> dict[str, _MatchBundle]:
+    """Load completed, post-cutoff matches and fold each one's rows into a single
+    `_MatchBundle` keyed by match id, dropping smoke-test matches entirely."""
     rows = (
         await db.execute(
             select(Match, Player, Agent, AgentVersion, User)
@@ -248,180 +241,262 @@ async def load_leaderboard_sections(
             has_bots=bundle.has_bots or agent.kind == AgentKind.BOT,
         )
 
+    return match_groups
+
+
+def _order_game_types(games: dict[str, list[_MatchBundle]]) -> list[str]:
+    """Section order: registered game types first (in their known order), then any
+    remaining (legacy/unregistered) types sorted alphabetically."""
+    ordered_game_types = [game_type for game_type in known_types() if game_type in games]
+    ordered_game_types.extend(sorted(game_type for game_type in games if game_type not in ordered_game_types))
+    return ordered_game_types
+
+
+def _resolve_placement_key(game_type: str) -> Callable[..., tuple[float, ...]]:
+    """Placement is per-game (shared rating math, per-game finish order). PD's key
+    is (round_wins, total_score); a game overrides match_placement_key to rank its
+    own way. Unregistered legacy game types fall back to the default."""
+    try:
+        return get_game_module(game_type).match_placement_key
+    except GameError:
+        def placement_key(*, round_wins: float, total_score: int) -> tuple[float, ...]:
+            return (round_wins, float(total_score))
+
+        return placement_key
+
+
+def _compute_placement_tiers(
+    participants: list[_Participant],
+    placement_key: Callable[..., tuple[float, ...]],
+) -> tuple[dict[str, int], set[str]]:
+    """Rank the match's participants into placement tiers by their placement key
+    (best first). Returns the tier index of each competitor key and the set of
+    competitor keys that share the top tier."""
+    keys_by_competitor = {
+        participant.competitor_key: placement_key(
+            round_wins=participant.round_wins, total_score=participant.total_score
+        )
+        for participant in participants
+    }
+    group_keys = sorted(set(keys_by_competitor.values()), reverse=True)
+    placement_groups: list[list[_Participant]] = []
+    for gkey in group_keys:
+        placement_groups.append(
+            sorted(
+                [
+                    participant
+                    for participant in participants
+                    if keys_by_competitor[participant.competitor_key] == gkey
+                ],
+                key=lambda participant: participant.competitor_key,
+            )
+        )
+
+    group_index_by_key: dict[str, int] = {
+        participant.competitor_key: index
+        for index, group in enumerate(placement_groups)
+        for participant in group
+    }
+    first_place_keys = {
+        participant.competitor_key for participant in placement_groups[0]
+    }
+    return group_index_by_key, first_place_keys
+
+
+def _apply_match_elo(
+    participants: list[_Participant],
+    states: dict[str, _CompetitorState],
+    group_index_by_key: dict[str, int],
+    first_place_keys: set[str],
+    rating_mode_choice: LeaderboardRatingMode,
+) -> None:
+    """Run the full pairwise Elo tournament for one match and fold the results into
+    `states`. Each unordered pair contributes a symmetric rating delta from the
+    finishing-tier outcome; the per-match delta is averaged over a competitor's
+    opponents before being applied. Mutates `states` in place."""
+    start_ratings = {
+        participant.competitor_key: states.get(participant.competitor_key, _CompetitorState()).rating
+        for participant in participants
+    }
+    deltas = {participant.competitor_key: 0.0 for participant in participants}
+    opponent_counts = {participant.competitor_key: 0 for participant in participants}
+
+    for index, left in enumerate(participants):
+        for right in participants[index + 1:]:
+            left_group = group_index_by_key[left.competitor_key]
+            right_group = group_index_by_key[right.competitor_key]
+            if left_group == right_group:
+                left_score = 0.5
+                weight = 1.0
+            elif left_group < right_group:
+                left_score = 1.0
+                weight = (
+                    FIRST_PLACE_WEIGHT
+                    if rating_mode_choice == "bonus" and left.competitor_key in first_place_keys
+                    else 1.0
+                )
+            else:
+                left_score = 0.0
+                weight = (
+                    FIRST_PLACE_WEIGHT
+                    if rating_mode_choice == "bonus" and right.competitor_key in first_place_keys
+                    else 1.0
+                )
+
+            expected_left = _logistic_expected(
+                start_ratings[left.competitor_key],
+                start_ratings[right.competitor_key],
+            )
+            delta = K_FACTOR * weight * (left_score - expected_left)
+            deltas[left.competitor_key] += delta
+            deltas[right.competitor_key] -= delta
+            opponent_counts[left.competitor_key] += 1
+            opponent_counts[right.competitor_key] += 1
+
+    for participant in participants:
+        state = states.get(participant.competitor_key)
+        current_rating = start_ratings[participant.competitor_key]
+        match_delta = deltas[participant.competitor_key] / opponent_counts[participant.competitor_key]
+        if state is None:
+            state = _CompetitorState(
+                rating=current_rating,
+                match_count=0,
+                last_played_at=None,
+                is_bot=participant.is_bot,
+                is_archived=participant.is_archived,
+                archived_at=participant.archived_at,
+                display_name=participant.display_name,
+                owner_handle=participant.owner_handle,
+            )
+        state.rating = current_rating + match_delta
+        state.match_count += 1
+        # Keep the provider from the agent's most recent *served* match —
+        # a later match that no connection ever played (NULL provider)
+        # must not wipe an earlier real badge.
+        if participant.provider is not None and (
+            state.last_played_at is None
+            or participant.last_played_at >= state.last_played_at
+        ):
+            state.provider = participant.provider
+        state.last_played_at = max(
+            state.last_played_at or participant.last_played_at,
+            participant.last_played_at,
+        )
+        state.is_bot = participant.is_bot
+        state.is_archived = participant.is_archived
+        state.archived_at = participant.archived_at
+        state.display_name = participant.display_name
+        state.owner_handle = participant.owner_handle
+        states[participant.competitor_key] = state
+
+
+def _compute_game_states(
+    bundles: list[_MatchBundle],
+    included_choice: LeaderboardIncluded,
+    rating_mode_choice: LeaderboardRatingMode,
+    placement_key: Callable[..., tuple[float, ...]],
+) -> tuple[dict[str, _CompetitorState], int]:
+    """Replay one game's matches in chronological order, accumulating per-competitor
+    Elo state. Returns the final states and the count of matches that actually
+    contributed (those with at least two included participants)."""
+    states: dict[str, _CompetitorState] = {}
+    contributed_matches = 0
+
+    for bundle in bundles:
+        participants = _merge_same_key_participants(
+            [p for p in bundle.participants if _is_included(p.is_bot, included_choice)]
+        )
+        if len(participants) < 2:
+            continue
+
+        contributed_matches += 1
+        group_index_by_key, first_place_keys = _compute_placement_tiers(participants, placement_key)
+        _apply_match_elo(
+            participants,
+            states,
+            group_index_by_key,
+            first_place_keys,
+            rating_mode_choice,
+        )
+
+    return states, contributed_matches
+
+
+def _format_leaderboard_rows(states: dict[str, _CompetitorState]) -> list[LeaderboardRow]:
+    """Rank competitors by rating (then match count, name, key) and build display
+    rows. Equal ratings share a rank (standard competition ranking)."""
+    ranked_states = sorted(
+        states.items(),
+        key=lambda item: (-item[1].rating, -item[1].match_count, item[1].display_name.lower(), item[0]),
+    )
+    rows_out: list[LeaderboardRow] = []
+    previous_rating: float | None = None
+    current_rank = 0
+    for position, (_, state) in enumerate(ranked_states, start=1):
+        if previous_rating is None or abs(state.rating - previous_rating) > 1e-9:
+            current_rank = position
+            previous_rating = state.rating
+        rows_out.append(
+            LeaderboardRow(
+                rank=current_rank,
+                display_name=state.display_name,
+                owner_handle=state.owner_handle,
+                rating=state.rating,
+                match_count=state.match_count,
+                last_played_at=state.last_played_at,
+                is_bot=state.is_bot,
+                provisional=state.match_count < 5,
+                is_archived=state.is_archived,
+                archived_at=state.archived_at,
+                provider=(
+                    provider_label(state.provider) if state.provider else None
+                ),
+            )
+        )
+    return rows_out
+
+
+async def load_leaderboard_sections(
+    db: AsyncSession,
+    *,
+    rating_mode: str = "standard",
+    included: str = "agents",
+) -> list[LeaderboardSection]:
+    """Load game-grouped leaderboard sections from completed matches."""
+
+    rating_mode_choice = _normalize_rating_mode(rating_mode)
+    included_choice = _normalize_included(included)
+
+    match_groups = await _load_match_bundles(db)
+
     games: dict[str, list[_MatchBundle]] = defaultdict(list)
     for bundle in match_groups.values():
         games[bundle.game_type].append(bundle)
 
-    ordered_game_types = [game_type for game_type in known_types() if game_type in games]
-    ordered_game_types.extend(sorted(game_type for game_type in games if game_type not in ordered_game_types))
-
     sections: list[LeaderboardSection] = []
-    for game_type in ordered_game_types:
+    for game_type in _order_game_types(games):
         bundles = sorted(
             games[game_type],
             key=lambda bundle: (bundle.scheduled_start, bundle.match_id),
         )
-        states: dict[str, _CompetitorState] = {}
-        contributed_matches = 0
         has_bots = any(bundle.has_bots for bundle in bundles)
+        placement_key = _resolve_placement_key(game_type)
 
-        # Placement is per-game (shared rating math, per-game finish order). PD's
-        # key is (round_wins, total_score); a game overrides match_placement_key to
-        # rank its own way. Unregistered legacy game types fall back to the default.
-        try:
-            placement_key = get_game_module(game_type).match_placement_key
-        except GameError:
-            def placement_key(*, round_wins: float, total_score: int) -> tuple[float, ...]:
-                return (round_wins, float(total_score))
-
-        for bundle in bundles:
-            participants = _merge_same_key_participants(
-                [p for p in bundle.participants if _is_included(p.is_bot, included_choice)]
-            )
-            if len(participants) < 2:
-                continue
-
-            contributed_matches += 1
-            keys_by_competitor = {
-                participant.competitor_key: placement_key(
-                    round_wins=participant.round_wins, total_score=participant.total_score
-                )
-                for participant in participants
-            }
-            group_keys = sorted(set(keys_by_competitor.values()), reverse=True)
-            placement_groups: list[list[_Participant]] = []
-            for gkey in group_keys:
-                placement_groups.append(
-                    sorted(
-                        [
-                            participant
-                            for participant in participants
-                            if keys_by_competitor[participant.competitor_key] == gkey
-                        ],
-                        key=lambda participant: participant.competitor_key,
-                    )
-                )
-
-            group_index_by_key: dict[str, int] = {
-                participant.competitor_key: index
-                for index, group in enumerate(placement_groups)
-                for participant in group
-            }
-            first_place_keys = {
-                participant.competitor_key for participant in placement_groups[0]
-            }
-            start_ratings = {
-                participant.competitor_key: states.get(participant.competitor_key, _CompetitorState()).rating
-                for participant in participants
-            }
-            deltas = {participant.competitor_key: 0.0 for participant in participants}
-            opponent_counts = {participant.competitor_key: 0 for participant in participants}
-
-            for index, left in enumerate(participants):
-                for right in participants[index + 1:]:
-                    left_group = group_index_by_key[left.competitor_key]
-                    right_group = group_index_by_key[right.competitor_key]
-                    if left_group == right_group:
-                        left_score = 0.5
-                        weight = 1.0
-                    elif left_group < right_group:
-                        left_score = 1.0
-                        weight = (
-                            FIRST_PLACE_WEIGHT
-                            if rating_mode_choice == "bonus" and left.competitor_key in first_place_keys
-                            else 1.0
-                        )
-                    else:
-                        left_score = 0.0
-                        weight = (
-                            FIRST_PLACE_WEIGHT
-                            if rating_mode_choice == "bonus" and right.competitor_key in first_place_keys
-                            else 1.0
-                        )
-
-                    expected_left = _logistic_expected(
-                        start_ratings[left.competitor_key],
-                        start_ratings[right.competitor_key],
-                    )
-                    delta = K_FACTOR * weight * (left_score - expected_left)
-                    deltas[left.competitor_key] += delta
-                    deltas[right.competitor_key] -= delta
-                    opponent_counts[left.competitor_key] += 1
-                    opponent_counts[right.competitor_key] += 1
-
-            for participant in participants:
-                state = states.get(participant.competitor_key)
-                current_rating = start_ratings[participant.competitor_key]
-                match_delta = deltas[participant.competitor_key] / opponent_counts[participant.competitor_key]
-                if state is None:
-                    state = _CompetitorState(
-                        rating=current_rating,
-                        match_count=0,
-                        last_played_at=None,
-                        is_bot=participant.is_bot,
-                        is_archived=participant.is_archived,
-                        archived_at=participant.archived_at,
-                        display_name=participant.display_name,
-                        owner_handle=participant.owner_handle,
-                    )
-                state.rating = current_rating + match_delta
-                state.match_count += 1
-                # Keep the provider from the agent's most recent *served* match —
-                # a later match that no connection ever played (NULL provider)
-                # must not wipe an earlier real badge.
-                if participant.provider is not None and (
-                    state.last_played_at is None
-                    or participant.last_played_at >= state.last_played_at
-                ):
-                    state.provider = participant.provider
-                state.last_played_at = max(
-                    state.last_played_at or participant.last_played_at,
-                    participant.last_played_at,
-                )
-                state.is_bot = participant.is_bot
-                state.is_archived = participant.is_archived
-                state.archived_at = participant.archived_at
-                state.display_name = participant.display_name
-                state.owner_handle = participant.owner_handle
-                states[participant.competitor_key] = state
+        states, contributed_matches = _compute_game_states(
+            bundles,
+            included_choice,
+            rating_mode_choice,
+            placement_key,
+        )
 
         if not states:
             continue
-
-        ranked_states = sorted(
-            states.items(),
-            key=lambda item: (-item[1].rating, -item[1].match_count, item[1].display_name.lower(), item[0]),
-        )
-        rows_out: list[LeaderboardRow] = []
-        previous_rating: float | None = None
-        current_rank = 0
-        for position, (_, state) in enumerate(ranked_states, start=1):
-            if previous_rating is None or abs(state.rating - previous_rating) > 1e-9:
-                current_rank = position
-                previous_rating = state.rating
-            rows_out.append(
-                LeaderboardRow(
-                    rank=current_rank,
-                    display_name=state.display_name,
-                    owner_handle=state.owner_handle,
-                    rating=state.rating,
-                    match_count=state.match_count,
-                    last_played_at=state.last_played_at,
-                    is_bot=state.is_bot,
-                    provisional=state.match_count < 5,
-                    is_archived=state.is_archived,
-                    archived_at=state.archived_at,
-                    provider=(
-                        provider_label(state.provider) if state.provider else None
-                    ),
-                )
-            )
 
         sections.append(
             LeaderboardSection(
                 game_type=game_type,
                 game_name=_game_display_name(game_type),
-                rows=rows_out,
+                rows=_format_leaderboard_rows(states),
                 match_count=contributed_matches,
                 has_bots=has_bots,
             )
