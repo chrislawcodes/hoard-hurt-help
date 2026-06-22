@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
+from app.match_naming import humanize_game_type
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -307,7 +309,7 @@ class BaseGameModule:
     def display_name(self) -> str:
         # Default: humanize the game_type (e.g. "stub-game" -> "Stub Game").
         # Games with a stylized title (e.g. PD's "Hoard · Hurt · Help") override this.
-        return self.game_type.replace("-", " ").title()
+        return humanize_game_type(self.game_type)
 
     def tagline(self) -> str:
         # Default: no tagline. Games override to describe themselves in the catalog.

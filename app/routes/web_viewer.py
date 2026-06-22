@@ -17,9 +17,9 @@ from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
+from app.provider_labels import provider_label
 from app.read_models.matches import load_match_timeline, load_players
 from app.read_models.agent_display import agent_display_name
-from app.routes.provider_labels import PROVIDER_LABELS
 from app.routes.web_support import (
     _game_theme,
     _is_any_admin,
@@ -79,7 +79,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
                 "provider": (
                     None
                     if bot_flags.get(p.seat_name, False) or not p.played_provider
-                    else PROVIDER_LABELS.get(p.played_provider, p.played_provider.title())
+                    else provider_label(p.played_provider)
                 ),
             }
             for p in players
