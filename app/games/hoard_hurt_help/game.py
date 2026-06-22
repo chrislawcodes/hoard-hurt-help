@@ -34,11 +34,16 @@ from app.models.player import Player
 from app.models.turn import TurnMessage, TurnSubmission
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from app.engine.game_insights import RoundDetail, SeasonOverview
+    from app.engine.game_records import ActionRecord, PlayerRecord
     from app.models.match import Match
     from app.models.turn import Turn
     from app.read_models.matches import TimelineTurn
+    from app.schemas.agent import BoardSignals
 
 _VALID_ACTIONS = {"HOARD", "HELP", "HURT"}
 
@@ -245,6 +250,38 @@ class HoardHurtHelp(BaseGameModule):
 
     def viewer_fragment(self) -> str:
         return "fragments/pd_live_region.html"
+
+    def board_signals(
+        self,
+        players: Sequence[PlayerRecord],
+        actions: Sequence[ActionRecord],
+        current_round: int,
+    ) -> BoardSignals:
+        from app.games.hoard_hurt_help.board_signals import compute_board_signals
+
+        return compute_board_signals(players, actions, current_round)
+
+    def season_overview(
+        self,
+        players: Sequence[PlayerRecord],
+        actions: Sequence[ActionRecord],
+        total_rounds: int,
+        current_round: int,
+        game_active: bool,
+    ) -> SeasonOverview:
+        from app.games.hoard_hurt_help.insights import season_overview
+
+        return season_overview(players, actions, total_rounds, current_round, game_active)
+
+    def round_detail(
+        self,
+        round_num: int,
+        players: Sequence[PlayerRecord],
+        actions: Sequence[ActionRecord],
+    ) -> RoundDetail:
+        from app.games.hoard_hurt_help.insights import round_detail
+
+        return round_detail(round_num, players, actions)
 
     def theme(self) -> GameTheme:
         # The flagship game wears the platform's warm orange, plus the move trio

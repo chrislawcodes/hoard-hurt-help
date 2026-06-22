@@ -11,12 +11,12 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from app.engine.action_vocab import pd_action_names
-from app.engine.board_signals import (
+from app.engine.game_records import ActionRecord, PlayerRecord
+from app.games.hoard_hurt_help.board_signals import (
     alliance_formed_this_turn,
     compute_board_signals,
     detect_pattern_breaks,
 )
-from app.engine.game_records import ActionRecord, PlayerRecord
 from app.engine.opponent_stats import (
     NEIGHBOR_RADIUS,
     build_opponent_view,
