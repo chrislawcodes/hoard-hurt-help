@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from app.engine.game_insights import grudges, round_detail, round_results, season_overview
+from app.engine.game_insights import round_results
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
+from app.games.hoard_hurt_help.insights import grudges, round_detail, season_overview
 
 
 def act(rnd: int, turn: int, actor: str, action: Action, target: str | None, after: int) -> ActionRecord:

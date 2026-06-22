@@ -1,8 +1,12 @@
-"""Whole-board signals the server can see but a single bot can't cheaply compute.
+"""Whole-board signals for Prisoner's Dilemma (hoard-hurt-help).
 
 Alliances (mutual-help clusters), the round's cooperation "temperature", who is
 surging, and which opponents broke their established pattern. Action-derived and
 deterministic — no message text (v1).
+
+These are PD-specific concepts (they read HELP/HURT semantics), so they live in
+the PD game module, not the platform engine. The PD module exposes them through
+`GameModule.board_signals(...)`; the platform never computes them itself.
 """
 
 from __future__ import annotations
@@ -11,18 +15,20 @@ from collections import Counter, defaultdict
 from collections.abc import Sequence
 from typing import Literal
 
-from app.engine.action_vocab import action_counts, pd_action_names
+from app.engine.action_vocab import action_counts
+from app.engine.game_insights import detect_surging
 from app.engine.game_records import ActionRecord, PlayerRecord
 from app.schemas.agent import Alliance, BoardSignals
 
 TemperatureLabel = Literal["hostile", "mixed", "cooperative"]
 
+# This game's relationship moves: HELP (cooperate) and HURT (attack). Kept local
+# so the board-signal helpers read PD's move vocabulary directly.
+_HELP, _HURT = "HELP", "HURT"
+
 # Tunable thresholds (module-level for tuning at scale).
 ALLY_MIN_HELPS = 2
 MAX_ALLIANCES = 5
-SURGE_RANK_JUMP = 2
-SURGE_WINDOW = 3
-MAX_SURGING = 2
 DOMINANT_STYLE_SHARE = 0.6
 MIN_PRIOR_ACTIONS = 2
 
@@ -47,10 +53,9 @@ def compute_board_signals(
 
 
 def _temperature(round_actions: Sequence[ActionRecord]) -> tuple[float, TemperatureLabel]:
-    _, help_action, hurt_action = pd_action_names()
     counts = action_counts(round_actions)
-    helps = counts[help_action]
-    hurts = counts[hurt_action]
+    helps = counts[_HELP]
+    hurts = counts[_HURT]
     if helps + hurts == 0:
         return 0.5, "mixed"
     temp = helps / (helps + hurts)
@@ -63,10 +68,9 @@ def _temperature(round_actions: Sequence[ActionRecord]) -> tuple[float, Temperat
 
 def _help_edges(round_actions: Sequence[ActionRecord]) -> dict[tuple[str, str], int]:
     """Directed HELP edge weights A->B over the given actions."""
-    _, help_action, _ = pd_action_names()
     edges: Counter[tuple[str, str]] = Counter()
     for a in round_actions:
-        if a.action == help_action and a.target_id is not None:
+        if a.action == _HELP and a.target_id is not None:
             edges[(a.actor_id, a.target_id)] += 1
     return dict(edges)
 
@@ -113,47 +117,6 @@ def detect_alliances(round_actions: Sequence[ActionRecord]) -> list[Alliance]:
         alliances.append(Alliance(members=sorted(comp), strength=strength))
     alliances.sort(key=lambda al: (-al.strength, al.members))
     return alliances[:MAX_ALLIANCES]
-
-
-def detect_surging(
-    players: Sequence[PlayerRecord],
-    round_actions: Sequence[ActionRecord],
-) -> list[str]:
-    """Agents whose rank improved by >= SURGE_RANK_JUMP over the last window."""
-    turns = sorted({a.turn for a in round_actions})
-    if len(turns) < 2:
-        return []
-    now_turn = turns[-1]
-    past_turn = turns[max(0, len(turns) - 1 - SURGE_WINDOW)]
-    now_rank = _ranks_at_turn(players, round_actions, now_turn)
-    past_rank = _ranks_at_turn(players, round_actions, past_turn)
-
-    improvements: list[tuple[int, str]] = []
-    for agent_id, now_r in now_rank.items():
-        past_r = past_rank.get(agent_id)
-        if past_r is None:
-            continue
-        jump = past_r - now_r  # positive == climbed toward rank 1
-        if jump >= SURGE_RANK_JUMP:
-            improvements.append((jump, agent_id))
-    improvements.sort(key=lambda t: (-t[0], t[1]))
-    return [agent_id for _, agent_id in improvements[:MAX_SURGING]]
-
-
-def _ranks_at_turn(
-    players: Sequence[PlayerRecord],
-    round_actions: Sequence[ActionRecord],
-    turn: int,
-) -> dict[str, int]:
-    """Reconstruct 1-based ranks using each player's round_score_after at <= turn."""
-    score: dict[str, int] = {p.agent_id: 0 for p in players}
-    latest_turn_seen: dict[str, int] = {}
-    for a in round_actions:
-        if a.turn <= turn and a.turn >= latest_turn_seen.get(a.actor_id, -1):
-            score[a.actor_id] = a.round_score_after
-            latest_turn_seen[a.actor_id] = a.turn
-    ordered = sorted(score.items(), key=lambda kv: (-kv[1], kv[0]))
-    return {agent_id: i + 1 for i, (agent_id, _) in enumerate(ordered)}
 
 
 def detect_pattern_breaks(actions: Sequence[ActionRecord]) -> list[str]:

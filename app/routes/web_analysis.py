@@ -6,8 +6,8 @@ from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import HTMLResponse
 
 from app.deps import DbSession, get_current_user
-from app.engine.game_insights import round_detail, season_overview
 from app.engine.game_records import ActionRecord, PlayerRecord
+from app.games import get as get_game_module
 from app.models.match import Match, GameState
 from app.read_models.matches import load_action_records, load_player_records
 from app.routes.web_support import (
@@ -43,12 +43,13 @@ async def game_analysis(
     if redirect := _redirect_if_game_slug_mismatch(g, game, "/analysis"):
         return redirect
     players, actions = await _insight_records(db, g)
+    module = get_game_module(g.game)
     active = g.state == GameState.ACTIVE
-    overview = season_overview(players, actions, g.total_rounds, g.current_round, active)
+    overview = module.season_overview(players, actions, g.total_rounds, g.current_round, active)
     zero_wins = sum(1 for s in overview.standings if s.round_wins == 0)
     rounds_played = set(overview.rounds_played)
     live_peek = (
-        round_detail(g.current_round, players, actions)
+        module.round_detail(g.current_round, players, actions)
         if active and g.current_round in rounds_played
         else None
     )
@@ -99,7 +100,7 @@ async def game_analysis_round(
     played = sorted({a.round for a in actions})
     if round_num not in played:
         raise HTTPException(404)
-    detail = round_detail(round_num, players, actions)
+    detail = get_game_module(g.game).round_detail(round_num, players, actions)
     return templates.TemplateResponse(
         request,
         "analysis_round.html",

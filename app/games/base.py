@@ -13,12 +13,17 @@ from typing import TYPE_CHECKING, Any, Protocol
 from app.match_naming import humanize_game_type
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from app.engine.game_insights import RoundDetail, SeasonOverview
+    from app.engine.game_records import ActionRecord, PlayerRecord
     from app.models.match import Match
     from app.models.player import Player
     from app.models.turn import Turn, TurnMessage, TurnSubmission
     from app.read_models.matches import TimelineTurn
+    from app.schemas.agent import BoardSignals
 
 
 class GameError(Exception):
@@ -285,6 +290,47 @@ class GameModule(Protocol):
         PD's (round_wins, total_score)."""
         ...
 
+    # --- Spectator insights (the contract owns "what the analysis shows") ---
+
+    def board_signals(
+        self,
+        players: Sequence[PlayerRecord],
+        actions: Sequence[ActionRecord],
+        current_round: int,
+    ) -> BoardSignals:
+        """Whole-board signals for the current round (mood, alliances, surging).
+
+        These read a game's move *relationships*, so the game owns them. The
+        platform default returns a neutral, relationship-free signal; PD overrides
+        to add cooperation temperature and alliances."""
+        ...
+
+    def season_overview(
+        self,
+        players: Sequence[PlayerRecord],
+        actions: Sequence[ActionRecord],
+        total_rounds: int,
+        current_round: int,
+        game_active: bool,
+    ) -> SeasonOverview:
+        """The spectator season analysis: round-win race, results, grudges, feed.
+
+        Default is the relationship-free skeleton (standings/results/feed); PD
+        overrides to add grudges and alliances."""
+        ...
+
+    def round_detail(
+        self,
+        round_num: int,
+        players: Sequence[PlayerRecord],
+        actions: Sequence[ActionRecord],
+    ) -> RoundDetail:
+        """The spectator per-round analysis: leaderboard, mood, alliances, feed.
+
+        Default is the relationship-free skeleton (leaderboard/intro/surge feed);
+        PD overrides to add mood, alliances, betrayals, and pile-ons."""
+        ...
+
 
 class BaseGameModule:
     """Default implementations of the newer contract hooks, so a game only
@@ -453,3 +499,53 @@ class BaseGameModule:
         self, *, round_wins: float, total_score: int
     ) -> tuple[float, ...]:
         return (round_wins, float(total_score))
+
+    # --- Spectator insights ---
+
+    def board_signals(
+        self,
+        players: Sequence[PlayerRecord],
+        actions: Sequence[ActionRecord],
+        current_round: int,
+    ) -> BoardSignals:
+        # Default: a neutral, relationship-free signal — no cooperation
+        # temperature and no alliances (those need a game's HELP/HURT model), but
+        # the score-derived surge list still applies. PD overrides to add the rest.
+        from app.engine.game_insights import detect_surging
+        from app.schemas.agent import BoardSignals
+
+        round_actions = [a for a in actions if a.round == current_round]
+        return BoardSignals(
+            alliances=[],
+            cooperation_temperature=0.5,
+            temperature_label="mixed",
+            surging=detect_surging(players, round_actions),
+        )
+
+    def season_overview(
+        self,
+        players: Sequence[PlayerRecord],
+        actions: Sequence[ActionRecord],
+        total_rounds: int,
+        current_round: int,
+        game_active: bool,
+    ) -> SeasonOverview:
+        # Default: the relationship-free season skeleton. PD overrides to add
+        # grudges/alliances.
+        from app.engine.game_insights import default_season_overview
+
+        return default_season_overview(
+            players, actions, total_rounds, current_round, game_active
+        )
+
+    def round_detail(
+        self,
+        round_num: int,
+        players: Sequence[PlayerRecord],
+        actions: Sequence[ActionRecord],
+    ) -> RoundDetail:
+        # Default: the relationship-free per-round skeleton. PD overrides to add
+        # mood/alliances/betrayals/pile-ons.
+        from app.engine.game_insights import default_round_detail
+
+        return default_round_detail(round_num, players, actions)

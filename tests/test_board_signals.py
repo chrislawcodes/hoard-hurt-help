@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from app.engine.board_signals import (
+from app.engine.game_insights import detect_surging
+from app.engine.game_records import Action, ActionRecord, PlayerRecord
+from app.games.hoard_hurt_help.board_signals import (
     alliance_formed_this_turn,
     compute_board_signals,
     detect_alliances,
     detect_pattern_breaks,
-    detect_surging,
 )
-from app.engine.game_records import Action, ActionRecord, PlayerRecord
 
 
 def player(agent_id: str, round_score: int = 0) -> PlayerRecord:

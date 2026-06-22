@@ -1,31 +1,37 @@
-"""Deterministic spectator insights: season overview + per-round detail.
+"""Shared shapes + game-agnostic skeleton for spectator insights.
 
-Turns the resolved action log into the human-facing analysis — the round-win
-race, round results, grudges, and a per-round event feed. No AI and no
-message-text reading: everything is derived from actions. Reuses
-`board_signals` for per-round mood / alliances / surging.
+The human-facing analysis (season overview + per-round detail) has two layers:
+
+- A **game-agnostic skeleton** — round-win standings, round results, the
+  leaderboard-from-0, the round intro, and the season feed of results. These read
+  only scores and round-wins, so they belong to the platform and live here. They
+  also drive the `BaseGameModule` defaults, so a game with no relationship model
+  (anything but PD) still gets a coherent analysis page.
+
+- A **game-specific enrichment** — feuds, grudges, alliances, cooperation mood,
+  betrayals, pile-ons. Those read a game's move *relationships* (PD's HELP/HURT),
+  so they live in the game module and reach the platform only through
+  `GameModule.season_overview(...)` / `round_detail(...)`. The PD enrichment is in
+  `app/games/hoard_hurt_help/insights.py`.
+
+`detect_surging` is score-derived (a rank climb), so it is game-agnostic and stays
+here; both the default and the PD board-signal builder use it.
 
 Two scopes, kept deliberately distinct:
-- SEASON (carries across rounds): round-wins, round results, grudges, tiebreaker.
-- ROUND (resets each round): leaderboard-from-0, mood, alliances, the event feed.
+- SEASON (carries across rounds): round-wins, round results, tiebreaker.
+- ROUND (resets each round): leaderboard-from-0, the event feed.
 """
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from app.engine.action_vocab import pd_action_names
-from app.engine.board_signals import compute_board_signals
 from app.engine.game_records import ActionRecord, PlayerRecord
 
-GRUDGE_CAP = 6
-MIN_FEUD_HITS = 2
-MIN_ALLY_HELPS = 2
-MIN_VENDETTA_HITS = 2
-MIN_ONESIDED_HELPS = 2
-PILE_ON_MIN = 2
+SURGE_RANK_JUMP = 2
+SURGE_WINDOW = 3
+MAX_SURGING = 2
 
 
 # ---------- shapes (plain dataclasses; templates read attributes) ----------
@@ -98,10 +104,10 @@ class RoundDetail:
     complete: bool
 
 
-# ---------- helpers ----------
+# ---------- game-agnostic helpers (scores + round-wins only) ----------
 
 
-def _round_final_scores(round_num: int, actions: Sequence[ActionRecord]) -> dict[str, int]:
+def round_final_scores(round_num: int, actions: Sequence[ActionRecord]) -> dict[str, int]:
     """Each player's round score at their last submission in the round."""
     last: dict[str, tuple[int, int]] = {}  # agent -> (turn, round_score_after)
     for a in actions:
@@ -112,8 +118,8 @@ def _round_final_scores(round_num: int, actions: Sequence[ActionRecord]) -> dict
     return {agent: score for agent, (_, score) in last.items()}
 
 
-def _round_winner(round_num: int, actions: Sequence[ActionRecord]) -> RoundResult | None:
-    scores = _round_final_scores(round_num, actions)
+def round_winner(round_num: int, actions: Sequence[ActionRecord]) -> RoundResult | None:
+    scores = round_final_scores(round_num, actions)
     if not scores:
         return None
     top = max(scores.values())
@@ -125,123 +131,74 @@ def _round_winner(round_num: int, actions: Sequence[ActionRecord]) -> RoundResul
 def round_results(actions: Sequence[ActionRecord]) -> list[RoundResult]:
     out: list[RoundResult] = []
     for r in sorted({a.round for a in actions}):
-        res = _round_winner(r, actions)
+        res = round_winner(r, actions)
         if res is not None:
             out.append(res)
     return out
 
 
-def _relationships(actions: Sequence[ActionRecord]) -> tuple[Counter[tuple[str, str]], Counter[tuple[str, str]]]:
-    _, help_action, hurt_action = pd_action_names()
-    helps: Counter[tuple[str, str]] = Counter()
-    hurts: Counter[tuple[str, str]] = Counter()
-    for a in actions:
-        if a.target_id is None:
-            continue
-        if a.action == help_action:
-            helps[(a.actor_id, a.target_id)] += 1
-        elif a.action == hurt_action:
-            hurts[(a.actor_id, a.target_id)] += 1
-    return helps, hurts
-
-
-def grudges(actions: Sequence[ActionRecord], cap: int = GRUDGE_CAP) -> tuple[list[Grudge], int]:
-    """The most notable season-long relationships (feuds, alliances, vendettas)."""
-    helps, hurts = _relationships(actions)
-    pairs: set[frozenset[str]] = set()
-    for a, b in list(helps) + list(hurts):
-        if a != b:
-            pairs.add(frozenset((a, b)))
-
-    scored: list[Grudge] = []
-    for pair in pairs:
-        a, b = sorted(pair)
-        h_ab, h_ba = hurts[(a, b)], hurts[(b, a)]
-        he_ab, he_ba = helps[(a, b)], helps[(b, a)]
-        total_hurt, total_help = h_ab + h_ba, he_ab + he_ba
-        if min(h_ab, h_ba) >= 1 and total_hurt >= MIN_FEUD_HITS:
-            scored.append(Grudge("feud", "⚔", f"{a} ⇄ {b} · feud, {total_hurt} hits", total_hurt))
-        elif min(he_ab, he_ba) >= MIN_ALLY_HELPS:
-            scored.append(Grudge("alliance", "\U0001f91d", f"{a} ⇄ {b} · allied, {total_help} helps", total_help))
-        elif h_ab >= MIN_VENDETTA_HITS and h_ba == 0:
-            scored.append(Grudge("vendetta", "\U0001f501", f"{a} hunting {b} · {h_ab} hits", h_ab))
-        elif h_ba >= MIN_VENDETTA_HITS and h_ab == 0:
-            scored.append(Grudge("vendetta", "\U0001f501", f"{b} hunting {a} · {h_ba} hits", h_ba))
-        elif he_ab >= MIN_ONESIDED_HELPS and he_ba == 0:
-            scored.append(Grudge("one_sided", "\U0001f971", f"{a} helps {b} · {he_ab}× unreturned", he_ab))
-        elif he_ba >= MIN_ONESIDED_HELPS and he_ab == 0:
-            scored.append(Grudge("one_sided", "\U0001f971", f"{b} helps {a} · {he_ba}× unreturned", he_ba))
-    scored.sort(key=lambda g: (-g.weight, g.text))
-    return scored[:cap], len(scored)
-
-
-def _earliest_helps(actions: Sequence[ActionRecord]) -> dict[tuple[str, str], tuple[int, int]]:
-    _, help_action, _ = pd_action_names()
-    earliest: dict[tuple[str, str], tuple[int, int]] = {}
-    for a in actions:
-        if a.action == help_action and a.target_id is not None:
-            key = (a.actor_id, a.target_id)
-            when = (a.round, a.turn)
-            if key not in earliest or when < earliest[key]:
-                earliest[key] = when
-    return earliest
-
-
-def _round_events(
-    round_num: int,
+def detect_surging(
     players: Sequence[PlayerRecord],
-    actions: Sequence[ActionRecord],
-) -> list[Event]:
-    """The within-round event feed, newest turn first."""
-    _, _, hurt_action = pd_action_names()
-    earliest_help = _earliest_helps(actions)
-    round_actions = [a for a in actions if a.round == round_num]
+    round_actions: Sequence[ActionRecord],
+) -> list[str]:
+    """Agents whose rank improved by >= SURGE_RANK_JUMP over the last window.
+
+    Score-derived (a rank climb), so it is game-agnostic — every game's standing
+    is a score. Both the default round detail and the PD board-signal builder use
+    it.
+    """
     turns = sorted({a.turn for a in round_actions})
-    events: list[Event] = []
+    if len(turns) < 2:
+        return []
+    now_turn = turns[-1]
+    past_turn = turns[max(0, len(turns) - 1 - SURGE_WINDOW)]
+    now_rank = _ranks_at_turn(players, round_actions, now_turn)
+    past_rank = _ranks_at_turn(players, round_actions, past_turn)
 
-    for turn in turns:
-        this = [a for a in round_actions if a.turn == turn]
-        # Pile-on: 2+ HURTs on the same target this turn.
-        hurt_targets: Counter[str] = Counter(
-            a.target_id for a in this if a.action == hurt_action and a.target_id is not None
-        )
-        for target, n in sorted(hurt_targets.items()):
-            if n >= PILE_ON_MIN:
-                attackers = sorted(a.actor_id for a in this if a.action == hurt_action and a.target_id == target)
-                events.append(Event(round_num, turn, "pileon", "\U0001f3af",
-                    f"Pile-on: {', '.join(attackers)} all hit {target}."))
-        # Betrayal: hurts someone it helped earlier in the game.
-        for a in this:
-            if a.action == hurt_action and a.target_id is not None:
-                first_help = earliest_help.get((a.actor_id, a.target_id))
-                if first_help is not None and first_help < (a.round, a.turn):
-                    events.append(Event(round_num, turn, "betrayal", "⚔",
-                        f"Betrayal: {a.actor_id} helped {a.target_id} earlier, now hurts it."))
-
-    signals = compute_board_signals(players, actions, round_num)
-    for al in signals.alliances:
-        events.append(Event(round_num, turns[-1] if turns else 0, "alliance", "\U0001f91d",
-            f"Alliance: {' ⇄ '.join(al.members)} help each other."))
-    for agent in signals.surging:
-        events.append(Event(round_num, turns[-1] if turns else 0, "surge", "\U0001f4c8",
-            f"{agent} is surging up the round leaderboard."))
-    if turns:
-        events.append(Event(round_num, turns[0], "open", "·", "Round opens — scores reset to 0."))
-
-    events.sort(key=lambda e: (-e.turn, e.kind))
-    return events
+    improvements: list[tuple[int, str]] = []
+    for agent_id, now_r in now_rank.items():
+        past_r = past_rank.get(agent_id)
+        if past_r is None:
+            continue
+        jump = past_r - now_r  # positive == climbed toward rank 1
+        if jump >= SURGE_RANK_JUMP:
+            improvements.append((jump, agent_id))
+    improvements.sort(key=lambda t: (-t[0], t[1]))
+    return [agent_id for _, agent_id in improvements[:MAX_SURGING]]
 
 
-# ---------- public API ----------
+def _ranks_at_turn(
+    players: Sequence[PlayerRecord],
+    round_actions: Sequence[ActionRecord],
+    turn: int,
+) -> dict[str, int]:
+    """Reconstruct 1-based ranks using each player's round_score_after at <= turn."""
+    score: dict[str, int] = {p.agent_id: 0 for p in players}
+    latest_turn_seen: dict[str, int] = {}
+    for a in round_actions:
+        if a.turn <= turn and a.turn >= latest_turn_seen.get(a.actor_id, -1):
+            score[a.actor_id] = a.round_score_after
+            latest_turn_seen[a.actor_id] = a.turn
+    ordered = sorted(score.items(), key=lambda kv: (-kv[1], kv[0]))
+    return {agent_id: i + 1 for i, (agent_id, _) in enumerate(ordered)}
 
 
-def season_overview(
+# ---------- game-agnostic defaults (the BaseGameModule "no relationships" path) ----------
+
+
+def default_season_overview(
     players: Sequence[PlayerRecord],
     actions: Sequence[ActionRecord],
     total_rounds: int,
     current_round: int,
     game_active: bool,
 ) -> SeasonOverview:
+    """The relationship-free season overview every game gets by default.
+
+    Round-win standings, round results, the tiebreaker watch, and a season feed of
+    results — all score / round-win derived. No grudges or alliances (those need a
+    game's relationship model; PD overrides to add them).
+    """
     standings_sorted = sorted(players, key=lambda p: (-p.round_wins, -p.total_score, p.agent_id))
     standings = [
         StandingRow(p.agent_id, p.round_wins, p.total_score, i + 1)
@@ -263,7 +220,6 @@ def season_overview(
                 f"the tiebreaker if the round-wins stay level."
             )
 
-    grudge_list, grudge_total = grudges(actions)
     season_feed = [
         Event(r.round, 0, "result", "\U0001f3c6", f"Round {r.round}: {r.winner} wins ({r.score}).")
         for r in reversed(results)
@@ -275,31 +231,45 @@ def season_overview(
         rounds_played=rounds_played,
         total_rounds=total_rounds,
         tiebreaker=tiebreaker,
-        grudges=grudge_list,
-        grudge_total=grudge_total,
+        grudges=[],
+        grudge_total=0,
         season_feed=season_feed,
         live_round=live_round,
     )
 
 
-def round_detail(
+def default_round_detail(
     round_num: int,
     players: Sequence[PlayerRecord],
     actions: Sequence[ActionRecord],
 ) -> RoundDetail:
-    scores = _round_final_scores(round_num, actions)
+    """The relationship-free per-round detail every game gets by default.
+
+    Leaderboard-from-0, the round intro, the round result, plus the score-derived
+    surge feed and a neutral "mixed" mood (no HELP/HURT, so no cooperation
+    temperature and no alliances; PD overrides to add them).
+    """
+    scores = round_final_scores(round_num, actions)
     all_ids = {p.agent_id for p in players} | set(scores)
     ranked = sorted(all_ids, key=lambda a: (-scores.get(a, 0), a))
     leaderboard = [RoundLeader(a, scores.get(a, 0), i + 1) for i, a in enumerate(ranked)]
 
-    signals = compute_board_signals(players, actions, round_num)
-    events = _round_events(round_num, players, actions)
+    round_actions = [a for a in actions if a.round == round_num]
+    turns = sorted({a.turn for a in round_actions})
+    surging = detect_surging(players, round_actions)
 
-    # Is this round finished? (a later round exists in the log)
+    events: list[Event] = []
+    for agent in surging:
+        events.append(Event(round_num, turns[-1] if turns else 0, "surge", "\U0001f4c8",
+            f"{agent} is surging up the round leaderboard."))
+    if turns:
+        events.append(Event(round_num, turns[0], "open", "·", "Round opens — scores reset to 0."))
+    events.sort(key=lambda e: (-e.turn, e.kind))
+
     later_round_exists = any(a.round > round_num for a in actions)
-    result = _round_winner(round_num, actions) if later_round_exists else None
+    result = round_winner(round_num, actions) if later_round_exists else None
 
-    prev = _round_winner(round_num - 1, actions) if round_num > 1 else None
+    prev = round_winner(round_num - 1, actions) if round_num > 1 else None
     if prev is not None:
         intro = f"Round {round_num} opened after {prev.winner} took round {round_num - 1} ({prev.score}). Scores reset to 0; grudges carry over."
     else:
@@ -308,10 +278,10 @@ def round_detail(
     return RoundDetail(
         round=round_num,
         leaderboard=leaderboard,
-        mood=signals.cooperation_temperature,
-        mood_label=signals.temperature_label,
-        alliances=[al.members for al in signals.alliances],
-        surging=signals.surging,
+        mood=0.5,
+        mood_label="mixed",
+        alliances=[],
+        surging=surging,
         events=events,
         intro=intro,
         winner=result.winner if result else None,
