@@ -175,6 +175,26 @@ async def test_talk_panel_has_pass(reset_db, client) -> None:
     assert "data-play-counter" in r.text  # character counter wired up
 
 
+async def test_started_match_feed_shows_roster(reset_db, client) -> None:
+    """At game start (active, first turn open, nothing resolved yet) the feed shows
+    who's playing — a roster of the seated players — instead of a bare 'waiting'
+    line, so a fresh table isn't a mystery."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        await _seat_human(db, user, "alice")
+        await seat_player(db, "M_0001", "bob", i=2)
+        await _open_turn(db, "talk")  # first turn open; no turn resolved yet
+        await db.commit()
+
+    r = await client.get(LIVE, cookies=_cookies(user.id))
+    html = r.text
+    assert "feed-roster" in html
+    assert "players — waiting for the first move" in html
+    assert "bob" in html  # an opponent is listed by name
+    assert "No turns resolved yet" not in html  # the bare line is replaced
+
+
 async def test_act_phase_reveals_this_turns_talk_in_feed(reset_db, client) -> None:
     """During act, the human sees what others said this turn — speakers and the
     silent — as the live top card of the one feed (spec 019), not a box in the
