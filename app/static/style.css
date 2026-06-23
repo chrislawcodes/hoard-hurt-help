@@ -855,6 +855,17 @@ pre code { background: none; padding: 0; }
 .section-link { color: var(--accent); font-size: 0.88rem; font-weight: 700; text-decoration: none; }
 .section-link:hover { text-decoration: underline; }
 .empty { color: var(--ink-soft); padding: 0.25rem 0 0.5rem; }
+/* Match-start roster: shown in the feed before the first turn resolves, so a
+   fresh game shows who's playing instead of a bare "waiting" line. */
+.feed-roster { padding: 0.4rem 0.1rem 0.6rem; }
+.feed-roster-head { margin: 0 0 0.6rem; color: var(--ink-soft); font-size: 0.92rem; }
+.feed-roster-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.feed-roster-name {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+    padding: 0.25rem 0.7rem; font-size: 0.9rem; font-weight: 700;
+}
+.feed-roster-name.is-you { border-color: var(--accent); color: var(--accent); }
+.feed-roster-name .ps-bot { font-weight: 400; margin-left: 0.15rem; }
 
 .game-card-info { min-width: 0; }
 .game-card-info h3 { margin: 0 0 0.2rem; }
@@ -2519,10 +2530,14 @@ button.danger:hover,
 .cockpit-menu-panel button:hover { background: var(--bg-2); }
 .cockpit-menu-leave { color: var(--hurt); font-weight: 700; }
 
+/* The round filter + view switch + "newest first" legend are reader tools. The
+   player cockpit already shows the round/turn in the top bar and has a scrollable
+   feed, so hide them there at every width — no second "Round · All · R1" line. */
+.cockpit .round-nav,
+.cockpit .feed-legend { display: none; }
+
 @media (max-width: 620px) {
     .cockpit-page .al-navlinks { display: none; }
-    .cockpit .round-nav,
-    .cockpit .feed-legend { display: none; }
 }
 
 /* The dock is controls-only (spec 019): no header — the round/turn, standings

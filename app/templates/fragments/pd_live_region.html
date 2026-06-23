@@ -35,6 +35,17 @@
                 {% endfor %}
             </section>
             {% endfor %}
+        {% elif scoreboard %}
+            {# Match just started — no turn has resolved yet. Show who's playing
+               instead of a bare "waiting" line, so the table isn't a mystery. #}
+            <div class="feed-roster">
+                <p class="feed-roster-head">{{ scoreboard | length }} players — waiting for the first move…</p>
+                <ul class="feed-roster-list">
+                    {% for row in scoreboard %}
+                    <li class="feed-roster-name{% if player_mode and row.agent_id == viewer_seat %} is-you{% endif %}">{{ row.display_name }}{% if row.is_bot %} <span class="ps-bot">bot</span>{% endif %}</li>
+                    {% endfor %}
+                </ul>
+            </div>
         {% else %}
             <p class="empty">No turns resolved yet. Waiting for the first move…</p>
         {% endif %}
