@@ -37,7 +37,15 @@ class BotContext:
     current_talk_messages: list[TalkMessage]
 
     def seed_basis(self) -> str:
-        """Canonical seed input: start time plus a sorted context snapshot."""
+        """Canonical seed input: start time plus a sorted context snapshot.
+
+        This turn's talk is deliberately excluded. The seed only breaks ties
+        between equally-good options, and the talk phase sees no talk yet while
+        the act phase sees all of it — so including talk would re-roll a bot's
+        tie-breaks between the two phases, making it name one player but hit
+        another. Talk still influences the move, but through signals → trust,
+        not by perturbing the random seed.
+        """
         history_bits = [
             "|".join(
                 [
@@ -77,12 +85,6 @@ class BotContext:
             )
             for row in sorted(self.scoreboard, key=lambda row: row.agent_id)
         ]
-        talk_bits = [
-            "|".join([message.agent_id, message.message])
-            for message in sorted(
-                self.current_talk_messages, key=lambda message: (message.agent_id, message.message)
-            )
-        ]
         return "||".join(
             [
                 self.game_started_at.isoformat(),
@@ -93,7 +95,6 @@ class BotContext:
                 ",".join(sorted(self.all_agent_ids)),
                 "#".join(history_bits),
                 "#".join(scoreboard_bits),
-                "#".join(talk_bits),
             ]
         )
 
