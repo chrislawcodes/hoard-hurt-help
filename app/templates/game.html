@@ -504,6 +504,43 @@
     }
 })();
 
+// Jump to the table talk when the act phase opens. During the talk phase you
+// write blind, so the feed's top card is the PREVIOUS turn's transcript — and
+// that's where a reading human ends up scrolled. When the turn flips to the act
+// phase, the "what everyone said" reveal (.turn-live) leads the feed, but the
+// swap doesn't move the viewport, so the page stays parked on the old turn. Pull
+// the reveal into view so the player reads the talk before choosing a move. We
+// fire ONLY on the talk->act transition (tracked via the panel's play-phase), so
+// re-submits and waiting-on ticks during the act phase never yank the page.
+(function () {
+    const region = document.getElementById('live-region');
+    if (!region) return;
+    let lastPhase = null;
+
+    function syncScroll() {
+        const panel = document.getElementById('play-panel');
+        const phase = panel ? (panel.dataset.playPhase || null) : null;
+        if (phase === 'act' && lastPhase && lastPhase !== 'act') {
+            const reveal = region.querySelector('#feed .turn-live');
+            if (reveal) {
+                // Offset for the sticky site nav so the reveal isn't tucked under it.
+                const nav = document.querySelector('.al-nav');
+                const offset = (nav ? nav.getBoundingClientRect().height : 0) + 8;
+                const top = reveal.getBoundingClientRect().top + window.pageYOffset - offset;
+                window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+            }
+        }
+        lastPhase = phase;
+    }
+
+    region.addEventListener('htmx:afterSwap', syncScroll);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', syncScroll);
+    } else {
+        syncScroll();
+    }
+})();
+
 // Out-of-page alerts (FR-026/FR-027): when the seated viewer's turn opens, fire
 // a browser notification (if granted), flash the tab title, and play an optional
 // sound (default off). Permission is requested at join time (the Play CTA), not
