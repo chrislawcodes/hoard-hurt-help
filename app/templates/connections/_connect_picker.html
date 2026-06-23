@@ -24,6 +24,15 @@
     {% for opt in connect_options %}
     <section class="byo-tab-panel" id="byo-panel-{{ opt.client_id }}" aria-label="{{ opt.client_label }}">
         {% if opt.kind == "steps" %}
+            {% if opt.config_block %}
+            {# IDE providers (Gemini → Antigravity) paste a config snippet. Show it
+               as a copyable block above the steps, Copy button to the RIGHT. #}
+            <div class="byo-cmd">
+                <pre id="byo-config-{{ opt.client_id }}" class="byo-cmd-text">{{ opt.config_block }}</pre>
+                <button type="button" class="btn-copy byo-cmd-btn"
+                        onclick="copyWithFeedback(this, document.getElementById('byo-config-{{ opt.client_id }}').textContent)">Copy</button>
+            </div>
+            {% endif %}
             <ol class="byo-steps">
                 {% for step in opt.steps %}
                 <li>{{ step }}</li>

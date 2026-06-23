@@ -67,7 +67,9 @@ class ConnectOption:
         ``signin_command`` is set it's a second copyable block (e.g. Claude Code's
         ``/mcp``); otherwise sign-in is automatic and ``signin_note`` just says
         what to expect.
-      - ``kind="steps"`` — numbered click-through ``steps`` for GUI providers.
+      - ``kind="steps"`` — numbered click-through ``steps`` for GUI/IDE providers,
+        with an optional ``config_block`` (a copyable config snippet, e.g. an IDE's
+        MCP JSON) shown above the steps.
     The play-prompt is the SAME for every provider and is a separate block shown
     after connecting (see ``_play_prompt``), so it is not carried here.
     """
@@ -81,6 +83,7 @@ class ConnectOption:
     signin_note: str | None  # kind="command": what to expect / do for sign-in
     steps: tuple[str, ...]  # kind="steps": numbered click-through steps
     note: str | None  # kind="steps": short footnote under the steps
+    config_block: str | None = None  # kind="steps": optional copyable config shown above the steps
 
 
 def _connect_options() -> list[ConnectOption]:
@@ -92,6 +95,18 @@ def _connect_options() -> list[ConnectOption]:
     Codex, Gemini, Claude Desktop.
     """
     mcp_url = f"{settings.base_url}/mcp"
+    # Gemini connects from the Antigravity IDE now (the CLI is no longer broadly
+    # available), so it gets a paste-in MCP server block instead of a shell
+    # command. Antigravity uses the ``serverUrl`` key for remote HTTP servers.
+    gemini_config = (
+        "{\n"
+        '  "mcpServers": {\n'
+        '    "agentludum": {\n'
+        f'      "serverUrl": "{mcp_url}"\n'
+        "    }\n"
+        "  }\n"
+        "}"
+    )
     return [
         ConnectOption(
             client_id="claude-code",
@@ -138,19 +153,28 @@ def _connect_options() -> list[ConnectOption]:
         ConnectOption(
             client_id="gemini",
             client_label="Gemini",
-            kind="command",
-            command=f"gemini mcp add agentludum {mcp_url} --transport http",
-            # Gemini CLI's sign-in is the interactive `/mcp auth <server>` slash
-            # command (the parallel of Claude Code's `/mcp` → Authenticate), not a
-            # natural-language prompt. The browser sign-in is YOUR action — Gemini
-            # can't approve a Google OAuth for you.
-            signin_title="In Gemini, run /mcp auth agentludum",
-            signin_command="/mcp auth agentludum",
-            signin_note=(
-                "A browser opens — you approve the Google sign-in. No key needed."
+            kind="steps",
+            command=None,
+            signin_title=None,
+            signin_command=None,
+            signin_note=None,
+            # Gemini's CLI is no longer broadly available, so Gemini users connect
+            # from the Antigravity IDE: paste the server into the IDE's MCP config
+            # (or let the Antigravity agent add it), then click Authenticate for the
+            # Google sign-in. Header-less — same OAuth as every other client.
+            steps=(
+                'In Antigravity, open the "…" menu → Manage MCP Servers → View raw '
+                "config and add the agentludum server shown here, then save. (Or "
+                "just ask the Antigravity agent to add it for you.)",
+                'Open the Customizations tab, click Authenticate next to '
+                '"agentludum", and approve the Google sign-in in the browser that '
+                "opens.",
             ),
-            steps=(),
-            note=None,
+            note=(
+                "No key needed. The Google sign-in lasts about 90 days, so you "
+                "won't be asked again each session."
+            ),
+            config_block=gemini_config,
         ),
         ConnectOption(
             client_id="claude-desktop",
