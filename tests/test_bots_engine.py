@@ -85,9 +85,9 @@ def test_render_phrase_without_target_falls_back_to_someone() -> None:
 
 
 def test_telegraph_lines_name_the_target() -> None:
-    # Honest and partial lines that address a specific player name them. HELP
-    # invites the target, hit_back/block_rival warn them, and curb_leader names
-    # the leader it's rallying the table against.
+    # Honest lines that address a specific player name them. HELP invites the
+    # target, hit_back/block_rival warn them, and curb_leader names the leader
+    # it's rallying the table against.
     telegraph_intents = {
         "offer_help",
         "keep_ally",
@@ -99,10 +99,9 @@ def test_telegraph_lines_name_the_target() -> None:
     }
 
     for intent in telegraph_intents:
-        for mode in ("honest", "partial"):
-            for seed, _phrase in enumerate(PHRASES[intent][mode]):
-                message = render_phrase(intent, mode, seed=seed, target_name="Sun Tzu")
-                assert "Sun Tzu" in message, (intent, mode, seed)
+        for seed, _phrase in enumerate(PHRASES[intent]["honest"]):
+            message = render_phrase(intent, "honest", seed=seed, target_name="Sun Tzu")
+            assert "Sun Tzu" in message, (intent, seed)
 
 
 def test_trust_clamps_to_bounds() -> None:

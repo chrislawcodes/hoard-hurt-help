@@ -281,28 +281,10 @@ def _move_is_valid(move: dict[str, str | None], context: BotContext) -> bool:
 
 
 def _choose_truth_mode(profile: BotProfile, context: BotContext, intent: str, phase: str) -> str:
-    value = profile.truthfulness
-    if value >= 90:
-        weights = [("honest", 80), ("partial", 20)]
-    elif value >= 65:
-        weights = [("honest", 55), ("partial", 35), ("quiet", 10)]
-    elif value >= 45:
-        weights = [("honest", 25), ("partial", 45), ("quiet", 20), ("misdirecting", 10)]
-    elif value >= 25:
-        weights = [("honest", 10), ("partial", 25), ("quiet", 25), ("misdirecting", 30), ("false", 10)]
-    elif value >= 10:
-        weights = [("honest", 5), ("partial", 15), ("quiet", 20), ("misdirecting", 35), ("false", 25)]
-    else:
-        weights = [("partial", 10), ("quiet", 20), ("misdirecting", 35), ("false", 35)]
-
-    total = sum(weight for _, weight in weights)
-    pick = _seed_int(profile, context, intent, phase) % total
-    running = 0
-    for mode, weight in weights:
-        running += weight
-        if pick < running:
-            return mode
-    return weights[-1][0]
+    """Honest or lying. Truthfulness (0-100) is simply how often the bot tells
+    the truth: a 90 bot is honest 90% of the time and bluffs the other 10%."""
+    roll = _seed_int(profile, context, intent, phase) % 100
+    return "honest" if roll < profile.truthfulness else "false"
 
 
 def _thinking(

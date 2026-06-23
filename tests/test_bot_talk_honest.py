@@ -1,11 +1,13 @@
-"""Talk is honest (no lying), reacts to the table, but no longer randomly flips
-a bot's target between the talk and act phases."""
+"""Truthfulness is how often a bot tells the truth (honest vs. a flat lie). Talk
+still reacts to the table, but no longer randomly flips a bot's target between
+the talk and act phases."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
 from app.engine.bots import BotContext, BotProfile, choose_bot_action_decision
+from app.engine.bots.runtime import choose_bot_talk_decision
 from app.engine.bot_presets import BOT_PRESETS
 from app.schemas.agent import ScoreboardRow, TalkMessage
 
@@ -27,10 +29,32 @@ def _ctx(*, talk: list[TalkMessage], turn: int = 5) -> BotContext:
     )
 
 
-def test_every_bot_preset_is_truthful() -> None:
-    # Floor of 80 puts every bot in the honest/partial/quiet band — no lying.
+def test_every_bot_preset_is_mostly_honest() -> None:
+    # Truthfulness is "how often the bot tells the truth." Every bot sits in the
+    # 80-95 band, so the whole table is readable — each bot only lies a little,
+    # with the lie-rate matching its character (Pragmatist lowest at 80).
     for preset in BOT_PRESETS:
-        assert preset.truthfulness >= 80, (preset.id, preset.truthfulness)
+        assert 80 <= preset.truthfulness <= 95, (preset.id, preset.truthfulness)
+
+
+def test_truthfulness_picks_honest_or_a_lie() -> None:
+    # Two modes only. A fully-truthful bot is always honest; a 0 bot always lies.
+    honest = {
+        choose_bot_talk_decision(
+            _ctx(talk=[], turn=2),
+            BotProfile(strategy="coalition_seeker", truthfulness=100, trust_model="even", seed=s, version="v1"),
+        ).truth_mode
+        for s in range(20)
+    }
+    liar = {
+        choose_bot_talk_decision(
+            _ctx(talk=[], turn=2),
+            BotProfile(strategy="coalition_seeker", truthfulness=0, trust_model="even", seed=s, version="v1"),
+        ).truth_mode
+        for s in range(20)
+    }
+    assert honest == {"honest"}
+    assert liar == {"false"}
 
 
 def test_seed_ignores_this_turns_talk() -> None:

@@ -93,7 +93,7 @@ def test_every_bucket_has_eight_distinct_variants() -> None:
 
 def test_help_lines_read_as_cooperation() -> None:
     for intent in HELP_INTENTS:
-        for mode in ("honest", "partial"):
+        for mode in ("honest",):
             for template in PHRASES[intent][mode]:
                 text = template.format(target_name=TOKEN)
                 assert _has(text, _OFFER_WORDS), (intent, mode, text)
@@ -104,7 +104,7 @@ def test_deter_and_warn_lines_carry_a_threat() -> None:
     # hit_back (deterrent) and block_rival (warning) name the target and carry a
     # threat word, never an offer word.
     for intent in THREAT_HURT_INTENTS:
-        for mode in ("honest", "partial"):
+        for mode in ("honest",):
             for template in PHRASES[intent][mode]:
                 text = template.format(target_name=TOKEN)
                 assert "{target_name}" in template, (intent, mode, template)
@@ -116,7 +116,7 @@ def test_curb_leader_lines_rally_the_table() -> None:
     # curb_leader recruits others against the leader: it names the leader and
     # carries a leader word (so it reads as a leader_warning), and never an
     # offer word.
-    for mode in ("honest", "partial"):
+    for mode in ("honest",):
         for template in PHRASES["curb_leader"][mode]:
             text = template.format(target_name=TOKEN)
             assert "{target_name}" in template, (mode, template)
@@ -134,16 +134,6 @@ def test_false_hurt_lines_read_as_friendly_bluffs() -> None:
             assert not _has(text, _THREAT_WORDS), (intent, text)
 
 
-def test_hurt_misdirecting_lines_hide_the_hit() -> None:
-    # The downplay mode must leak neither a threat nor an offer, so it reads as
-    # a genuine "not my problem" deflection rather than a tell.
-    for intent in HURT_INTENTS:
-        for template in PHRASES[intent]["misdirecting"]:
-            text = template.format(target_name=TOKEN)
-            assert not _has(text, _THREAT_WORDS), (intent, text)
-            assert not _has(text, _OFFER_WORDS), (intent, text)
-
-
 def test_help_false_lines_hide_the_help() -> None:
     # A bot about to HELP but lying should sound cold — no offer word — so it
     # never leaks a cooperation signal it doesn't want to send.
@@ -154,11 +144,10 @@ def test_help_false_lines_hide_the_help() -> None:
 
 
 def test_hoard_only_names_a_target_when_bluffing() -> None:
-    # Honest/quiet HOARD talk must name no one, so it can never be mistaken for
-    # a cooperation offer. Only the `false` bluff addresses a target.
-    for mode in ("honest", "partial", "quiet", "misdirecting"):
-        for template in PHRASES["play_own_game"][mode]:
-            assert "{target_name}" not in template, (mode, template)
+    # Honest HOARD talk must name no one, so it can never be mistaken for a
+    # cooperation offer. Only the `false` bluff addresses a target.
+    for template in PHRASES["play_own_game"]["honest"]:
+        assert "{target_name}" not in template, template
     for template in PHRASES["play_own_game"]["false"]:
         assert "{target_name}" in template, template
         assert _has(template.format(target_name=TOKEN), _OFFER_WORDS), template
