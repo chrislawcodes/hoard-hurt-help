@@ -420,7 +420,7 @@ PHRASES: dict[str, dict[str, list[str]]] = {
             "{target_name}, quit crowding me — I can hear your fan spinning, and you'll get hit.",
         ],
         "quiet": [
-            "Ease off my rank, {target_name}. You're closer than I'd like.",
+            "Back off a step, {target_name}. You're right behind me on the scoreboard and crowding me.",
             "{target_name}, give me room. We can't both hold this spot.",
             "Back off a step, {target_name}. You're crowding the one rank I want.",
             "{target_name}, drop back. I don't share this position quietly.",
