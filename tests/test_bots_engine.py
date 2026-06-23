@@ -86,9 +86,8 @@ def test_render_phrase_without_target_falls_back_to_someone() -> None:
 
 def test_telegraph_lines_name_the_target() -> None:
     # Honest and partial lines that address a specific player name them. HELP
-    # invites the target, hit_back/block_rival warn them, curb_leader names the
-    # leader it's rallying against. (finish_strong is excluded on purpose — a
-    # disguised endgame hit names no one.)
+    # invites the target, hit_back/block_rival warn them, and curb_leader names
+    # the leader it's rallying the table against.
     telegraph_intents = {
         "offer_help",
         "keep_ally",

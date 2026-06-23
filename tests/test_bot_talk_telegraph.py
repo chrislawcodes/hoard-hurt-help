@@ -25,12 +25,11 @@ from app.engine.game_records import ActionRecord
 from app.schemas.agent import ScoreboardRow, TalkMessage
 
 HELP_INTENTS = {"offer_help", "keep_ally", "repay_help", "mend_fences"}
-HURT_INTENTS = {"hit_back", "curb_leader", "finish_strong", "block_rival"}
+HURT_INTENTS = {"hit_back", "curb_leader", "block_rival"}
 # HURT talk splits by what makes sense for the attack (talk is persuasion, and
 # announcing a hit only warns the victim):
 THREAT_HURT_INTENTS = {"hit_back", "block_rival"}  # deter / warn — carry a threat
 RALLY_HURT_INTENTS = {"curb_leader"}  # rally the table — carry a leader word
-DISGUISE_HURT_INTENTS = {"finish_strong"}  # endgame surprise — name no one
 # A target token that contains none of the signal keywords, so the assertions
 # below test the phrase wording itself rather than the name.
 TOKEN = "Zed"
@@ -122,17 +121,6 @@ def test_curb_leader_lines_rally_the_table() -> None:
             text = template.format(target_name=TOKEN)
             assert "{target_name}" in template, (mode, template)
             assert _has(text, _LEADER_WORDS), (mode, text)
-            assert not _has(text, _OFFER_WORDS), (mode, text)
-
-
-def test_finish_strong_lines_disguise_the_hit() -> None:
-    # A late knockout is never announced. The non-deceptive modes name no one
-    # and leak neither a threat nor an offer, so the strike stays a surprise.
-    for mode in ("honest", "partial", "quiet"):
-        for template in PHRASES["finish_strong"][mode]:
-            text = template.format(target_name=TOKEN)
-            assert "{target_name}" not in template, (mode, template)
-            assert not _has(text, _THREAT_WORDS), (mode, text)
             assert not _has(text, _OFFER_WORDS), (mode, text)
 
 

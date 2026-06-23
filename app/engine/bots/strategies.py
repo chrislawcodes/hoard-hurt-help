@@ -57,7 +57,6 @@ ACTION_INTENTS = {
     "protect_victim",
     "punish_attacker",
     "hurt_leader",
-    "endgame_hurt",
     "block_rival",
     "hoard_protect_score",
     "wait_and_watch",
