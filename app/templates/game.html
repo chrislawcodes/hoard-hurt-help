@@ -31,6 +31,13 @@
     </div>
 </div>
 {% endif %}
+{# Finale: a completed match leads with the final scoreboard — who won, the
+   rounds-won standings, and opt-in stats — so the result is the first thing you
+   see instead of a replay rewound to turn 1. The replay sits below, reached by
+   this screen's primary "Watch replay" button (#replay). #}
+{% if game.state.value == 'completed' %}
+{% include "fragments/game_final.html" %}
+{% endif %}
 {# Coaching is for an owner whose AI plays the seat — never for a human playing
    by hand (you don't coach yourself). #}
 {% if viewer_player_id and not viewer_is_human %}
@@ -38,7 +45,7 @@
 {% endif %}
 
 {% if show_replay_stage and rc_data %}
-<div class="rc-layout">
+<div class="rc-layout" id="replay">
     {% include "fragments/robot_circle_standings.html" %}
     <div>{% with rc_autoplay = true, rc_countdown_iso = countdown_start_iso, rc_can_start = viewer_can_start, rc_start_bots = viewer_start_bots, rc_start_game = game.game, rc_start_match = game.id %}{% include "fragments/robot_circle.html" %}{% endwith %}</div>
 </div>
@@ -55,10 +62,6 @@
     </div>
     <div class="now-strip-moves" id="now-strip-moves" aria-label="Key moves this turn"></div>
 </div>
-{% endif %}
-
-{% if game.state.value == 'completed' %}
-<p class="meta" style="margin: 0.5rem 0 1rem;">Game over. <a href="/games/{{ game.game }}">Find your next match →</a></p>
 {% endif %}
 
 {# Live updates: for an active game the script below opens a Server-Sent Events

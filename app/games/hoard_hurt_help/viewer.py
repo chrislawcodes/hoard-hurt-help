@@ -18,6 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from app.games.hoard_hurt_help.match_summary import build_final_summary
 from app.games.hoard_hurt_help.scoring import apply_inround_turn
 from app.games.hoard_hurt_help.viewer_headline import _turn_headline
 from app.games.hoard_hurt_help.viewer_win_probs import _compute_round_win_probs
@@ -27,6 +28,7 @@ from app.games.viewer_common import (
     rc_scoreboard_maps,
     rc_talk,
 )
+from app.models.match import GameState
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -383,7 +385,7 @@ async def build_pd_replay_view(
             }
         )
 
-    return {
+    payload: dict[str, Any] = {
         "history": history,
         # The replay's turn data. Built here (not just in the full-page route) so
         # the live fragment carries fresh turns too — that's what lets an
@@ -394,3 +396,20 @@ async def build_pd_replay_view(
         # feed; games without that visual leave this off (see game.html).
         "show_replay_stage": True,
     }
+
+    # Finale: a completed match leads with the final scoreboard, not a replay
+    # rewound to turn 1. Rounds won is the score; points are only the tiebreaker.
+    # Built once on the completed page (a finished game has no live SSE swaps).
+    if g.state == GameState.COMPLETED:
+        winner_seat = next(
+            (p.seat_name for p in players if p.id == g.winner_player_id), None
+        )
+        payload["final_summary"] = build_final_summary(
+            total_rounds=g.total_rounds,
+            scoreboard=scoreboard,
+            total_scores={p.seat_name: p.total_round_score for p in players},
+            history=history,
+            winner_seat=winner_seat,
+        )
+
+    return payload

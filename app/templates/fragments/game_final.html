@@ -1,0 +1,87 @@
+{# Final scoreboard for a completed match. Leads the page so a spectator landing
+   on a finished game sees who won and the final standings at a glance, instead of
+   a replay rewound to turn 1. Rounds won is the score; points only break ties.
+   The deep drill-in stays on the Analysis page; the replay sits below, reached by
+   the primary button. `viewer_seat` highlights the seat the viewer played. #}
+{% set fs = final_summary %}
+{% if fs and fs.champion %}
+<section class="gf" aria-label="Final result">
+
+  <div class="gf-champ">
+    <div class="gf-champ-eyebrow">Champion</div>
+    <div class="gf-champ-name"><span class="gf-trophy" aria-hidden="true">🏆</span>{{ fs.champion.display_name }}</div>
+    <div class="gf-champ-sub">
+      {% if fs.champion_decided_by_points %}
+        Won on points — tied on rounds won
+      {% else %}
+        Won {{ fs.champion.round_wins_label }} of {{ fs.total_rounds }} rounds
+      {% endif %}
+    </div>
+    <div class="gf-champ-credit">
+      {%- if fs.champion.is_bot -%}Bot
+      {%- else -%}
+        {%- if fs.champion.provider %}{{ fs.champion.provider }} · {% endif -%}
+        run by @{{ fs.champion.owner_handle }}
+      {%- endif -%}
+    </div>
+  </div>
+
+  <div class="gf-standings">
+    <div class="gf-head"><span>Final standings</span><span class="gf-head-unit">Rounds won</span></div>
+    <ol class="gf-list">
+      {% for row in fs.standings %}
+      {% if fs.first_zero_rank and row.rank == fs.first_zero_rank %}
+      <li class="gf-divider" aria-hidden="true">No rounds won · ordered by points</li>
+      {% endif %}
+      <li class="gf-row{% if row.rank == 1 %} is-champ{% endif %}{% if row.round_wins == 0 %} is-zero{% endif %}{% if row.agent_id == viewer_seat %} is-you{% endif %}">
+        <span class="gf-rk">{{ row.rank }}</span>
+        <span class="gf-id">
+          <span class="gf-nm-line">
+            <span class="gf-nm">{{ row.display_name }}</span>
+            {%- if row.agent_id == viewer_seat %}<span class="gf-you">You</span>
+            {%- elif row.is_bot %}<span class="gf-tag">bot</span>
+            {%- elif row.provider %}<span class="gf-tag">{{ row.provider }}</span>{% endif %}
+          </span>
+          <span class="gf-mix" aria-hidden="true">
+            <span class="gf-mix-hoard" style="width:{{ row.mix.hoard }}%"></span>
+            <span class="gf-mix-help" style="width:{{ row.mix.help }}%"></span>
+            <span class="gf-mix-hurt" style="width:{{ row.mix.hurt }}%"></span>
+          </span>
+        </span>
+        <span class="gf-val">
+          <span class="gf-wins">{{ row.round_wins_label }}</span>
+          <span class="gf-pts">{{ row.total_score }} pts</span>
+        </span>
+      </li>
+      {% endfor %}
+    </ol>
+    <div class="gf-legend">
+      <span><i class="gf-dot gf-dot-hoard"></i> Hoard</span>
+      <span><i class="gf-dot gf-dot-help"></i> Help</span>
+      <span><i class="gf-dot gf-dot-hurt"></i> Hurt</span>
+    </div>
+  </div>
+
+  <details class="gf-stats">
+    <summary class="gf-stats-sum"><span>Statistics</span><span class="gf-stats-chev" aria-hidden="true">▾</span></summary>
+    <div class="gf-stats-body">
+      {% for s in fs.stats %}
+      <div class="gf-stat">
+        <span class="gf-stat-dot k-{{ s.kind }}" aria-hidden="true"></span>
+        <span class="gf-stat-label">{{ s.label }}</span>
+        <span class="gf-stat-value">{{ s.value }}</span>
+      </div>
+      {% else %}
+      <p class="gf-stat-empty">A cautious match — almost everyone played it safe. No alliances or attacks to report.</p>
+      {% endfor %}
+    </div>
+  </details>
+
+  <div class="gf-actions">
+    <a class="gf-btn gf-btn-primary" href="#replay">▶ Watch replay</a>
+    <a class="gf-btn gf-btn-ghost" href="/games/{{ game.game }}/matches/{{ game.id }}/analysis">📊 Analysis</a>
+  </div>
+  <a class="gf-lobby" href="/games/{{ game.game }}">Find your next match →</a>
+
+</section>
+{% endif %}

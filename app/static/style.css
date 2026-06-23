@@ -2554,3 +2554,132 @@ button.danger:hover,
        if the controls are unusually tall, while the feed scrolls above it. */
     .cockpit #play-panel .play-body { max-height: 52vh; overflow-y: auto; }
 }
+
+/* ===== End-of-game final scoreboard (completed match) =====
+   Leads the completed-match page: champion banner, rounds-won standings (points
+   are a muted tiebreaker), an opt-in Statistics drawer, then Watch replay /
+   Analysis. Built from `final_summary` (see app/games/hoard_hurt_help/
+   match_summary.py); rendered by fragments/game_final.html. */
+.gf { max-width: 560px; margin: 0 auto 1.75rem; }
+
+.gf-champ {
+    background: color-mix(in srgb, var(--hoard) 12%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--hoard) 35%, var(--line));
+    border-radius: 16px; padding: 1.1rem 1rem; text-align: center;
+}
+.gf-champ-eyebrow {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--hoard);
+}
+.gf-champ-name {
+    font-size: 1.5rem; font-weight: 800; color: var(--ink); margin-top: 0.2rem;
+    display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+}
+.gf-trophy { font-size: 1.25rem; }
+.gf-champ-sub { font-size: 0.9rem; color: var(--ink-soft); margin-top: 0.15rem; }
+.gf-champ-credit {
+    display: inline-block; margin-top: 0.55rem; font-size: 0.72rem;
+    color: var(--ink-soft); background: var(--bg);
+    border: 1px solid color-mix(in srgb, var(--hoard) 30%, var(--line));
+    border-radius: 999px; padding: 0.18rem 0.6rem;
+}
+
+.gf-standings { margin-top: 1.1rem; }
+.gf-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 0 0.25rem 0.5rem; font-size: 0.74rem; font-weight: 700;
+    letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-soft);
+}
+.gf-head-unit { opacity: 0.85; }
+.gf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.32rem; }
+.gf-divider {
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--ink-soft); opacity: 0.7;
+    margin: 0.5rem 0.25rem 0.15rem;
+}
+.gf-row {
+    display: grid; grid-template-columns: 1.4rem minmax(0, 1fr) auto;
+    align-items: center; column-gap: 0.6rem; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 11px; padding: 0.55rem 0.7rem;
+}
+.gf-row.is-champ {
+    background: color-mix(in srgb, var(--hoard) 8%, var(--surface));
+    border-color: color-mix(in srgb, var(--hoard) 35%, var(--line));
+}
+.gf-row.is-you { border-color: var(--accent); border-width: 1.5px; }
+.gf-rk { font-size: 0.82rem; font-weight: 700; color: var(--ink-soft); text-align: center; }
+.gf-row.is-champ .gf-rk { color: var(--hoard); }
+.gf-id { min-width: 0; }
+.gf-nm-line { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
+.gf-nm { font-weight: 600; font-size: 0.92rem; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gf-tag {
+    font-size: 0.62rem; color: var(--ink-soft); border: 1px solid var(--line);
+    border-radius: 4px; padding: 0 0.25rem; white-space: nowrap; flex: none;
+}
+.gf-you {
+    font-size: 0.62rem; font-weight: 700; color: var(--accent-ink);
+    background: var(--accent); border-radius: 4px; padding: 0.05rem 0.3rem;
+    white-space: nowrap; flex: none;
+}
+.gf-mix {
+    display: flex; height: 4px; width: 96px; max-width: 60%; border-radius: 999px;
+    overflow: hidden; margin-top: 0.32rem; background: var(--line);
+}
+.gf-mix > span { display: block; height: 100%; }
+.gf-mix-hoard { background: var(--hoard); }
+.gf-mix-help { background: var(--help); }
+.gf-mix-hurt { background: var(--hurt); }
+.gf-val { text-align: right; }
+.gf-wins {
+    display: block; font-size: 1.25rem; font-weight: 800; line-height: 1;
+    color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.gf-row.is-champ .gf-wins { color: var(--hoard); }
+.gf-row.is-zero .gf-wins { color: color-mix(in srgb, var(--ink-soft) 55%, var(--line)); }
+.gf-pts { display: block; font-size: 0.62rem; color: var(--ink-soft); margin-top: 0.12rem; font-variant-numeric: tabular-nums; }
+.gf-legend { display: flex; gap: 0.95rem; margin: 0.55rem 0.25rem 0; font-size: 0.66rem; color: var(--ink-soft); }
+.gf-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; vertical-align: -1px; margin-right: 0.1rem; }
+.gf-dot-hoard { background: var(--hoard); }
+.gf-dot-help { background: var(--help); }
+.gf-dot-hurt { background: var(--hurt); }
+
+.gf-stats {
+    margin-top: 0.85rem; border: 1px solid var(--line); border-radius: 14px;
+    background: var(--surface); overflow: hidden;
+}
+.gf-stats-sum {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.65rem 0.8rem; font-size: 0.85rem; font-weight: 600;
+    color: var(--ink); cursor: pointer; list-style: none;
+}
+.gf-stats-sum::-webkit-details-marker { display: none; }
+.gf-stats-chev { color: var(--ink-soft); transition: transform 0.15s ease; }
+.gf-stats[open] .gf-stats-chev { transform: rotate(180deg); }
+.gf-stats-body { border-top: 1px solid var(--line); padding: 0.1rem 0.8rem 0.5rem; }
+.gf-stat {
+    display: flex; align-items: center; gap: 0.55rem; padding: 0.5rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.gf-stat:last-child { border-bottom: none; }
+.gf-stat-dot { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.gf-stat-dot.k-hoard { background: var(--hoard); }
+.gf-stat-dot.k-help { background: var(--help); }
+.gf-stat-dot.k-hurt { background: var(--hurt); }
+.gf-stat-label { font-size: 0.78rem; color: var(--ink-soft); flex: 1; }
+.gf-stat-value { font-size: 0.78rem; font-weight: 600; color: var(--ink); text-align: right; }
+.gf-stat-empty { font-size: 0.8rem; color: var(--ink-soft); margin: 0.45rem 0; }
+
+.gf-actions { display: flex; gap: 0.5rem; margin-top: 0.95rem; }
+.gf-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+    font-size: 0.85rem; font-weight: 600; border-radius: 11px; padding: 0.6rem;
+    text-decoration: none;
+}
+.gf-btn-primary { flex: 1; background: var(--accent); color: var(--accent-ink); }
+.gf-btn-primary:hover { background: var(--accent-hover); }
+.gf-btn-ghost { flex: 0 0 auto; background: var(--surface); color: var(--ink); border: 1px solid var(--line); padding: 0.6rem 1.1rem; }
+.gf-lobby { display: block; text-align: center; margin-top: 0.7rem; font-size: 0.78rem; color: var(--ink-soft); }
+
+/* The replay sits below the finale; offset its scroll anchor so the sticky site
+   nav doesn't cover it when "Watch replay" jumps down. */
+#replay { scroll-margin-top: 70px; }
