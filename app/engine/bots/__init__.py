@@ -18,7 +18,7 @@ from .runtime import (
     validate_bot_profile_fields,
 )
 from .signals import TalkSignal, extract_talk_signals
-from .strategies import choose_action_plan, choose_talk_plan, normalize_strategy_name
+from .strategies import choose_action_plan, normalize_strategy_name
 from .trust import compute_trust_map
 from .types import (
     BotActionDecision,
@@ -44,7 +44,6 @@ __all__ = [
     "choose_bot_action_decision",
     "choose_bot_talk_decision",
     "choose_action_plan",
-    "choose_talk_plan",
     "compute_trust_map",
     "expand_pack",
     "extract_talk_signals",
