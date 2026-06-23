@@ -97,7 +97,7 @@ async def test_build_bot_profile_succeeds_for_valid_agent(reset_db) -> None:
         ).scalar_one()
         profile = build_bot_profile(agent)
         assert profile.strategy == "grudger"
-        assert profile.truthfulness == 80
+        assert profile.truthfulness == 92  # Long Memory preset
         assert profile.seed == agent.bot_seed
 
 
