@@ -53,6 +53,7 @@ def _import_app() -> None:
 
 STRATEGIES: tuple[str, ...] = (
     "coalition_seeker",
+    "pragmatist",
     "loyal_partner",
     "grudger",
     "leader_pressure",
@@ -60,7 +61,6 @@ STRATEGIES: tuple[str, ...] = (
     "endgame_sniper",
     "diplomat",
     "crowd_follower",
-    "coin_flip",
 )
 
 PLAYERS_PER_MATCH = 10

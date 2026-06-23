@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
 from app.deps import DbSession, require_game_admin
+from app.engine.bots.roster import personality_display_name
 from app.engine.match_creation import create_match_with_state, player_count_error
 from app.engine.match_deletion import cancel_blocked_reason, cancel_match
 from app.engine.scheduler import start_game
@@ -247,7 +248,7 @@ async def game_admin_match_detail(
         )
         is_bot = agent is not None and agent.kind == AgentKind.BOT
         personality = (
-            (agent.bot_strategy or "").replace("_", " ").title()
+            personality_display_name(agent.bot_strategy or "")
             if is_bot and agent is not None
             else ""
         )

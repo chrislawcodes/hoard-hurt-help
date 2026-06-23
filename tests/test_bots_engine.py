@@ -130,8 +130,15 @@ def test_trust_clamps_to_bounds() -> None:
     assert trust["AI_2"] == -100
 
 
-def test_leader_pressure_hurts_the_leader() -> None:
-    context = _context()
+def test_leader_pressure_hits_a_runaway_leader() -> None:
+    # Giant Slayer drops everything to hit a leader who's 12+ points ahead of it.
+    board = [
+        ScoreboardRow(agent_id="AI_1", round_score=2, round_wins=0.0),
+        ScoreboardRow(agent_id="AI_2", round_score=20, round_wins=0.0),
+        ScoreboardRow(agent_id="AI_3", round_score=6, round_wins=0.0),
+        ScoreboardRow(agent_id="AI_10", round_score=6, round_wins=0.0),
+    ]
+    context = _context(scoreboard=board)
     profile = BotProfile(strategy="leader_pressure", truthfulness=80, trust_model="even", seed=42, version="v1")
     decision = choose_bot_action_decision(context, profile)
     assert decision.move == {"action": "HURT", "target_id": "AI_2"}
