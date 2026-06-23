@@ -392,3 +392,58 @@ async def test_practice_arena_has_no_start_countdown(client, reset_db):
     r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
     assert 'id="rc-countdown"' not in r.text
+
+
+@pytest.mark.asyncio
+async def test_replay_history_carries_per_turn_score_that_resets_each_round():
+    """The feed must show each turn's OWN in-round score, not one live score.
+
+    Regression: the transcript stamped every turn with each player's current
+    round score, so once a new round reset scores toward 0 the whole transcript
+    (old rounds included) showed those low numbers — the points looked lost.
+    Each history turn now carries `score_after` (the round score as of that
+    turn), which climbs within a round and resets at the next round's start.
+    """
+    from app.games.hoard_hurt_help.viewer import build_pd_replay_view
+    from app.read_models.matches import TimelineAction, TimelineTurn
+
+    players = [Player(seat_name="AI_0"), Player(seat_name="AI_1")]
+
+    def hoard(seat: str, score_after: int) -> TimelineAction:
+        return TimelineAction(
+            agent_id=seat,
+            action="HOARD",
+            target_id=None,
+            quantity=None,
+            face=None,
+            message="",
+            thinking="",
+            points_delta=2,
+            round_score_after=score_after,
+            submitted_at=datetime.now(timezone.utc),
+            was_defaulted=False,
+        )
+
+    timeline = [
+        # Round 1: AI_0 banks two HOARDs (2 then 4).
+        TimelineTurn(round=1, turn=1, messages=[], actions=[hoard("AI_0", 2), hoard("AI_1", 2)]),
+        TimelineTurn(round=1, turn=2, messages=[], actions=[hoard("AI_0", 4), hoard("AI_1", 4)]),
+        # Round 2: scores reset, so turn 1 of round 2 is back to 2.
+        TimelineTurn(round=2, turn=1, messages=[], actions=[hoard("AI_0", 2), hoard("AI_1", 2)]),
+    ]
+
+    view = await build_pd_replay_view(
+        db=None,  # build_pd_replay_view reads only the passed-in rows
+        match=Match(id="G_001", game="hoard-hurt-help", turns_per_round=7),
+        players=players,
+        scoreboard=[
+            {"agent_id": "AI_0", "round_score": 2, "round_wins": 0, "provider": None},
+            {"agent_id": "AI_1", "round_score": 2, "round_wins": 0, "provider": None},
+        ],
+        timeline=timeline,
+        viewer_seat="AI_0",
+    )
+    history = view["history"]
+    assert [h["score_after"]["AI_0"] for h in history] == [2, 4, 2]
+    # The round-2 reset turn shows 2, not the round-1 peak of 4.
+    assert history[-1]["score_after"] == {"AI_0": 2, "AI_1": 2}

@@ -292,6 +292,11 @@ async def build_pd_replay_view(
                     "target_id": action.target_id,
                     "quantity": action.quantity,
                     "face": action.face,
+                    # This player's in-round score AS OF this turn (post-resolution).
+                    # The feed chips show this per-turn value, not the live current
+                    # score, so an old turn keeps showing the points it had then —
+                    # they don't get overwritten by a later round's reset score.
+                    "round_score_after": action.round_score_after,
                     # Nominal per-move effect, attributed to who it lands on.
                     "actor_delta": actor_delta,
                     "target_delta": target_delta,
@@ -362,6 +367,13 @@ async def build_pd_replay_view(
                 "turn": t.turn,
                 "messages": messages,
                 "actions": actions,
+                # Per-turn in-round score by seat, so the feed shows the points each
+                # robot had AT THIS TURN (within its own round) — not the single
+                # live current score painted on every turn. Every active seat acts
+                # each turn, so keying on the actor covers actors and targets alike.
+                "score_after": {
+                    a["agent_id"]: a["round_score_after"] for a in actions
+                },
                 # `actions` stays in submission order for the animation; the feed
                 # renders `feed_actions` (highlights first) and `summary` (counts).
                 "feed_actions": sorted(actions, key=_feed_sort_key),
