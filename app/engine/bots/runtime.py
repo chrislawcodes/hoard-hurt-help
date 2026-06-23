@@ -13,6 +13,7 @@ from .phrases import render_phrase
 from .signals import extract_talk_signals
 from .strategies import (
     VALID_STRATEGIES,
+    _probe_target,
     _seed_int,
     choose_action_plan,
     normalize_strategy_name,
@@ -166,7 +167,27 @@ def _decide_action(
     trust_map: dict[str, int],
     signals: Sequence[TalkSignal],
 ) -> tuple[BotPlan, dict[str, str | None]]:
-    """Pick the first legal move from the strategy's ranked plans."""
+    """Pick the first legal move from the strategy's ranked plans.
+
+    Universal ice-breaker: in the first 3 turns of a round, a bot that would
+    otherwise hoard reaches out with a test HELP instead, so cooperation has a
+    chance to start. Without it every match collapses to all-hoard — no bot
+    makes the first friendly move (the classic Prisoner's Dilemma trap).
+    """
+    plan, move = _first_valid_plan(context, profile, trust_map, signals)
+    if move["action"] == "HOARD" and context.turn <= 3:
+        probe = _probe_target(context, profile, trust_map)
+        if probe is not None:
+            return BotPlan("test_offer", probe, "icebreaker"), {"action": "HELP", "target_id": probe}
+    return plan, move
+
+
+def _first_valid_plan(
+    context: BotContext,
+    profile: BotProfile,
+    trust_map: dict[str, int],
+    signals: Sequence[TalkSignal],
+) -> tuple[BotPlan, dict[str, str | None]]:
     for plan in choose_action_plan(context, profile, trust_map, signals):
         if plan is None:
             continue

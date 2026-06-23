@@ -23,14 +23,14 @@ from app.engine.bot_presets import (
 # glance — it does not change how the bot plays.
 _LEAN: dict[str, str] = {
     "coalition_seeker": "help",
+    "pragmatist": "help",
     "loyal_partner": "help",
-    "diplomat": "help",
+    "diplomat": "hurt",
     "grudger": "hurt",
     "leader_pressure": "hurt",
     "endgame_sniper": "hurt",
     "opportunist": "hoard",
     "crowd_follower": "hoard",
-    "coin_flip": "hoard",
 }
 
 
@@ -48,6 +48,15 @@ PERSONALITIES: tuple[Personality, ...] = tuple(
 )
 
 _PERSONALITY_IDS: frozenset[str] = frozenset(p.id for p in PERSONALITIES)
+_NAME_BY_ID: dict[str, str] = {p.id: p.label for p in PERSONALITIES}
+
+
+def personality_display_name(strategy: str) -> str:
+    """Human-facing name for a strategy id (e.g. 'grudger' -> 'Long Memory').
+
+    Falls back to a titlecased id for anything not in the roster.
+    """
+    return _NAME_BY_ID.get(strategy, (strategy or "").replace("_", " ").title())
 
 
 @dataclass(frozen=True)

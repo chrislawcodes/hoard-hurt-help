@@ -16,20 +16,31 @@ class BotPreset:
     seed_offset: int
 
 
+# Display name and behavior were reworked; internal strategy ids are kept stable
+# (see app/engine/bots/strategies.py) so saved bots and tests don't churn.
 BOT_PRESETS: tuple[BotPreset, ...] = (
     BotPreset(
         id="coalition_seeker",
         name="Coalition Seeker",
-        description="Looks for useful mutual-help lanes and sticks to them.",
+        description="Reaches out early, then builds mutual-help partnerships and rewards its helpers.",
         strategy="coalition_seeker",
         truthfulness=90,
         trust_model="even",
         seed_offset=0,
     ),
     BotPreset(
+        id="pragmatist",
+        name="Pragmatist",
+        description="Plays nice to build a partnership, then betrays at the buzzer to take the win.",
+        strategy="pragmatist",
+        truthfulness=40,
+        trust_model="even",
+        seed_offset=8,
+    ),
+    BotPreset(
         id="loyal_partner",
         name="Loyal Partner",
-        description="Builds one reliable partnership and protects it.",
+        description="Sticks with proven partners; throws out the occasional test help to find one.",
         strategy="loyal_partner",
         truthfulness=80,
         trust_model="open",
@@ -37,8 +48,8 @@ BOT_PRESETS: tuple[BotPreset, ...] = (
     ),
     BotPreset(
         id="grudger",
-        name="Grudger",
-        description="Starts open, then remembers betrayal hard.",
+        name="Long Memory",
+        description="Remembers both: repays helpers, punishes attackers, gangs up on a runaway leader.",
         strategy="grudger",
         truthfulness=80,
         trust_model="bitter",
@@ -46,8 +57,8 @@ BOT_PRESETS: tuple[BotPreset, ...] = (
     ),
     BotPreset(
         id="leader_pressure",
-        name="Leader Pressure",
-        description="Targets the current leader when the gap gets too large.",
+        name="Giant Slayer",
+        description="Builds its own score, but drops everything to hit anyone running away with the lead.",
         strategy="leader_pressure",
         truthfulness=55,
         trust_model="careful",
@@ -56,7 +67,7 @@ BOT_PRESETS: tuple[BotPreset, ...] = (
     BotPreset(
         id="opportunist",
         name="Opportunist",
-        description="Helps when it helps, hoards when it can get away with it.",
+        description="Works the standings: cooperates when it pays, claws at the leader when behind.",
         strategy="opportunist",
         truthfulness=35,
         trust_model="twitchy",
@@ -64,8 +75,8 @@ BOT_PRESETS: tuple[BotPreset, ...] = (
     ),
     BotPreset(
         id="endgame_sniper",
-        name="Endgame Sniper",
-        description="Plays patient early, then turns sharp near the finish.",
+        name="The Closer",
+        description="Plays patient and friendly, then strikes the leader in the final turns.",
         strategy="endgame_sniper",
         truthfulness=65,
         trust_model="even",
@@ -73,8 +84,8 @@ BOT_PRESETS: tuple[BotPreset, ...] = (
     ),
     BotPreset(
         id="diplomat",
-        name="Diplomat",
-        description="Tries to keep peace and repair trust before conflict escalates.",
+        name="Instigator",
+        description="Rewards aggression — hands help to whoever's attacking, stirring up the table.",
         strategy="diplomat",
         truthfulness=80,
         trust_model="open",
@@ -83,20 +94,11 @@ BOT_PRESETS: tuple[BotPreset, ...] = (
     BotPreset(
         id="crowd_follower",
         name="Crowd Follower",
-        description="Copies the pattern that seems to be working.",
+        description="Copies whatever the table is doing, but sticks with anyone who helps it.",
         strategy="crowd_follower",
         truthfulness=45,
         trust_model="careful",
         seed_offset=7,
-    ),
-    BotPreset(
-        id="coin_flip",
-        name="Coin Flip",
-        description="Picks a random legal move each turn and says whatever comes to mind.",
-        strategy="coin_flip",
-        truthfulness=50,
-        trust_model="even",
-        seed_offset=8,
     ),
 )
 

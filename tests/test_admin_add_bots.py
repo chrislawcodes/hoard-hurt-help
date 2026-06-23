@@ -104,7 +104,7 @@ async def test_form_renders_with_personalities(client, reset_db):
     r = await client.get("/games/hoard-hurt-help/admin/matches/G_001/bots", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert "Add Bots" in r.text
-    assert "Grudger" in r.text
+    assert "Long Memory" in r.text
     assert "Fill remaining seats" in r.text
 
 
@@ -291,4 +291,4 @@ async def test_detail_labels_bots_and_shows_banner(client, reset_db):
     assert r.status_code == 200
     assert "Added 1 Bot." in r.text
     assert "Zeus" in r.text
-    assert "Grudger" in r.text  # personality column
+    assert "Long Memory" in r.text  # personality column (id grudger -> display "Long Memory")

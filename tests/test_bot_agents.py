@@ -155,7 +155,9 @@ async def test_bot_play_is_deterministic_without_connection_or_key(reset_db) -> 
 
         assert isinstance(profile, BotProfile)
         assert first == second
-        assert first.move == {"action": "HURT", "target_id": "Alpha"}
+        # Turn 1 with no runaway leader: the bot reaches out (ice-breaker)
+        # instead of hoarding. Still fully deterministic.
+        assert first.move == {"action": "HELP", "target_id": "Alpha"}
 
 
 async def test_leaderboard_labels_ai_and_bot_rows_and_filters(reset_db) -> None:
