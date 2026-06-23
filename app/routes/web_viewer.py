@@ -54,8 +54,15 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         seat_name: ("agentludum" if agent.kind == AgentKind.BOT else handle)
         for seat_name, agent, handle in owner_rows
     }
+    # In a single match the seat name is the bot's identity: the turn feed,
+    # say-bubbles, and robot-circle captions all narrate by seat name (e.g.
+    # "Napoleon strikes Wellington"). Bots' agent_display_name is the shared
+    # play-style profile ("Coalition Seeker") — fine for the cross-match
+    # leaderboard, but it desyncs the standings rail and robot labels from the
+    # play-by-play, and two bots sharing a profile would collide. So show the
+    # seat name for bots here; humans/AI agents keep their full agent name.
     agent_names: dict[str, str] = {
-        seat_name: agent_display_name(agent)
+        seat_name: (seat_name if agent.kind == AgentKind.BOT else agent_display_name(agent))
         for seat_name, agent, _handle in owner_rows
     }
     bot_flags: dict[str, bool] = {

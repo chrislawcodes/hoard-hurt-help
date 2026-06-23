@@ -172,3 +172,50 @@ async def test_viewer_marks_bots_with_agentludum(reset_db, client):
     assert data["labels"] == {"agent1/Atlas": "Atlas", "Bot Alpha": "Bot Alpha"}
     assert data["bots"] == {"Bot Alpha": True}
     assert data["owners"]["Bot Alpha"] == "agentludum"
+
+
+async def test_viewer_bot_label_is_seat_name_not_profile(reset_db, client):
+    """In a match, a bot is labelled by its seat name (what the turn feed and
+    captions narrate), not by its shared play-style profile. Regression for the
+    standings/play-by-play name desync: seat "Napoleon" must not show as its
+    "Coalition Seeker" profile in the robot-circle rail."""
+    async with reset_db() as db:
+        bot_owner = await make_user(db, 1)
+        bot_agent, _ = await make_agent(
+            db,
+            bot_owner,
+            name="Coalition Seeker",
+            kind=AgentKind.BOT,
+            bot_profile_name="Coalition Seeker",
+            bot_strategy="coalition_seeker",
+        )
+        match = Match(
+            id="M_v3",
+            name="Viewer Bot Name Match",
+            state=GameState.COMPLETED,
+            scheduled_start=datetime(2026, 6, 4, tzinfo=timezone.utc),
+            per_turn_deadline_seconds=60,
+            game="hoard-hurt-help",
+        )
+        # Seated under a colourful human-style name distinct from the profile.
+        bot_agent.name = f"{match.id}:Napoleon"
+        db.add(match)
+        await db.flush()
+        db.add(
+            Player(
+                match_id=match.id,
+                user_id=bot_owner.id,
+                agent_id=bot_agent.id,
+                seat_name="Napoleon",
+            )
+        )
+        await db.commit()
+
+    resp = await client.get("/games/hoard-hurt-help/matches/M_v3")
+    assert resp.status_code == 200
+    start = resp.text.index('id="rc-data"')
+    blob = resp.text[resp.text.index(">", start) + 1 : resp.text.index("</script>", start)]
+    data = json.loads(blob)
+    # The label tracks the seat name, never the play-style profile.
+    assert data["labels"] == {"Napoleon": "Napoleon"}
+    assert "Coalition Seeker" not in data["labels"].values()
