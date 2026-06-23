@@ -102,7 +102,6 @@ _HELP_TALK_INTENTS: dict[str, str] = {
 _HURT_TALK_INTENTS: dict[str, str] = {
     "punish_attacker": "hit_back",
     "hurt_leader": "curb_leader",
-    "endgame_hurt": "finish_strong",
     "block_rival": "block_rival",
 }
 
@@ -207,7 +206,7 @@ def _talk_target(
 def _plan_to_move(plan: BotPlan, context: BotContext) -> dict[str, str | None]:
     if plan.intent in {"keep_partner", "start_partnership", "test_offer", "reward_helper", "repair_trust", "protect_victim"}:
         return {"action": "HELP", "target_id": plan.target_id}
-    if plan.intent in {"punish_attacker", "hurt_leader", "endgame_hurt", "block_rival"}:
+    if plan.intent in {"punish_attacker", "hurt_leader", "block_rival"}:
         return {"action": "HURT", "target_id": plan.target_id}
     if plan.intent == "follow_crowd":
         # Copy the crowd's last majority action when possible.
