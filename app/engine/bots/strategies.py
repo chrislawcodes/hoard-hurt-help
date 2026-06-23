@@ -9,11 +9,8 @@ from typing import Sequence
 from app.engine.game_records import ActionRecord
 from app.schemas.agent import ScoreboardRow
 
-from .phrases import PHRASES
 from .signals import TalkSignal
 from .types import BotContext, BotPlan, BotProfile
-
-_PHRASE_INTENTS: tuple[str, ...] = tuple(PHRASES.keys())
 
 STRATEGY_ALIASES: dict[str, str] = {
     "builder": "coalition_seeker",
@@ -71,86 +68,6 @@ ACTION_INTENTS = {
 
 def normalize_strategy_name(name: str) -> str:
     return STRATEGY_ALIASES.get(name.strip().lower().replace(" ", "_"), name.strip().lower())
-
-
-def choose_talk_plan(
-    context: BotContext,
-    profile: BotProfile,
-    trust_map: dict[str, int],
-    signals: Sequence[TalkSignal],
-) -> BotPlan:
-    strategy = normalize_strategy_name(profile.strategy)
-    partner = _best_partner(context, profile, trust_map, minimum=20)
-    hostile = _most_hostile(context, profile, trust_map)
-    leader = _leader(context)
-    offers = _cooperation_offers(signals, context.your_agent_id)
-    attackers = _attackers(signals, context.your_agent_id)
-
-    if strategy == "coalition_seeker":
-        if partner is not None:
-            return BotPlan("propose_partnership", partner, f"trust={trust_map[partner]}")
-        if offers:
-            target = _best_signal_target(context, profile, trust_map, offers)
-            return BotPlan("propose_partnership", target, "offered partnership")
-        return BotPlan("observe_table", None, "no strong partner yet")
-
-    if strategy == "loyal_partner":
-        if partner is not None:
-            return BotPlan("confirm_partner", partner, f"partner={partner}")
-        if hostile is not None:
-            return BotPlan("claim_repair", hostile, f"hostile={hostile}")
-        return BotPlan("observe_table", None, "waiting")
-
-    if strategy == "grudger":
-        if hostile is not None:
-            return BotPlan("warn_attacker", hostile, f"hostile={hostile}")
-        if attackers:
-            return BotPlan("ask_truce", attackers[0], "recent attack")
-        return BotPlan("observe_table", None, "clean table")
-
-    if strategy == "leader_pressure":
-        if leader is not None and _leader_gap(context, leader) >= 8:
-            return BotPlan("warn_leader", leader, "leader is far ahead")
-        return BotPlan("claim_score_focus", None, "watching the board")
-
-    if strategy == "opportunist":
-        if _leader_gap_from_you(context, leader) <= -5:
-            return BotPlan("claim_score_focus", None, "ahead")
-        if offers:
-            target = _best_signal_target(context, profile, trust_map, offers)
-            return BotPlan("propose_partnership", target, "offer available")
-        return BotPlan("claim_score_focus", None, "score first")
-
-    if strategy == "endgame_sniper":
-        if 8 <= context.turn <= 10 and leader is not None and _leader_gap(context, leader) >= 8:
-            return BotPlan("warn_leader", leader, "late pressure window")
-        if context.turn <= 7 and partner is not None:
-            return BotPlan("propose_partnership", partner, "early partnership")
-        return BotPlan("observe_table", None, "waiting for the finish")
-
-    if strategy == "diplomat":
-        if hostile is not None:
-            return BotPlan("claim_repair", hostile, "repairing")
-        if partner is not None:
-            return BotPlan("ask_truce", partner, "friendly lane")
-        return BotPlan("observe_table", None, "staying calm")
-
-    if strategy == "crowd_follower":
-        if leader is not None and _leader_gap(context, leader) >= 8:
-            return BotPlan("warn_leader", leader, "table pressure")
-        return BotPlan("observe_table", None, "watching momentum")
-
-    if strategy == "coin_flip":
-        others = [aid for aid in context.all_agent_ids if aid != context.your_agent_id]
-        intent = _PHRASE_INTENTS[_seed_int(profile, context, "coin_flip_talk_intent") % len(_PHRASE_INTENTS)]
-        talk_target: str | None = (
-            others[_seed_int(profile, context, "coin_flip_talk_target") % len(others)]
-            if others
-            else None
-        )
-        return BotPlan(intent, talk_target, "coin flip")
-
-    return BotPlan("observe_table", None, "fallback")
 
 
 def choose_action_plan(
@@ -282,18 +199,8 @@ def _most_hostile(
     return min(candidates, key=lambda aid: (trust_map[aid], _seed_int(profile, context, aid)))
 
 
-def _best_signal_target(
-    context: BotContext, profile: BotProfile, trust_map: dict[str, int], targets: Sequence[str]
-) -> str:
-    return min(targets, key=lambda aid: (-trust_map.get(aid, 0), _seed_int(profile, context, aid)))
-
-
 def _cooperation_offers(signals: Sequence[TalkSignal], me: str) -> list[str]:
     return [s.speaker_id for s in signals if s.kind == "cooperation_offer" and s.target_id == me]
-
-
-def _attackers(signals: Sequence[TalkSignal], me: str) -> list[str]:
-    return [s.speaker_id for s in signals if s.kind == "threat" and s.target_id == me]
 
 
 def _recent_helper(context: BotContext, trust_map: dict[str, int]) -> str | None:

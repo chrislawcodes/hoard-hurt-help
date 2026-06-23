@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Sequence
 
+from app.engine.bots.signals import TalkSignal
 from app.models.agent import Agent, AgentKind
 from app.schemas.agent import ScoreboardRow
 
@@ -13,7 +15,6 @@ from .strategies import (
     VALID_STRATEGIES,
     _seed_int,
     choose_action_plan,
-    choose_talk_plan,
     normalize_strategy_name,
 )
 from .trust import compute_trust_map
@@ -87,7 +88,29 @@ def build_bot_profile(agent: Agent) -> BotProfile:
     )
 
 
+# Map the action the bot has decided on to the talk that telegraphs it. Both
+# tables key off the action-plan intent so the spoken line keeps the flavor of
+# *why* the bot helps or hits (a repaid helper sounds different from a new ally).
+_HELP_TALK_INTENTS: dict[str, str] = {
+    "start_partnership": "offer_help",
+    "test_offer": "offer_help",
+    "keep_partner": "keep_ally",
+    "reward_helper": "repay_help",
+    "repair_trust": "mend_fences",
+    "protect_victim": "mend_fences",
+}
+_HURT_TALK_INTENTS: dict[str, str] = {
+    "punish_attacker": "hit_back",
+    "hurt_leader": "curb_leader",
+    "endgame_hurt": "finish_strong",
+    "block_rival": "block_rival",
+}
+
+
 def choose_bot_talk_decision(context: BotContext, profile: BotProfile) -> BotTalkDecision:
+    # Trust computed without this turn's talk: that is all the bot knows when it
+    # speaks. Talk and act run as separate phases, so we decide the move here
+    # using the same logic the act phase will, then talk *about* that move.
     trust_map = compute_trust_map(
         your_agent_id=context.your_agent_id,
         all_agent_ids=context.all_agent_ids,
@@ -95,17 +118,23 @@ def choose_bot_talk_decision(context: BotContext, profile: BotProfile) -> BotTal
         signals=[],
         trust_model=profile.trust_model,
     )
-    plan = choose_talk_plan(context, profile, trust_map, [])
+    # The act-phase seed keys off `context.phase`, so plan against an "act"
+    # snapshot to keep the spoken intent aligned with the move that lands.
+    action_context = replace(context, phase="act")
+    plan, move = _decide_action(action_context, profile, trust_map, [])
+    action = str(move["action"])
+    talk_intent = _talk_intent_for(plan.intent, action)
+    target = _talk_target(move, action_context, profile, trust_map)
     truth_mode = _choose_truth_mode(profile, context, plan.intent, "talk")
     message = render_phrase(
-        plan.intent,
+        talk_intent,
         truth_mode,
-        seed=_seed_int(profile, context, plan.intent),
-        target_name=plan.target_id,
+        seed=_seed_int(profile, context, talk_intent),
+        target_name=target,
     )
     thinking = _thinking(profile, context, plan, truth_mode, trust_map)
     return BotTalkDecision(
-        intent=plan.intent,
+        intent=talk_intent,
         truth_mode=truth_mode,
         message=message,
         thinking=thinking,
@@ -124,22 +153,55 @@ def choose_bot_action_decision(context: BotContext, profile: BotProfile) -> BotA
         signals=signals,
         trust_model=profile.trust_model,
     )
+    plan, move = _decide_action(context, profile, trust_map, signals)
+    return BotActionDecision(
+        intent=plan.intent,
+        move=move,
+        thinking=_thinking(profile, context, plan, "n/a", trust_map),
+    )
+
+
+def _decide_action(
+    context: BotContext,
+    profile: BotProfile,
+    trust_map: dict[str, int],
+    signals: Sequence[TalkSignal],
+) -> tuple[BotPlan, dict[str, str | None]]:
+    """Pick the first legal move from the strategy's ranked plans."""
     for plan in choose_action_plan(context, profile, trust_map, signals):
         if plan is None:
             continue
         move = _plan_to_move(plan, context)
         if _move_is_valid(move, context):
-            return BotActionDecision(
-                intent=plan.intent,
-                move=move,
-                thinking=_thinking(profile, context, plan, "n/a", trust_map),
-            )
-    fallback = BotPlan("hoard_protect_score", None, "fallback")
-    return BotActionDecision(
-        intent=fallback.intent,
-        move={"action": "HOARD", "target_id": None},
-        thinking=_thinking(profile, context, fallback, "n/a", trust_map),
-    )
+            return plan, move
+    return BotPlan("hoard_protect_score", None, "fallback"), {"action": "HOARD", "target_id": None}
+
+
+def _talk_intent_for(action_intent: str, action: str) -> str:
+    """Choose the talk intent that telegraphs the decided move."""
+    if action == "HELP":
+        return _HELP_TALK_INTENTS.get(action_intent, "offer_help")
+    if action == "HURT":
+        return _HURT_TALK_INTENTS.get(action_intent, "hit_back")
+    return "play_own_game"
+
+
+def _talk_target(
+    move: dict[str, str | None],
+    context: BotContext,
+    profile: BotProfile,
+    trust_map: dict[str, int],
+) -> str | None:
+    """Who the talk addresses: the move's target, or a stand-in for HOARD."""
+    target = move.get("target_id")
+    if target is not None:
+        return target
+    # HOARD has no target, but a `false` line still needs someone to (falsely)
+    # promise help to. Address the most-trusted other player.
+    others = [aid for aid in context.all_agent_ids if aid != context.your_agent_id]
+    if not others:
+        return None
+    return min(others, key=lambda aid: (-trust_map.get(aid, 0), _seed_int(profile, context, aid)))
 
 
 def _plan_to_move(plan: BotPlan, context: BotContext) -> dict[str, str | None]:

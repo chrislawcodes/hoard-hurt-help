@@ -63,7 +63,7 @@ def test_extract_talk_signals_matches_exact_agent_ids() -> None:
 
 def test_render_phrase_uses_target_display_name() -> None:
     message = render_phrase(
-        "warn_leader",
+        "curb_leader",
         "honest",
         seed=0,
         target_name="Sun Tzu",
@@ -73,29 +73,37 @@ def test_render_phrase_uses_target_display_name() -> None:
     assert "AI_" not in message
 
 
-def test_render_phrase_without_target_does_not_leak_placeholder_id() -> None:
-    message = render_phrase("claim_score_focus", "false", seed=0)
+def test_render_phrase_without_target_falls_back_to_someone() -> None:
+    # A targeted line rendered with no target must substitute the placeholder,
+    # never leak a raw "{target_name}" or an agent id.
+    message = render_phrase("offer_help", "honest", seed=0)
 
+    assert "{target_name}" not in message
     assert "AI_" not in message
+    assert "someone" in message
     assert len(message) > 0
 
 
-def test_targeted_talk_phrases_name_the_target() -> None:
-    targeted_intents = {
-        "propose_partnership",
-        "confirm_partner",
-        "ask_truce",
-        "warn_attacker",
-        "warn_leader",
-        "claim_repair",
-        "mislead_intent",
+def test_telegraph_lines_name_the_target() -> None:
+    # Honest and partial lines that address a specific player name them. HELP
+    # invites the target, hit_back/block_rival warn them, curb_leader names the
+    # leader it's rallying against. (finish_strong is excluded on purpose — a
+    # disguised endgame hit names no one.)
+    telegraph_intents = {
+        "offer_help",
+        "keep_ally",
+        "repay_help",
+        "mend_fences",
+        "hit_back",
+        "curb_leader",
+        "block_rival",
     }
 
-    for intent in targeted_intents:
-        for mode, phrases in PHRASES[intent].items():
-            for seed, _phrase in enumerate(phrases):
+    for intent in telegraph_intents:
+        for mode in ("honest", "partial"):
+            for seed, _phrase in enumerate(PHRASES[intent][mode]):
                 message = render_phrase(intent, mode, seed=seed, target_name="Sun Tzu")
-                assert "Sun Tzu" in message
+                assert "Sun Tzu" in message, (intent, mode, seed)
 
 
 def test_trust_clamps_to_bounds() -> None:
