@@ -114,6 +114,16 @@ what its one job is.
 
 Design against what's real, not what you imagine.
 
+> **Login-gated page? Don't try to screenshot or "see it rendered."** For any page
+> behind `require_user` (`/me/...`, agent/bot detail, admin), the preview browser
+> and one-off render scripts are a dead end — the signed `hhh_session` cookie won't
+> stick, so the page just returns `NOT_SIGNED_IN`. Do **not** spin up a throwaway
+> pytest to print HTML or attempt a preview screenshot (it wastes cycles every
+> time). Instead verify by an integration test that renders the **real template
+> through the test client** and asserts the rendered HTML, or `curl` the route with
+> a forged cookie (see memory `preview-auth-verification`). The preview browser is
+> fine for **public** pages (home, lobby, game viewer) only.
+
 **If the screen already exists**, look at it before you opine. Use the preview
 tools, don't guess:
 
