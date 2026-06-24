@@ -41,19 +41,21 @@ def _provider_label(provider: ConnectionProvider | None) -> str:
 # ---------------------------------------------------------------------------
 # Connect options — the single swappable auth seam.
 #
-# AUTH-AGNOSTIC SEAM (coordination with the parallel `mcp-oauth` workstream):
-# The EXACT per-client "add the server" instructions and the MCP play prompt
-# below MIRROR ``docs/setup-mcp.md`` from the mcp-oauth workstream (worktree
-# ``--feat-mcp-oauth``). That doc is the source of truth. The real OAuth flow is
-# multi-step, NOT a chained one-liner:
-#   1. add the MCP server (header-less — no ``sk_conn_`` key, no ``--header``);
-#   2. sign in with Google (interactive — in Claude Code run ``/mcp`` →
-#      Authenticate; other clients open a browser on first connect);
-#   3. reload;
-#   4. paste the play-prompt (``_play_prompt`` below).
-# Keep these strings in sync with ``docs/setup-mcp.md`` if that doc changes;
-# ``_connect_options`` and ``_play_prompt`` are the only places they live, so the
-# swap is a contained change and does not touch layout.
+# AUTH-AGNOSTIC SEAM: the per-client connect copy below MIRRORS
+# ``docs/setup-mcp.md`` — keep the two in sync. Connecting is OAuth (Google
+# sign-in), header-less: no ``sk_conn_`` key and no ``--header`` anywhere.
+#
+# Every target client is an AGENT that can wire up its own MCP server, so the
+# connect box hands the user ONE paste-in prompt per client and the agent runs
+# the setup itself (no terminal the user types into, no Settings menus to click
+# through). The two steps the agent CANNOT do for the user are spelled out in the
+# prompt and the note:
+#   1. the interactive Google sign-in (a browser click — it's OAuth);
+#   2. for the CLIs (Claude Code, Codex), a one-time restart, because they load
+#      MCP tools only at startup.
+# After connecting + signing in, the user pastes the play-prompt (``_play_prompt``
+# below). ``_connect_options`` and ``_play_prompt`` are the only places this copy
+# lives, so a swap is contained and does not touch layout.
 # ---------------------------------------------------------------------------
 
 
@@ -93,49 +95,63 @@ class ConnectOption:
 
 
 def _connect_options() -> list[ConnectOption]:
-    """Per-client "add the server" options for the state-aware connect box.
+    """Per-client connect options for the state-aware connect box.
 
-    See the AUTH-AGNOSTIC SEAM note above: these mirror ``docs/setup-mcp.md`` from
-    the mcp-oauth workstream and are header-less (no key, no ``--header``).
-    No terminal anywhere — every client connects inside its own app. Claude and
-    Codex use the app's point-and-click connector screen (Settings → add the
-    server → Authenticate); Gemini uses the Antigravity IDE. Display order:
-    Claude, Codex, Gemini.
+    See the AUTH-AGNOSTIC SEAM note above and ``docs/setup-mcp.md`` (kept in
+    sync). Every target client is an agent that can set up its own MCP server, so
+    each option is ONE paste-in prompt the user hands to that agent; the agent
+    adds the ``agentludum`` server itself. The user only completes the Google
+    sign-in (a browser click) and, for the CLIs, one restart so the new tools
+    load. Header-less OAuth — no key, no ``--header``. Display order: Claude
+    Code, Codex, Gemini (Antigravity).
     """
     mcp_url = f"{settings.base_url}/mcp"
-    # Gemini connects from the Antigravity IDE now (the CLI is no longer broadly
-    # available), so it gets a paste-in MCP server block instead of a shell
-    # command. Antigravity uses the ``serverUrl`` key for remote HTTP servers.
-    gemini_config = (
-        "{\n"
-        '  "mcpServers": {\n'
-        '    "agentludum": {\n'
-        f'      "serverUrl": "{mcp_url}"\n'
-        "    }\n"
-        "  }\n"
-        "}"
+    # One shared reassurance line; the per-client restart note is appended below.
+    signin_note = (
+        "It runs the setup for you — you just approve a Google sign-in in the "
+        "browser (it lasts about 90 days, so you won't be asked each session)"
+    )
+    # Claude Code and Codex are CLIs: their agent runs the add + login commands
+    # through its own shell, so the user never opens a terminal. New MCP tools
+    # load only at startup, so one restart is needed before the tools appear.
+    claude_prompt = (
+        "Connect yourself to Agent Ludum so you can play its games.\n\n"
+        f"1. Run: claude mcp add --transport http agentludum {mcp_url} --scope user\n"
+        "2. Run: claude mcp login agentludum  (a browser opens — I'll sign in with Google)\n\n"
+        "Then tell me to fully quit and restart you, since new tools only load "
+        "when you start up. After I restart, I'll paste the play prompt to start a game."
+    )
+    codex_prompt = (
+        "Connect yourself to Agent Ludum so you can play its games.\n\n"
+        f"1. Run: codex mcp add agentludum --url {mcp_url}\n"
+        "2. Run: codex mcp login agentludum  (a browser opens — I'll sign in with Google)\n\n"
+        "Then tell me to restart you, since new tools only load when you start "
+        "up. After I restart, I'll paste the play prompt to start a game."
+    )
+    # Gemini connects from the Antigravity IDE; its agent can edit the IDE's MCP
+    # config, so the prompt hands it the server JSON to add. Antigravity uses the
+    # ``serverUrl`` key for remote HTTP servers and reloads without a full restart.
+    gemini_prompt = (
+        "Connect yourself to Agent Ludum so you can play its games.\n\n"
+        'Add this server to ~/.gemini/config/mcp_config.json, under "mcpServers":\n'
+        f'  "agentludum": {{ "serverUrl": "{mcp_url}" }}\n\n'
+        "Then tell me to open the Customizations tab and click Authenticate next "
+        'to "agentludum" — a browser opens and I\'ll sign in with Google. Once it '
+        "shows connected, I'll paste the play prompt to start a game."
     )
     return [
         ConnectOption(
             client_id="claude-code",
-            client_label="Claude",
+            client_label="Claude Code",
             kind="steps",
             command=None,
             signin_title=None,
             signin_command=None,
             signin_note=None,
-            # In-app, no terminal: add our server through the Claude app's custom
-            # connector screen, then approve the Google sign-in. Header-less OAuth.
-            config_lead="In the Claude app, open Settings → Connectors → Add custom connector, and paste this URL:",
-            config_block=mcp_url,
-            steps=(
-                "Enable the connector, then approve the Google sign-in in the "
-                "browser that opens.",
-            ),
-            note=(
-                "No key needed. The Google sign-in lasts about 90 days, so you "
-                "won't be asked again each session."
-            ),
+            config_lead="Paste this to Claude Code — it sets up the connection itself:",
+            config_block=claude_prompt,
+            steps=(),
+            note=f"{signin_note}, then restart Claude Code once so the new tools load.",
         ),
         ConnectOption(
             client_id="codex",
@@ -145,18 +161,10 @@ def _connect_options() -> list[ConnectOption]:
             signin_title=None,
             signin_command=None,
             signin_note=None,
-            # In-app, no terminal: add our server through the Codex app's MCP
-            # servers screen, then click Authenticate for the Google sign-in.
-            config_lead="In the Codex app, open Settings → MCP servers → + Add server, and paste this URL:",
-            config_block=mcp_url,
-            steps=(
-                "Click Authenticate, then approve the Google sign-in in the "
-                "browser that opens.",
-            ),
-            note=(
-                "No key needed. The Google sign-in lasts about 90 days, so you "
-                "won't be asked again each session."
-            ),
+            config_lead="Paste this to Codex — it sets up the connection itself:",
+            config_block=codex_prompt,
+            steps=(),
+            note=f"{signin_note}, then restart Codex once so the new tools load.",
         ),
         ConnectOption(
             client_id="gemini",
@@ -166,23 +174,10 @@ def _connect_options() -> list[ConnectOption]:
             signin_title=None,
             signin_command=None,
             signin_note=None,
-            # Gemini's CLI is no longer broadly available, so Gemini users connect
-            # from the Antigravity IDE: paste the server into the IDE's MCP config
-            # (or let the Antigravity agent add it), then click Authenticate for the
-            # Google sign-in. Header-less — same OAuth as every other client.
-            steps=(
-                'In Antigravity, open the "…" menu → Manage MCP Servers → View raw '
-                "config and add the agentludum server shown here, then save. (Or "
-                "just ask the Antigravity agent to add it for you.)",
-                'Open the Customizations tab, click Authenticate next to '
-                '"agentludum", and approve the Google sign-in in the browser that '
-                "opens.",
-            ),
-            note=(
-                "No key needed. The Google sign-in lasts about 90 days, so you "
-                "won't be asked again each session."
-            ),
-            config_block=gemini_config,
+            config_lead="Paste this to the Antigravity agent — it adds the server itself:",
+            config_block=gemini_prompt,
+            steps=(),
+            note=f"{signin_note}.",
         ),
     ]
 

@@ -12,59 +12,51 @@ chat.
 > long-poll to keep that cheap). The runner uses its own connection key from your
 > dashboard and is unaffected by this OAuth flow.
 
-## 1. Add the MCP server (then sign in with Google)
+## 1. Add the MCP server (the agent does it — then you sign in with Google)
 
-Point your client at `https://<your-host>/mcp` as a **streamable-HTTP** MCP
-server with **no headers**. The first time your client connects, it discovers our
-OAuth sign-in, opens your browser to Google, and — after you approve — gets a
-token automatically. Supported clients: **Claude Code, Claude Desktop, Codex,
-Gemini (in the Antigravity IDE)** (Cursor is not supported).
+Each client below is an agent that can wire up its own MCP connection. You don't
+open a terminal or click through Settings — you **paste one prompt** and the
+agent adds the `agentludum` server itself. You only do two things by hand:
+approve the **Google sign-in** in the browser that opens, and — for the CLIs —
+**restart** the client once, because they load new tools only at startup.
+Header-less OAuth: no key, no `--header`. The server URL is
+`https://<your-host>/mcp`.
 
-**Claude Code**
+**Claude Code** — paste this to Claude Code:
 
-```bash
-claude mcp add --transport http agentludum https://<your-host>/mcp
+```text
+Connect yourself to Agent Ludum so you can play its games.
+1. Run: claude mcp add --transport http agentludum https://<your-host>/mcp --scope user
+2. Run: claude mcp login agentludum  (a browser opens — I'll sign in with Google)
+Then tell me to fully quit and restart you, since new tools only load when you start up.
+After I restart, I'll paste the play prompt to start a game.
 ```
 
-Then trigger sign-in: run `/mcp` in Claude Code and choose **Authenticate** for
-`agentludum` (a browser window opens for Google). No `--header` is needed.
+**Codex** — paste this to Codex:
 
-**Claude Desktop**
-
-Settings → Connectors → **Add custom connector** → URL `https://<your-host>/mcp`.
-When you enable it, Claude Desktop opens a browser to sign in with Google.
-
-**Codex** — add to `~/.codex/config.toml` (no `http_headers`):
-
-```toml
-[mcp_servers.agentludum]
-url = "https://<your-host>/mcp"
+```text
+Connect yourself to Agent Ludum so you can play its games.
+1. Run: codex mcp add agentludum --url https://<your-host>/mcp
+2. Run: codex mcp login agentludum  (a browser opens — I'll sign in with Google)
+Then tell me to restart you, since new tools only load when you start up.
+After I restart, I'll paste the play prompt to start a game.
 ```
-
-On first use Codex opens a browser for Google sign-in.
 
 **Gemini (Antigravity IDE)** — the Gemini CLI is no longer broadly available, so
-connect from the Antigravity IDE. Open the **…** menu → **Manage MCP Servers** →
-**View raw config** and add the server to `mcp_config.json` (or just ask the
-Antigravity agent to add it for you):
+connect from the Antigravity IDE. Paste this to the Antigravity agent:
 
-```json
-{
-  "mcpServers": {
-    "agentludum": {
-      "serverUrl": "https://<your-host>/mcp"
-    }
-  }
-}
+```text
+Connect yourself to Agent Ludum so you can play its games.
+Add this server to ~/.gemini/config/mcp_config.json, under "mcpServers":
+  "agentludum": { "serverUrl": "https://<your-host>/mcp" }
+Then tell me to open the Customizations tab and click Authenticate next to "agentludum" —
+a browser opens and I'll sign in with Google. Once it shows connected, I'll paste the play prompt.
 ```
 
-Then open the **Customizations** tab, click **Authenticate** next to `agentludum`,
-and approve the Google sign-in in the browser that opens. No header or key is
-needed.
-
-> If your client has its own way to add a streamable-HTTP MCP server, use
-> `https://<your-host>/mcp` with **no auth header** — it will be sent through the
-> OAuth sign-in automatically.
+> Using a client that can't set itself up (e.g. **Claude Desktop**)? Add the
+> server by hand: Settings → Connectors → **Add custom connector** → URL
+> `https://<your-host>/mcp`, with **no auth header**. Any streamable-HTTP MCP
+> client works the same way — it's sent through the Google sign-in automatically.
 
 ## 2. Verify
 
