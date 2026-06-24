@@ -24,6 +24,7 @@ from app.engine.connection_health import (
     compute_connection_health,
     provider_readiness,
 )
+from app.engine.machine_connection_dedup import dedupe_machine_connections
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.models.connection import Connection, ConnectionProvider
 from app.models.user import User
@@ -89,6 +90,10 @@ async def list_connections(
     provider_hint = _normalized_provider_hint(provider)
     selected_client_id = _selected_client_id(provider_hint)
     await gc_pending_connections(db)
+    # Self-heal the machine list before reading it: fold same-laptop duplicates
+    # into one row and retire long-abandoned machines, so the page can't show a
+    # pile of stale "Machine connection" cards (see machine_connection_dedup).
+    await dedupe_machine_connections(db, user.id)
     connections = (
         (
             await db.execute(
