@@ -26,7 +26,7 @@ it does not repeat them.
 
 ## The one big idea: platform + game modules
 
-Everything hangs off one split (see `AGENT_LUDUM_DESIGN.md` §8):
+Everything hangs off one split (see the design doc's **Game Framework** section):
 
 - **The platform** is game‑agnostic. It owns users, **connections, agents**, the
   lobby, the turn loop, the agent API, the spectator viewer, and storage. It
@@ -43,9 +43,9 @@ They meet at exactly one interface: the `GameModule` protocol in
 (`app/games/__init__.py` → `get(game_type)`) and calls the module. Adding a game
 means writing a module and registering it — no platform file changes.
 
-**Hoard‑Hurt‑Help** (Prisoner's Dilemma) is game #1 — see its code map in
+**Hoard‑Hurt‑Help** (Prisoner's Dilemma) is the first game — see its code map in
 `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md`. **Liar's Dice** is
-game #2 (`app/games/liars_dice/`), the first game to exercise the per‑title state
+the second game (`app/games/liars_dice/`), the first to exercise the per‑title state
 store and a non‑PD move vocabulary on the wire.
 
 ---
@@ -81,7 +81,7 @@ One Python process, started from `app/main.py`:
 
 Line counts are rough size signals, not a quality measure.
 
-### 1. HTTP layer — `app/routes/` (~8,600 lines, the biggest surface)
+### HTTP layer — `app/routes/` (~8,600 lines, the biggest surface)
 
 Every external entry point. Split by audience.
 
@@ -120,7 +120,7 @@ Every external entry point. Split by audience.
 | `sse.py` | — | Server‑Sent Events streams the live viewer subscribes to (bridges `broadcast`). |
 | `auth.py` | 128 | Google OAuth sign‑in / sign‑out. `sync_google_user` is **additive**: it ensures `ADMIN` for config‑floor emails and otherwise **preserves** the stored `role`, so an in‑app promotion survives the next login. |
 
-### 2. Core engine — `app/engine/` (~7,900 lines, excl. `bots/`)
+### Core engine — `app/engine/` (~7,900 lines, excl. `bots/`)
 
 Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 
@@ -147,7 +147,7 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 | `human_player.py` + `player_move.py` | 163 | The **human‑seat** path: `human_player.py` finds/creates a user's `kind=human` agent for a game; `player_move.py` is the shared "record one player's action" core both the human routes and the engine call (`record_player_action`). |
 | `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `turn_routing.py`, `bot_presets.py`, `action_vocab.py`, `seat_hold.py`, `user_match_start.py`, `machine_connection_dedup.py`, `match_id_rewrite.py`, `pending_connection_gc.py`, `connection_auth_loading.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn ordering (`select_next_turn`, unchanged); DB‑free turn‑routing eligibility + sticky‑pin claim helper; the 8 preset Bot profiles and shared default-name allocator; the action‑name vocabulary the insight engines tally by; seat‑hold (join‑before‑connect) logic; user‑initiated match start; collapsing a user's duplicate machine connections; the `G_`↔`M_` id‑rewrite shim; abandoned‑pending‑setup GC; the shared connection‑auth eager‑load option. |
 
-### 3. Bots engine — `app/engine/bots/` (~2,070 lines)
+### Bots engine — `app/engine/bots/` (~2,070 lines)
 
 Deterministic, no‑LLM players — the built‑in scripted opponents (formerly
 "Sims", now **Bots**). A Bot is just an `Agent` with `kind=bot` and no
@@ -164,7 +164,7 @@ and actions, driven directly by the scheduler with no runner and no key. (Spec:
 | `seating.py` | 166 | Seat Bots into a match as players: each gets its own backing `kind=bot` agent (distinct seed, `bot_*` config) owned by the internal "Platform Bots" user, plus a `Player`. |
 | `presets.py` / `roster.py` / `signals.py` / `phrases.py` / `types.py` | — | Pack catalog; historical-leader default-name pool + allocator; admin pick‑list; talk‑signal extraction; canonical phrases; shared dataclasses. |
 
-### 4. Game framework — `app/games/` (~745 lines + the game modules)
+### Game framework — `app/games/` (~745 lines + the game modules)
 
 | Module | Lines | Responsibility |
 |---|---:|---|
@@ -181,7 +181,7 @@ and actions, driven directly by the scheduler with no runner and no key. (Spec:
 
 The Hoard‑Hurt‑Help PD module → see `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md`.
 
-### 5. Data model — `app/models/` (~975 lines)
+### Data model — `app/models/` (~975 lines)
 
 SQLAlchemy ORM. The spine of the whole system.
 
@@ -203,7 +203,7 @@ User ──< Connection ──< ConnectionProviders   (per‑provider toggle + d
 ```
 
 The single `Bot` row was split into a **login** and a **competitor** (feature
-015, `DESIGN.md` §12):
+`connection-agent-split`, the design doc's **Connection / Agent Model** section):
 
 - **`connection.py`** (140) — a user's connection (a **machine** running the
   connector, *or* an **MCP/OAuth client**): the one stable `sk_conn_` key
@@ -216,7 +216,7 @@ The single `Bot` row was split into a **login** and a **competitor** (feature
   stateless mode — migration `0039`). Game‑agnostic; carries no model. `provider`
   is **nullable**: connector *machines* leave it NULL and enable each provider they
   detect in the child table below; an **MCP connection sets it** (one connection
-  per (user, provider) — see §9); hermes/openclaw connections keep it set too.
+  per (user, provider) — see the **MCP server** section); hermes/openclaw connections keep it set too.
 - **`connection_provider.py`** — per‑connection provider toggles + connector
   detection: one row per (`connection_id`, `provider`) with `enabled` (the user's
   toggle), `detected` / `detected_detail` (what the connector reported finding —
@@ -270,7 +270,7 @@ The single `Bot` row was split into a **login** and a **competitor** (feature
   for platform‑admin checks; login‑sync now keeps it **additive** (config‑floor
   emails → `ADMIN`, otherwise the stored role is preserved). `user.py` also
   carries a nullable `disabled_at` timestamp (NULL = active); a non‑NULL value
-  blocks the user at **both** auth paths (see `deps.py`, §7). `match.py` carries a
+  blocks the user at **both** auth paths (see `deps.py`, the **Cross‑cutting infrastructure** section). `match.py` carries a
   nullable, indexed `created_by_user_id` FK → `users.id`: the match owner.
   Human‑created matches record their creator; system/arena matches stay `NULL`
   (admin‑managed only).
@@ -285,7 +285,7 @@ The single `Bot` row was split into a **login** and a **competitor** (feature
 - **`game_state.py`** — the **generic per‑title state store** (`MatchState` =
   public module‑owned game state, one row per match; `PlayerState` = private
   per‑player state, one row per player). Both are game‑agnostic JSON blobs the
-  platform never inspects — added with game #2 (Liar's Dice uses them for the
+  platform never inspects — added with the second game (Liar's Dice uses them for the
   standing bid and each player's hidden dice; PD writes neither). Migration
   `0033`.
 - **`connection_setup.py`** — a connector machine's in‑progress, pre‑key setup
@@ -327,7 +327,7 @@ bridge and its rename — `0032`/`0038` — per‑provider one‑connection rule
 (`0035`/`0036`), the sideline coach (`0030`), seat holds (`0034`), and connection
 poll/usage counters.) Migrations apply automatically on startup.
 
-### 6. Wire contracts — `app/schemas/` (~540 lines)
+### Wire contracts — `app/schemas/` (~540 lines)
 
 Pydantic request/response models. `agent.py` (427) is the big one — the agent API
 payloads (turn context, submission, scoreboard, talk). The submit body is no
@@ -336,29 +336,29 @@ a generic **`move: dict`** carries a non‑PD vocabulary (Liar's Dice bids), pas
 to the game module untouched; `YourTurnResponse` carries optional
 `public_state` / `your_private_state`. Plus `spectator.py`, `admin.py`, `auth.py`.
 
-### 6.5. Read models — `app/read_models/`
+### Read models — `app/read_models/`
 
 Shared DB projections used by routes and engines. `matches.py` centralizes
 player counts, scoreboards, player records, resolved turn rows, and
 `ActionRecord` history so the agent API, Bots, spectator API, viewer, and
 analysis pages do not each rebuild the same DB shape by hand.
 
-### 7. Cross‑cutting infrastructure — `app/*.py`
+### Cross‑cutting infrastructure — `app/*.py`
 
 | Module | Lines | Responsibility |
 |---|---:|---|
 | `request_logging.py` | 164 | Global request logging, incident capture, 500 handling. |
-| `deps.py` | ~175 | Shared FastAPI dependencies: DB session, `require_user`, `require_platform_admin` (role‑based: `user.role == ADMIN`), `require_game_admin` (still email‑based, non‑goal). Two distinct admin roles — see §1 HTTP layer. **Disable enforcement lives here, on both auth paths:** `require_user` (web) rejects a disabled user with a 303 redirect to `/disabled`; `require_connection` (bot/runner `X-Connection-Key`) rejects with a structured JSON 403 `ACCOUNT_DISABLED` (mirroring `CONNECTION_PAUSED`), so a disabled owner's runners can't act. The pure getter `get_user_from_session` stays `-> User | None`; the session is DB‑backed so the check bites on the very next request. |
+| `deps.py` | ~175 | Shared FastAPI dependencies: DB session, `require_user`, `require_platform_admin` (role‑based: `user.role == ADMIN`), `require_game_admin` (still email‑based, non‑goal). Two distinct admin roles — see the **HTTP layer** section. **Disable enforcement lives here, on both auth paths:** `require_user` (web) rejects a disabled user with a 303 redirect to `/disabled`; `require_connection` (bot/runner `X-Connection-Key`) rejects with a structured JSON 403 `ACCOUNT_DISABLED` (mirroring `CONNECTION_PAUSED`), so a disabled owner's runners can't act. The pure getter `get_user_from_session` stays `-> User | None`; the session is DB‑backed so the check bites on the very next request. |
 | `main.py` | 145 | App factory, lifespan (migrate → resume → poll), router mounting. Lifespan also logs a loud startup warning when `platform_admin_emails_set` is empty (advisory only — an empty bootstrap list removes the immutable admin floor; does not block boot). |
 | `config.py`, `db.py`, `broadcast.py`, `templating.py`, `auth/` | small | Env settings; async engine/session; SSE pub/sub; Jinja instance + filters; Google OAuth + signed‑session helpers. |
 
-### 8. Presentation — `app/templates/` (62 files, ~6,040 lines) + `app/static/style.css` (~2,700)
+### Presentation — `app/templates/` (62 files, ~6,040 lines) + `app/static/style.css` (~2,700)
 
 Server‑rendered Jinja with a fixed platform shell (`base.html`) and HTMX
 fragments (`templates/fragments/`) swapped in over SSE. **All** styling lives in
 one `style.css`; a game tints only its content region via scoped CSS variables.
 
-### 9. MCP server — `mcp_server/` (`server.py` + OAuth bridge)
+### MCP server — `mcp_server/` (`server.py` + OAuth bridge)
 
 Exposes the play API as MCP tools mounted at `/mcp`, so any MCP client
 (Claude Code/Desktop, Codex, Gemini CLI — **not** Cursor) can play. Built on
@@ -600,15 +600,15 @@ push HTML fragments into the live viewer — no client‑side state.
   accepted as fair). Do **not** confuse this with the "one AI = one seat" provider
   rule above — that limits a *provider* across seats, never a *user*.
 - **PD's columns persist, but storage and the wire are now partly generalized
-  (game #2 shipped).** PD still records moves in the PD‑shaped `turn_submissions`
+  (the second game shipped).** PD still records moves in the PD‑shaped `turn_submissions`
   columns (`action`/`target`/`points_delta`). But a **generic per‑title state
   store** now exists — `match_state` / `player_state` (`app/models/game_state.py`,
   migration `0033`) — and the submit wire is no longer PD‑only: `SubmitRequest`
   carries a free‑form **`move: dict`** that a non‑PD game uses over HTTP (Liar's
-  Dice, game #2, does exactly this). The tension that remains: the legacy
+  Dice, the second game, does exactly this). The tension that remains: the legacy
   `turn_submissions` column set is still PD‑shaped, so a new game maps its move
   onto those columns *and* its own state blob; fully retiring the PD columns is
-  still future work (`AGENT_LUDUM_DESIGN.md` §8).
+  still future work (the design doc's **Game Framework** section).
   See `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md` for the game‑side view.
 - **"Fail loud" contract defaults keep the platform game‑agnostic.** `action_names()`,
   `default_move()`, `build_replay_view()`, and `viewer_fragment()` all raise

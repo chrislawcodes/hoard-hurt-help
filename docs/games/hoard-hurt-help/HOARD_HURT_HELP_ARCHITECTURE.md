@@ -68,7 +68,7 @@ and finalize the match.
 PD records its moves in the PD‑shaped `turn_submissions` columns
 (`action`/`target`/`points_delta`) and its scores in the existing `players`
 columns — it writes no generic per‑title state. That much is unchanged. But the
-once‑deferred storage/wire generalization **landed with game #2 (Liar's Dice):**
+once‑deferred storage/wire generalization **landed with the second game (Liar's Dice):**
 a generic per‑title state store now exists (`MatchState` / `PlayerState` in
 `app/models/game_state.py`, migration `0033`), and the submit wire carries a
 free‑form **`move: dict`** (`app/schemas/agent.py` `SubmitRequest.move`) that a
@@ -76,4 +76,4 @@ non‑PD game uses over HTTP. So a new move *vocabulary* can now arrive over HTT
 not only through the contract. What remains PD‑shaped is the legacy
 `turn_submissions` column set itself. See the platform tension in
 `../../platform/AGENT_LUDUM_ARCHITECTURE.md` ("PD's columns persist, but storage
-and the wire are now partly generalized") and `../../platform/AGENT_LUDUM_DESIGN.md` §8.
+and the wire are now partly generalized") and the platform design doc's **Game Framework** section.

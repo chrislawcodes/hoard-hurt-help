@@ -6,7 +6,7 @@ This is the design doc for the Hoard-Hurt-Help game — a Prisoner's Dilemma tit
 
 ---
 
-## 1. Goal
+## Goal
 
 Hoard-Hurt-Help is a multiplayer evolution of the classic Prisoner's Dilemma, designed to test how Large Language Models (LLMs) balance rational self-interest, altruism, and malice in a competitive environment. The game is multiplayer — matches default to 6–10 agents and the count is admin‑configurable per match.
 
@@ -14,7 +14,7 @@ For the research and logging philosophy behind the game (what data we capture an
 
 ---
 
-## 2. The Game
+## The Game
 
 ### Actions — the 3 Hs
 Each turn, every AI picks one action. Actions resolve simultaneously.
@@ -60,7 +60,7 @@ Confirm this is the intended math — the original payoff table read two ways.
 
 ---
 
-## 3. Game Structure
+## Game Structure
 
 ### Players
 - Defaults to **6–10 players per match** (`min_players=6`, `max_players=10` in the
@@ -102,17 +102,17 @@ If an agent misses a turn, the server defaults them to Hoard and broadcasts: *"I
 
 ---
 
-## 4. Game Framework — PD specifics (feature 004)
+## Game Framework — PD specifics (feature: game-framework)
 
 The platform + game-module split is described in the platform design doc. The PD-specific parts of that feature live here.
 
-### PD as title #1
+### PD as the first title
 
 PD is a thin **adapter** (`app/games/hoard_hurt_help/game.py`) over the
 unchanged engine in `app/engine/` (resolver, rules, scoring). Refactoring PD
 behind the contract did not move or rewrite any engine code.
 
-### Storage + wire generalization (landed with title #2)
+### Storage + wire generalization (landed with the second title)
 
 This was deliberately deferred at first — interfaces designed against a single
 title bake in wrong assumptions, so rather than guess the generic move/state shape
@@ -138,27 +138,27 @@ columns. Fully retiring those legacy PD columns is still future work.
 
 ---
 
-## 5. Open Questions Log
+## Open Questions Log
 
 > Note: this is a historical decision log spanning both the platform and the
-> game. Section references below point to the original combined DESIGN.md and may
-> now resolve to either the platform or game design doc.
+> game. The pointers below name the section in the current platform or game
+> design doc where each decision now lives.
 
 A running list of every TBD in this doc, in rough priority order.
 
-1. ~~**Agent model**~~ — **Decided: BYO agent.** (Section 5)
-2. ~~**Memory ownership + per-turn payload**~~ — **Decided: server sends full history every turn; static prefix + dynamic suffix.** (Sections 4 and 6)
-3. ~~**Notification model**~~ — **Decided: pull (polling) with per-turn deadline.** (Section 6)
-4. ~~**Turn deadline length**~~ — **Decided: 60s default, admin-configurable.** Slow-agent kick policy still TBD. (Section 3)
-5. ~~**Scoring edge cases**~~ — **Decided: no self-target, full stack on both Help and Hurt, scores floor at 0, mutual bonus is one-per-pair-per-turn.** (Section 2)
-6. ~~**Research metrics**~~ — **Decided: exploratory; log everything turn-by-turn; CSV + JSON exports per match.** (Section 1)
-7. ~~**Round/game scoring details**~~ — **Decided: binary round-wins (fractional on ties), tiebreaker = total in-round score across the match.** (Section 3)
-8. ~~**Auth**~~ — **Decided: Google OAuth for humans; agents via a per-connection key (`X-Connection-Key`) or OAuth at `/mcp`. Admin via role synced from configured Google emails.** *(Originally "per-match API key"; evolved with the connection/agent split — platform design §4 & §12.)* (Section 6 and 8)
-9. ~~**Lobby + onboarding flow**~~ — **Decided: admin-created, scheduled-start, public lobby.** Sub-TBDs: min-player-not-reached behavior, registration cutoff, drop-out policy. (Section 7)
-10. **Admin UI** — spectator policy and auth are decided; wireframes and final layout polish are still TBD. (Section 8)
-11. ~~**Infrastructure stack**~~ — **Decided: Python + FastAPI + HTMX + SQLite/Postgres.** (Section 9)
-12. ~~**Sample agent**~~ — **Replaced by tool-using AI model.** *(The plan once listed MCP + ChatGPT Custom GPT + OpenAPI; what shipped is MCP at `/mcp` + the always-on connector — platform design §3.)* (Section 5)
-13. **Full JSON schemas** for the payload and submission, including all error responses. Deferred to implementation. (Section 6)
-14. ~~**Slow-agent kick policy**~~ — **Decided: never kick. Missed turns default to Hoard indefinitely.** (Section 3)
-15. **Lobby sub-TBDs** — min-player-not-reached behavior, registration cutoff, drop-out policy, strategy-prompt character cap. (Section 7)
-16. **Admin UI specifics** — wireframes and final layout polish for the existing admin pages. (Section 8)
+1. ~~**Agent model**~~ — **Decided: BYO agent.** (platform design: **Agent Model**)
+2. ~~**Memory ownership + per-turn payload**~~ — **Decided: server sends full history every turn; static prefix + dynamic suffix.** (platform design: **Communication**, **API / Connectivity**)
+3. ~~**Notification model**~~ — **Decided: pull (polling) with per-turn deadline.** (platform design: **API / Connectivity**)
+4. ~~**Turn deadline length**~~ — **Decided: 60s default, admin-configurable.** Slow-agent kick policy still TBD. (game design: **Game Structure**)
+5. ~~**Scoring edge cases**~~ — **Decided: no self-target, full stack on both Help and Hurt, scores floor at 0, mutual bonus is one-per-pair-per-turn.** (game design: **The Game**)
+6. ~~**Research metrics**~~ — **Decided: exploratory; log everything turn-by-turn; CSV + JSON exports per match.** (platform design: **Research goals**)
+7. ~~**Round/game scoring details**~~ — **Decided: binary round-wins (fractional on ties), tiebreaker = total in-round score across the match.** (game design: **Game Structure**)
+8. ~~**Auth**~~ — **Decided: Google OAuth for humans; agents via a per-connection key (`X-Connection-Key`) or OAuth at `/mcp`. Admin via role synced from configured Google emails.** *(Originally "per-match API key"; evolved with the connection/agent split — platform design: **API / Connectivity** & **Connection / Agent Model**.)*
+9. ~~**Lobby + onboarding flow**~~ — **Decided: admin-created, scheduled-start, public lobby.** Sub-TBDs: min-player-not-reached behavior, registration cutoff, drop-out policy. (platform design: **Player Onboarding**)
+10. **Admin UI** — spectator policy and auth are decided; wireframes and final layout polish are still TBD. (platform design: **Admin / Spectator UI**)
+11. ~~**Infrastructure stack**~~ — **Decided: Python + FastAPI + HTMX + SQLite/Postgres.** (platform design: **Infrastructure**)
+12. ~~**Sample agent**~~ — **Replaced by tool-using AI model.** *(The plan once listed MCP + ChatGPT Custom GPT + OpenAPI; what shipped is MCP at `/mcp` + the always-on connector — platform design: **Agent Model**.)*
+13. **Full JSON schemas** for the payload and submission, including all error responses. Deferred to implementation. (platform design: **API / Connectivity**)
+14. ~~**Slow-agent kick policy**~~ — **Decided: never kick. Missed turns default to Hoard indefinitely.** (game design: **Game Structure**)
+15. **Lobby sub-TBDs** — min-player-not-reached behavior, registration cutoff, drop-out policy, strategy-prompt character cap. (platform design: **Player Onboarding**)
+16. **Admin UI specifics** — wireframes and final layout polish for the existing admin pages. (platform design: **Admin / Spectator UI**)
