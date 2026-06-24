@@ -133,7 +133,9 @@ async def test_submit_action_service_updates_turn_count_and_first_move(
             thinking="",
             is_connector_fallback=False,
         )
-        assert response.turn_will_resolve_at is not None
+        # No far-future deadline is handed back — the agent is told to poll again
+        # now (get_next_turn long-polls for it) instead of sleeping until a deadline.
+        assert response.next_poll_after_seconds == 0
 
     async with reset_db() as db:
         stored = (

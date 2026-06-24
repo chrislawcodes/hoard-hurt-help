@@ -236,13 +236,11 @@ async def submit_talk(
             round=turn.round,
             turn=turn.turn,
             turn_token=turn.turn_token,
-            act_resolves_at=turn.deadline_at,
         )
     existing = await _existing_message_for_player(db, turn, player)
     if existing is not None and not existing.was_defaulted:
         return MessageResponse(
             received_at=existing.submitted_at or datetime.now(timezone.utc),
-            phase_resolves_at=turn.deadline_at,
         )
 
     module = get_game_module(game.game)
@@ -272,7 +270,6 @@ async def submit_talk(
 
     return MessageResponse(
         received_at=datetime.now(timezone.utc),
-        phase_resolves_at=turn.deadline_at,
     )
 
 
@@ -336,7 +333,6 @@ async def submit_action(
     if existing is not None and not existing.was_defaulted:
         return SubmitResponse(
             received_at=existing.submitted_at or datetime.now(timezone.utc),
-            turn_will_resolve_at=turn.deadline_at,
         )
 
     module = get_game_module(game.game)
@@ -401,7 +397,6 @@ async def submit_action(
 
     return SubmitResponse(
         received_at=datetime.now(timezone.utc),
-        turn_will_resolve_at=turn.deadline_at,
     )
 
 

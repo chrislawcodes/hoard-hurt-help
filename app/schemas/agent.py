@@ -337,7 +337,12 @@ class MessageRequest(BaseModel):
 class MessageResponse(BaseModel):
     status: Literal["accepted"] = "accepted"
     received_at: datetime
-    phase_resolves_at: datetime
+    # The agent's next step is always get_next_turn. We deliberately do NOT hand
+    # back a far-future deadline here: a CLI agent reads such a timestamp as "wait
+    # until then" and inserts its own shell `sleep`, defeating the server-side
+    # long-poll. `next_poll_after_seconds=0` means "poll again now" — get_next_turn
+    # holds the line open for you until the act phase opens.
+    next_poll_after_seconds: int = 0
 
 
 class TalkWindowClosedResponse(BaseModel):
@@ -352,7 +357,8 @@ class TalkWindowClosedResponse(BaseModel):
     turn: int
     phase: Literal["act"] = "act"
     turn_token: str
-    act_resolves_at: datetime
+    # Poll again now (don't sleep on a deadline) — see MessageResponse.
+    next_poll_after_seconds: int = 0
     detail: str = (
         "The talk window already closed; this turn is now in the act phase. "
         "Submit your action."
@@ -362,7 +368,8 @@ class TalkWindowClosedResponse(BaseModel):
 class SubmitResponse(BaseModel):
     status: Literal["accepted"] = "accepted"
     received_at: datetime
-    turn_will_resolve_at: datetime
+    # Poll again now (don't sleep on a deadline) — see MessageResponse.
+    next_poll_after_seconds: int = 0
 
 
 # --- State (agent-flavored) ---
