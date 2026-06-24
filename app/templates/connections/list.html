@@ -103,29 +103,43 @@
     </div>
 </details>
 
-{% if connections %}
+{# === Your connections — grouped by the two kinds, each showing the AIs it
+   covers, with calm, type-aware status (idle reads as normal rest, not red).
+   MCP = your AI chat app; Machine = the always-on connector. === #}
+{% if mcp_providers or machine_connections %}
     <h2 style="margin-top:1.75rem;">Your connections</h2>
-    {% for row in connections %}
-    <article class="game-card">
+
+    {% if mcp_providers %}
+    <article class="card connection-group">
+        <h3 style="margin:0 0 0.2rem;">MCP connection</h3>
+        <p class="hint" style="margin:0 0 0.7rem;">Your AI app, signed in. It plays your matches while you keep it open.</p>
+        <ul class="connection-ai-list">
+            {% for ai in mcp_providers %}
+            <li>
+                <a class="connection-ai-name" href="/me/connections/{{ ai.connection_id }}">{{ ai.label }}</a>
+                <span class="badge {{ ai.status.badge_class }}">{% if ai.status.pulse %}<span class="dot"></span>{% elif ai.status.still_dot %}<span class="dot dot-still"></span>{% endif %}{{ ai.status.label }}</span>
+                <span class="meta">{% if ai.status.note %}{{ ai.status.note }}{% if not ai.health.never_connected %} · {% endif %}{% endif %}{% if not ai.health.never_connected %}last seen {{ ai.health.last_connected_human }}{% endif %}</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+    {% endif %}
+
+    {% for m in machine_connections %}
+    <article class="game-card connection-group">
         <div class="game-card-info">
-            {# Name, kind, health (with "last seen") and agent count on ONE line to
-               save vertical space — the name leads as the clickable link. #}
+            <h3 style="margin:0 0 0.2rem;"><a href="/me/connections/{{ m.connection_id }}" style="color:inherit;text-decoration:none;">{{ m.display_name }}</a></h3>
+            <p class="hint" style="margin:0 0 0.5rem;">An always-on helper on this computer. Plays your matches 24/7.</p>
+            <p class="meta" style="margin:0 0 0.4rem;">
+                {% if m.available_ais %}AIs ready here: <strong>{{ m.available_ais | join(', ') }}</strong>{% else %}No AIs detected on this machine yet.{% endif %}
+            </p>
             <p class="meta" style="margin:0;">
-                {% set connection = row.connection %}
-                {% set health = row.health %}
-                <a href="/me/connections/{{ row.connection.id }}" style="font-weight:500;color:inherit;">{{ row.display_name }}</a>
-                · {% if row.connection.mcp_connected_at %}MCP connection{% else %}Machine connection{% endif %}
-                · <span class="bot-health-live" hx-get="/me/connections/{{ row.connection.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
-                    {% include "connections/_health_badge.html" %}
-                </span>
-                {% if row.connection.runner_pid and row.health.state.value != 'paused' and row.health.state.value != 'disconnected' %}
-                    · PID {{ row.connection.runner_pid }}
-                {% endif %}
-                · {{ row.agents | length }} agent(s)
+                <span class="badge {{ m.status.badge_class }}">{% if m.status.pulse %}<span class="dot"></span>{% elif m.status.still_dot %}<span class="dot dot-still"></span>{% endif %}{{ m.status.label }}</span>
+                {% if m.status.note %} {{ m.status.note }}{% endif %}{% if not m.health.never_connected %} · last seen {{ m.health.last_connected_human }}{% endif %}
             </p>
         </div>
         <div class="game-card-action">
-            <a class="btn btn-primary" href="/me/connections/{{ row.connection.id }}">Manage →</a>
+            <a class="btn btn-primary" href="/me/connections/{{ m.connection_id }}">Manage →</a>
         </div>
     </article>
     {% endfor %}

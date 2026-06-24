@@ -639,16 +639,86 @@ async def test_connections_list_renders_existing_connection(
     async with session_factory() as db:
         user = await _make_user(db)
         connection, _ = await _make_connection(db, user, nickname="My Claude")
+        # Connected before, but idle now → the machine reads as "Asleep", not red.
+        connection.last_seen_at = datetime.now(timezone.utc) - timedelta(days=2)
         await db.commit()
 
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
     assert "Your connections" in resp.text
-    # No mcp_connected_at on this connection, so it reads as the always-on connector kind.
-    assert "Machine connection" in resp.text
+    # No mcp_connected_at → reads as the always-on machine kind, named by nickname.
     assert "My Claude" in resp.text
+    assert "always-on helper" in resp.text
     assert "Manage →" in resp.text
-    assert "Disconnected" in resp.text
+    # Calm + type-aware: an idle machine is "Asleep" with a gentle restart nudge,
+    # never a red "Disconnected".
+    assert "Asleep" in resp.text
+    assert "restart the helper to play 24/7" in resp.text
+    assert "Disconnected" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_connections_list_groups_mcp_and_machine_with_calm_status(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The inventory groups by kind: one MCP card listing the AIs signed in (calm
+    'Idle', not red), and a machine card listing the AIs available on it."""
+    async with session_factory() as db:
+        user = await _make_user(db)
+        # An MCP sign-in for Gemini, idle now.
+        mcp, _ = await _make_connection(db, user, provider=ConnectionProvider.GEMINI)
+        mcp.mcp_connected_at = datetime.now(timezone.utc) - timedelta(days=1)
+        mcp.last_seen_at = datetime.now(timezone.utc) - timedelta(days=1)
+        # A machine running the connector with Claude available, asleep now.
+        machine, _ = await _make_connection(
+            db, user, provider=ConnectionProvider.CLAUDE, nickname="Home PC"
+        )
+        machine.last_seen_at = datetime.now(timezone.utc) - timedelta(days=2)
+        await db.commit()
+
+    resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
+    assert resp.status_code == 200
+    text = resp.text
+    # MCP group: the AI signed in + calm idle wording (no red "Disconnected").
+    assert "MCP connection" in text
+    assert "Idle" in text
+    assert "sign in to your AI to play" in text
+    # Machine group: the machine name + the AIs available on it + asleep nudge.
+    assert "Home PC" in text
+    assert "AIs ready here:" in text
+    assert "Asleep" in text
+    assert "Disconnected" not in text
+
+
+def test_calm_connection_status_is_type_aware_and_low_alarm() -> None:
+    """Idle reads calmly and differently per kind; only a real stall is red."""
+    from app.engine.connection_health import ConnectionHealth, calm_connection_status
+
+    mcp_idle = calm_connection_status(ConnectionHealth.DISCONNECTED, is_mcp=True)
+    assert mcp_idle.label == "Idle"
+    assert mcp_idle.badge_class == "badge-done"  # calm grey, not red
+    assert mcp_idle.note == "sign in to your AI to play"
+
+    machine_idle = calm_connection_status(ConnectionHealth.DISCONNECTED, is_mcp=False)
+    assert machine_idle.label == "Asleep"
+    assert machine_idle.badge_class == "badge-soon"  # gentle nudge, not red
+
+    assert (
+        calm_connection_status(ConnectionHealth.LIVE, is_mcp=True).label == "Playing now"
+    )
+    assert calm_connection_status(ConnectionHealth.LIVE, is_mcp=False).label == "Running"
+    # Only a genuine stall is red.
+    assert (
+        calm_connection_status(ConnectionHealth.STALLED, is_mcp=True).badge_class
+        == "badge-alert"
+    )
+    # Never-connected reads neutral, regardless of kind.
+    assert (
+        calm_connection_status(
+            ConnectionHealth.DISCONNECTED, is_mcp=False, never_connected=True
+        ).label
+        == "Not connected yet"
+    )
 
 
 @pytest.mark.asyncio
