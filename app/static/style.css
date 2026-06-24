@@ -893,6 +893,7 @@ pre code { background: none; padding: 0; }
 .join-pick { display: grid; gap: 0.5rem; }
 .join-pick .form-actions { margin-top: 0.5rem; }
 .pick-hint-inline { font-weight: 400; font-size: 0.82rem; color: var(--ink-soft); }
+.pick-hint { font-size: 0.82rem; color: var(--ink-soft); margin: 0 0 0.15rem; }
 #agent-section { display: grid; gap: 0.5rem; }
 .agent-card {
     background: var(--surface);
@@ -901,15 +902,12 @@ pre code { background: none; padding: 0; }
     overflow: hidden;
     transition: border-color 0.12s;
 }
-.agent-card:has(.agent-radio:checked) { border-color: var(--accent); }
+.agent-card:has(.ai-radio:checked) { border-color: var(--accent); }
 .agent-card-taken { opacity: 0.55; }
 .agent-card-hd {
     display: flex; align-items: baseline; gap: 0.6rem;
-    padding: 0.5rem 0.75rem; cursor: pointer;
+    padding: 0.5rem 0.75rem;
 }
-.agent-card-hd:hover { background: var(--surface-2); }
-.agent-card-taken .agent-card-hd { cursor: not-allowed; }
-.agent-card-taken .agent-card-hd:hover { background: transparent; }
 .agent-ai-picker {
     border-top: 1px solid var(--line);
     background: var(--surface-2);

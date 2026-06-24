@@ -339,7 +339,7 @@ async def join_submit(
     play_as: Annotated[str, Form()] = "ai",
     agent_id: Annotated[list[int] | None, Form()] = None,
     bot_id: Annotated[list[int] | None, Form()] = None,
-    chosen_provider: Annotated[str | None, Form()] = None,
+    chosen_provider: Annotated[list[str] | None, Form()] = None,
     display_name: Annotated[str | None, Form()] = None,
     strategy_prompt: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
@@ -350,13 +350,16 @@ async def join_submit(
     - ``play_as="human"`` adds a **human seat** (no agent, no connection) — shared
       with the direct ``/play/join`` endpoint via ``seat_human_player`` so the two
       can't drift.
-    - one or more ``agent_id`` + a ``chosen_provider`` adds **AI-agent seat(s)**.
+    - one or more ``agent_id`` + a matching ``chosen_provider`` adds **AI-agent
+      seat(s)**. The browser posts one provider per chosen agent, in the same order
+      (paired by position). A single provider given for several agents is the
+      legacy "same AI for all" shorthand and is broadcast to every agent.
 
     Either, or **both**, may be present — a user can play by hand *and* field their
-    own bot in the same match (and compete against it). Regular users add a single
-    agent; admins may select several of their own at once to fill a match for
-    testing. Both seats are created in **one transaction**, so capacity is
-    all-or-nothing.
+    own bot in the same match (and compete against it). A regular user may field
+    several agents at once, but each must use a **different AI** (one AI plays one
+    of your seats per game); admins may overcommit one AI across seats for testing.
+    All seats are created in **one transaction**, so capacity is all-or-nothing.
     """
     # Dedupe while preserving the picked order; `bot_id` is the legacy field name.
     selected_ids = list(dict.fromkeys([*(agent_id or []), *(bot_id or [])]))
@@ -394,15 +397,34 @@ async def join_submit(
     # agent that together overflow `max_players` fail as one — nothing commits.
     players: list[Player] = []
     if want_agent:
-        if not chosen_provider:
+        providers = chosen_provider or []
+        if not providers:
             raise HTTPException(
                 status_code=400, detail="Pick an AI to play your agent."
             )
-        if len(selected_ids) > 1 and not is_admin:
+        # Pair each agent with its AI. The screen posts one provider per chosen
+        # agent, in card order, so the lists line up by position. A single provider
+        # for several agents is the legacy admin "same AI for all" shorthand.
+        if len(providers) == len(selected_ids):
+            pairs = list(zip(selected_ids, providers))
+        elif len(providers) == 1:
+            pairs = [(aid, providers[0]) for aid in selected_ids]
+        else:
             raise HTTPException(
-                status_code=403,
-                detail="Only admins can add more than one agent to a match.",
+                status_code=400, detail="Each agent needs exactly one AI."
             )
+        # One AI plays one of your seats per game: a regular user may field several
+        # agents at once, but each must use a different AI. Admins may overcommit.
+        if not is_admin:
+            picked = [provider for _, provider in pairs]
+            if len(set(picked)) != len(picked):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Pick a different AI for each agent — one AI can only play "
+                        "one of your agents per game."
+                    ),
+                )
         existing_seats = set(
             (
                 await db.execute(
@@ -415,9 +437,9 @@ async def join_submit(
         players = [
             await _seat_user_agent(
                 db, user, match, aid, existing_seats,
-                chosen_provider=chosen_provider, bypass_capacity=is_admin,
+                chosen_provider=provider, bypass_capacity=is_admin,
             )
-            for aid in selected_ids
+            for aid, provider in pairs
         ]
         db.add_all(players)
 

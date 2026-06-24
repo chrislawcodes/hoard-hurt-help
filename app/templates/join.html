@@ -36,35 +36,34 @@
 
     {% if any_agents and any_pickable_ai %}
     <div id="agent-section"{% if not default_agent %} style="display:none;"{% endif %}>
-        {% set st = namespace(first_agent=true) %}
+        <p class="pick-hint">Pick an AI for each agent you want to send. Each AI can
+        play only one of your agents per game, so once you choose it for one agent it
+        greys out for the others.</p>
         {% for row in agent_rows %}
-        {% set is_first = not row.seated and st.first_agent %}
-        {% if is_first %}{% set st.first_agent = false %}{% endif %}
-        <div class="agent-card{% if row.seated %} agent-card-taken{% endif %}">
-            <label class="agent-card-hd">
-                <input type="radio" name="agent_id" value="{{ row.agent.id }}"
-                       class="agent-radio" disabled
-                       {% if is_first %}data-default-agent="1"{% endif %}
-                       {% if row.seated %}data-orig-disabled="1"{% endif %}>
+        <div class="agent-card{% if row.seated %} agent-card-taken{% endif %}"
+             data-agent-card data-agent-id="{{ row.agent.id }}" data-agent-name="{{ row.agent.name }}">
+            {# A chosen AI includes the agent: JS enables this id↔provider pair
+               together, so the two posted lists always line up by position. #}
+            <input type="hidden" name="agent_id" value="{{ row.agent.id }}" disabled data-agent-id-mirror>
+            <div class="agent-card-hd">
                 <span class="pick-name">{{ row.agent.name }}</span>
                 {% if row.seated %}
                 <span class="badge badge-done">already in this game</span>
                 {% elif row.version %}
                 <span class="pick-sub">{{ row.version.strategy_text[:80] }}{% if row.version.strategy_text | length > 80 %}…{% endif %}</span>
                 {% endif %}
-            </label>
+            </div>
             {% if not row.seated %}
-            <div class="agent-ai-picker ai-picker-hidden">
+            <div class="agent-ai-picker">
+                <input type="hidden" name="chosen_provider" value="" disabled data-provider-mirror>
                 <div class="field-label">Which AI plays {{ row.agent.name }}?</div>
-                {% set ai = namespace(first=true) %}
                 <div class="ai-chip-grid">
                     {% for opt in ai_options %}
                     {% if not any_connected_ai or opt.state in ('ready', 'idle') %}
                     <label class="ai-chip{% if not opt.can_pick %} ai-chip-disabled{% endif %}">
-                        <input type="radio" name="chosen_provider" value="{{ opt.provider }}"
+                        <input type="radio" name="ai_for_{{ row.agent.id }}" value="{{ opt.provider }}"
                                class="ai-radio" disabled
-                               {% if not opt.can_pick %}data-orig-disabled="1"{% elif ai.first %}data-default-ai="1"{% endif %}>
-                        {% if opt.can_pick and ai.first %}{% set ai.first = false %}{% endif %}
+                               {% if not opt.can_pick %}data-orig-disabled="1"{% endif %}>
                         <span class="ai-chip-name">{{ opt.label }}</span>
                         <span class="ai-chip-state ai-chip-state-{{ opt.state }}">
                             {% if opt.state == 'ready' %}● ready
@@ -100,56 +99,59 @@
     var agentSection = document.getElementById('agent-section');
     var humanBox = document.querySelector('[data-play-as-human]');
     var agentBox = document.querySelector('[data-play-as-agent]');
+    var cards = Array.prototype.slice.call(document.querySelectorAll('[data-agent-card]'));
 
-    // Show one card's AI picker; disable every other card's AI radios so only the
-    // selected agent submits a provider. Returns nothing.
-    function selectCard(card) {
-        document.querySelectorAll('.agent-ai-picker').forEach(function (p) {
-            p.classList.add('ai-picker-hidden');
-            p.querySelectorAll('.ai-radio').forEach(function (r) {
-                r.disabled = true;
-                r.checked = false;
-            });
+    function humanOn() { return humanBox && humanBox.checked; }
+    function agentOn() { return agentBox && agentBox.checked && !agentBox.disabled; }
+
+    // Mark a card as "send this agent with <provider>". The id↔provider hidden
+    // inputs are enabled together so the two posted lists always pair by position.
+    function setCard(card, provider) {
+        card.dataset.chosenProvider = provider;
+        var pm = card.querySelector('[data-provider-mirror]');
+        if (pm) { pm.value = provider; pm.disabled = false; }
+        var am = card.querySelector('[data-agent-id-mirror]');
+        if (am) am.disabled = false;
+    }
+
+    // Drop a card back to "not sending": blank + disable both hidden inputs and
+    // clear its AI radios so nothing for this agent is posted.
+    function clearCard(card) {
+        card.dataset.chosenProvider = '';
+        var pm = card.querySelector('[data-provider-mirror]');
+        if (pm) { pm.value = ''; pm.disabled = true; }
+        var am = card.querySelector('[data-agent-id-mirror]');
+        if (am) am.disabled = true;
+        card.querySelectorAll('.ai-radio').forEach(function (r) { r.checked = false; });
+    }
+
+    // Grey out an AI on every other card once it's chosen on one — one AI plays
+    // one of your agents per game. Also honors server-disabled (busy/offline) AIs
+    // and the section on/off state. Recomputed from scratch on every change.
+    function refreshGreyOut() {
+        var taken = {};  // provider -> the card that chose it
+        cards.forEach(function (card) {
+            if (card.dataset.chosenProvider) taken[card.dataset.chosenProvider] = card;
         });
-        if (!card) return;
-        var picker = card.querySelector('.agent-ai-picker');
-        if (!picker) return;
-        picker.classList.remove('ai-picker-hidden');
-        picker.querySelectorAll('.ai-radio:not([data-orig-disabled])').forEach(function (r) {
-            r.disabled = false;
+        var on = agentOn();
+        document.querySelectorAll('.ai-radio').forEach(function (r) {
+            var card = r.closest('[data-agent-card]');
+            var origDisabled = r.hasAttribute('data-orig-disabled');
+            var takenElsewhere = taken[r.value] && taken[r.value] !== card;
+            r.disabled = !on || origDisabled || !!takenElsewhere;
+            var chip = r.closest('.ai-chip');
+            if (chip) chip.classList.toggle('ai-chip-disabled', origDisabled || !!takenElsewhere);
         });
-        var pick = picker.querySelector('.ai-radio[data-default-ai]:not(:disabled)')
-            || picker.querySelector('.ai-radio:not(:disabled)');
-        if (pick) pick.checked = true;
     }
 
     // Turn the agent section on/off as a whole (the "Also send an AI agent" box).
     function setAgentEnabled(on) {
         if (!agentSection) return;
         agentSection.style.display = on ? '' : 'none';
-        if (on) {
-            agentSection.querySelectorAll('.agent-radio:not([data-orig-disabled])').forEach(function (r) {
-                r.disabled = false;
-            });
-            var chosen = agentSection.querySelector('.agent-radio:checked:not(:disabled)')
-                || agentSection.querySelector('.agent-radio[data-default-agent]:not(:disabled)')
-                || agentSection.querySelector('.agent-radio:not(:disabled)');
-            if (chosen) {
-                chosen.checked = true;
-                selectCard(chosen.closest('.agent-card'));
-            }
-        } else {
-            agentSection.querySelectorAll('.agent-radio').forEach(function (r) {
-                r.disabled = true;
-                r.checked = false;
-            });
-            selectCard(null);
-        }
+        if (!on) cards.forEach(clearCard);  // sending nothing while the box is off
+        refreshGreyOut();
         updateBtn();
     }
-
-    function humanOn() { return humanBox && humanBox.checked; }
-    function agentOn() { return agentBox && agentBox.checked && !agentBox.disabled; }
 
     function updateBtn() {
         var btn = document.querySelector('.join-btn');
@@ -157,13 +159,16 @@
         var parts = [];
         if (humanOn()) parts.push('yourself');
         if (agentOn()) {
-            var agentRadio = document.querySelector('.agent-radio:checked:not(:disabled)');
-            var aiRadio = document.querySelector('.ai-radio:checked:not(:disabled)');
-            if (agentRadio && aiRadio) {
-                var agentName = agentRadio.closest('.agent-card').querySelector('.pick-name').textContent.trim();
-                var aiName = aiRadio.closest('.ai-chip').querySelector('.ai-chip-name').textContent.trim();
+            cards.forEach(function (card) {
+                var provider = card.dataset.chosenProvider;
+                if (!provider) return;
+                var agentName = card.getAttribute('data-agent-name');
+                var radio = card.querySelector('.ai-radio[value="' + provider + '"]');
+                var aiName = radio
+                    ? radio.closest('.ai-chip').querySelector('.ai-chip-name').textContent.trim()
+                    : provider;
                 parts.push(agentName + ' (' + aiName + ')');
-            }
+            });
         }
         btn.disabled = parts.length === 0;
         btn.textContent = parts.length ? 'Join as ' + parts.join(' + ') + ' →' : 'Pick how to enter →';
@@ -172,14 +177,22 @@
     if (humanBox) humanBox.addEventListener('change', updateBtn);
     if (agentBox) agentBox.addEventListener('change', function () { setAgentEnabled(agentBox.checked); });
 
-    document.querySelectorAll('.agent-radio').forEach(function (radio) {
-        radio.addEventListener('change', function () {
-            selectCard(radio.closest('.agent-card'));
+    // Click an AI chip to send that agent with it; click the chosen one again to
+    // stop sending the agent. (Radios don't un-check on their own, so toggle here.)
+    document.querySelectorAll('.ai-radio').forEach(function (r) {
+        r.addEventListener('click', function () {
+            if (r.disabled) return;
+            var card = r.closest('[data-agent-card]');
+            if (!card) return;
+            if (card.dataset.chosenProvider === r.value) {
+                clearCard(card);
+            } else {
+                setCard(card, r.value);
+                r.checked = true;
+            }
+            refreshGreyOut();
             updateBtn();
         });
-    });
-    document.querySelectorAll('.ai-radio').forEach(function (r) {
-        r.addEventListener('change', updateBtn);
     });
 
     setAgentEnabled(agentBox ? agentBox.checked : false);  // honor the remembered default

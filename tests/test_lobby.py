@@ -901,35 +901,74 @@ async def test_match_page_shows_add_agent_affordance(client, reset_db):
 
 
 @pytest.mark.asyncio
-async def test_non_admin_cannot_stack_multiple_agents(client, reset_db):
-    """A regular user picking more than one agent is refused and seats nobody."""
+async def test_non_admin_stacks_agents_with_distinct_ais(client, reset_db):
+    """A regular user may send several agents in one submit — each on a different AI."""
+    user = await _seed_user(reset_db)  # not in the admin allowlist
+    await _seed_game(reset_db)
+    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")  # Claude (live)
+    a2, _k2, _c2 = await _seed_agent(
+        reset_db, user, name="Two", provider=ConnectionProvider.GEMINI
+    )  # Gemini (live)
+    r = await client.post(
+        "/games/hoard-hurt-help/matches/G_001/join",
+        # The screen posts one provider per agent, paired by position.
+        data={"agent_id": [a1.id, a2.id], "chosen_provider": ["claude", "gemini"]},
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == "/games/hoard-hurt-help/matches/G_001"
+    async with reset_db() as db:
+        seated = (
+            (await db.execute(select(Player).where(Player.match_id == "G_001")))
+            .scalars()
+            .all()
+        )
+    assert {p.seat_name for p in seated} == {"One", "Two"}
+    # Each seat kept the AI the user chose for it.
+    assert {p.seat_name: p.chosen_provider for p in seated} == {
+        "One": "claude",
+        "Two": "gemini",
+    }
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_reuse_one_ai_across_agents(client, reset_db):
+    """The same AI can't play two of a regular user's agents in one game — and nobody
+    is seated when that's attempted, whether posted as a duplicate or as the legacy
+    one-provider-for-all shorthand."""
     user = await _seed_user(reset_db)  # not in the admin allowlist
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
     a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
-    r = await client.post(
-        "/games/hoard-hurt-help/matches/G_001/join",
-        data={"chosen_provider": "claude", "agent_id": [a1.id, a2.id]},
-        cookies=_signed_in_cookies(user.id),
-        follow_redirects=False,
-    )
-    assert r.status_code == 403
-    assert "Only admins" in r.text
-    async with reset_db() as db:
-        count = len(
-            (await db.execute(select(Player).where(Player.match_id == "G_001"))).scalars().all()
+    cookies = _signed_in_cookies(user.id)
+    for data in (
+        {"agent_id": [a1.id, a2.id], "chosen_provider": ["claude", "claude"]},
+        {"agent_id": [a1.id, a2.id], "chosen_provider": "claude"},  # broadcast shorthand
+    ):
+        r = await client.post(
+            "/games/hoard-hurt-help/matches/G_001/join",
+            data=data,
+            cookies=cookies,
+            follow_redirects=False,
         )
-    assert count == 0
-    # The single-agent path is unchanged for regular users — see test_enter_bot_into_game.
-    # Agents are single-select radios, never a multi-select checkbox list. (The only
-    # checkboxes on the form are the two top-level "how to enter" choices: play as
-    # yourself / also send an agent.)
+        assert r.status_code == 409
+        assert "different AI" in r.text
+        async with reset_db() as db:
+            count = len(
+                (await db.execute(select(Player).where(Player.match_id == "G_001")))
+                .scalars()
+                .all()
+            )
+        assert count == 0
+    # The picker is now per-agent AI chips (multi-select), not a single agent radio.
     form = await client.get(
-        "/games/hoard-hurt-help/matches/G_001/join", cookies=_signed_in_cookies(user.id)
+        "/games/hoard-hurt-help/matches/G_001/join", cookies=cookies
     )
-    assert 'name="agent_id"' in form.text
-    assert 'class="agent-radio"' in form.text  # agent picker is radios…
-    assert 'type="checkbox" name="agent_id"' not in form.text  # …not a checkbox multi-select
+    assert 'name="agent_id"' in form.text  # the agent id still posts (hidden mirror)…
+    assert 'class="agent-radio"' not in form.text  # …but the single-select radio is gone
+    assert f'name="ai_for_{a1.id}"' in form.text  # each agent has its own AI picker
+    assert f'name="ai_for_{a2.id}"' in form.text
 
 
 async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
