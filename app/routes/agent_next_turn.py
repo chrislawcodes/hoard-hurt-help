@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import DbSession, require_connection
 from app.engine.agent_play import get_next_turn, get_next_turns
+from app.engine.machine_connection_dedup import dedupe_machine_connections
 from app.models.connection import Connection, ConnectionProvider
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 
@@ -92,3 +93,6 @@ async def report_pid(
     if connection.nickname is None and body.hostname and body.hostname.strip():
         connection.nickname = body.hostname.strip()[:60]
     await db.commit()
+    # Now that this machine has reported its name, fold any older row for the same
+    # laptop (a stale key the user re-ran setup with) into this live one.
+    await dedupe_machine_connections(db, connection.user_id)
