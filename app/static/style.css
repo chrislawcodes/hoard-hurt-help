@@ -685,7 +685,7 @@ pre code { background: none; padding: 0; }
 /* Copyable command block: the Copy button sits to the RIGHT of the text, not
  * above it. The text scrolls horizontally if it's long; the button never shrinks. */
 .byo-cmd { display: flex; align-items: flex-start; gap: 0.5rem; }
-.byo-cmd-text { flex: 1; min-width: 0; margin: 0; overflow-x: auto; }
+.byo-cmd-text { flex: 1; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .byo-cmd-btn { flex: none; margin: 0; }
 @media (max-width: 480px) {
     /* Too narrow to sit side by side — stack with the button under the text. */
@@ -706,6 +706,9 @@ pre code { background: none; padding: 0; }
 
 /* Short "Sign in with Google" note shown under a command / steps. */
 .byo-signin-note { margin-top: 0.5rem; }
+/* The no-terminal fallback (desktop-app point-and-click add) under a prompt. */
+.byo-alt { margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px solid var(--line); }
+.byo-alt-title { font-weight: 600; margin: 0 0 0.4rem; font-size: 0.9rem; }
 
 .byo-connector summary { cursor: pointer; font-weight: 700; }
 .byo-connector summary:hover { color: var(--accent); }

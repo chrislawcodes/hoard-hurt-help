@@ -67,9 +67,12 @@ class ConnectOption:
         ``signin_command`` is set it's a second copyable block (e.g. Claude Code's
         ``/mcp``); otherwise sign-in is automatic and ``signin_note`` just says
         what to expect.
-      - ``kind="steps"`` — numbered click-through ``steps`` for GUI/IDE providers,
-        with an optional ``config_block`` (a copyable config snippet, e.g. an IDE's
-        MCP JSON) shown above the steps.
+      - ``kind="steps"`` — for GUI / IDE / paste-a-prompt providers. Optional
+        pieces, rendered in order: ``config_lead`` (a line above the block),
+        ``config_block`` (a copyable snippet — an IDE's MCP JSON, or a
+        paste-to-your-AI setup prompt), numbered ``steps``, ``note``, and an
+        optional alternative method (``alt_title`` + ``alt_steps``, e.g.
+        "no terminal? use the desktop app").
     The play-prompt is the SAME for every provider and is a separate block shown
     after connecting (see ``_play_prompt``), so it is not carried here.
     """
@@ -83,7 +86,10 @@ class ConnectOption:
     signin_note: str | None  # kind="command": what to expect / do for sign-in
     steps: tuple[str, ...]  # kind="steps": numbered click-through steps
     note: str | None  # kind="steps": short footnote under the steps
-    config_block: str | None = None  # kind="steps": optional copyable config shown above the steps
+    config_block: str | None = None  # kind="steps": copyable config snippet or paste-to-AI prompt
+    config_lead: str | None = None  # kind="steps": line shown above config_block
+    alt_title: str | None = None  # kind="steps": heading for an alternative method
+    alt_steps: tuple[str, ...] = ()  # kind="steps": the alternative method's steps
 
 
 def _connect_options() -> list[ConnectOption]:
@@ -91,8 +97,9 @@ def _connect_options() -> list[ConnectOption]:
 
     See the AUTH-AGNOSTIC SEAM note above: these mirror ``docs/setup-mcp.md`` from
     the mcp-oauth workstream and are header-less (no key, no ``--header``).
-    Providers, in display order: Claude Code first (the audience default), then
-    Codex, Gemini, Claude Desktop.
+    No raw terminal command is shown: Claude and Codex connect by pasting a prompt
+    to their AI (which runs the add itself) with a desktop-app fallback, and Gemini
+    connects from the Antigravity IDE. Display order: Claude, Codex, Gemini.
     """
     mcp_url = f"{settings.base_url}/mcp"
     # Gemini connects from the Antigravity IDE now (the CLI is no longer broadly
@@ -107,48 +114,68 @@ def _connect_options() -> list[ConnectOption]:
         "  }\n"
         "}"
     )
+    # Claude and Codex connect by pasting a prompt to the AI — it runs the add
+    # itself (no terminal command for the user to craft), then walks them through
+    # the restart + Google sign-in. The add command lives INSIDE the prompt (the
+    # AI runs it), so the user never types a shell command.
+    claude_prompt = (
+        "Connect yourself to Agent Ludum and start playing. Do these steps:\n"
+        f"1. Run in your shell: claude mcp add --transport http agentludum {mcp_url}\n"
+        "2. Tell me to restart you — the new game tools load on restart.\n"
+        '3. After restarting, run /mcp and authenticate "agentludum"; I\'ll approve the Google sign-in.\n'
+        "4. Then play: call get_next_turn in a loop and follow get_instructions until should_stop is true."
+    )
+    codex_prompt = (
+        "Connect yourself to Agent Ludum and start playing. Do these steps:\n"
+        f"1. Run: codex mcp add agentludum --url {mcp_url}\n"
+        "2. Run: codex mcp login agentludum — I'll approve the Google sign-in in the browser.\n"
+        "3. Tell me to restart you so the new game tools load.\n"
+        "4. After restarting, play: call get_next_turn in a loop and follow get_instructions until should_stop is true."
+    )
     return [
         ConnectOption(
             client_id="claude-code",
-            client_label="Claude Code",
-            kind="command",
-            command=f"claude mcp add --transport http agentludum {mcp_url}",
-            # Claude Code's sign-in has no shell command — it's the interactive
-            # /mcp menu, so /mcp is its own paste (into Claude Code, not the shell).
-            # The step's real action is pasting /mcp, so the heading says so.
-            signin_title="In Claude Code, paste /mcp",
-            signin_command="/mcp",
-            signin_note=(
-                "Pick agentludum, choose Authenticate, and approve the Google "
-                "sign-in in the browser that opens. No key needed."
-            ),
+            client_label="Claude",
+            kind="steps",
+            command=None,
+            signin_title=None,
+            signin_command=None,
+            signin_note=None,
+            config_lead="Paste this to Claude Code — it connects itself and starts playing:",
+            config_block=claude_prompt,
             steps=(),
-            note=None,
+            note=(
+                "It'll ask you to restart it and to approve a Google sign-in — "
+                "both expected. No key needed."
+            ),
+            alt_title="No terminal? Use the Claude desktop app",
+            alt_steps=(
+                "Settings → Connectors → Add custom connector.",
+                f"URL: {mcp_url}",
+                "Enable it and approve the Google sign-in when the browser opens.",
+            ),
         ),
         ConnectOption(
             client_id="codex",
             client_label="Codex",
-            kind="command",
-            # codex mcp add detects OAuth and completes the Google sign-in itself
-            # (no separate `mcp login` — that just starts a second, redundant
-            # OAuth). The browser sign-in pops up during this command.
-            command=f"codex mcp add agentludum --url {mcp_url}",
-            # Step 2 is the full play prompt, pasted into a FRESH Codex session.
-            # Codex only loads a newly-added MCP server when a session starts, so a
-            # new `codex` run is required; pasting the prompt there fires the
-            # initialize handshake (page flips to Connected) AND starts the poll
-            # loop in one go. The prompt goes in Codex's input box, not the shell —
-            # it's full of backticks/quotes/apostrophes that a shell arg would
-            # mangle, so we deliberately do NOT inline it into the command above.
-            signin_title="Start Codex and paste this to play",
-            signin_command=_play_prompt(),
-            signin_note=(
-                "First approve the Google sign-in the command above opens — no key "
-                "needed. Then run `codex` and paste this; it connects and starts "
-                "playing your games on its own."
-            ),
+            kind="steps",
+            command=None,
+            signin_title=None,
+            signin_command=None,
+            signin_note=None,
+            config_lead="Paste this to Codex — it connects itself and starts playing:",
+            config_block=codex_prompt,
             steps=(),
-            note=None,
+            note=(
+                "It'll open a Google sign-in and ask you to restart it — both "
+                "expected. No key needed."
+            ),
+            alt_title="No terminal? Use the Codex desktop app",
+            alt_steps=(
+                "Settings → MCP servers → + Add server.",
+                f"URL: {mcp_url}",
+                "Click Authenticate and approve the Google sign-in.",
+            ),
         ),
         ConnectOption(
             client_id="gemini",
@@ -175,24 +202,6 @@ def _connect_options() -> list[ConnectOption]:
                 "won't be asked again each session."
             ),
             config_block=gemini_config,
-        ),
-        ConnectOption(
-            client_id="claude-desktop",
-            client_label="Claude Desktop",
-            kind="steps",
-            command=None,
-            signin_title=None,
-            signin_command=None,
-            signin_note=None,
-            steps=(
-                "Settings → Connectors → Add custom connector.",
-                f"URL: {mcp_url}",
-                "Enable it — Claude Desktop opens a browser to sign in with Google.",
-            ),
-            note=(
-                "Claude Desktop is fine for trying it out, but the CLI or the "
-                "always-on connector is steadier for long unattended play."
-            ),
         ),
     ]
 
