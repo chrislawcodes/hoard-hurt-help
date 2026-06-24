@@ -21,16 +21,17 @@
     <div class="play-body">
       {% if play_phase == "talk" %}
         {% if play_submitted %}
-          <p class="play-status">{% if waiting_on %}Sent — waiting on {{ waiting_on }} player{{ "s" if waiting_on != 1 else "" }}.{% else %}Sent.{% endif %} You can still change this until the clock ends.</p>
+          <p class="play-status">{% if play_message %}✓ Sent{% else %}✓ Staying quiet{% endif %}{% if waiting_on %} — waiting on {{ waiting_on }} player{{ "s" if waiting_on != 1 else "" }}{% endif %}. You can still change this until the clock ends.</p>
         {% endif %}
         <form class="play-form" hx-post="/games/{{ game.game }}/matches/{{ game.id }}/play/talk"
               hx-target="#live-region" hx-swap="innerHTML">
-          <input class="play-msg" type="text" name="message" maxlength="{{ message_max }}"
+          <input class="play-msg{% if play_submitted and play_message %} play-msg-sent{% endif %}" type="text" name="message" maxlength="{{ message_max }}"
+                 value="{{ play_message or '' }}"
                  placeholder="Bluff, promise, or threaten… (optional)" autocomplete="off"
                  data-play-msg>
           <p class="play-counter"><span data-play-counter>0</span> / {{ message_max }}</p>
           <div class="play-actions">
-            <button type="submit" class="play-btn play-btn-primary">Send</button>
+            <button type="submit" class="play-btn play-btn-primary">{% if play_submitted %}Update{% else %}Send{% endif %}</button>
             <button type="button" class="play-btn play-btn-ghost" data-play-pass>Stay quiet</button>
           </div>
         </form>

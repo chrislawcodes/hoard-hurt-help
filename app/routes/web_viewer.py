@@ -310,6 +310,7 @@ async def _build_human_play_context(
         "play_phase": None,
         "play_deadline_at": None,
         "play_submitted": False,
+        "play_message": "",
         "play_action": None,
         "play_target": None,
         "play_targets": [],
@@ -402,6 +403,19 @@ async def _build_human_play_context(
             last = history[-1]
             base["play_last_result"] = last["feed_actions"]
             base["play_last_label"] = f"Round {last['round']} · Turn {last['turn']}"
+        if phase == "talk" and submitted:
+            # Keep the human's already-sent message in the box so the panel
+            # reflects what they said (the act-phase mirror of re-checking the
+            # chosen action below). Without this the input re-renders empty after
+            # submit, which reads as "nothing was sent" even though it was.
+            base["play_message"] = (
+                await db.execute(
+                    select(TurnMessage.text).where(
+                        TurnMessage.turn_id == turn.id,
+                        TurnMessage.player_id == viewer_player.id,
+                    )
+                )
+            ).scalar_one_or_none() or ""
         if phase == "act":
             # Reveal this turn's talk so the human reads what was said before
             # acting — the same transcript the bots get in their act-phase

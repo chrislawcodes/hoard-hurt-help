@@ -175,6 +175,57 @@ async def test_talk_panel_has_pass(reset_db, client) -> None:
     assert "data-play-counter" in r.text  # character counter wired up
 
 
+async def test_talk_submit_keeps_message_and_shows_sent_state(reset_db, client) -> None:
+    """After sending a talk message the panel must re-render with the message kept
+    in the box and an obviously-submitted look — not an empty box that reads as
+    'nothing sent' (the bug). Mirrors how the act phase keeps the chosen action."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        await _seat_human(db, user, "alice")
+        await seat_player(db, "M_0001", "bob", i=2)
+        await _open_turn(db, "talk")
+        await db.commit()
+
+    msg = "trust me this round"
+    submit = await client.post(
+        f"{VIEWER}/play/talk", data={"message": msg}, cookies=_cookies(user.id)
+    )
+    assert submit.status_code == 200
+    # The POST returns the freshly-rendered live region; assert on it directly so
+    # we cover the exact HTML the user sees right after pressing Send.
+    html = submit.text
+    assert f'value="{msg}"' in html  # the message is kept in the box
+    assert "play-msg-sent" in html  # the box carries the submitted look
+    assert "✓ Sent" in html  # status reads as a confirmation
+    assert ">Update<" in html  # Send becomes Update once a message is in
+    # A plain GET of the live region must show the same kept state (the panel is
+    # re-rendered the same way on every poll, not just on the POST response).
+    r = await client.get(LIVE, cookies=_cookies(user.id))
+    assert f'value="{msg}"' in r.text
+
+
+async def test_talk_pass_shows_staying_quiet_not_sent(reset_db, client) -> None:
+    """Staying quiet (an empty submit) is a real submitted state too, but it must
+    not claim 'Sent' over an empty box — it reads 'Staying quiet' instead."""
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        await _seat_human(db, user, "alice")
+        await seat_player(db, "M_0001", "bob", i=2)
+        await _open_turn(db, "talk")
+        await db.commit()
+
+    submit = await client.post(
+        f"{VIEWER}/play/talk", data={"message": ""}, cookies=_cookies(user.id)
+    )
+    assert submit.status_code == 200
+    html = submit.text
+    assert "✓ Staying quiet" in html
+    assert "✓ Sent" not in html
+    assert "play-msg-sent" not in html  # no green-box treatment for an empty pass
+
+
 async def test_started_match_feed_shows_roster(reset_db, client) -> None:
     """At game start (active, first turn open, nothing resolved yet) the feed shows
     who's playing — a roster of the seated players — instead of a bare 'waiting'
