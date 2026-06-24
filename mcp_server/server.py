@@ -523,9 +523,10 @@ def _mcp_how_to_play_block() -> str:
         '  - If static.coach_note is present, treat it as a one-round instruction from your coach '
         '— follow it for this turn instead of (or on top of) your strategy.\n'
         '  - "talk": call submit_talk(match_id, turn_token, agent_turn_token, message, thinking). '
-        'One message per turn. After it is accepted, just keep polling — the server '
-        'serves the "act" phase when it opens.\n'
-        '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message).\n'
+        'One message per turn. After it is accepted, call get_next_turn again right away — the '
+        'server serves the "act" phase when it opens.\n'
+        '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message). '
+        "After it is accepted, call get_next_turn again right away.\n"
         '- status "waiting": a turn is coming. Wait next_poll_after_seconds, then call again. '
         "If next_game_starts_in_seconds is present, tell me when the game starts.\n"
         '- status "no_game" with should_stop=false: no game yet. '
@@ -536,7 +537,11 @@ def _mcp_how_to_play_block() -> str:
         "to react to. You hold the rest in this conversation. If you ever need the whole "
         "game (you joined one already in progress, or lost the thread), call "
         "get_game_state(match_id) once to catch up.\n\n"
-        "Always obey next_poll_after_seconds — the server sets the right wait for you.\n\n"
+        "Never run a shell `sleep`, and never wait for a turn's deadline or resolve time. "
+        "get_next_turn does the waiting for you — it holds the request open until there is "
+        "something to do (or it tells you to wait). Just call it again. "
+        "Pause only when a reply gives you next_poll_after_seconds, and wait exactly that long "
+        "(0 means now). The server sets the right wait for you.\n\n"
         "Call the tools. Do not answer in plain text or prose.\n\n"
         "Before you start the loop, restate in your own words what you will do for each status."
     )
