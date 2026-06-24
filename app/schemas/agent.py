@@ -340,6 +340,25 @@ class MessageResponse(BaseModel):
     phase_resolves_at: datetime
 
 
+class TalkWindowClosedResponse(BaseModel):
+    """submit_talk's answer when the talk window already closed and the turn has
+    moved on to the act phase. This is NOT an error — the agent simply talked a
+    beat too late. It should now submit its action; the turn_token is unchanged,
+    so the same one works for the act submit. Carries no `thinking`, so a late
+    talk's private reasoning is never echoed back."""
+
+    status: Literal["talk_window_closed"] = "talk_window_closed"
+    round: int
+    turn: int
+    phase: Literal["act"] = "act"
+    turn_token: str
+    act_resolves_at: datetime
+    detail: str = (
+        "The talk window already closed; this turn is now in the act phase. "
+        "Submit your action."
+    )
+
+
 class SubmitResponse(BaseModel):
     status: Literal["accepted"] = "accepted"
     received_at: datetime

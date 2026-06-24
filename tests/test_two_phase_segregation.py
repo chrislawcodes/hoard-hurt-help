@@ -264,16 +264,6 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
     "request_path, method_name, body_factory, expected_code",
     [
         (
-            "/api/games/{match_id}/message",
-            "post",
-            lambda turn_token, thinking, players: {
-                "turn_token": turn_token,
-                "message": "wrong phase",
-                "thinking": thinking,
-            },
-            "WRONG_PHASE",
-        ),
-        (
             "/api/games/{match_id}/submit",
             "post",
             lambda turn_token, thinking, players: {
@@ -320,13 +310,8 @@ async def test_error_envelopes_do_not_echo_thinking(
     game, players, _resolved_turn, open_turn = await _seed_two_phase_game(reset_db)
     secret = f"secret-{expected_code.lower()}"
 
-    if expected_code == "WRONG_PHASE" and request_path.endswith("/message"):
-        token = open_turn.turn_token
-        async with reset_db() as db:
-            turn = (await db.execute(select(Turn).where(Turn.id == open_turn.id))).scalar_one()
-            turn.phase = "act"
-            await db.commit()
-    elif expected_code == "WRONG_PHASE":
+    if expected_code == "WRONG_PHASE":
+        # Submitting an action while the turn is still in the talk phase.
         token = open_turn.turn_token
         async with reset_db() as db:
             turn = (await db.execute(select(Turn).where(Turn.id == open_turn.id))).scalar_one()
@@ -351,6 +336,47 @@ async def test_error_envelopes_do_not_echo_thinking(
     assert response.status_code in {409, 410}, response.text
     assert response.json()["detail"]["error"]["code"] == expected_code
     assert secret not in response.text
+
+
+@pytest.mark.asyncio
+async def test_late_talk_returns_window_closed_without_echoing_thinking(client, reset_db):
+    """A talk message that lands after the talk window closed gets a calm
+    "talk_window_closed" answer (not an error), records no message, and never
+    echoes the late talk's private `thinking`. The seed's open turn is already in
+    the act phase, so posting a talk to it is exactly the slow-agent case."""
+    game, players, _resolved_turn, open_turn = await _seed_two_phase_game(reset_db)
+    secret = "secret-late-talk-thinking"
+
+    response = await client.post(
+        f"/api/games/{game.id}/message",
+        params={"agent_turn_token": f"{open_turn.turn_token}:{players[0].agent_id}:{game.id}"},
+        headers={"X-Connection-Key": players[0]._test_key},
+        json={
+            "turn_token": open_turn.turn_token,
+            "message": "too late to talk",
+            "thinking": secret,
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "talk_window_closed"
+    assert body["phase"] == "act"
+    assert body["turn_token"] == open_turn.turn_token
+    assert secret not in response.text
+    assert "thinking" not in body
+
+    # The late talk is not recorded — only the seed's original message remains.
+    async with reset_db() as db:
+        texts = (
+            await db.execute(
+                select(TurnMessage.text).where(
+                    TurnMessage.turn_id == open_turn.id,
+                    TurnMessage.player_id == players[0].id,
+                )
+            )
+        ).scalars().all()
+    assert "too late to talk" not in texts
 
 
 @pytest.mark.asyncio
@@ -428,3 +454,47 @@ async def test_left_player_between_phases_skips_talk_defaulting_and_act_resolves
     assert by_player_sub[players[0].id].action == "HOARD"
     assert all(p.current_round_score >= 0 for p in refreshed_players)
     assert sum(p.current_round_score for p in refreshed_players) == 4
+
+
+@pytest.mark.asyncio
+async def test_begin_act_phase_keeps_turn_token_stable(reset_db):
+    """The talk->act handoff switches phase and resets the deadline but keeps the
+    SAME turn_token. Re-minting it here used to drop a slow player's late talk
+    (it arrived holding a now-defunct token); one stable token per turn fixes that."""
+    async with reset_db() as db:
+        now = datetime.now(timezone.utc)
+        game = Match(
+            id="G_STABLE",
+            name="stable-token",
+            state=GameState.ACTIVE,
+            scheduled_start=now,
+            started_at=now,
+            current_round=1,
+            current_turn=1,
+            total_rounds=1,
+            turns_per_round=1,
+            per_turn_deadline_seconds=60,
+        )
+        db.add(game)
+        await db.flush()
+        talk_turn = Turn(
+            match_id=game.id,
+            round=1,
+            turn=1,
+            turn_token=generate_turn_token(),
+            opened_at=now,
+            deadline_at=now + timedelta(seconds=60),
+            phase="talk",
+        )
+        db.add(talk_turn)
+        await db.commit()
+        token_before = talk_turn.turn_token
+        deadline_before = talk_turn.deadline_at
+
+        await _begin_act_phase(db, game, talk_turn)
+
+        fresh = (await db.execute(select(Turn).where(Turn.id == talk_turn.id))).scalar_one()
+
+    assert fresh.phase == "act"
+    assert fresh.turn_token == token_before  # token is stable across the handoff
+    assert fresh.deadline_at >= deadline_before  # deadline reset for the act window

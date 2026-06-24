@@ -511,6 +511,18 @@ push HTML fragments into the live viewer — no client‑side state.
 
 ## Notable shapes & tensions
 
+- **One `turn_token` per turn, stable across talk→act.** A turn keeps the same
+  `turn_token` for both phases; the `Turn.phase` column — not the token — is what
+  tells talk and act apart. `_begin_act_phase` resets only the phase + deadline,
+  **never** the token. Re‑minting it at the handoff (the old behavior) silently
+  dropped a slow player's talk: a message that landed just after the talk window
+  closed arrived with a now‑defunct token and was rejected as `STALE_TURN_TOKEN`,
+  worst on the first turn of a round when an agent deliberates longest. With one
+  stable token, a late talk is recognized as the talk window having closed —
+  `submit_talk` returns a graceful `talk_window_closed` (HTTP 202, **not** an
+  error) and the player can act with the token it already holds. Do **not** re‑mint
+  per phase. (`scheduler_turn_loop._begin_act_phase`,
+  `agent_play.submit_talk` + `_load_active_phase_turn(tolerate_phase_advance=...)`.)
 - **Human web routes are split by page area.** Keep `web.py` as the small
   aggregator and put new human-page routes in the closest `web_*.py` module.
 - **Default Bot names are shared.** `app/engine/bot_presets.py` owns the

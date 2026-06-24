@@ -30,6 +30,7 @@ from app.schemas.agent import (
     OpponentHistoryResponse,
     SubmitRequest,
     SubmitResponse,
+    TalkWindowClosedResponse,
     TurnDetailResponse,
     WaitingResponse,
     YourTurnResponse,
@@ -52,14 +53,18 @@ async def agent_poll(
     return await poll_turn(db, match_id=match_id, player=player, rate_state=_last_poll)
 
 
-@router.post("/message", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/message",
+    response_model=MessageResponse | TalkWindowClosedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def agent_message(
     match_id: Annotated[str, Path()],
     body: MessageRequest,
     agent_turn_token: Annotated[str, Query()],
     db: DbSession,
     player: Annotated[Player, Depends(require_agent_player)],
-) -> MessageResponse:
+) -> MessageResponse | TalkWindowClosedResponse:
     return await submit_talk(
         db,
         match_id=match_id,

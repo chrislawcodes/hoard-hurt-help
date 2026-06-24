@@ -224,7 +224,19 @@ async def _load_active_phase_turn(
     match_id: str,
     turn_token: str,
     expected_phase: Literal["talk", "act"],
+    *,
+    tolerate_phase_advance: bool = False,
 ) -> tuple[Match, Turn]:
+    """Load the open turn for this token and confirm it's still in `expected_phase`.
+
+    `tolerate_phase_advance` (talk only): instead of raising WRONG_PHASE when the
+    turn has already moved past the expected phase, hand the turn back so the
+    caller can respond gracefully. The talk->act handoff keeps the same token (see
+    `_begin_act_phase`), so a slightly-late talk still finds its turn here; the
+    caller (`submit_talk`) checks `turn.phase` and returns a "talk window closed"
+    signal rather than a hard error. A fully-resolved turn is still rejected — that
+    one is genuinely over.
+    """
     game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
     if game.state != GameState.ACTIVE:
         raise _err(
@@ -251,6 +263,10 @@ async def _load_active_phase_turn(
             status.HTTP_409_CONFLICT,
         )
     if turn.phase != expected_phase:
+        if tolerate_phase_advance:
+            # The phase moved on; let the caller decide how to answer. Skip the
+            # deadline check — the caller isn't going to record a move on this row.
+            return game, turn
         raise _err(
             "WRONG_PHASE",
             f"Turn is not in {expected_phase} phase.",

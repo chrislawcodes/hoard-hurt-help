@@ -369,9 +369,20 @@ async def _wait_for_messages(db, turn: Turn) -> None:
 
 
 async def _begin_act_phase(db, game: Match, turn: Turn) -> None:
-    """Transition a turn from talk to act and reset the turn token/deadline."""
+    """Transition a turn from talk to act: switch the phase and reset the deadline.
+
+    The turn_token is deliberately left UNCHANGED across the talk->act handoff. It
+    used to be re-minted here, which silently broke a slow player: if their talk
+    message landed a moment after the talk window closed, it arrived holding the
+    now-defunct token and was rejected outright (STALE_TURN_TOKEN), so the talk was
+    dropped and the player fell through to act-only. This bit hardest on the first
+    turn of a round, when an agent deliberates longest. Keeping one stable token
+    per turn means a late talk is recognized as "the talk window already closed"
+    (handled gracefully in submit_talk) rather than a hard error, and the player
+    can act with the token it already holds. The `phase` column — not the token —
+    is what tells talk and act apart.
+    """
     turn.phase = "act"
-    turn.turn_token = generate_turn_token()
     turn.deadline_at = datetime.now(timezone.utc) + timedelta(
         seconds=game.per_turn_deadline_seconds
     )

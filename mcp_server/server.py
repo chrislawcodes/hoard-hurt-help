@@ -678,7 +678,12 @@ async def submit_talk(
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
     db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
-    """Submit the talk-phase message for the current turn."""
+    """Submit the talk-phase message for the current turn.
+
+    If the talk window has already closed (the turn moved on to the act phase),
+    this returns status "talk_window_closed" instead of an error — that is normal,
+    not a failure. Just submit your action next; the turn_token is unchanged.
+    """
     resolved_match_id = _resolve_match_id(match_id, game_id)
     _access_token, _userinfo, connection, player = await _resolve_oauth_player(
         db,
