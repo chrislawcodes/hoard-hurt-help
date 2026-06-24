@@ -374,8 +374,9 @@ async def _set_live(db: AsyncSession, connection: Connection) -> None:
 async def test_connections_list_new_state_shows_connect_command_and_listening(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """NEW user (no connections): lead with the OAuth-shaped, header-less connect
-    command and the pulsing 'Listening for your AI to connect…' region."""
+    """NEW user (no connections): each client leads with a header-less, paste-in
+    setup prompt (the agent wires up its own MCP server) and the pulsing
+    'Waiting for your AI to connect…' region."""
     async with session_factory() as db:
         user = await _make_user(db)
         await db.commit()
@@ -387,31 +388,34 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
 
     assert "Play with your own AI" in text
     assert "Connect your AI provider" in text
-    # No terminal anywhere — every client connects inside its own app.
+    # The user never opens a terminal themselves: each client gets ONE paste-in
+    # prompt and its agent runs the setup. The prompts DO contain the commands the
+    # agent runs (claude/codex mcp add + login), so those strings appear now.
     assert "Paste this in your terminal" not in text
-    assert "claude mcp add" not in text
-    assert "codex mcp add" not in text
-    assert "codex mcp login" not in text
+    assert "claude mcp add" in text
+    assert "claude mcp login" in text
+    assert "codex mcp add" in text
+    assert "codex mcp login" in text
     # Every provider's flow ends in a Google sign-in.
     assert "Google sign-in" in text
 
-    # Claude: point-and-click in the Claude app — a copyable server URL plus the
-    # custom-connector steps. No terminal command. Header-less / key-less.
+    # Claude Code: a copyable paste-in prompt whose agent adds the server and runs
+    # the OAuth login itself. No key, no header. Copy button to the RIGHT.
     connect_block = text.split("byo-panel-claude-code", 1)[1].split("</section>", 1)[0]
     assert "byo-config-claude-code" in connect_block
-    assert "Add custom connector" in connect_block
-    assert "Settings → Connectors" in connect_block
+    assert "claude mcp add" in connect_block
+    assert "claude mcp login" in connect_block
     assert "X-Connection-Key" not in connect_block
     assert "sk_conn_" not in connect_block
     assert "--header" not in connect_block
+    assert connect_block.index("byo-cmd-text") < connect_block.index("byo-cmd-btn")
 
-    # Codex: point-and-click in the Codex app — a copyable server URL plus the
-    # MCP-servers / Add server / Authenticate steps. Copy button to the RIGHT.
+    # Codex: a copyable paste-in prompt whose agent adds the server and logs in.
+    # Copy button to the RIGHT.
     codex_block = text.split("byo-panel-codex", 1)[1].split("</section>", 1)[0]
     assert "byo-config-codex" in codex_block
-    assert "MCP servers" in codex_block
-    assert "Add server" in codex_block
-    assert "Authenticate" in codex_block
+    assert "codex mcp add" in codex_block
+    assert "codex mcp login" in codex_block
     assert "X-Connection-Key" not in codex_block
     assert "sk_conn_" not in codex_block
     assert codex_block.index("byo-cmd-text") < codex_block.index("byo-cmd-btn")
@@ -419,8 +423,8 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     # No provider carries an "Easiest" badge.
     assert "byo-easiest-badge" not in text
 
-    # Gemini is IDE-only (Antigravity): a copyable serverUrl config block + the
-    # click-Authenticate step. No terminal command, no slash command.
+    # Gemini (Antigravity IDE): a paste-in prompt that hands the agent the
+    # serverUrl JSON to add, then the click-Authenticate step. No CLI add command.
     gemini_block = text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
     assert "byo-config-gemini" in gemini_block
     assert "serverUrl" in gemini_block
