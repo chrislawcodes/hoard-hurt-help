@@ -247,9 +247,10 @@ async def test_started_match_feed_shows_roster(reset_db, client) -> None:
 
 
 async def test_act_phase_reveals_this_turns_talk_in_feed(reset_db, client) -> None:
-    """During act, the human sees what others said this turn — speakers and the
-    silent — as the live top card of the one feed (spec 019), not a box in the
-    dock. The open turn isn't in the resolved feed yet, so this card carries it."""
+    """During act, the human sees what everyone said this turn — their own line
+    plus other speakers and the silent — as the live top card of the one feed
+    (spec 019), not a box in the dock. The open turn isn't in the resolved feed
+    yet, so this card carries it."""
     from app.models.turn import TurnMessage
 
     async with reset_db() as db:
@@ -259,9 +260,9 @@ async def test_act_phase_reveals_this_turns_talk_in_feed(reset_db, client) -> No
         bob = await seat_player(db, "M_0001", "bob", i=2)
         await seat_player(db, "M_0001", "cy", i=3)  # stays silent this turn
         turn = await _open_turn(db, "act")
-        # bob spoke this turn; cy stayed silent; the human's own note is hidden.
+        # bob spoke this turn; cy stayed silent; the human also spoke.
         db.add(TurnMessage(turn_id=turn.id, player_id=bob.id, text="let's both help"))
-        db.add(TurnMessage(turn_id=turn.id, player_id=human.id, text="my private note"))
+        db.add(TurnMessage(turn_id=turn.id, player_id=human.id, text="my own note"))
         await db.commit()
 
     r = await client.get(LIVE, cookies=_cookies(user.id))
@@ -274,7 +275,32 @@ async def test_act_phase_reveals_this_turns_talk_in_feed(reset_db, client) -> No
     # The silent are folded into one "+N stayed quiet" line (spec 018) so a
     # 10-player turn never buries the action cards below the fold.
     assert "stayed quiet" in html
-    assert "my private note" not in html  # the viewer's own message isn't echoed
+    # The viewer's own line IS shown now — they shouldn't be the one missing
+    # player — accent-marked as "you" and NOT tappable (you can't target yourself).
+    assert "my own note" in html
+    assert "who-name is-you" in html
+    assert 'data-target-name="alice"' not in html
+
+
+async def test_act_reveal_shows_you_stayed_quiet_when_viewer_silent(reset_db, client) -> None:
+    """If the human stayed quiet, their own line still appears (as 'you stayed
+    quiet') — they're always represented in the turn's talk, not dropped."""
+    from app.models.turn import TurnMessage
+
+    async with reset_db() as db:
+        user = await make_user(db, 1)
+        await _match(db, state=GameState.ACTIVE)
+        await _seat_human(db, user, "alice")
+        bob = await seat_player(db, "M_0001", "bob", i=2)
+        turn = await _open_turn(db, "act")
+        db.add(TurnMessage(turn_id=turn.id, player_id=bob.id, text="trust me"))
+        await db.commit()
+
+    r = await client.get(LIVE, cookies=_cookies(user.id))
+    html = r.text
+    assert "you stayed quiet" in html  # the viewer's own silent line is shown
+    assert "who-name is-you" in html
+    assert "trust me" in html  # the opponent who spoke is still shown
 
 
 async def test_talk_phase_shows_last_result_in_feed_not_dock(reset_db, client) -> None:
