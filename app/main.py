@@ -22,6 +22,7 @@ from app.config import settings
 from app.db_bootstrap import prepare_database_for_upgrade, verify_required_tables
 from app.engine.scheduler import registry as scheduler_registry
 from app.canonical_host import CanonicalHostMiddleware, canonical_host_of
+from app.oauth_dcr_compat import OAuthRegistrationCompatMiddleware
 from app.request_logging import install_request_logging
 from app.routes import (
     admin_api,
@@ -237,6 +238,11 @@ def create_app() -> FastAPI:
         session_cookie="hhh_session",
     )
     install_request_logging(app)
+    # Accept OAuth client registrations that ask only for the authorization-code
+    # flow (no refresh_token). The MCP SDK's DCR handler over-strictly rejects
+    # them, which blocks standards-compliant clients like Antigravity before
+    # sign-in. See app/oauth_dcr_compat.py and fastmcp#2460.
+    app.add_middleware(OAuthRegistrationCompatMiddleware)
     # Outermost: refuse the Railway domain (and any non-canonical host) in real
     # deployments, so the only working address is the canonical one. Without this,
     # a client that registers the *.up.railway.app URL connects but fails OAuth
