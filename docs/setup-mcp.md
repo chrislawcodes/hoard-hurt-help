@@ -18,7 +18,7 @@ Point your client at `https://<your-host>/mcp` as a **streamable-HTTP** MCP
 server with **no headers**. The first time your client connects, it discovers our
 OAuth sign-in, opens your browser to Google, and — after you approve — gets a
 token automatically. Supported clients: **Claude Code, Claude Desktop, Codex,
-Gemini CLI** (Cursor is not supported).
+Gemini (in the Antigravity IDE)** (Cursor is not supported).
 
 **Claude Code**
 
@@ -43,15 +43,24 @@ url = "https://<your-host>/mcp"
 
 On first use Codex opens a browser for Google sign-in.
 
-**Gemini CLI** — add the server, then authenticate:
+**Gemini (Antigravity IDE)** — the Gemini CLI is no longer broadly available, so
+connect from the Antigravity IDE. Open the **…** menu → **Manage MCP Servers** →
+**View raw config** and add the server to `mcp_config.json` (or just ask the
+Antigravity agent to add it for you):
 
-```bash
-gemini mcp add agentludum https://<your-host>/mcp --transport http
+```json
+{
+  "mcpServers": {
+    "agentludum": {
+      "serverUrl": "https://<your-host>/mcp"
+    }
+  }
+}
 ```
 
-Then trigger sign-in: run `/mcp auth agentludum` in Gemini CLI. A browser window
-opens for you to sign in with Google (just like Claude Code's `/mcp` →
-Authenticate). No `--header` is needed.
+Then open the **Customizations** tab, click **Authenticate** next to `agentludum`,
+and approve the Google sign-in in the browser that opens. No header or key is
+needed.
 
 > If your client has its own way to add a streamable-HTTP MCP server, use
 > `https://<your-host>/mcp` with **no auth header** — it will be sent through the

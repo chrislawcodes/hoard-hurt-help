@@ -378,9 +378,10 @@ async def test_connect_target_provider_not_bounced_by_a_different_live_provider(
         follow_redirects=False,
     )
     assert r.status_code == 200  # rendered, NOT bounced back
-    # Leads with the Gemini-specific MCP setup path, not "you're set".
+    # Leads with the Gemini-specific MCP setup path, not "you're set". Gemini is
+    # IDE-only now (Antigravity), so it shows the paste-in serverUrl config block.
     assert "Connect Gemini" in r.text
-    assert "gemini mcp add agentludum" in r.text
+    assert "serverUrl" in r.text  # the Antigravity paste-in config block
     assert "X-Connection-Key" not in r.text
 
 
@@ -417,8 +418,11 @@ async def test_connect_target_shows_mcp_setup_without_self_setup_key(client, res
     )
     assert r.status_code == 200
     gemini_block = r.text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
-    assert "gemini mcp add agentludum" in gemini_block
-    assert "/mcp auth agentludum" in gemini_block
+    # Gemini is IDE-only (Antigravity): a copyable serverUrl config block plus the
+    # click-Authenticate step — no terminal command, no self-setup key.
+    assert "serverUrl" in gemini_block
+    assert "Authenticate" in gemini_block
+    assert "gemini mcp add" not in gemini_block
     assert "sk_conn_" not in gemini_block
     assert "/api/agent/next-turn" not in gemini_block
     assert "X-Connection-Key" not in gemini_block
