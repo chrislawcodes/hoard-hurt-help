@@ -387,30 +387,31 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
 
     assert "Play with your own AI" in text
     assert "Connect your AI provider" in text
-    # No raw terminal command any more — Claude and Codex connect via a pasted
-    # prompt (the AI runs the add itself) plus a desktop-app fallback.
+    # No terminal anywhere — every client connects inside its own app.
     assert "Paste this in your terminal" not in text
+    assert "claude mcp add" not in text
+    assert "codex mcp add" not in text
+    assert "codex mcp login" not in text
     # Every provider's flow ends in a Google sign-in.
     assert "Google sign-in" in text
 
-    # Claude: a paste-to-your-AI prompt (the AI runs the add itself, the command
-    # lives inside the prompt) plus the Claude desktop-app fallback. Header-less.
+    # Claude: point-and-click in the Claude app — a copyable server URL plus the
+    # custom-connector steps. No terminal command. Header-less / key-less.
     connect_block = text.split("byo-panel-claude-code", 1)[1].split("</section>", 1)[0]
     assert "byo-config-claude-code" in connect_block
-    assert "claude mcp add --transport http agentludum" in connect_block
-    assert "Use the Claude desktop app" in connect_block
     assert "Add custom connector" in connect_block
+    assert "Settings → Connectors" in connect_block
     assert "X-Connection-Key" not in connect_block
     assert "sk_conn_" not in connect_block
     assert "--header" not in connect_block
 
-    # Codex: a paste-to-your-AI prompt (add + login) plus the Codex desktop-app
-    # fallback. The Copy button sits to the RIGHT of the prompt text.
+    # Codex: point-and-click in the Codex app — a copyable server URL plus the
+    # MCP-servers / Add server / Authenticate steps. Copy button to the RIGHT.
     codex_block = text.split("byo-panel-codex", 1)[1].split("</section>", 1)[0]
     assert "byo-config-codex" in codex_block
-    assert "codex mcp add agentludum --url" in codex_block
-    assert "codex mcp login agentludum" in codex_block
-    assert "Use the Codex desktop app" in codex_block
+    assert "MCP servers" in codex_block
+    assert "Add server" in codex_block
+    assert "Authenticate" in codex_block
     assert "X-Connection-Key" not in codex_block
     assert "sk_conn_" not in codex_block
     assert codex_block.index("byo-cmd-text") < codex_block.index("byo-cmd-btn")
