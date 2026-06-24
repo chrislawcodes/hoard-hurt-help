@@ -20,6 +20,7 @@ from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
 from app.engine.connection_health import (
     ProviderReadiness,
+    calm_connection_status,
     compute_connection_health,
     provider_readiness,
 )
@@ -105,15 +106,52 @@ async def list_connections(
     target_provider = (
         ConnectionProvider(provider_hint) if provider_hint is not None else None
     )
-    rows = [
-        {
-            "connection": connection,
-            "display_name": _connection_display_name(connection),
-            "health": await compute_connection_health(db, connection),
-            "agents": await _load_attached_agents(db, connection),
-        }
-        for connection in connections
-    ]
+    # Split the user's connections into the two kinds the inventory shows:
+    #   - MCP: one row per provider, grouped into a single "MCP connection" card
+    #     that lists the AIs (providers) signed in, each with its own status.
+    #   - Machine: the always-on connector; one card per machine, listing the AIs
+    #     available on it (its enabled providers).
+    # Status is calm + type-aware (see calm_connection_status): a normally-idle
+    # MCP client reads as "Idle", never a red "Disconnected".
+    provider_order = {p: i for i, p in enumerate(ConnectionProvider)}
+    mcp_conns = sorted(
+        (c for c in connections if c.mcp_connected_at is not None),
+        key=lambda c: provider_order.get(c.provider, 99) if c.provider is not None else 99,
+    )
+    machine_conns = [c for c in connections if c.mcp_connected_at is None]
+    mcp_providers: list[dict[str, object]] = []
+    for connection in mcp_conns:
+        health = await compute_connection_health(db, connection)
+        mcp_providers.append(
+            {
+                "connection_id": connection.id,
+                "label": _connection_display_name(connection),
+                "status": calm_connection_status(
+                    health.state, is_mcp=True, never_connected=health.never_connected
+                ),
+                "health": health,
+            }
+        )
+    machine_connections: list[dict[str, object]] = []
+    for connection in machine_conns:
+        health = await compute_connection_health(db, connection)
+        provider_rows = await _load_connection_providers(db, connection.id)
+        available_ais = [
+            _provider_label(p)
+            for p in ConnectionProvider
+            if p.value in provider_rows and provider_rows[p.value].enabled
+        ]
+        machine_connections.append(
+            {
+                "connection_id": connection.id,
+                "display_name": _connection_display_name(connection),
+                "available_ais": available_ais,
+                "status": calm_connection_status(
+                    health.state, is_mcp=False, never_connected=health.never_connected
+                ),
+                "health": health,
+            }
+        )
     # Live/playing is scoped to the TARGET provider when one was given, so a page
     # opened to connect Gemini reflects Gemini's status — never a live Claude's.
     # With no target it falls back to "any connection of mine" (per-account).
@@ -168,7 +206,8 @@ async def list_connections(
         "connections/list.html",
         {
             "user": user,
-            "connections": rows,
+            "mcp_providers": mcp_providers,
+            "machine_connections": machine_connections,
             "active_setup": active_setup,
             "setup_message": _setup_message(key),
             "connect_options": _connect_options(),

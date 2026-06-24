@@ -98,6 +98,66 @@ class ConnectionHealthStatus:
     agent_count: int = 0
 
 
+@dataclass(frozen=True)
+class CalmConnectionStatus:
+    """Low-alarm, type-aware status for the connections inventory list.
+
+    The raw ``ConnectionHealth`` badge calls a normally-idle MCP client
+    "Disconnected" in red. On the inventory list that misreads as a fault: an MCP
+    client only stays live while its chat session is open, so idle is its normal
+    resting state — not a problem to fix. This maps ``(state, is_mcp)`` to calm
+    wording and reserves red for a genuine problem (a stalled connection that
+    keeps missing turns).
+    """
+
+    label: str
+    badge_class: str
+    pulse: bool  # animate the dot (actively live)
+    still_dot: bool  # show a steady dot (warm / ready)
+    note: str | None  # calm one-line guidance for the row meta
+
+
+def calm_connection_status(
+    state: ConnectionHealth, *, is_mcp: bool, never_connected: bool = False
+) -> CalmConnectionStatus:
+    """Calm, type-aware presentation for one connection on the inventory list.
+
+    MCP (the AI chat app) rests as "Idle" — normal, grey, no nudge to fix. A
+    machine helper rests as "Asleep" with a gentle restart nudge, because a
+    background service meant to run 24/7 being off IS worth acting on. A
+    connection that never finished connecting reads as a neutral "Not connected
+    yet". Only a genuinely stalled connection shows red.
+    """
+    if never_connected:
+        return CalmConnectionStatus(
+            "Not connected yet", "badge-done", False, False,
+            "finish the steps above to connect",
+        )
+    if state is ConnectionHealth.STALLED:
+        return CalmConnectionStatus(
+            "Having trouble", "badge-alert", True, False,
+            "kept missing turns — open your AI and check it's running",
+        )
+    if state is ConnectionHealth.PAUSED:
+        return CalmConnectionStatus("Paused", "badge-done", False, False, None)
+    if state is ConnectionHealth.LIVE:
+        return CalmConnectionStatus(
+            "Playing now" if is_mcp else "Running", "badge-ok", True, False, None
+        )
+    if state is ConnectionHealth.READY:
+        return CalmConnectionStatus(
+            "Ready" if is_mcp else "Running", "badge-ok", False, True, None
+        )
+    # DISCONNECTED — the common idle case, made calm and type-aware.
+    if is_mcp:
+        return CalmConnectionStatus(
+            "Idle", "badge-done", False, False, "sign in to your AI to play"
+        )
+    return CalmConnectionStatus(
+        "Asleep", "badge-soon", False, False, "restart the helper to play 24/7"
+    )
+
+
 async def agent_is_defaulting(
     db: AsyncSession, agent_id: int, match_id: str, threshold: int
 ) -> bool:
