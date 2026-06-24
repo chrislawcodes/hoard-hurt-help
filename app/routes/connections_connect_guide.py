@@ -97,9 +97,10 @@ def _connect_options() -> list[ConnectOption]:
 
     See the AUTH-AGNOSTIC SEAM note above: these mirror ``docs/setup-mcp.md`` from
     the mcp-oauth workstream and are header-less (no key, no ``--header``).
-    No raw terminal command is shown: Claude and Codex connect by pasting a prompt
-    to their AI (which runs the add itself) with a desktop-app fallback, and Gemini
-    connects from the Antigravity IDE. Display order: Claude, Codex, Gemini.
+    No terminal anywhere — every client connects inside its own app. Claude and
+    Codex use the app's point-and-click connector screen (Settings → add the
+    server → Authenticate); Gemini uses the Antigravity IDE. Display order:
+    Claude, Codex, Gemini.
     """
     mcp_url = f"{settings.base_url}/mcp"
     # Gemini connects from the Antigravity IDE now (the CLI is no longer broadly
@@ -114,24 +115,6 @@ def _connect_options() -> list[ConnectOption]:
         "  }\n"
         "}"
     )
-    # Claude and Codex connect by pasting a prompt to the AI — it runs the add
-    # itself (no terminal command for the user to craft), then walks them through
-    # the restart + Google sign-in. The add command lives INSIDE the prompt (the
-    # AI runs it), so the user never types a shell command.
-    claude_prompt = (
-        "Connect yourself to Agent Ludum and start playing. Do these steps:\n"
-        f"1. Run in your shell: claude mcp add --transport http agentludum {mcp_url}\n"
-        "2. Tell me to restart you — the new game tools load on restart.\n"
-        '3. After restarting, run /mcp and authenticate "agentludum"; I\'ll approve the Google sign-in.\n'
-        "4. Then play: call get_next_turn in a loop and follow get_instructions until should_stop is true."
-    )
-    codex_prompt = (
-        "Connect yourself to Agent Ludum and start playing. Do these steps:\n"
-        f"1. Run: codex mcp add agentludum --url {mcp_url}\n"
-        "2. Run: codex mcp login agentludum — I'll approve the Google sign-in in the browser.\n"
-        "3. Tell me to restart you so the new game tools load.\n"
-        "4. After restarting, play: call get_next_turn in a loop and follow get_instructions until should_stop is true."
-    )
     return [
         ConnectOption(
             client_id="claude-code",
@@ -141,18 +124,17 @@ def _connect_options() -> list[ConnectOption]:
             signin_title=None,
             signin_command=None,
             signin_note=None,
-            config_lead="Paste this to Claude Code — it connects itself and starts playing:",
-            config_block=claude_prompt,
-            steps=(),
-            note=(
-                "It'll ask you to restart it and to approve a Google sign-in — "
-                "both expected. No key needed."
+            # In-app, no terminal: add our server through the Claude app's custom
+            # connector screen, then approve the Google sign-in. Header-less OAuth.
+            config_lead="In the Claude app, open Settings → Connectors → Add custom connector, and paste this URL:",
+            config_block=mcp_url,
+            steps=(
+                "Enable the connector, then approve the Google sign-in in the "
+                "browser that opens.",
             ),
-            alt_title="No terminal? Use the Claude desktop app",
-            alt_steps=(
-                "Settings → Connectors → Add custom connector.",
-                f"URL: {mcp_url}",
-                "Enable it and approve the Google sign-in when the browser opens.",
+            note=(
+                "No key needed. The Google sign-in lasts about 90 days, so you "
+                "won't be asked again each session."
             ),
         ),
         ConnectOption(
@@ -163,18 +145,17 @@ def _connect_options() -> list[ConnectOption]:
             signin_title=None,
             signin_command=None,
             signin_note=None,
-            config_lead="Paste this to Codex — it connects itself and starts playing:",
-            config_block=codex_prompt,
-            steps=(),
-            note=(
-                "It'll open a Google sign-in and ask you to restart it — both "
-                "expected. No key needed."
+            # In-app, no terminal: add our server through the Codex app's MCP
+            # servers screen, then click Authenticate for the Google sign-in.
+            config_lead="In the Codex app, open Settings → MCP servers → + Add server, and paste this URL:",
+            config_block=mcp_url,
+            steps=(
+                "Click Authenticate, then approve the Google sign-in in the "
+                "browser that opens.",
             ),
-            alt_title="No terminal? Use the Codex desktop app",
-            alt_steps=(
-                "Settings → MCP servers → + Add server.",
-                f"URL: {mcp_url}",
-                "Click Authenticate and approve the Google sign-in.",
+            note=(
+                "No key needed. The Google sign-in lasts about 90 days, so you "
+                "won't be asked again each session."
             ),
         ),
         ConnectOption(
