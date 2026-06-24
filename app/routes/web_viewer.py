@@ -254,8 +254,10 @@ async def _build_turn_talk(
 ) -> list[dict[str, Any]]:
     """This turn's talk for the act-phase panel: who said what, who stayed quiet.
 
-    Speakers come first in the order they spoke; silent opponents follow as
-    "stayed quiet". The viewer's own message is left out — they wrote it.
+    The viewer's own line comes first (flagged ``is_you``) so they can re-read
+    what they said before acting — they shouldn't be the one player missing from
+    the turn's talk. Other speakers follow in the order they spoke, and silent
+    opponents come last (the template folds them into one "stayed quiet" line).
     """
     rows = (
         await db.execute(
@@ -267,18 +269,29 @@ async def _build_turn_talk(
     text_by_player = {pid: (text or "").strip() for pid, text in rows}
     seat_by_player = {p.id: p.seat_name for p in players}
 
-    talk: list[dict[str, Any]] = []
-    spoke: set[int] = set()
-    for pid, _text in rows:
+    def entry(pid: int, *, is_you: bool) -> dict[str, Any]:
         said = text_by_player.get(pid, "")
-        if pid == viewer_player.id or not said or pid in spoke:
+        return {
+            "who": seat_by_player.get(pid, "player"),
+            "text": said,
+            "quiet": not said,
+            "is_you": is_you,
+        }
+
+    # The viewer first, then other speakers in order, then the silent — each
+    # player once (``seen`` guards against listing anyone twice).
+    talk: list[dict[str, Any]] = [entry(viewer_player.id, is_you=True)]
+    seen: set[int] = {viewer_player.id}
+    for pid, _text in rows:
+        if pid in seen or not text_by_player.get(pid, ""):
             continue
-        spoke.add(pid)
-        talk.append({"who": seat_by_player.get(pid, "player"), "text": said, "quiet": False})
+        seen.add(pid)
+        talk.append(entry(pid, is_you=False))
     for p in players:
-        if p.left_at is not None or p.id == viewer_player.id or p.id in spoke:
+        if p.left_at is not None or p.id in seen:
             continue
-        talk.append({"who": p.seat_name, "text": "", "quiet": True})
+        seen.add(p.id)
+        talk.append(entry(p.id, is_you=False))
     return talk
 
 
@@ -310,6 +323,7 @@ async def _build_human_play_context(
         "play_phase": None,
         "play_deadline_at": None,
         "play_submitted": False,
+        "play_message": "",
         "play_action": None,
         "play_target": None,
         "play_targets": [],
@@ -402,6 +416,19 @@ async def _build_human_play_context(
             last = history[-1]
             base["play_last_result"] = last["feed_actions"]
             base["play_last_label"] = f"Round {last['round']} · Turn {last['turn']}"
+        if phase == "talk" and submitted:
+            # Keep the human's already-sent message in the box so the panel
+            # reflects what they said (the act-phase mirror of re-checking the
+            # chosen action below). Without this the input re-renders empty after
+            # submit, which reads as "nothing was sent" even though it was.
+            base["play_message"] = (
+                await db.execute(
+                    select(TurnMessage.text).where(
+                        TurnMessage.turn_id == turn.id,
+                        TurnMessage.player_id == viewer_player.id,
+                    )
+                )
+            ).scalar_one_or_none() or ""
         if phase == "act":
             # Reveal this turn's talk so the human reads what was said before
             # acting — the same transcript the bots get in their act-phase

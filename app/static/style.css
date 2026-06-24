@@ -2338,6 +2338,13 @@ button.danger:hover,
     border: 1.5px solid var(--line); border-radius: var(--radius);
     background: var(--surface); color: var(--ink); box-sizing: border-box;
 }
+/* A sent message reads as obviously locked-in (but still editable): the box
+   takes the same "Help"/sent green as the status line above it, so the kept
+   text isn't mistaken for an empty, un-submitted box. */
+.play-msg-sent {
+    border-color: var(--help);
+    background: color-mix(in srgb, var(--help) 10%, var(--surface));
+}
 .play-counter { margin: -0.4rem 0 0; text-align: right; font-size: 0.78rem; color: var(--ink-soft); }
 
 /* (spec 019) The dock is controls-only: the act-phase reveal and the
