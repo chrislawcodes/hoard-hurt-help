@@ -8,7 +8,7 @@ This is the design doc for the Hoard-Hurt-Help game — a Prisoner's Dilemma tit
 
 ## 1. Goal
 
-Hoard-Hurt-Help is a multiplayer evolution of the classic Prisoner's Dilemma, designed to test how Large Language Models (LLMs) balance rational self-interest, altruism, and malice in a competitive environment. The game supports 3 to 100 AI agents playing simultaneously.
+Hoard-Hurt-Help is a multiplayer evolution of the classic Prisoner's Dilemma, designed to test how Large Language Models (LLMs) balance rational self-interest, altruism, and malice in a competitive environment. The game is multiplayer — matches default to 6–10 agents and the count is admin‑configurable per match.
 
 For the research and logging philosophy behind the game (what data we capture and why), see the platform design doc's "Research goals" section.
 
@@ -63,16 +63,22 @@ Confirm this is the intended math — the original payoff table read two ways.
 ## 3. Game Structure
 
 ### Players
-- 3 to 100 per match.
+- Defaults to **6–10 players per match** (`min_players=6`, `max_players=10` in the
+  PD module's `config_defaults`); admin‑configurable per match. The engine itself
+  is not PD‑limited to this range, but these are the shipped defaults.
 - Admin sets the start time for the match.
 
-### Turns and rounds
-- 10 turns per round.
-- 10 rounds per match.
-- 100 turns total per match.
+### Turns and rounds (shipped defaults — admin‑configurable)
+- **7 turns per round.**
+- **7 rounds per match.**
+- **49 turns total per match.**
+
+  (These come from the PD module's `config_defaults` — `total_rounds=7`,
+  `turns_per_round=7` — and the rules text agents see. An admin can override them
+  per match.)
 
 ### Round winner — **Decided**
-- The player with the highest in-round score at the end of turn 10 wins the round and gets **1 round-win**.
+- The player with the highest in-round score at the end of the round's last turn (turn 7 by default) wins the round and gets **1 round-win**.
 - Every other player gets 0 round-wins for that round.
 - In-round score resets to 0 at the start of each round.
 
@@ -81,8 +87,8 @@ Confirm this is the intended math — the original payoff table read two ways.
 - Example: 2-way tie → 0.5 round-wins each. 3-way tie → 0.333 each.
 
 ### Match winner — **Decided**
-- Player with the most round-wins after 10 rounds wins the game.
-- **Tiebreaker:** if two or more players tie on round-wins, the winner is whoever has the highest **total in-round score summed across all 10 rounds**. This is deterministic and adds zero overhead since we already track per-round scores.
+- Player with the most round-wins after the last round (round 7 by default) wins the game.
+- **Tiebreaker:** if two or more players tie on round-wins, the winner is whoever has the highest **total in-round score summed across all rounds**. This is deterministic and adds zero overhead since we already track per-round scores.
 
 ### Missed turns
 If an agent misses a turn, the server defaults them to Hoard and broadcasts: *"I did not submit a turn."*
@@ -106,22 +112,29 @@ PD is a thin **adapter** (`app/games/hoard_hurt_help/game.py`) over the
 unchanged engine in `app/engine/` (resolver, rules, scoring). Refactoring PD
 behind the contract did not move or rewrite any engine code.
 
-### Deferred: storage + wire generalization (rides with title #2)
+### Storage + wire generalization (landed with title #2)
 
-We deliberately did **not** generalize storage or the submit wire format yet:
+This was deliberately deferred at first — interfaces designed against a single
+title bake in wrong assumptions, so rather than guess the generic move/state shape
+from n=1 (Option B) we kept the PD columns and did the generalization as part of
+building the **second** real game, when the right shape was actually known. That
+second game (**Liar's Dice**) has now shipped, and the generalization landed with
+it:
 
-- The match row stores the game title slug in `game`. Moves still live in the
-  PD-shaped `turn_submissions` columns (`action`, `target_player_id`,
-  `points_delta`), and scores in the existing `players` columns.
-- The submit request body still uses PD's `action`/`target_id`/`message` shape
-  (`app/schemas/agent.py`), so a genuinely new move *vocabulary* can't arrive over
-  HTTP yet — only through the contract directly.
+- **Per-title state storage exists.** `MatchState` / `PlayerState`
+  (`app/models/game_state.py`, migration `0033`) are generic, module-owned JSON
+  blobs the platform never inspects — public match state and private per-player
+  state. Liar's Dice uses them (standing bid; each player's hidden dice). PD
+  writes neither.
+- **Free-form moves are on the wire.** `SubmitRequest` (`app/schemas/agent.py`)
+  now has an optional `move: dict` the platform passes to the game module
+  untouched, so a genuinely new move *vocabulary* (e.g. Liar's Dice
+  `{"type":"BID","quantity":3,"face":5}`) **can** arrive over HTTP. PD's
+  `action`/`target_id` fields stay for backward compatibility.
 
-The rationale (Option B): interfaces designed against a single title bake in wrong
-assumptions. Rather than guess the generic move/state shape from n=1, we keep the
-PD columns now and do the generalization — free-form move JSON on the wire +
-per-title move/state storage — as part of building the **second** real game, when
-the right shape is actually known.
+What remains PD-shaped: PD itself still records into the `turn_submissions`
+columns (`action`, `target_player_id`, `points_delta`) and the `players` score
+columns. Fully retiring those legacy PD columns is still future work.
 
 ---
 
@@ -140,11 +153,11 @@ A running list of every TBD in this doc, in rough priority order.
 5. ~~**Scoring edge cases**~~ — **Decided: no self-target, full stack on both Help and Hurt, scores floor at 0, mutual bonus is one-per-pair-per-turn.** (Section 2)
 6. ~~**Research metrics**~~ — **Decided: exploratory; log everything turn-by-turn; CSV + JSON exports per match.** (Section 1)
 7. ~~**Round/game scoring details**~~ — **Decided: binary round-wins (fractional on ties), tiebreaker = total in-round score across the match.** (Section 3)
-8. ~~**Auth**~~ — **Decided: Google OAuth for humans, per-match API key for agents. Admin via configured Google emails.** (Section 6 and 8)
+8. ~~**Auth**~~ — **Decided: Google OAuth for humans; agents via a per-connection key (`X-Connection-Key`) or OAuth at `/mcp`. Admin via role synced from configured Google emails.** *(Originally "per-match API key"; evolved with the connection/agent split — platform design §4 & §12.)* (Section 6 and 8)
 9. ~~**Lobby + onboarding flow**~~ — **Decided: admin-created, scheduled-start, public lobby.** Sub-TBDs: min-player-not-reached behavior, registration cutoff, drop-out policy. (Section 7)
 10. **Admin UI** — spectator policy and auth are decided; wireframes and final layout polish are still TBD. (Section 8)
 11. ~~**Infrastructure stack**~~ — **Decided: Python + FastAPI + HTMX + SQLite/Postgres.** (Section 9)
-12. ~~**Sample agent**~~ — **Replaced by tool-using AI model: MCP server + ChatGPT Custom GPT + OpenAPI docs.** (Section 5)
+12. ~~**Sample agent**~~ — **Replaced by tool-using AI model.** *(The plan once listed MCP + ChatGPT Custom GPT + OpenAPI; what shipped is MCP at `/mcp` + the always-on connector — platform design §3.)* (Section 5)
 13. **Full JSON schemas** for the payload and submission, including all error responses. Deferred to implementation. (Section 6)
 14. ~~**Slow-agent kick policy**~~ — **Decided: never kick. Missed turns default to Hoard indefinitely.** (Section 3)
 15. **Lobby sub-TBDs** — min-player-not-reached behavior, registration cutoff, drop-out policy, strategy-prompt character cap. (Section 7)
