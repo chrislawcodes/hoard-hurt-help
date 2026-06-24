@@ -24,22 +24,39 @@
     {% for opt in connect_options %}
     <section class="byo-tab-panel" id="byo-panel-{{ opt.client_id }}" aria-label="{{ opt.client_label }}">
         {% if opt.kind == "steps" %}
+            {% if opt.config_lead %}
+            <p class="hint" style="margin:0 0 0.5rem;">{{ opt.config_lead }}</p>
+            {% endif %}
             {% if opt.config_block %}
-            {# IDE providers (Gemini → Antigravity) paste a config snippet. Show it
-               as a copyable block above the steps, Copy button to the RIGHT. #}
+            {# A copyable block above the steps — an IDE's MCP JSON (Gemini →
+               Antigravity) or a paste-to-your-AI setup prompt (Claude, Codex).
+               Copy button to the RIGHT. #}
             <div class="byo-cmd">
                 <pre id="byo-config-{{ opt.client_id }}" class="byo-cmd-text">{{ opt.config_block }}</pre>
                 <button type="button" class="btn-copy byo-cmd-btn"
                         onclick="copyWithFeedback(this, document.getElementById('byo-config-{{ opt.client_id }}').textContent)">Copy</button>
             </div>
             {% endif %}
+            {% if opt.steps %}
             <ol class="byo-steps">
                 {% for step in opt.steps %}
                 <li>{{ step }}</li>
                 {% endfor %}
             </ol>
+            {% endif %}
             {% if opt.note %}
             <p class="byo-signin-note hint">{{ opt.note }}</p>
+            {% endif %}
+            {% if opt.alt_steps %}
+            {# A no-terminal fallback (the desktop app's point-and-click add). #}
+            <div class="byo-alt">
+                <p class="byo-alt-title">{{ opt.alt_title }}</p>
+                <ol class="byo-steps">
+                    {% for step in opt.alt_steps %}
+                    <li>{{ step }}</li>
+                    {% endfor %}
+                </ol>
+            </div>
             {% endif %}
         {% else %}
             <ol class="byo-flow">

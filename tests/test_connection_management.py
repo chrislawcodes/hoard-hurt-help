@@ -386,63 +386,56 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     text = resp.text
 
     assert "Play with your own AI" in text
-    # The connect step reads as numbered sub-steps (paste in terminal / sign in).
     assert "Connect your AI provider" in text
-    assert "Paste this in your terminal" in text
-    # Every provider's step guides a Google sign-in (titles vary by client now).
+    # No raw terminal command any more — Claude and Codex connect via a pasted
+    # prompt (the AI runs the add itself) plus a desktop-app fallback.
+    assert "Paste this in your terminal" not in text
+    # Every provider's flow ends in a Google sign-in.
     assert "Google sign-in" in text
-    # Hero "add the server" command for Claude Code, OAuth-shaped (no key, no
-    # chained play one-liner — the real flow is add → sign in → reload → paste).
-    assert "claude mcp add --transport http agentludum" in text
-    # Claude Code's sign-in note points at the interactive /mcp Authenticate step.
-    assert "choose Authenticate" in text
-    # The "add the server" instruction itself is header-less / key-less (the
-    # always-on connector below still uses a key, which is out of scope here).
+
+    # Claude: a paste-to-your-AI prompt (the AI runs the add itself, the command
+    # lives inside the prompt) plus the Claude desktop-app fallback. Header-less.
     connect_block = text.split("byo-panel-claude-code", 1)[1].split("</section>", 1)[0]
+    assert "byo-config-claude-code" in connect_block
+    assert "claude mcp add --transport http agentludum" in connect_block
+    assert "Use the Claude desktop app" in connect_block
+    assert "Add custom connector" in connect_block
     assert "X-Connection-Key" not in connect_block
     assert "sk_conn_" not in connect_block
     assert "--header" not in connect_block
-    # Codex: step 1 is a single `mcp add` command (which does the OAuth itself —
-    # no `mcp login`, that just starts a second redundant sign-in). Step 2 is the
-    # full play prompt pasted into a fresh Codex session, which fires the connect
-    # handshake AND starts the poll loop in one go.
+
+    # Codex: a paste-to-your-AI prompt (add + login) plus the Codex desktop-app
+    # fallback. The Copy button sits to the RIGHT of the prompt text.
     codex_block = text.split("byo-panel-codex", 1)[1].split("</section>", 1)[0]
+    assert "byo-config-codex" in codex_block
     assert "codex mcp add agentludum --url" in codex_block
-    assert "codex mcp login agentludum" not in codex_block  # no redundant login
-    assert "config.toml" not in codex_block
+    assert "codex mcp login agentludum" in codex_block
+    assert "Use the Codex desktop app" in codex_block
     assert "X-Connection-Key" not in codex_block
     assert "sk_conn_" not in codex_block
-    # Step 2 carries the play prompt as a copyable block.
-    assert "byo-signin-codex" in codex_block
-    assert "agentludum MCP tools" in codex_block
-    # The Copy button sits to the RIGHT of the command text (text before button).
     assert codex_block.index("byo-cmd-text") < codex_block.index("byo-cmd-btn")
-    # Claude Code is the default (first) tab — the audience default.
-    assert text.index('for="byo-tab-claude-code"') < text.index('for="byo-tab-codex"')
-    # No provider carries an "Easiest" badge anymore.
+
+    # No provider carries an "Easiest" badge.
     assert "byo-easiest-badge" not in text
-    # Claude Code needs a second paste to sign in: the /mcp chip. Its step-2
-    # heading names the real action (paste /mcp into Claude Code), not the effect.
-    assert "byo-signin-claude-code" in connect_block
-    assert "/mcp" in connect_block
-    assert "In Claude Code, paste /mcp" in connect_block
-    # Gemini is IDE-only now (the CLI is no longer broadly available): a copyable
-    # Antigravity serverUrl config block plus the click-Authenticate step, with the
-    # Copy button to the RIGHT of the block. No terminal command, no slash command.
+
+    # Gemini is IDE-only (Antigravity): a copyable serverUrl config block + the
+    # click-Authenticate step. No terminal command, no slash command.
     gemini_block = text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
     assert "byo-config-gemini" in gemini_block
     assert "serverUrl" in gemini_block
     assert "Antigravity" in gemini_block
     assert "Authenticate" in gemini_block
     assert "gemini mcp add" not in gemini_block
-    assert "/mcp auth agentludum" not in gemini_block
     assert gemini_block.index("byo-cmd-text") < gemini_block.index("byo-cmd-btn")
-    # All four clients are offered; Cursor dropped.
+
+    # Three AI tabs now; the standalone Claude Desktop tab folded into Claude's
+    # desktop fallback, and Cursor was never offered. Claude is the default tab.
     assert 'for="byo-tab-claude-code"' in text
     assert 'for="byo-tab-codex"' in text
     assert 'for="byo-tab-gemini"' in text
-    assert 'for="byo-tab-claude-desktop"' in text
+    assert 'for="byo-tab-claude-desktop"' not in text
     assert 'for="byo-tab-cursor"' not in text
+    assert text.index('for="byo-tab-claude-code"') < text.index('for="byo-tab-codex"')
     # The self-advancing waiting region with its 4s poll.
     assert "Waiting for your AI to connect…" in text
     assert 'hx-get="/me/connections/live-status"' in text
