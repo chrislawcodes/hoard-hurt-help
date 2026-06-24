@@ -127,7 +127,9 @@ def _json_text(body: object) -> str:
 
 
 @pytest.mark.asyncio
-async def test_message_talk_phase_is_idempotent_and_act_phase_rejects(client, reset_db):
+async def test_message_talk_phase_is_idempotent_and_act_phase_signals_window_closed(
+    client, reset_db
+):
     game, players = await _seed_game(reset_db)
     turn = await _open_turn(reset_db, game.id, phase="talk")
     key = players[0]._test_key
@@ -169,6 +171,8 @@ async def test_message_talk_phase_is_idempotent_and_act_phase_rejects(client, re
     assert row2.text == "public alpha"
     assert row2.thinking == "secret-message-1"
 
+    # The talk window closes and the turn moves on to act — keeping the SAME token
+    # (the loop no longer re-mints it at the talk->act handoff).
     async with reset_db() as db:
         fresh_turn = (await db.execute(select(Turn).where(Turn.id == turn.id))).scalar_one()
         fresh_turn.phase = "act"
@@ -180,12 +184,20 @@ async def test_message_talk_phase_is_idempotent_and_act_phase_rejects(client, re
         headers={"X-Connection-Key": key},
         json={
             "turn_token": turn.turn_token,
-            "message": "should fail",
+            "message": "too late to talk",
             "thinking": "secret-message-3",
         },
     )
-    assert r3.status_code == 409, r3.text
-    assert r3.json()["detail"]["error"]["code"] == "WRONG_PHASE"
+    # A late talk is not an error: the server says the window closed and points the
+    # agent at the act phase, with the same token it already holds. Private
+    # `thinking` is never echoed back.
+    assert r3.status_code == 202, r3.text
+    body3 = r3.json()
+    assert body3["status"] == "talk_window_closed"
+    assert body3["phase"] == "act"
+    assert body3["turn_token"] == turn.turn_token
+    assert "secret-message-3" not in r3.text
+    assert "thinking" not in body3
 
 
 @pytest.mark.asyncio

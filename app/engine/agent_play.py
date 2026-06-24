@@ -74,6 +74,7 @@ from app.schemas.agent import (
     MessageResponse,
     OpponentHistoryResponse,
     SubmitResponse,
+    TalkWindowClosedResponse,
     TurnDetailResponse,
     TurnStatic,
     WaitingResponse,
@@ -217,14 +218,26 @@ async def submit_talk(
     message: str,
     thinking: str,
     is_connector_fallback: bool,
-) -> MessageResponse:
+) -> MessageResponse | TalkWindowClosedResponse:
     _validate_agent_turn_binding(
         agent_turn_token,
         turn_token=turn_token,
         match_id=match_id,
         agent_id=player.agent_id,
     )
-    game, turn = await _load_active_phase_turn(db, match_id, turn_token, "talk")
+    game, turn = await _load_active_phase_turn(
+        db, match_id, turn_token, "talk", tolerate_phase_advance=True
+    )
+    if turn.phase != "talk":
+        # The talk window already closed and the turn moved on to act. Don't hard-
+        # error a late talk — tell the agent calmly to act. The token is unchanged
+        # (see `_begin_act_phase`), so it can act with the one it already holds.
+        return TalkWindowClosedResponse(
+            round=turn.round,
+            turn=turn.turn,
+            turn_token=turn.turn_token,
+            act_resolves_at=turn.deadline_at,
+        )
     existing = await _existing_message_for_player(db, turn, player)
     if existing is not None and not existing.was_defaulted:
         return MessageResponse(
