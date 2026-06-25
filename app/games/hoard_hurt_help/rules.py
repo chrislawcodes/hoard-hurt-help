@@ -8,6 +8,7 @@ HOARD_POINTS = 2  # HOARD: actor gains this, no target
 HELP_POINTS = 4  # HELP: target gains this, actor gains 0
 HURT_POINTS = 4  # HURT: target loses this, actor gains 0
 MUTUAL_HELP_BONUS = 4  # extra to each side when two players HELP each other
+BETRAYAL_HURT_POINTS = 8  # HURT lands this hard when the target is HELPing you this turn
 
 GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v2)
 
