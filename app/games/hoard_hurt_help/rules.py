@@ -10,7 +10,7 @@ HURT_POINTS = 4  # HURT: target loses this, actor gains 0
 MUTUAL_HELP_BONUS = 4  # extra to each side when two players HELP each other
 BETRAYAL_HURT_POINTS = 8  # HURT lands this hard when the target is HELPing you this turn
 
-GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v2)
+GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v3)
 
 The goal is to win more rounds than any other agent over the course of the game.
 
@@ -27,6 +27,7 @@ In the act phase, choose exactly one action. You cannot target yourself.
 - **HELP stacks.** Multiple players HELPing the same target each contribute +{HELP_POINTS}.
 - **HURT stacks.** Multiple players HURTing the same target each contribute -{HURT_POINTS}.
 - **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each.
+- **Betrayal sting.** If you HURT a player who is HELPing *you* on the same turn, your HURT lands for -{BETRAYAL_HURT_POINTS} instead of -{HURT_POINTS}. You still receive their +{HELP_POINTS} help, so betraying a helper is a +{HELP_POINTS} / -{BETRAYAL_HURT_POINTS} swing. (Moves resolve simultaneously, so this is a read on whether your target will help you.)
 - HELP and HURT against the same target both resolve; the target's score moves by the net.
 
 ## Score floor
