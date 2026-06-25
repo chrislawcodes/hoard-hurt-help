@@ -236,6 +236,65 @@ async def test_hurt_against_zero_target(db):
 
 
 @pytest.mark.asyncio
+async def test_betrayal_sting_hurts_helper_for_eight(db):
+    """HURTing a player who HELPs you this turn lands for -8, not -4.
+
+    B HELPs A (A gets +4). A HURTs B → betrayal sting -8 to B.
+    A ends +4; B (starting at 10) ends 10 - 8 = 2.
+    """
+    game, [a, b] = await _make_game_with_players(db, 2)
+    b.current_round_score = 10
+    await db.commit()
+    turn = await _open_turn(db, game)
+    await _submit(db, turn, a, "HURT", target=b)
+    await _submit(db, turn, b, "HELP", target=a)
+    await resolve_turn(db, turn)
+    await db.refresh(a)
+    await db.refresh(b)
+    assert a.current_round_score == 4  # +4 from B's help (A's HURT gives A nothing)
+    assert b.current_round_score == 2  # 10 - 8 sting
+
+
+@pytest.mark.asyncio
+async def test_hurt_non_helper_stays_four(db):
+    """A normal HURT (target did NOT help the attacker) still lands for -4.
+
+    B HOARDs (does not help A). A HURTs B → base -4, not the sting.
+    B (starting at 10) ends 10 + 2 (hoard) - 4 = 8.
+    """
+    game, [a, b] = await _make_game_with_players(db, 2)
+    b.current_round_score = 10
+    await db.commit()
+    turn = await _open_turn(db, game)
+    await _submit(db, turn, a, "HURT", target=b)
+    await _submit(db, turn, b, "HOARD")
+    await resolve_turn(db, turn)
+    await db.refresh(b)
+    assert b.current_round_score == 8  # 10 + 2 - 4, NOT -8
+
+
+@pytest.mark.asyncio
+async def test_betrayal_sting_only_for_the_helped_attacker(db):
+    """Only the attacker the victim HELPed lands the -8; other attackers stay -4.
+
+    B HELPs A. A HURTs B (sting -8). C HURTs B (normal -4, B never helped C).
+    B (starting at 20) ends 20 - 8 - 4 = 8. A gets +4 from B's help.
+    """
+    game, [a, b, c] = await _make_game_with_players(db, 3)
+    b.current_round_score = 20
+    await db.commit()
+    turn = await _open_turn(db, game)
+    await _submit(db, turn, b, "HELP", target=a)
+    await _submit(db, turn, a, "HURT", target=b)
+    await _submit(db, turn, c, "HURT", target=b)
+    await resolve_turn(db, turn)
+    await db.refresh(a)
+    await db.refresh(b)
+    assert a.current_round_score == 4
+    assert b.current_round_score == 8  # 20 - 8 (A sting) - 4 (C normal)
+
+
+@pytest.mark.asyncio
 async def test_missed_turn_defaults_to_hoard(db):
     """A player with no submission gets defaulted to Hoard with canonical message."""
     game, [a, b] = await _make_game_with_players(db, 2)

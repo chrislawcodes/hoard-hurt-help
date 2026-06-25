@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.games.hoard_hurt_help.rules import (
+    BETRAYAL_HURT_POINTS,
     DEFAULT_MISSED_MESSAGE,
     HELP_POINTS,
     HOARD_POINTS,
@@ -67,19 +68,27 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     # Raw deltas (pre-floor).
     delta: dict[int, int] = {p.id: 0 for p in players}
 
+    # Who each HELPer targeted — needed both for the mutual-help bonus below and
+    # to detect a betrayal HURT (HURTing someone who is HELPing you this turn).
+    help_targets = {
+        s.player_id: s.target_player_id for s in submissions if s.action == "HELP"
+    }
+
     for s in submissions:
         if s.action == "HOARD":
             delta[s.player_id] += HOARD_POINTS
         elif s.action == "HELP" and s.target_player_id in delta:
             delta[s.target_player_id] += HELP_POINTS
         elif s.action == "HURT" and s.target_player_id in delta:
-            delta[s.target_player_id] -= HURT_POINTS
+            # Betrayal sting: HURTing a player who is HELPing you this same turn
+            # lands for BETRAYAL_HURT_POINTS instead of the base HURT_POINTS.
+            betrayed_helper = help_targets.get(s.target_player_id) == s.player_id
+            delta[s.target_player_id] -= (
+                BETRAYAL_HURT_POINTS if betrayed_helper else HURT_POINTS
+            )
 
     # Mutual-help bonus: for each HELP pair where both helped each other,
     # add +4 to each side, but only once per pair.
-    help_targets = {
-        s.player_id: s.target_player_id for s in submissions if s.action == "HELP"
-    }
     seen_pairs: set[frozenset[int]] = set()
     for a, b in help_targets.items():
         if b is None:
