@@ -227,7 +227,7 @@ def _talk_target(
 def _plan_to_move(plan: BotPlan, context: BotContext) -> dict[str, str | None]:
     if plan.intent in {"keep_partner", "start_partnership", "test_offer", "reward_helper", "repair_trust", "protect_victim"}:
         return {"action": "HELP", "target_id": plan.target_id}
-    if plan.intent in {"punish_attacker", "hurt_leader", "block_rival"}:
+    if plan.intent in {"punish_attacker", "hurt_leader", "block_rival", "betray_helper"}:
         return {"action": "HURT", "target_id": plan.target_id}
     if plan.intent == "follow_crowd":
         # Copy the crowd's last majority action when possible.
@@ -283,6 +283,10 @@ def _move_is_valid(move: dict[str, str | None], context: BotContext) -> bool:
 def _choose_truth_mode(profile: BotProfile, context: BotContext, intent: str, phase: str) -> str:
     """Honest or lying. Truthfulness (0-100) is simply how often the bot tells
     the truth: a 90 bot is honest 90% of the time and bluffs the other 10%."""
+    # A buzzer betrayal always wears a friendly mask: a false-mode HURT line reads
+    # as cooperative, so the target still HELPs and eats the full -8.
+    if intent == "betray_helper":
+        return "false"
     roll = _seed_int(profile, context, intent, phase) % 100
     return "honest" if roll < profile.truthfulness else "false"
 

@@ -49,6 +49,7 @@ ACTION_INTENTS = {
     "punish_attacker",
     "hurt_leader",
     "block_rival",
+    "betray_helper",
     "hoard_protect_score",
     "wait_and_watch",
     "climb_safely",
@@ -86,12 +87,17 @@ def choose_action_plan(
 
     if strategy == "pragmatist":
         # Plays Coalition Seeker all round, then betrays at the buzzer: on the
-        # final turn it stops sharing — it pockets the help its partner sends and
-        # hoards its own points instead of giving back, edging ahead to take the
-        # round-win for itself. Greedy, not spiteful (attacking would only cost
-        # it the +8 it just walked away from).
+        # final turn it HURTs the partner it expects to still HELP it. Because the
+        # target is helping, the HURT lands for the full betrayal damage (-8) while
+        # it still pockets their +4 — a swing big enough to steal the round-win. It
+        # keeps talking cooperatively that turn (a false-mode bluff) so the partner
+        # doesn't see it coming. Falls back to hoarding if it has no likely helper.
         if context.turn >= 7:
+            betray_target = strong_partner or partner or helper
             return [
+                BotPlan("betray_helper", betray_target, "betray at the buzzer")
+                if betray_target
+                else None,
                 BotPlan("hoard_protect_score", None, "stop sharing"),
             ]
         return [
