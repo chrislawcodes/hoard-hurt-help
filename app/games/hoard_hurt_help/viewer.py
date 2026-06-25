@@ -307,8 +307,8 @@ async def build_pd_replay_view(
                     "was_defaulted": action.was_defaulted,
                     "mutual": False,
                     "betrayal": False,
-                    # HURT against a player HELPing you this same turn — lands for -8.
-                    "stung": False,
+                    # HURT against a player who is HELPing you this same turn — lands for -8.
+                    "betrayed_helper": False,
                 }
             )
 
@@ -329,9 +329,9 @@ async def build_pd_replay_view(
                 a["mutual"] = True
                 this_mutual.add(pair)
             elif a["action"] == "HURT":
-                # Same-turn sting: HURT a player who is HELPing you this turn → -8.
+                # Betraying a helper: HURT a player who is HELPing you this turn → -8.
                 if helps.get(tgt) == a["agent_id"]:
-                    a["stung"] = True
+                    a["betrayed_helper"] = True
                 # Cross-turn betrayal: HURT last turn's pact partner.
                 if pair in prev_mutual:
                     a["betrayal"] = True
@@ -356,7 +356,9 @@ async def build_pd_replay_view(
                 a["display_delta"] = 8 if a["mutual"] else a["target_delta"]
             else:
                 a["display_action"] = "HURT"
-                a["display_delta"] = -BETRAYAL_HURT_POINTS if a["stung"] else a["target_delta"]
+                a["display_delta"] = (
+                    -BETRAYAL_HURT_POINTS if a["betrayed_helper"] else a["target_delta"]
+                )
 
         # Running in-round score (resets each round) → who leads, for the
         # play-by-play "lead change" beat.

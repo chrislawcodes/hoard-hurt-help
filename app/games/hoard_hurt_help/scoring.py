@@ -80,8 +80,8 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         elif s.action == "HELP" and s.target_player_id in delta:
             delta[s.target_player_id] += HELP_POINTS
         elif s.action == "HURT" and s.target_player_id in delta:
-            # Betrayal sting: HURTing a player who is HELPing you this same turn
-            # lands for BETRAYAL_HURT_POINTS instead of the base HURT_POINTS.
+            # Betraying a helper: HURTing a player who is HELPing you this same
+            # turn lands for BETRAYAL_HURT_POINTS instead of the base HURT_POINTS.
             betrayed_helper = help_targets.get(s.target_player_id) == s.player_id
             delta[s.target_player_id] -= (
                 BETRAYAL_HURT_POINTS if betrayed_helper else HURT_POINTS
