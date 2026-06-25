@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.games.hoard_hurt_help.match_summary import build_final_summary
+from app.games.hoard_hurt_help.rules import BETRAYAL_HURT_POINTS
 from app.games.hoard_hurt_help.scoring import apply_inround_turn
 from app.games.hoard_hurt_help.viewer_headline import _turn_headline
 from app.games.hoard_hurt_help.viewer_win_probs import _compute_round_win_probs
@@ -306,6 +307,8 @@ async def build_pd_replay_view(
                     "was_defaulted": action.was_defaulted,
                     "mutual": False,
                     "betrayal": False,
+                    # HURT against a player HELPing you this same turn — lands for -8.
+                    "stung": False,
                 }
             )
 
@@ -325,8 +328,13 @@ async def build_pd_replay_view(
             if a["action"] == "HELP" and helps.get(tgt) == a["agent_id"]:
                 a["mutual"] = True
                 this_mutual.add(pair)
-            elif a["action"] == "HURT" and pair in prev_mutual:
-                a["betrayal"] = True
+            elif a["action"] == "HURT":
+                # Same-turn sting: HURT a player who is HELPing you this turn → -8.
+                if helps.get(tgt) == a["agent_id"]:
+                    a["stung"] = True
+                # Cross-turn betrayal: HURT last turn's pact partner.
+                if pair in prev_mutual:
+                    a["betrayal"] = True
         prev_mutual = this_mutual
 
         for a in actions:
@@ -348,7 +356,7 @@ async def build_pd_replay_view(
                 a["display_delta"] = 8 if a["mutual"] else a["target_delta"]
             else:
                 a["display_action"] = "HURT"
-                a["display_delta"] = a["target_delta"]
+                a["display_delta"] = -BETRAYAL_HURT_POINTS if a["stung"] else a["target_delta"]
 
         # Running in-round score (resets each round) → who leads, for the
         # play-by-play "lead change" beat.
