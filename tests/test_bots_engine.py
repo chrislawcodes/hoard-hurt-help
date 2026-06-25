@@ -143,33 +143,58 @@ def _rec(round_: int, turn: int, actor: str, action: str, target: str | None) ->
     )
 
 
-def test_betrayal_is_remembered_across_rounds() -> None:
+def test_betrayal_stings_then_fades_and_is_forgiven() -> None:
     # Round 1, turn 7: AI_1 HELPs AI_2 and AI_2 HURTs AI_1 the same turn — the -8
-    # betrayal. A neutral round-2 turn makes round 2 the "latest", so the only
-    # thing keeping AI_2 distrusted is the long betrayal memory, not recency.
+    # betrayal. The hit fades over the rounds that follow and is fully forgiven.
+    betrayal = [
+        _rec(1, 7, "AI_1", "HELP", "AI_2"),
+        _rec(1, 7, "AI_2", "HURT", "AI_1"),
+    ]
+
+    def trust_in_traitor(latest_round: int) -> int:
+        # A neutral action sets which round is "now" without touching trust.
+        history = betrayal + [_rec(latest_round, 1, "AI_3", "HOARD", None)]
+        return compute_trust_map(
+            your_agent_id="AI_1",
+            all_agent_ids=["AI_1", "AI_2", "AI_3"],
+            history=history,
+            signals=[],
+            trust_model="even",
+        )["AI_2"]
+
+    assert trust_in_traitor(2) == -27  # one round later: most of the sting still bites
+    assert trust_in_traitor(3) == -18  # fading
+    assert trust_in_traitor(5) == 0  # four rounds on: trusted again
+
+
+def test_betrayal_sensitivity_varies_by_personality() -> None:
+    # Same betrayal, same moment (two rounds later). A forgiving "open" bot has
+    # moved on; a "bitter" one (Long Memory) still won't go near the traitor.
     history = [
         _rec(1, 7, "AI_1", "HELP", "AI_2"),
         _rec(1, 7, "AI_2", "HURT", "AI_1"),
-        _rec(2, 1, "AI_3", "HOARD", None),
+        _rec(3, 1, "AI_3", "HOARD", None),
     ]
-    trust = compute_trust_map(
-        your_agent_id="AI_1",
-        all_agent_ids=["AI_1", "AI_2", "AI_3"],
-        history=history,
-        signals=[],
-        trust_model="even",
-    )
-    assert trust["AI_2"] == -40  # even model betray_self
-    assert trust["AI_3"] == 0
+
+    def trust_in_traitor(model: str) -> int:
+        return compute_trust_map(
+            your_agent_id="AI_1",
+            all_agent_ids=["AI_1", "AI_2", "AI_3"],
+            history=history,
+            signals=[],
+            trust_model=model,
+        )["AI_2"]
+
+    assert trust_in_traitor("open") == 0  # forgave it within two rounds
+    assert trust_in_traitor("bitter") == -39  # still holds the grudge
 
 
 def test_witnessed_betrayal_lowers_trust_in_the_traitor() -> None:
-    # AI_2 betrays AI_3 (not me). From AI_1's seat that's a witnessed betrayal:
-    # a smaller hit than a personal one, but still below the partner line.
+    # AI_2 betrays AI_3 (not me) this same round. From AI_1's seat that's a fresh
+    # witnessed betrayal: a smaller hit than a personal one, but real.
     history = [
         _rec(1, 7, "AI_3", "HELP", "AI_2"),
         _rec(1, 7, "AI_2", "HURT", "AI_3"),
-        _rec(2, 1, "AI_1", "HOARD", None),
     ]
     trust = compute_trust_map(
         your_agent_id="AI_1",
@@ -178,7 +203,7 @@ def test_witnessed_betrayal_lowers_trust_in_the_traitor() -> None:
         signals=[],
         trust_model="even",
     )
-    assert trust["AI_2"] == -20  # even model betray_other
+    assert trust["AI_2"] == -18  # even: hurt_last -6 × witnessed factor 3, fresh
     assert trust["AI_3"] == 0
 
 
