@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.engine.bots import BotContext, BotProfile, choose_bot_action_decision
+from app.engine.bots import (
+    BotContext,
+    BotProfile,
+    choose_bot_action_decision,
+    choose_bot_talk_decision,
+)
 from app.engine.bots.strategies import VALID_STRATEGIES
 from app.engine.bot_presets import BOT_PRESETS, bot_preset_by_id
 from app.engine.game_records import ActionRecord
@@ -78,9 +83,15 @@ def test_pragmatist_cooperates_then_betrays_at_the_buzzer() -> None:
     # Mid-round: it reciprocates (cooperates).
     ctx, profile = _ctx(strategy="pragmatist", history=history, turn=5)
     assert choose_bot_action_decision(ctx, profile).move == {"action": "HELP", "target_id": "AI_2"}
-    # Final turn: it stops sharing — pockets the help and hoards to take the win.
+    # Final turn: it betrays the partner it expects to still help it — HURTing a
+    # helper lands for the full -8. It targets AI_2 (the recent helper).
     ctx_last, profile = _ctx(strategy="pragmatist", history=history, turn=7)
-    assert choose_bot_action_decision(ctx_last, profile).move["action"] == "HOARD"
+    assert choose_bot_action_decision(ctx_last, profile).move == {
+        "action": "HURT",
+        "target_id": "AI_2",
+    }
+    # And it bluffs cooperatively in the talk phase so the partner still helps.
+    assert choose_bot_talk_decision(ctx_last, profile).truth_mode == "false"
 
 
 # --- Opportunist: cooperate when actually helped ---------------------------
