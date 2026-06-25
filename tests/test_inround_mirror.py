@@ -1,7 +1,7 @@
 """Unit tests for `apply_inround_turn` — the viewer's running-score mirror.
 
 Pure function (dict in, dict out). It approximates `resolve_turn` for lead
-tracking / win-prob display, including the betrayal sting: a HURT against a
+tracking / win-prob display, including betraying a helper: a HURT against a
 player who HELPs the attacker this same turn lands for BETRAYAL_HURT_POINTS.
 """
 
@@ -22,7 +22,7 @@ def test_mirror_normal_hurt_is_four():
     assert out == {"A": 0, "B": 8}  # 10 + 2 hoard - 4 hurt
 
 
-def test_mirror_betrayal_sting_is_eight():
+def test_mirror_betraying_a_helper_is_eight():
     """HURTing a player who HELPs you this same turn drops them by 8."""
     out = apply_inround_turn(
         {"A": 0, "B": 10},
@@ -31,7 +31,7 @@ def test_mirror_betrayal_sting_is_eight():
             {"action": "HELP", "agent_id": "B", "target_id": "A"},
         ],
     )
-    assert out == {"A": 4, "B": 2}  # A: +4 from B's help; B: 10 - 8 sting
+    assert out == {"A": 4, "B": 2}  # A: +4 from B's help; B: 10 - 8 betrayal
 
 
 def test_mirror_mutual_help_is_eight_each():

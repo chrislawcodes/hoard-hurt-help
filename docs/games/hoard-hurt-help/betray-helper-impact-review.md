@@ -1,4 +1,4 @@
-# Betrayal Sting — Impact Review (for Chris)
+# Betraying A Helper — Impact Review (for Chris)
 
 **Proposed rule:** If you **HURT** a player who is **HELPing you in the same turn**,
 that player takes **−8** instead of the normal −4. Mutual help stays **+8 each**.
@@ -50,7 +50,7 @@ Tick the box once you've eyeballed it.
   The viewer's *running-score mirror* (separate from the authoritative resolver).
   Today it does `new[target] = max(0, new[target] - HURT_POINTS)` per HURT and has
   no idea about betrayal. To match the rule it must reconstruct the HELP edges from
-  the `actions` list and apply −8 on a stung HURT.
+  the `actions` list and apply −8 on a betraying HURT.
   Consumed by → **`viewer.py:358`** and **`viewer_win_probs.py:68`** (both pass
   `agent_id/action/target_id/mutual`, so the data is there).
   ⚠️ This helper already floors *per-hurt* (the authoritative one floors the summed
@@ -59,7 +59,7 @@ Tick the box once you've eyeballed it.
 - [ ] **`app/games/hoard_hurt_help/game.py` → `move_effect(action)`, lines 226–234**
   ⚠️ **Hard limit:** this only gets the action *string*, no turn context, so it
   **cannot** know a HURT was a betrayal. The per-move chip in the watch feed will
-  label a stung HURT as "−4" even though the victim's real score dropped 8.
+  label a betraying HURT as "−4" even though the victim's real score dropped 8.
   - **Option (a)** keep it nominal (−4); the running score still drops the correct 8.
     Small, contained. *(my recommendation for a first trial)*
   - **Option (b)** widen the `move_effect` contract to take turn context so the chip
@@ -72,9 +72,9 @@ Tick the box once you've eyeballed it.
 
 - [ ] **`app/games/hoard_hurt_help/viewer.py`, lines 312–330 — NAMING COLLISION**
   There is **already** a `betrayal` flag here, but it means something different:
-  "HURT aimed at **last turn's** pact partner" (cross-turn). Your sting is a
+  "HURT aimed at **last turn's** pact partner" (cross-turn). Betraying a helper is a
   **same-turn** condition. Do not conflate them. If you want the viewer to visually
-  mark the new sting, that's a *new* same-turn signal (and likely game-art work).
+  mark the new betrayal, that's a *new* same-turn signal (and likely game-art work).
 
 ---
 
@@ -86,7 +86,7 @@ Tick the box once you've eyeballed it.
   `make_rules_text` (lines 60–79) just interpolate counts — no structural change.
 
 - [ ] **`docs/games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md` §2**
-  Document the sting in the payoff math + edge-case list; resolve the old
+  Document betraying a helper in the payoff math + edge-case list; resolve the old
   "Payoff math — needs cleanup" note while we're in there.
 
 ---
@@ -94,7 +94,7 @@ Tick the box once you've eyeballed it.
 ## Tier 4 — Tests
 
 - [ ] **`tests/test_resolver.py`** — add: hurt-a-helper → −8; hurt-a-non-helper → −4
-  (unchanged, guards against regressions); sting + floor; one attacker stung while a
+  (unchanged, guards against regressions); betrayal + floor; one attacker betraying while a
   third player HURTs the same victim normally (only the helped-attacker's edge is −8).
 - [ ] **`tests/test_game_registry.py`, lines 27–29** — asserts `move_effect("HURT")
   == (0, -4)`. **Stays valid only under option (a).** Option (b) rewrites this.
@@ -112,7 +112,7 @@ Tick the box once you've eyeballed it.
   `train_win_prob.py` / `train_round_win_prob.py`.
 - [ ] **Bots** `app/engine/bots/strategies.py`
   Scripted bots never *deliberately* bait-and-hurt, so they'll rarely trigger the
-  sting (my sim confirmed ~no movement). To actually exercise it with bots we'd add
+  betrayal (my sim confirmed ~no movement). To actually exercise it with bots we'd add
   an "exploiter" strategy. Real LLMs will trigger it via the talk phase.
   `app/engine/bots/trust.py` keys on action *type*, not magnitude — no change needed.
 - [ ] **`app/games/hoard_hurt_help/match_summary.py`, lines 75–93**
@@ -125,7 +125,7 @@ Tick the box once you've eyeballed it.
 ## Tier 6 — Confirmed NOT affected
 
 - [ ] **No DB migration / schema change.** `points_delta` already stores the actual
-  post-sting delta; nothing new to persist.
+  post-betrayal delta; nothing new to persist.
 - [ ] **`validate_move`** — legal moves unchanged (HURT is still HURT).
 - [ ] **Round / game / `finalize` logic** — unchanged.
 
@@ -133,5 +133,5 @@ Tick the box once you've eyeballed it.
 
 ## Open decision blocking implementation
 1. **(a) nominal per-move chip** vs **(b) context-aware `move_effect`** (Tier 2).
-2. Want an **exploiter bot** added so we can see the sting fire in bot-only games,
+2. Want an **exploiter bot** added so we can see the betrayal fire in bot-only games,
    or are we validating with real LLM matches only? (Tier 5)

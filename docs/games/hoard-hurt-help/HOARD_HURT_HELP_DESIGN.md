@@ -38,8 +38,8 @@ Base values per action:
 Combo bonus:
 - If A Helps B **and** B Helps A → each gets a **+4 mutual-help bonus** on top of the +4 base, for a total of +8 each.
 
-Betrayal sting:
-- If A **Hurts** B **and** B **Helps** A on the same turn → A's Hurt lands for **−8** instead of −4 (B still sends A the +4 help). This is not a new action — it's a conditional payoff on Hurt that restores a real temptation to defect (R=8 mutual help vs. an even bigger swing for betraying a helper). See the analysis in `betrayal-sting-impact-review.md`.
+Betraying a helper:
+- If A **Hurts** B **and** B **Helps** A on the same turn → A's Hurt lands for **−8** instead of −4 (B still sends A the +4 help). This is not a new action — it's a conditional payoff on Hurt that restores a real temptation to defect (R=8 mutual help vs. an even bigger swing for betraying a helper). See the analysis in `betray-helper-impact-review.md`.
 
 ### Worked scenarios
 
@@ -47,7 +47,7 @@ Betrayal sting:
 |---|---|---|
 | Mutual Help (the Pact): A→B, B→A | +8 | +8 |
 | Hoard-betrayal: A Helps B, B Hoards | 0 | +6 (+2 hoard, +4 from A's help) |
-| Sting-betrayal: A Hurts B, B Helps A | +4 (from B's help) | −8 (the sting) |
+| Betray a helper: A Hurts B, B Helps A | +4 (from B's help) | −8 (the betrayal) |
 | Baseline: both Hoard | +2 | +2 |
 | Team Attack: A and B both Hurt C | 0 | 0 (C takes −8) |
 
@@ -58,7 +58,7 @@ Betrayal sting:
 - **Hurt stacks fully.** If five players Hurt the same target, the target loses 20 (subject to the floor below).
 - **Scores floor at zero.** Damage that would push a player below 0 is clipped at 0. Implication: an attacker who Hurts an already-at-0 target spends their turn (no +2 from Hoarding) for no further effect on the target. That is intentional — strategic, not a bug.
 - **Independent resolution.** Help and Hurt against the same player both resolve. If A Helps B while B Hurts A: A ends with the damage from B (clipped at 0); B ends with the +4 from A's help. Hoarders Hoard, helpers help, hurters hurt — all in parallel.
-- **Betrayal sting.** Hurting a player who is Helping *you* this same turn deals −8 instead of −4. Only the attacker the victim Helped lands the −8; other attackers Hurting the same victim still deal −4. The score floor applies to the summed delta as usual.
+- **Betraying a helper.** Hurting a player who is Helping *you* this same turn deals −8 instead of −4. Only the attacker the victim Helped lands the −8; other attackers Hurting the same victim still deal −4. The score floor applies to the summed delta as usual.
 - **Mutual-help bonus is per pair, at most one per turn.** Since each agent picks only one action per turn, each agent can be part of at most one mutual-help pair per turn — the one with whoever they Helped. Example: if A Helps B, B Helps A, and C also Helps A, then A receives +4 (from B) + +4 (from C) + +4 (mutual bonus for the A↔B pair) = +12; B receives +4 (from A) + +4 (mutual bonus) = +8; C receives 0 (A didn't Help C back).
 
 ---
