@@ -21,14 +21,16 @@ class _TrustModel:
     hurt_partner: int
     help_partner: int
     talk: float
+    betray_self: int
+    betray_other: int
 
 
 _MODELS: dict[str, _TrustModel] = {
-    "open": _TrustModel(6, 3, 7, -4, -2, -1, 2, 1.5),
-    "even": _TrustModel(4, 2, 5, -6, -3, -2, 1, 1.0),
-    "careful": _TrustModel(2, 1, 3, -6, -3, -2, 1, 0.5),
-    "bitter": _TrustModel(3, 2, 4, -9, -5, -3, 1, 0.5),
-    "twitchy": _TrustModel(7, 4, 8, -10, -5, -3, 1, 1.0),
+    "open": _TrustModel(6, 3, 7, -4, -2, -1, 2, 1.5, -30, -15),
+    "even": _TrustModel(4, 2, 5, -6, -3, -2, 1, 1.0, -40, -20),
+    "careful": _TrustModel(2, 1, 3, -6, -3, -2, 1, 0.5, -50, -25),
+    "bitter": _TrustModel(3, 2, 4, -9, -5, -3, 1, 0.5, -70, -40),
+    "twitchy": _TrustModel(7, 4, 8, -10, -5, -3, 1, 1.0, -60, -35),
 }
 
 
@@ -77,6 +79,17 @@ def compute_trust_map(
     for actor in mutuals:
         if actor in trust:
             trust[actor] = _clamp(trust[actor] + model.mutual_help)
+
+    # Betrayal memory: a player who HURT a helper — you OR anyone else — is
+    # remembered for the whole match, not just the latest round. Betraying you
+    # personally stings most, but a witnessed betrayal still drops the traitor
+    # well past the partner line. This is what lets every strategy refuse to
+    # trust a known traitor.
+    for attacker, victim in _betrayals(history):
+        if attacker == your_agent_id or attacker not in trust:
+            continue
+        penalty = model.betray_self if victim == your_agent_id else model.betray_other
+        trust[attacker] = _clamp(trust[attacker] + penalty)
 
     current_partner = _best_partner(trust)
     if current_partner is not None:
@@ -164,6 +177,31 @@ def _mutual_help_partners(history: Sequence[ActionRecord], your_agent_id: str) -
             if target == your_agent_id and (target, actor) in helped:
                 partners.add(actor)
     return partners
+
+
+def _betrayals(history: Sequence[ActionRecord]) -> list[tuple[str, str]]:
+    """Every (attacker, victim) where the attacker HURT a player who was HELPing
+    them that same turn — i.e. the attacker triggered the -8 betrayal. Scans the
+    whole match so the memory outlives the round it happened in.
+    """
+    by_turn: dict[tuple[int, int], list[ActionRecord]] = defaultdict(list)
+    for record in history:
+        if not record.was_defaulted:
+            by_turn[(record.round, record.turn)].append(record)
+
+    betrayals: list[tuple[str, str]] = []
+    for records in by_turn.values():
+        helped = {
+            (r.actor_id, r.target_id)
+            for r in records
+            if r.action == "HELP" and r.target_id is not None
+        }
+        for r in records:
+            if r.action == "HURT" and r.target_id is not None:
+                # The victim HELPed the attacker this same turn → it's a betrayal.
+                if (r.target_id, r.actor_id) in helped:
+                    betrayals.append((r.actor_id, r.target_id))
+    return betrayals
 
 
 def _best_partner(trust: dict[str, int]) -> str | None:

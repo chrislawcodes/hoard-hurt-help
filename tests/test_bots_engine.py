@@ -129,6 +129,81 @@ def test_trust_clamps_to_bounds() -> None:
     assert trust["AI_2"] == -100
 
 
+def _rec(round_: int, turn: int, actor: str, action: str, target: str | None) -> ActionRecord:
+    return ActionRecord(
+        round=round_,
+        turn=turn,
+        actor_id=actor,
+        action=action,
+        target_id=target,
+        message="",
+        points_delta=0,
+        round_score_after=0,
+        was_defaulted=False,
+    )
+
+
+def test_betrayal_is_remembered_across_rounds() -> None:
+    # Round 1, turn 7: AI_1 HELPs AI_2 and AI_2 HURTs AI_1 the same turn — the -8
+    # betrayal. A neutral round-2 turn makes round 2 the "latest", so the only
+    # thing keeping AI_2 distrusted is the long betrayal memory, not recency.
+    history = [
+        _rec(1, 7, "AI_1", "HELP", "AI_2"),
+        _rec(1, 7, "AI_2", "HURT", "AI_1"),
+        _rec(2, 1, "AI_3", "HOARD", None),
+    ]
+    trust = compute_trust_map(
+        your_agent_id="AI_1",
+        all_agent_ids=["AI_1", "AI_2", "AI_3"],
+        history=history,
+        signals=[],
+        trust_model="even",
+    )
+    assert trust["AI_2"] == -40  # even model betray_self
+    assert trust["AI_3"] == 0
+
+
+def test_witnessed_betrayal_lowers_trust_in_the_traitor() -> None:
+    # AI_2 betrays AI_3 (not me). From AI_1's seat that's a witnessed betrayal:
+    # a smaller hit than a personal one, but still below the partner line.
+    history = [
+        _rec(1, 7, "AI_3", "HELP", "AI_2"),
+        _rec(1, 7, "AI_2", "HURT", "AI_3"),
+        _rec(2, 1, "AI_1", "HOARD", None),
+    ]
+    trust = compute_trust_map(
+        your_agent_id="AI_1",
+        all_agent_ids=["AI_1", "AI_2", "AI_3"],
+        history=history,
+        signals=[],
+        trust_model="even",
+    )
+    assert trust["AI_2"] == -20  # even model betray_other
+    assert trust["AI_3"] == 0
+
+
+def test_a_known_traitor_is_not_rewarded_for_helping() -> None:
+    # AI_2 betrayed AI_1 in round 1, then HELPs AI_1 again in round 2. The fresh
+    # help would normally trigger reward_helper, but the betrayal memory keeps
+    # AI_1 from cooperating back — it does not HELP the traitor.
+    history = [
+        _rec(1, 7, "AI_1", "HELP", "AI_2"),
+        _rec(1, 7, "AI_2", "HURT", "AI_1"),
+        _rec(2, 1, "AI_2", "HELP", "AI_1"),
+    ]
+    board = [
+        ScoreboardRow(agent_id="AI_1", round_score=4, round_wins=0.0),
+        ScoreboardRow(agent_id="AI_2", round_score=8, round_wins=0.0),
+        ScoreboardRow(agent_id="AI_3", round_score=4, round_wins=0.0),
+    ]
+    context = _context(
+        all_agent_ids=["AI_1", "AI_2", "AI_3"], history=history, scoreboard=board, turn=2
+    )
+    profile = BotProfile(strategy="loyal_partner", truthfulness=80, trust_model="even", seed=5, version="v1")
+    decision = choose_bot_action_decision(context, profile)
+    assert decision.move != {"action": "HELP", "target_id": "AI_2"}
+
+
 def test_leader_pressure_hits_a_runaway_leader() -> None:
     # Giant Slayer drops everything to hit a leader who's 12+ points ahead of it.
     board = [
