@@ -123,16 +123,22 @@ def apply_inround_turn(
 
     This is the *viewer's* running-score view — used for lead tracking and the
     win-probability features. It floors each HURT individually and credits a
-    mutual-help actor the full net (HELP_POINTS + MUTUAL_HELP_BONUS). It is a
-    display approximation and is deliberately distinct from `resolve_turn`,
-    which is authoritative and floors the summed per-player delta. Keep them
-    separate; do not route resolution through this helper.
+    mutual-help actor the full net (HELP_POINTS + MUTUAL_HELP_BONUS). A HURT
+    against a player who HELPs the attacker this same turn lands for
+    BETRAYAL_HURT_POINTS, mirroring `resolve_turn`. It is a display approximation
+    and is deliberately distinct from `resolve_turn`, which is authoritative and
+    floors the summed per-player delta. Keep them separate; do not route
+    resolution through this helper.
 
     Action dicts use keys: "action", "agent_id", optional "target_id",
     optional "mutual".
     """
     new_inround = dict(inround)
     mutual_help = HELP_POINTS + MUTUAL_HELP_BONUS
+    # Who each HELPer targeted — to detect a betrayal HURT (HURTing a same-turn helper).
+    help_targets = {
+        a["agent_id"]: a.get("target_id") for a in actions if a["action"] == "HELP"
+    }
     for a in actions:
         action = a["action"]
         actor = a["agent_id"]
@@ -145,5 +151,8 @@ def apply_inround_turn(
         elif action == "HELP" and target:
             new_inround[target] = new_inround.get(target, 0) + HELP_POINTS
         elif action == "HURT" and target:
-            new_inround[target] = max(0, new_inround.get(target, 0) - HURT_POINTS)
+            damage = (
+                BETRAYAL_HURT_POINTS if help_targets.get(target) == actor else HURT_POINTS
+            )
+            new_inround[target] = max(0, new_inround.get(target, 0) - damage)
     return new_inround
