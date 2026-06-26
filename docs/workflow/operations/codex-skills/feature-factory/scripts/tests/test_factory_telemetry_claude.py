@@ -73,6 +73,16 @@ class RecordReviewUsageTests(unittest.TestCase):
         self.assertEqual(rec["cache_read_tokens"], 900)
         self.assertIsNotNone(rec["cost_usd_estimate"])
 
+    def test_total_tokens_recorded(self) -> None:
+        TELEMETRY.record_review_usage(
+            SLUG, "spec", 1, "adversarial_review", "claude-opus-4-8",
+            lens="x", input_tokens=19649, output_tokens=1816, cache_read_tokens=0,
+            total_tokens=21465,
+        )
+        rec = FACTORY_STATE.load_workflow_state(SLUG)["token_usage"][-1]
+        self.assertEqual(rec["total_tokens"], 21465)
+        self.assertEqual(rec["output_tokens"], 1816)
+
     def test_parse_error_recorded_when_no_tokens(self) -> None:
         TELEMETRY.record_review_usage(
             SLUG, "spec", 0, "adversarial_review", "claude-opus-4-8",
