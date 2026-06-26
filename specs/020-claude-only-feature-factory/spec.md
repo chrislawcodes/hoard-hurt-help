@@ -199,9 +199,13 @@ out of scope here.
   confirming parallel fan-out, findings parsing, and reporting output.
 - Preflight Gate (`ruff`, `mypy`, `pytest`) green before push.
 
-## Open questions
+## Decisions (resolved)
 
-1. Where exactly do we source per-subagent token usage — the harness-reported
-   usage on the Task result, or post-hoc from `agent-*.jsonl`? (Bench uses JSONL.)
-2. Default fan-out width and default *k* for repeated sampling (opportunity #3)
-   before we measure rate-limit headroom.
+1. **Token-usage source:** post-hoc from the session transcript (`agent-*.jsonl`)
+   — the proven, subscription-safe mechanism the experiment bench already uses.
+2. **Default fan-out:** all lenses for a stage run in parallel, **k=1** (one
+   sample per lens). This is the big speed win (removes the Gemini stagger) at the
+   lowest rate-limit/token pressure. Repeated sampling (k>1, opportunity #3) is an
+   opt-in we enable after measuring headroom — not on by default.
+3. **Toggle:** an `FF_REVIEWER=claude` environment variable selects the Claude
+   review path. Off by default; the Gemini/Codex path is unchanged when unset.
