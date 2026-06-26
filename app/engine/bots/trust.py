@@ -37,6 +37,16 @@ class _TrustModel:
 BETRAYAL_SELF_FACTOR = 6
 BETRAYAL_OTHER_FACTOR = 3
 
+# Partner fatigue (decay-aware rotation). The scoring side decays a pair's
+# mutual-help payoff the more that same pair farms it (feature mutual-help-decay),
+# so a bot that keeps trusting one partner forever is chasing a shrinking reward.
+# To keep bot behavior aligned with the payoffs, each prior mutual-help turn with
+# a partner erodes that partner's trust TOWARD 0 (never below — a stale ally is
+# "meh", not an enemy) by this much. A heavily farmed partner eventually drops
+# under the partnership threshold and the bot rotates to a fresher ally; a new
+# partner still starts attractive. Tuned against scripts/decay_validation_sim.py.
+PARTNER_FATIGUE = 8
+
 # Personalities differ in how long they hold a betrayal (`forgive_rounds`): open
 # forgets fast, bitter ("Long Memory") holds on most of the match. Presets pair
 # these models with strategies (see bot_presets.py), so different bots end up
@@ -167,6 +177,16 @@ def compute_trust_map(
         if not backed:
             trust[speaker] = _clamp(trust[speaker] - 4)
 
+    # Partner fatigue: erode a farmed partner's trust toward 0 (never below), one
+    # PARTNER_FATIGUE step per prior mutual-help turn with them. Applied last so it
+    # is the final word on the map the strategy reads — a long-farmed pact cools
+    # under the partnership threshold and selection rotates, while a fresh partner
+    # (few or no prior mutual helps) stays attractive. Mirrors the scoring decay.
+    if PARTNER_FATIGUE:
+        for partner, count in _mutual_help_counts(history, your_agent_id).items():
+            if partner in trust and trust[partner] > 0:
+                trust[partner] = max(0, trust[partner] - PARTNER_FATIGUE * count)
+
     return trust
 
 
@@ -174,25 +194,40 @@ def _talk_delta(model: _TrustModel, base: int) -> int:
     return max(1, round(base * model.talk))
 
 
-def _mutual_help_partners(history: Sequence[ActionRecord], your_agent_id: str) -> set[str]:
+def _mutual_help_counts(history: Sequence[ActionRecord], your_agent_id: str) -> dict[str, int]:
+    """How many turns you and each other player HELPed each other (per partner).
+
+    The single source for "how farmed is this pact": `_mutual_help_partners` is the
+    set view of this, and partner fatigue scales by the count. A pair is counted at
+    most once per turn (mirroring the scoring side's same-turn guard).
+    """
     by_turn: dict[tuple[int, int], list[ActionRecord]] = defaultdict(list)
     for record in history:
         if not record.was_defaulted:
             by_turn[(record.round, record.turn)].append(record)
 
-    partners: set[str] = set()
+    counts: dict[str, int] = defaultdict(int)
     for records in by_turn.values():
         helped = {
             (r.actor_id, r.target_id)
             for r in records
             if r.action == "HELP" and r.actor_id != r.target_id
         }
+        seen_this_turn: set[str] = set()
         for actor, target in helped:
+            partner: str | None = None
             if actor == your_agent_id and target is not None and (target, actor) in helped:
-                partners.add(target)
-            if target == your_agent_id and (target, actor) in helped:
-                partners.add(actor)
-    return partners
+                partner = target
+            elif target == your_agent_id and (target, actor) in helped:
+                partner = actor
+            if partner is not None and partner not in seen_this_turn:
+                seen_this_turn.add(partner)
+                counts[partner] += 1
+    return dict(counts)
+
+
+def _mutual_help_partners(history: Sequence[ActionRecord], your_agent_id: str) -> set[str]:
+    return set(_mutual_help_counts(history, your_agent_id))
 
 
 def _betrayals(history: Sequence[ActionRecord]) -> list[tuple[str, str, int]]:

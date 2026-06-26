@@ -10,11 +10,10 @@ LLM, no network), and reports the per-round tie-rate that motivated the change:
   decay     the SHIPPED rule: a pair's mutual help pays max(2, 8-k), k = that
             pair's prior mutual helps this match. Uses the real resolve_turn, so
             this also smoke-checks app/games/hoard_hurt_help/scoring.py.
-  aware     decay + decay-aware partner rotation. The rotation monkeypatches the
-            trust map with a per-pair "fatigue" so a farmed partner drifts toward
-            neutral and bots seek a fresh ally. This is a PROTOTYPE of Slice 4
-            (decay-aware bots, blocked on PR #550); it lives here so acceptance #5
-            is reproducible before that engine code lands.
+  aware     decay + decay-aware partner rotation — the SHIPPED Slice 4 bots. Uses
+            the real trust.PARTNER_FATIGUE so a farmed partner's trust erodes toward
+            neutral and bots seek a fresh ally. baseline/decay pin PARTNER_FATIGUE
+            to 0 to isolate the lever, so this also exercises app/engine/bots/trust.py.
 
 The headline result (5 seeds × 40 matches): mean tie-rate baseline ~0.53 →
 decay ~0.27 → aware ~0.19, with aware < decay < baseline on every seed. See
@@ -108,42 +107,11 @@ def make_flat_resolve(scoring):
     return resolve_turn
 
 
-def make_fatigue_trust(original, fatigue=8):
-    """Decay-awareness PROTOTYPE (Slice 4): discount a partner you've already farmed.
-
-    Each prior mutual-help with someone erodes their trust toward neutral (not
-    below 0, so they're 'meh' not an enemy), so the bot's own partner-selection
-    looks for a fresh partner instead of farming a dead pact. Slice 4 will move
-    this logic into app/engine/bots/trust.py; until then this wrapper reproduces
-    the validated 'aware' numbers.
-    """
-    def wrapper(*, your_agent_id, all_agent_ids, history, signals, trust_model):
-        trust = original(
-            your_agent_id=your_agent_id, all_agent_ids=all_agent_ids,
-            history=history, signals=signals, trust_model=trust_model,
-        )
-        by_turn = collections.defaultdict(list)
-        for r in history:
-            if not r.was_defaulted:
-                by_turn[(r.round, r.turn)].append(r)
-        farmed = collections.Counter()
-        for recs in by_turn.values():
-            helped = {(x.actor_id, x.target_id) for x in recs if x.action == "HELP"}
-            for x in recs:
-                if (x.action == "HELP" and x.actor_id == your_agent_id
-                        and x.target_id is not None
-                        and (x.target_id, your_agent_id) in helped):
-                    farmed[x.target_id] += 1
-        for aid, c in farmed.items():
-            if aid in trust and trust[aid] > 0:
-                trust[aid] = max(0, trust[aid] - fatigue * c)
-        return trust
-    return wrapper
-
-
-async def run_condition(mode: str, n_matches: int, seed: int, db_path: str):
+async def run_condition(
+    mode: str, n_matches: int, seed: int, db_path: str, fatigue_override: int | None = None
+):
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path}"
-    # Fresh module state per condition so a monkeypatch never leaks across modes.
+    # Fresh module state per condition so a per-mode patch never leaks across modes.
     for m in [k for k in list(sys.modules) if k.startswith("app.")]:
         del sys.modules[m]
     from app.db import SessionLocal, engine
@@ -153,9 +121,15 @@ async def run_condition(mode: str, n_matches: int, seed: int, db_path: str):
     if mode == "baseline":
         scoring.resolve_turn = make_flat_resolve(scoring)
     # decay/aware use the real (shipped) resolve_turn — no patch.
-    if mode == "aware":
-        import app.engine.bots.runtime as runtime
-        runtime.compute_trust_map = make_fatigue_trust(runtime.compute_trust_map)
+
+    # Decay-aware bots are the shipped trust.PARTNER_FATIGUE. baseline/decay pin it
+    # to 0 to isolate the scoring lever; aware leaves the real value in place (or a
+    # `--fatigue` override, for tuning sweeps).
+    import app.engine.bots.trust as trust
+    if mode != "aware":
+        trust.PARTNER_FATIGUE = 0
+    elif fatigue_override is not None:
+        trust.PARTNER_FATIGUE = fatigue_override
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -275,6 +249,8 @@ def main():
     ap.add_argument("--n", type=int, default=40)
     ap.add_argument("--seeds", type=int, nargs="+", default=[42, 99, 7, 13, 23])
     ap.add_argument("--modes", nargs="+", default=["baseline", "decay", "aware"])
+    ap.add_argument("--fatigue", type=int, default=None,
+                    help="override trust.PARTNER_FATIGUE for the aware mode (tuning sweeps)")
     a = ap.parse_args()
     modes = a.modes
     runs = {m: [] for m in modes}
@@ -286,7 +262,9 @@ def main():
         for mode in modes:
             with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tf:
                 db_path = tf.name
-            runs[mode].append(asyncio.run(run_condition(mode, a.n, seed, db_path)))
+            runs[mode].append(
+                asyncio.run(run_condition(mode, a.n, seed, db_path, a.fatigue))
+            )
             os.unlink(db_path)
 
     print("Round tie-rate per seed:")
