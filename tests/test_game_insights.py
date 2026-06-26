@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from app.engine.game_insights import round_results
+from app.engine.game_insights import (
+    default_round_detail,
+    default_season_overview,
+    round_results,
+)
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.games.hoard_hurt_help.insights import grudges, round_detail, season_overview
 
@@ -87,3 +91,50 @@ def test_round_detail_live_round_not_complete() -> None:
     assert rd.complete is False          # no round 3 in the log
     assert rd.winner is None
     assert "Round 2 opened after RAW_3 took round 1" in rd.intro
+
+
+def test_season_overview_reuses_default_scaffolding_and_overlays_only_grudges() -> None:
+    """PD season overview = the default skeleton plus grudges; nothing else differs."""
+    base = default_season_overview(
+        PLAYERS, ACTIONS, total_rounds=2, current_round=2, game_active=False
+    )
+    pd = season_overview(PLAYERS, ACTIONS, total_rounds=2, current_round=2, game_active=False)
+
+    # The shared scaffolding is byte-identical between the default and PD.
+    assert pd.standings == base.standings
+    assert pd.results == base.results
+    assert pd.rounds_played == base.rounds_played
+    assert pd.total_rounds == base.total_rounds
+    assert pd.tiebreaker == base.tiebreaker
+    assert pd.season_feed == base.season_feed
+    assert pd.live_round == base.live_round
+
+    # The default path stays relationship-free; PD overlays real grudges.
+    assert base.grudges == [] and base.grudge_total == 0
+    expected_grudges, expected_total = grudges(ACTIONS)
+    assert pd.grudges == expected_grudges
+    assert pd.grudge_total == expected_total
+    assert pd.grudges  # the G_0009 fixture has feuds/vendettas, so this is non-empty
+
+
+def test_round_detail_reuses_default_scaffolding_and_overlays_only_signals() -> None:
+    """PD round detail = the default skeleton plus mood/alliances/events; rest identical."""
+    base = default_round_detail(1, PLAYERS, ACTIONS)
+    pd = round_detail(1, PLAYERS, ACTIONS)
+
+    # The shared scaffolding is byte-identical between the default and PD.
+    assert pd.round == base.round
+    assert pd.leaderboard == base.leaderboard
+    assert pd.surging == base.surging
+    assert pd.intro == base.intro
+    assert pd.winner == base.winner
+    assert pd.complete == base.complete
+
+    # The default path stays neutral; PD overlays real relationship signals.
+    assert base.mood == 0.5 and base.mood_label == "mixed" and base.alliances == []
+    # The default feed is surge/open-only (no relationships); PD adds betrayal/pile-on.
+    default_kinds = {e.kind for e in base.events}
+    assert default_kinds <= {"surge", "open"}
+    pd_kinds = {e.kind for e in pd.events}
+    assert "betrayal" in pd_kinds
+    assert "pileon" in pd_kinds

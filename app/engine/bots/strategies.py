@@ -251,20 +251,20 @@ def _cooperation_offers(signals: Sequence[TalkSignal], me: str) -> list[str]:
 
 
 def _recent_helper(context: BotContext, trust_map: dict[str, int]) -> str | None:
-    records = _records_for_latest_round(context.history)
+    records = records_for_latest_round(context.history)
     helpers = [r.actor_id for r in records if r.target_id == context.your_agent_id and r.action == "HELP"]
     return _choose_from_candidates(context, trust_map, helpers, favor_high=True)
 
 
 def _recent_attacker(context: BotContext, trust_map: dict[str, int]) -> str | None:
-    records = _records_for_latest_round(context.history)
+    records = records_for_latest_round(context.history)
     attackers = [r.actor_id for r in records if r.target_id == context.your_agent_id and r.action == "HURT"]
     return _choose_from_candidates(context, trust_map, attackers, favor_high=False)
 
 
 def _recent_aggressor(context: BotContext, trust_map: dict[str, int]) -> str | None:
     """Someone who HURT anyone last turn (not me as the actor)."""
-    records = _records_for_latest_round(context.history)
+    records = records_for_latest_round(context.history)
     aggressors = [
         r.actor_id
         for r in records
@@ -273,29 +273,52 @@ def _recent_aggressor(context: BotContext, trust_map: dict[str, int]) -> str | N
     return _choose_from_candidates(context, trust_map, aggressors, favor_high=True)
 
 
-def _copy_crowd_action(context: BotContext) -> BotPlan | None:
-    if not context.history:
+def crowd_choice(context: BotContext) -> tuple[str, str | None] | None:
+    """Pick the move that copies the crowd's last-turn majority action.
+
+    This is the single source of truth for the crowd-follower algorithm; both
+    the strategy planner (:func:`_copy_crowd_action`) and the runtime move
+    builder call it so the two can never drift.
+
+    Returns ``None`` when there is no crowd signal at all (empty history or no
+    non-defaulted records). Otherwise returns ``(action, target_id)``:
+
+    * the most-common action in the latest non-defaulted turn, broken by the
+      HELP < HURT < HOARD priority order;
+    * for a HELP/HURT action, the most-targeted player, broken by the seeded
+      tiebreak ``_seed_int(context, aid)``.
+
+    A HELP/HURT action with no eligible target collapses to ``("HOARD", None)``
+    so callers never have to handle a targetless attack/help.
+    """
+    records = records_for_latest_round(context.history)
+    if not records:
         return None
-    latest = max((r.round, r.turn) for r in context.history if not r.was_defaulted)
-    turn_actions = [r for r in context.history if (r.round, r.turn) == latest and not r.was_defaulted]
-    if not turn_actions:
-        return None
-    counts = Counter(r.action for r in turn_actions)
+    counts = Counter(r.action for r in records)
     best_count = max(counts.values())
     action_order = ["HELP", "HURT", "HOARD"]
     best_actions = [a for a, count in counts.items() if count == best_count]
     best_action = min(best_actions, key=lambda a: action_order.index(a))
     if best_action == "HOARD":
+        return ("HOARD", None)
+    targets = [r.target_id for r in records if r.action == best_action and r.target_id is not None]
+    if not targets:
+        return ("HOARD", None)
+    target_counts = Counter(targets)
+    top = max(target_counts.values())
+    candidates = [t for t, c in target_counts.items() if c == top]
+    target = min(candidates, key=lambda aid: _seed_int(context, aid))
+    return (best_action, target)
+
+
+def _copy_crowd_action(context: BotContext) -> BotPlan | None:
+    choice = crowd_choice(context)
+    if choice is None:
+        return None
+    action, target = choice
+    if action == "HOARD":
         return BotPlan("follow_crowd", None, "crowd hoarded")
-    targets = [r.target_id for r in turn_actions if r.action == best_action and r.target_id is not None]
-    target = None
-    if targets:
-        counts_t = Counter(targets)
-        top = max(counts_t.values())
-        candidates = [t for t, c in counts_t.items() if c == top]
-        target = min(candidates, key=lambda aid: _seed_int(context, aid))
-    kind = "follow_crowd"
-    return BotPlan(kind, target, f"copy {best_action.lower()}")
+    return BotPlan("follow_crowd", target, f"copy {action.lower()}")
 
 
 def _choose_from_candidates(
@@ -318,10 +341,21 @@ def _choose_from_candidates(
     return min(unique, key=lambda aid: (trust_map.get(aid, 0), _seed_int(context, aid)))
 
 
-def _records_for_latest_round(history: Sequence[ActionRecord]) -> list[ActionRecord]:
-    if not history:
+def latest_turn(history: Sequence[ActionRecord]) -> tuple[int, int] | None:
+    """The most recent ``(round, turn)`` that has a non-defaulted record.
+
+    Shared primitive: the crowd-follower, the recent-actor lookups, and the
+    trust model all key off "the latest turn that actually happened", so they
+    use this one definition rather than each re-deriving the max.
+    """
+    turns = [(r.round, r.turn) for r in history if not r.was_defaulted]
+    return max(turns) if turns else None
+
+
+def records_for_latest_round(history: Sequence[ActionRecord]) -> list[ActionRecord]:
+    latest = latest_turn(history)
+    if latest is None:
         return []
-    latest = max((r.round, r.turn) for r in history if not r.was_defaulted)
     return [r for r in history if (r.round, r.turn) == latest and not r.was_defaulted]
 
 
