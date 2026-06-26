@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
+from app.engine.bots import trust as trust_module
 from app.engine.game_records import ActionRecord
 from app.engine.bots import (
     BotContext,
@@ -227,6 +230,88 @@ def test_a_known_traitor_is_not_rewarded_for_helping() -> None:
     profile = BotProfile(strategy="loyal_partner", truthfulness=80, trust_model="even", seed=5, version="v1")
     decision = choose_bot_action_decision(context, profile)
     assert decision.move != {"action": "HELP", "target_id": "AI_2"}
+
+
+def _mutual_round(round_: int, a: str, b: str, turns: int = 1) -> list[ActionRecord]:
+    """`turns` turns in `round_` where a and b HELP each other (a mutual pact)."""
+    out: list[ActionRecord] = []
+    for t in range(1, turns + 1):
+        out += [_rec(round_, t, a, "HELP", b), _rec(round_, t, b, "HELP", a)]
+    return out
+
+
+def test_partner_fatigue_erodes_a_farmed_partner(monkeypatch: pytest.MonkeyPatch) -> None:
+    # AI_2 mutually helps AI_1 every turn of the round: without fatigue that is a
+    # strong, above-threshold partner. The fatigue from farming it that many times
+    # erodes its trust to neutral, so the bot will rotate to someone fresh.
+    history = _mutual_round(1, "AI_1", "AI_2", turns=7)
+    ids = ["AI_1", "AI_2", "AI_3"]
+
+    farmed = compute_trust_map(
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+    )["AI_2"]
+
+    monkeypatch.setattr(trust_module, "PARTNER_FATIGUE", 0)
+    without_fatigue = compute_trust_map(
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+    )["AI_2"]
+
+    assert without_fatigue >= 20  # would be a valid partner (the 20 threshold) without fatigue
+    assert farmed < without_fatigue  # fatigue pulled it down
+    assert farmed == 0  # heavily farmed → eroded to neutral, so selection rotates
+
+
+def test_partner_fatigue_floors_at_zero_never_negative() -> None:
+    # Even extreme farming only erodes trust to 0, never below — a stale ally is
+    # "meh", not an enemy (going negative is the betrayal system's job, not this).
+    history = _mutual_round(1, "AI_1", "AI_2", turns=7) + _mutual_round(2, "AI_1", "AI_2", turns=7)
+    trust = compute_trust_map(
+        your_agent_id="AI_1", all_agent_ids=["AI_1", "AI_2"], history=history, signals=[], trust_model="even"
+    )
+    assert trust["AI_2"] == 0
+
+
+def test_partner_fatigue_leaves_a_hostile_player_untouched(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Fatigue only discounts partners you've farmed (trust > 0). A player who HURT
+    # you (negative trust, no mutual help) is not touched by it.
+    history = [_rec(1, 7, "AI_2", "HURT", "AI_1")]
+    ids = ["AI_1", "AI_2"]
+    with_fatigue = compute_trust_map(
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+    )["AI_2"]
+    monkeypatch.setattr(trust_module, "PARTNER_FATIGUE", 0)
+    without_fatigue = compute_trust_map(
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+    )["AI_2"]
+    assert with_fatigue < 0
+    assert with_fatigue == without_fatigue  # fatigue did not touch the hostile player
+
+
+def test_partner_fatigue_prefers_a_fresh_partner_over_a_farmed_one() -> None:
+    # AI_2 was farmed across rounds 1–3; AI_3 is a fresh partner in the latest turn.
+    # The fresh ally ends with higher trust, so the bot rotates toward it.
+    history = (
+        _mutual_round(1, "AI_1", "AI_2")
+        + _mutual_round(2, "AI_1", "AI_2")
+        + _mutual_round(3, "AI_1", "AI_2")
+        + _mutual_round(4, "AI_1", "AI_3")
+    )
+    trust = compute_trust_map(
+        your_agent_id="AI_1", all_agent_ids=["AI_1", "AI_2", "AI_3"], history=history, signals=[], trust_model="even"
+    )
+    assert trust["AI_3"] > trust["AI_2"]  # fresh partner outranks the farmed one
+
+
+def test_partner_fatigue_is_deterministic() -> None:
+    history = _mutual_round(1, "AI_1", "AI_2", turns=4) + _mutual_round(2, "AI_1", "AI_3")
+    ids = ["AI_1", "AI_2", "AI_3"]
+    first = compute_trust_map(
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+    )
+    second = compute_trust_map(
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+    )
+    assert first == second
 
 
 def test_leader_pressure_hits_a_runaway_leader() -> None:
