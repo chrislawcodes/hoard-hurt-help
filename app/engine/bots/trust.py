@@ -22,14 +22,31 @@ class _TrustModel:
     hurt_partner: int
     help_partner: int
     talk: float
+    # Forgiveness window: how many rounds a betrayal is held against someone
+    # before it fades to nothing. This is the only betrayal-specific dial — how
+    # *hard* a betrayal lands is derived from this model's own hurt sensitivity
+    # (`hurt_last`) below, so each personality is described once.
+    forgive_rounds: int
 
 
+# A betrayal (HURTing a helper) is just a much worse hurt, so its sting is a
+# multiple of how much this personality already hates being hit (`hurt_last`):
+# the full multiple when it is done to you, a smaller one when you only witness
+# it against someone else. So a model that reacts hard to hits (bitter, twitchy)
+# also reacts hard to betrayal, with no separate numbers to keep in sync.
+BETRAYAL_SELF_FACTOR = 6
+BETRAYAL_OTHER_FACTOR = 3
+
+# Personalities differ in how long they hold a betrayal (`forgive_rounds`): open
+# forgets fast, bitter ("Long Memory") holds on most of the match. Presets pair
+# these models with strategies (see bot_presets.py), so different bots end up
+# with different betrayal temperaments.
 _MODELS: dict[str, _TrustModel] = {
-    "open": _TrustModel(6, 3, 7, -4, -2, -1, 2, 1.5),
-    "even": _TrustModel(4, 2, 5, -6, -3, -2, 1, 1.0),
-    "careful": _TrustModel(2, 1, 3, -6, -3, -2, 1, 0.5),
-    "bitter": _TrustModel(3, 2, 4, -9, -5, -3, 1, 0.5),
-    "twitchy": _TrustModel(7, 4, 8, -10, -5, -3, 1, 1.0),
+    "open": _TrustModel(6, 3, 7, -4, -2, -1, 2, 1.5, 2),
+    "even": _TrustModel(4, 2, 5, -6, -3, -2, 1, 1.0, 4),
+    "careful": _TrustModel(2, 1, 3, -6, -3, -2, 1, 0.5, 5),
+    "bitter": _TrustModel(3, 2, 4, -9, -5, -3, 1, 0.5, 7),
+    "twitchy": _TrustModel(7, 4, 8, -10, -5, -3, 1, 1.0, 4),
 }
 
 
@@ -78,6 +95,22 @@ def compute_trust_map(
     for actor in mutuals:
         if actor in trust:
             trust[actor] = _clamp(trust[actor] + model.mutual_help)
+
+    # Betrayal memory: a player who HURT a helper — you OR anyone else — is
+    # remembered, and the hit fades over the rounds that follow at this bot's own
+    # forgiveness rate. Betraying you personally stings most; a witnessed betrayal
+    # is lighter. How hard it lands and how long it lasts both come from the trust
+    # model, so a forgiving bot moves on while a bitter one keeps its distance.
+    for attacker, victim, betray_round in _betrayals(history):
+        if attacker == your_agent_id or attacker not in trust:
+            continue
+        rounds_since = max(0, (latest_round or betray_round) - betray_round)
+        if rounds_since >= model.forgive_rounds:
+            continue
+        factor = BETRAYAL_SELF_FACTOR if victim == your_agent_id else BETRAYAL_OTHER_FACTOR
+        base = model.hurt_last * factor
+        penalty = round(base * (1 - rounds_since / model.forgive_rounds))
+        trust[attacker] = _clamp(trust[attacker] + penalty)
 
     current_partner = _best_partner(trust)
     if current_partner is not None:
@@ -160,6 +193,31 @@ def _mutual_help_partners(history: Sequence[ActionRecord], your_agent_id: str) -
             if target == your_agent_id and (target, actor) in helped:
                 partners.add(actor)
     return partners
+
+
+def _betrayals(history: Sequence[ActionRecord]) -> list[tuple[str, str, int]]:
+    """Every (attacker, victim, round) where the attacker HURT a player who was
+    HELPing them that same turn — i.e. the attacker triggered the -8 betrayal.
+    The round lets callers fade the memory over time.
+    """
+    by_turn: dict[tuple[int, int], list[ActionRecord]] = defaultdict(list)
+    for record in history:
+        if not record.was_defaulted:
+            by_turn[(record.round, record.turn)].append(record)
+
+    betrayals: list[tuple[str, str, int]] = []
+    for (round_, _turn), records in by_turn.items():
+        helped = {
+            (r.actor_id, r.target_id)
+            for r in records
+            if r.action == "HELP" and r.target_id is not None
+        }
+        for r in records:
+            if r.action == "HURT" and r.target_id is not None:
+                # The victim HELPed the attacker this same turn → it's a betrayal.
+                if (r.target_id, r.actor_id) in helped:
+                    betrayals.append((r.actor_id, r.target_id, round_))
+    return betrayals
 
 
 def _best_partner(trust: dict[str, int]) -> str | None:
