@@ -33,12 +33,16 @@ def _stack() -> list[TelemetryCounters]:
     return stack
 
 
-def _saved_subprocess_run():
-    return getattr(_telemetry_ctx, "saved_subprocess_run", subprocess.run)
-
-
-def _saved_subprocess_popen():
-    return getattr(_telemetry_ctx, "saved_subprocess_popen", subprocess.Popen)
+# The original subprocess entry points are saved at MODULE level (not in the
+# thread-local) so the wrapper can always recover the real implementation from any
+# thread. The previous design saved them per-thread: because subprocess.run is a
+# process-global, a thread that didn't open the scope fell back to the *patched*
+# function and called itself forever (RecursionError). Refcounted under a lock so
+# nested/overlapping scopes install the patch once and the outermost exit restores.
+_PATCH_LOCK = threading.Lock()
+_patch_refcount = 0
+_saved_run = None
+_saved_popen = None
 
 
 def current_ctx() -> TelemetryCounters | None:
@@ -48,54 +52,64 @@ def current_ctx() -> TelemetryCounters | None:
     return stack[-1]
 
 
-def _patch_subprocess() -> None:
-    def _run(*args, **kwargs):
-        ctx = current_ctx()
-        if ctx is not None:
-            ctx.subprocess_invocations += 1
-        return _saved_subprocess_run()(*args, **kwargs)
-
-    def _popen(*args, **kwargs):
-        ctx = current_ctx()
-        if ctx is not None:
-            ctx.subprocess_invocations += 1
-        return _saved_subprocess_popen()(*args, **kwargs)
-
-    subprocess.run = _run  # type: ignore[assignment]
-    subprocess.Popen = _popen  # type: ignore[assignment]
+def _run(*args, **kwargs):
+    ctx = current_ctx()
+    if ctx is not None:
+        ctx.subprocess_invocations += 1
+    # _saved_run is the true original whenever the patch is installed; the
+    # `or subprocess.run` arm only matters if somehow called while uninstalled
+    # (in which case subprocess.run is itself the original — no recursion).
+    real = _saved_run if _saved_run is not None else subprocess.run
+    return real(*args, **kwargs)
 
 
-def _restore_subprocess() -> None:
-    subprocess.run = _saved_subprocess_run()  # type: ignore[assignment]
-    subprocess.Popen = _saved_subprocess_popen()  # type: ignore[assignment]
+def _popen(*args, **kwargs):
+    ctx = current_ctx()
+    if ctx is not None:
+        ctx.subprocess_invocations += 1
+    real = _saved_popen if _saved_popen is not None else subprocess.Popen
+    return real(*args, **kwargs)
+
+
+def _install_patch() -> None:
+    global _patch_refcount, _saved_run, _saved_popen
+    with _PATCH_LOCK:
+        if _patch_refcount == 0:
+            _saved_run = subprocess.run
+            _saved_popen = subprocess.Popen
+            subprocess.run = _run  # type: ignore[assignment]
+            subprocess.Popen = _popen  # type: ignore[assignment]
+        _patch_refcount += 1
+
+
+def _uninstall_patch() -> None:
+    global _patch_refcount, _saved_run, _saved_popen
+    with _PATCH_LOCK:
+        if _patch_refcount == 0:
+            return
+        _patch_refcount -= 1
+        if _patch_refcount == 0:
+            if _saved_run is not None:
+                subprocess.run = _saved_run  # type: ignore[assignment]
+            if _saved_popen is not None:
+                subprocess.Popen = _saved_popen  # type: ignore[assignment]
+            _saved_run = None
+            _saved_popen = None
 
 
 @contextmanager
 def command_telemetry_scope(slug: str | None, command: str, stage: str | None):
     counters = TelemetryCounters()
     stack = _stack()
-    depth = getattr(_telemetry_ctx, "depth", 0)
     stack.append(counters)
-    if depth == 0:
-        _telemetry_ctx.saved_subprocess_run = subprocess.run
-        _telemetry_ctx.saved_subprocess_popen = subprocess.Popen
-        _patch_subprocess()
-    _telemetry_ctx.depth = depth + 1
+    _install_patch()
     start = time.perf_counter()
     try:
         yield counters
     finally:
         wall_seconds = time.perf_counter() - start
         stack.pop()
-        _telemetry_ctx.depth = max(depth, 0)
-        if depth == 0:
-            _restore_subprocess()
-            if hasattr(_telemetry_ctx, "saved_subprocess_run"):
-                delattr(_telemetry_ctx, "saved_subprocess_run")
-            if hasattr(_telemetry_ctx, "saved_subprocess_popen"):
-                delattr(_telemetry_ctx, "saved_subprocess_popen")
-            if hasattr(_telemetry_ctx, "depth"):
-                delattr(_telemetry_ctx, "depth")
+        _uninstall_patch()
         if slug:
             try:
                 record_command_telemetry(
