@@ -57,6 +57,12 @@ ACTION_INTENTS = {
 }
 
 
+# A player trusted at or below this reads as a known traitor / hostile. Bots
+# won't extend fresh cooperation to them (they may still HURT them). A personal
+# betrayal — or, under the less forgiving trust models, a witnessed one — clears it.
+HOSTILE_TRUST = -20
+
+
 def normalize_strategy_name(name: str) -> str:
     return STRATEGY_ALIASES.get(name.strip().lower().replace(" ", "_"), name.strip().lower())
 
@@ -74,7 +80,11 @@ def choose_action_plan(
     attacker = _recent_attacker(context, trust_map)
     leader = _leader(context)
     leader_gap = _leader_gap_from_you(context, leader)
-    offers = _cooperation_offers(signals, context.your_agent_id)
+    offers = [
+        speaker
+        for speaker in _cooperation_offers(signals, context.your_agent_id)
+        if trust_map.get(speaker, 0) > HOSTILE_TRUST
+    ]
 
     if strategy == "coalition_seeker":
         return [
@@ -322,7 +332,12 @@ def _choose_from_candidates(
         return None
     unique = list(dict.fromkeys(candidates))
     if favor_high:
-        return min(unique, key=lambda aid: (-trust_map.get(aid, 0), _seed_int(context, aid)))
+        # Cooperative pick (reward a helper, repay an aggressor): never extend it
+        # to a known traitor.
+        trusted = [aid for aid in unique if trust_map.get(aid, 0) > HOSTILE_TRUST]
+        if not trusted:
+            return None
+        return min(trusted, key=lambda aid: (-trust_map.get(aid, 0), _seed_int(context, aid)))
     return min(unique, key=lambda aid: (trust_map.get(aid, 0), _seed_int(context, aid)))
 
 
