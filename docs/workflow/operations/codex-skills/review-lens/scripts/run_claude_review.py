@@ -155,13 +155,31 @@ def build_context(args: argparse.Namespace) -> dict:
     }
 
 
-def _record_tokens(args: argparse.Namespace, ctx: dict) -> None:
-    """Attribute the subagent review's token usage from its session transcript.
+def _derive_output_tokens(totals: dict, subagent_total_tokens: int | None) -> int:
+    """Best output-token count for a subagent review.
 
-    The Claude subscription exposes no per-call usage object, so we read the
-    subagent's session JSONL (the same fields the experiment bench uses). This is
-    advisory: a missing/unreadable transcript records the review with null tokens
-    and a parse_error note, and never blocks an otherwise-complete review.
+    A subagent's own transcript only carries a streaming-start usage snapshot, so
+    its ``output_tokens`` is ~1 and not trustworthy. The orchestrator, however,
+    sees the subagent's authoritative grand total (input + cache + output). When
+    that total is provided we recover output as total - billed_input - cache_read;
+    otherwise we fall back to the (under-counted) transcript value. ``max`` guards
+    against a total that excludes some component.
+    """
+    jsonl_output = int(totals["output_tokens"])
+    if subagent_total_tokens is None:
+        return jsonl_output
+    derived = subagent_total_tokens - int(totals["input_tokens"]) - int(totals["cache_read_tokens"])
+    return max(jsonl_output, derived)
+
+
+def _record_tokens(args: argparse.Namespace, ctx: dict) -> None:
+    """Attribute the subagent review's token usage.
+
+    Input and cache-read come from the subagent's session JSONL (accurate). Output
+    is derived from the orchestrator-provided authoritative total when available,
+    because the subagent transcript only records a streaming-start output snapshot.
+    This is advisory: a missing/unreadable transcript records null tokens with a
+    parse_error note and never blocks an otherwise-complete review.
     """
     slug = workflow_slug_from_paths(ctx["output_path"], ctx["artifact_path"]) or ctx[
         "artifact_path"
@@ -176,6 +194,7 @@ def _record_tokens(args: argparse.Namespace, ctx: dict) -> None:
                 "adversarial_review",
                 args.model,
                 lens=args.lens,
+                total_tokens=args.subagent_total_tokens,
                 prompt_chars=len(ctx["prompt"]),
                 prompt_cap=args.max_total_chars,
                 parse_error="no session JSONL provided for Claude subagent review",
@@ -190,8 +209,9 @@ def _record_tokens(args: argparse.Namespace, ctx: dict) -> None:
             args.model,
             lens=args.lens,
             input_tokens=totals["input_tokens"],
-            output_tokens=totals["output_tokens"],
+            output_tokens=_derive_output_tokens(totals, args.subagent_total_tokens),
             cache_read_tokens=totals["cache_read_tokens"],
+            total_tokens=args.subagent_total_tokens,
             prompt_chars=len(ctx["prompt"]),
             prompt_cap=args.max_total_chars,
         )
@@ -301,6 +321,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Subagent session transcript JSONL for token attribution (assemble mode).",
+    )
+    parser.add_argument(
+        "--subagent-total-tokens",
+        type=int,
+        default=None,
+        help=(
+            "Authoritative total tokens the orchestrator observed for the review "
+            "subagent (assemble mode). Used to recover true output tokens, since the "
+            "subagent transcript only records a streaming-start output snapshot."
+        ),
     )
     return parser
 

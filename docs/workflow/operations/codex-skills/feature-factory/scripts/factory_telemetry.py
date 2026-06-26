@@ -300,6 +300,7 @@ def record_review_usage(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
     cache_read_tokens: int | None = None,
+    total_tokens: int | None = None,
     duration_seconds: float | None = None,
     prompt_chars: int | None = None,
     prompt_cap: int | None = None,
@@ -343,6 +344,11 @@ def record_review_usage(
     }
     if cache_read_tokens is not None:
         record["cache_read_tokens"] = cache_read_tokens
+    if total_tokens is not None:
+        # Authoritative grand total the orchestrator observed for the subagent
+        # (input + cache + output). Kept alongside the derived split so the
+        # headline figure is exact even if the split is approximate.
+        record["total_tokens"] = total_tokens
     if parse_error is not None:
         record["parse_error"] = parse_error
     if input_tokens is not None and output_tokens is not None:

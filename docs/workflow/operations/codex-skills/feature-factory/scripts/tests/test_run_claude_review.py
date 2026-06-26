@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 import tempfile
@@ -85,6 +86,40 @@ class RunClaudeReviewTests(unittest.TestCase):
         self.assertEqual(note, data["resolution_note"])
         # raw output companion is written and referenced
         self.assertTrue((self.output.with_suffix(self.output.suffix + ".raw.txt")).exists())
+
+    def test_assemble_records_derived_output_tokens(self) -> None:
+        response = self.slug_dir / "reviews" / "response.md"
+        response.write_text(
+            "## Findings\n\n- **HIGH**: x.\n\n## Residual Risks\n\n- none\n", encoding="utf-8"
+        )
+        jsonl = self.slug_dir / "reviews" / "agent-test.jsonl"
+        usage = {"message": {"usage": {
+            "input_tokens": 6787,
+            "cache_creation_input_tokens": 12862,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 1,
+        }}}
+        jsonl.write_text(json.dumps(usage) + "\n", encoding="utf-8")
+        rc = RCR.main(self._argv("assemble", [
+            "--response-file", str(response),
+            "--session-jsonl", str(jsonl),
+            "--subagent-total-tokens", "21465",
+        ]))
+        self.assertEqual(rc, 0)
+        rec = FACTORY_STATE.load_workflow_state("demo")["token_usage"][-1]
+        self.assertEqual(rec["input_tokens"], 19649)  # 6787 + 12862
+        self.assertEqual(rec["cache_read_tokens"], 0)
+        self.assertEqual(rec["output_tokens"], 1816)  # 21465 - 19649 - 0
+        self.assertEqual(rec["total_tokens"], 21465)
+
+    def test_derive_output_tokens(self) -> None:
+        totals = {"input_tokens": 19649, "cache_read_tokens": 0, "output_tokens": 1}
+        self.assertEqual(RCR._derive_output_tokens(totals, 21465), 1816)
+        # No authoritative total -> fall back to the (under-counted) transcript value.
+        self.assertEqual(RCR._derive_output_tokens(totals, None), 1)
+        # Guard: a total smaller than the known components never goes below jsonl.
+        small = {"input_tokens": 100, "cache_read_tokens": 0, "output_tokens": 5}
+        self.assertEqual(RCR._derive_output_tokens(small, 50), 5)
 
     def test_malformed_response_writes_failure(self) -> None:
         response = self.slug_dir / "reviews" / "bad.md"

@@ -49,9 +49,12 @@ Gemini path). Give each subagent:
 - Instruction to **return only** the review markdown: a `## Findings` section and a
   `## Residual Risks` section, ordered by severity, nothing else.
 
-Write each subagent's reply verbatim to its `response_path`. Note the subagent's
-session transcript path (`agent-<id>.jsonl`) — pass it in the next step so the
-review's token usage is recorded on the subscription.
+Write each subagent's reply verbatim to its `response_path`. For each subagent note
+two things from its result: its **session transcript path** (`agent-<id>.jsonl`) and
+its **reported total tokens** (the `subagent_tokens: N` figure in the agent's usage).
+Pass both in the next step so the review's token usage is recorded accurately — the
+transcript gives input/cache, and the total recovers true output tokens (the
+transcript alone only records a streaming-start output snapshot).
 
 ### 3. Assemble — turn each reply into a checkpoint-compatible review file
 
@@ -67,11 +70,13 @@ python3 $RCR --mode assemble \
   --workspace-dir "$(git rev-parse --show-toplevel)" \
   --git-base-ref origin/main \
   --response-file <response_path> \
-  --session-jsonl <the subagent's agent-*.jsonl>
+  --session-jsonl <the subagent's agent-*.jsonl> \
+  --subagent-total-tokens <the subagent's reported total tokens>
 ```
 
 This writes `<stage>.claude.<lens>.review.md` (byte-compatible with Gemini/Codex
-review files) and records the review's tokens into `state.json` token_usage. A
+review files) and records the review's tokens into `state.json` token_usage
+(input/cache from the transcript, true output recovered from the total). A
 malformed/empty reply writes a failed review (exit 5) — re-run that subagent.
 
 ### 4. Checkpoint — parse findings, run the round, advance
