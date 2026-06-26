@@ -162,9 +162,9 @@ pre-refactor behavior is altered. Current coverage gaps were confirmed by review
 ## Verification of "no behavior change"
 
 The full `pytest` suite is the regression oracle, BUT it is only valid for the
-divergent paths once the four characterization tests above exist — they are the part
+divergent paths once the five characterization tests above exist — they are the part
 of the oracle that actually fails on a wrong merge. Each slice keeps the full gate
-green; C2/C4/C5 slices additionally run their characterization tests.
+green; the C2/C4/C5/C8 slices additionally run their characterization tests.
 
 ## Adversarial review reconciliation (spec stage)
 
