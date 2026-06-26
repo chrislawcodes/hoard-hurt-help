@@ -7,8 +7,12 @@ from app.agent_prompt import RESPONSE_PROTOCOL
 HOARD_POINTS = 2  # HOARD: actor gains this, no target
 HELP_POINTS = 4  # HELP: target gains this, actor gains 0
 HURT_POINTS = 4  # HURT: target loses this, actor gains 0
-MUTUAL_HELP_BONUS = 4  # extra to each side when two players HELP each other
+MUTUAL_HELP_BONUS = 4  # extra to each side on a pair's FIRST mutual HELP this match
 BETRAYAL_HURT_POINTS = 8  # HURT lands this hard when the target is HELPing you this turn
+# Mutual help decays -1 each time the SAME pair repeats it within a match, flooring
+# the pair's per-side total at MUTUAL_HELP_FLOOR (= HOARD_POINTS, so a farmed pact is
+# no better than hoarding): total = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k).
+MUTUAL_HELP_FLOOR = 2
 
 GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v3)
 

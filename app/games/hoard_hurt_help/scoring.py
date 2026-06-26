@@ -20,9 +20,34 @@ from app.games.hoard_hurt_help.rules import (
     HOARD_POINTS,
     HURT_POINTS,
     MUTUAL_HELP_BONUS,
+    MUTUAL_HELP_FLOOR,
 )
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
+
+
+def mutual_help_counts(
+    prior_turns: Iterable[Iterable[TurnSubmission]],
+) -> dict[frozenset[int], int]:
+    """How many prior turns each unordered pair mutually HELPed each other.
+
+    `prior_turns` is one iterable of submissions per *resolved* turn. A pair is
+    counted at most once per turn (mirroring `resolve_turn`'s same-turn guard).
+    Only reciprocal HELP pairs count — HOARD/HURT/defaulted rows contribute 0.
+    This is the single source of the decay counter `k`; reuse it, don't re-scan.
+    """
+    counts: dict[frozenset[int], int] = {}
+    for subs in prior_turns:
+        help_targets = {s.player_id: s.target_player_id for s in subs if s.action == "HELP"}
+        seen: set[frozenset[int]] = set()
+        for a, b in help_targets.items():
+            if b is None or help_targets.get(b) != a:
+                continue
+            pair = frozenset({a, b})
+            if pair not in seen:
+                seen.add(pair)
+                counts[pair] = counts.get(pair, 0) + 1
+    return counts
 
 
 async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
@@ -31,7 +56,9 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     Order matters and matches spec.md §5:
       1. Default any missing submission to HOARD (was_defaulted=True).
       2. Compute raw deltas (Hoard +2, Help +4 to target, Hurt -4 to target).
-      3. Add the mutual-help bonus (+4 each side) for any A↔B pair.
+      3. Add the mutual-help bonus for any A↔B pair, DECAYED by how many times that
+         same pair already mutually helped this match (max(2, 8-k) per side; floor
+         at the Hoard value). k is derived from prior resolved turns.
       4. Apply the score floor at 0 to the FINAL per-player delta, not per-hurt.
       5. Persist post-floor `points_delta` and `round_score_after`.
       6. Mark turn resolved.
@@ -42,6 +69,30 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         .scalars()
         .all()
     )
+
+    # Per-pair mutual-help decay: count how many times each pair already mutually
+    # helped in this match's PRIOR resolved turns (the current turn isn't resolved
+    # yet, and is excluded by id). Derived from history so it survives a DB resume.
+    prior_subs: list[TurnSubmission] = list(
+        (
+            await db.execute(
+                select(TurnSubmission)
+                .join(Turn, Turn.id == TurnSubmission.turn_id)
+                .where(
+                    Turn.match_id == turn.match_id,
+                    Turn.resolved_at.is_not(None),
+                    Turn.id != turn.id,
+                )
+                .order_by(TurnSubmission.turn_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    prior_by_turn: dict[int, list[TurnSubmission]] = {}
+    for s in prior_subs:
+        prior_by_turn.setdefault(s.turn_id, []).append(s)
+    prior_counts = mutual_help_counts(prior_by_turn.values())
 
     # Materialize submissions, defaulting missing ones to HOARD.
     submissions: list[TurnSubmission] = list(
@@ -87,8 +138,10 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
                 BETRAYAL_HURT_POINTS if betrayed_helper else HURT_POINTS
             )
 
-    # Mutual-help bonus: for each HELP pair where both helped each other,
-    # add +4 to each side, but only once per pair.
+    # Mutual-help bonus, DECAYED per pair: for each HELP pair where both helped
+    # each other, add the bonus to each side once. The bonus shrinks by 1 for each
+    # prior mutual help by this same pair (k), flooring the pair's per-side total at
+    # MUTUAL_HELP_FLOOR: total = base HELP_POINTS + bonus = max(MUTUAL_HELP_FLOOR, 8-k).
     seen_pairs: set[frozenset[int]] = set()
     for a, b in help_targets.items():
         if b is None:
@@ -96,8 +149,10 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         if help_targets.get(b) == a:
             pair = frozenset({a, b})
             if pair not in seen_pairs:
-                delta[a] += MUTUAL_HELP_BONUS
-                delta[b] += MUTUAL_HELP_BONUS
+                k = prior_counts.get(pair, 0)
+                bonus = max(MUTUAL_HELP_FLOOR - HELP_POINTS, MUTUAL_HELP_BONUS - k)
+                delta[a] += bonus
+                delta[b] += bonus
                 seen_pairs.add(pair)
 
     # Apply floor on final delta and persist.
