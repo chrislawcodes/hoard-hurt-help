@@ -57,7 +57,8 @@ and finalize the match.
 | Change move validation / turn resolution wiring | `app/games/hoard_hurt_help/game.py`. |
 | Change the PD replay / viewer (robot‑circle, replay story) | `app/games/hoard_hurt_help/viewer.py`. |
 | Change the per‑turn replay headlines (phrase banks) | `app/games/hoard_hurt_help/viewer_headline.py`. |
-| Change the win‑probability bands on the replay | `app/games/hoard_hurt_help/viewer_win_probs.py` (model in `app/engine/win_probability.py`). |
+| Change the win‑probability bands on the replay | `app/games/hoard_hurt_help/viewer_win_probs.py` (model in `app/engine/win_probability.py`). Note: the model is trained on pre‑decay score dynamics — see the win‑prob known‑limitation note in `HOARD_HURT_HELP_DESIGN.md`. |
+| Re‑validate the mutual‑help decay (tie‑rate A/B) | `scripts/decay_validation_sim.py` (deterministic, no LLM; baseline/decay/aware). Recorded run in `docs/workflow/feature-runs/mutual-help-decay/closeout.md`. |
 | Change board signals (alliances, cooperation mood, surging) | `app/games/hoard_hurt_help/board_signals.py`. |
 | Change spectator insights (season overview / round detail) | `app/games/hoard_hurt_help/insights.py`. |
 | Change the end‑of‑game finale (champion, standings, superlatives) | `app/games/hoard_hurt_help/match_summary.py`. |
