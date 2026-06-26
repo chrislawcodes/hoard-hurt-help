@@ -4,6 +4,7 @@
 Pure helpers with no filesystem or workflow-state side effects. Extracted from
 factory_review.py to keep each module under the 400-line source limit.
 """
+import os
 import re
 from pathlib import Path
 
@@ -21,6 +22,34 @@ from factory_io import read_text
 DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 SENSITIVE_GEMINI_MODEL = "gemini-3.1-pro-preview"
 DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
+
+# Claude-only review path (spec 020): when the reviewer override is "claude",
+# every lens this module routes is staffed by a Claude subagent instead of the
+# Gemini/Codex CLIs, so the factory runs on the subscription with no external
+# CLI binaries. The lens routing per stage is unchanged — only who reviews. The
+# model string is metadata + the pricing/telemetry key; it must start with
+# "claude-" so factory_telemetry routes it to the Claude parser/pricing.
+DEFAULT_CLAUDE_MODEL = "claude-opus-4-8"
+CLAUDE_REVIEWER = "claude"
+
+
+def resolve_reviewer_override(state: dict | None = None) -> str | None:
+    """Resolve the active reviewer override, or None for the default Gemini/Codex mix.
+
+    Order: the ``FF_REVIEWER`` environment variable wins (ad-hoc per-run control),
+    then ``review_policy.reviewer`` persisted in workflow state (set by
+    prepare-claude-reviews). Returns the lowercased override string or None.
+    """
+    env_value = (os.environ.get("FF_REVIEWER") or "").strip().lower()
+    if env_value:
+        return env_value
+    if isinstance(state, dict):
+        policy = state.get("review_policy")
+        if isinstance(policy, dict):
+            persisted = policy.get("reviewer")
+            if isinstance(persisted, str) and persisted.strip():
+                return persisted.strip().lower()
+    return None
 
 SMALL_TASK_SET_THRESHOLD = 15
 
@@ -232,6 +261,23 @@ def pick_secondary_lens(primary: str, default: str, candidates: list[str]) -> st
     return default if default != primary else f"{primary}-secondary"
 
 
+def _apply_reviewer_override(
+    reviews: list[dict[str, str]], reviewer_override: str | None
+) -> list[dict[str, str]]:
+    """Re-staff every routed lens with the override reviewer, keeping the lenses.
+
+    Only "claude" is supported today (spec 020). The per-stage lens selection above
+    is the source of truth for *what* gets reviewed; this changes *who* reviews it.
+    Unknown overrides are ignored so a typo can't silently drop reviews.
+    """
+    if reviewer_override != CLAUDE_REVIEWER:
+        return reviews
+    return [
+        {**review, "reviewer": CLAUDE_REVIEWER, "model": DEFAULT_CLAUDE_MODEL}
+        for review in reviews
+    ]
+
+
 def required_reviews(
     stage: str,
     sensitive: bool,
@@ -242,12 +288,16 @@ def required_reviews(
     small_task_set: bool = False,
     diff_changed_lines: int | None = None,
     diff_review_threshold: int = DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES,
+    reviewer_override: str | None = None,
 ) -> list[dict[str, str]]:
     if fast:
-        return [
-            {"reviewer": "codex", "lens": "correctness-adversarial", "model": DEFAULT_CODEX_MODEL},
-            {"reviewer": "gemini", "lens": "regression-adversarial", "model": DEFAULT_GEMINI_MODEL},
-        ]
+        return _apply_reviewer_override(
+            [
+                {"reviewer": "codex", "lens": "correctness-adversarial", "model": DEFAULT_CODEX_MODEL},
+                {"reviewer": "gemini", "lens": "regression-adversarial", "model": DEFAULT_GEMINI_MODEL},
+            ],
+            reviewer_override,
+        )
 
     # Bundle 2: tasks and closeout stages have no default adversarial reviews
     # (tasks is a mechanical translation of plan, caught by failed
@@ -282,7 +332,7 @@ def required_reviews(
         raise ValueError(f"Unsupported stage: {stage}")
 
     if small_task_set and stage in ("tasks", "closeout") and not extra_gemini:
-        return []
+        return []  # no lenses to re-staff
 
     # Sensitive checkpoints escalate the Gemini reviewer to Pro for deeper
     # reasoning; routine checkpoints use the cheaper Flash-Lite default.
@@ -312,4 +362,4 @@ def required_reviews(
             "model": gemini_model,
         })
         seen_gemini_lenses.add(candidate)
-    return reviews
+    return _apply_reviewer_override(reviews, reviewer_override)

@@ -82,6 +82,7 @@ from factory_review_specs import (  # noqa: E402
     _SEVERITY_ORDER,
     DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES,
     count_changed_diff_lines,
+    resolve_reviewer_override,
 )
 
 from factory_emit import _emit_next_action  # noqa: E402
@@ -552,6 +553,7 @@ def command_checkpoint(args: argparse.Namespace) -> int:
             small_task_set=small_task_set,
             diff_changed_lines=diff_changed_lines,
             diff_review_threshold=diff_review_threshold,
+            reviewer_override=resolve_reviewer_override({"review_policy": policy}),
         )
 
     manifest = checkpoint_manifest(
