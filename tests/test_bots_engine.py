@@ -185,6 +185,143 @@ def test_crowd_follower_copies_majority_action() -> None:
     assert decision.move == {"action": "HELP", "target_id": "AI_3"}
 
 
+def _record(
+    *,
+    actor_id: str,
+    action: str,
+    target_id: str | None,
+    round_: int = 1,
+    turn: int = 1,
+    was_defaulted: bool = False,
+) -> ActionRecord:
+    return ActionRecord(
+        round=round_,
+        turn=turn,
+        actor_id=actor_id,
+        action=action,
+        target_id=target_id,
+        message="",
+        points_delta=0,
+        round_score_after=0,
+        was_defaulted=was_defaulted,
+    )
+
+
+def test_crowd_choice_is_the_single_source_for_both_call_sites() -> None:
+    # The strategy planner (BotPlan path) and the runtime move builder must
+    # produce the same move from the same crowd, because both now call the one
+    # crowd_choice core. This is the anti-drift lock for cluster D1.
+    from app.engine.bots.runtime import _crowd_move
+    from app.engine.bots.strategies import _copy_crowd_action, crowd_choice
+
+    history = [
+        _record(actor_id="AI_2", action="HELP", target_id="AI_3"),
+        _record(actor_id="AI_4", action="HELP", target_id="AI_3"),
+        _record(actor_id="AI_5", action="HURT", target_id="AI_1"),
+    ]
+    context = _context(history=history)
+
+    choice = crowd_choice(context)
+    assert choice == ("HELP", "AI_3")
+
+    move = _crowd_move(context)
+    assert move == {"action": "HELP", "target_id": "AI_3"}
+
+    plan = _copy_crowd_action(context)
+    assert plan is not None
+    assert plan.intent == "follow_crowd"
+    assert plan.target_id == "AI_3"
+
+
+def test_crowd_choice_seeded_target_tiebreak_is_deterministic() -> None:
+    # Two targets tie on count; the seeded tiebreak must pick the same one
+    # every time and identically across the move dict and the plan.
+    from app.engine.bots.runtime import _crowd_move
+    from app.engine.bots.strategies import _copy_crowd_action, crowd_choice
+
+    history = [
+        _record(actor_id="AI_2", action="HELP", target_id="AI_3"),
+        _record(actor_id="AI_4", action="HELP", target_id="AI_5"),
+    ]
+    context = _context(history=history)
+
+    first = crowd_choice(context)
+    second = crowd_choice(context)
+    assert first == second
+    assert first is not None
+    action, target = first
+    assert action == "HELP"
+    assert target in {"AI_3", "AI_5"}
+
+    assert _crowd_move(context) == {"action": action, "target_id": target}
+    plan = _copy_crowd_action(context)
+    assert plan is not None
+    assert plan.target_id == target
+
+
+def test_crowd_choice_majority_hoard_collapses_to_hoard() -> None:
+    from app.engine.bots.runtime import _crowd_move
+    from app.engine.bots.strategies import _copy_crowd_action, crowd_choice
+
+    history = [
+        _record(actor_id="AI_2", action="HOARD", target_id=None),
+        _record(actor_id="AI_3", action="HOARD", target_id=None),
+        _record(actor_id="AI_4", action="HELP", target_id="AI_5"),
+    ]
+    context = _context(history=history)
+
+    assert crowd_choice(context) == ("HOARD", None)
+    assert _crowd_move(context) == {"action": "HOARD", "target_id": None}
+    plan = _copy_crowd_action(context)
+    assert plan is not None
+    assert plan.intent == "follow_crowd"
+    assert plan.target_id is None
+
+
+def test_crowd_choice_priority_order_help_beats_hurt_on_a_tie() -> None:
+    # Equal counts of HELP and HURT resolve to HELP (HELP < HURT < HOARD).
+    from app.engine.bots.strategies import crowd_choice
+
+    history = [
+        _record(actor_id="AI_2", action="HELP", target_id="AI_3"),
+        _record(actor_id="AI_4", action="HURT", target_id="AI_5"),
+    ]
+    context = _context(history=history)
+    choice = crowd_choice(context)
+    assert choice is not None
+    assert choice[0] == "HELP"
+
+
+def test_crowd_choice_returns_none_without_crowd_signal() -> None:
+    # Empty history and all-defaulted history both mean "no crowd signal".
+    from app.engine.bots.runtime import _crowd_move
+    from app.engine.bots.strategies import _copy_crowd_action, crowd_choice
+
+    empty = _context(history=[])
+    assert crowd_choice(empty) is None
+    assert _copy_crowd_action(empty) is None
+    assert _crowd_move(empty) == {"action": "HOARD", "target_id": None}
+
+    defaulted = _context(
+        history=[_record(actor_id="AI_2", action="HELP", target_id="AI_3", was_defaulted=True)]
+    )
+    assert crowd_choice(defaulted) is None
+    assert _crowd_move(defaulted) == {"action": "HOARD", "target_id": None}
+
+
+def test_crowd_choice_uses_only_the_latest_non_defaulted_turn() -> None:
+    from app.engine.bots.strategies import crowd_choice
+
+    history = [
+        _record(actor_id="AI_2", action="HURT", target_id="AI_3", round_=1, turn=1),
+        _record(actor_id="AI_4", action="HURT", target_id="AI_3", round_=1, turn=1),
+        _record(actor_id="AI_5", action="HELP", target_id="AI_2", round_=1, turn=2),
+    ]
+    context = _context(history=history)
+    # Only turn 2 counts; it has a single HELP.
+    assert crowd_choice(context) == ("HELP", "AI_2")
+
+
 def test_decisions_are_deterministic() -> None:
     context = _context()
     profile = BotProfile(strategy="coalition_seeker", truthfulness=80, trust_model="open", seed=7, version="v1")

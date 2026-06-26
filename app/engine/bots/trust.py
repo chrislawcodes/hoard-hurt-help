@@ -9,6 +9,7 @@ from typing import Sequence
 from app.engine.game_records import ActionRecord
 
 from .signals import TalkSignal
+from .strategies import latest_turn
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ def compute_trust_map(
     if not trust:
         return {}
 
-    latest_rt = _latest_turn(history)
+    latest_rt = latest_turn(history)
     latest_round = latest_rt[0] if latest_rt is not None else None
 
     # Direct action evidence.
@@ -138,11 +139,6 @@ def compute_trust_map(
 
 def _talk_delta(model: _TrustModel, base: int) -> int:
     return max(1, round(base * model.talk))
-
-
-def _latest_turn(history: Sequence[ActionRecord]) -> tuple[int, int] | None:
-    turns = [(a.round, a.turn) for a in history if not a.was_defaulted]
-    return max(turns) if turns else None
 
 
 def _mutual_help_partners(history: Sequence[ActionRecord], your_agent_id: str) -> set[str]:

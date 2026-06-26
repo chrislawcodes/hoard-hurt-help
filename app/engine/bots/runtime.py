@@ -16,6 +16,7 @@ from .strategies import (
     _probe_target,
     _seed_int,
     choose_action_plan,
+    crowd_choice,
     normalize_strategy_name,
 )
 from .trust import compute_trust_map
@@ -236,30 +237,13 @@ def _plan_to_move(plan: BotPlan, context: BotContext) -> dict[str, str | None]:
 
 
 def _crowd_move(context: BotContext) -> dict[str, str | None]:
-    if not context.history:
+    # Delegates to the single crowd-follower algorithm in strategies so the
+    # move dict and the BotPlan path can never disagree. `crowd_choice` already
+    # folds "no signal" and "no eligible target" into a HOARD result.
+    choice = crowd_choice(context)
+    if choice is None:
         return {"action": "HOARD", "target_id": None}
-    latest = max((r.round, r.turn) for r in context.history if not r.was_defaulted)
-    records = [r for r in context.history if (r.round, r.turn) == latest and not r.was_defaulted]
-    if not records:
-        return {"action": "HOARD", "target_id": None}
-    counts: dict[str, int] = {}
-    for record in records:
-        counts[record.action] = counts.get(record.action, 0) + 1
-    best_count = max(counts.values())
-    action_order = {"HELP": 0, "HURT": 1, "HOARD": 2}
-    best_actions = [action for action, count in counts.items() if count == best_count]
-    action = min(best_actions, key=lambda a: action_order[a])
-    if action == "HOARD":
-        return {"action": "HOARD", "target_id": None}
-    targets = [r.target_id for r in records if r.action == action and r.target_id is not None]
-    if not targets:
-        return {"action": "HOARD", "target_id": None}
-    target_counts: dict[str, int] = {}
-    for target in targets:
-        target_counts[target] = target_counts.get(target, 0) + 1
-    best_target_count = max(target_counts.values())
-    best_targets = [t for t, count in target_counts.items() if count == best_target_count]
-    target = min(best_targets, key=lambda aid: _seed_int(context, aid))
+    action, target = choice
     return {"action": action, "target_id": target}
 
 
