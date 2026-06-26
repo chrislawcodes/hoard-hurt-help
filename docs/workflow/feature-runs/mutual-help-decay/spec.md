@@ -51,12 +51,16 @@ Bots should abandon an exhausted pact and seek a fresh partner. Validated proxy:
 
 ### In scope
 - `app/games/hoard_hurt_help/scoring.py` — `resolve_turn`: per-pair decay state + decayed mutual bonus.
-- `app/games/hoard_hurt_help/scoring.py` — `apply_inround_turn` (viewer running-score mirror): same decay so the mirror matches the authoritative score.
-- `app/games/hoard_hurt_help/viewer.py` — per-move display shows the **decayed** mutual value, not a flat +8; signal a "wearing-out" pact if cheap.
-- `app/games/hoard_hurt_help/rules.py` — `GAME_RULES_TEXT`: tell agents mutual help decays to a floor of 2 with repeated use of the same pair; bump version.
-- `app/engine/bots/trust.py` + `app/engine/bots/strategies.py` — decay-aware partner rotation.
+- `app/games/hoard_hurt_help/scoring.py` — `apply_inround_turn` (viewer running-score mirror): same decay. **Note (review C2):** this is a pure function over *one turn's actions* with no match history, called by two loops (`viewer.py` walks turns in order; `viewer_win_probs.py` resets `inround` per round). It cannot derive `k` itself — its signature must take a pre-computed decayed value (or a match-scoped per-pair count), and **both** callers must be updated to maintain a *match-scoped* (not round-scoped) counter.
+- `app/games/hoard_hurt_help/viewer.py` — per-move display shows the **decayed** mutual value. **All** the flat-`+8` surfaces (review M1): `display_delta` (the `8 if mutual` literal), the `_turn_groups` `"+8"` pact badge, and the `_build_rc_data` narration captions ("+8 each").
+- **Win-probability model (review C1).** `win_prob_model.pkl` / `round_win_prob_model.pkl` were trained (`scripts/train_win_prob.py` on `data/baseline_features.csv`) under flat-+8 scoring; decay changes the score trajectories the model sees, so the win-prob overlay miscalibrates. **Decision required:** (a) regenerate `baseline_features.csv` + retrain both models under decay, or (b) accept the miscalibration as a documented known-limitation. Default recommendation: **(b)** for the first ship + a follow-up retrain, but this must be an explicit choice, not silent.
+- `app/games/hoard_hurt_help/rules.py` — `GAME_RULES_TEXT`: tell agents mutual help decays to a floor of 2 with repeated use of the same pair; bump version (and update `test_rules_text_is_versioned_v3`, review M2).
+- `app/engine/bots/trust.py` + `app/engine/bots/strategies.py` — decay-aware partner rotation. **Read #550's actual diff first** (review M4) — it reworks `trust.py`; confirm the conflict surface before designing on `_mutual_help_partners`.
+- `scripts/` — commit the validation sim (`decay_help_sim.py`, currently scratchpad-only) so acceptance #5 is reproducible from the repo (review M7).
 - Tests for the decay math and the bot rotation.
 - Docs: `docs/games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md` (payoff/decay + rationale) and `HOARD_HURT_HELP_ARCHITECTURE.md` (where per-pair decay state and bot rotation live).
+
+**Explicitly left flat (review M5/M8):** `board_signals.py`, `insights.py`, `match_summary.py` read mutual-help **counts/thresholds**, not the +8 payoff — correct to leave unchanged. `win_probability._table`'s `mutual` is a per-turn binary feature (not magnitude) — unchanged. `game.py:move_effect(action)` stays nominal (it can't see `k`; same accepted limit as the betrayal sting) — so the per-move `actor_delta`/`target_delta` chip stays +4 while `display_delta` shows the decayed total.
 
 ### Out of scope (non-goals)
 - Changing base HELP (+4), HOARD (+2), or HURT/betrayal (−4/−8) values.
@@ -67,7 +71,7 @@ Bots should abandon an exhausted pact and seek a fresh partner. Validated proxy:
 ## 5. Acceptance criteria
 
 1. A pair's mutual-help total pays `max(2, 8 − k)`, k = that pair's prior mutual-helps this match; fresh pair = 8; floor 2; resets only at match end.
-2. `resolve_turn` (authoritative) and `apply_inround_turn` (viewer mirror) agree on the decayed value; the per-move display shows the decayed value, not a flat +8.
+2. `resolve_turn` and `apply_inround_turn` apply the **same decayed mutual value** for a given pair-and-`k`. *(They are not equal in general — the authoritative scorer floors the summed delta once, the mirror floors each HURT individually, by design (review M3). The test asserts equal running scores only on a deliberately no-floor decayed-pact sequence.)* All flat-`+8` viewer surfaces (`display_delta`, the `_turn_groups` badge, the narration captions) show the decayed value, not a flat +8.
 3. `GAME_RULES_TEXT` documents the decay + floor; rules version bumped; a `rules.py` text test guards the wording matches the constants.
 4. Decay-aware bots rotate off exhausted pacts (a farmed partner's partnership pull erodes toward neutral, not below 0).
 5. Re-running the validation sim (baseline vs decay vs decay+aware, 5 seeds × 40 matches) reproduces: tie-rate ~0.19 under decay+aware (from ~0.53 baseline), `aware < decay < baseline` in every seed, flat win distribution.
@@ -93,3 +97,5 @@ Acceptance check is the scratchpad simulation already written this session (`dec
 - **Resume correctness** (decay state after a crash) — mitigated by deriving `k` from history. *verification:* unit test that resolves a reconstructed mid-match turn sequence and asserts the same per-pair `k` and payoff as a straight-through run.
 - **Mirror divergence** (viewer vs authoritative) — *verification:* a test feeding the same decayed-pact sequence through `resolve_turn` and `apply_inround_turn` and asserting equal running scores.
 - **Over-correction of cooperation** (bots stop helping entirely) — *verification:* the validation sim's mutual-pairs count stays well above zero (sim showed ~4,300, a ~30% drop, not a collapse).
+- **Win-prob miscalibration** (review C1) — the trained models were calibrated on flat +8. *verification:* eyeball the win-prob overlay on one decayed-pact replay; if visibly wrong, ship with the known-limitation note and schedule a retrain. Decision recorded in §4.
+- **Mis-counting `k` from history** (review M6) — *verification:* the counter scans only `TurnSubmission` rows for turns with `resolved_at` set and `(round,turn) < current`, excludes the current turn, and counts only reciprocal `HELP` pairs (talk lives in `TurnMessage`, so it can't leak in; defaulted/HOARD rows are never HELP). Test: a defaulted/HOARD-only prior turn contributes `k=0`.

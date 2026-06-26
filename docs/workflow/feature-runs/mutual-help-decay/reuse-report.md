@@ -14,3 +14,5 @@ Capabilities the feature needs, mapped to existing code. Verdict per row: **reus
 | Reading prior turns' submissions in `resolve_turn` | `resolve_turn` currently loads only the current turn's submissions + players | **extend** | To derive `k`, `resolve_turn` (or its caller) must load this match's prior **resolved** `TurnSubmission`s grouped by turn. Bounded O(≤49 turns × ≤10 players). |
 
 **Duplication flag:** mutual-pair detection is the one real duplication hazard. The plan must route every decay/fatigue computation through a single shared counter helper.
+
+**Correction (review M5):** reciprocal-help detection actually lives in **~9** sites, not 4: `scoring.resolve_turn`, `scoring.apply_inround_turn`, `viewer.build_pd_replay_view` tagging, `viewer._turn_groups`, `trust._mutual_help_partners`, `board_signals.detect_alliances`, `win_probability._table`, `match_summary` superlatives, `insights.grudges`. The canonical counter unifies only the **payoff** sites (`resolve_turn`, `apply_inround_turn`, bot fatigue). The rest read **counts/thresholds or a binary flag**, not the +8 magnitude — they are correct to leave unchanged.
