@@ -23,7 +23,7 @@ It is a thin adapter over the scoring/resolution code in `app/engine/`.
 | Module | Lines | Responsibility |
 |---|---:|---|
 | `hoard_hurt_help/game.py` | 304 | PD module — adapts scoring/resolution to the `GameModule` contract: `validate_move`, `record_submission`, `record_message`, `resolve_turn`, `award_round`, `finalize`, `move_effect`, plus the game‑agnostic hooks (`action_names`, `default_move`, `display_name`, `tagline`, `theme`, `build_replay_view`, `viewer_fragment`, `semantic_rules_text`) **and the spectator‑insight hooks** (`board_signals`, `season_overview`, `round_detail`). |
-| `hoard_hurt_help/scoring.py` | 140 | **The PD scoring core.** Per‑turn HOARD/HELP/HURT payoff math (`resolve_turn`), the +4 mutual‑help bonus, full Help/Hurt stacking, and the score‑floor‑at‑zero clip. Also `apply_inround_turn` — the viewer's running‑score view of the same payoffs, built from the rules constants and shared by both viewer loops so the values aren't re‑hardcoded; it is deliberately distinct from `resolve_turn`'s authoritative net‑then‑floor (it floors each HURT individually for display). Moved here out of `app/engine/resolver.py` so PD scoring lives inside the PD module. |
+| `hoard_hurt_help/scoring.py` | 140 | **The PD scoring core.** Per‑turn HOARD/HELP/HURT payoff math (`resolve_turn`), the mutual‑help bonus **with per‑pair decay** (each repeat of the same pair pays −1, flooring the pact total at +2 = the Hoard value; the pair's repeat count `k` is **derived from match turn history**, so it survives a DB resume — feature `mutual-help-decay`), full Help/Hurt stacking, and the score‑floor‑at‑zero clip. Also `apply_inround_turn` — the viewer's running‑score view of the same payoffs (must apply the same decay so the mirror matches the authoritative score), built from the rules constants and shared by both viewer loops so the values aren't re‑hardcoded; it is deliberately distinct from `resolve_turn`'s authoritative net‑then‑floor (it floors each HURT individually for display). Moved here out of `app/engine/resolver.py` so PD scoring lives inside the PD module. |
 | `hoard_hurt_help/rules.py` | 79 | PD constants + the rules text the agent sees (`semantic_rules_text` / payoff table). |
 | `hoard_hurt_help/strategy.py` | 88 | PD strategy presets + the default pre‑fill. |
 | `hoard_hurt_help/viewer.py` | 415 | PD replay/viewer payload (`build_replay_view`): the robot‑circle JSON and the pact/betrayal replay story — the per‑game half of the platform viewer. Delegates per‑turn headlines to `viewer_headline.py`, win‑prob bands to `viewer_win_probs.py`, and the end‑of‑game finale to `match_summary.py`. |
@@ -51,8 +51,9 @@ and finalize the match.
 
 | You want to… | Start here |
 |---|---|
-| Change PD payoffs / scoring (HOARD/HELP/HURT, mutual‑help bonus, floor) | `app/games/hoard_hurt_help/scoring.py`. |
+| Change PD payoffs / scoring (HOARD/HELP/HURT, mutual‑help bonus, **per‑pair mutual‑help decay**, floor) | `app/games/hoard_hurt_help/scoring.py` (and keep `apply_inround_turn` in sync). |
 | Change PD rules text / constants | `app/games/hoard_hurt_help/rules.py`. |
+| Change how bots pick / rotate partners (incl. **decay‑aware** partner rotation) | `app/engine/bots/trust.py` (trust map) + `app/engine/bots/strategies.py` (partner selection) — engine‑level, platform code. See `../../platform/AGENT_LUDUM_ARCHITECTURE.md`. |
 | Change move validation / turn resolution wiring | `app/games/hoard_hurt_help/game.py`. |
 | Change the PD replay / viewer (robot‑circle, replay story) | `app/games/hoard_hurt_help/viewer.py`. |
 | Change the per‑turn replay headlines (phrase banks) | `app/games/hoard_hurt_help/viewer_headline.py`. |

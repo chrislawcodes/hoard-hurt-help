@@ -1,0 +1,11 @@
+{
+  "paths": [
+    "app/engine/bots",
+    "app/games/hoard_hurt_help"
+  ],
+  "allowed_dirty_paths": [
+    "app/engine/bots",
+    "app/games/hoard_hurt_help",
+    "docs/workflow/feature-runs/mutual-help-decay"
+  ]
+}
