@@ -82,6 +82,7 @@ from factory_cmd_reconcile import command_reconcile  # noqa: E402
 from factory_cmd_discover import command_discover  # noqa: E402
 from factory_cmd_advance import command_advance  # noqa: E402
 from factory_cmd_dispatch import command_dispatch_codex  # noqa: E402
+from factory_cmd_prepare_claude_reviews import command_prepare_claude_reviews  # noqa: E402
 from factory_cmd_review_extract import command_review_extract  # noqa: E402
 from factory_deliver import (  # noqa: E402
     compose_closeout_text,
@@ -313,6 +314,18 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch_parser.add_argument("--model", default="gpt-5.4-mini")
     dispatch_parser.add_argument("--no-auto-commit", action="store_true")
     dispatch_parser.set_defaults(func=command_dispatch_codex)
+
+    # Claude-only review path (spec 020): stage subagent reviews for a checkpoint.
+    prepare_claude_parser = subparsers.add_parser("prepare-claude-reviews")
+    prepare_claude_parser.add_argument("--slug", required=True)
+    prepare_claude_parser.add_argument("--stage", required=True, choices=CHECKPOINT_STAGES)
+    prepare_claude_parser.add_argument("--artifact")
+    prepare_claude_parser.add_argument("--base-ref")
+    prepare_claude_parser.add_argument("--context", action="append", default=[])
+    prepare_claude_parser.add_argument("--max-artifact-chars", type=int, default=50000)
+    prepare_claude_parser.add_argument("--max-context-chars", type=int, default=60000)
+    prepare_claude_parser.add_argument("--max-total-chars", type=int, default=250000)
+    prepare_claude_parser.set_defaults(func=command_prepare_claude_reviews)
 
     discover_parser = subparsers.add_parser("discover")
     discover_parser.add_argument("--slug", required=True)
