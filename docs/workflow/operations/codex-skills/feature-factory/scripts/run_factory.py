@@ -322,6 +322,9 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_claude_parser.add_argument("--artifact")
     prepare_claude_parser.add_argument("--base-ref")
     prepare_claude_parser.add_argument("--context", action="append", default=[])
+    # Diff-stage scope: the canonical diff is generated here from these paths.
+    prepare_claude_parser.add_argument("--path", action="append", default=[])
+    prepare_claude_parser.add_argument("--diff-review-threshold", type=int, default=None)
     prepare_claude_parser.add_argument("--max-artifact-chars", type=int, default=50000)
     prepare_claude_parser.add_argument("--max-context-chars", type=int, default=60000)
     prepare_claude_parser.add_argument("--max-total-chars", type=int, default=250000)

@@ -35,6 +35,8 @@ from factory_state import (  # noqa: E402
     load_workflow_state,
     normalized_repo_path,
     reviews_dir,
+    save_scope_manifest,
+    scope_manifest_path,
     update_workflow_state,
 )
 from factory_review import (  # noqa: E402
@@ -43,10 +45,52 @@ from factory_review import (  # noqa: E402
     _extract_file_paths_from_artifact,
     _AUTO_CONTEXT_MAX_FILES,
 )
-from factory_review_specs import CLAUDE_REVIEWER  # noqa: E402
+from factory_review_specs import (  # noqa: E402
+    CLAUDE_REVIEWER,
+    DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES,
+    count_changed_diff_lines,
+)
 from factory_mutating import mutates_state  # noqa: E402
 
-RUN_CLAUDE_REVIEW = _SCRIPT_DIR.parents[1] / "review-lens" / "scripts" / "run_claude_review.py"
+REVIEW_LENS_SCRIPTS = _SCRIPT_DIR.parents[1] / "review-lens" / "scripts"
+RUN_CLAUDE_REVIEW = REVIEW_LENS_SCRIPTS / "run_claude_review.py"
+WRITE_CANONICAL_DIFF = REVIEW_LENS_SCRIPTS / "write_canonical_diff.py"
+
+
+def _ensure_diff_artifact(slug: str, artifact_path: Path, paths: list[str], base_ref: str | None) -> None:
+    """Generate the canonical diff artifact for the diff stage if it is missing.
+
+    The diff stage's artifact is normally produced inside `checkpoint`, but the
+    Claude review dance needs it to exist *before* the checkpoint so reviewers can
+    read it. Reuse the same write_canonical_diff the checkpoint uses, scoped by the
+    given --path values (saved to scope.json) or an existing scope manifest. Writes
+    the companion .json (HEAD/base) so a later `checkpoint --use-existing-artifact`
+    sees a non-stale artifact. Fails loudly on an empty/failed diff.
+    """
+    if artifact_path.exists():
+        return
+    scope = save_scope_manifest(slug, paths) if paths else scope_manifest_path(slug)
+    if not scope.exists():
+        raise SystemExit(
+            "diff prepare requires --path values (or an existing scope manifest) to "
+            "scope the canonical diff"
+        )
+    cmd = [
+        sys.executable,
+        str(WRITE_CANONICAL_DIFF),
+        "--repo",
+        str(REPO_ROOT),
+        "--output",
+        str(artifact_path),
+        "--path-manifest",
+        str(scope),
+    ]
+    if base_ref:
+        cmd.extend(["--base-ref", base_ref])
+    result = subprocess.run(cmd, text=True, capture_output=True)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "diff generation failed").strip()
+        raise SystemExit(f"Diff generation failed:\n{detail}")
 
 
 def _policy_from_state(slug: str) -> dict:
@@ -70,9 +114,19 @@ def command_prepare_claude_reviews(args: argparse.Namespace) -> int:
     artifact_path = (
         Path(args.artifact).resolve() if args.artifact else default_artifact_path(args.slug, args.stage)
     )
+
+    # The diff stage's artifact is generated here (it doesn't pre-exist like
+    # spec/plan/tasks). Size it so the same size-gate the checkpoint uses decides
+    # whether a review is warranted.
+    diff_changed_lines: int | None = None
+    if args.stage == "diff":
+        _ensure_diff_artifact(args.slug, artifact_path, args.path, args.base_ref)
+        diff_changed_lines = count_changed_diff_lines(artifact_path.read_text(encoding="utf-8"))
+
     if not artifact_path.exists():
         raise SystemExit(f"Artifact does not exist: {artifact_path}")
 
+    diff_review_threshold = args.diff_review_threshold or DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES
     policy = _policy_from_state(args.slug)
     reviews = required_reviews(
         args.stage,
@@ -80,6 +134,8 @@ def command_prepare_claude_reviews(args: argparse.Namespace) -> int:
         policy["large_structural"],
         policy["performance_sensitive"],
         policy["extra_gemini_lenses"],
+        diff_changed_lines=diff_changed_lines,
+        diff_review_threshold=diff_review_threshold,
         reviewer_override=CLAUDE_REVIEWER,
     )
 

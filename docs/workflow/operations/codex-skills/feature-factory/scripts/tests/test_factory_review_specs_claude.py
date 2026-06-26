@@ -32,6 +32,22 @@ class ReviewerOverrideTests(unittest.TestCase):
         self.assertTrue(claude)
         self.assertTrue(all(r["reviewer"] == "claude" for r in claude))
 
+    def test_diff_override_gated_by_size(self) -> None:
+        # Substantial diff -> one Claude regression review.
+        big = SPECS.required_reviews(
+            "diff", False, False, False, [],
+            diff_changed_lines=120, diff_review_threshold=50, reviewer_override="claude",
+        )
+        self.assertEqual(len(big), 1)
+        self.assertEqual(big[0]["reviewer"], "claude")
+        self.assertEqual(big[0]["lens"], "regression-adversarial")
+        # Small diff -> no review (preflight + CI are the gate).
+        small = SPECS.required_reviews(
+            "diff", False, False, False, [],
+            diff_changed_lines=10, diff_review_threshold=50, reviewer_override="claude",
+        )
+        self.assertEqual(small, [])
+
     def test_fast_path_override(self) -> None:
         claude = SPECS.required_reviews(
             "diff", False, False, False, [], fast=True, reviewer_override="claude"
