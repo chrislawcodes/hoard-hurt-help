@@ -18,17 +18,15 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import replace
 
 from app.engine.game_insights import (
     Event,
     Grudge,
     RoundDetail,
-    RoundLeader,
     SeasonOverview,
-    StandingRow,
-    round_final_scores,
-    round_results,
-    round_winner,
+    default_round_detail,
+    default_season_overview,
 )
 from app.engine.game_records import ActionRecord, PlayerRecord
 from app.games.hoard_hurt_help.board_signals import compute_board_signals
@@ -156,44 +154,15 @@ def season_overview(
     current_round: int,
     game_active: bool,
 ) -> SeasonOverview:
-    standings_sorted = sorted(players, key=lambda p: (-p.round_wins, -p.total_score, p.agent_id))
-    standings = [
-        StandingRow(p.agent_id, p.round_wins, p.total_score, i + 1)
-        for i, p in enumerate(standings_sorted)
-    ]
-    results = round_results(actions)
-    rounds_played = sorted({a.round for a in actions})
+    """PD season overview = the game-agnostic skeleton plus grudges.
 
-    # Tiebreaker watch: someone with the top total score but not the most wins.
-    tiebreaker = None
-    if standings:
-        top_wins = standings[0].round_wins
-        leaders_by_score = sorted(players, key=lambda p: (-p.total_score, p.agent_id))
-        score_leader = leaders_by_score[0] if leaders_by_score else None
-        if score_leader is not None and score_leader.round_wins < top_wins:
-            tiebreaker = (
-                f"{score_leader.agent_id} has the highest total score "
-                f"({score_leader.total_score}) but fewer round-wins — wins the title on "
-                f"the tiebreaker if the round-wins stay level."
-            )
-
+    Builds the relationship-free base (standings, results, tiebreaker, feed) once
+    in the platform, then overlays only the PD-specific season signal: the
+    season-long grudges read from HELP/HURT relationships.
+    """
+    base = default_season_overview(players, actions, total_rounds, current_round, game_active)
     grudge_list, grudge_total = grudges(actions)
-    season_feed = [
-        Event(r.round, 0, "result", "\U0001f3c6", f"Round {r.round}: {r.winner} wins ({r.score}).")
-        for r in reversed(results)
-    ]
-    live_round = current_round if game_active else None
-    return SeasonOverview(
-        standings=standings,
-        results=results,
-        rounds_played=rounds_played,
-        total_rounds=total_rounds,
-        tiebreaker=tiebreaker,
-        grudges=grudge_list,
-        grudge_total=grudge_total,
-        season_feed=season_feed,
-        live_round=live_round,
-    )
+    return replace(base, grudges=grudge_list, grudge_total=grudge_total)
 
 
 def round_detail(
@@ -201,33 +170,20 @@ def round_detail(
     players: Sequence[PlayerRecord],
     actions: Sequence[ActionRecord],
 ) -> RoundDetail:
-    scores = round_final_scores(round_num, actions)
-    all_ids = {p.agent_id for p in players} | set(scores)
-    ranked = sorted(all_ids, key=lambda a: (-scores.get(a, 0), a))
-    leaderboard = [RoundLeader(a, scores.get(a, 0), i + 1) for i, a in enumerate(ranked)]
+    """PD round detail = the game-agnostic skeleton plus relationship signals.
 
+    Builds the relationship-free base (leaderboard, intro, result, surge feed)
+    once in the platform, then overlays only the PD-specific round signals read
+    from HELP/HURT: cooperation mood, alliances, and the betrayal/pile-on event
+    feed.
+    """
+    base = default_round_detail(round_num, players, actions)
     signals = compute_board_signals(players, actions, round_num)
     events = _round_events(round_num, players, actions)
-
-    # Is this round finished? (a later round exists in the log)
-    later_round_exists = any(a.round > round_num for a in actions)
-    result = round_winner(round_num, actions) if later_round_exists else None
-
-    prev = round_winner(round_num - 1, actions) if round_num > 1 else None
-    if prev is not None:
-        intro = f"Round {round_num} opened after {prev.winner} took round {round_num - 1} ({prev.score}). Scores reset to 0; grudges carry over."
-    else:
-        intro = f"Round {round_num} — the opening round. Everyone starts at 0."
-
-    return RoundDetail(
-        round=round_num,
-        leaderboard=leaderboard,
+    return replace(
+        base,
         mood=signals.cooperation_temperature,
         mood_label=signals.temperature_label,
         alliances=[al.members for al in signals.alliances],
-        surging=signals.surging,
         events=events,
-        intro=intro,
-        winner=result.winner if result else None,
-        complete=result is not None,
     )

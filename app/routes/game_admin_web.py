@@ -21,18 +21,11 @@ from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User
+from app.routes.game_admin_actions import load_game_match_or_404 as _load_game_match_or_404
 from app.routes.web_support import _bucket_matches
 from app.templating import templates
 
 router = APIRouter(prefix="/games/{game}/admin", tags=["game-admin"])
-
-
-async def _load_game_match_or_404(db, game: str, match_id: str) -> Match:
-    """Load a match and verify it belongs to this game; 404 if not."""
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None or g.game != game:
-        raise HTTPException(404)
-    return g
 
 
 def _game_defaults(game: str) -> GameConfig | SimpleNamespace:
