@@ -417,3 +417,125 @@ async def test_finalize_game_with_tiebreaker(db):
     await db.refresh(game)
     assert game.state == GameState.COMPLETED
     assert game.winner_player_id == b.id
+
+
+# --- Mutual-help decay (feature mutual-help-decay, Slice 1) ---
+
+
+class _FakeSub:
+    def __init__(self, player_id: int, action: str, target: int | None = None) -> None:
+        self.player_id = player_id
+        self.action = action
+        self.target_player_id = target
+
+
+def test_mutual_help_counts_helper() -> None:
+    """Pure counter: per unordered pair, how many prior turns they mutually helped."""
+    from app.games.hoard_hurt_help.scoring import mutual_help_counts
+
+    turns = [
+        [_FakeSub(1, "HELP", 2), _FakeSub(2, "HELP", 1), _FakeSub(3, "HOARD")],  # 1<->2
+        [_FakeSub(1, "HELP", 2), _FakeSub(2, "HELP", 1)],  # 1<->2 again
+        [_FakeSub(1, "HELP", 2), _FakeSub(2, "HELP", 3), _FakeSub(3, "HELP", 2)],  # 2<->3
+    ]
+    counts = mutual_help_counts(turns)
+    assert counts[frozenset({1, 2})] == 2
+    assert counts[frozenset({2, 3})] == 1
+    assert frozenset({1, 3}) not in counts  # one-directional help never counts
+
+
+@pytest.mark.asyncio
+async def test_mutual_help_decays_to_floor(db):
+    """A pair's repeated mutual help pays 8,7,6,5,4,3,2,2 — decays -1/repeat, floor 2.
+
+    k is re-derived from the persisted prior turns on every resolve, so this also
+    exercises the resume-safe path (no in-memory state to lose).
+    """
+    game, [a, b] = await _make_game_with_players(db, 2)
+    prev = 0
+    for i, expected in enumerate([8, 7, 6, 5, 4, 3, 2, 2]):
+        turn = await _open_turn(db, game, round_num=1, turn_num=i + 1)
+        await _submit(db, turn, a, "HELP", target=b)
+        await _submit(db, turn, b, "HELP", target=a)
+        await resolve_turn(db, turn)
+        await db.refresh(a)
+        assert a.current_round_score - prev == expected, (i, expected)
+        prev = a.current_round_score
+
+
+@pytest.mark.asyncio
+async def test_decay_persists_across_rounds(db):
+    """k counts prior mutual-help turns match-wide — it does NOT reset each round."""
+    game, [a, b] = await _make_game_with_players(db, 2)
+    t1 = await _open_turn(db, game, round_num=1, turn_num=1)
+    await _submit(db, t1, a, "HELP", target=b)
+    await _submit(db, t1, b, "HELP", target=a)
+    await resolve_turn(db, t1)
+    await db.refresh(a)
+    assert a.current_round_score == 8  # k=0 → +8
+    base = a.current_round_score
+
+    t2 = await _open_turn(db, game, round_num=3, turn_num=1)
+    await _submit(db, t2, a, "HELP", target=b)
+    await _submit(db, t2, b, "HELP", target=a)
+    await resolve_turn(db, t2)
+    await db.refresh(a)
+    assert a.current_round_score - base == 7  # k=1 even though it's a later round
+
+
+@pytest.mark.asyncio
+async def test_fresh_partner_resets_decay(db):
+    """A farmed pact decays, but a brand-new partner starts fresh at +8."""
+    game, [a, b, c] = await _make_game_with_players(db, 3)
+    t1 = await _open_turn(db, game, round_num=1, turn_num=1)
+    await _submit(db, t1, a, "HELP", target=b)
+    await _submit(db, t1, b, "HELP", target=a)
+    await _submit(db, t1, c, "HOARD")
+    await resolve_turn(db, t1)
+    await db.refresh(a)
+    base = a.current_round_score  # 8 from the A↔B pact
+
+    t2 = await _open_turn(db, game, round_num=1, turn_num=2)
+    await _submit(db, t2, a, "HELP", target=c)  # fresh partner
+    await _submit(db, t2, c, "HELP", target=a)
+    await _submit(db, t2, b, "HOARD")
+    await resolve_turn(db, t2)
+    await db.refresh(a)
+    assert a.current_round_score - base == 8  # A↔C is a fresh pair, k=0
+
+
+@pytest.mark.asyncio
+async def test_decay_is_per_pair_independent(db):
+    """Two pacts at the same table decay on their own counters."""
+    game, [a, b, c, d] = await _make_game_with_players(db, 4)
+    for turn_num, expected in [(1, 8), (2, 7)]:
+        turn = await _open_turn(db, game, round_num=1, turn_num=turn_num)
+        await _submit(db, turn, a, "HELP", target=b)
+        await _submit(db, turn, b, "HELP", target=a)
+        await _submit(db, turn, c, "HELP", target=d)
+        await _submit(db, turn, d, "HELP", target=c)
+        await resolve_turn(db, turn)
+    await db.refresh(a)
+    await db.refresh(c)
+    # Both pairs went 8 then 7 → each side totals 15, independently.
+    assert a.current_round_score == 15
+    assert c.current_round_score == 15
+
+
+@pytest.mark.asyncio
+async def test_prior_hoard_turn_does_not_count_toward_k(db):
+    """A prior non-mutual (HOARD/defaulted) turn leaves k=0 — first pact still pays 8."""
+    game, [a, b] = await _make_game_with_players(db, 2)
+    t1 = await _open_turn(db, game, round_num=1, turn_num=1)
+    await _submit(db, t1, a, "HOARD")
+    # b never submits → defaulted to HOARD
+    await resolve_turn(db, t1)
+    await db.refresh(a)
+    assert a.current_round_score == 2  # just the hoard
+
+    t2 = await _open_turn(db, game, round_num=1, turn_num=2)
+    await _submit(db, t2, a, "HELP", target=b)
+    await _submit(db, t2, b, "HELP", target=a)
+    await resolve_turn(db, t2)
+    await db.refresh(a)
+    assert a.current_round_score == 2 + 8  # k=0 → fresh +8

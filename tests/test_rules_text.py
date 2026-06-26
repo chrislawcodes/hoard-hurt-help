@@ -8,6 +8,7 @@ from app.games.hoard_hurt_help.rules import (
     BETRAYAL_HURT_POINTS,
     GAME_RULES_TEXT,
     HURT_POINTS,
+    MUTUAL_HELP_FLOOR,
     make_game_rules_text,
 )
 
@@ -19,8 +20,14 @@ def test_rules_text_documents_betraying_a_helper():
     assert BETRAYAL_HURT_POINTS != HURT_POINTS
 
 
-def test_rules_text_is_versioned_v3():
-    assert "(v3)" in GAME_RULES_TEXT
+def test_rules_text_is_versioned_v4():
+    assert "(v4)" in GAME_RULES_TEXT
+
+
+def test_rules_text_documents_mutual_help_decay():
+    assert "Mutual-help decays" in GAME_RULES_TEXT
+    # The floor shown to agents must match the constant.
+    assert f"+{MUTUAL_HELP_FLOOR} each" in GAME_RULES_TEXT
 
 
 def test_custom_round_counts_keep_betraying_a_helper():

@@ -41,6 +41,11 @@ Combo bonus:
 Betraying a helper:
 - If A **Hurts** B **and** B **Helps** A on the same turn → A's Hurt lands for **−8** instead of −4 (B still sends A the +4 help). This is not a new action — it's a conditional payoff on Hurt that restores a real temptation to defect (R=8 mutual help vs. an even bigger swing for betraying a helper). See the analysis in `betray-helper-impact-review.md`.
 
+Mutual help decays (feature `mutual-help-decay`):
+- A given **pair's** mutual-help payoff is worth less each time *that same pair* repeats it within a match. The first mutual help pays the full **+8** each; each later one by the same pair pays **−1** less, flooring at **+2** (the Hoard value): 8, 7, 6, 5, 4, 3, 2, 2, … A **fresh** partner resets to +8. The counter is **per pair, per match** — it does **not** reset each round. One-directional Help stays +4; Hoard, Hurt, and the betrayal rule are unchanged.
+- **Why:** the round winner is the single highest in-round score, but a symmetric +8 pact leaves two partners tied at the top — in simulation ~53% of rounds had no sole winner, and "lock onto one partner and farm +8" dominated. Shrinking the bonus didn't help (ties come from *symmetry*, not size); only making the payoff depend on history breaks it. Decay (plus decay-aware bots that rotate partners) cut the round-tie rate to ~19% across a 5-seed validation while keeping cooperation alive. Full design + data: `docs/workflow/feature-runs/mutual-help-decay/spec.md`. Reproduce it with `scripts/decay_validation_sim.py`.
+- **Known limitation — win-probability bands not retrained.** The replay's per-turn win-probability overlay (`viewer_win_probs.py` → `app/engine/win_probability.py`) uses models trained on the pre-decay (flat +8) score dynamics. Under decay, a farmed pact climbs more slowly, so the bands are mildly optimistic for a pact-leader late in a match. This is display-only — it never affects scoring or who wins — so we **accept it** for this feature and track a retrain as a follow-up (regenerate `baseline_features.csv` and retrain the two `.pkl`s under decay). The overlay still renders correctly; only its calibration drifts.
+
 ### Worked scenarios
 
 | Scenario | Player A | Player B |
@@ -60,6 +65,7 @@ Betraying a helper:
 - **Independent resolution.** Help and Hurt against the same player both resolve. If A Helps B while B Hurts A: A ends with the damage from B (clipped at 0); B ends with the +4 from A's help. Hoarders Hoard, helpers help, hurters hurt — all in parallel.
 - **Betraying a helper.** Hurting a player who is Helping *you* this same turn deals −8 instead of −4. Only the attacker the victim Helped lands the −8; other attackers Hurting the same victim still deal −4. The score floor applies to the summed delta as usual.
 - **Mutual-help bonus is per pair, at most one per turn.** Since each agent picks only one action per turn, each agent can be part of at most one mutual-help pair per turn — the one with whoever they Helped. Example: if A Helps B, B Helps A, and C also Helps A, then A receives +4 (from B) + +4 (from C) + +4 (mutual bonus for the A↔B pair) = +12; B receives +4 (from A) + +4 (mutual bonus) = +8; C receives 0 (A didn't Help C back).
+- **Mutual help decays per pair, per match** (feature `mutual-help-decay`). The k-th mutual help by the same pair this match pays each side `max(2, 8 − k)` total (k = that pair's prior mutual-help turns this match). Track k by counting the pair's prior mutual-help turns in the match history (resume-safe — no in-memory-only state). Resets only at match end. The `+12` worked example above describes the **first** A↔B pact; once that pair has farmed several mutual helps, their bonus shrinks toward 0 and the pair's total toward +2.
 
 ---
 

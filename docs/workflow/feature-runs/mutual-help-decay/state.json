@@ -1,0 +1,67 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [],
+    "summary": "",
+    "updated_at": 1782437406,
+    "answers": {
+      "Where to store the per-pair decay counter": "OPEN - prefer derive-from-history (crash-resume safe) over in-memory or a new column; decide in plan"
+    },
+    "non_goals": [
+      "Do not change base HELP +4, HOARD +2, or HURT/betrayal -4/-8 values",
+      "Do not change round/match structure or the single-highest-score win condition",
+      "Do not retune the betrayal mechanic or add a tit-for-tat bot (separate ideas)",
+      "Avoid a DB migration unless the chosen decay-state storage requires one"
+    ],
+    "acceptance_criteria": [
+      "A pair's mutual-help total pays max(2, 8-k), k = that pair's prior mutual-helps this match; a fresh pair pays 8; floor 2; resets only at match end (no per-round reset).",
+      "resolve_turn (authoritative) and apply_inround_turn (viewer mirror) agree on the decayed value; the viewer/per-move display shows the decayed mutual value, not a flat +8.",
+      "GAME_RULES_TEXT tells agents mutual help decays with repeated use of the same pair down to a floor of 2; rules version bumped.",
+      "Decay-aware bots rotate off exhausted pacts: a farmed partner's pull toward partnership erodes toward neutral (not below 0, so not treated as an enemy).",
+      "Re-running the validation sim (baseline vs decay vs decay+aware, 5 seeds, 40 matches) reproduces tie-rate ~0.19 under decay+aware (from ~0.53 baseline), aware<decay<baseline every seed, and a flat win distribution.",
+      "Preflight green; new tests cover decay math (8->2 floor, per-pair, fresh-partner reset, persists across rounds) and bot rotation."
+    ],
+    "checklist": {
+      "goal": "Cut the round-tie rate (sim: ~0.53 -> ~0.19) and break 'farm one pact forever' dominance by making a pair's mutual-help payoff decay with repeated use (8 down to a floor of 2, the Hoard value), plus make bots decay-aware so they rotate to fresh partners. Validated on the real engine across 5 seeds.",
+      "audience": "LLM agents competing in Hoard Hurt Help, the built-in scripted bots, and human spectators watching the replay/scoreboard. Research goal: a balanced, dynamic meta with decisive round winners.",
+      "constraints": "Matches resume from DB after a crash, so per-pair decay state must be reconstructable from turn history (not in-memory only). Must stay deterministic. Authoritative resolve_turn and the viewer's apply_inround_turn mirror must agree. Agents must be told the rule. Builds on merged betrayal work (#546-549); the decay-aware bot rotation extends the same trust map that open PR #550 (betrayal memory) reworks, so #550 should land first or be rebased in. Preflight (ruff/mypy/pytest) must pass."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": true,
+    "found": false,
+    "note": "No safe [P] within a slice: Slice 2 depends on Slice 1's mutual_help_counts helper; Slice 4 is gated on PR #550. Slices 1-3 ship as PR #1, Slice 4 as PR #2 rebased on #550.",
+    "updated_at": 1782441420
+  },
+  "init_head_sha": "9de657ecd11982c8c16a2dbe398efa85b0821ab8",
+  "token_usage": [],
+  "command_telemetry": [],
+  "stages": {},
+  "invariant_warnings": [],
+  "schema_version": 1,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  }
+}
