@@ -54,13 +54,48 @@
   },
   "init_head_sha": "93ac9c251d2ebaceb1f53f0be3fffbb7d95c6528",
   "token_usage": [],
-  "command_telemetry": [],
-  "stages": {},
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-26T19:38:49Z",
+      "wall_seconds": 0.392,
+      "input_bytes_read": 30021,
+      "output_bytes_written": 11810,
+      "files_read": 6,
+      "files_written": 4,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-26T19:41:40Z",
+      "wall_seconds": 0.268,
+      "input_bytes_read": 20913,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 24,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f"
+      ],
+      "initial_sha": "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f"
+    }
+  },
   "invariant_warnings": [],
-  "schema_version": 1,
+  "schema_version": 2,
   "checkpoint_progress": {
     "index": 0,
     "markers_sha": "",
     "last_diff_head_sha": ""
-  }
+  },
+  "spec_adversarial_rounds": 1
 }

@@ -21,23 +21,58 @@ logic" — most dangerous across the two turn drivers (`turn_drivers.py` = seque
 `scheduler_turn_loop.py` = simultaneous), which were deliberately isolated but copied
 shared primitives between themselves.
 
+This spec was revised after two adversarial reviews (feasibility + requirements);
+the reconciliation is recorded at the end.
+
+## Dispositions
+
+Each cluster ends in exactly one disposition. "Deferred" and "not-a-true-duplicate"
+are distinct outcomes — the second is a *correct* result, not incomplete work.
+
+- **unified** — duplicated logic now lives in one shared definition; all prior call
+  sites delegate to it.
+- **not-a-true-duplicate** — on close reading the implementations differ in behavior
+  and must NOT be merged; left as-is, with the divergence documented at both sites.
+- **deferred** — a real duplicate that could not be safely unified this run. Allowed
+  ONLY for the medium/high-risk clusters (C2, C4, C5, C8). The mechanical clusters
+  **C1, C3, C6, C7 are non-deferrable** (must reach unified). A deferral must record
+  the specific behavior risk and the concrete characterization test that demonstrates
+  it, and must be approved at a review gate — not declared unilaterally in closeout.
+
 ## In scope — the clusters
 
-| ID | Cluster | Anchor locations | Unify to |
-|----|---------|------------------|----------|
-| C1 | Poll-loop constant + `_now()` split across the two drivers | `turn_drivers.py:33,50`, `scheduler_turn_loop.py:47` | one `_SUBMIT_POLL_SECONDS` + one UTC-now helper |
-| C2 | Turn-row creation (`_open_turn` vs `_open_actor_turn`) | `scheduler_turn_loop.py:281`, `turn_drivers.py:192` | one parametrized turn-opener (phase + resume-guard as params) |
-| C3 | "is this a bot?" predicate ×3 | `turn_drivers.py:152` (DB), `user_match_start.py:44` (value), `arena.py:297` (inline inverse) | one value-level `is_bot_kind(...)` predicate; DB variant calls it |
-| C4 | "active / non-left player count" re-inlined | canonical `scheduler.py:95`; re-inlined `scheduler.py:313`, `arena.py:98`, `scheduler_turn_loop.py:330,347` | route all counts through one query helper (preserving the confirmed-vs-seated distinction) |
-| C5 | Parallel onboarding state machines + `_has_moved` ×3 + `_PREGAME_STATES` ×3 | `connection_activity.py:44,80,194`, `agent_onboarding.py:34,127`, `agent_idle.py:82` | one `_has_moved`, one `_PREGAME_STATES`/`_UPCOMING_STATES` constant; keep the two state enums/machines distinct but shared on the genuinely identical primitives |
-| C6 | Liveness-window check re-inlined | `connection_health_badge.py:34` (canonical `_within_window`), re-inlined `connection_health_badge.py:311`, `provider_readiness.py:186` | route inline window checks through `_within_window` (via `ensure_aware`) |
-| C7 | Redundant standings sort re-inlined | `agent_play_reads.py` `_scoreboard_order` vs re-inlined sort in `_public_standings` | the re-inlined sort calls `_scoreboard_order` |
-| C8 | Match-cancel transition block inlined ~6× | canonical `match_deletion.py:33` `cancel_match`; inlined in `scheduler.py`, `arena.py` | extract the state+timestamp transition so inline sites reuse it where their surrounding registry/logging allows |
+| ID | Cluster | Anchor locations (verified) | Shared target + home | Risk |
+|----|---------|------------------------------|----------------------|------|
+| C1 | Poll constant + UTC-now split across drivers | `turn_drivers.py:33,50`, `scheduler_turn_loop.py:47` (+ ~5 inline `datetime.now(timezone.utc)` on the simultaneous side) | one `_SUBMIT_POLL_SECONDS` (both already `0.25`) and one tz-aware UTC-now helper, reused by both drivers | low |
+| C2 | Turn-row creation (`_open_turn` vs `_open_actor_turn`) | `scheduler_turn_loop.py:281` (phase="talk", resume get-or-create, sets `current_round`+`current_turn`) vs `turn_drivers.py:192` (phase="act", blind INSERT, sets `current_turn` ONLY) | **THREE** parametrized axes: `phase`, `resume_guard` (get-or-create on/off), `set_current_round` (on/off). If a single clean opener can't preserve all three without contortion → disposition **not-a-true-duplicate**. | **high** |
+| C3 | "is this a bot?" predicate ×3 | `turn_drivers.py:152` (DB), `user_match_start.py:44` (value), `arena.py:297` (inline inverse) | one value-level `is_bot_kind(kind)`; DB variant calls it. (Verified safe: `AgentKind(str, Enum)` so `== BOT` and `in (BOT, BOT.value)` are equivalent.) Home: `user_match_start.py` (existing) or a small domain module. | low |
+| C4 | "active / non-left player count" re-inlined | standalone counts only: `scheduler.py:95` (confirmed: left+reserved), `scheduler.py:313` (watchdog: left only), `arena.py:98` (confirmed), `arena.py:109/113` (seated: left only) | a count helper **parameterized by whether reserved seats are excluded**, preserving the confirmed-vs-seated distinction. Home: alongside `_active_player_count` in `scheduler.py`, or a `player_counts.py` if a cycle-free shared home is needed. | medium |
+| C5 | `_has_moved` ×2 + `_PREGAME_STATES`/`_UPCOMING_STATES` constant | `connection_activity.py:80`, `agent_onboarding.py:127` (byte-identical queries — verified); constant at `connection_activity.py:44`, `agent_onboarding.py:34`, `agent_idle.py:82` | one `_has_moved` and one named pregame-states constant (pick one name + cycle-free home). Keep the two onboarding **enums/state machines distinct** — share only these primitives. | medium |
+| C6 | Liveness-window check re-inlined | `connection_health_badge.py:34` (canonical `_within_window`, uses `ensure_aware`), re-inlined at `connection_health_badge.py:311`, `provider_readiness.py:186` | route inline checks through `_within_window`. (Verified byte-identical to `ensure_aware` + None-guard.) `_within_window` is currently `_`-private; relocate/rename to a shared domain home if imported cross-module. | low |
+| C7 | Redundant standings sort re-inlined | `agent_play_reads.py:183` `_public_standings` inlines `(-current_round_score, seat_name)`, the exact key of `_scoreboard_order` (`agent_play_reads.py:140`) | `_public_standings` calls `_scoreboard_order`. | low |
+| C8 | Match-cancel transition inlined ~6× | inline at `scheduler.py:184,319,400`, `scheduler_turn_loop.py:214`, `arena.py:188,300,331` — each sets `state=CANCELLED; cancelled_at=<captured now>` with NO `registry.stop`, NO fresh timestamp, NO per-site commit | a tiny field-only `_mark_cancelled(match, now)` taking `now` as a **parameter** (so batch-`now` semantics are preserved). NOT `cancel_match` (it adds registry.stop + fresh now + commit). `cancel_match` itself may be refactored to call the helper with its own fresh `now`. **Home must be cycle-free**: `match_deletion.py` imports `scheduler.registry`, so the helper cannot live anywhere `scheduler.py`/`arena.py` import that would re-import `scheduler` — prefer `state_machine.py`. | medium |
 
 ### Wave priority
-- **High-risk (most review):** C2 (turn lifecycle), C5 (onboarding state machines).
-- **Medium:** C4 (count semantics — confirmed vs seated must stay distinct), C8 (cancel side effects + registry teardown differ per site).
-- **Low / mechanical:** C1, C3, C6, C7.
+- **High-risk (most review + characterization tests first):** C2.
+- **Medium:** C4 (count-filter semantics), C5 (constant fan-out), C8 (cancel side effects + import cycle).
+- **Low / mechanical (non-deferrable):** C1, C3, C6, C7.
+
+## Required characterization tests (written and committed BEFORE the matching refactor)
+
+These exist so the "full pytest is the oracle" claim is real — each must FAIL if the
+pre-refactor behavior is altered. Current coverage gaps were confirmed by review.
+
+1. **C2-seq:** `_open_actor_turn` (sequential) does NOT modify `game.current_round`,
+   sets only `current_turn`, and blind-inserts (no get-or-create resume reuse).
+2. **C2-sim:** `_open_turn` (simultaneous) sets BOTH `current_round` and
+   `current_turn`, and calling it twice for the same `(round, turn)` returns the same
+   row (get-or-create resume contract).
+3. **C4-watchdog:** an ACTIVE game whose only seats are HELD (`seat_reserved_until`
+   set, `left_at IS NULL`) is NOT cancelled by `_watchdog` (it counts `left_at`-only),
+   while `_active_player_count` (start floor) EXCLUDES the held seat. Pins both filters.
+4. **C5-precedence:** `_has_moved` returns True for a non-defaulted submission and
+   False for a defaulted one; onboarding-state precedence ordering is unchanged for
+   both `OnboardingState` and `AgentOnboardingState`.
 
 ## Out of scope (non-goals)
 
@@ -45,49 +80,101 @@ shared primitives between themselves.
 - The non-engine inventory items (A1 datetime sweep, B3/B4 route helpers, F2/F3) —
   deferred to a separate effort.
 - Cluster **C7's documented-intentional** dict-vs-schema scoreboard pair
-  (`build_public_scoreboard_dicts` vs `_public_scoreboard`); only the genuinely
-  redundant re-inlined *sort* in `_public_standings` is in scope.
+  (`build_public_scoreboard_dicts` vs `_public_scoreboard`); only the redundant
+  re-inlined *sort* in `_public_standings` is in scope.
+- C4's `_all_submitted`/`_all_messaged` (`scheduler_turn_loop.py:330,347`): the
+  seated-filter is embedded in a larger count-and-compare; not extractable as a count
+  call. Left as-is.
+- C4's `used_names` seat-name list query (`arena.py:119`): a name list, not a count.
+- C5's inline `.in_([SCHEDULED, REGISTERING])` lists (`scheduler.py:168,386`,
+  `user_match_start.py:74,119`, `agent_play.py:116`, `arena.py:159,237,276`) — only
+  the three named *constants* are unified this run. `agent_play_next_turn.py:340`
+  additionally includes `ACTIVE` (a DIFFERENT set) and must NOT be folded in.
 - Health-`build()` closure unification beyond what falls out cleanly.
 
 ## Constraints
 
-- Behavior-preserving only. Where the two drivers legitimately diverge
-  (sequential vs simultaneous), unify only the genuinely identical primitives and
-  preserve deliberate differences — document each at the call site.
+- Behavior-preserving only. Where two implementations legitimately diverge, prefer the
+  **not-a-true-duplicate** disposition over a risky merge; document the divergence at
+  both sites.
 - CLAUDE.md Python standards: full type annotations, no `# type: ignore` / `# noqa`,
-  no bare `except`, fail-loud (no swallowed errors), async consistency, no vague
-  filenames (`utils.py`/`helpers.py`). New shared homes must be domain-named.
-- One feature per branch (`claude/dedup-engine-cseries`); full Preflight Gate before push.
+  no bare `except`, fail-loud, async consistency, no vague filenames
+  (`utils.py`/`helpers.py`). Any NEW shared module gets a domain noun (e.g.
+  `player_counts.py`, `onboarding_states.py`); any symbol promoted to cross-module
+  use drops its leading-underscore "private" prefix. New homes are named in `plan.md`.
+- Avoid import cycles: C8 (and any relocated C4/C5/C6 symbol) must land in a module
+  that does not create a cycle with `scheduler.py`. The plan must state each new
+  symbol's home and assert no cycle.
+- This is NOT a small change (many `app/engine/` files, engine logic) — the full
+  Preflight Gate and normal delivery path apply, not the small-change lane.
+- One feature per branch (`claude/dedup-engine-cseries`). Commit per cluster (or per
+  small group) so a single risky cluster can be reverted without losing the others.
 
 ## Acceptance criteria
 
-1. Each in-scope cluster's duplicated logic exists in exactly one place; all prior
-   call sites delegate to it (verified by grep showing the inlined copies gone).
-2. **No behavior change**: identical turn sequencing, deadlines, submission/message
-   counting, bot detection, onboarding-state transitions, liveness windows,
-   standings ordering, and match-cancel side effects (incl. registry teardown).
-3. Full Preflight Gate green: `ruff check . && mypy app/ mcp_server/ && pytest -q`
-   (≥1291 tests, the count at branch base).
-4. New/updated tests lock in the unified helpers where engine logic is touched,
-   especially C2 (turn-opener phase/resume parametrization), C4 (confirmed vs
-   seated counts), and C5 (`_has_moved` + onboarding-state precedence).
-5. Where a cluster cannot be safely unified without behavior risk, it is explicitly
-   deferred in the closeout with the reason — partial completion is acceptable, a
-   silent behavior change is not.
+1. **Per-cluster disposition recorded.** Every C1–C8 cluster ends as `unified`,
+   `not-a-true-duplicate`, or (only C2/C4/C5/C8) `deferred` with the required
+   risk+test justification. C1, C3, C6, C7 MUST be `unified`.
+2. **Removal proven by presence, not just absence.** For each `unified` cluster, each
+   old call site imports/calls the shared symbol, AND a stated check passes — e.g.
+   `rg 'def _has_moved' app/engine/` returns exactly one definition;
+   `rg 'def _SUBMIT_POLL_SECONDS|_SUBMIT_POLL_SECONDS =' app/engine/` shows one
+   assignment. The exact check per cluster is listed in `tasks.md`.
+3. **No behavior change**, specifically pinned: identical turn sequencing and the C2
+   `current_round`/resume contract per mode; confirmed-vs-seated counts kept distinct
+   (C4); identical bot detection (C3); identical `_has_moved` truth and onboarding
+   precedence (C5); identical liveness windows (C6); identical standings order (C7);
+   identical cancel side effects incl. captured-`now` timestamp, no new `registry.stop`,
+   and unchanged per-site commit batching/logging (C8).
+4. **Characterization tests land before their refactor** (the four above), each shown
+   to fail under a deliberately wrong merge, plus any other test needed where engine
+   logic is touched. No existing test is removed, `skip`ped, or `xfail`ed; final test
+   count ≥ branch-base (1291) + the new characterization tests.
+5. **Full Preflight Gate green:** `ruff check . && mypy app/ mcp_server/ && pytest -q`.
+6. **PR includes a `Validation` section** (CLAUDE.md) listing the exact `ruff`, `mypy`,
+   and full `pytest` results (not the fast lane) and the final test count.
 
 ## Risks
 
-- **C2/C5 behavior drift** — the highest risk. Mitigation: characterization tests
-  before refactor where coverage is thin; diff-checkpoint review on these slices.
-- **C4 count-semantics collapse** — `confirmed` (left+reserved) vs `seated` (left
-  only) must not be merged into one filter. Mitigation: explicit test for both.
-- **C8 cancel teardown** — inline sites also stop registry tasks / log differently;
-  extracting only the state transition (not the surrounding teardown) avoids changing
-  side effects. Mitigation: keep each site's registry/logging untouched.
+- **C2 behavior drift (highest).** Mitigation: C2-seq/C2-sim characterization tests
+  first; if a clean 3-axis opener is contorted, choose `not-a-true-duplicate`.
+- **C4 count-semantics collapse.** `confirmed` (left+reserved) vs `seated`/watchdog
+  (left only) must stay distinct. Mitigation: C4-watchdog test pins both filters.
+  *verification:* run the C4-watchdog test against the refactor; a held-seat-only
+  ACTIVE game must remain un-cancelled and `_active_player_count` must exclude it.
+- **C8 import cycle / side-effect drift.** Mitigation: field-only `now`-parameterized
+  helper in a cycle-free home; do not absorb registry.stop/logging/commit.
+  *verification:* `python -c "import app.engine.scheduler, app.engine.arena, app.engine.state_machine"` imports clean (no cycle); grep confirms no inline cancel site gained a `registry.stop` call.
+- **C5 constant fan-out under-scoped.** Mitigation: scope limited to the three named
+  constants; inline `.in_()` lists explicitly out of scope (and the ACTIVE-including
+  one excluded). *verification:* the unified constant has one definition and the
+  ACTIVE-including set at `agent_play_next_turn.py:340` is untouched.
 
 ## Verification of "no behavior change"
 
-The Preflight Gate's full `pytest` suite (engine, scheduler, onboarding, connection
-health, and match-lifecycle tests) is the primary behavior oracle; each slice must
-keep it green. Slices touching C2/C4/C5 add targeted tests that pin the exact
-pre-refactor behavior.
+The full `pytest` suite is the regression oracle, BUT it is only valid for the
+divergent paths once the four characterization tests above exist — they are the part
+of the oracle that actually fails on a wrong merge. Each slice keeps the full gate
+green; C2/C4/C5 slices additionally run their characterization tests.
+
+## Adversarial review reconciliation (spec stage)
+
+Two independent Claude sub-agent lenses reviewed the first draft.
+
+| # | Finding (lens) | Severity | Resolution |
+|---|----------------|----------|------------|
+| 1 | C2 omits the `current_round`-write axis; "phase+resume" is incomplete (both) | blocker | Added 3rd axis `set_current_round`; allow `not-a-true-duplicate`; C2-seq/C2-sim tests required. |
+| 2 | "pytest is the oracle" unvalidated for C2/C4 divergences (both) | blocker | Added required characterization tests written BEFORE refactor; criterion 4. |
+| 3 | C8 "unify to `cancel_match`" is wrong target (both) | major | Re-targeted to field-only `_mark_cancelled(match, now)`; `cancel_match` not the shared target. |
+| 4 | C8 import cycle (`match_deletion`→`scheduler.registry`) (feasibility) | major | Constraint added: cycle-free home (prefer `state_machine.py`); import-clean verification. |
+| 5 | C4 `_all_*` not extractable as a count; anchor list over-claims (feasibility) | major | Narrowed C4 anchors; `_all_*` moved to out-of-scope. |
+| 6 | C4 watchdog filter untested (feasibility) | major | C4-watchdog characterization test required. |
+| 7 | Deferral escape hatch is a loophole (requirements) | major | Dispositions section: mechanical floor non-deferrable; deferral needs risk+test+gate approval. |
+| 8 | "grep gone" not verifiable (requirements) | major | Criterion 2 rewritten to presence-of-import + exact per-cluster checks in tasks. |
+| 9 | "not-a-true-duplicate" disposition missing (requirements) | major | Added as a first-class disposition. |
+| 10 | Shared-symbol homes/naming too vague (both) | major | Constraint: name homes in plan; domain nouns; drop `_` on cross-module symbols. |
+| 11 | CLAUDE.md `Validation` section + per-cluster commits not required (requirements) | major | Criterion 6 + per-cluster commit constraint. |
+| 12 | C5 `_PREGAME_STATES` fan-out wider than 3; one set includes ACTIVE (feasibility) | minor | Out-of-scope list enumerates inline `.in_()` sites; ACTIVE set excluded. |
+| 13 | C1 timing assertion (requirements); C3/C6/C7/C5-primitives confirmed safe (both) | minor | C1 tz-aware/byte-identical-deadline note; safe clusters recorded. |
+
+Both verdicts: **feasible / sufficient with these changes**, now incorporated.
