@@ -1,0 +1,66 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [
+      "Scope is app/engine/ top-level C-series clusters C1-C8; C2/C5 (turn-row creation, onboarding state machines) are the riskiest and get the most review attention.",
+      "Where two drivers intentionally diverge (sequential vs simultaneous), only the genuinely identical primitives are unified; deliberate differences are preserved and noted.",
+      "Reviews are run by independent Claude sub-agents acting adversarially, since Codex/Gemini are not installed."
+    ],
+    "summary": "Behavior-preserving dedup of the app/engine C-series (C1-C8) from the duplication inventory: unify the two turn drivers' shared primitives, the is-bot predicate, active-player-count, onboarding state machines + _has_moved, liveness-window check, redundant standings sort, and match-cancel transition behind single-source helpers, with full Preflight Gate and tests.",
+    "updated_at": 1782502249,
+    "answers": {},
+    "non_goals": [
+      "Any functional or behavioral change to gameplay, scheduling timing, or APIs.",
+      "The non-engine inventory items (A1 datetime sweep, B3/B4 route helpers, F2/F3) \u2014 deferred to a separate effort.",
+      "Cluster C7's documented-intentional dict-vs-schema scoreboard pair (only the genuinely redundant re-inlined sort is in scope)."
+    ],
+    "acceptance_criteria": [
+      "Each addressed C-series cluster has its duplicated logic collapsed to one shared definition with all prior call sites delegating to it.",
+      "No behavior change: identical turn sequencing, deadlines, submission/message counting, bot detection, onboarding-state transitions, liveness windows, standings ordering, and match-cancel side effects.",
+      "Full Preflight Gate green: ruff check . && mypy app/ mcp_server/ && pytest -q (1291+ tests).",
+      "New/updated tests lock in the unified helpers' behavior where engine logic is touched (per CLAUDE.md testing rules)."
+    ],
+    "checklist": {
+      "goal": "Eliminate the C-series accidental code duplication in app/engine/ identified by the duplication inventory, with zero behavior change, so the two turn drivers and the connection/onboarding code share single-source helpers instead of copied logic.",
+      "audience": "Maintainers of the hoard-hurt-help game engine (Claude/Codex/Gemini agents and Chris).",
+      "constraints": "Behavior-preserving only; no suppressions (no # type: ignore/# noqa); fail-loud; async consistency; no vague filenames; one feature per branch; Preflight Gate before push. Codex/Gemini CLIs are unavailable in this environment, so all FF roles (authoring, implementation, adversarial review) are performed by Claude and Claude sub-agents."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "93ac9c251d2ebaceb1f53f0be3fffbb7d95c6528",
+  "token_usage": [],
+  "command_telemetry": [],
+  "stages": {},
+  "invariant_warnings": [],
+  "schema_version": 1,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  }
+}
