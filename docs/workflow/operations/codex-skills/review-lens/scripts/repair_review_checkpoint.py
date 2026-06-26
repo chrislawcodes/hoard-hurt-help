@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -65,6 +66,23 @@ def review_is_healthy(spec: dict, artifact_path: Path) -> bool:
         if not raw_output or not resolve_stored_path(raw_output, REPO_ROOT, data.get("repo_root", "")).exists():
             return False
     return True
+
+
+def _missing_binary_message(spec: dict) -> tuple[str, str] | None:
+    """Return (reviewer, error_message) if the reviewer's CLI is not on PATH.
+
+    Returns None when the binary is present. Claude reviews never reach here (they
+    are handled earlier), so the reviewer is gemini or codex. The message names the
+    missing binary and points at the Claude-only path, which needs no CLI.
+    """
+    reviewer = spec.get("reviewer")
+    binary = "gemini" if reviewer == "gemini" else "codex"
+    if shutil.which(binary) is not None:
+        return None
+    return reviewer, (
+        f"{spec['path']} ({binary} CLI not found on PATH — install {binary}, "
+        "or run the Claude-only review path: prepare-claude-reviews + FF_REVIEWER=claude)"
+    )
 
 
 def partial_coverage_reason(spec: dict) -> str:
@@ -218,6 +236,16 @@ def main() -> int:
                 "re-run prepare-claude-reviews, have a subagent review each lens, "
                 "then assemble with run_claude_review.py before re-checkpointing)"
             )
+            continue
+        # Fail loud and clear when the reviewer's CLI is absent, before we try to
+        # launch it. Without this, a missing binary surfaces as a raw
+        # FileNotFoundError (subprocess with check=True doesn't wrap it as
+        # CalledProcessError) — an opaque crash that hides the real, actionable
+        # cause. Common in a Claude Code web sandbox, where neither CLI exists.
+        missing = _missing_binary_message(spec)
+        if missing:
+            reviewer, message = missing
+            (failed_gemini if reviewer == "gemini" else failed_codex).append(message)
             continue
         review_checkpoint = expanded_checkpoint_for_partial_artifact(spec, artifact_path, checkpoint)
         if review_checkpoint:
