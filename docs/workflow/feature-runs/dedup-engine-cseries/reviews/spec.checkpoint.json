@@ -6,20 +6,20 @@
   "allowed_dirty_paths": [],
   "required_reviews": [
     {
-      "reviewer": "codex",
+      "reviewer": "claude",
       "lens": "feasibility-adversarial",
       "stage": "spec",
-      "path": "docs/workflow/feature-runs/dedup-engine-cseries/reviews/spec.codex.feasibility-adversarial.review.md",
+      "path": "docs/workflow/feature-runs/dedup-engine-cseries/reviews/spec.claude.feasibility-adversarial.review.md",
       "context_paths": [],
-      "model": "gpt-5.4-mini"
+      "model": "claude-opus-4-8"
     },
     {
-      "reviewer": "gemini",
+      "reviewer": "claude",
       "lens": "requirements-adversarial",
       "stage": "spec",
-      "path": "docs/workflow/feature-runs/dedup-engine-cseries/reviews/spec.gemini.requirements-adversarial.review.md",
+      "path": "docs/workflow/feature-runs/dedup-engine-cseries/reviews/spec.claude.requirements-adversarial.review.md",
       "context_paths": [],
-      "model": "gemini-3.1-flash-lite"
+      "model": "claude-opus-4-8"
     }
   ],
   "max_artifact_chars": 50000,

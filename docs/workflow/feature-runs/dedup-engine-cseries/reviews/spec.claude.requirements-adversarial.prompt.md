@@ -1,3 +1,14 @@
+Review this spec artifact using a requirements-adversarial lens.
+Stay scoped to that lens.
+Approach the artifact adversarially: look for hidden flaws, omitted cases, and weak assumptions before giving credit.
+No code context files were provided. Flag any finding that depends on an assumption about the existing codebase as [UNVERIFIED] and limit it to MEDIUM severity or lower.
+The full review artifact text is included below in this prompt.
+Return markdown using exactly these sections:
+## Findings
+## Residual Risks
+Keep the response concrete and ordered by severity.
+
+Artifact: spec.md
 # Spec — Engine C-series duplication cleanup
 
 ## Summary
@@ -48,9 +59,9 @@ are distinct outcomes — the second is a *correct* result, not incomplete work.
 | C3 | "is this a bot?" predicate ×3 | `turn_drivers.py:152` (DB), `user_match_start.py:44` (value), `arena.py:297` (inline inverse) | one value-level `is_bot_kind(kind)`; DB variant calls it. (Verified safe: `AgentKind(str, Enum)` so `== BOT` and `in (BOT, BOT.value)` are equivalent.) Home: `user_match_start.py` (existing) or a small domain module. | low |
 | C4 | "active / non-left player count" re-inlined | standalone counts only: `scheduler.py:95` (confirmed: left+reserved), `scheduler.py:313` (watchdog: left only), `arena.py:98` (confirmed), `arena.py:109/113` (seated: left only) | a count helper **parameterized by whether reserved seats are excluded**, preserving the confirmed-vs-seated distinction. Home: alongside `_active_player_count` in `scheduler.py`, or a `player_counts.py` if a cycle-free shared home is needed. | medium |
 | C5 | `_has_moved` ×2 + `_PREGAME_STATES`/`_UPCOMING_STATES` constant | `connection_activity.py:80`, `agent_onboarding.py:127` (byte-identical queries — verified); constant at `connection_activity.py:44`, `agent_onboarding.py:34`, `agent_idle.py:82` | one `_has_moved` and one named pregame-states constant (pick one name + cycle-free home). Keep the two onboarding **enums/state machines distinct** — share only these primitives. | medium |
-| C6 | Liveness-window check re-inlined | `connection_health_badge.py:34` (canonical `_within_window`, uses `ensure_aware`); window *expression* re-inlined inside `_connection_is_live` (`connection_health_badge.py:~322-325`) and reached via it from `provider_readiness.py:186` (through `_connection_is_live` at `provider_readiness.py:183`) | route only the trailing **window expression** through `_within_window`. **Do NOT replace `_connection_is_live` wholesale** — it has a `ConnectionStatus.PAUSED` early-return (`~319-320`) and None guards that `_within_window` does not; those stay. `_within_window` is `_`-private; relocate/rename to a shared domain home if imported cross-module. | low |
+| C6 | Liveness-window check re-inlined | `connection_health_badge.py:34` (canonical `_within_window`, uses `ensure_aware`), re-inlined at `connection_health_badge.py:311`, `provider_readiness.py:186` | route inline checks through `_within_window`. (Verified byte-identical to `ensure_aware` + None-guard.) `_within_window` is currently `_`-private; relocate/rename to a shared domain home if imported cross-module. | low |
 | C7 | Redundant standings sort re-inlined | `agent_play_reads.py:183` `_public_standings` inlines `(-current_round_score, seat_name)`, the exact key of `_scoreboard_order` (`agent_play_reads.py:140`) | `_public_standings` calls `_scoreboard_order`. | low |
-| C8 | Match-cancel transition inlined ~6× | inline at `scheduler.py:185,320,401`, `scheduler_turn_loop.py:215`, `arena.py:189,301,332` — each sets `state=CANCELLED; cancelled_at=<now>`. **The sites are NOT uniform** (review correction): `scheduler.py:185/320/401` + `arena.py:301/332` use a *captured batch* `now`; `arena.py:189` + `scheduler_turn_loop.py:215` use a *fresh inline* `datetime.now(timezone.utc)`; **all** sites already do their own `await db.commit()` right after; none call `registry.stop`. | a tiny field-only `_mark_cancelled(match, now)` taking `now` as a **parameter**. Each caller passes its EXISTING `now` (captured or fresh — unchanged per site) and keeps its own commit + logging. NOT `cancel_match` (that one adds `registry.stop` + a fresh `now` + commit; it may be refactored to call the helper with its own fresh `now`). **Home must be cycle-free**: `match_deletion.py` imports `scheduler.registry`, so the helper cannot live where `scheduler.py`/`arena.py` re-import `scheduler` — prefer `state_machine.py`. | medium |
+| C8 | Match-cancel transition inlined ~6× | inline at `scheduler.py:184,319,400`, `scheduler_turn_loop.py:214`, `arena.py:188,300,331` — each sets `state=CANCELLED; cancelled_at=<captured now>` with NO `registry.stop`, NO fresh timestamp, NO per-site commit | a tiny field-only `_mark_cancelled(match, now)` taking `now` as a **parameter** (so batch-`now` semantics are preserved). NOT `cancel_match` (it adds registry.stop + fresh now + commit). `cancel_match` itself may be refactored to call the helper with its own fresh `now`. **Home must be cycle-free**: `match_deletion.py` imports `scheduler.registry`, so the helper cannot live anywhere `scheduler.py`/`arena.py` import that would re-import `scheduler` — prefer `state_machine.py`. | medium |
 
 ### Wave priority
 - **High-risk (most review + characterization tests first):** C2.
@@ -73,11 +84,6 @@ pre-refactor behavior is altered. Current coverage gaps were confirmed by review
 4. **C5-precedence:** `_has_moved` returns True for a non-defaulted submission and
    False for a defaulted one; onboarding-state precedence ordering is unchanged for
    both `OnboardingState` and `AgentOnboardingState`.
-5. **C8-cancel:** a cancelled match gets `state=CANCELLED` and `cancelled_at` equal
-   to the `now` passed to `_mark_cancelled`, and gains NO new side effect — no inline
-   site acquires a `registry.stop` call, and each site keeps its own commit. Pins
-   that the helper is field-only and that the per-site fresh-vs-captured `now` choice
-   is preserved.
 
 ## Out of scope (non-goals)
 
@@ -128,17 +134,13 @@ pre-refactor behavior is altered. Current coverage gaps were confirmed by review
 3. **No behavior change**, specifically pinned: identical turn sequencing and the C2
    `current_round`/resume contract per mode; confirmed-vs-seated counts kept distinct
    (C4); identical bot detection (C3); identical `_has_moved` truth and onboarding
-   precedence (C5); identical liveness windows AND the preserved `PAUSED` early-return
-   (C6); identical standings order (C7); identical cancel side effects — each site's
-   `now` (fresh OR captured, unchanged per site), no new `registry.stop`, and each
-   site's own commit/logging kept (C8).
-4. **Characterization tests land before their refactor** (the five above: C2-seq,
-   C2-sim, C4-watchdog, C5-precedence, C8-cancel), each shown to fail under a
-   deliberately wrong merge, plus any other test needed where engine logic is
-   touched. No existing test is removed, `skip`ped, or `xfail`ed. The baseline test
-   count is **measured on the branch base at run start** (`pytest -q` collected count
-   recorded in `tasks.md`), and the final count must be ≥ that measured baseline +
-   the new characterization tests — not a hardcoded literal.
+   precedence (C5); identical liveness windows (C6); identical standings order (C7);
+   identical cancel side effects incl. captured-`now` timestamp, no new `registry.stop`,
+   and unchanged per-site commit batching/logging (C8).
+4. **Characterization tests land before their refactor** (the four above), each shown
+   to fail under a deliberately wrong merge, plus any other test needed where engine
+   logic is touched. No existing test is removed, `skip`ped, or `xfail`ed; final test
+   count ≥ branch-base (1291) + the new characterization tests.
 5. **Full Preflight Gate green:** `ruff check . && mypy app/ mcp_server/ && pytest -q`.
 6. **PR includes a `Validation` section** (CLAUDE.md) listing the exact `ruff`, `mypy`,
    and full `pytest` results (not the fast lane) and the final test count.
@@ -188,16 +190,8 @@ Two independent Claude sub-agent lenses reviewed the first draft.
 
 Both verdicts: **feasible / sufficient with these changes**, now incorporated.
 
-### Round 2 (official Claude-only review path, `prepare-claude-reviews`)
 
-After rebasing onto the updated engine, the spec was re-reviewed via the supported
-Claude-only path. New corrections incorporated:
-
-| # | Finding (lens) | Severity | Resolution |
-|---|----------------|----------|------------|
-| 14 | C8 sites are NOT uniform — some use a *fresh* `datetime.now()`, and ALL have their own per-site commit (both) | major | C8 row + criterion 3 corrected: per-site `now` (fresh/captured) and per-site commit preserved; helper is field-only. |
-| 15 | C8 has no characterization test despite subtle side-effects (requirements) | major | Added C8-cancel characterization test (test #5). |
-| 16 | C6 must keep the `PAUSED` early-return — only the window *expression* delegates, not all of `_connection_is_live` (feasibility) | major | C6 row + criterion 3 corrected: do not replace `_connection_is_live`; keep PAUSED/None guards. |
-| 17 | Test-count baseline "1291" is brittle/unverifiable (both) | major | Criterion 4 now measures the baseline on the branch base at run start; no hardcoded literal. |
-| 18 | Several anchor line numbers drift by ~1 (both) | minor | tasks.md resolves anchors by symbol/grep, not by line (already required by criterion 2). |
-
+Return only markdown with exactly these sections:
+## Findings
+## Residual Risks
+Do not include any other sections.
