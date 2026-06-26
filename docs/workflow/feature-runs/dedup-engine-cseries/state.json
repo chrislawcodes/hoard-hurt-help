@@ -134,6 +134,46 @@
       "artifact_sha_at_time": "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f",
       "cache_read_tokens": 29434,
       "total_tokens": 29961
+    },
+    {
+      "stage": "plan",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "implementation-adversarial",
+      "prompt_chars": 8367,
+      "prompt_cap": 250000,
+      "input_tokens": 200904,
+      "output_tokens": 624,
+      "cost_usd_estimate": 1.02012,
+      "timestamp": "2026-06-26T21:39:16.968948Z",
+      "started_at": "2026-06-26T21:39:16.968948Z",
+      "ended_at": "2026-06-26T21:39:16.968948Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 1532677,
+      "total_tokens": 69042
+    },
+    {
+      "stage": "plan",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "testability-adversarial",
+      "prompt_chars": 8364,
+      "prompt_cap": 250000,
+      "input_tokens": 140363,
+      "output_tokens": 67,
+      "cost_usd_estimate": 0.70349,
+      "timestamp": "2026-06-26T21:39:17.061375Z",
+      "started_at": "2026-06-26T21:39:17.061375Z",
+      "ended_at": "2026-06-26T21:39:17.061375Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 896595,
+      "total_tokens": 51638
     }
   ],
   "command_telemetry": [
@@ -184,6 +224,30 @@
       "files_written": 5,
       "subprocess_invocations": 18,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-26T21:39:17Z",
+      "wall_seconds": 0.663,
+      "input_bytes_read": 148725,
+      "output_bytes_written": 39273,
+      "files_read": 19,
+      "files_written": 5,
+      "subprocess_invocations": 28,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-26T21:41:28Z",
+      "wall_seconds": 0.457,
+      "input_bytes_read": 42549,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 30,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -196,6 +260,14 @@
         "c8553c878fb2f124d3b5e72f7851086f95b2593ffd13bf5f6f3f93375d809e82"
       ],
       "initial_sha": "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f"
+    },
+    "plan": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "44611cac24d5f3dcee2ce451f916ff4db298418340a12d303934e0faf0a63912"
+      ],
+      "initial_sha": "44611cac24d5f3dcee2ce451f916ff4db298418340a12d303934e0faf0a63912"
     }
   },
   "invariant_warnings": [],
@@ -207,8 +279,9 @@
   },
   "spec_adversarial_rounds": 3,
   "last_action_result": {
-    "next": "run_plan_checkpoint",
-    "reason": "spec checkpoint completed",
+    "next": "author_tasks",
+    "reason": "plan checkpoint completed",
     "blockers": []
-  }
+  },
+  "plan_adversarial_rounds": 1
 }
