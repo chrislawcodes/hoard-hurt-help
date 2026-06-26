@@ -255,6 +255,109 @@ def _parse_error(model: str) -> str:
     return f"unsupported model prefix: {model}"
 
 
+def tokens_from_session_jsonl(paths: list[str | Path]) -> dict[str, int]:
+    """Sum Claude token usage across one or more session-transcript JSONL files.
+
+    Reads the same usage fields the experiment bench uses (.claude/skills/experiment).
+    ``input_tokens`` folds in cache-creation tokens (the billed-input convention);
+    ``cache_read_tokens`` is reported separately because cache reads are ~10x cheaper
+    and would otherwise balloon the headline figure. Used to attribute a Claude
+    subagent review's cost on the subscription, where no per-call usage object exists.
+
+    Raises FileNotFoundError / OSError if a path is unreadable and ValueError if a
+    line is not valid JSON — callers decide whether that is advisory (telemetry) or
+    fatal. It never silently returns zero for a missing file.
+    """
+    billed_input = cache_read = output = 0
+    for raw in paths:
+        path = Path(raw)
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                msg = json.loads(stripped)
+                usage = (msg.get("message") or {}).get("usage") or {}
+                billed_input += int(usage.get("input_tokens", 0) or 0)
+                billed_input += int(usage.get("cache_creation_input_tokens", 0) or 0)
+                cache_read += int(usage.get("cache_read_input_tokens", 0) or 0)
+                output += int(usage.get("output_tokens", 0) or 0)
+    return {
+        "input_tokens": billed_input,
+        "cache_read_tokens": cache_read,
+        "output_tokens": output,
+    }
+
+
+def record_review_usage(
+    slug: str,
+    stage: str,
+    round: int,
+    activity_type: str,
+    model: str,
+    *,
+    lens: Optional[str] = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
+    duration_seconds: float | None = None,
+    prompt_chars: int | None = None,
+    prompt_cap: int | None = None,
+    parse_error: str | None = None,
+) -> None:
+    """Append a token_usage record whose tokens were measured out-of-band.
+
+    Unlike record_ai_call (which runs a subprocess and parses its stdout/stderr),
+    this records usage already extracted elsewhere — e.g. a Claude subagent review
+    whose counts come from the session-transcript JSONL. The record uses the same
+    shape as record_ai_call so analyze-reviews and closeout treat it identically;
+    ``cache_read_tokens`` is an additive field the report generators ignore today.
+    """
+    if activity_type not in VALID_ACTIVITY_TYPES:
+        raise ValueError(f"Unknown activity type: {activity_type}")
+
+    now = _now_iso8601_utc()
+    cost_usd_estimate = None
+    if input_tokens is not None and output_tokens is not None:
+        pricing = lookup_pricing(model)
+        if pricing is not None:
+            cost_usd_estimate = _estimate_cost_usd(int(input_tokens), int(output_tokens), pricing)
+
+    record: dict[str, object] = {
+        "stage": stage,
+        "round": int(round),
+        "activity_type": activity_type,
+        "model": model,
+        "lens": lens,
+        "prompt_chars": prompt_chars,
+        "prompt_cap": prompt_cap,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd_estimate": cost_usd_estimate,
+        "timestamp": now,
+        "started_at": now,
+        "ended_at": now,
+        "duration_seconds": duration_seconds,
+        "agent_id": _resolve_agent_id(),
+        "artifact_sha_at_time": _artifact_sha_at_time(slug, stage),
+    }
+    if cache_read_tokens is not None:
+        record["cache_read_tokens"] = cache_read_tokens
+    if parse_error is not None:
+        record["parse_error"] = parse_error
+    if input_tokens is not None and output_tokens is not None:
+        if int(input_tokens) + int(output_tokens) < 2000:
+            record["activity_subtype"] = "micro"
+
+    with with_locked_state(slug) as state:
+        usage = state.get("token_usage", [])
+        if not isinstance(usage, list):
+            usage = []
+        usage = list(usage)
+        usage.append(record)
+        state["token_usage"] = usage
+
+
 def record_ai_call(
     slug: str,
     stage: str,

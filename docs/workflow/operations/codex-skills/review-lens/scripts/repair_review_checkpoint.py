@@ -204,8 +204,20 @@ def main() -> int:
 
     failed_codex: list[str] = []
     failed_gemini: list[str] = []
+    failed_claude: list[str] = []
     for spec in checkpoint.get("required_reviews", []):
         if review_is_healthy(spec, artifact_path):
+            continue
+        # Claude reviews are produced by orchestrator-spawned subagents, not a CLI
+        # this process can launch (spec 020). An unhealthy/missing Claude review is
+        # a real failure: surface it loudly so the operator re-runs prepare +
+        # assemble, rather than silently dispatching the wrong reviewer's CLI.
+        if spec.get("reviewer") == "claude":
+            failed_claude.append(
+                f"{spec['path']} (claude review missing or unhealthy — "
+                "re-run prepare-claude-reviews, have a subagent review each lens, "
+                "then assemble with run_claude_review.py before re-checkpointing)"
+            )
             continue
         review_checkpoint = expanded_checkpoint_for_partial_artifact(spec, artifact_path, checkpoint)
         if review_checkpoint:
@@ -251,6 +263,9 @@ def main() -> int:
     if failed_gemini:
         for path in failed_gemini:
             print(f"gemini review requires retry: {path}")
+    if failed_claude:
+        for path in failed_claude:
+            print(f"claude review requires retry: {path}")
 
     # Diagnose partial-coverage reviews so the operator knows what to do rather
     # than seeing a cryptic "stale" error on every retry.
@@ -279,7 +294,7 @@ def main() -> int:
         print(verify.stdout, end="")
     if verify.stderr:
         print(verify.stderr, end="", file=sys.stderr)
-    if (failed_codex or failed_gemini) and verify.returncode == 0:
+    if (failed_codex or failed_gemini or failed_claude) and verify.returncode == 0:
         return 1
     return verify.returncode
 

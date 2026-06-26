@@ -36,6 +36,7 @@ EXPECTED_SUBCOMMANDS = {
     "quick",
     "audit",
     "autopilot",
+    "prepare-claude-reviews",
 }
 
 EXPECTED_MUTATING = {
@@ -53,6 +54,7 @@ EXPECTED_MUTATING = {
     "discover",
     "parallel",
     "autopilot",
+    "prepare-claude-reviews",
 }
 
 EXPECTED_READONLY = {"status", "doctor", "review-extract", "check-isolation", "analyze-reviews", "quick", "audit"}
