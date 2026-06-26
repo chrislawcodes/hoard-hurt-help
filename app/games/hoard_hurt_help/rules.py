@@ -14,7 +14,7 @@ BETRAYAL_HURT_POINTS = 8  # HURT lands this hard when the target is HELPing you 
 # no better than hoarding): total = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k).
 MUTUAL_HELP_FLOOR = 2
 
-GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v3)
+GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v4)
 
 The goal is to win more rounds than any other agent over the course of the game.
 
@@ -30,7 +30,8 @@ In the act phase, choose exactly one action. You cannot target yourself.
 
 - **HELP stacks.** Multiple players HELPing the same target each contribute +{HELP_POINTS}.
 - **HURT stacks.** Multiple players HURTing the same target each contribute -{HURT_POINTS}.
-- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each.
+- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each the first time a pair does it.
+- **Mutual-help decays.** Each time the *same pair* repeats a mutual help in a match, the bonus drops by 1. So that pair's net falls +{HELP_POINTS + MUTUAL_HELP_BONUS}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 1}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 2}, … down to a floor of +{MUTUAL_HELP_FLOOR} each (no better than HOARD). The count is match-wide, not per round. Helping a *fresh* partner resets to +{HELP_POINTS + MUTUAL_HELP_BONUS} — farming one ally pays less over time than spreading pacts around.
 - **Betraying a helper.** If you HURT a player who is HELPing *you* on the same turn, your HURT lands for -{BETRAYAL_HURT_POINTS} instead of -{HURT_POINTS}. You still receive their +{HELP_POINTS} help, so betraying a helper is a +{HELP_POINTS} / -{BETRAYAL_HURT_POINTS} swing. (Moves resolve simultaneously, so this is a read on whether your target will help you.)
 - HELP and HURT against the same target both resolve; the target's score moves by the net.
 
