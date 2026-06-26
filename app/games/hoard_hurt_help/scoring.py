@@ -178,15 +178,17 @@ def apply_inround_turn(
 
     This is the *viewer's* running-score view — used for lead tracking and the
     win-probability features. It floors each HURT individually and credits a
-    mutual-help actor the full net (HELP_POINTS + MUTUAL_HELP_BONUS). A HURT
-    against a player who HELPs the attacker this same turn lands for
+    mutual-help actor the decayed per-side total (`mutual_value` on the action,
+    falling back to the fresh-pact HELP_POINTS + MUTUAL_HELP_BONUS if absent). A
+    HURT against a player who HELPs the attacker this same turn lands for
     BETRAYAL_HURT_POINTS, mirroring `resolve_turn`. It is a display approximation
     and is deliberately distinct from `resolve_turn`, which is authoritative and
     floors the summed per-player delta. Keep them separate; do not route
     resolution through this helper.
 
     Action dicts use keys: "action", "agent_id", optional "target_id",
-    optional "mutual".
+    optional "mutual", optional "mutual_value" (the decayed per-side total — the
+    caller computes the per-pair decay; this helper has no match history).
     """
     new_inround = dict(inround)
     mutual_help = HELP_POINTS + MUTUAL_HELP_BONUS
@@ -202,7 +204,7 @@ def apply_inround_turn(
         if action == "HOARD":
             new_inround[actor] = new_inround.get(actor, 0) + HOARD_POINTS
         elif action == "HELP" and mutual:
-            new_inround[actor] = new_inround.get(actor, 0) + mutual_help
+            new_inround[actor] = new_inround.get(actor, 0) + a.get("mutual_value", mutual_help)
         elif action == "HELP" and target:
             new_inround[target] = new_inround.get(target, 0) + HELP_POINTS
         elif action == "HURT" and target:

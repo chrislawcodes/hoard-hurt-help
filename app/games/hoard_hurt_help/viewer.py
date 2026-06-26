@@ -19,7 +19,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.games.hoard_hurt_help.match_summary import build_final_summary
-from app.games.hoard_hurt_help.rules import BETRAYAL_HURT_POINTS
+from app.games.hoard_hurt_help.rules import (
+    BETRAYAL_HURT_POINTS,
+    HELP_POINTS,
+    MUTUAL_HELP_BONUS,
+    MUTUAL_HELP_FLOOR,
+)
 from app.games.hoard_hurt_help.scoring import apply_inround_turn
 from app.games.hoard_hurt_help.viewer_headline import _turn_headline
 from app.games.hoard_hurt_help.viewer_win_probs import _compute_round_win_probs
@@ -120,6 +125,7 @@ def _turn_groups(actions: list[dict]) -> list[dict]:
     helps: list[dict] = []
     hoards: list[dict] = []
     pacts: list[dict] = []
+    pact_values: set[int] = set()
     seen_pacts: set[frozenset[str]] = set()
     for a in actions:
         if a.get("mutual") and a["target_id"]:
@@ -128,6 +134,8 @@ def _turn_groups(actions: list[dict]) -> list[dict]:
                 seen_pacts.add(pair)
                 x, y = sorted(pair)
                 pacts.append({"a": x, "b": y})
+            if a.get("mutual_value") is not None:
+                pact_values.add(a["mutual_value"])
         elif a["action"] == "HURT" and a["target_id"]:
             hurts.append(
                 {
@@ -147,7 +155,13 @@ def _turn_groups(actions: list[dict]) -> list[dict]:
     if hurts:
         groups.append({"kind": "hurt", "delta": "-4", "members": hurts})
     if pacts:
-        groups.append({"kind": "pact", "delta": "+8", "members": pacts})
+        if len(pact_values) == 1:
+            pact_delta = f"+{next(iter(pact_values))}"
+        elif pact_values:
+            pact_delta = f"+{min(pact_values)}–+{max(pact_values)}"  # decayed range
+        else:
+            pact_delta = f"+{HELP_POINTS + MUTUAL_HELP_BONUS}"  # fresh-pact fallback
+        groups.append({"kind": "pact", "delta": pact_delta, "members": pacts})
     if helps:
         groups.append({"kind": "help", "delta": "+4", "members": helps})
     if hoards:
@@ -209,12 +223,13 @@ def _build_rc_data(
         elif mutuals:
             pair = sorted({a["agent"] for a in mutuals} | {a["target"] for a in mutuals})
             if len(pair) == 2:
+                val = mutuals[0]["delta"]  # decayed per-side value for this pact
                 badge, cap = (
                     "The Pact",
-                    f"{pair[0]} and {pair[1]} lock in a mutual pact — +8 each.",
+                    f"{pair[0]} and {pair[1]} lock in a mutual pact — +{val} each.",
                 )
             else:
-                badge, cap = "The Pact", "Mutual pacts lock in — +8 each."
+                badge, cap = "The Pact", "Mutual pacts lock in."
         elif hurts:
             h0 = hurts[0]
             badge, cap = "Strike", f"{h0['agent']} strikes {h0['target']}."
@@ -283,6 +298,9 @@ async def build_pd_replay_view(
     prev_leader: str | None = None
     inround: dict[str, int] = {}
     inround_round: int | None = None
+    # Match-scoped count of how many times each pair has mutually helped, for the
+    # mutual-help decay. Persists across rounds (does NOT reset per round).
+    pact_counts: dict[frozenset[str], int] = {}
     for seq, t in enumerate(timeline, start=1):
         messages, messages_by_agent = project_turn_messages(t)
         actions: list[dict[str, Any]] = []
@@ -337,6 +355,16 @@ async def build_pd_replay_view(
                     a["betrayal"] = True
         prev_mutual = this_mutual
 
+        # Decayed per-side value for each of this turn's pacts (one per pair).
+        # Computed once and shared by the display below and both apply_inround_turn
+        # callers (the action dicts carry `mutual_value`), so the win-prob loop —
+        # which resets its running score per round — still sees the match-scoped k.
+        pact_value: dict[frozenset[str], int] = {}
+        for pair in this_mutual:
+            k = pact_counts.get(pair, 0)
+            pact_value[pair] = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k)
+            pact_counts[pair] = k + 1
+
         for a in actions:
             paired_message = messages_by_agent.get(a["agent_id"])
             if paired_message is not None:
@@ -353,7 +381,12 @@ async def build_pd_replay_view(
                 a["display_delta"] = a["actor_delta"]
             elif a["action"] == "HELP":
                 a["display_action"] = "Help"
-                a["display_delta"] = 8 if a["mutual"] else a["target_delta"]
+                if a["mutual"]:
+                    value = pact_value[frozenset((a["agent_id"], a["target_id"]))]
+                    a["mutual_value"] = value
+                    a["display_delta"] = value
+                else:
+                    a["display_delta"] = a["target_delta"]
             else:
                 a["display_action"] = "HURT"
                 a["display_delta"] = (
