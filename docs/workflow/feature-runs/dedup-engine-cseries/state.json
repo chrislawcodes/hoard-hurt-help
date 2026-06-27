@@ -48,10 +48,10 @@
   "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
-    "reviewed": false,
+    "reviewed": true,
     "found": false,
-    "note": "",
-    "updated_at": 0
+    "note": "No safe parallel set: clusters share scheduler.py/arena.py/turn_drivers.py/scheduler_turn_loop.py; slices run sequentially.",
+    "updated_at": 1782519360
   },
   "init_head_sha": "93ac9c251d2ebaceb1f53f0be3fffbb7d95c6528",
   "token_usage": [
@@ -312,6 +312,18 @@
       "files_written": 0,
       "subprocess_invocations": 30,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-27T00:16:02Z",
+      "wall_seconds": 0.863,
+      "input_bytes_read": 187011,
+      "output_bytes_written": 51327,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -333,6 +345,14 @@
         "64437ed02d9631c14a6b47c8ad15c51276b5e96a6ec54abb9be4afaa9cbe7b9b"
       ],
       "initial_sha": "44611cac24d5f3dcee2ce451f916ff4db298418340a12d303934e0faf0a63912"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "e7c6e1c87b2116c966d3268503ffd9fd3ad5f17246961bd695725dc58893325a"
+      ],
+      "initial_sha": "e7c6e1c87b2116c966d3268503ffd9fd3ad5f17246961bd695725dc58893325a"
     }
   },
   "invariant_warnings": [],
@@ -344,9 +364,10 @@
   },
   "spec_adversarial_rounds": 3,
   "last_action_result": {
-    "next": "author_tasks",
-    "reason": "plan checkpoint completed",
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
     "blockers": []
   },
-  "plan_adversarial_rounds": 2
+  "plan_adversarial_rounds": 2,
+  "tasks_adversarial_rounds": 1
 }
