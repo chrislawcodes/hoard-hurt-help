@@ -43,8 +43,45 @@
     },
     "unresolved": []
   },
-  "delivery": {},
-  "dirty_overrides": {},
+  "delivery": {
+    "pr_url": "https://github.com/chrislawcodes/hoard-hurt-help/pull/563",
+    "pr_number": 563,
+    "merge_sha": "",
+    "closed_at": "2026-06-27T12:54:24+00:00",
+    "operator_note": "D3 unified (_entry_to_profile); D5 all 6 not-a-true-duplicate (byte-unchanged, over-abstraction). 1338 tests. Claude-only FF run.",
+    "review_coverage_summary": {
+      "spec_lenses_run": [
+        "claude:feasibility-adversarial",
+        "claude:requirements-adversarial",
+        "codex:feasibility-adversarial",
+        "codex:requirements-adversarial"
+      ],
+      "spec_lenses_skipped": [
+        "gemini:requirements-adversarial"
+      ],
+      "plan_lenses_run": [
+        "claude:implementation-adversarial",
+        "claude:testability-adversarial",
+        "codex:implementation-adversarial",
+        "codex:testability-adversarial"
+      ],
+      "plan_lenses_skipped": [
+        "gemini:testability-adversarial"
+      ],
+      "tasks_lenses_run": [],
+      "tasks_lenses_skipped": [],
+      "diff_lenses_run": [],
+      "diff_lenses_skipped": []
+    }
+  },
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "app/engine/bots",
+      "docs/workflow/feature-runs/dedup-bots"
+    ],
+    "used": true,
+    "updated_at": 1782564827
+  },
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -299,6 +336,30 @@
       "files_written": 5,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-27T12:53:48Z",
+      "wall_seconds": 0.856,
+      "input_bytes_read": 177521,
+      "output_bytes_written": 74412,
+      "files_read": 31,
+      "files_written": 7,
+      "subprocess_invocations": 60,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "closeout",
+      "ts": "2026-06-27T12:55:36Z",
+      "wall_seconds": 0.831,
+      "input_bytes_read": 195435,
+      "output_bytes_written": 57973,
+      "files_read": 30,
+      "files_written": 5,
+      "subprocess_invocations": 58,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -327,21 +388,44 @@
         "082692dc26a5c05edc8498f56b8e6ada774a7de8ebbf882f3de0236c981a4961"
       ],
       "initial_sha": "082692dc26a5c05edc8498f56b8e6ada774a7de8ebbf882f3de0236c981a4961"
+    },
+    "diff": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "431c86280b55b864240c8ff4cd7b6b6e0a16e904a324e26d533babaf530e0e7f"
+      ],
+      "initial_sha": "431c86280b55b864240c8ff4cd7b6b6e0a16e904a324e26d533babaf530e0e7f"
+    },
+    "closeout": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "541bee88bcfd7742ede2534d6d2174a355d8be08839b31b0ab9dde29ef9931a3"
+      ],
+      "initial_sha": "541bee88bcfd7742ede2534d6d2174a355d8be08839b31b0ab9dde29ef9931a3"
     }
   },
   "invariant_warnings": [],
   "schema_version": 2,
   "checkpoint_progress": {
-    "index": 0,
-    "markers_sha": "",
-    "last_diff_head_sha": ""
+    "index": 1,
+    "markers_sha": "d7c55c377099fe16c98eefbed830387e257f3cae17d46659e45377b22445fa2b",
+    "last_diff_head_sha": "a8697d700873ec5b5ddccd7af013233830415470"
   },
   "spec_adversarial_rounds": 3,
   "last_action_result": {
-    "next": "dispatch_next_slice_to_codex",
-    "reason": "tasks checkpoint completed",
+    "next": "done",
+    "reason": "closeout checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 1,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 1,
+  "arch_docs": {
+    "no_change_acked": true,
+    "reason": "No module boundary or flow change: D3 adds a private _entry_to_profile within presets.py; D5 changed no code (all 6 selectors byte-unchanged). The bots-engine architecture doc still describes the system accurately.",
+    "updated_at": 1782564863
+  },
+  "closeout_adversarial_rounds": 1
 }

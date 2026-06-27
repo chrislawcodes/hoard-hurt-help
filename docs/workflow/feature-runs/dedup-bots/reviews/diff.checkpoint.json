@@ -1,0 +1,14 @@
+{
+  "feature_slug": "dedup-bots",
+  "stage": "diff",
+  "artifact_path": "docs/workflow/feature-runs/dedup-bots/reviews/implementation.diff.patch",
+  "git_base_ref": "origin/main",
+  "allowed_dirty_paths": [
+    "app/engine/bots",
+    "docs/workflow/feature-runs/dedup-bots"
+  ],
+  "required_reviews": [],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

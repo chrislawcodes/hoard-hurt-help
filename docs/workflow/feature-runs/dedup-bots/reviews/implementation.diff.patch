@@ -1,0 +1,50 @@
+diff --git a/app/engine/bots/presets.py b/app/engine/bots/presets.py
+index c1eec36..3fd8438 100644
+--- a/app/engine/bots/presets.py
++++ b/app/engine/bots/presets.py
+@@ -121,11 +121,12 @@ def pack_profile_choices(*, include_hidden: bool = False) -> list[BotProfileChoi
+     return choices
+ 
+ 
+-def resolve_profile_choice(choice_id: str, *, seed_base: int = 0) -> BotProfile:
+-    pack_id, index_text = choice_id.split(":", 1)
+-    pack = resolve_pack(pack_id)
+-    index = int(index_text)
+-    entry = pack.entries[index]
++def _entry_to_profile(entry: BotPackEntry, pack: BotPack, seed_base: int) -> BotProfile:
++    """Build the runtime BotProfile for one pack entry.
++
++    The single mapping shared by `resolve_profile_choice` (one entry) and
++    `expand_pack` (every entry), so the field mapping lives in one place.
++    """
+     return BotProfile(
+         strategy=entry.strategy,
+         truthfulness=entry.truthfulness,
+@@ -136,19 +137,16 @@ def resolve_profile_choice(choice_id: str, *, seed_base: int = 0) -> BotProfile:
+     )
+ 
+ 
++def resolve_profile_choice(choice_id: str, *, seed_base: int = 0) -> BotProfile:
++    pack_id, index_text = choice_id.split(":", 1)
++    pack = resolve_pack(pack_id)
++    index = int(index_text)
++    return _entry_to_profile(pack.entries[index], pack, seed_base)
++
++
+ def expand_pack(pack_id: str, *, seed_base: int = 0) -> list[BotProfile]:
+     pack = resolve_pack(pack_id)
+-    return [
+-        BotProfile(
+-            strategy=entry.strategy,
+-            truthfulness=entry.truthfulness,
+-            trust_model=entry.trust_model,
+-            seed=seed_base + entry.seed_offset,
+-            version=pack.version,
+-            fixture_pack=pack.id if pack.hidden else None,
+-        )
+-        for entry in pack.entries
+-    ]
++    return [_entry_to_profile(entry, pack, seed_base) for entry in pack.entries]
+ 
+ 
+ def _choice_label(entry: BotPackEntry) -> str:

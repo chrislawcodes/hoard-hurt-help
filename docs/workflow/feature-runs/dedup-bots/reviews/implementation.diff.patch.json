@@ -1,0 +1,16 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "a8697d700873ec5b5ddccd7af013233830415470",
+  "git_base_ref": "origin/main",
+  "git_base_sha": "cbef9fdbc8e79cc3f181fb89564695924e81ade2",
+  "paths": [
+    "app/engine/bots"
+  ],
+  "allowed_dirty_paths": [
+    "app/engine/bots",
+    "docs/workflow/feature-runs/dedup-bots"
+  ],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/dedup-bots/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}
