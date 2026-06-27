@@ -202,11 +202,68 @@ def _resume_merge_wait_if_needed(slug: str, delivery: dict) -> int:
     return 0
 
 
+def _deliver_from_explicit_pr(args: argparse.Namespace) -> int:
+    """Record the delivery snapshot from operator-provided PR info, no gh.
+
+    This is the Claude-only web path: there is no gh CLI (GitHub is reached
+    via MCP), so the operator passes --pr-number / --pr-url (and optionally
+    --merge-sha). We skip every gh query and write the delivery state from
+    these values, mirroring how the standalone closeout records its snapshot.
+    """
+    pr_number = getattr(args, "pr_number", None)
+    pr_url = str(getattr(args, "pr_url", None) or "")
+    merge_sha = str(getattr(args, "merge_sha", None) or "")
+    branch = current_branch_name() or ""
+    head_sha = git_output("rev-parse", "HEAD") or ""
+    delivery_record = {
+        "branch": branch,
+        "head_sha": head_sha,
+        "updated_at": int(time.time()),
+        "pr_number": int(pr_number),
+        "pr_url": pr_url,
+        "merge_sha": merge_sha,
+        "merged_sha": merge_sha,
+        "upstream": upstream_branch_name() or "",
+        "checks_summary": "not-checked",
+        "merge_wait_state": "none",
+    }
+    update_workflow_state(
+        args.slug,
+        lambda state: state.__setitem__(DELIVERY_KEY, delivery_record),
+    )
+    print(f"branch: {branch or '(unknown)'}")
+    print(f"head: {head_sha}")
+    print(f"pr: #{int(pr_number)} — {pr_url}" if pr_url else f"pr: #{int(pr_number)}")
+    if merge_sha:
+        print(f"merge-sha: {merge_sha}")
+    print("checks: not-checked (recorded from explicit PR args; no gh)")
+    _emit_next_action(args.slug, "deliver")
+    return 0
+
+
 @mutates_state("deliver")
 def command_deliver(args: argparse.Namespace) -> int:
     ensure_sync()
+    # Claude-only web path: when the operator supplies explicit PR info, record
+    # the delivery snapshot from it and skip all gh-dependent flow. Requires at
+    # least --pr-number and --pr-url so the snapshot is identifiable.
+    explicit_pr_number = getattr(args, "pr_number", None)
+    explicit_pr_url = getattr(args, "pr_url", None)
+    if explicit_pr_number is not None or explicit_pr_url:
+        if explicit_pr_number is None or not explicit_pr_url:
+            raise SystemExit(
+                "deliver --pr-number and --pr-url must be provided together "
+                "(the Claude-only web path records delivery from both)"
+            )
+        return _deliver_from_explicit_pr(args)
     if not command_path("gh"):
-        raise SystemExit("deliver requires the gh CLI to be installed")
+        raise SystemExit(
+            "deliver requires the gh CLI, or explicit PR info for the "
+            "Claude-only web path. Either install gh, or pass "
+            "--pr-number <n> --pr-url <url> (and optionally --merge-sha <sha>) "
+            "to record the delivery snapshot without gh (open/merge the PR via "
+            "the GitHub MCP)."
+        )
     # PR #751 / FF Housekeeping Slice 3: implementation-rule WARN.
     # Validate the override flag combo eagerly (so a bad invocation fails
     # fast), but defer the state-mutating override write until deliver gates

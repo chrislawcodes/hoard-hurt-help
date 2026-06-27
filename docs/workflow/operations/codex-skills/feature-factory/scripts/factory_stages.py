@@ -87,10 +87,16 @@ STAGE_ARTIFACT_HEADINGS = {
     "tasks": "# Tasks",
 }
 
-# Matches [CHECKPOINT] as a marker on any list-item line (unordered, ordered, checkbox).
-# Anchored to end-of-line to avoid matching [CHECKPOINT] mid-sentence.
+# Matches [CHECKPOINT] as a marker on a structured line. Accepted forms:
+#   - markdown heading:    "### [CHECKPOINT] Slice 1 — Foo"
+#   - unordered list item: "- ... [CHECKPOINT]" / "* ... [CHECKPOINT]"
+#   - ordered list item:   "1. ... [CHECKPOINT]"
+#   - checkbox list item:  "- [ ] ... [CHECKPOINT]" / "- [x] ... [CHECKPOINT]"
+# The marker may appear anywhere on the line (not just at the end), so a heading
+# like "### [CHECKPOINT] Slice 1" matches. The line must START with a heading
+# (#..######) or a list marker, so a bare "[CHECKPOINT]" mid-prose does not match.
 _CHECKPOINT_MARKER_RE = re.compile(
-    r"^\s*(?:[-*]|\d+\.|-\s+\[[ xX]\])\s+.*\[CHECKPOINT\]\s*$",
+    r"^\s*(?:#{1,6}\s+|[-*]\s+|\d+\.\s+|-\s+\[[ xX]\]\s+).*\[CHECKPOINT\].*$",
     re.MULTILINE,
 )
 

@@ -14,6 +14,36 @@ It is **additive**: the default Gemini/Codex path is unchanged. This path only
 activates when reviews are staffed by Claude (via prepare-claude-reviews, which
 also persists the choice so the later `checkpoint` matches).
 
+> **Use the repo virtualenv for every `pytest` / `mypy` / `ruff`.** Any subagent
+> (or you) that runs the preflight tools MUST call them through the repo venv —
+> `.venv/bin/pytest`, `.venv/bin/mypy`, `.venv/bin/ruff` — **not** system
+> `python3 -m pytest`. System python does not have the app's dependencies, so it
+> reports bogus import errors and a broken baseline. This actually bit a real run:
+> a reviewer ran system `python3` and wrongly flagged the existing baseline as
+> broken. If `.venv` is missing, create/populate it first; never fall back to
+> system python to "make it run."
+
+> **Never hand-author a `*.review.md` file.** Review files are rejected unless they
+> carry valid reviewer provenance (Codex/Gemini, or Claude via
+> `prepare-claude-reviews` + assemble). Always go through the dance below — a
+> hand-written review will fail verification by design.
+
+## End-to-end on the web (no `gh`)
+
+The full Claude-only path, on Claude Code web where there is no `gh` CLI:
+
+1. `init` → `discover` → author the spec.
+2. Per stage (spec / plan / tasks / diff): `prepare-claude-reviews` → review
+   subagents → assemble → `checkpoint` → reconcile.
+3. `implement` (see the feature-implement-claude skill).
+4. Diff review (the diff stage of this dance).
+5. **Delivery without `gh`:** record the snapshot with
+   `run_factory.py closeout --pr-number <n> --pr-url <u>` (or
+   `run_factory.py deliver --pr-number <n> --pr-url <u> [--merge-sha <sha>]`),
+   and use the **GitHub MCP** to actually open and merge the PR. `gh` is not
+   available in the web sandbox; the explicit PR args are how the snapshot gets
+   recorded.
+
 ## When to use
 
 - Running the factory from Claude Code on the web / mobile.
