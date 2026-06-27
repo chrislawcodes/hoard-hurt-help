@@ -14,7 +14,7 @@ Final count must be ≥ baseline + new characterization tests; no test removed/s
 | C1 | unified | one `SUBMIT_POLL_SECONDS` assign + one `now_utc` def in `turn_clock.py`; no `_now`/inline `datetime.now(timezone.utc)` left in the two drivers (cancel-site `now` at C8) | ✅ Slice 1 |
 | C2 | **expected: not-a-true-duplicate** | divergence documented at both openers (or single `open_turn_row` if clean) | ☐ |
 | C3 | unified | one `is_bot_kind` def in `user_match_start`; `turn_drivers._is_bot` + `arena` inline delegate | ✅ Slice 2 |
-| C4 | unified | one `active_player_count` def; watchdog uses `exclude_reserved=False`, start-floor/arena-confirmed `True`, arena-seated `False`; watchdog inline count gone | ☐ |
+| C4 | unified | one `active_player_count` def in `player_counts.py`; watchdog `exclude_reserved=False`, start-floor/arena-confirmed `True`, arena-seated `False`; watchdog inline count gone | ✅ Slice 5 |
 | C5 | unified | one `has_moved` def + one `PREGAME_STATES`; `agent_idle` `_UPCOMING_STATES` renamed | ☐ |
 | C6 | unified | `within_window` public; `_connection_is_live` + `provider_loop_running` delegate the window expr, keep PAUSED guard + `LOOP_RUNNING_WINDOW_SECONDS` | ✅ Slice 3 |
 | C7 | unified | `_public_standings` calls `_scoreboard_order` | ✅ Slice 4 |

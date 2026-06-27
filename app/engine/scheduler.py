@@ -29,13 +29,14 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.aware_datetime import ensure_aware
 from app.broadcast import publish
 from app.db import SessionLocal
 from app.engine.bots.service import auto_submit_bot_phase
+from app.engine.player_counts import active_player_count
 from app.engine.scheduler_turn_loop import (
     SimultaneousDriver,
     _all_messaged,
@@ -50,7 +51,6 @@ from app.engine.scheduler_turn_loop import (
 )
 from app.engine.state_machine import assert_transition
 from app.models.match import Match, GameState
-from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.request_logging import record_background_incident
 
@@ -92,24 +92,14 @@ MIN_PLAYERS_TO_START = 3
 _POLLER_ESCALATE_AFTER = 5
 
 
-async def _active_player_count(db, match_id: str) -> int:
-    """Confirmed seats in a game.
+async def _active_player_count(db: AsyncSession, match_id: str) -> int:
+    """Confirmed seats in a game (the start floor).
 
-    A player who left frees their seat. A *held* seat (join-before-connect,
-    ``seat_reserved_until`` set) is not a real player yet, so it does not count
-    toward the start floor either.
+    Delegates to the shared count helper: a player who left frees their seat,
+    and a *held* seat (join-before-connect, ``seat_reserved_until`` set) is not a
+    real player yet, so neither counts toward the start floor.
     """
-    return (
-        await db.scalar(
-            select(func.count())
-            .select_from(Player)
-            .where(
-                Player.match_id == match_id,
-                Player.left_at.is_(None),
-                Player.seat_reserved_until.is_(None),
-            )
-        )
-    ) or 0
+    return await active_player_count(db, match_id, exclude_reserved=True)
 
 
 class SchedulerRegistry:
@@ -310,11 +300,9 @@ class SchedulerRegistry:
                 .all()
             )
             for g in active_games:
-                player_count = await db.scalar(
-                    select(func.count())
-                    .select_from(Player)
-                    .where(Player.match_id == g.id, Player.left_at.is_(None))
-                ) or 0
+                player_count = await active_player_count(
+                    db, g.id, exclude_reserved=False
+                )
                 if player_count == 0:
                     g.state = GameState.CANCELLED
                     g.cancelled_at = now
