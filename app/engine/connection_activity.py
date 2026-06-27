@@ -27,7 +27,7 @@ from app.engine.connection_health import (
     ConnectionHealth,
     ConnectionHealthStatus,
     _HEALTH_PRESENTATION,
-    _within_window,
+    within_window,
     agent_is_defaulting,
     humanize_since,
 )
@@ -303,7 +303,7 @@ async def compute_bot_health(
     non-running connection appear "ready".
     """
     now = now or datetime.now(timezone.utc)
-    warm = _within_window(bot.last_polled_at, now, LOOP_RUNNING_WINDOW_SECONDS)
+    warm = within_window(bot.last_polled_at, now, LOOP_RUNNING_WINDOW_SECONDS)
     last_connected = bot.last_seen_at or bot.first_connected_at
     never = last_connected is None
     last_connected_aware = ensure_aware(last_connected) if last_connected is not None else None

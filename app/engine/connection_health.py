@@ -5,7 +5,7 @@ by responsibility into three focused sibling modules, layered acyclically so eac
 depends only on the ones below it:
 
   - ``connection_health_badge`` — the ``ConnectionHealth`` badge state machine and
-    the liveness primitives every other layer reuses (``_within_window``,
+    the liveness primitives every other layer reuses (``within_window``,
     ``_connection_is_live``, ``humanize_since``, ``agent_is_defaulting``,
     ``compute_connection_health``, the window constants). No deps on the others.
   - ``provider_readiness``      — provider-based coverage and the
@@ -33,7 +33,7 @@ from app.engine.connection_health_badge import (
     ConnectionHealth,
     ConnectionHealthStatus,
     _connection_is_live,
-    _within_window,
+    within_window,
     agent_is_defaulting,
     calm_connection_status,
     compute_connection_health,
@@ -69,7 +69,7 @@ __all__ = [
     "LIVE_WINDOW_SECONDS",
     "_HEARTBEAT_THROTTLE_SECONDS",
     "LOOP_RUNNING_WINDOW_SECONDS",
-    "_within_window",
+    "within_window",
     "humanize_since",
     "ConnectionHealth",
     "_HEALTH_PRESENTATION",

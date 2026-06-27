@@ -2,7 +2,7 @@
 
 This is the base layer of the connection-health surface: the operational-health
 ``ConnectionHealth`` badge state machine plus the small liveness primitives every
-other layer reuses (``_within_window``, ``_connection_is_live``, the window
+other layer reuses (``within_window``, ``_connection_is_live``, the window
 constants). It has no dependency on the provider-readiness or join-gate-capacity
 layers — those build on top of it.
 """
@@ -31,7 +31,7 @@ _HEARTBEAT_THROTTLE_SECONDS = 10
 LOOP_RUNNING_WINDOW_SECONDS = 120
 
 
-def _within_window(dt: datetime | None, now: datetime, window_seconds: int) -> bool:
+def within_window(dt: datetime | None, now: datetime, window_seconds: int) -> bool:
     """True when *dt* is set and within *window_seconds* of *now*.
 
     The shared "warm / live" liveness check: a timestamp counts as fresh when it
@@ -197,7 +197,7 @@ async def compute_connection_health(
     provider is enabled here).
     """
     now = now or datetime.now(timezone.utc)
-    warm = _within_window(connection.last_seen_at, now, LIVE_WINDOW_SECONDS)
+    warm = within_window(connection.last_seen_at, now, LIVE_WINDOW_SECONDS)
     last_connected = connection.last_seen_at or connection.first_connected_at
     never_connected = last_connected is None
     last_connected_at = (
@@ -318,8 +318,4 @@ def _connection_is_live(connection: Connection, now: datetime) -> bool:
     """
     if connection.status == ConnectionStatus.PAUSED:
         return False
-    last_seen = connection.last_seen_at
-    if last_seen is None:
-        return False
-    aware = last_seen if last_seen.tzinfo is not None else last_seen.replace(tzinfo=timezone.utc)
-    return (now - aware).total_seconds() <= LIVE_WINDOW_SECONDS
+    return within_window(connection.last_seen_at, now, LIVE_WINDOW_SECONDS)

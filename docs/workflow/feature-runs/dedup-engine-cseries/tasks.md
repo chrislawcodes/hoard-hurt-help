@@ -16,7 +16,7 @@ Final count must be ≥ baseline + new characterization tests; no test removed/s
 | C3 | unified | one `is_bot_kind` def in `user_match_start`; `turn_drivers._is_bot` + `arena` inline delegate | ✅ Slice 2 |
 | C4 | unified | one `active_player_count` def; watchdog uses `exclude_reserved=False`, start-floor/arena-confirmed `True`, arena-seated `False`; watchdog inline count gone | ☐ |
 | C5 | unified | one `has_moved` def + one `PREGAME_STATES`; `agent_idle` `_UPCOMING_STATES` renamed | ☐ |
-| C6 | unified (required) | `within_window` public; `_connection_is_live` + `provider_loop_running` delegate the window expr, keep PAUSED/None guards + `LOOP_RUNNING_WINDOW_SECONDS` | ☐ |
+| C6 | unified | `within_window` public; `_connection_is_live` + `provider_loop_running` delegate the window expr, keep PAUSED guard + `LOOP_RUNNING_WINDOW_SECONDS` | ✅ Slice 3 |
 | C7 | unified (required) | `_public_standings` calls `_scoreboard_order` | ☐ |
 | C8 | unified | `rg "\.state\s*=\s*GameState\.CANCELLED" app/engine/` → only `match_cancellation.py`; all 7 inline sites call `mark_cancelled` | ☐ |
 
