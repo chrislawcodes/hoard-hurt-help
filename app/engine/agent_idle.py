@@ -41,6 +41,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
+from app.engine.onboarding_states import PREGAME_STATES
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection
 from app.models.match import GameState, Match
@@ -79,7 +80,6 @@ _HAS_GAME_STATES = (
     GameState.SCHEDULED,
     GameState.REGISTERING,
 )
-_UPCOMING_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
 
 
 @dataclass(frozen=True)
@@ -193,7 +193,7 @@ async def game_timing_for_user(
     starts = [
         max(0, int((ensure_aware(start) - now).total_seconds()))
         for state, start in games
-        if state in _UPCOMING_STATES and start is not None
+        if state in PREGAME_STATES and start is not None
     ]
     return GameTiming(
         has_game=bool(games),
