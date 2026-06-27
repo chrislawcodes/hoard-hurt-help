@@ -9,8 +9,8 @@ git_head_sha: "9f8279f0cbec1f4e2b081e2e363c998bab9dad70"
 git_base_ref: "origin/main"
 git_base_sha: "9d36fdc28273b44ec7b04fbdaf747b1b9f18c221"
 generation_method: "claude-subagent"
-resolution_status: "open"
-resolution_note: ""
+resolution_status: "accepted"
+resolution_note: "Spec findings incorporated (rounds 1-3): C2 not-a-clean-duplicate, oracle/characterization tests, C8 site characterization, C6 PAUSED guard, measured baseline. Final spec checkpoint clean."
 raw_output_path: "docs/workflow/feature-runs/dedup-engine-cseries/reviews/spec.claude.feasibility-adversarial.review.md.raw.txt"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -40,5 +40,5 @@ coverage_note: ""
 - total_tokens=0
 
 ## Resolution
-- status: open
-- note: 
+- status: accepted
+- note: Spec findings incorporated (rounds 1-3): C2 not-a-clean-duplicate, oracle/characterization tests, C8 site characterization, C6 PAUSED guard, measured baseline. Final spec checkpoint clean.

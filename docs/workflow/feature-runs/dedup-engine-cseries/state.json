@@ -432,6 +432,18 @@
       "files_written": 5,
       "subprocess_invocations": 54,
       "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-27T01:20:23Z",
+      "wall_seconds": 0.765,
+      "input_bytes_read": 59767,
+      "output_bytes_written": 0,
+      "files_read": 11,
+      "files_written": 0,
+      "subprocess_invocations": 44,
+      "ttl_crossed": false
     }
   ],
   "stages": {
