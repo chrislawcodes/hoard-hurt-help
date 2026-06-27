@@ -1,0 +1,253 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": [],
+    "reviewer": "claude"
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [
+      "D5 selectors differ in seed inputs (_seed_int(profile, context, aid) vs _seed_int(context, aid)) and trust sign/threshold; a shared helper must take the key/seed and ordering as parameters, not hardcode them.",
+      "If a clean shared selector would change any pick, that selector stays as-is (not-a-true-duplicate), like D2.",
+      "Reviews run by independent Claude subagents via prepare-claude-reviews."
+    ],
+    "summary": "Behavior-preserving dedup of the remaining bots D-series: D3 (unify resolve_profile_choice/expand_pack BotProfile mapping) and D5 (unify the seeded trust-tiebreak selection core, preserving every call site's exact seed args and trust ordering). D4 done in #551; D2 intentionally left.",
+    "updated_at": 1782563040,
+    "answers": {},
+    "non_goals": [
+      "D4 (latest_turn primitive) \u2014 already unified in PR #551.",
+      "D2 (leader computation) \u2014 intentionally left; _leader_id and _leader use DIFFERENT seeds (\"leader\" prefix vs context), unsafe to collapse.",
+      "Any change to bot behavior, strategy knobs (trust thresholds/signs), or seeded determinism."
+    ],
+    "acceptance_criteria": [
+      "D3: resolve_profile_choice and expand_pack build BotProfile via one shared mapping; identical BotProfile output for the same entry.",
+      "D5: the shared (+/-trust, seed) selection core is unified WITHOUT changing any call site's exact _seed_int(...) arguments or trust sign/threshold, so the agent chosen for every (context, candidates) is byte-identical.",
+      "Full Preflight green: ruff check . && mypy app/ mcp_server/ && pytest -q; determinism characterization test added for D5."
+    ],
+    "checklist": {
+      "goal": "Eliminate the remaining D-series bot duplication (D3 preset->profile mapping, D5 seeded trust-tiebreak selectors) in app/engine/bots/, behavior-preserving, so bot move/talk selection is byte-identical.",
+      "audience": "Maintainers of the hoard-hurt-help bots engine.",
+      "constraints": "Behavior-preserving only; preserve exact _seed_int argument tuples per call site (the determinism hazard that keeps D2 separate applies to D5). No suppressions; full type annotations; no vague filenames. Claude-only FF run (no Codex/Gemini); Claude subagents run all review gates."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "cbef9fdbc8e79cc3f181fb89564695924e81ade2",
+  "token_usage": [
+    {
+      "stage": "spec",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 6587,
+      "prompt_cap": 250000,
+      "input_tokens": 128428,
+      "output_tokens": 15,
+      "cost_usd_estimate": 0.642515,
+      "timestamp": "2026-06-27T12:28:49.455212Z",
+      "started_at": "2026-06-27T12:28:49.455212Z",
+      "ended_at": "2026-06-27T12:28:49.455212Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 99173,
+      "total_tokens": 47738
+    },
+    {
+      "stage": "spec",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 6588,
+      "prompt_cap": 250000,
+      "input_tokens": 71038,
+      "output_tokens": 13,
+      "cost_usd_estimate": 0.355515,
+      "timestamp": "2026-06-27T12:28:49.525459Z",
+      "started_at": "2026-06-27T12:28:49.525459Z",
+      "ended_at": "2026-06-27T12:28:49.525459Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 227873,
+      "total_tokens": 32221
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 9844,
+      "prompt_cap": 250000,
+      "input_tokens": 69882,
+      "output_tokens": 17,
+      "cost_usd_estimate": 0.349835,
+      "timestamp": "2026-06-27T12:32:08.957790Z",
+      "started_at": "2026-06-27T12:32:08.957790Z",
+      "ended_at": "2026-06-27T12:32:08.957790Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "30e8f8b467ddf65cb94ff9382d076919189c252f8838acd9829c5780d6024bf5",
+      "cache_read_tokens": 130532,
+      "total_tokens": 30812
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 9845,
+      "prompt_cap": 250000,
+      "input_tokens": 49192,
+      "output_tokens": 5,
+      "cost_usd_estimate": 0.246085,
+      "timestamp": "2026-06-27T12:32:09.027629Z",
+      "started_at": "2026-06-27T12:32:09.027629Z",
+      "ended_at": "2026-06-27T12:32:09.027629Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "30e8f8b467ddf65cb94ff9382d076919189c252f8838acd9829c5780d6024bf5",
+      "cache_read_tokens": 65646,
+      "total_tokens": 27583
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 11441,
+      "prompt_cap": 250000,
+      "input_tokens": 71696,
+      "output_tokens": 17,
+      "cost_usd_estimate": 0.358905,
+      "timestamp": "2026-06-27T12:34:23.520736Z",
+      "started_at": "2026-06-27T12:34:23.520736Z",
+      "ended_at": "2026-06-27T12:34:23.520736Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "2b5d7dd5242d33823cc112a44d8ff3dd680e42635fe42d6722dd04e694c32749",
+      "cache_read_tokens": 131753,
+      "total_tokens": 30813
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 11442,
+      "prompt_cap": 250000,
+      "input_tokens": 34836,
+      "output_tokens": 3,
+      "cost_usd_estimate": 0.174255,
+      "timestamp": "2026-06-27T12:34:23.587163Z",
+      "started_at": "2026-06-27T12:34:23.587163Z",
+      "ended_at": "2026-06-27T12:34:23.587163Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "2b5d7dd5242d33823cc112a44d8ff3dd680e42635fe42d6722dd04e694c32749",
+      "cache_read_tokens": 29300,
+      "total_tokens": 26999
+    }
+  ],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-27T12:28:49Z",
+      "wall_seconds": 0.351,
+      "input_bytes_read": 51620,
+      "output_bytes_written": 19376,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-27T12:32:09Z",
+      "wall_seconds": 0.354,
+      "input_bytes_read": 75567,
+      "output_bytes_written": 27308,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-27T12:34:24Z",
+      "wall_seconds": 0.356,
+      "input_bytes_read": 92786,
+      "output_bytes_written": 34396,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-27T12:34:24Z",
+      "wall_seconds": 0.295,
+      "input_bytes_read": 20934,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 3,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "30e8f8b467ddf65cb94ff9382d076919189c252f8838acd9829c5780d6024bf5",
+        "2b5d7dd5242d33823cc112a44d8ff3dd680e42635fe42d6722dd04e694c32749",
+        "fe3c758bb8122db83d370336f5e9f6c00cb850d43d5157679ae7666583201908"
+      ],
+      "initial_sha": "30e8f8b467ddf65cb94ff9382d076919189c252f8838acd9829c5780d6024bf5"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 3,
+  "last_action_result": {
+    "next": "author_plan",
+    "reason": "spec checkpoint completed",
+    "blockers": []
+  }
+}
