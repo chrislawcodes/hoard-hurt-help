@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine.bot_presets import BOT_PRESETS, allocate_default_bot_names, bot_presets
 from app.engine.match_creation import create_match
 from app.engine.bots.seating import BotSeatingError, add_bots_to_game
+from app.engine.user_match_start import is_bot_kind
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -294,7 +295,7 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
             )
         ).all()
         has_external_agent = any(
-            kind not in (AgentKind.BOT, AgentKind.BOT.value) for _, kind in active_players
+            not is_bot_kind(kind) for _, kind in active_players
         )
         if not has_external_agent:
             match.state = GameState.CANCELLED
