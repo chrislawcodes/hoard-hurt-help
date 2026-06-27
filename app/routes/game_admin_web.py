@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, stat
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
+from app.aware_datetime import ensure_aware
 from app.deps import DbSession, require_game_admin
 from app.engine.bots.roster import personality_display_name
 from app.engine.match_creation import create_match_with_state, player_count_error
@@ -144,8 +145,7 @@ async def create_match_submit(
         when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
     except ValueError:
         return _error("Could not read the start time. Please pick a date and time.")
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
+    when = ensure_aware(when)
     if when <= datetime.now(timezone.utc):
         return _error("Start time must be in the future.")
     count_error = player_count_error(

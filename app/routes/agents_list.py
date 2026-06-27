@@ -6,7 +6,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
 from starlette.responses import Response
 
 from app.deps import DbSession, require_user_with_handle
@@ -16,7 +15,7 @@ from app.engine.connection_health import (
     ProviderReadiness,
     user_play_readiness,
 )
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.user import User
 from app.routes.agents_health_presenter import (
@@ -25,22 +24,19 @@ from app.routes.agents_health_presenter import (
     _readiness_state,
     health_view,
 )
+from app.routes.agents_queries import user_agents_select
 from app.templating import templates
 
 router = APIRouter()
 
 
 async def _load_user_agents(db: DbSession, user_id: int) -> list[tuple[Agent, AgentVersion | None]]:
+    # AI agents only, newest-first, returned as raw (agent, version) tuples.
     rows = (
         await db.execute(
-            select(Agent, AgentVersion)
-            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-            .where(
-                Agent.user_id == user_id,
-                Agent.kind == AgentKind.AI,
-                Agent.archived_at.is_(None),
+            user_agents_select(user_id, ai_only=True).order_by(
+                Agent.created_at.desc(), Agent.id.desc()
             )
-            .order_by(Agent.created_at.desc(), Agent.id.desc())
         )
     ).all()
     return [(agent, version) for agent, version in rows]

@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from starlette.responses import Response
 
+from app.aware_datetime import ensure_aware
 from app.deps import DbSession, require_user
 from app.identity import handle as handle_mod
 from app.identity import word_filter
@@ -43,9 +44,7 @@ def _cooldown_until(user: User) -> datetime | None:
     """When the user may next change their handle, or None if free to change."""
     if user.handle is None or user.handle_changed_at is None:
         return None
-    changed = user.handle_changed_at
-    if changed.tzinfo is None:
-        changed = changed.replace(tzinfo=timezone.utc)
+    changed = ensure_aware(user.handle_changed_at)
     until = changed + timedelta(days=handle_mod.CHANGE_COOLDOWN_DAYS)
     return until if datetime.now(timezone.utc) < until else None
 

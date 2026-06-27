@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Path
 from sqlalchemy import select
 
 from app.deps import DbSession
@@ -14,6 +14,7 @@ from app.read_models.matches import (
     load_players,
     load_scoreboard,
 )
+from app.routes.game_admin_actions import load_match_or_404
 from app.schemas.spectator import (
     SpectatorAction,
     SpectatorAgent,
@@ -66,9 +67,7 @@ async def public_state(
     match_id: Annotated[str, Path()],
     db: DbSession,
 ) -> SpectatorState:
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
+    g = await load_match_or_404(db, match_id)
     module = get_game_module(g.game)
     players = await load_players(db, match_id)
     timeline = await load_match_timeline(db, match_id)

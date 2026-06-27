@@ -23,12 +23,13 @@ from app.engine.connection_health import (
     compute_connection_health,
     provider_uses_mcp_connection,
 )
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
 from app.provider_labels import provider_label
+from app.routes.agents_queries import user_agents_select
 from app.routes.connections_connect_guide import _play_prompt
 
 
@@ -58,14 +59,7 @@ async def _load_user_agents(db: DbSession, user_id: int) -> list[AgentRow]:
     rows = (
         (
             await db.execute(
-                select(Agent, AgentVersion)
-                .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-                .where(
-                    Agent.user_id == user_id,
-                    Agent.kind == AgentKind.AI,
-                    Agent.archived_at.is_(None),
-                )
-                .order_by(Agent.name)
+                user_agents_select(user_id, ai_only=True).order_by(Agent.name)
             )
         )
         .all()
@@ -79,14 +73,7 @@ async def _load_attached_agents(db: DbSession, connection: Connection) -> list[A
     rows = (
         (
             await db.execute(
-                select(Agent, AgentVersion)
-                .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-                .where(
-                    Agent.user_id == connection.user_id,
-                    Agent.kind == AgentKind.AI,
-                    Agent.archived_at.is_(None),
-                )
-                .order_by(Agent.name)
+                user_agents_select(connection.user_id, ai_only=True).order_by(Agent.name)
             )
         )
         .all()
@@ -119,14 +106,8 @@ async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
     rows = (
         (
             await db.execute(
-                select(Agent, AgentVersion)
-                .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-                .where(
-                    Agent.user_id == user_id,
-                    Agent.kind == AgentKind.AI,
-                    Agent.status == AgentStatus.ACTIVE,
-                    Agent.archived_at.is_(None),
-                )
+                user_agents_select(user_id, ai_only=True)
+                .where(Agent.status == AgentStatus.ACTIVE)
                 .order_by(Agent.name)
             )
         )

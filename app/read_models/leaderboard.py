@@ -101,10 +101,6 @@ class _CompetitorState:
     provider: str | None = None
 
 
-def _agent_display_name(agent: Agent, version: AgentVersion | None) -> str:
-    return agent_display_name(agent, version)
-
-
 def _competitor_key(agent: Agent) -> str:
     """Leaderboard grouping key. Preset bots are re-seated as a fresh per-match
     agent each game, so group them by their stable profile (as the old bot board
@@ -227,7 +223,7 @@ async def _load_match_bundles(db: AsyncSession) -> dict[str, _MatchBundle]:
                 *bundle.participants,
                 _Participant(
                     competitor_key=_competitor_key(agent),
-                    display_name=_agent_display_name(agent, version),
+                    display_name=agent_display_name(agent, version),
                     owner_handle=None if agent.kind == AgentKind.BOT else user.handle,
                     is_bot=agent.kind == AgentKind.BOT,
                     is_archived=agent.archived_at is not None,
