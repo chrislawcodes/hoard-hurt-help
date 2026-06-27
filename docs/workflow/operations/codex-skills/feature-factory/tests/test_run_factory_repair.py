@@ -403,7 +403,12 @@ class RepairDecisionTests(unittest.TestCase):
         with patch.object(
             NEXT_ACTION_MODULE,
             "diff_review_budget_state",
-            return_value={"head_mismatch": True, "recorded_head_sha": "abc123", "current_head_sha": "def456"},
+            return_value={
+                "head_mismatch": True,
+                "in_scope_change": True,
+                "recorded_head_sha": "abc123",
+                "current_head_sha": "def456",
+            },
         ):
             action = MODULE.recommended_next_action(
                 "feature-workflow-repair",
@@ -416,6 +421,33 @@ class RepairDecisionTests(unittest.TestCase):
                 True,
             )
         self.assertEqual(action, "run_diff_checkpoint")
+
+    def test_recommended_next_action_ignores_bookkeeping_only_diff_head_move(self) -> None:
+        # HEAD moved only for the factory's own post-diff commits (in_scope_change
+        # False): the run must move on toward delivery/done, not loop back to diff.
+        stages = {
+            "spec": stage_state(artifact_exists=True, artifact_meaningful=True, manifest_exists=True, healthy=True),
+            "plan": stage_state(artifact_exists=True, artifact_meaningful=True, manifest_exists=True, healthy=True),
+            "tasks": stage_state(artifact_exists=True, artifact_meaningful=True, manifest_exists=True, healthy=True),
+            "diff": stage_state(artifact_exists=True, artifact_meaningful=True, manifest_exists=True, healthy=True),
+            "closeout": stage_state(),
+        }
+        with patch.object(
+            NEXT_ACTION_MODULE,
+            "diff_review_budget_state",
+            return_value={"head_mismatch": True, "in_scope_change": False},
+        ):
+            action = MODULE.recommended_next_action(
+                "feature-workflow-repair",
+                {
+                    "blocked": {"active": False},
+                    "delivery": {},
+                    "parallel_analysis": {"reviewed": True, "found": False, "note": "", "updated_at": 0},
+                },
+                stages,
+                True,
+            )
+        self.assertNotEqual(action, "run_diff_checkpoint")
 
     def test_preferred_diff_base_ref_uses_last_reviewed_head_for_resumed_slice(self) -> None:
         with patch.object(
