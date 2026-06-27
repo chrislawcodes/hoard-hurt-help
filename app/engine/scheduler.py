@@ -36,6 +36,7 @@ from app.aware_datetime import ensure_aware
 from app.broadcast import publish
 from app.db import SessionLocal
 from app.engine.bots.service import auto_submit_bot_phase
+from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
 from app.engine.scheduler_turn_loop import (
     SimultaneousDriver,
@@ -171,8 +172,7 @@ class SchedulerRegistry:
                     started += 1
                     logger.info("auto-started %s with %d players", g.id, count)
                 else:
-                    g.state = GameState.CANCELLED
-                    g.cancelled_at = now
+                    mark_cancelled(g, now)
                     await db.commit()
                     logger.info(
                         "auto-cancelled %s: %d players at start time (< %d)",
@@ -304,8 +304,7 @@ class SchedulerRegistry:
                     db, g.id, exclude_reserved=False
                 )
                 if player_count == 0:
-                    g.state = GameState.CANCELLED
-                    g.cancelled_at = now
+                    mark_cancelled(g, now)
                     log_ops_event(
                         logger,
                         logging.WARNING,
@@ -385,8 +384,7 @@ async def cancel_overdue_unfilled_games(db) -> int:
         count = await _active_player_count(db, g.id)
         if count >= MIN_PLAYERS_TO_START:
             continue  # due and full — leave it for the poller to start
-        g.state = GameState.CANCELLED
-        g.cancelled_at = now
+        mark_cancelled(g, now)
         cancelled += 1
         logger.info(
             "lobby-cancelled %s: %d players at start time (< %d)",

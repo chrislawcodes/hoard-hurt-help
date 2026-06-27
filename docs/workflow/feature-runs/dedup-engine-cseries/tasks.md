@@ -18,7 +18,7 @@ Final count must be ≥ baseline + new characterization tests; no test removed/s
 | C5 | unified | one `has_moved` + one `PREGAME_STATES` in `onboarding_states.py`; `agent_idle._UPCOMING_STATES` replaced; mark_first_move (.limit(2), out of scope) untouched | ✅ Slice 6 |
 | C6 | unified | `within_window` public; `_connection_is_live` + `provider_loop_running` delegate the window expr, keep PAUSED guard + `LOOP_RUNNING_WINDOW_SECONDS` | ✅ Slice 3 |
 | C7 | unified | `_public_standings` calls `_scoreboard_order` | ✅ Slice 4 |
-| C8 | unified | `rg "\.state\s*=\s*GameState\.CANCELLED" app/engine/` → only `match_cancellation.py`; all 7 inline sites call `mark_cancelled` | ☐ |
+| C8 | unified | `rg "\.state = GameState.CANCELLED" app/engine/` → only `match_cancellation.py`; all 7 inline sites + cancel_match call `mark_cancelled` (each keeps own now/commit; cancel_match keeps registry.stop) | ✅ Slice 7 |
 
 ## Slices
 

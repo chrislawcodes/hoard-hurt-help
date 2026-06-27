@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.match_cancellation import mark_cancelled
 from app.engine.scheduler import registry
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -38,8 +39,7 @@ async def cancel_match(db: AsyncSession, match: Match) -> None:
     is a no-op when the match has no running task (e.g. a pre-start match).
     """
     registry.stop(match.id)
-    match.state = GameState.CANCELLED
-    match.cancelled_at = datetime.now(timezone.utc)
+    mark_cancelled(match, datetime.now(timezone.utc))
     await db.commit()
 
 

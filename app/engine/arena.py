@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine.bot_presets import BOT_PRESETS, allocate_default_bot_names, bot_presets
 from app.engine.match_creation import create_match
 from app.engine.bots.seating import BotSeatingError, add_bots_to_game
+from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
 from app.engine.user_match_start import is_bot_kind
 from app.models.agent import Agent, AgentKind
@@ -171,8 +172,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
             and existing.max_players == PRACTICE_ARENA_MAX_PLAYERS
         ):
             return
-        existing.state = GameState.CANCELLED
-        existing.cancelled_at = datetime.now(timezone.utc)
+        mark_cancelled(existing, datetime.now(timezone.utc))
         await db.commit()
 
     presets = bot_presets()
@@ -283,8 +283,7 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
             not is_bot_kind(kind) for _, kind in active_players
         )
         if not has_external_agent:
-            match.state = GameState.CANCELLED
-            match.cancelled_at = now
+            mark_cancelled(match, now)
             await db.commit()
             logger.info(
                 "Cancelled auto-match %s: no external agents joined.", match_id
@@ -314,8 +313,7 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
                     # before mutating it so we don't touch a stale in-memory state.
                     fresh = await db.get(Match, match_id)
                     if fresh is not None:
-                        fresh.state = GameState.CANCELLED
-                        fresh.cancelled_at = now
+                        mark_cancelled(fresh, now)
                         await db.commit()
                     continue
 

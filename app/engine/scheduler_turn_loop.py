@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
 from app.engine import resolver
+from app.engine.match_cancellation import mark_cancelled
 from app.engine.tokens import generate_turn_token
 from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
 from app.engine.turn_drivers import SequentialDriver, TurnDriver
@@ -208,8 +209,7 @@ async def _run_game(match_id: str) -> None:
         try:
             module = get_game_module(game.game)
         except GameError:
-            game.state = GameState.CANCELLED
-            game.cancelled_at = datetime.now(timezone.utc)
+            mark_cancelled(game, datetime.now(timezone.utc))
             await db.commit()
             log_ops_event(
                 scheduler.logger,
