@@ -12,7 +12,7 @@ Final count must be ≥ baseline + new characterization tests; no test removed/s
 | Cluster | Disposition | Presence check | Status |
 |---|---|---|---|
 | C1 | unified | one `SUBMIT_POLL_SECONDS` assign + one `now_utc` def in `turn_clock.py`; no `_now`/inline `datetime.now(timezone.utc)` left in the two drivers (cancel-site `now` at C8) | ✅ Slice 1 |
-| C2 | **expected: not-a-true-duplicate** | divergence documented at both openers (or single `open_turn_row` if clean) | ☐ |
+| C2 | **not-a-true-duplicate** | divergence documented at both openers (get-or-create + current_round write vs blind INSERT); guarded by tests/test_turn_openers.py | ✅ Slice 8 |
 | C3 | unified | one `is_bot_kind` def in `user_match_start`; `turn_drivers._is_bot` + `arena` inline delegate | ✅ Slice 2 |
 | C4 | unified | one `active_player_count` def in `player_counts.py`; watchdog `exclude_reserved=False`, start-floor/arena-confirmed `True`, arena-seated `False`; watchdog inline count gone | ✅ Slice 5 |
 | C5 | unified | one `has_moved` + one `PREGAME_STATES` in `onboarding_states.py`; `agent_idle._UPCOMING_STATES` replaced; mark_first_move (.limit(2), out of scope) untouched | ✅ Slice 6 |

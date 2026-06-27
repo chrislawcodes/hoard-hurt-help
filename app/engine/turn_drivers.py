@@ -188,6 +188,13 @@ class SequentialDriver:
     ) -> Turn:
         # Sequential turns are act-only (no talk phase): the message rides with
         # the move (Liar's Dice design D-5).
+        #
+        # Deliberately NOT unified with scheduler_turn_loop._open_turn (the
+        # simultaneous opener): this one is a blind INSERT that writes only
+        # `current_turn` (the SequentialDriver owns `current_round` in
+        # run_match), while _open_turn is a get-or-create that writes both
+        # pointers. Those are structural differences, not parameters — see the
+        # C2 dedup note and tests/test_turn_openers.py.
         now = now_utc()
         turn = Turn(
             match_id=game.id,

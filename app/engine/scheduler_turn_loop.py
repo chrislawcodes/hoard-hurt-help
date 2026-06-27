@@ -283,6 +283,11 @@ async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
     INSERT would hit uq_turns_game_id_round_turn and kill the whole game loop, so
     we get-or-create: an existing row is handed back unchanged and the caller
     decides (via resolved_at) whether it still needs resolving.
+
+    Deliberately NOT unified with turn_drivers.SequentialDriver._open_actor_turn
+    (the sequential opener): that one is a blind INSERT writing only
+    `current_turn`, with no resume guard. The get-or-create + the `current_round`
+    write here are structural, not parameters — see tests/test_turn_openers.py.
     """
     existing = (
         await db.execute(
