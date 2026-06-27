@@ -430,6 +430,14 @@ def build_parser() -> argparse.ArgumentParser:
              "more than 200 lines without a Codex dispatch. Requires --override-implementation-reason.")
     deliver_parser.add_argument("--override-implementation-reason",
         help="Reason for overriding the implementation-rule WARN. Must be at least 10 characters.")
+    deliver_parser.add_argument("--pr-number", dest="pr_number", type=int, default=None,
+        help="PR number for the Claude-only web path (no gh CLI). When provided "
+             "with --pr-url, deliver records the delivery snapshot from these "
+             "values and skips all gh queries.")
+    deliver_parser.add_argument("--pr-url", dest="pr_url", default=None,
+        help="PR URL for the Claude-only web path (no gh CLI). Pairs with --pr-number.")
+    deliver_parser.add_argument("--merge-sha", dest="merge_sha", default=None,
+        help="Merge commit SHA for the Claude-only web path (no gh CLI). Optional.")
     deliver_parser.set_defaults(func=command_deliver)
 
     closeout_parser = subparsers.add_parser(

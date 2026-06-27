@@ -13,6 +13,15 @@ It is **additive**: the default Codex implement path (`feature-implement` /
 `run_factory.py implement`) is unchanged. Use this skill instead when you want the
 build step on Claude.
 
+> **Use the repo virtualenv for every `pytest` / `mypy` / `ruff`.** You and any
+> subagent MUST run the preflight tools through the repo venv —
+> `.venv/bin/pytest`, `.venv/bin/mypy`, `.venv/bin/ruff` — **not** system
+> `python3 -m pytest`. System python lacks the app's dependencies, so it reports
+> bogus import errors and a broken baseline, which produces wrong findings. (A
+> real run hit this: system python flagged the baseline as broken when it wasn't.)
+> If `.venv` is missing, create/populate it first; never fall back to system
+> python to "make it run."
+
 ## The core swap
 
 In the Codex path, `run_factory.py implement` dispatches `codex exec` workers to
@@ -38,11 +47,13 @@ From the repo root, before reviewing or committing:
 
 ```bash
 cd $(git rev-parse --show-toplevel)
-python3 -m ruff check . && mypy app/ mcp_server/ && pytest -q
+.venv/bin/ruff check . && .venv/bin/mypy app/ mcp_server/ && .venv/bin/pytest -q
 ```
 
-Fix the root cause of any failure — no suppressions. (Small-change lane and the
-fast test lane from `CLAUDE.md` apply as usual.)
+Run these through the repo venv (`.venv/bin/...`), never system `python3` — see
+the venv note at the top of this skill. Fix the root cause of any failure — no
+suppressions. (Small-change lane and the fast test lane from `CLAUDE.md` apply as
+usual.)
 
 ### 3. Commit the slice
 Commit the slice's changes so the diff has a stable HEAD to review against.

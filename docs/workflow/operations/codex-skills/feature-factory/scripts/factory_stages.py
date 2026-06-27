@@ -87,10 +87,22 @@ STAGE_ARTIFACT_HEADINGS = {
     "tasks": "# Tasks",
 }
 
-# Matches [CHECKPOINT] as a marker on any list-item line (unordered, ordered, checkbox).
-# Anchored to end-of-line to avoid matching [CHECKPOINT] mid-sentence.
+# Matches [CHECKPOINT] as a marker line. Two accepted shapes:
+#   - markdown heading where the marker leads the title:
+#       "### [CHECKPOINT] Slice 1 — Foo"   (any level 1-6; trailing title text ok)
+#   - list item ENDING in the marker (unordered, ordered, or checkbox):
+#       "- Task A [CHECKPOINT]"  "* B [CHECKPOINT]"  "1. C [CHECKPOINT]"
+#       "- [ ] D [CHECKPOINT]"   "- [x] E [CHECKPOINT]"
+# Headings allow trailing text (the slice title) because the marker leads; list
+# items must end in the marker, so a mid-sentence mention inside a list item — e.g.
+# "- [ ] Explain how [CHECKPOINT] works" — is NOT treated as a slice boundary.
+# A bare "[CHECKPOINT]" in prose (no heading/list prefix) never matches.
 _CHECKPOINT_MARKER_RE = re.compile(
-    r"^\s*(?:[-*]|\d+\.|-\s+\[[ xX]\])\s+.*\[CHECKPOINT\]\s*$",
+    r"^\s*(?:"
+    r"#{1,6}\s+\[CHECKPOINT\].*"  # heading: marker leads the title
+    r"|"
+    r"(?:[-*]|\d+\.|-\s+\[[ xX]\])\s+.*\[CHECKPOINT\][^\S\n]*"  # list item ending in marker
+    r")$",
     re.MULTILINE,
 )
 
