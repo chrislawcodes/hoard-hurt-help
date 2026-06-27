@@ -47,10 +47,10 @@
   "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
-    "reviewed": false,
+    "reviewed": true,
     "found": false,
-    "note": "",
-    "updated_at": 0
+    "note": "Sequential; D3 (presets.py) and D5 (strategies.py/runtime.py) small + independent, one agent ordered slices.",
+    "updated_at": 1782564048
   },
   "init_head_sha": "cbef9fdbc8e79cc3f181fb89564695924e81ade2",
   "token_usage": [
@@ -287,6 +287,18 @@
       "files_written": 0,
       "subprocess_invocations": 30,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-27T12:40:49Z",
+      "wall_seconds": 0.668,
+      "input_bytes_read": 137426,
+      "output_bytes_written": 46399,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -307,6 +319,14 @@
         "6d6b48deb87bbb20c2df628353c06c4345a7a6ab14ba7c1deb4304b37b8e011c"
       ],
       "initial_sha": "6d6b48deb87bbb20c2df628353c06c4345a7a6ab14ba7c1deb4304b37b8e011c"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "082692dc26a5c05edc8498f56b8e6ada774a7de8ebbf882f3de0236c981a4961"
+      ],
+      "initial_sha": "082692dc26a5c05edc8498f56b8e6ada774a7de8ebbf882f3de0236c981a4961"
     }
   },
   "invariant_warnings": [],
@@ -318,9 +338,10 @@
   },
   "spec_adversarial_rounds": 3,
   "last_action_result": {
-    "next": "author_tasks",
-    "reason": "plan checkpoint completed",
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
     "blockers": []
   },
-  "plan_adversarial_rounds": 1
+  "plan_adversarial_rounds": 1,
+  "tasks_adversarial_rounds": 1
 }

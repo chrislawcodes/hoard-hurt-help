@@ -1,7 +1,7 @@
 # Tasks — Bots D3 + D5 dedup
 
 From `plan.md`. Each `[CHECKPOINT]` = full Preflight + commit. Anchors resolved by
-symbol/grep. Baseline (Slice 0): `.venv/bin/pytest -q --co` count = **<fill at Slice 0>**;
+symbol/grep. Baseline (Slice 0): `.venv/bin/pytest -q --co` count = **1331**;
 sorted test-ID list saved to `reviews/base-test-ids.txt` for the AC4 diff.
 
 ## D5 disposition ledger (fill during Slice 2 — all 6 sites)
@@ -23,7 +23,7 @@ sorted test-ID list saved to `reviews/base-test-ids.txt` for the AC4 diff.
 ### [CHECKPOINT] Slice 0 — baseline (no code)
 - `.venv/bin/pytest -q --co -q | sort > reviews/base-test-ids.txt`; record the count here.
 
-### [CHECKPOINT] Slice 1 — D3 (tests-first)
+### [CHECKPOINT] Slice 1 — D3 (tests-first) ✅ unified
 - Add `tests/test_bot_presets_profile.py`: assert `resolve_profile_choice("P:0")` ==
   `expand_pack("P")[0]` for `P=fixture_zero_floor` (hidden → `fixture_pack="fixture_zero_floor"`)
   AND `P=mixed_20` (non-hidden → `fixture_pack=None`); also vary `seed_base` to pin
