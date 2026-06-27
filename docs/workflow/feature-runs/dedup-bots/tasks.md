@@ -8,12 +8,12 @@ sorted test-ID list saved to `reviews/base-test-ids.txt` for the AC4 diff.
 
 | Site (file:line) | sign | access | seed | disposition | proof |
 |---|---|---|---|---|---|
-| `strategies._probe_target` | favor-high | `.get` | `(profile,context,aid,turn)` | TBD | |
-| `strategies._best_partner` | favor-high | `[aid]` | `(profile,context,aid)` | TBD | |
-| `strategies._most_hostile` | favor-low | `[aid]` | `(profile,context,aid)` | TBD | |
-| `strategies._choose_from_candidates` (favor_high) | favor-high | `.get` | `(context,aid)` | TBD | |
-| `strategies._choose_from_candidates` (favor_low) | favor-low | `.get` | `(context,aid)` | TBD | |
-| `runtime._talk_target` | favor-high | `.get` | `(profile,context,aid)` | TBD | |
+| `strategies._probe_target` | favor-high | `.get` | `(profile,context,aid,turn)` | not-a-true-duplicate | byte-unchanged vs origin/main; pinned by test_bot_selectors.py |
+| `strategies._best_partner` | favor-high | `[aid]` | `(profile,context,aid)` | not-a-true-duplicate | byte-unchanged vs origin/main; pinned by test_bot_selectors.py |
+| `strategies._most_hostile` | favor-low | `[aid]` | `(profile,context,aid)` | not-a-true-duplicate | byte-unchanged vs origin/main; pinned by test_bot_selectors.py |
+| `strategies._choose_from_candidates` (favor_high) | favor-high | `.get` | `(context,aid)` | not-a-true-duplicate | byte-unchanged vs origin/main; pinned by test_bot_selectors.py |
+| `strategies._choose_from_candidates` (favor_low) | favor-low | `.get` | `(context,aid)` | not-a-true-duplicate | byte-unchanged vs origin/main; pinned by test_bot_selectors.py |
+| `runtime._talk_target` | favor-high | `.get` | `(profile,context,aid)` | not-a-true-duplicate | byte-unchanged vs origin/main; pinned by test_bot_selectors.py |
 
 `unified` → per-site recorded-pick test (≥2 distinguishing inputs) + `rg` absence proof.
 `not-a-true-duplicate` → byte-unchanged proof (`git diff origin/main -- <file>`) + reason.
@@ -33,7 +33,7 @@ sorted test-ID list saved to `reviews/base-test-ids.txt` for the AC4 diff.
 - Presence: `rg "BotProfile\(" app/engine/bots/presets.py` → one construction site
   (`_entry_to_profile`). Full Preflight.
 
-### [CHECKPOINT] Slice 2 — D5 (tests-first, adjudicate)
+### [CHECKPOINT] Slice 2 — D5 (tests-first, adjudicate) ✅ all 6 not-a-true-duplicate
 - Add `tests/test_bot_selectors.py`: per-site recorded-pick tests for each site intended
   to route — ≥2 inputs that PRODUCE DIFFERENT picks; for `_probe_target`, a turn-only pair
   that FLIPS the pick. Commit + green on base BEFORE any `pick_by_trust` edit.
