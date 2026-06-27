@@ -180,7 +180,7 @@ def sorted_seat_names(seat_name_by_agent_id: dict[int, str]) -> list[str]:
 
 
 def _public_standings(players: Sequence[Player]) -> list[StandingRow]:
-    ordered = sorted(players, key=lambda player: (-player.current_round_score, player.seat_name))
+    ordered = _scoreboard_order(players)
     return [
         StandingRow(
             agent_id=player.seat_name,
