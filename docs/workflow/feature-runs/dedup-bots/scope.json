@@ -1,0 +1,9 @@
+{
+  "paths": [
+    "app/engine/bots"
+  ],
+  "allowed_dirty_paths": [
+    "app/engine/bots",
+    "docs/workflow/feature-runs/dedup-bots"
+  ]
+}

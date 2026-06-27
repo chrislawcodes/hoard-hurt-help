@@ -9,11 +9,13 @@
 
 | Goal | Status | Notes |
 |------|--------|-------|
-| Feature Factory in this repo | 🟡 In progress | Engine ported from ValueRank; first full **Claude-only** run (spec→plan→tasks→impl→diff via `prepare-claude-reviews`) completed end-to-end on `dedup-engine-cseries` (PR #559) |
+| Feature Factory in this repo | 🟡 In progress | Engine ported from ValueRank; two full **Claude-only** runs completed end-to-end via `prepare-claude-reviews` (`dedup-engine-cseries` PR #559, `dedup-bots` PR #563) |
 
 ---
 
 ## Recently Shipped
+
+- **Bots D-series duplication cleanup** ([PR #563](https://github.com/chrislawcodes/hoard-hurt-help/pull/563), open) — the final actionable duplication-inventory item, a Claude-only Feature Factory run. **D3 unified** (`_entry_to_profile` in `presets.py`; `resolve_profile_choice` + `expand_pack` delegate). **D5** (6 seeded trust-tiebreak selectors) was adjudicated **not-a-true-duplicate** across all 6 sites — both plan-review lenses judged a `pick_by_trust` helper to be over-abstraction (per-site seed args / `[]`-vs-`.get` access / sign differ, so caller closures add determinism risk with no real dedup); sites left byte-unchanged and pinned by a new determinism regression test. D4 was already unified (#551); D2 stays separate (different seeds). Full Preflight green: ruff + mypy (183 files) + **1338 tests** (1331 + 7 new). Run artifacts: `docs/workflow/feature-runs/dedup-bots/`. **The actionable duplication inventory is now closed** (remaining items — D2, F1 SWR caches, C7 dict/schema pair, E2 — are intentional; one tiny `load_match_or_404`/`_load_match_or_404` follow-up noted in #560).
 
 - **Engine C-series duplication cleanup** ([PR #559](https://github.com/chrislawcodes/hoard-hurt-help/pull/559), open) — behavior-preserving dedup of the `app/engine/` "C-series" duplication from the inventory, the first full **Claude-only** Feature Factory run (spec 3 review rounds → plan 2 rounds → 8 tests-first diff-reviewed slices → whole-branch regression review, all via `prepare-claude-reviews` with no Codex/Gemini binaries). Unified: turn-loop clock (`turn_clock.py`), the `is_bot_kind` predicate, non-left player counts (`player_counts.py`, reserved-aware), onboarding `has_moved`/`PREGAME_STATES` (`onboarding_states.py`), the `within_window` liveness check, the standings sort, and the field-only match-cancel transition (`match_cancellation.py`, 7 inline sites + `cancel_match`). C2 (turn-row openers) was correctly diagnosed as **not-a-true-duplicate** (get-or-create vs blind INSERT) and documented rather than force-merged. Full Preflight green: ruff + mypy (183 files) + **1331 tests** (baseline 1317 + 14 new characterization tests). Run artifacts: `docs/workflow/feature-runs/dedup-engine-cseries/`. The earlier B1/E1/D1 cluster batch shipped in PR #551.
 
