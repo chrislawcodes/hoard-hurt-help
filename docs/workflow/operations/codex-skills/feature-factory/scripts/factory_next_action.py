@@ -65,7 +65,9 @@ def recommended_next_action(
         return "dispatch_next_slice_to_codex"
     if not stages["diff"]["manifest_exists"] or not stages["diff"]["healthy"]:
         return "run_diff_checkpoint"
-    if diff_review_budget_state(slug).get("head_mismatch"):
+    # Re-run the diff only when reviewed-scope code changed since the review — the
+    # factory's own post-diff bookkeeping commits must not block reaching `done`.
+    if diff_review_budget_state(slug).get("in_scope_change"):
         return "run_diff_checkpoint"
     if not reconciliation_ok:
         return "reconcile_reviews"

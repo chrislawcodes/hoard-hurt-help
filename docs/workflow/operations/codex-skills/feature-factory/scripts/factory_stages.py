@@ -179,6 +179,68 @@ def verify_checkpoint_manifest(manifest_path: Path) -> tuple[bool, str]:
 # Diff review budget
 # ---------------------------------------------------------------------------
 
+# Files the factory itself commits AFTER the diff stage (closeout.md, postmortem.md,
+# state.json, reviews under the run dir, and STATUS.md). When the diff has no
+# explicit scope (a whole-branch diff), changes confined to these must NOT re-open a
+# clean diff review — otherwise the run's own finishing commits keep it `repairable`
+# forever and it can never reach `done`. With an explicit scope these are excluded
+# automatically (they aren't code paths), so this list only guards the no-scope case.
+_DIFF_BOOKKEEPING_PREFIXES = ("docs/workflow/feature-runs/", "STATUS.md")
+
+
+def _diff_changed_files(base_sha: str, head_sha: str) -> list[str] | None:
+    """Repo-relative paths changed between two commits, or None if git can't tell."""
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "diff", "--name-only", f"{base_sha}..{head_sha}"],
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return None
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _path_in_diff_scope(path: str, scope_paths: list[str]) -> bool:
+    """True if path is within the reviewed scope. Empty scope = whole branch (matches all)."""
+    if not scope_paths:
+        return True
+    norm = path.rstrip("/")
+    for raw in scope_paths:
+        prefix = raw.rstrip("/")
+        if prefix and (norm == prefix or norm.startswith(prefix + "/")):
+            return True
+    return False
+
+
+def _is_diff_bookkeeping_path(path: str) -> bool:
+    return any(path == prefix or path.startswith(prefix) for prefix in _DIFF_BOOKKEEPING_PREFIXES)
+
+
+def _diff_has_in_scope_change(slug: str, recorded_head: str, current_head: str, head_mismatch: bool) -> bool:
+    """Did reviewed-scope code change since the diff was last reviewed?
+
+    Returns False when HEAD is unchanged, or when only out-of-scope / factory
+    bookkeeping files changed — so a clean diff review can reach `done` even though
+    closeout/postmortem/STATUS commits move HEAD afterward. Returns True (→ re-review)
+    when any in-scope file changed, OR when history was rewritten (recorded head is no
+    longer an ancestor) or git can't diff: fail toward re-review, never a silent done.
+    """
+    if not head_mismatch:
+        return False
+    if not (recorded_head and is_ancestor_of_head(recorded_head)):
+        return True  # rebase/amend rewrote history — the reviewed diff can't be trusted
+    changed = _diff_changed_files(recorded_head, current_head)
+    if changed is None:
+        return True
+    scope_paths = list(load_scope_manifest(slug).get("paths", []) or [])
+    for path in changed:
+        if not _path_in_diff_scope(path, scope_paths):
+            continue
+        if _is_diff_bookkeeping_path(path):
+            continue
+        return True
+    return False
+
 
 def diff_review_budget_state(slug: str) -> dict[str, object]:
     artifact_path = default_artifact_path(slug, "diff")
@@ -192,6 +254,7 @@ def diff_review_budget_state(slug: str) -> dict[str, object]:
         "recorded_head_sha": "",
         "current_head_sha": _git_head_sha(REPO_ROOT) or "",
         "head_mismatch": False,
+        "in_scope_change": False,
         "scope_basis": "branch-merge-base",
         "suggested_base_ref": "",
         "codex_review_path": None,
@@ -213,6 +276,12 @@ def diff_review_budget_state(slug: str) -> dict[str, object]:
     recorded_base_sha = str(state["recorded_base_sha"])
     current_head = str(state["current_head_sha"])
     state["head_mismatch"] = bool(recorded_head and current_head and recorded_head != current_head)
+    # Whether the run can still reach `done`: HEAD moving for the factory's own
+    # bookkeeping commits (closeout/postmortem/STATUS) must not re-open a clean diff,
+    # but a real in-scope code change must. See _diff_has_in_scope_change.
+    state["in_scope_change"] = _diff_has_in_scope_change(
+        slug, recorded_head, current_head, bool(state["head_mismatch"])
+    )
     # Pick the base for the NEXT diff. Any base we reuse from a prior diff must
     # still be a real ancestor of HEAD: a mid-run rebase/amend can orphan the
     # last-reviewed head or leave the recorded base ref pointing at a stale
@@ -341,7 +410,9 @@ def stage_repairable(slug: str, stage: str, state: dict[str, object]) -> bool:
         return bool(state["artifact_exists"]) and (
             not state["manifest_exists"]
             or not state["healthy"]
-            or bool(diff_review_budget_state(slug).get("head_mismatch"))
+            # Only an in-scope code change re-opens a clean diff — not the factory's
+            # own post-diff bookkeeping commits (which would otherwise block `done`).
+            or bool(diff_review_budget_state(slug).get("in_scope_change"))
         )
     return False
 

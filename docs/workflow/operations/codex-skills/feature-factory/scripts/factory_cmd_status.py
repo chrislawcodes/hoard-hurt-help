@@ -228,10 +228,10 @@ def command_status(args: argparse.Namespace) -> int:
             print(f"- large-artifact: yes (>= {LARGE_DIFF_RERUN_WARN_CHARS} bytes)")
         else:
             print("- large-artifact: no")
-        if diff_budget.get("head_mismatch"):
+        if diff_budget.get("in_scope_change"):
             recorded_head = str(diff_budget.get("recorded_head_sha", ""))[:12]
             current_head = str(diff_budget.get("current_head_sha", ""))[:12]
-            print(f"- rerun-likely: yes (diff artifact HEAD {recorded_head} != current HEAD {current_head})")
+            print(f"- rerun-likely: yes (in-scope code changed; diff artifact HEAD {recorded_head} != current HEAD {current_head})")
             print(
                 f"- scope-basis: last-reviewed-head [{recorded_head}]"
             )
