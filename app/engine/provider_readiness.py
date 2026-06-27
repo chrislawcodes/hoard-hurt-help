@@ -20,6 +20,7 @@ from app.aware_datetime import ensure_aware
 from app.engine.connection_health_badge import (
     LOOP_RUNNING_WINDOW_SECONDS,
     _connection_is_live,
+    within_window,
 )
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
@@ -211,14 +212,7 @@ async def provider_loop_running(
         .all()
     )
     for last_polled in polled:
-        if last_polled is None:
-            continue
-        aware = (
-            last_polled
-            if last_polled.tzinfo is not None
-            else last_polled.replace(tzinfo=timezone.utc)
-        )
-        if (now - aware).total_seconds() <= LOOP_RUNNING_WINDOW_SECONDS:
+        if within_window(last_polled, now, LOOP_RUNNING_WINDOW_SECONDS):
             return True
     return False
 

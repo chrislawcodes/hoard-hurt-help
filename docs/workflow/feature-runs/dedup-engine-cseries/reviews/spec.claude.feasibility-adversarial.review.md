@@ -1,0 +1,44 @@
+---
+reviewer: "claude"
+lens: "feasibility-adversarial"
+stage: "spec"
+artifact_path: "docs/workflow/feature-runs/dedup-engine-cseries/spec.md"
+artifact_sha256: "c8553c878fb2f124d3b5e72f7851086f95b2593ffd13bf5f6f3f93375d809e82"
+repo_root: "."
+git_head_sha: "9f8279f0cbec1f4e2b081e2e363c998bab9dad70"
+git_base_ref: "origin/main"
+git_base_sha: "9d36fdc28273b44ec7b04fbdaf747b1b9f18c221"
+generation_method: "claude-subagent"
+resolution_status: "accepted"
+resolution_note: "Spec findings incorporated (rounds 1-3): C2 not-a-clean-duplicate, oracle/characterization tests, C8 site characterization, C6 PAUSED guard, measured baseline. Final spec checkpoint clean."
+raw_output_path: "docs/workflow/feature-runs/dedup-engine-cseries/reviews/spec.claude.feasibility-adversarial.review.md.raw.txt"
+narrowed_artifact_path: ""
+narrowed_artifact_sha256: ""
+coverage_status: "full"
+coverage_note: ""
+---
+
+# Review: spec feasibility-adversarial
+
+## Findings
+
+**[minor]** C8 home `state_machine.py` crosses that module's stated purity boundary, even though it is cycle-free. `state_machine.py` declares itself "Pure functions over GameState; the route layer wraps these with DB writes" and currently imports only `from app.models.match import GameState` (verified, lines 1-6). A field-only `_mark_cancelled(match, now)` must take a `Match` ORM object and mutate `match.state`/`match.cancelled_at`, which requires importing the `Match` model and writing model fields — exactly the "DB writes" the docstring says live in the wrapping layer, not here. No import cycle results (the model import is downward-only, and `scheduler.py`/`resolver.py` already import `state_machine`, verified), so this is not a feasibility blocker. But the spec names `state_machine.py` as the *preferred* home without noting this mismatch; the plan should either pick a different domain home (e.g. a small `match_cancellation.py`) or consciously revise the `state_machine.py` docstring/contract. Confirming the cycle claim: the spec's import-clean assertion holds.
+
+**[minor]** C2's resolved 3-axis is correct, but a fourth incidental divergence exists that the spec does not name: the two openers compute "now" differently — `_open_turn` uses `datetime.now(timezone.utc)` (`scheduler_turn_loop.py:305`) while `_open_actor_turn` uses the `_now()` helper (`turn_drivers.py:197`, defined at `:50`). This is behavior-equivalent only if `_now()` returns tz-aware UTC (it is the C1 unification target, so it should). It is not a blocker, but a "single clean opener" that standardizes on one now-source is technically a (harmless) behavior touch the C2-seq/C2-sim tests do not pin. Worth a one-line note in the plan so it is a deliberate choice, not an accident. The three primary axes (phase, resume get-or-create, `set_current_round`) are all verified accurate against source.
+
+## Residual Risks
+
+- **C4 home selection is deferred to the plan and carries a latent cycle.** `arena.py` already imports `start_game` from `scheduler` via a *deferred in-function* import (`arena.py:268`) — a tell that a module-level `scheduler` import would already cycle. If the C4 count helper lands "alongside `_active_player_count` in `scheduler.py`" (the spec's first-listed option) and `arena.py` needs it at module scope, that path can reintroduce the cycle. The spec correctly hedges with the `player_counts.py` fallback and an explicit no-cycle constraint, so this is a risk the plan must close, not a spec defect. Verified resolved at the spec level.
+
+- **C6, C8 non-uniformity, and the C2 contract are all verified accurate.** C6's PAUSED early-return and None guard are real (`connection_health_badge.py:319-323`) and the spec correctly scopes the change to only the trailing window expression (`:324-325`). C8's fresh-vs-captured split is real (fresh inline at `arena.py:189` and `scheduler_turn_loop.py:215`; captured batch at the other five sites) and every site has its own `await db.commit()` immediately after (verified at `arena.py:190`, `scheduler_turn_loop.py:216`). None of these remain as problems.
+
+- **Line-number drift persists but is explicitly mitigated.** Several anchors are off by ~1-5 (e.g. C6 cites `~322-325` for the window/PAUSED region that actually spans `319-325`). The spec already routes around this by requiring `tasks.md` to resolve anchors by symbol/grep rather than line (criterion 2, finding #18). No new drift large enough to misidentify a symbol was found.
+
+## Runner Stats
+- total_input=0
+- total_output=0
+- total_tokens=0
+
+## Resolution
+- status: accepted
+- note: Spec findings incorporated (rounds 1-3): C2 not-a-clean-duplicate, oracle/characterization tests, C8 site characterization, C6 PAUSED guard, measured baseline. Final spec checkpoint clean.

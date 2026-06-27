@@ -18,19 +18,17 @@ The scheduler selects a driver from the game module's
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import select
 
 from app.broadcast import publish
 from app.engine.tokens import generate_turn_token
+from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
+from app.engine.user_match_start import is_bot_kind
 from app.models.player import Player
 from app.models.turn import Turn
-
-# How often the sequential loop re-checks whether the active player has submitted
-# (so it resolves the turn promptly instead of waiting out the whole deadline).
-_SUBMIT_POLL_SECONDS = 0.25
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,10 +43,6 @@ class TurnDriver(Protocol):
     async def run_match(
         self, db: AsyncSession, game: Match, module: GameModule
     ) -> None: ...
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class SequentialDriver:
@@ -150,12 +144,12 @@ class SequentialDriver:
             )
 
     async def _is_bot(self, db: AsyncSession, player: Player) -> bool:
-        from app.models.agent import Agent, AgentKind
+        from app.models.agent import Agent
 
         agent = (
             await db.execute(select(Agent).where(Agent.id == player.agent_id))
         ).scalar_one_or_none()
-        return agent is not None and agent.kind == AgentKind.BOT
+        return agent is not None and is_bot_kind(agent.kind)
 
     async def _has_real_submission(
         self, db: AsyncSession, turn: Turn, player: Player
@@ -181,20 +175,27 @@ class SequentialDriver:
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=timezone.utc)
         while True:
-            remaining = (deadline - _now()).total_seconds()
+            remaining = (deadline - now_utc()).total_seconds()
             if remaining <= 0:
                 return
             if await self._has_real_submission(db, turn, player):
                 return
             await db.commit()  # fresh read next loop (see another connection's write)
-            await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
+            await asyncio.sleep(min(SUBMIT_POLL_SECONDS, remaining))
 
     async def _open_actor_turn(
         self, db: AsyncSession, game: Match, round_num: int, turn_num: int
     ) -> Turn:
         # Sequential turns are act-only (no talk phase): the message rides with
         # the move (Liar's Dice design D-5).
-        now = _now()
+        #
+        # Deliberately NOT unified with scheduler_turn_loop._open_turn (the
+        # simultaneous opener): this one is a blind INSERT that writes only
+        # `current_turn` (the SequentialDriver owns `current_round` in
+        # run_match), while _open_turn is a get-or-create that writes both
+        # pointers. Those are structural differences, not parameters — see the
+        # C2 dedup note and tests/test_turn_openers.py.
+        now = now_utc()
         turn = Turn(
             match_id=game.id,
             round=round_num,

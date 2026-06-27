@@ -30,7 +30,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
 from app.engine import resolver
+from app.engine.match_cancellation import mark_cancelled
 from app.engine.tokens import generate_turn_token
+from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
 from app.engine.turn_drivers import SequentialDriver, TurnDriver
 from app.games import get as get_game_module
 from app.games.base import GameError
@@ -41,10 +43,6 @@ from app.ops_events import log_ops_event
 
 if TYPE_CHECKING:
     from app.games.base import GameModule
-
-# How often the loop checks whether every active player has submitted (so it can
-# resolve a turn early instead of waiting out the whole deadline).
-_SUBMIT_POLL_SECONDS = 0.25
 
 
 class SimultaneousDriver:
@@ -211,8 +209,7 @@ async def _run_game(match_id: str) -> None:
         try:
             module = get_game_module(game.game)
         except GameError:
-            game.state = GameState.CANCELLED
-            game.cancelled_at = datetime.now(timezone.utc)
+            mark_cancelled(game, datetime.now(timezone.utc))
             await db.commit()
             log_ops_event(
                 scheduler.logger,
@@ -286,6 +283,11 @@ async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
     INSERT would hit uq_turns_game_id_round_turn and kill the whole game loop, so
     we get-or-create: an existing row is handed back unchanged and the caller
     decides (via resolved_at) whether it still needs resolving.
+
+    Deliberately NOT unified with turn_drivers.SequentialDriver._open_actor_turn
+    (the sequential opener): that one is a blind INSERT writing only
+    `current_turn`, with no resume guard. The get-or-create + the `current_round`
+    write here are structural, not parameters — see tests/test_turn_openers.py.
     """
     existing = (
         await db.execute(
@@ -302,7 +304,7 @@ async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
         await db.commit()
         return existing
 
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     turn = Turn(
         match_id=game.id,
         round=round_num,
@@ -360,12 +362,12 @@ async def _wait_for_messages(db, turn: Turn) -> None:
     """Block until the talk deadline, or until all active players have messaged."""
     deadline = ensure_aware(turn.deadline_at)
     while True:
-        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+        remaining = (deadline - now_utc()).total_seconds()
         if remaining <= 0:
             return
         if await _all_messaged(db, turn):
             return
-        await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
+        await asyncio.sleep(min(SUBMIT_POLL_SECONDS, remaining))
 
 
 async def _begin_act_phase(db, game: Match, turn: Turn) -> None:
@@ -383,7 +385,7 @@ async def _begin_act_phase(db, game: Match, turn: Turn) -> None:
     is what tells talk and act apart.
     """
     turn.phase = "act"
-    turn.deadline_at = datetime.now(timezone.utc) + timedelta(
+    turn.deadline_at = now_utc() + timedelta(
         seconds=game.per_turn_deadline_seconds
     )
     await db.commit()
@@ -393,9 +395,9 @@ async def _wait_for_turn(db, turn: Turn) -> None:
     """Block until the turn deadline, or until all active players have submitted."""
     deadline = ensure_aware(turn.deadline_at)
     while True:
-        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+        remaining = (deadline - now_utc()).total_seconds()
         if remaining <= 0:
             return
         if await _all_submitted(db, turn):
             return
-        await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
+        await asyncio.sleep(min(SUBMIT_POLL_SECONDS, remaining))

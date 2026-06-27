@@ -1,0 +1,511 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": [],
+    "reviewer": "claude"
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [
+      "Scope is app/engine/ top-level C-series clusters C1-C8; C2/C5 (turn-row creation, onboarding state machines) are the riskiest and get the most review attention.",
+      "Where two drivers intentionally diverge (sequential vs simultaneous), only the genuinely identical primitives are unified; deliberate differences are preserved and noted.",
+      "Reviews are run by independent Claude sub-agents acting adversarially, since Codex/Gemini are not installed."
+    ],
+    "summary": "Behavior-preserving dedup of the app/engine C-series (C1-C8) from the duplication inventory: unify the two turn drivers' shared primitives, the is-bot predicate, active-player-count, onboarding state machines + _has_moved, liveness-window check, redundant standings sort, and match-cancel transition behind single-source helpers, with full Preflight Gate and tests.",
+    "updated_at": 1782502249,
+    "answers": {},
+    "non_goals": [
+      "Any functional or behavioral change to gameplay, scheduling timing, or APIs.",
+      "The non-engine inventory items (A1 datetime sweep, B3/B4 route helpers, F2/F3) \u2014 deferred to a separate effort.",
+      "Cluster C7's documented-intentional dict-vs-schema scoreboard pair (only the genuinely redundant re-inlined sort is in scope)."
+    ],
+    "acceptance_criteria": [
+      "Each addressed C-series cluster has its duplicated logic collapsed to one shared definition with all prior call sites delegating to it.",
+      "No behavior change: identical turn sequencing, deadlines, submission/message counting, bot detection, onboarding-state transitions, liveness windows, standings ordering, and match-cancel side effects.",
+      "Full Preflight Gate green: ruff check . && mypy app/ mcp_server/ && pytest -q (1291+ tests).",
+      "New/updated tests lock in the unified helpers' behavior where engine logic is touched (per CLAUDE.md testing rules)."
+    ],
+    "checklist": {
+      "goal": "Eliminate the C-series accidental code duplication in app/engine/ identified by the duplication inventory, with zero behavior change, so the two turn drivers and the connection/onboarding code share single-source helpers instead of copied logic.",
+      "audience": "Maintainers of the hoard-hurt-help game engine (Claude/Codex/Gemini agents and Chris).",
+      "constraints": "Behavior-preserving only; no suppressions (no # type: ignore/# noqa); fail-loud; async consistency; no vague filenames; one feature per branch; Preflight Gate before push. Codex/Gemini CLIs are unavailable in this environment, so all FF roles (authoring, implementation, adversarial review) are performed by Claude and Claude sub-agents."
+    },
+    "unresolved": []
+  },
+  "delivery": {
+    "pr_url": "https://github.com/chrislawcodes/hoard-hurt-help/pull/559",
+    "pr_number": 559,
+    "merge_sha": "",
+    "closed_at": "2026-06-27T01:18:33+00:00",
+    "operator_note": "Engine C-series dedup delivered: C1/C3/C4/C5/C6/C7/C8 unified, C2 not-a-true-duplicate. 1331 tests pass. Claude-only FF run.",
+    "review_coverage_summary": {
+      "spec_lenses_run": [
+        "claude:feasibility-adversarial",
+        "claude:requirements-adversarial",
+        "codex:feasibility-adversarial",
+        "codex:requirements-adversarial"
+      ],
+      "spec_lenses_skipped": [
+        "gemini:requirements-adversarial"
+      ],
+      "plan_lenses_run": [
+        "claude:implementation-adversarial",
+        "claude:testability-adversarial",
+        "codex:implementation-adversarial",
+        "codex:testability-adversarial"
+      ],
+      "plan_lenses_skipped": [
+        "gemini:testability-adversarial"
+      ],
+      "tasks_lenses_run": [],
+      "tasks_lenses_skipped": [],
+      "diff_lenses_run": [
+        "claude:regression-adversarial",
+        "codex:regression-adversarial"
+      ],
+      "diff_lenses_skipped": []
+    }
+  },
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "app/engine",
+      "docs/workflow/feature-runs/dedup-engine-cseries"
+    ],
+    "used": true,
+    "updated_at": 1782523014
+  },
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": true,
+    "found": false,
+    "note": "No safe parallel set: clusters share scheduler.py/arena.py/turn_drivers.py/scheduler_turn_loop.py; slices run sequentially.",
+    "updated_at": 1782519360
+  },
+  "init_head_sha": "93ac9c251d2ebaceb1f53f0be3fffbb7d95c6528",
+  "token_usage": [
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 15648,
+      "prompt_cap": 250000,
+      "input_tokens": 149118,
+      "output_tokens": 84,
+      "cost_usd_estimate": 0.74769,
+      "timestamp": "2026-06-26T21:26:48.771269Z",
+      "started_at": "2026-06-26T21:26:48.771269Z",
+      "ended_at": "2026-06-26T21:26:48.771269Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f",
+      "cache_read_tokens": 1294033,
+      "total_tokens": 43967
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 15649,
+      "prompt_cap": 250000,
+      "input_tokens": 97253,
+      "output_tokens": 1141,
+      "cost_usd_estimate": 0.51479,
+      "timestamp": "2026-06-26T21:26:48.853278Z",
+      "started_at": "2026-06-26T21:26:48.853278Z",
+      "ended_at": "2026-06-26T21:26:48.853278Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f",
+      "cache_read_tokens": 453543,
+      "total_tokens": 39098
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 18130,
+      "prompt_cap": 250000,
+      "input_tokens": 95371,
+      "output_tokens": 46,
+      "cost_usd_estimate": 0.478005,
+      "timestamp": "2026-06-26T21:32:27.860017Z",
+      "started_at": "2026-06-26T21:32:27.860017Z",
+      "ended_at": "2026-06-26T21:32:27.860017Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f",
+      "cache_read_tokens": 746859,
+      "total_tokens": 37706
+    },
+    {
+      "stage": "spec",
+      "round": 2,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 18131,
+      "prompt_cap": 250000,
+      "input_tokens": 37851,
+      "output_tokens": 3,
+      "cost_usd_estimate": 0.18933,
+      "timestamp": "2026-06-26T21:32:27.953098Z",
+      "started_at": "2026-06-26T21:32:27.953098Z",
+      "ended_at": "2026-06-26T21:32:27.953098Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f",
+      "cache_read_tokens": 29434,
+      "total_tokens": 29961
+    },
+    {
+      "stage": "plan",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "implementation-adversarial",
+      "prompt_chars": 8367,
+      "prompt_cap": 250000,
+      "input_tokens": 200904,
+      "output_tokens": 624,
+      "cost_usd_estimate": 1.02012,
+      "timestamp": "2026-06-26T21:39:16.968948Z",
+      "started_at": "2026-06-26T21:39:16.968948Z",
+      "ended_at": "2026-06-26T21:39:16.968948Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 1532677,
+      "total_tokens": 69042
+    },
+    {
+      "stage": "plan",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "testability-adversarial",
+      "prompt_chars": 8364,
+      "prompt_cap": 250000,
+      "input_tokens": 140363,
+      "output_tokens": 67,
+      "cost_usd_estimate": 0.70349,
+      "timestamp": "2026-06-26T21:39:17.061375Z",
+      "started_at": "2026-06-26T21:39:17.061375Z",
+      "ended_at": "2026-06-26T21:39:17.061375Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 896595,
+      "total_tokens": 51638
+    },
+    {
+      "stage": "plan",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "implementation-adversarial",
+      "prompt_chars": 11962,
+      "prompt_cap": 250000,
+      "input_tokens": 132028,
+      "output_tokens": 1460,
+      "cost_usd_estimate": 0.69664,
+      "timestamp": "2026-06-26T21:46:18.744076Z",
+      "started_at": "2026-06-26T21:46:18.744076Z",
+      "ended_at": "2026-06-26T21:46:18.744076Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "44611cac24d5f3dcee2ce451f916ff4db298418340a12d303934e0faf0a63912",
+      "cache_read_tokens": 877360,
+      "total_tokens": 42922
+    },
+    {
+      "stage": "plan",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "testability-adversarial",
+      "prompt_chars": 11959,
+      "prompt_cap": 250000,
+      "input_tokens": 115298,
+      "output_tokens": 554,
+      "cost_usd_estimate": 0.59034,
+      "timestamp": "2026-06-26T21:46:18.833303Z",
+      "started_at": "2026-06-26T21:46:18.833303Z",
+      "ended_at": "2026-06-26T21:46:18.833303Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "44611cac24d5f3dcee2ce451f916ff4db298418340a12d303934e0faf0a63912",
+      "cache_read_tokens": 846284,
+      "total_tokens": 39262
+    },
+    {
+      "stage": "diff",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "regression-adversarial",
+      "prompt_chars": 34268,
+      "prompt_cap": 250000,
+      "input_tokens": 253480,
+      "output_tokens": 34,
+      "cost_usd_estimate": 1.26825,
+      "timestamp": "2026-06-27T01:16:53.952210Z",
+      "started_at": "2026-06-27T01:16:53.952210Z",
+      "ended_at": "2026-06-27T01:16:53.952210Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 1230414,
+      "total_tokens": 62195
+    }
+  ],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-26T19:38:49Z",
+      "wall_seconds": 0.392,
+      "input_bytes_read": 30021,
+      "output_bytes_written": 11810,
+      "files_read": 6,
+      "files_written": 4,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-26T19:41:40Z",
+      "wall_seconds": 0.268,
+      "input_bytes_read": 20913,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 24,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-26T21:26:57Z",
+      "wall_seconds": 0.409,
+      "input_bytes_read": 90062,
+      "output_bytes_written": 24720,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-26T21:32:28Z",
+      "wall_seconds": 0.45,
+      "input_bytes_read": 110715,
+      "output_bytes_written": 32188,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-26T21:39:17Z",
+      "wall_seconds": 0.663,
+      "input_bytes_read": 148725,
+      "output_bytes_written": 39273,
+      "files_read": 19,
+      "files_written": 5,
+      "subprocess_invocations": 28,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-26T21:41:28Z",
+      "wall_seconds": 0.457,
+      "input_bytes_read": 42549,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 30,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-26T21:46:19Z",
+      "wall_seconds": 0.644,
+      "input_bytes_read": 178232,
+      "output_bytes_written": 48080,
+      "files_read": 19,
+      "files_written": 5,
+      "subprocess_invocations": 28,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-26T21:46:33Z",
+      "wall_seconds": 0.451,
+      "input_bytes_read": 44342,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 30,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-27T00:16:02Z",
+      "wall_seconds": 0.863,
+      "input_bytes_read": 187011,
+      "output_bytes_written": 51327,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-27T01:16:55Z",
+      "wall_seconds": 1.092,
+      "input_bytes_read": 204641,
+      "output_bytes_written": 71353,
+      "files_read": 32,
+      "files_written": 6,
+      "subprocess_invocations": 64,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-27T01:17:13Z",
+      "wall_seconds": 0.559,
+      "input_bytes_read": 56492,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 38,
+      "ttl_crossed": false
+    },
+    {
+      "command": "deliver",
+      "stage": null,
+      "ts": "2026-06-27T01:18:22Z",
+      "wall_seconds": 0.015,
+      "input_bytes_read": 0,
+      "output_bytes_written": 0,
+      "files_read": 0,
+      "files_written": 0,
+      "subprocess_invocations": 2,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "closeout",
+      "ts": "2026-06-27T01:19:55Z",
+      "wall_seconds": 1.087,
+      "input_bytes_read": 183698,
+      "output_bytes_written": 66578,
+      "files_read": 26,
+      "files_written": 5,
+      "subprocess_invocations": 54,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-27T01:20:23Z",
+      "wall_seconds": 0.765,
+      "input_bytes_read": 59767,
+      "output_bytes_written": 0,
+      "files_read": 11,
+      "files_written": 0,
+      "subprocess_invocations": 44,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 3,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f",
+        "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f",
+        "c8553c878fb2f124d3b5e72f7851086f95b2593ffd13bf5f6f3f93375d809e82"
+      ],
+      "initial_sha": "71404f40960dbd515b7a9bca159bfb5ea717e87920cc7998648b8b8e560d245f"
+    },
+    "plan": {
+      "adversarial_rounds": 2,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "44611cac24d5f3dcee2ce451f916ff4db298418340a12d303934e0faf0a63912",
+        "64437ed02d9631c14a6b47c8ad15c51276b5e96a6ec54abb9be4afaa9cbe7b9b"
+      ],
+      "initial_sha": "44611cac24d5f3dcee2ce451f916ff4db298418340a12d303934e0faf0a63912"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "e7c6e1c87b2116c966d3268503ffd9fd3ad5f17246961bd695725dc58893325a"
+      ],
+      "initial_sha": "e7c6e1c87b2116c966d3268503ffd9fd3ad5f17246961bd695725dc58893325a"
+    },
+    "diff": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "31ecdcc9e9ebc2580f0c7944ff1b8e3fe89ff0c6f24388042981854ecea0f623"
+      ],
+      "initial_sha": "31ecdcc9e9ebc2580f0c7944ff1b8e3fe89ff0c6f24388042981854ecea0f623"
+    },
+    "closeout": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "035307a13507c744026526e59d6201a58fa37ec127a8f4a5806fc391df345250"
+      ],
+      "initial_sha": "035307a13507c744026526e59d6201a58fa37ec127a8f4a5806fc391df345250"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 3,
+  "last_action_result": {
+    "next": "run_diff_checkpoint",
+    "reason": "closeout checkpoint completed",
+    "blockers": []
+  },
+  "plan_adversarial_rounds": 2,
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 1,
+  "closeout_adversarial_rounds": 1
+}

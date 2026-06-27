@@ -1,0 +1,11 @@
+{
+  "feature_slug": "dedup-engine-cseries",
+  "stage": "tasks",
+  "artifact_path": "docs/workflow/feature-runs/dedup-engine-cseries/tasks.md",
+  "git_base_ref": "",
+  "allowed_dirty_paths": [],
+  "required_reviews": [],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

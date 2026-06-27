@@ -27,10 +27,11 @@ from app.engine.connection_health import (
     ConnectionHealth,
     ConnectionHealthStatus,
     _HEALTH_PRESENTATION,
-    _within_window,
+    within_window,
     agent_is_defaulting,
     humanize_since,
 )
+from app.engine.onboarding_states import PREGAME_STATES, has_moved
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState
 from app.models.player import Player
@@ -40,8 +41,6 @@ from app.models.turn import TurnSubmission
 # onboarding/health signatures read in bot terms while keeping the real type.
 Bot = Connection
 BotStatus = ConnectionStatus
-
-_PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
 
 # Don't rewrite last_seen_at on every fast poll — once per this interval is plenty.
 _HEARTBEAT_THROTTLE_SECONDS = 10
@@ -75,17 +74,6 @@ class OnboardingStatus:
     match_id: str | None = None
     game_name: str | None = None
     game_type: str | None = None
-
-
-async def _has_moved(db: AsyncSession, bot_id: int) -> bool:
-    """True if any of the bot's players has a real (non-defaulted) submission."""
-    stmt = (
-        select(TurnSubmission.id)
-        .join(Player, Player.id == TurnSubmission.player_id)
-        .where(Player.agent_id == bot_id, TurnSubmission.was_defaulted.is_(False))
-        .limit(1)
-    )
-    return (await db.execute(stmt)).first() is not None
 
 
 async def mark_seen(
@@ -232,13 +220,13 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
         .all()
     )
     active = next((g for g in games if g.state == GameState.ACTIVE), None)
-    pregame = next((g for g in games if g.state in _PREGAME_STATES), None)
+    pregame = next((g for g in games if g.state in PREGAME_STATES), None)
     connected = bot.first_connected_at is not None
     # A Connection has no `name`; its display name is the user-set nickname (a
     # machine connection is named after the box) with a stable fallback.
     name = bot.nickname or "Machine connection"
 
-    if await _has_moved(db, bot.id):
+    if await has_moved(db, bot.id):
         # Established bot. The detail page hides the onboarding panel entirely for
         # this state and lets the health badge be the single source of truth, so
         # this only surfaces as the one-time first-move "flourish". Point it only
@@ -303,7 +291,7 @@ async def compute_bot_health(
     non-running connection appear "ready".
     """
     now = now or datetime.now(timezone.utc)
-    warm = _within_window(bot.last_polled_at, now, LOOP_RUNNING_WINDOW_SECONDS)
+    warm = within_window(bot.last_polled_at, now, LOOP_RUNNING_WINDOW_SECONDS)
     last_connected = bot.last_seen_at or bot.first_connected_at
     never = last_connected is None
     last_connected_aware = ensure_aware(last_connected) if last_connected is not None else None

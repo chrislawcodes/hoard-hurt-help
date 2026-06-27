@@ -23,15 +23,10 @@ import enum
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.onboarding_states import PREGAME_STATES, has_moved
 from app.models.match import GameState
-from app.models.player import Player
-from app.models.turn import TurnSubmission
-
-# Pre-game states the engine uses
-_PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
 
 
 class AgentOnboardingState(str, enum.Enum):
@@ -124,22 +119,6 @@ def _mstate(m: object) -> GameState | None:
     return None
 
 
-async def _has_moved(db: AsyncSession, agent_id: int) -> bool:
-    """True if the agent has at least one non-defaulted TurnSubmission."""
-    row = (
-        await db.execute(
-            select(TurnSubmission.id)
-            .join(Player, Player.id == TurnSubmission.player_id)
-            .where(
-                Player.agent_id == agent_id,
-                TurnSubmission.was_defaulted.is_(False),
-            )
-            .limit(1)
-        )
-    ).first()
-    return row is not None
-
-
 async def compute_agent_onboarding_state(
     db: AsyncSession,
     agent_id: int,
@@ -175,12 +154,12 @@ async def compute_agent_onboarding_state(
         (m for m in matches if _mstate(m) == GameState.ACTIVE), None
     )
     pregame_match: object | None = next(
-        (m for m in matches if _mstate(m) in _PREGAME_STATES), None
+        (m for m in matches if _mstate(m) in PREGAME_STATES), None
     )
 
     # 5. Playing — any real move exists (takes precedence over match state so
     #    established agents always resolve correctly even if cold right now).
-    if await _has_moved(db, agent_id):
+    if await has_moved(db, agent_id):
         return AgentOnboardingStatus(
             state=AgentOnboardingState.PLAYING,
             match_id=_mid(active_match) if active_match else None,

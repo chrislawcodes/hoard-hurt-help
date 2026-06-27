@@ -41,8 +41,12 @@ class StartEligibility:
 _CANNOT_START = StartEligibility(can_start=False, bots_to_add=0)
 
 
-def _is_bot(kind: object) -> bool:
-    """True for a scripted bot seat (enum member or its raw string value)."""
+def is_bot_kind(kind: object) -> bool:
+    """True for a scripted bot seat (enum member or its raw string value).
+
+    The one value-level bot-kind predicate; the DB-level check in
+    `turn_drivers` and the inline check in `arena` both delegate here.
+    """
     return kind in (AgentKind.BOT, AgentKind.BOT.value)
 
 
@@ -82,7 +86,7 @@ async def viewer_start_eligibility(
         )
     ).all()
 
-    human_or_agent = [r for r in rows if not _is_bot(r.kind)]
+    human_or_agent = [r for r in rows if not is_bot_kind(r.kind)]
     if any(r.user_id != user.id for r in human_or_agent):
         return _CANNOT_START  # someone else is in — not a solo match
     # The viewer needs a live (confirmed, not held) seat of their own. A held
