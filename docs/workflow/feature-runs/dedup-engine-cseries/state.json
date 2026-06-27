@@ -44,7 +44,40 @@
     },
     "unresolved": []
   },
-  "delivery": {},
+  "delivery": {
+    "pr_url": "https://github.com/chrislawcodes/hoard-hurt-help/pull/559",
+    "pr_number": 559,
+    "merge_sha": "",
+    "closed_at": "2026-06-27T01:18:33+00:00",
+    "operator_note": "Engine C-series dedup delivered: C1/C3/C4/C5/C6/C7/C8 unified, C2 not-a-true-duplicate. 1331 tests pass. Claude-only FF run.",
+    "review_coverage_summary": {
+      "spec_lenses_run": [
+        "claude:feasibility-adversarial",
+        "claude:requirements-adversarial",
+        "codex:feasibility-adversarial",
+        "codex:requirements-adversarial"
+      ],
+      "spec_lenses_skipped": [
+        "gemini:requirements-adversarial"
+      ],
+      "plan_lenses_run": [
+        "claude:implementation-adversarial",
+        "claude:testability-adversarial",
+        "codex:implementation-adversarial",
+        "codex:testability-adversarial"
+      ],
+      "plan_lenses_skipped": [
+        "gemini:testability-adversarial"
+      ],
+      "tasks_lenses_run": [],
+      "tasks_lenses_skipped": [],
+      "diff_lenses_run": [
+        "claude:regression-adversarial",
+        "codex:regression-adversarial"
+      ],
+      "diff_lenses_skipped": []
+    }
+  },
   "dirty_overrides": {
     "allowed_dirty_paths": [
       "app/engine",
@@ -375,6 +408,30 @@
       "files_written": 0,
       "subprocess_invocations": 38,
       "ttl_crossed": false
+    },
+    {
+      "command": "deliver",
+      "stage": null,
+      "ts": "2026-06-27T01:18:22Z",
+      "wall_seconds": 0.015,
+      "input_bytes_read": 0,
+      "output_bytes_written": 0,
+      "files_read": 0,
+      "files_written": 0,
+      "subprocess_invocations": 2,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "closeout",
+      "ts": "2026-06-27T01:19:55Z",
+      "wall_seconds": 1.087,
+      "input_bytes_read": 183698,
+      "output_bytes_written": 66578,
+      "files_read": 26,
+      "files_written": 5,
+      "subprocess_invocations": 54,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -412,6 +469,14 @@
         "31ecdcc9e9ebc2580f0c7944ff1b8e3fe89ff0c6f24388042981854ecea0f623"
       ],
       "initial_sha": "31ecdcc9e9ebc2580f0c7944ff1b8e3fe89ff0c6f24388042981854ecea0f623"
+    },
+    "closeout": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "035307a13507c744026526e59d6201a58fa37ec127a8f4a5806fc391df345250"
+      ],
+      "initial_sha": "035307a13507c744026526e59d6201a58fa37ec127a8f4a5806fc391df345250"
     }
   },
   "invariant_warnings": [],
@@ -423,11 +488,12 @@
   },
   "spec_adversarial_rounds": 3,
   "last_action_result": {
-    "next": "reconcile_reviews",
-    "reason": "diff checkpoint completed",
+    "next": "run_diff_checkpoint",
+    "reason": "closeout checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 2,
   "tasks_adversarial_rounds": 1,
-  "diff_adversarial_rounds": 1
+  "diff_adversarial_rounds": 1,
+  "closeout_adversarial_rounds": 1
 }
