@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.aware_datetime import ensure_aware
 from app.engine import resolver
 from app.engine.tokens import generate_turn_token
+from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
 from app.engine.turn_drivers import SequentialDriver, TurnDriver
 from app.games import get as get_game_module
 from app.games.base import GameError
@@ -41,10 +42,6 @@ from app.ops_events import log_ops_event
 
 if TYPE_CHECKING:
     from app.games.base import GameModule
-
-# How often the loop checks whether every active player has submitted (so it can
-# resolve a turn early instead of waiting out the whole deadline).
-_SUBMIT_POLL_SECONDS = 0.25
 
 
 class SimultaneousDriver:
@@ -302,7 +299,7 @@ async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
         await db.commit()
         return existing
 
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     turn = Turn(
         match_id=game.id,
         round=round_num,
@@ -360,12 +357,12 @@ async def _wait_for_messages(db, turn: Turn) -> None:
     """Block until the talk deadline, or until all active players have messaged."""
     deadline = ensure_aware(turn.deadline_at)
     while True:
-        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+        remaining = (deadline - now_utc()).total_seconds()
         if remaining <= 0:
             return
         if await _all_messaged(db, turn):
             return
-        await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
+        await asyncio.sleep(min(SUBMIT_POLL_SECONDS, remaining))
 
 
 async def _begin_act_phase(db, game: Match, turn: Turn) -> None:
@@ -383,7 +380,7 @@ async def _begin_act_phase(db, game: Match, turn: Turn) -> None:
     is what tells talk and act apart.
     """
     turn.phase = "act"
-    turn.deadline_at = datetime.now(timezone.utc) + timedelta(
+    turn.deadline_at = now_utc() + timedelta(
         seconds=game.per_turn_deadline_seconds
     )
     await db.commit()
@@ -393,9 +390,9 @@ async def _wait_for_turn(db, turn: Turn) -> None:
     """Block until the turn deadline, or until all active players have submitted."""
     deadline = ensure_aware(turn.deadline_at)
     while True:
-        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+        remaining = (deadline - now_utc()).total_seconds()
         if remaining <= 0:
             return
         if await _all_submitted(db, turn):
             return
-        await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
+        await asyncio.sleep(min(SUBMIT_POLL_SECONDS, remaining))

@@ -4,14 +4,14 @@ Executable slices from `plan.md`. Each `[CHECKPOINT]` = one commit + full Prefli
 Gate + (if ≥50 changed lines) a Claude regression-adversarial diff review. Anchors are
 resolved by **symbol/grep**, not line number (line drift noted in reviews).
 
-Measured baseline (Slice 0): `pytest -q` collected count on branch base = **<fill at Slice 0>**.
+Measured baseline (Slice 0): `pytest -q` collected count on branch base = **1317**.
 Final count must be ≥ baseline + new characterization tests; no test removed/skip/xfail.
 
 ## Disposition tracking (fill as slices land)
 
 | Cluster | Disposition | Presence check | Status |
 |---|---|---|---|
-| C1 | unified (required) | one `SUBMIT_POLL_SECONDS` assign + one `now_utc` def in `turn_clock.py`; no `_now`/inline `datetime.now(timezone.utc)` left in the two drivers | ☐ |
+| C1 | unified | one `SUBMIT_POLL_SECONDS` assign + one `now_utc` def in `turn_clock.py`; no `_now`/inline `datetime.now(timezone.utc)` left in the two drivers (cancel-site `now` at C8) | ✅ Slice 1 |
 | C2 | **expected: not-a-true-duplicate** | divergence documented at both openers (or single `open_turn_row` if clean) | ☐ |
 | C3 | unified (required) | one `is_bot_kind` def; `turn_drivers._is_bot` + `arena` inline delegate | ☐ |
 | C4 | unified | one `active_player_count` def; watchdog uses `exclude_reserved=False`, start-floor/arena-confirmed `True`, arena-seated `False`; watchdog inline count gone | ☐ |
