@@ -1,0 +1,800 @@
+diff --git a/app/engine/agent_idle.py b/app/engine/agent_idle.py
+index 9709f1a..bb1135c 100644
+--- a/app/engine/agent_idle.py
++++ b/app/engine/agent_idle.py
+@@ -41,6 +41,7 @@ from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.aware_datetime import ensure_aware
++from app.engine.onboarding_states import PREGAME_STATES
+ from app.models.agent import Agent, AgentKind, AgentStatus
+ from app.models.connection import Connection
+ from app.models.match import GameState, Match
+@@ -79,7 +80,6 @@ _HAS_GAME_STATES = (
+     GameState.SCHEDULED,
+     GameState.REGISTERING,
+ )
+-_UPCOMING_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
+ 
+ 
+ @dataclass(frozen=True)
+@@ -193,7 +193,7 @@ async def game_timing_for_user(
+     starts = [
+         max(0, int((ensure_aware(start) - now).total_seconds()))
+         for state, start in games
+-        if state in _UPCOMING_STATES and start is not None
++        if state in PREGAME_STATES and start is not None
+     ]
+     return GameTiming(
+         has_game=bool(games),
+diff --git a/app/engine/agent_onboarding.py b/app/engine/agent_onboarding.py
+index 06ae8d9..b29ee3d 100644
+--- a/app/engine/agent_onboarding.py
++++ b/app/engine/agent_onboarding.py
+@@ -23,15 +23,10 @@ import enum
+ from dataclasses import dataclass
+ from typing import Protocol, runtime_checkable
+ 
+-from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.engine.onboarding_states import PREGAME_STATES, has_moved
+ from app.models.match import GameState
+-from app.models.player import Player
+-from app.models.turn import TurnSubmission
+-
+-# Pre-game states the engine uses
+-_PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
+ 
+ 
+ class AgentOnboardingState(str, enum.Enum):
+@@ -124,22 +119,6 @@ def _mstate(m: object) -> GameState | None:
+     return None
+ 
+ 
+-async def _has_moved(db: AsyncSession, agent_id: int) -> bool:
+-    """True if the agent has at least one non-defaulted TurnSubmission."""
+-    row = (
+-        await db.execute(
+-            select(TurnSubmission.id)
+-            .join(Player, Player.id == TurnSubmission.player_id)
+-            .where(
+-                Player.agent_id == agent_id,
+-                TurnSubmission.was_defaulted.is_(False),
+-            )
+-            .limit(1)
+-        )
+-    ).first()
+-    return row is not None
+-
+-
+ async def compute_agent_onboarding_state(
+     db: AsyncSession,
+     agent_id: int,
+@@ -175,12 +154,12 @@ async def compute_agent_onboarding_state(
+         (m for m in matches if _mstate(m) == GameState.ACTIVE), None
+     )
+     pregame_match: object | None = next(
+-        (m for m in matches if _mstate(m) in _PREGAME_STATES), None
++        (m for m in matches if _mstate(m) in PREGAME_STATES), None
+     )
+ 
+     # 5. Playing — any real move exists (takes precedence over match state so
+     #    established agents always resolve correctly even if cold right now).
+-    if await _has_moved(db, agent_id):
++    if await has_moved(db, agent_id):
+         return AgentOnboardingStatus(
+             state=AgentOnboardingState.PLAYING,
+             match_id=_mid(active_match) if active_match else None,
+diff --git a/app/engine/agent_play_reads.py b/app/engine/agent_play_reads.py
+index 087cb01..514bbaa 100644
+--- a/app/engine/agent_play_reads.py
++++ b/app/engine/agent_play_reads.py
+@@ -180,7 +180,7 @@ def sorted_seat_names(seat_name_by_agent_id: dict[int, str]) -> list[str]:
+ 
+ 
+ def _public_standings(players: Sequence[Player]) -> list[StandingRow]:
+-    ordered = sorted(players, key=lambda player: (-player.current_round_score, player.seat_name))
++    ordered = _scoreboard_order(players)
+     return [
+         StandingRow(
+             agent_id=player.seat_name,
+diff --git a/app/engine/arena.py b/app/engine/arena.py
+index 2f81d2a..e965508 100644
+--- a/app/engine/arena.py
++++ b/app/engine/arena.py
+@@ -23,6 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
+ from app.engine.bot_presets import BOT_PRESETS, allocate_default_bot_names, bot_presets
+ from app.engine.match_creation import create_match
+ from app.engine.bots.seating import BotSeatingError, add_bots_to_game
++from app.engine.match_cancellation import mark_cancelled
++from app.engine.player_counts import active_player_count
++from app.engine.user_match_start import is_bot_kind
+ from app.models.agent import Agent, AgentKind
+ from app.models.match import GameState, Match, MatchKind
+ from app.models.player import Player
+@@ -95,24 +98,8 @@ async def fill_match_with_bots(
+     :func:`add_bots_to_game`. Returns the number of bots seated — 0 if the match
+     already meets the target or the table is full.
+     """
+-    confirmed = (
+-        await db.scalar(
+-            select(func.count())
+-            .select_from(Player)
+-            .where(
+-                Player.match_id == match.id,
+-                Player.left_at.is_(None),
+-                Player.seat_reserved_until.is_(None),
+-            )
+-        )
+-    ) or 0
+-    seated = (
+-        await db.scalar(
+-            select(func.count())
+-            .select_from(Player)
+-            .where(Player.match_id == match.id, Player.left_at.is_(None))
+-        )
+-    ) or 0
++    confirmed = await active_player_count(db, match.id, exclude_reserved=True)
++    seated = await active_player_count(db, match.id, exclude_reserved=False)
+     n_bots = min(max(0, target_active - confirmed), max(0, match.max_players - seated))
+     if n_bots <= 0:
+         return 0
+@@ -185,8 +172,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
+             and existing.max_players == PRACTICE_ARENA_MAX_PLAYERS
+         ):
+             return
+-        existing.state = GameState.CANCELLED
+-        existing.cancelled_at = datetime.now(timezone.utc)
++        mark_cancelled(existing, datetime.now(timezone.utc))
+         await db.commit()
+ 
+     presets = bot_presets()
+@@ -294,11 +280,10 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
+             )
+         ).all()
+         has_external_agent = any(
+-            kind not in (AgentKind.BOT, AgentKind.BOT.value) for _, kind in active_players
++            not is_bot_kind(kind) for _, kind in active_players
+         )
+         if not has_external_agent:
+-            match.state = GameState.CANCELLED
+-            match.cancelled_at = now
++            mark_cancelled(match, now)
+             await db.commit()
+             logger.info(
+                 "Cancelled auto-match %s: no external agents joined.", match_id
+@@ -328,8 +313,7 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
+                     # before mutating it so we don't touch a stale in-memory state.
+                     fresh = await db.get(Match, match_id)
+                     if fresh is not None:
+-                        fresh.state = GameState.CANCELLED
+-                        fresh.cancelled_at = now
++                        mark_cancelled(fresh, now)
+                         await db.commit()
+                     continue
+ 
+diff --git a/app/engine/connection_activity.py b/app/engine/connection_activity.py
+index d9400f5..f5d57ea 100644
+--- a/app/engine/connection_activity.py
++++ b/app/engine/connection_activity.py
+@@ -27,10 +27,11 @@ from app.engine.connection_health import (
+     ConnectionHealth,
+     ConnectionHealthStatus,
+     _HEALTH_PRESENTATION,
+-    _within_window,
++    within_window,
+     agent_is_defaulting,
+     humanize_since,
+ )
++from app.engine.onboarding_states import PREGAME_STATES, has_moved
+ from app.models.connection import Connection, ConnectionStatus
+ from app.models.match import Match, GameState
+ from app.models.player import Player
+@@ -41,8 +42,6 @@ from app.models.turn import TurnSubmission
+ Bot = Connection
+ BotStatus = ConnectionStatus
+ 
+-_PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
+-
+ # Don't rewrite last_seen_at on every fast poll — once per this interval is plenty.
+ _HEARTBEAT_THROTTLE_SECONDS = 10
+ # Same idea for the play-loop heartbeat (last_polled_at): get_next_turn can fire
+@@ -77,17 +76,6 @@ class OnboardingStatus:
+     game_type: str | None = None
+ 
+ 
+-async def _has_moved(db: AsyncSession, bot_id: int) -> bool:
+-    """True if any of the bot's players has a real (non-defaulted) submission."""
+-    stmt = (
+-        select(TurnSubmission.id)
+-        .join(Player, Player.id == TurnSubmission.player_id)
+-        .where(Player.agent_id == bot_id, TurnSubmission.was_defaulted.is_(False))
+-        .limit(1)
+-    )
+-    return (await db.execute(stmt)).first() is not None
+-
+-
+ async def mark_seen(
+     db: AsyncSession, bot: Bot, *, key_hash: str, now: datetime | None = None
+ ) -> None:
+@@ -232,13 +220,13 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
+         .all()
+     )
+     active = next((g for g in games if g.state == GameState.ACTIVE), None)
+-    pregame = next((g for g in games if g.state in _PREGAME_STATES), None)
++    pregame = next((g for g in games if g.state in PREGAME_STATES), None)
+     connected = bot.first_connected_at is not None
+     # A Connection has no `name`; its display name is the user-set nickname (a
+     # machine connection is named after the box) with a stable fallback.
+     name = bot.nickname or "Machine connection"
+ 
+-    if await _has_moved(db, bot.id):
++    if await has_moved(db, bot.id):
+         # Established bot. The detail page hides the onboarding panel entirely for
+         # this state and lets the health badge be the single source of truth, so
+         # this only surfaces as the one-time first-move "flourish". Point it only
+@@ -303,7 +291,7 @@ async def compute_bot_health(
+     non-running connection appear "ready".
+     """
+     now = now or datetime.now(timezone.utc)
+-    warm = _within_window(bot.last_polled_at, now, LOOP_RUNNING_WINDOW_SECONDS)
++    warm = within_window(bot.last_polled_at, now, LOOP_RUNNING_WINDOW_SECONDS)
+     last_connected = bot.last_seen_at or bot.first_connected_at
+     never = last_connected is None
+     last_connected_aware = ensure_aware(last_connected) if last_connected is not None else None
+diff --git a/app/engine/connection_health.py b/app/engine/connection_health.py
+index 081c797..881fa51 100644
+--- a/app/engine/connection_health.py
++++ b/app/engine/connection_health.py
+@@ -5,7 +5,7 @@ by responsibility into three focused sibling modules, layered acyclically so eac
+ depends only on the ones below it:
+ 
+   - ``connection_health_badge`` — the ``ConnectionHealth`` badge state machine and
+-    the liveness primitives every other layer reuses (``_within_window``,
++    the liveness primitives every other layer reuses (``within_window``,
+     ``_connection_is_live``, ``humanize_since``, ``agent_is_defaulting``,
+     ``compute_connection_health``, the window constants). No deps on the others.
+   - ``provider_readiness``      — provider-based coverage and the
+@@ -33,7 +33,7 @@ from app.engine.connection_health_badge import (
+     ConnectionHealth,
+     ConnectionHealthStatus,
+     _connection_is_live,
+-    _within_window,
++    within_window,
+     agent_is_defaulting,
+     calm_connection_status,
+     compute_connection_health,
+@@ -69,7 +69,7 @@ __all__ = [
+     "LIVE_WINDOW_SECONDS",
+     "_HEARTBEAT_THROTTLE_SECONDS",
+     "LOOP_RUNNING_WINDOW_SECONDS",
+-    "_within_window",
++    "within_window",
+     "humanize_since",
+     "ConnectionHealth",
+     "_HEALTH_PRESENTATION",
+diff --git a/app/engine/connection_health_badge.py b/app/engine/connection_health_badge.py
+index 4cfabc2..561603c 100644
+--- a/app/engine/connection_health_badge.py
++++ b/app/engine/connection_health_badge.py
+@@ -2,7 +2,7 @@
+ 
+ This is the base layer of the connection-health surface: the operational-health
+ ``ConnectionHealth`` badge state machine plus the small liveness primitives every
+-other layer reuses (``_within_window``, ``_connection_is_live``, the window
++other layer reuses (``within_window``, ``_connection_is_live``, the window
+ constants). It has no dependency on the provider-readiness or join-gate-capacity
+ layers — those build on top of it.
+ """
+@@ -31,7 +31,7 @@ _HEARTBEAT_THROTTLE_SECONDS = 10
+ LOOP_RUNNING_WINDOW_SECONDS = 120
+ 
+ 
+-def _within_window(dt: datetime | None, now: datetime, window_seconds: int) -> bool:
++def within_window(dt: datetime | None, now: datetime, window_seconds: int) -> bool:
+     """True when *dt* is set and within *window_seconds* of *now*.
+ 
+     The shared "warm / live" liveness check: a timestamp counts as fresh when it
+@@ -197,7 +197,7 @@ async def compute_connection_health(
+     provider is enabled here).
+     """
+     now = now or datetime.now(timezone.utc)
+-    warm = _within_window(connection.last_seen_at, now, LIVE_WINDOW_SECONDS)
++    warm = within_window(connection.last_seen_at, now, LIVE_WINDOW_SECONDS)
+     last_connected = connection.last_seen_at or connection.first_connected_at
+     never_connected = last_connected is None
+     last_connected_at = (
+@@ -318,8 +318,4 @@ def _connection_is_live(connection: Connection, now: datetime) -> bool:
+     """
+     if connection.status == ConnectionStatus.PAUSED:
+         return False
+-    last_seen = connection.last_seen_at
+-    if last_seen is None:
+-        return False
+-    aware = last_seen if last_seen.tzinfo is not None else last_seen.replace(tzinfo=timezone.utc)
+-    return (now - aware).total_seconds() <= LIVE_WINDOW_SECONDS
++    return within_window(connection.last_seen_at, now, LIVE_WINDOW_SECONDS)
+diff --git a/app/engine/match_cancellation.py b/app/engine/match_cancellation.py
+new file mode 100644
+index 0000000..61d6183
+--- /dev/null
++++ b/app/engine/match_cancellation.py
+@@ -0,0 +1,22 @@
++"""The field-only match-cancel transition.
++
++`cancel_match` and the scheduler/arena inline cancel paths all set the same two
++fields when cancelling a match. This is that write, once. It is deliberately
++*field-only*: it takes `now` as a parameter (so each caller keeps its own
++fresh-or-captured timestamp) and does NOT commit, log, or stop the scheduler
++registry — those side effects stay with each caller (`cancel_match` keeps
++`registry.stop`; the inline sites keep their own commit/logging). Leaf module
++(imports only the `Match` model), so it is cycle-free for `scheduler.py`,
++`arena.py`, and `match_deletion.py` alike.
++"""
++from __future__ import annotations
++
++from datetime import datetime
++
++from app.models.match import GameState, Match
++
++
++def mark_cancelled(match: Match, now: datetime) -> None:
++    """Mark *match* cancelled: set ``state=CANCELLED`` and ``cancelled_at=now``."""
++    match.state = GameState.CANCELLED
++    match.cancelled_at = now
+diff --git a/app/engine/match_deletion.py b/app/engine/match_deletion.py
+index 4d7dc5c..d9742a0 100644
+--- a/app/engine/match_deletion.py
++++ b/app/engine/match_deletion.py
+@@ -7,6 +7,7 @@ from datetime import datetime, timezone
+ from sqlalchemy import delete, select, update
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.engine.match_cancellation import mark_cancelled
+ from app.engine.scheduler import registry
+ from app.models.match import GameState, Match
+ from app.models.player import Player
+@@ -38,8 +39,7 @@ async def cancel_match(db: AsyncSession, match: Match) -> None:
+     is a no-op when the match has no running task (e.g. a pre-start match).
+     """
+     registry.stop(match.id)
+-    match.state = GameState.CANCELLED
+-    match.cancelled_at = datetime.now(timezone.utc)
++    mark_cancelled(match, datetime.now(timezone.utc))
+     await db.commit()
+ 
+ 
+diff --git a/app/engine/onboarding_states.py b/app/engine/onboarding_states.py
+new file mode 100644
+index 0000000..c7bac3b
+--- /dev/null
++++ b/app/engine/onboarding_states.py
+@@ -0,0 +1,31 @@
++"""Shared onboarding primitives across the agent/connection onboarding modules.
++
++`connection_activity`, `agent_onboarding`, and `agent_idle` all need the same two
++things — the "pregame" game states and a "has this agent actually moved?" check —
++so they live here once instead of being re-defined in each. Leaf module (imports
++only models + sqlalchemy), so all three can import it without a cycle. The two
++onboarding *state machines* (their enums + precedence) deliberately stay in their
++own modules; only these shared primitives are unified.
++"""
++from __future__ import annotations
++
++from sqlalchemy import select
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.match import GameState
++from app.models.player import Player
++from app.models.turn import TurnSubmission
++
++# A game that has not started yet (waiting to fill / scheduled).
++PREGAME_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
++
++
++async def has_moved(db: AsyncSession, agent_id: int) -> bool:
++    """True if the agent has at least one real (non-defaulted) TurnSubmission."""
++    stmt = (
++        select(TurnSubmission.id)
++        .join(Player, Player.id == TurnSubmission.player_id)
++        .where(Player.agent_id == agent_id, TurnSubmission.was_defaulted.is_(False))
++        .limit(1)
++    )
++    return (await db.execute(stmt)).first() is not None
+diff --git a/app/engine/player_counts.py b/app/engine/player_counts.py
+new file mode 100644
+index 0000000..6ce3739
+--- /dev/null
++++ b/app/engine/player_counts.py
+@@ -0,0 +1,33 @@
++"""Shared non-left player counts for a match.
++
++One home for the "how many seats are active in this match" query so the
++scheduler start-floor, the watchdog, and the arena bot-filler stop re-inlining
++the same `select(func.count())` with slightly different seat filters. Leaf
++module (imports only the `Player` model + sqlalchemy), so `scheduler.py` and
++`arena.py` can both use it without an import cycle.
++"""
++from __future__ import annotations
++
++from sqlalchemy import func, select
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.player import Player
++
++
++async def active_player_count(
++    db: AsyncSession, match_id: str, *, exclude_reserved: bool
++) -> int:
++    """Count seats in *match_id* that have not left.
++
++    - ``exclude_reserved=True`` → *confirmed* seats only: a held seat
++      (join-before-connect, ``seat_reserved_until`` set) is not a real player
++      yet, so it is excluded (the start floor and the arena "confirmed" count).
++    - ``exclude_reserved=False`` → every not-left seat, including held ones (the
++      watchdog "is this game empty?" check and the arena "seated" count).
++    """
++    conditions = [Player.match_id == match_id, Player.left_at.is_(None)]
++    if exclude_reserved:
++        conditions.append(Player.seat_reserved_until.is_(None))
++    return (
++        await db.scalar(select(func.count()).select_from(Player).where(*conditions))
++    ) or 0
+diff --git a/app/engine/provider_readiness.py b/app/engine/provider_readiness.py
+index 00c7def..dd7d749 100644
+--- a/app/engine/provider_readiness.py
++++ b/app/engine/provider_readiness.py
+@@ -20,6 +20,7 @@ from app.aware_datetime import ensure_aware
+ from app.engine.connection_health_badge import (
+     LOOP_RUNNING_WINDOW_SECONDS,
+     _connection_is_live,
++    within_window,
+ )
+ from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+ from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+@@ -211,14 +212,7 @@ async def provider_loop_running(
+         .all()
+     )
+     for last_polled in polled:
+-        if last_polled is None:
+-            continue
+-        aware = (
+-            last_polled
+-            if last_polled.tzinfo is not None
+-            else last_polled.replace(tzinfo=timezone.utc)
+-        )
+-        if (now - aware).total_seconds() <= LOOP_RUNNING_WINDOW_SECONDS:
++        if within_window(last_polled, now, LOOP_RUNNING_WINDOW_SECONDS):
+             return True
+     return False
+ 
+diff --git a/app/engine/scheduler.py b/app/engine/scheduler.py
+index e848951..c39ba0a 100644
+--- a/app/engine/scheduler.py
++++ b/app/engine/scheduler.py
+@@ -29,13 +29,15 @@ import logging
+ from collections.abc import Awaitable, Callable
+ from datetime import datetime, timezone
+ 
+-from sqlalchemy import func, select
++from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+ 
+ from app.aware_datetime import ensure_aware
+ from app.broadcast import publish
+ from app.db import SessionLocal
+ from app.engine.bots.service import auto_submit_bot_phase
++from app.engine.match_cancellation import mark_cancelled
++from app.engine.player_counts import active_player_count
+ from app.engine.scheduler_turn_loop import (
+     SimultaneousDriver,
+     _all_messaged,
+@@ -50,7 +52,6 @@ from app.engine.scheduler_turn_loop import (
+ )
+ from app.engine.state_machine import assert_transition
+ from app.models.match import Match, GameState
+-from app.models.player import Player
+ from app.ops_events import log_ops_event
+ from app.request_logging import record_background_incident
+ 
+@@ -92,24 +93,14 @@ MIN_PLAYERS_TO_START = 3
+ _POLLER_ESCALATE_AFTER = 5
+ 
+ 
+-async def _active_player_count(db, match_id: str) -> int:
+-    """Confirmed seats in a game.
++async def _active_player_count(db: AsyncSession, match_id: str) -> int:
++    """Confirmed seats in a game (the start floor).
+ 
+-    A player who left frees their seat. A *held* seat (join-before-connect,
+-    ``seat_reserved_until`` set) is not a real player yet, so it does not count
+-    toward the start floor either.
++    Delegates to the shared count helper: a player who left frees their seat,
++    and a *held* seat (join-before-connect, ``seat_reserved_until`` set) is not a
++    real player yet, so neither counts toward the start floor.
+     """
+-    return (
+-        await db.scalar(
+-            select(func.count())
+-            .select_from(Player)
+-            .where(
+-                Player.match_id == match_id,
+-                Player.left_at.is_(None),
+-                Player.seat_reserved_until.is_(None),
+-            )
+-        )
+-    ) or 0
++    return await active_player_count(db, match_id, exclude_reserved=True)
+ 
+ 
+ class SchedulerRegistry:
+@@ -181,8 +172,7 @@ class SchedulerRegistry:
+                     started += 1
+                     logger.info("auto-started %s with %d players", g.id, count)
+                 else:
+-                    g.state = GameState.CANCELLED
+-                    g.cancelled_at = now
++                    mark_cancelled(g, now)
+                     await db.commit()
+                     logger.info(
+                         "auto-cancelled %s: %d players at start time (< %d)",
+@@ -310,14 +300,11 @@ class SchedulerRegistry:
+                 .all()
+             )
+             for g in active_games:
+-                player_count = await db.scalar(
+-                    select(func.count())
+-                    .select_from(Player)
+-                    .where(Player.match_id == g.id, Player.left_at.is_(None))
+-                ) or 0
++                player_count = await active_player_count(
++                    db, g.id, exclude_reserved=False
++                )
+                 if player_count == 0:
+-                    g.state = GameState.CANCELLED
+-                    g.cancelled_at = now
++                    mark_cancelled(g, now)
+                     log_ops_event(
+                         logger,
+                         logging.WARNING,
+@@ -397,8 +384,7 @@ async def cancel_overdue_unfilled_games(db) -> int:
+         count = await _active_player_count(db, g.id)
+         if count >= MIN_PLAYERS_TO_START:
+             continue  # due and full — leave it for the poller to start
+-        g.state = GameState.CANCELLED
+-        g.cancelled_at = now
++        mark_cancelled(g, now)
+         cancelled += 1
+         logger.info(
+             "lobby-cancelled %s: %d players at start time (< %d)",
+diff --git a/app/engine/scheduler_turn_loop.py b/app/engine/scheduler_turn_loop.py
+index 6ad6a5d..508cdf5 100644
+--- a/app/engine/scheduler_turn_loop.py
++++ b/app/engine/scheduler_turn_loop.py
+@@ -30,7 +30,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.aware_datetime import ensure_aware
+ from app.engine import resolver
++from app.engine.match_cancellation import mark_cancelled
+ from app.engine.tokens import generate_turn_token
++from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
+ from app.engine.turn_drivers import SequentialDriver, TurnDriver
+ from app.games import get as get_game_module
+ from app.games.base import GameError
+@@ -42,10 +44,6 @@ from app.ops_events import log_ops_event
+ if TYPE_CHECKING:
+     from app.games.base import GameModule
+ 
+-# How often the loop checks whether every active player has submitted (so it can
+-# resolve a turn early instead of waiting out the whole deadline).
+-_SUBMIT_POLL_SECONDS = 0.25
+-
+ 
+ class SimultaneousDriver:
+     """PD's turn loop: every active player acts each turn over a fixed rounds×turns
+@@ -211,8 +209,7 @@ async def _run_game(match_id: str) -> None:
+         try:
+             module = get_game_module(game.game)
+         except GameError:
+-            game.state = GameState.CANCELLED
+-            game.cancelled_at = datetime.now(timezone.utc)
++            mark_cancelled(game, datetime.now(timezone.utc))
+             await db.commit()
+             log_ops_event(
+                 scheduler.logger,
+@@ -286,6 +283,11 @@ async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
+     INSERT would hit uq_turns_game_id_round_turn and kill the whole game loop, so
+     we get-or-create: an existing row is handed back unchanged and the caller
+     decides (via resolved_at) whether it still needs resolving.
++
++    Deliberately NOT unified with turn_drivers.SequentialDriver._open_actor_turn
++    (the sequential opener): that one is a blind INSERT writing only
++    `current_turn`, with no resume guard. The get-or-create + the `current_round`
++    write here are structural, not parameters — see tests/test_turn_openers.py.
+     """
+     existing = (
+         await db.execute(
+@@ -302,7 +304,7 @@ async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
+         await db.commit()
+         return existing
+ 
+-    now = datetime.now(timezone.utc)
++    now = now_utc()
+     turn = Turn(
+         match_id=game.id,
+         round=round_num,
+@@ -360,12 +362,12 @@ async def _wait_for_messages(db, turn: Turn) -> None:
+     """Block until the talk deadline, or until all active players have messaged."""
+     deadline = ensure_aware(turn.deadline_at)
+     while True:
+-        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
++        remaining = (deadline - now_utc()).total_seconds()
+         if remaining <= 0:
+             return
+         if await _all_messaged(db, turn):
+             return
+-        await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
++        await asyncio.sleep(min(SUBMIT_POLL_SECONDS, remaining))
+ 
+ 
+ async def _begin_act_phase(db, game: Match, turn: Turn) -> None:
+@@ -383,7 +385,7 @@ async def _begin_act_phase(db, game: Match, turn: Turn) -> None:
+     is what tells talk and act apart.
+     """
+     turn.phase = "act"
+-    turn.deadline_at = datetime.now(timezone.utc) + timedelta(
++    turn.deadline_at = now_utc() + timedelta(
+         seconds=game.per_turn_deadline_seconds
+     )
+     await db.commit()
+@@ -393,9 +395,9 @@ async def _wait_for_turn(db, turn: Turn) -> None:
+     """Block until the turn deadline, or until all active players have submitted."""
+     deadline = ensure_aware(turn.deadline_at)
+     while True:
+-        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
++        remaining = (deadline - now_utc()).total_seconds()
+         if remaining <= 0:
+             return
+         if await _all_submitted(db, turn):
+             return
+-        await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
++        await asyncio.sleep(min(SUBMIT_POLL_SECONDS, remaining))
+diff --git a/app/engine/turn_clock.py b/app/engine/turn_clock.py
+new file mode 100644
+index 0000000..384071b
+--- /dev/null
++++ b/app/engine/turn_clock.py
+@@ -0,0 +1,19 @@
++"""Shared turn-loop clock primitives.
++
++One home for the turn drivers' poll cadence and UTC-now helper so the
++simultaneous (`scheduler_turn_loop`) and sequential (`turn_drivers`) drivers
++stop re-defining them. Leaf module — imports only the stdlib, so it is safe to
++import from either driver without a cycle.
++"""
++from __future__ import annotations
++
++from datetime import datetime, timezone
++
++# How often a turn wait-loop re-checks for submissions/messages before its
++# deadline. Shared by both turn drivers.
++SUBMIT_POLL_SECONDS = 0.25
++
++
++def now_utc() -> datetime:
++    """Return the current time as a timezone-aware UTC datetime."""
++    return datetime.now(timezone.utc)
+diff --git a/app/engine/turn_drivers.py b/app/engine/turn_drivers.py
+index 0bad14d..4d0ccc6 100644
+--- a/app/engine/turn_drivers.py
++++ b/app/engine/turn_drivers.py
+@@ -18,20 +18,18 @@ The scheduler selects a driver from the game module's
+ from __future__ import annotations
+ 
+ import asyncio
+-from datetime import datetime, timedelta, timezone
++from datetime import timedelta, timezone
+ from typing import TYPE_CHECKING, Protocol
+ 
+ from sqlalchemy import select
+ 
+ from app.broadcast import publish
+ from app.engine.tokens import generate_turn_token
++from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
++from app.engine.user_match_start import is_bot_kind
+ from app.models.player import Player
+ from app.models.turn import Turn
+ 
+-# How often the sequential loop re-checks whether the active player has submitted
+-# (so it resolves the turn promptly instead of waiting out the whole deadline).
+-_SUBMIT_POLL_SECONDS = 0.25
+-
+ if TYPE_CHECKING:
+     from sqlalchemy.ext.asyncio import AsyncSession
+ 
+@@ -47,10 +45,6 @@ class TurnDriver(Protocol):
+     ) -> None: ...
+ 
+ 
+-def _now() -> datetime:
+-    return datetime.now(timezone.utc)
+-
+-
+ class SequentialDriver:
+     """Single-actor, variable-length turn loop (e.g. Liar's Dice).
+ 
+@@ -150,12 +144,12 @@ class SequentialDriver:
+             )
+ 
+     async def _is_bot(self, db: AsyncSession, player: Player) -> bool:
+-        from app.models.agent import Agent, AgentKind
++        from app.models.agent import Agent
+ 
+         agent = (
+             await db.execute(select(Agent).where(Agent.id == player.agent_id))
+         ).scalar_one_or_none()
+-        return agent is not None and agent.kind == AgentKind.BOT
++        return agent is not None and is_bot_kind(agent.kind)
+ 
+     async def _has_real_submission(
+         self, db: AsyncSession, turn: Turn, player: Player
+@@ -181,20 +175,27 @@ class SequentialDriver:
+         if deadline.tzinfo is None:
+             deadline = deadline.replace(tzinfo=timezone.utc)
+         while True:
+-            remaining = (deadline - _now()).total_seconds()
++            remaining = (deadline - now_utc()).total_seconds()
+             if remaining <= 0:
+                 return
+             if await self._has_real_submission(db, turn, player):
+                 return
+             await db.commit()  # fresh read next loop (see another connection's write)
+-            await asyncio.sleep(min(_SUBMIT_POLL_SECONDS, remaining))
++            await asyncio.sleep(min(SUBMIT_POLL_SECONDS, remaining))
+ 
+     async def _open_actor_turn(
+         self, db: AsyncSession, game: Match, round_num: int, turn_num: int
+     ) -> Turn:
+         # Sequential turns are act-only (no talk phase): the message rides with
+         # the move (Liar's Dice design D-5).
+-        now = _now()
++        #
++        # Deliberately NOT unified with scheduler_turn_loop._open_turn (the
++        # simultaneous opener): this one is a blind INSERT that writes only
++        # `current_turn` (the SequentialDriver owns `current_round` in
++        # run_match), while _open_turn is a get-or-create that writes both
++        # pointers. Those are structural differences, not parameters — see the
++        # C2 dedup note and tests/test_turn_openers.py.
++        now = now_utc()
+         turn = Turn(
+             match_id=game.id,
+             round=round_num,
+diff --git a/app/engine/user_match_start.py b/app/engine/user_match_start.py
+index 420a11f..f26cc66 100644
+--- a/app/engine/user_match_start.py
++++ b/app/engine/user_match_start.py
+@@ -41,8 +41,12 @@ class StartEligibility:
+ _CANNOT_START = StartEligibility(can_start=False, bots_to_add=0)
+ 
+ 
+-def _is_bot(kind: object) -> bool:
+-    """True for a scripted bot seat (enum member or its raw string value)."""
++def is_bot_kind(kind: object) -> bool:
++    """True for a scripted bot seat (enum member or its raw string value).
++
++    The one value-level bot-kind predicate; the DB-level check in
++    `turn_drivers` and the inline check in `arena` both delegate here.
++    """
+     return kind in (AgentKind.BOT, AgentKind.BOT.value)
+ 
+ 
+@@ -82,7 +86,7 @@ async def viewer_start_eligibility(
+         )
+     ).all()
+ 
+-    human_or_agent = [r for r in rows if not _is_bot(r.kind)]
++    human_or_agent = [r for r in rows if not is_bot_kind(r.kind)]
+     if any(r.user_id != user.id for r in human_or_agent):
+         return _CANNOT_START  # someone else is in — not a solo match
+     # The viewer needs a live (confirmed, not held) seat of their own. A held

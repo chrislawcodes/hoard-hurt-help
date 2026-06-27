@@ -1,0 +1,23 @@
+{
+  "feature_slug": "dedup-engine-cseries",
+  "stage": "diff",
+  "artifact_path": "docs/workflow/feature-runs/dedup-engine-cseries/reviews/implementation.diff.patch",
+  "git_base_ref": "9d36fdc28273b44ec7b04fbdaf747b1b9f18c221",
+  "allowed_dirty_paths": [
+    "app/engine",
+    "docs/workflow/feature-runs/dedup-engine-cseries"
+  ],
+  "required_reviews": [
+    {
+      "reviewer": "claude",
+      "lens": "regression-adversarial",
+      "stage": "diff",
+      "path": "docs/workflow/feature-runs/dedup-engine-cseries/reviews/diff.claude.regression-adversarial.review.md",
+      "context_paths": [],
+      "model": "claude-opus-4-8"
+    }
+  ],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

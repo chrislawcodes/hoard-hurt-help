@@ -45,7 +45,14 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "app/engine",
+      "docs/workflow/feature-runs/dedup-engine-cseries"
+    ],
+    "used": true,
+    "updated_at": 1782523014
+  },
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -214,6 +221,26 @@
       "artifact_sha_at_time": "44611cac24d5f3dcee2ce451f916ff4db298418340a12d303934e0faf0a63912",
       "cache_read_tokens": 846284,
       "total_tokens": 39262
+    },
+    {
+      "stage": "diff",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "regression-adversarial",
+      "prompt_chars": 34268,
+      "prompt_cap": 250000,
+      "input_tokens": 253480,
+      "output_tokens": 34,
+      "cost_usd_estimate": 1.26825,
+      "timestamp": "2026-06-27T01:16:53.952210Z",
+      "started_at": "2026-06-27T01:16:53.952210Z",
+      "ended_at": "2026-06-27T01:16:53.952210Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 1230414,
+      "total_tokens": 62195
     }
   ],
   "command_telemetry": [
@@ -324,6 +351,30 @@
       "files_written": 5,
       "subprocess_invocations": 36,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-06-27T01:16:55Z",
+      "wall_seconds": 1.092,
+      "input_bytes_read": 204641,
+      "output_bytes_written": 71353,
+      "files_read": 32,
+      "files_written": 6,
+      "subprocess_invocations": 64,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-27T01:17:13Z",
+      "wall_seconds": 0.559,
+      "input_bytes_read": 56492,
+      "output_bytes_written": 0,
+      "files_read": 10,
+      "files_written": 0,
+      "subprocess_invocations": 38,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -353,6 +404,14 @@
         "e7c6e1c87b2116c966d3268503ffd9fd3ad5f17246961bd695725dc58893325a"
       ],
       "initial_sha": "e7c6e1c87b2116c966d3268503ffd9fd3ad5f17246961bd695725dc58893325a"
+    },
+    "diff": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "31ecdcc9e9ebc2580f0c7944ff1b8e3fe89ff0c6f24388042981854ecea0f623"
+      ],
+      "initial_sha": "31ecdcc9e9ebc2580f0c7944ff1b8e3fe89ff0c6f24388042981854ecea0f623"
     }
   },
   "invariant_warnings": [],
@@ -364,10 +423,11 @@
   },
   "spec_adversarial_rounds": 3,
   "last_action_result": {
-    "next": "dispatch_next_slice_to_codex",
-    "reason": "tasks checkpoint completed",
+    "next": "reconcile_reviews",
+    "reason": "diff checkpoint completed",
     "blockers": []
   },
   "plan_adversarial_rounds": 2,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 1
 }

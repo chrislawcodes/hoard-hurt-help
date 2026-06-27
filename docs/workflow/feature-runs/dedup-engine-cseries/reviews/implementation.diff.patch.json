@@ -1,0 +1,16 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "2e415669af9ef0a423647580d7a21465292fbdf2",
+  "git_base_ref": "9d36fdc28273b44ec7b04fbdaf747b1b9f18c221",
+  "git_base_sha": "9d36fdc28273b44ec7b04fbdaf747b1b9f18c221",
+  "paths": [
+    "app/engine"
+  ],
+  "allowed_dirty_paths": [
+    "app/engine",
+    "docs/workflow/feature-runs/dedup-engine-cseries"
+  ],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/dedup-engine-cseries/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}
