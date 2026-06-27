@@ -13,7 +13,6 @@ modules, so they live here to avoid a circular import between siblings:
 from __future__ import annotations
 
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
 
 from app.deps import DbSession
 from app.engine.connection_health import (
@@ -26,6 +25,7 @@ from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
 from app.models.player import Player
 from app.provider_labels import provider_label
+from app.routes.agents_queries import user_agents_select
 from app.routes.web_support import SEAT_NAME_MAX, unique_seat_name
 
 
@@ -48,12 +48,14 @@ def _seat_name(agent_name: str, existing: set[str]) -> str:
 async def _load_user_agents(
     db: DbSession, user_id: int
 ) -> list[tuple[Agent, AgentVersion | None]]:
+    # Note: unlike the agents-list and connections loaders, this one does NOT
+    # filter to AI agents — it returns every non-archived agent (the join screen
+    # post-filters to AI itself). Newest-first order, raw (agent, version) tuples.
     rows = (
         await db.execute(
-            select(Agent, AgentVersion)
-            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-            .where(Agent.user_id == user_id, Agent.archived_at.is_(None))
-            .order_by(Agent.created_at.desc(), Agent.id.desc())
+            user_agents_select(user_id, ai_only=False).order_by(
+                Agent.created_at.desc(), Agent.id.desc()
+            )
         )
     ).all()
     return [(agent, version) for agent, version in rows]

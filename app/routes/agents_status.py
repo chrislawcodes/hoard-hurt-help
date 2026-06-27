@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from starlette.responses import Response
 
-from app.broadcast import subscribe
 from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health import ConnectionHealth
@@ -20,6 +18,7 @@ from app.routes.agents_setup import (
     _is_ready_to_play,
     _load_agent_matches,
 )
+from app.routes.sse import sse_response
 from app.templating import templates
 
 router = APIRouter()
@@ -89,17 +88,4 @@ async def agent_stream(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> StreamingResponse:
     await load_owned_agent(db, user, agent_id)
-
-    async def event_gen() -> AsyncIterator[str]:
-        async for msg in subscribe(f"bot:{agent_id}"):
-            yield msg
-
-    return StreamingResponse(
-        event_gen(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return sse_response(f"bot:{agent_id}")

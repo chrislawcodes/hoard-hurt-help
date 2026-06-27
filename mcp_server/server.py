@@ -88,22 +88,35 @@ def _build_client_storage() -> AsyncKeyValue:
     return MemoryStore()
 
 
+def _decode_unverified_jwt_payload(jwt_token: str) -> dict[str, Any]:
+    """Decode a JWT's payload claims into a dict WITHOUT verifying its signature.
+
+    Pure decode step: split the three segments, restore base64url padding, JSON
+    decode, and confirm the payload is an object. Raises ``ValueError`` on a
+    malformed JWT and propagates the underlying decode/JSON errors otherwise.
+    Callers choose their own error policy around this (raise vs fail-open).
+    """
+    parts = jwt_token.split(".")
+    if len(parts) != 3:
+        raise ValueError("token is not a well-formed JWT")
+    payload = parts[1]
+    payload += "=" * (-len(payload) % 4)  # restore base64url padding
+    claims = json.loads(base64.urlsafe_b64decode(payload))
+    if not isinstance(claims, dict):
+        raise ValueError("JWT payload is not a JSON object")
+    return claims
+
+
 def _decode_jwt_claims(jwt_token: str) -> dict[str, Any]:
     """Read a JWT's payload claims WITHOUT verifying its signature.
 
     Only used on the Google id_token, which arrives straight from Google's token
     endpoint over a server-to-server TLS call (never from the client), so the
     signature is already trusted. We read identity claims (sub, email) only.
+
+    Raises on a malformed id_token — the caller depends on this failing loud.
     """
-    parts = jwt_token.split(".")
-    if len(parts) != 3:
-        raise ValueError("id_token is not a well-formed JWT")
-    payload = parts[1]
-    payload += "=" * (-len(payload) % 4)  # restore base64 padding
-    claims = json.loads(base64.urlsafe_b64decode(payload))
-    if not isinstance(claims, dict):
-        raise ValueError("id_token payload is not a JSON object")
-    return claims
+    return _decode_unverified_jwt_payload(jwt_token)
 
 
 def _userinfo_from_claims(
@@ -370,12 +383,7 @@ def _dcr_client_id_from_request() -> str | None:
         scheme, _, raw = header.partition(" ")
         if scheme.lower() != "bearer" or not raw:
             return None
-        segments = raw.split(".")
-        if len(segments) != 3:
-            return None  # not a JWT (e.g. an opaque token) — nothing to read
-        body = segments[1]
-        body += "=" * (-len(body) % 4)  # restore base64url padding
-        claims = json.loads(base64.urlsafe_b64decode(body))
+        claims = _decode_unverified_jwt_payload(raw)
         client_id = claims.get("client_id")
         return client_id if isinstance(client_id, str) and client_id else None
     except Exception:

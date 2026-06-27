@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, stat
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 
+from app.aware_datetime import ensure_aware
 from app.config import settings
 from app.deps import DbSession, require_platform_admin, require_user
 from app.engine.match_creation import create_match
@@ -122,8 +123,7 @@ async def create_match_submit(
             game,
             message="Could not read the start time. Please pick a date and time.",
         )
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
+    when = ensure_aware(when)
     if when <= datetime.now(timezone.utc):
         return _html_error(
             request,

@@ -10,6 +10,8 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.requests import Request
 
+from app.aware_datetime import ensure_aware
+
 # Re-exported for the Jinja filter below; the canonical definition lives in
 # app.read_models.agent_display, which owns agent display-name formatting.
 from app.read_models.agent_display import strip_archive_suffix
@@ -51,10 +53,7 @@ def _to_utc_iso(value: object) -> str | None:
         dt = value
     else:
         return str(value)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
+    dt = ensure_aware(dt).astimezone(timezone.utc)
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
