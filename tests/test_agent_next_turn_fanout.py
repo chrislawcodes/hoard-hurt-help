@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.db import make_engine
+from app.engine.model_provider_match import default_model_for_provider
 from app.engine.tokens import generate_turn_token
 from app.models import Base
 from app.models.agent import Agent, AgentKind
@@ -250,7 +251,9 @@ async def test_one_connection_one_agent_one_match_returns_correct_version(
     assert body["match_id"] == "M_0001"
     assert body["agent_id"] == agent.id
     assert body["agent_name"] == "Alpha"
-    assert body["model"] == version.model
+    # No preferred model set → payload carries the provider's default model
+    # (the legacy AgentVersion.model is no longer forwarded).
+    assert body["model"] == default_model_for_provider("claude")
     assert body["version_no"] == version.version_no
     assert body["seat_name"] == player.seat_name
     assert body["turn_token"] == body["current"]["turn_token"]
@@ -298,7 +301,7 @@ async def test_multiple_agents_and_matches_pick_the_most_urgent_turn(
     body = r.json()
     assert body["agent_id"] == agent_b.id
     assert body["agent_name"] == "Beta"
-    assert body["model"] == version_b.model
+    assert body["model"] == default_model_for_provider("claude")  # provider default
     assert body["version_no"] == version_b.version_no
     assert body["seat_name"] == player_b.seat_name
     assert body["match_id"] == match_b.id
@@ -522,7 +525,7 @@ async def test_urgency_ordering_prefers_the_earliest_deadline(
     body = r.json()
     assert body["agent_id"] == early_agent.id
     assert body["match_id"] == early_match.id
-    assert body["model"] == early_version.model
+    assert body["model"] == default_model_for_provider("claude")  # provider default
     assert body["version_no"] == early_version.version_no
     assert body["seat_name"] == early_player.seat_name
 
@@ -1255,7 +1258,8 @@ async def test_provider_agnostic_serving_stamps_played_provider(
     assert body["agent_name"] == "Decoupled"
     # Payload provider reflects the serving connection, not the (absent) agent provider.
     assert body["provider"] == "gemini"
-    assert body["model"] is None
+    # Decoupled agent (no preferred model) → the serving provider's default model.
+    assert body["model"] == default_model_for_provider("gemini")
 
     async with session_factory() as db:
         refreshed = (

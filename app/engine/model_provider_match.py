@@ -15,7 +15,42 @@ default model.
 
 from __future__ import annotations
 
-from app.config import provider_for_model
+from app.config import PROVIDER_MODELS, provider_for_model
+
+
+def default_model_for_provider(provider: str | None) -> str | None:
+    """The server's default model for a provider, or ``None`` if it has none.
+
+    The default is the first entry of the provider's ``PROVIDER_MODELS`` allowlist
+    (the single source of truth). Providers with an empty allowlist — the MCP-only
+    ones (``hermes``, ``openclaw``) — and unknown providers return ``None`` so no
+    model is forced onto a CLI that has none.
+    """
+    if not provider:
+        return None
+    models = PROVIDER_MODELS.get(provider.lower(), [])
+    return models[0] if models else None
+
+
+def resolve_seat_model(provider: str | None, preferred_model: str | None) -> str | None:
+    """Resolve the model to send for a machine-connection seat, in three layers:
+
+    1. the agent's ``preferred_model`` if it belongs to the seat's chosen provider
+       (kept by :func:`model_for_provider`); else
+    2. the server's per-provider default (:func:`default_model_for_provider`); else
+    3. ``None`` — the connector falls back to its own built-in default.
+
+    A provider-mismatched or unset preferred model falls through quietly to the
+    default; the legacy ``AgentVersion.model`` is no longer consulted.
+    """
+    default = default_model_for_provider(provider)
+    if default is None:
+        # The provider has no model allowlist (the MCP-only hermes/openclaw) or is
+        # unknown/unset — forward no model at all, even if a stray preferred model
+        # is present, since these CLIs take no ``--model``.
+        return None
+    kept = model_for_provider(provider, preferred_model)
+    return kept if kept is not None else default
 
 
 def model_for_provider(provider: str | None, model: str | None) -> str | None:
