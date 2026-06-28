@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.bot_presets import BOT_PRESETS, allocate_default_bot_names, bot_presets
+from app.engine.bot_presets import allocate_default_bot_names, bot_presets
 from app.engine.match_creation import create_match
 from app.engine.bots.seating import BotSeatingError, add_bots_to_game
 from app.engine.match_cancellation import mark_cancelled
@@ -34,15 +34,18 @@ from app.ops_events import log_ops_event
 logger = logging.getLogger(__name__)
 
 PRACTICE_ARENA_NAME = "Practice Arena"
-PRACTICE_ARENA_BOT_COUNT = len(BOT_PRESETS)  # one bot per default strategy
-# One open seat above the pre-seeded bots, so the lobby reads "8 / 9" and it's
-# clear that a single human joining fills the match and starts the game.
-PRACTICE_ARENA_MAX_PLAYERS = PRACTICE_ARENA_BOT_COUNT + 1
+# Practice arena seats 7 players: pre-seeded bots plus one open seat above them,
+# so the lobby reads "6 / 7" and a single human joining fills the match and
+# starts the game.
+PRACTICE_ARENA_MAX_PLAYERS = 7
+PRACTICE_ARENA_BOT_COUNT = PRACTICE_ARENA_MAX_PLAYERS - 1
 PRACTICE_ARENA_TOTAL_ROUNDS = 5
 PRACTICE_ARENA_TURNS_PER_ROUND = 7
 
 AUTO_MATCH_INTERVAL_MINUTES = 15
-AUTO_MATCH_MAX_PLAYERS = 8
+# Auto-matches seat 7 players: the external agent that triggers the start plus
+# bots filling the remaining seats.
+AUTO_MATCH_MAX_PLAYERS = 7
 AUTO_MATCH_BOT_COUNT_MAX = 7
 AUTO_MATCH_TOTAL_ROUNDS = 5
 AUTO_MATCH_TURNS_PER_ROUND = 7

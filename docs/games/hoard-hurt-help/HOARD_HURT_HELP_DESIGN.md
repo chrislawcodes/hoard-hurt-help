@@ -44,7 +44,7 @@ Betraying a helper:
 Mutual help decays (feature `mutual-help-decay`):
 - A given **pair's** mutual-help payoff is worth less each time *that same pair* repeats it within a match. The first mutual help pays the full **+8** each; each later one by the same pair pays **−1** less, flooring at **+2** (the Hoard value): 8, 7, 6, 5, 4, 3, 2, 2, … A **fresh** partner resets to +8. The counter is **per pair, per match** — it does **not** reset each round. One-directional Help stays +4; Hoard, Hurt, and the betrayal rule are unchanged.
 - **Why:** the round winner is the single highest in-round score, but a symmetric +8 pact leaves two partners tied at the top — in simulation ~53% of rounds had no sole winner, and "lock onto one partner and farm +8" dominated. Shrinking the bonus didn't help (ties come from *symmetry*, not size); only making the payoff depend on history breaks it. Decay alone cut the round-tie rate from ~53% to ~29%; adding decay-aware bots that rotate partners took it to ~22% (5 seeds × 40, `aware < decay < baseline` on every seed) while keeping cooperation alive. Full design + data: `docs/workflow/feature-runs/mutual-help-decay/spec.md` and the recorded run in `closeout.md`. Reproduce it with `scripts/decay_validation_sim.py`.
-- **Win-probability models retrained under decay.** The replay's per-turn win-probability overlay (`viewer_win_probs.py` → `app/engine/win_probability.py`) is trained on a bot-only baseline tournament. After the `mutual-help-decay` feature it was **regenerated on the decay + decay-aware-bots engine** (300 matches → `data/baseline.csv` → `data/baseline_features.csv` → the two `.pkl`s), so the predictions reflect the current scoring. Test metrics: round-win model ROC-AUC 0.82, match-win model ROC-AUC 0.80. The per-round display bands (`_ROUND_CAL_MAE` in `viewer_win_probs.py`) are left as a conservative cushion — the retrained model's measured per-decile calibration error is ≤ 0.016, comfortably inside those bands. Reproduce with `scripts/baseline_tournament.py` → `export_baseline_dataset.py` → `compute_features.py` → `train_round_win_prob.py` / `train_win_prob.py`.
+- **Win-probability overlay — removed from the UI.** The replay no longer shows a per-turn win-probability prediction. The PD viewer glue that fed it (`viewer_win_probs.py`) was deleted and the viewer payload no longer carries `win_probs`. The underlying model/engine (`app/engine/win_probability.py`, the trained `data/*_win_prob_model.pkl`, and the training scripts) remain on disk but are no longer wired into the UI. *(Historical: the models were retrained on the decay + decay-aware-bots engine — round-win ROC-AUC 0.82, match-win 0.80 — before the overlay was removed.)*
 
 ### Worked scenarios
 
@@ -75,16 +75,19 @@ Mutual help decays (feature `mutual-help-decay`):
 - Defaults to **6–10 players per match** (`min_players=6`, `max_players=10` in the
   PD module's `config_defaults`); admin‑configurable per match. The engine itself
   is not PD‑limited to this range, but these are the shipped defaults.
+- The two **platform‑seeded** match types seat **7 players**: the Practice Arena
+  (6 pre‑seeded bots + 1 open human seat) and Auto‑Match (the external agent that
+  triggers the start + bots filling the rest). See `app/engine/arena.py`.
 - Admin sets the start time for the match.
 
 ### Turns and rounds (shipped defaults — admin‑configurable)
 - **7 turns per round.**
-- **7 rounds per match.**
-- **49 turns total per match.**
+- **5 rounds per match.**
+- **35 turns total per match.**
 
-  (These come from the PD module's `config_defaults` — `total_rounds=7`,
+  (These come from the PD module's `config_defaults` — `total_rounds=5`,
   `turns_per_round=7` — and the rules text agents see. An admin can override them
-  per match.)
+  per match. Rounds dropped from 7 to 5 in #567.)
 
 ### Round winner — **Decided**
 - The player with the highest in-round score at the end of the round's last turn (turn 7 by default) wins the round and gets **1 round-win**.
@@ -96,7 +99,7 @@ Mutual help decays (feature `mutual-help-decay`):
 - Example: 2-way tie → 0.5 round-wins each. 3-way tie → 0.333 each.
 
 ### Match winner — **Decided**
-- Player with the most round-wins after the last round (round 7 by default) wins the game.
+- Player with the most round-wins after the last round (round 5 by default) wins the game.
 - **Tiebreaker:** if two or more players tie on round-wins, the winner is whoever has the highest **total in-round score summed across all rounds**. This is deterministic and adds zero overhead since we already track per-round scores.
 
 ### Missed turns

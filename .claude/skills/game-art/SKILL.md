@@ -90,16 +90,17 @@ whole thing.
 ## What you're working with (the one real surface today)
 
 Nearly all the art lives in **one file**: `app/templates/fragments/robot_circle.html`
-(~550 lines). It is the "Animated Replay" / robot-circle viewer. Read it fully
+(~1,500 lines). It is the "Animated Replay" / robot-circle viewer. Read it fully
 before changing anything — it is dense and self-contained.
 
 How it's wired:
 
 - **Included by** `app/templates/game.html` and `app/templates/agent_ludum.html`,
   both gated on `{% if rc_data %}`.
-- **Fed by** `_build_rc_data(scoreboard, history)` in `app/routes/web.py`, which
-  emits the JSON the viewer's inline `<script>` parses. This is the **data
-  contract** — know it before you design motion that needs new information:
+- **Fed by** `_build_rc_data(scoreboard, history)` in the PD viewer module
+  `app/games/hoard_hurt_help/viewer.py` (Liar's Dice has its own), which emits the
+  JSON the viewer's inline `<script>` parses. This is the **data contract** — know
+  it before you design motion that needs new information:
 
   - `agents`: ordered list of agent ids (drives ring position and palette index).
   - `turns[]`: each has `round`, `turn`, `badge`, `cap`, `spotlight[]`, and
@@ -231,8 +232,9 @@ Spell out the buildable detail:
 - **Data needs** — anything new the art or motion reads from `actions[]`, and the
   matching `_build_rc_data` change.
 
-Then, **on request**, make the edits in `robot_circle.html` (and `web.py` if the
-contract changes) and **verify them yourself**: re-run the Ground checks — judge
+Then, **on request**, make the edits in `robot_circle.html` (and the PD viewer
+module `app/games/hoard_hurt_help/viewer.py` if the contract changes) and **verify
+them yourself**: re-run the Ground checks — judge
 the still frame, watch it play with real data, flip every theme, check phone
 width and reduced motion and a crowded game — and show the result. Don't hand the
 user art you haven't looked at or an animation you haven't watched.

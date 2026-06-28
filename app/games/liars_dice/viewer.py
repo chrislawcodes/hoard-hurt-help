@@ -44,7 +44,7 @@ def _build_rc_data(
     Reuses the shared rc_data scaffolding (scoreboard maps, talk list, envelope)
     from ``viewer_common``; the only LD-specific part is the per-turn body, which
     carries just the bid/challenge actions and talk (no PD delta/mutual/betrayal,
-    badge, spotlight, or win_probs).
+    badge, or spotlight).
     """
     agents, labels, bots, owners = rc_scoreboard_maps(scoreboard)
 
