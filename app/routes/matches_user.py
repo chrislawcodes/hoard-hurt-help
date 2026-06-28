@@ -18,7 +18,11 @@ from app.engine.user_match_start import start_match_for_user, viewer_start_eligi
 from app.games import GameError, get as get_game_module, is_admin_only
 from app.models.match import GameState, Match
 from app.models.user import User, UserRole
-from app.routes.web_support import _is_any_admin, _load_match_or_404
+from app.routes.web_support import (
+    GameScopedMatchOr404,
+    _is_any_admin,
+    _load_match_or_404,
+)
 from app.templating import templates
 
 router = APIRouter(tags=["web"])
@@ -178,8 +182,7 @@ async def create_match_submit(
 
 @router.post("/games/{game}/matches/{match_id}/start")
 async def start_match_submit(
-    game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
+    match: GameScopedMatchOr404,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
@@ -188,11 +191,10 @@ async def start_match_submit(
     Shown as the "Start now" button only when ``viewer_start_eligibility`` says
     yes; re-checked here so a stale page can't start a match the user no longer
     solely owns. Bots fill any empty seats up to the start floor so the match can
-    actually run, then the match goes ACTIVE.
+    actually run, then the match goes ACTIVE. The ``{game}``-slug check is the
+    injected ``GameScopedMatchOr404`` dependency (404 "Match not found." on
+    mismatch — same body the old inline check returned).
     """
-    match = await _load_match_or_404(db, match_id)
-    if match.game != game:
-        raise HTTPException(status_code=404, detail="Match not found.")
     eligibility = await viewer_start_eligibility(db, match, user)
     if not eligibility.can_start:
         raise HTTPException(

@@ -24,6 +24,7 @@ from app.engine.scheduler import registry as scheduler_registry
 from app.canonical_host import CanonicalHostMiddleware, canonical_host_of
 from app.oauth_dcr_compat import OAuthRegistrationCompatMiddleware
 from app.request_logging import install_request_logging
+from app.routes.web_support import GameSlugRedirect, game_slug_redirect_response
 from app.routes import (
     admin_api,
     admin_web,
@@ -229,6 +230,11 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if _expose_docs else None,
         openapi_url="/openapi.json" if _expose_docs else None,
     )
+
+    # A game-scoped match route whose {game} slug doesn't match the match's real
+    # game raises GameSlugRedirect (from the shared match-load dependency); this
+    # turns it into the 301/308 redirect those routes used to build by hand.
+    app.add_exception_handler(GameSlugRedirect, game_slug_redirect_response)
 
     app.add_middleware(
         SessionMiddleware,

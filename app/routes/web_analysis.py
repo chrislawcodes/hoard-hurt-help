@@ -11,10 +11,9 @@ from app.games import get as get_game_module
 from app.models.match import Match, GameState
 from app.read_models.matches import load_action_records, load_player_records
 from app.routes.web_support import (
+    GameScopedMatch,
     _game_theme,
     _is_any_admin,
-    _load_match_or_404,
-    _redirect_if_game_slug_mismatch,
     _redirect_to_match,
 )
 from app.templating import templates
@@ -31,17 +30,13 @@ async def _insight_records(db, game: Match) -> tuple[list[PlayerRecord], list[Ac
 
 @router.get("/games/{game}/matches/{match_id}/analysis", response_class=HTMLResponse)
 async def game_analysis(
-    game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
+    g: GameScopedMatch,
     request: Request,
     db: DbSession,
 ):
     """Season home for the spectator analysis — the round-win race, results,
     grudges, and (when live) a peek into the current round."""
     user = await get_current_user(request, db)
-    g = await _load_match_or_404(db, match_id)
-    if redirect := _redirect_if_game_slug_mismatch(g, game, "/analysis"):
-        return redirect
     players, actions = await _insight_records(db, g)
     module = get_game_module(g.game)
     active = g.state == GameState.ACTIVE
@@ -81,21 +76,13 @@ async def legacy_game_analysis_redirect(
     response_class=HTMLResponse,
 )
 async def game_analysis_round(
-    game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
+    g: GameScopedMatch,
     round_num: Annotated[int, Path()],
     request: Request,
     db: DbSession,
 ):
     """Drill-in for one round: leaderboard-from-0, mood, alliances, event feed."""
     user = await get_current_user(request, db)
-    g = await _load_match_or_404(db, match_id)
-    if redirect := _redirect_if_game_slug_mismatch(
-        g,
-        game,
-        f"/analysis/rounds/{round_num}",
-    ):
-        return redirect
     players, actions = await _insight_records(db, g)
     played = sorted({a.round for a in actions})
     if round_num not in played:

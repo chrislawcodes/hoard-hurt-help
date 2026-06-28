@@ -35,11 +35,12 @@ from app.routes.web_player_shared import (
     _seat_provider_readiness,
 )
 from app.routes.web_support import (
+    GameScopedMatchPost,
     _game_theme,
     _is_any_admin,
     _load_match_or_404,
     _player_count,
-    _redirect_if_game_slug_mismatch,
+    raise_for_game_slug_mismatch,
 )
 from app.templating import templates
 
@@ -163,9 +164,12 @@ async def join_form(
         )
 
     set_request_trace_context(request, match_id=match_id, stage="join_form")
+    # The sign-in / handle redirects above must run first (they bounce a signed-out
+    # or handle-less visitor), so this route can't take the slug check as a
+    # signature dependency — those resolve before the body. Call the shared check
+    # here instead: same logic and same 301 target as the dependency form.
     match = await _load_match_or_404(db, match_id)
-    if redirect := _redirect_if_game_slug_mismatch(match, game, "/join"):
-        return redirect
+    raise_for_game_slug_mismatch(match, game, suffix="/join")
     if is_admin_only(match.game) and not _is_any_admin(user):
         raise HTTPException(status_code=404, detail="Game not found.")
 
@@ -331,11 +335,11 @@ async def _seat_user_agent(
 
 @router.post("/games/{game}/matches/{match_id}/join")
 async def join_submit(
-    game: Annotated[str, Path()],
     match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
+    match: GameScopedMatchPost,
     play_as: Annotated[str, Form()] = "ai",
     agent_id: Annotated[list[int] | None, Form()] = None,
     bot_id: Annotated[list[int] | None, Form()] = None,
@@ -372,14 +376,11 @@ async def join_submit(
         stage="join_submit",
         agent_id=selected_ids[0] if selected_ids else None,
     )
-    match = await _load_match_or_404(db, match_id)
-    if redirect := _redirect_if_game_slug_mismatch(
-        match,
-        game,
-        "/join",
-        status_code=status.HTTP_308_PERMANENT_REDIRECT,
-    ):
-        return redirect
+    # `match` is injected by GameScopedMatchPost: it loads the match (404 if
+    # missing) and, on a {game}-slug mismatch, raises the 308 redirect to the
+    # canonical /join URL (308 keeps the POST method). `user` is listed before
+    # `match` in the signature so a handle-less visitor still 303s to /me/handle
+    # before the slug check, exactly as the old inline order did.
     if is_admin_only(match.game) and not is_admin:
         raise HTTPException(status_code=404, detail="Game not found.")
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):

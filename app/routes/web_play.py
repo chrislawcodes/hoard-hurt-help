@@ -41,6 +41,7 @@ from app.models.user import User
 from app.read_models.matches import count_players
 from app.routes.web_support import (
     SEAT_NAME_MAX,
+    GameScopedMatchOr404,
     _is_any_admin,
     _load_match_or_404,
     unique_seat_name,
@@ -325,19 +326,18 @@ async def seat_human_player(
 async def play_join(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
-    game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
+    match: GameScopedMatchOr404,
     display_name: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
     """Take a human seat in a scheduled match — no agent, no connection, no key.
 
     The join screen is the primary entrance (pick "Play as yourself"); this
     endpoint stays as the direct one-click path and shares ``seat_human_player``
-    with it, so the two can't drift.
+    with it, so the two can't drift. The ``{game}``-slug check is the injected
+    ``GameScopedMatchOr404`` dependency (404 "Match not found." on mismatch — same
+    body the old inline check returned); ``user`` is listed first so a handle-less
+    visitor 303s to /me/handle before that check, as before.
     """
-    match = await _load_match_or_404(db, match_id)
-    if match.game != game:
-        raise HTTPException(status_code=404, detail="Match not found.")
     if is_admin_only(match.game) and not _is_any_admin(user):
         raise HTTPException(status_code=404, detail="Game not found.")
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
