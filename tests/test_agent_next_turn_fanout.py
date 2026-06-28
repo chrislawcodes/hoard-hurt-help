@@ -1129,10 +1129,18 @@ async def test_no_game_after_idle_window_tells_client_to_stop(
 
 @pytest.mark.asyncio
 async def test_seated_in_active_game_is_waiting_not_no_game(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Even long after the idle window, a caller seated in an active game (turn not
     open) is 'waiting' — a turn is coming — and is never told to stop."""
+    # Shrink the server's long-poll hold so the test skips the full production
+    # wait; the assertions below (waiting, no stop hint) are unchanged.
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0.4)
+    monkeypatch.setattr(
+        "app.engine.agent_play_next_turn.LONG_POLL_INTERVAL_SECONDS", 0.05
+    )
     async with session_factory() as db:
         user = await make_user(db)
         connection, key = await make_connection(db, user)
@@ -1259,12 +1267,21 @@ async def test_provider_agnostic_serving_stamps_played_provider(
 
 @pytest.mark.asyncio
 async def test_connection_only_serves_seats_for_its_own_ai(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Matched routing: a seat joined with one AI is served only to a connection
     that covers that AI. A different-provider connection of the same user is
     handed nothing — so the seat plays as the AI the user picked, not whoever
     polls first."""
+    # The non-matching connection has nothing to serve, so it long-polls; shrink
+    # the hold so the test skips the full production wait. Routing assertions are
+    # unchanged.
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0.4)
+    monkeypatch.setattr(
+        "app.engine.agent_play_next_turn.LONG_POLL_INTERVAL_SECONDS", 0.05
+    )
     async with session_factory() as db:
         user = await make_user(db)
         _claude_conn, claude_key = await make_connection(
