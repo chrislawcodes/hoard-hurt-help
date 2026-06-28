@@ -48,6 +48,11 @@ class Agent(Base):
         nullable=True,
         index=True,
     )
+    # The operator's optional preferred AI model for this agent (advanced).
+    # NULL = use the provider's default. Mutable — not part of the versioned
+    # strategy. Only honored on a machine connection when it matches the seat's
+    # chosen provider (guarded by model_for_provider); MCP clients ignore it.
+    preferred_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     kind: Mapped[AgentKind] = mapped_column(
         FlexibleEnumType(AgentKind, length=16),
         nullable=False,
