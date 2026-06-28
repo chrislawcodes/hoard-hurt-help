@@ -1,0 +1,306 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": [],
+    "reviewer": "claude"
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [],
+    "summary": "",
+    "updated_at": 1782662483,
+    "answers": {},
+    "non_goals": [
+      "No model picker on the join/seat page; it stays provider-only.",
+      "No attempt to set/control the model for MCP connections; the client decides and we only display it.",
+      "The per-agent model stays optional; agents are not re-coupled to a mandatory model."
+    ],
+    "acceptance_criteria": [
+      "A user can set an optional preferred model on an agent's settings page (advanced), choosing only from PROVIDER_MODELS.",
+      "On a machine connection, the connector runs the agent's preferred model when it matches the seat's chosen provider; else the server's per-provider default; the connector built-in default is only a last resort.",
+      "The connector verifies each model it would run with a cheap test call and reports pass/fail plus error text; the website shows per-model status (checking / verified / cannot-run with a reason).",
+      "Verification results are cached and re-tested only on change or periodic refresh, never every poll.",
+      "A model failure during a real turn surfaces the reason on connection/agent status; any forced fallback move is clearly tagged with why, never a silent HOARD.",
+      "MCP seats show 'runs your client's model' read-only and ignore the preferred-model field.",
+      "The join page remains provider-only."
+    ],
+    "checklist": {
+      "goal": "Let a user optionally pick a specific AI model per agent and have it run reliably on machine connections, with the model decision living server-side, verified on the user's own machine before it matters (fail-fast), and any failure surfaced clearly so the user can fix it. MCP play is unaffected: the client's own model is used and shown read-only.",
+      "audience": "Bot operators who run agents via a machine connection (the always-on connector) and want control over which model plays; the design must also stay correct and non-misleading for operators who play via MCP clients.",
+      "constraints": "Server-rendered, SSE/HTMX fragments, mobile, async app. Repo constitution: full types, no suppressions, fail-loud/no swallowed errors, specific exceptions, tests for app/engine, focused filenames. Connector deploys by copy to ~/.agentludum + launchd restart (not by merge). Only the local connector can verify a model against the user's CLI login. Reuse: model_for_provider (app/engine/model_provider_match.py), provider_for_model + PROVIDER_MODELS (app/config.py), provider-readiness pattern (app/engine/provider_readiness.py, connection_health.py), connector self-report (/api/agent/report-pid)."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": true,
+    "found": false,
+    "note": "Slice 4a (settings picker) is independent of 2b/2c/3 (needs only the shipped Agent.preferred_model); rest are sequential by dependency. Implementing serially for simplicity.",
+    "updated_at": 1782672745
+  },
+  "init_head_sha": "5bffc0c511e1f32e5602b31abee940a2df5c8173",
+  "token_usage": [
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gpt-5.4-mini",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 82944,
+      "prompt_cap": 250000,
+      "input_tokens": 54527,
+      "output_tokens": 0,
+      "cost_usd_estimate": 0.054527,
+      "timestamp": "2026-06-28T16:07:13.354614Z",
+      "started_at": "2026-06-28T16:05:03.133079Z",
+      "ended_at": "2026-06-28T16:07:13.354614Z",
+      "duration_seconds": 130.221643,
+      "agent_id": null,
+      "artifact_sha_at_time": "237b9035d232d1ec143534d03f801dc8ec92e2a4eedb386d2adaef9c6ff074be"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 82829,
+      "prompt_cap": 250000,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-06-28T16:07:15.909166Z",
+      "started_at": "2026-06-28T16:07:13.524499Z",
+      "ended_at": "2026-06-28T16:07:15.909166Z",
+      "duration_seconds": 2.384612,
+      "agent_id": null,
+      "artifact_sha_at_time": "237b9035d232d1ec143534d03f801dc8ec92e2a4eedb386d2adaef9c6ff074be",
+      "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "gemini-3.1-flash-lite",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 82829,
+      "prompt_cap": 250000,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-06-28T16:07:17.843968Z",
+      "started_at": "2026-06-28T16:07:15.910450Z",
+      "ended_at": "2026-06-28T16:07:17.843968Z",
+      "duration_seconds": 1.933545,
+      "agent_id": null,
+      "artifact_sha_at_time": "237b9035d232d1ec143534d03f801dc8ec92e2a4eedb386d2adaef9c6ff074be",
+      "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "spec",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 29347,
+      "prompt_cap": 250000,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-06-28T18:33:51.099767Z",
+      "started_at": "2026-06-28T18:33:51.099767Z",
+      "ended_at": "2026-06-28T18:33:51.099767Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "237b9035d232d1ec143534d03f801dc8ec92e2a4eedb386d2adaef9c6ff074be",
+      "parse_error": "no session JSONL provided for Claude subagent review"
+    },
+    {
+      "stage": "spec",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 29348,
+      "prompt_cap": 250000,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-06-28T18:33:51.180282Z",
+      "started_at": "2026-06-28T18:33:51.180282Z",
+      "ended_at": "2026-06-28T18:33:51.180282Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "237b9035d232d1ec143534d03f801dc8ec92e2a4eedb386d2adaef9c6ff074be",
+      "parse_error": "no session JSONL provided for Claude subagent review"
+    },
+    {
+      "stage": "plan",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "implementation-adversarial",
+      "prompt_chars": 9420,
+      "prompt_cap": 250000,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-06-28T18:51:14.859708Z",
+      "started_at": "2026-06-28T18:51:14.859708Z",
+      "ended_at": "2026-06-28T18:51:14.859708Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "parse_error": "no session JSONL provided for Claude subagent review"
+    },
+    {
+      "stage": "plan",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "testability-adversarial",
+      "prompt_chars": 9417,
+      "prompt_cap": 250000,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd_estimate": null,
+      "timestamp": "2026-06-28T18:51:14.938750Z",
+      "started_at": "2026-06-28T18:51:14.938750Z",
+      "ended_at": "2026-06-28T18:51:14.938750Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "parse_error": "no session JSONL provided for Claude subagent review"
+    }
+  ],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-28T16:07:17Z",
+      "wall_seconds": 134.915,
+      "input_bytes_read": 41810,
+      "output_bytes_written": 17710,
+      "files_read": 7,
+      "files_written": 5,
+      "subprocess_invocations": 4,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-28T16:14:09Z",
+      "wall_seconds": 0.212,
+      "input_bytes_read": 28011,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-06-28T16:14:09Z",
+      "wall_seconds": 0.205,
+      "input_bytes_read": 28818,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-06-28T18:33:59Z",
+      "wall_seconds": 0.313,
+      "input_bytes_read": 148110,
+      "output_bytes_written": 34140,
+      "files_read": 16,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-06-28T18:51:15Z",
+      "wall_seconds": 0.472,
+      "input_bytes_read": 189676,
+      "output_bytes_written": 41537,
+      "files_read": 19,
+      "files_written": 5,
+      "subprocess_invocations": 28,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-06-28T18:52:26Z",
+      "wall_seconds": 0.583,
+      "input_bytes_read": 182864,
+      "output_bytes_written": 44213,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "237b9035d232d1ec143534d03f801dc8ec92e2a4eedb386d2adaef9c6ff074be",
+        "a28b01500f58ea9a9604f43969ad54b0de5495ea1ab503181317462303194c44"
+      ],
+      "initial_sha": "237b9035d232d1ec143534d03f801dc8ec92e2a4eedb386d2adaef9c6ff074be"
+    },
+    "plan": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "a8277cafd8898cb43c53be4dd4dab86c93fe2cfdeb3fc95bd42923e2f111664c"
+      ],
+      "initial_sha": "a8277cafd8898cb43c53be4dd4dab86c93fe2cfdeb3fc95bd42923e2f111664c"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "cb3eb40b79b5045355bda9398e1eedc92546c242f19de74e346847744d774fb8"
+      ],
+      "initial_sha": "cb3eb40b79b5045355bda9398e1eedc92546c242f19de74e346847744d774fb8"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 1,
+  "last_action_result": {
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
+    "blockers": []
+  },
+  "plan_adversarial_rounds": 1,
+  "tasks_adversarial_rounds": 1
+}

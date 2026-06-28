@@ -105,7 +105,7 @@ Every external entry point. Split by audience.
 | `web_player_shared.py` | 80 | Small helpers shared across the four player route modules (`_hx_redirect`, `_seat_name`, `_load_user_agents`, `_seat_provider_readiness` / `_seat_provider_label`) — kept here to avoid a sibling import cycle. |
 | `web_support.py` | 136 | Shared web helpers for match URLs, legacy redirects, player counts, game themes, upcoming cards, and standings. |
 | `agent_api.py` | ~190 | The agent‑facing HTTP API — a **thin adapter** over the shared play‑service layer (`app/engine/agent_play*`): poll for your turn, submit talk/action, read history, chat, opponent stats, standings. Auth by per‑**connection** key (`X-Connection-Key`); each call resolves the playable agent‑player by `(agent_id, match_id)` among the **same user's** agents (`require_agent_player` in `deps.py`) — it does **not** re‑check provider on a write; the `agent_turn_token` minted by the served turn (`turn_token:agent_id:match_id`) is what binds a submit to the right seat. Routing‑by‑chosen‑AI lives upstream, at next‑turn time. |
-| `connections_*.py` / `agents_*.py` | ~2,000+ | The split self‑serve panel (replacing `bots_web.py`): `connections_setup` (now a thin aggregator that splices the siblings + re‑exports their public symbols) drives **`/me/connections`** via `connections_pages` (the pages + poll fragments, incl. the connect screen), `connections_queries` (shared read queries), `connections_machine_setup` (pending‑setup + key minting: `POST /name`, `GET /setup/{id}`), `connections_connect_guide` (the connect‑copy seam), and `connections_credentials`/`connections_lifecycle` (create a **machine** — nickname only, no provider choice — reissue/revoke its key, pause/resume, toggle per‑provider via `connection_providers`, delete → stops that machine's runner but leaves agents ACTIVE; only agents now covered by no live connection show a "no live connection" warning); `agents_setup` (now a thin aggregator + re‑exports) drives **`/me/agents`** + **`/me/agents/new`** via `agents_list`, `agents_create`, `agents_detail`, the shared `agents_health_presenter`, the shared read queries in `agents_queries` (the canonical `load_owned_agent` — parallel to `connections_queries`; it **always** excludes archived agents, so a soft‑deleted agent can't be loaded by a read page or mutated by a write action), and `agents_lifecycle`/`agents_status`. An agent is just a **name + a strategy** — there is **no model or provider picker** anywhere; `agents_create` is name + strategy only (seeded from the game's strategy presets, plus a "start from an existing agent" reuse picker), and `Agent.provider` is left NULL. **Strategy‑first**: an agent is creatable with no connection and saved "ready — needs connecting" (see Notable shapes); per‑agent pause/delete, onboarding+health fragments. Preset **Bots** are auto‑provisioned as connectionless agents. `connections_pages` (with copy from `connections_connect_guide`) renders the redesigned **"Play with your own AI"** connect screen: a state‑aware one‑box flow (NEW → add the MCP server + Google sign‑in; RETURNING → the play‑prompt; LIVE → Join a game), with a `GET /me/connections/live-status` HTMX poll fragment that self‑advances "Listening…→ live" the moment a connection comes up. Connect commands are OAuth / header‑less and mirror `docs/setup-mcp.md` (MCP connection — direct interactive MCP play); clients: Claude Code, Codex, Gemini CLI, Claude Desktop (Cursor dropped). |
+| `connections_*.py` / `agents_*.py` | ~2,000+ | The split self‑serve panel (replacing `bots_web.py`): `connections_setup` (now a thin aggregator that splices the siblings + re‑exports their public symbols) drives **`/me/connections`** via `connections_pages` (the pages + poll fragments, incl. the connect screen), `connections_queries` (shared read queries), `connections_machine_setup` (pending‑setup + key minting: `POST /name`, `GET /setup/{id}`), `connections_connect_guide` (the connect‑copy seam), and `connections_credentials`/`connections_lifecycle` (create a **machine** — nickname only, no provider choice — reissue/revoke its key, pause/resume, toggle per‑provider via `connection_providers`, delete → stops that machine's runner but leaves agents ACTIVE; only agents now covered by no live connection show a "no live connection" warning); `agents_setup` (now a thin aggregator + re‑exports) drives **`/me/agents`** + **`/me/agents/new`** via `agents_list`, `agents_create`, `agents_detail`, the shared `agents_health_presenter`, the shared read queries in `agents_queries` (the canonical `load_owned_agent` — parallel to `connections_queries`; it **always** excludes archived agents, so a soft‑deleted agent can't be loaded by a read page or mutated by a write action), and `agents_lifecycle`/`agents_status`. An agent is just a **name + a strategy** — there is **no provider picker** anywhere (the AI is chosen per game on the seat); `agents_create` is name + strategy only (seeded from the game's strategy presets, plus a "start from an existing agent" reuse picker), and `Agent.provider` is left NULL. The **one** optional AI knob is the **advanced per‑agent model picker** on the agent‑settings page (`agents_detail` / `agents_lifecycle`): an optional `Agent.preferred_model` chosen from `PROVIDER_MODELS` (default "provider default"), labeled "used by machine connections only; ignored by MCP", shown alongside the effective model that will run and the **per‑model verification status** (checking / verified / failed‑with‑reason / timeout, or "waiting for your connector") read from `model_verifications`. **Strategy‑first**: an agent is creatable with no connection and saved "ready — needs connecting" (see Notable shapes); per‑agent pause/delete, onboarding+health fragments. Preset **Bots** are auto‑provisioned as connectionless agents. `connections_pages` (with copy from `connections_connect_guide`) renders the redesigned **"Play with your own AI"** connect screen: a state‑aware one‑box flow (NEW → add the MCP server + Google sign‑in; RETURNING → the play‑prompt; LIVE → Join a game), with a `GET /me/connections/live-status` HTMX poll fragment that self‑advances "Listening…→ live" the moment a connection comes up. Connect commands are OAuth / header‑less and mirror `docs/setup-mcp.md` (MCP connection — direct interactive MCP play); clients: Claude Code, Codex, Gemini CLI, Claude Desktop (Cursor dropped). |
 | `matches_user.py` | ~274 | **Signed‑in user** HTML: slim create‑match flow (`GET/POST /games/{game}/matches/new` — name + start time only), plus owner/admin `POST /matches/{id}/delete` and `/cancel`. Guarded by `require_user`; authorizes per match via `Match.created_by_user_id` (owner) or `user.role == ADMIN`. Delegates the actual create/delete/cancel to the shared `app/engine/match_creation.py` + `match_deletion.py` helpers. |
 | `admin_web.py` | ~410 | **Platform admin** HTML: dashboard, handles, incidents, match delete, **user management** (`/admin/users` paginated+searchable list, `/admin/users/{id}` detail, disable/enable + promote/demote endpoints). Guarded by `require_platform_admin` (now role‑based — reads `User.role`). State‑changing user actions lock the target row, refuse to touch config‑floor admins (`PLATFORM_ADMIN_EMAILS`, case‑insensitive), and write an `AdminAuditLog` row in the same transaction. The existing handles view shows disabled/admin badges and its handle‑reset routes through the same audit path. Match delete delegates to the shared `match_deletion.py` cascade. |
 | `game_admin_web.py` | ~350 | **Game admin** HTML: create/view/start/cancel/delete matches, strategy prompts (Bot seating split out to `game_admin_bots_web.py`). Prefix `/games/{game}/admin`. Guarded by `require_game_admin`. Create/delete/cancel now call the shared engine helpers; its cancel keeps the `ACTIVE`→409 guard (unchanged behavior). |
@@ -118,6 +118,7 @@ Every external entry point. Split by audience.
 | `nav_context.py` | 327 | The smart **"Play" CTA** for the nav + marketing hero, and the **play‑setup gate**: `resolve_play_setup_state()` returns the first unmet onboarding step + the canonical `next_url`; `compute_nav_cta` wraps it for the nav. Read by `/play`, post‑login, agent‑create, and the join redirect. |
 | `spectator_api.py` | 118 | Public spectator JSON. **Never** returns strategy prompts. |
 | `agent_next_turn.py` | 98 | The game‑agnostic "what do I do next" endpoint — a thin route over `app/engine/agent_play_next_turn.py` — the heart of paste‑once play. **Matched‑routing**: fans out across the same user's active AI agents, and serves a seat only to a connection that **covers the seat's `chosen_provider`** (the AI the user picked at join) — legacy seats with `chosen_provider IS NULL` fall back to "any connection". Claims the match's pin with one atomic conditional UPDATE so two polls can't double‑serve, keys candidate turns by `(agent_id, match_id)`, stamps `Player.played_provider` from `chosen_provider` on first claim, and returns the chosen agent's id/name/model/version plus the seat's **`provider`** (the connector runs that CLI; an MCP client ignores it) and an `agent_turn_token` that binds the later submit to one (agent, match). The "connection covers provider" check + the atomic pin claim live in the DB‑free `app/engine/turn_routing.py`; final ordering stays in `next_turn.select_next_turn`. `report_pid` also lives here and accepts optional `detected_providers` to update `connection_providers.detected`. |
+| `agent_model_verification.py` | small | The **model‑verification channels** — two dedicated connector endpoints, **separate from the turn poll** (the idle connector discards the poll body, so verification can't ride on it). **Down‑channel** (server → connector): a *worklist* the connector pulls on its own short ~60s cadence, returning the `(provider, model)` pairs to verify for this connection (the union of preferred models + provider defaults across the user's agents, scoped to the connection's enabled providers) plus the cached status so a `verified`/recent result is skipped. **Up‑channel** (connector → server): the connector posts each result — outcome (`verified` / `failed` / `timeout`) + bounded error text, *and* a play‑time failure reason (kept off the submit body, which a missed‑deadline turn never sends) — which writes the `model_verifications` row. Auth by `X‑Connection‑Key` (same as the poll). |
 | `sse.py` | — | Server‑Sent Events streams the live viewer subscribes to (bridges `broadcast`). |
 | `auth.py` | 128 | Google OAuth sign‑in / sign‑out. `sync_google_user` is **additive**: it ensures `ADMIN` for config‑floor emails and otherwise **preserves** the stored `role`, so an in‑app promotion survives the next login. |
 
@@ -146,6 +147,7 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 | `win_probability.py` | 404 | Win‑probability predictions from pre‑trained scikit‑learn models (`score_round_win`). **Not currently wired into any UI** — the PD replay's win‑probability overlay was removed and its glue (`viewer_win_probs.py`) deleted; the engine, the trained `.pkl` models, and the training scripts remain on disk, dormant. |
 | `agent_onboarding.py` | 213 | Onboarding‑state resolution for AI agents (`AgentOnboardingState` — in‑game progress, distinct from the connection badge and provider readiness). |
 | `human_player.py` + `player_move.py` | 163 | The **human‑seat** path: `human_player.py` finds/creates a user's `kind=human` agent for a game; `player_move.py` is the shared "record one player's action" core both the human routes and the engine call (`record_player_action`). |
+| `model_provider_match.py` | ~75 | **Which model a machine seat runs.** `resolve_seat_model(provider, preferred_model)` is the server‑side three‑layer resolution — per‑agent `preferred_model` if it matches the seat's chosen provider → the provider's `PROVIDER_MODELS` default (`default_model_for_provider`) → `None` (the connector falls back to its own built‑in default). `model_for_provider` is the guard that drops a model that provably belongs to a *different* provider (so a `gpt-*` model never 404s a Claude CLI). Resolution **does not consult verification status** — a verified‑failing model is handled by the join guard and the UI, never silently swapped here. Called from `agent_play_next_turn._build_turn_payload`. |
 | `rules.py`, `state_machine.py`, `tokens.py`, `game_records.py`, `next_turn.py`, `turn_routing.py`, `bot_presets.py`, `action_vocab.py`, `seat_hold.py`, `user_match_start.py`, `machine_connection_dedup.py`, `match_id_rewrite.py`, `pending_connection_gc.py`, `connection_auth_loading.py` | small | Constants sent to agents; legal game‑state transitions; id/key/token generation; action‑record dataclasses; next‑turn ordering (`select_next_turn`, unchanged); DB‑free turn‑routing eligibility + sticky‑pin claim helper; the 9 preset Bot profiles and shared default-name allocator; the action‑name vocabulary the insight engines tally by; seat‑hold (join‑before‑connect) logic; user‑initiated match start (also owns `is_bot_kind`, the one value‑level bot‑kind predicate the DB/inline checks delegate to); collapsing a user's duplicate machine connections; the `G_`↔`M_` id‑rewrite shim; abandoned‑pending‑setup GC; the shared connection‑auth eager‑load option. |
 | `turn_clock.py`, `player_counts.py`, `onboarding_states.py`, `match_cancellation.py` | small | **Shared single-source primitives (engine C-series dedup)** so the two turn drivers and the connection/onboarding code stop re-inlining the same logic. `turn_clock.py`: `SUBMIT_POLL_SECONDS` + `now_utc()` (tz-aware UTC), used by both drivers. `player_counts.py`: `active_player_count(..., exclude_reserved)` — the one non‑left seat count, with the confirmed (left+reserved) vs seated (left‑only) distinction as a parameter; cycle‑free so `arena.py` and `scheduler.py` both use it. `onboarding_states.py`: `PREGAME_STATES` + `has_moved()` shared by `connection_activity.py`/`agent_onboarding.py` (their two state enums stay distinct). `match_cancellation.py`: field‑only `mark_cancelled(match, now)` (sets `state=CANCELLED`, `cancelled_at`), reused by `cancel_match` and the inline cancel sites — kept out of `state_machine.py` to preserve that module's pure‑transition contract. |
 
@@ -189,8 +191,9 @@ SQLAlchemy ORM. The spine of the whole system.
 
 ```
 User ──< Connection ──< ConnectionProviders   (per‑provider toggle + detection)
+  │            └──< ModelVerification          (per connection+provider+model: can this login run it?)
   │
-  └──< Agent ──< AgentVersion                  (agent = name + strategy; no model/provider)
+  └──< Agent ──< AgentVersion                  (agent = name + strategy; AI is per‑seat; model is optional + per‑agent)
         │
         └──< Player >── Match
                  │  └──> AgentVersion           (the version it ran)
@@ -225,16 +228,38 @@ The single `Bot` row was split into a **login** and a **competitor** (feature
   informational; a user may enable a provider not yet detected), and
   `updated_at`. A table (not a JSON column) so it joins in the routing
   eligibility query.
+- **`model_verification.py`** — the **model‑verification store**: one row per
+  (`connection_id`, `provider`, `model`) recording whether that machine login can
+  actually run that model. Fields: `status` (`unknown` / `checking` / `verified` /
+  `failed` / `timeout`), a bounded‑and‑sanitized `error_text` (capped, with
+  filesystem paths and token‑shaped substrings stripped — FR‑015), a
+  `consecutive_timeouts` counter (a `timeout` flips to shown‑as‑failed after a
+  bound, default 3), and a `checked_at` timestamp (so a stale "verified" can be
+  re‑checked on the connector's periodic refresh — default every 6h). Keyed by
+  (connection, provider, model) and **not** the `connection_providers` row,
+  which is unique per (connection, provider) and can't hold multiple models — a
+  login either can or can't run a model regardless of which agent uses it, so
+  agents that share a model share its result. The connector fills it via the
+  verification up‑channel (below); the agent‑settings page and the join guard read
+  it. A play‑time failure supersedes a stale "verified" here.
 - **`agent.py`** (98) — a per‑game **competitor identity** belonging to a user:
   `name`, `game`, `kind` (`ai`/`bot`/`human` — `AgentKind`; a human seat is a
   `kind=human` agent), `current_version_id`, and the `bot_*`
   config when `kind=bot`. An agent is just a **name + a strategy** — it carries
-  **no AI**. The `provider` column still exists (enum, nullable) but is **left
-  NULL on new agents and is not used for turn routing or seating**; the AI is
-  chosen per game on the seat (`Player.chosen_provider`). (A legacy
+  **no provider**. The `provider` column still exists (enum, nullable) but is
+  **left NULL on new agents and is not used for turn routing or seating**; the AI
+  is chosen per game on the seat (`Player.chosen_provider`). (A legacy
   `active_matches_for_provider` query still reads it, but that path is no longer
   the join gate.) **No `connection_id`** — agents are not pinned to a connection;
-  turns route by user + the seat's chosen provider (see `turn_routing.py`).
+  turns route by user + the seat's chosen provider (see `turn_routing.py`). The
+  one optional AI knob is **`preferred_model`** (`String(64)`, nullable, mutable —
+  migration `0044`): an advanced per‑agent model the operator can pick from
+  `PROVIDER_MODELS` (NULL = "provider default"). It is **not** a provider choice
+  and changes no routing — at next‑turn time the server resolves the seat's
+  payload `model` from it via `resolve_seat_model` (see the **Core engine** entry
+  for `model_provider_match.py`); a machine connection honors it only when it
+  matches the seat's chosen provider, and MCP turns ignore it (the client picks
+  the model).
 - **`agent_version.py`** (38) — the versioned **strategy** an agent has run:
   `version_no`, `strategy_text`, `frozen_at`, and a now‑legacy `model` column.
   `model` is **nullable** and unused by the decoupled model — new versions store
@@ -324,7 +349,10 @@ place but unused for routing.) Migration `0033` (liars‑dice‑state) created t
 non‑PD `turn_submissions.quantity` / `.face` columns, the schema change that lets a
 second game ship its own move vocabulary. Migration `0042` (player‑autopilot) adds
 `players.autopilot_at` so a human seat keeps playing on autopilot after its owner
-leaves. (Other migrations in the `003x`–`004x` range cover the MCP‑connection
+leaves. Migration `0044` (agent‑preferred‑model) adds the nullable mutable
+`agents.preferred_model`, the one optional per‑agent AI knob; a follow‑up migration
+creates the `model_verifications` table (per connection+provider+model status +
+bounded error + checked‑at) that backs the verification channels below. (Other migrations in the `003x`–`004x` range cover the MCP‑connection
 bridge and its rename — `0032`/`0038` — per‑provider one‑connection rules
 (`0035`/`0036`), the sideline coach (`0030`), seat holds (`0034`), and connection
 poll/usage counters.) Migrations apply automatically on startup.
@@ -502,6 +530,35 @@ section says to call the tools.
    (`handle/agent-name`), never the integer `agent_id`.
 5. Missing the deadline → the server defaults the move (Hoard / "did not submit").
 
+### A′. The connector verifies a model (side‑task, off the turn loop)
+
+Only the local connector can know whether a model actually runs on the user's CLI
+login, so it checks and reports; the website surfaces it. This runs **independent
+of any live turn** so it covers the pre‑match state too.
+
+1. On its own short cadence (~60s when idle — **not** the 300s PID‑report hook),
+   the connector pulls the **verification worklist** (down‑channel,
+   `agent_model_verification.py`): the `(provider, model)` pairs to check, already
+   filtered server‑side to skip a `verified`/recently‑checked one.
+2. For each pair the connector makes a **cheap, low‑token test call** against that
+   provider's CLI (e.g. `claude --model <m> --print "ok"`), on its own short
+   timeout (~30s) in a path **isolated** from any live chained session — it never
+   consumes a turn's concurrency slot or deadline. Outcome: `verified` (exit 0 +
+   non‑empty output — a deliberately loose *runnability* check), `failed` (a clean
+   model‑unavailable / unauthorized error), or `timeout` (transport / PATH /
+   `TimeoutExpired`, and the conservative default for anything unclassifiable).
+3. The connector posts results on the **up‑channel**; the server caches each into
+   the `model_verifications` row. The agent‑settings page then shows checking /
+   verified / failed‑with‑reason / timeout (and a distinct "waiting for your
+   connector" when no connector has reported), and the join flow **warns** when a
+   preferred model is verified‑failing on every live machine connection covering
+   the chosen provider.
+4. **Fail loud at play time too:** if a model breaks during a real turn, the
+   connector sends the failure reason on this **same up‑channel** (not the submit
+   body — a missed‑deadline turn never submits), tags the forced fallback move, and
+   flips that model's cached status to `failed`. A later successful verification
+   supersedes it.
+
 ### B. The scheduler resolves one turn (server side)
 
 1. `_open_turn` creates (or resumes) the `Turn` row, sets the deadline.
@@ -539,6 +596,9 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). For MCP‑only payload shape changes, strip in the MCP wrapper (`mcp_server/server.py`), not the service layer. |
 | Let users pick which AI plays an agent / the join flow | `app/routes/web_join.py` — `_build_ai_options` (the per‑AI picker + its four states), `_seat_user_agent` (records `Player.chosen_provider`, enforces "one AI = one seat"), `join_form` / `join_submit`; the held‑seat connect screens (`seat_connect` / `seat_connect_status`) are in `app/routes/web_seat_connect.py`. (Both are mounted via the `web_player.py` aggregator.) The "one AI = one seat" check is `providers_busy_for_user` in `app/engine/join_gate_capacity.py`. Template: `app/templates/join.html`. |
 | Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (`can_connection_claim_turn`: "connection covers the seat's `chosen_provider`" + sticky‑pin claim) wired into `app/engine/agent_play_next_turn.py` (which passes `player.chosen_provider`) and `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. `chosen_provider` / `played_provider` / pin columns live on `app/models/player.py`. |
+| Choose / resolve a per‑agent model | The optional `Agent.preferred_model` (`app/models/agent.py`) — picker + effective‑model + verification status on the agent‑settings page (`app/routes/agents_detail.py` / `agents_lifecycle.py` + `app/templates/agents/`); resolution is `resolve_seat_model` in `app/engine/model_provider_match.py`, called from `app/engine/agent_play_next_turn._build_turn_payload`. The join/seat page stays provider‑only (do **not** add a model picker to `web_join.py`). |
+| Change model verification (can this login run this model?) | The `model_verifications` store (`app/models/model_verification.py`, keyed connection+provider+model); written by the connector's verification side‑task (`scripts/agentludum_connector.py` — the ~60s worklist pull + cheap test call) via the up‑channel; read by the agent‑settings status and the join guard (`app/engine/join_gate_capacity.py` gains the union‑of‑live‑connections read — warn, don't block). |
+| Change the verification report endpoints (down worklist / up results + reason) | `app/routes/agent_model_verification.py` — the two dedicated connector endpoints (worklist down, results + play‑time failure reason up), **separate from the turn poll**; the connector side is the verification side‑task in `scripts/agentludum_connector.py`. |
 | Change per‑connection provider toggles / detection | `app/models/connection_provider.py` + the toggle endpoint in `app/routes/connections_lifecycle.py`; detection flows in via `report_pid` in `app/routes/agent_next_turn.py`. |
 | Change connection health / liveness | `app/engine/connection_health_badge.py` (the `ConnectionHealth` enum + `compute_connection_health`; reads `last_seen_at`/`runner_pid` + `players.served_by_connection_id`, not agent attachment). Re‑exported via `connection_health.py`. |
 | Change "is this provider set up / connected / playing" | `app/engine/provider_readiness.py` — `ProviderReadiness` + `provider_readiness()` (the one per‑provider readiness signal; wraps the three existing predicates). Every readiness badge and the play‑setup gate read this, not their own predicate. |
