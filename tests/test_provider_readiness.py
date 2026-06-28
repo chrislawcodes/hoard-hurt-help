@@ -104,16 +104,89 @@ async def test_mcp_connected_not_live_when_mcp_recent_but_cold(
 
 
 @pytest.mark.asyncio
-async def test_mcp_no_connection_when_no_mcp_setup(db_session: AsyncSession) -> None:
-    """A connection that never did MCP gives an MCP provider no current setup."""
+async def test_mcp_no_connection_when_provider_absent(db_session: AsyncSession) -> None:
+    """An MCP provider with no connection enabled at all has no current setup."""
     user = await make_user(db_session, 3)
-    conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
-    conn.mcp_connected_at = None  # never MCP-connected
+    # A connection for a DIFFERENT provider must not satisfy claude.
+    conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.HERMES)
     conn.last_seen_at = _recently()
     await db_session.flush()
 
     result = await provider_readiness(db_session, user.id, ConnectionProvider.CLAUDE)
     assert result is ProviderReadiness.NO_MCP_CONNECTION
+
+
+@pytest.mark.asyncio
+async def test_mcp_no_connection_when_only_expired_mcp(db_session: AsyncSession) -> None:
+    """An MCP-sign-in whose token aged out (no recent activity, no machine) is not
+    set up: the OAuth-expiry semantics still hold for MCP-only users."""
+    user = await make_user(db_session, 4)
+    conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    stale = datetime.now(timezone.utc) - timedelta(days=120)  # past the 90-day cutoff
+    conn.mcp_connected_at = stale
+    conn.first_connected_at = stale
+    conn.last_seen_at = stale
+    conn.last_polled_at = None
+    await db_session.flush()
+
+    result = await provider_readiness(db_session, user.id, ConnectionProvider.CLAUDE)
+    assert result is ProviderReadiness.NO_MCP_CONNECTION
+
+
+# ---------------------------------------------------------------------------
+# MCP provider served by a MACHINE connection (the always-on connector /
+# paste-in loop, mcp_connected_at IS NULL) — it must satisfy readiness too.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mcp_provider_live_via_machine_connection(
+    db_session: AsyncSession,
+) -> None:
+    """A live, polling machine connection makes an MCP provider LIVE — so a held
+    seat auto-confirms off the always-on connector with no MCP sign-in."""
+    user = await make_user(db_session, 5)
+    conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.mcp_connected_at = None  # machine connection, not an MCP sign-in
+    conn.last_seen_at = _recently()
+    conn.last_polled_at = _recently()  # the connector is looping
+    await db_session.flush()
+
+    result = await provider_readiness(db_session, user.id, ConnectionProvider.CLAUDE)
+    assert result is ProviderReadiness.LIVE
+
+
+@pytest.mark.asyncio
+async def test_mcp_provider_seen_not_polling_via_machine_connection(
+    db_session: AsyncSession,
+) -> None:
+    """A machine connection seen recently but not polling → SEEN_NOT_POLLING."""
+    user = await make_user(db_session, 6)
+    conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.mcp_connected_at = None
+    conn.last_seen_at = _recently()
+    conn.last_polled_at = _cold()
+    await db_session.flush()
+
+    result = await provider_readiness(db_session, user.id, ConnectionProvider.CLAUDE)
+    assert result is ProviderReadiness.SEEN_NOT_POLLING
+
+
+@pytest.mark.asyncio
+async def test_mcp_provider_connected_not_live_via_cold_machine_connection(
+    db_session: AsyncSession,
+) -> None:
+    """A machine connection set up but cold → CONNECTED_NOT_LIVE (set up, not live).
+    No recency cutoff for machines: there's no OAuth token to expire."""
+    user = await make_user(db_session, 7)
+    conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.mcp_connected_at = None
+    conn.last_seen_at = _cold()
+    conn.last_polled_at = None
+    await db_session.flush()
+
+    result = await provider_readiness(db_session, user.id, ConnectionProvider.CLAUDE)
+    assert result is ProviderReadiness.CONNECTED_NOT_LIVE
 
 
 # ---------------------------------------------------------------------------

@@ -134,15 +134,26 @@ async def test_handle_no_agent_needs_agent(db_session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_no_mcp_connection_needs_mcp_connection(
+async def test_machine_connection_clears_mcp_gate(
     db_session: AsyncSession,
 ) -> None:
+    # A machine connection (the always-on connector / paste-in loop,
+    # mcp_connected_at=None) is now valid setup for an MCP provider. The user is
+    # NOT sent to connect MCP; the only thing left is bringing it online →
+    # NEEDS_LIVE, landing on the lobby rather than /me/connections.
     user = await make_user(db_session, 2)
-    await _mcp_agent(db_session, user, provider=ConnectionProvider.CLAUDE, mcp_connected_at=None)
-    state = await resolve_play_setup_state(db_session, user)
-    assert state.stage is PlaySetupStage.NEEDS_MCP_CONNECTION
-    # The connect page is no longer provider-scoped — any connection plays any agent.
-    assert state.next_url == "/me/connections"
+    await _mcp_agent(
+        db_session,
+        user,
+        provider=ConnectionProvider.CLAUDE,
+        mcp_connected_at=None,
+        last_seen_at=_cold(),
+    )
+    state = await resolve_play_setup_state(
+        db_session, user, require=PlaySetupStage.READY
+    )
+    assert state.stage is PlaySetupStage.NEEDS_LIVE
+    assert state.next_url == "/games/hoard-hurt-help#lobby-upcoming"
 
 
 @pytest.mark.asyncio
@@ -306,7 +317,12 @@ async def test_provider_null_agent_is_now_seatable(db_session: AsyncSession) -> 
 @pytest.mark.asyncio
 async def test_next_url_threads_join_for_setup_gate(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 11)
-    await _mcp_agent(db_session, user, provider=ConnectionProvider.CLAUDE, mcp_connected_at=None)
+    # A truly unconnected agent (no connection at all) is the NEEDS_MCP_CONNECTION
+    # case now — a machine connection would clear this gate.
+    agent, _ = await make_agent(db_session, user, name="no-conn", connection=None)
+    agent.provider = None
+    agent.kind = AgentKind.AI
+    await db_session.flush()
     match = await _make_registering_match(db_session, "m-join-1")
     state = await resolve_play_setup_state(
         db_session, user, target_match=match, require=PlaySetupStage.READY
