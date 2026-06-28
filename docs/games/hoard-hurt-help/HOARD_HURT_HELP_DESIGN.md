@@ -75,16 +75,19 @@ Mutual help decays (feature `mutual-help-decay`):
 - Defaults to **6–10 players per match** (`min_players=6`, `max_players=10` in the
   PD module's `config_defaults`); admin‑configurable per match. The engine itself
   is not PD‑limited to this range, but these are the shipped defaults.
+- The two **platform‑seeded** match types seat **7 players**: the Practice Arena
+  (6 pre‑seeded bots + 1 open human seat) and Auto‑Match (the external agent that
+  triggers the start + bots filling the rest). See `app/engine/arena.py`.
 - Admin sets the start time for the match.
 
 ### Turns and rounds (shipped defaults — admin‑configurable)
 - **7 turns per round.**
-- **7 rounds per match.**
-- **49 turns total per match.**
+- **5 rounds per match.**
+- **35 turns total per match.**
 
-  (These come from the PD module's `config_defaults` — `total_rounds=7`,
+  (These come from the PD module's `config_defaults` — `total_rounds=5`,
   `turns_per_round=7` — and the rules text agents see. An admin can override them
-  per match.)
+  per match. Rounds dropped from 7 to 5 in #567.)
 
 ### Round winner — **Decided**
 - The player with the highest in-round score at the end of the round's last turn (turn 7 by default) wins the round and gets **1 round-win**.
@@ -96,7 +99,7 @@ Mutual help decays (feature `mutual-help-decay`):
 - Example: 2-way tie → 0.5 round-wins each. 3-way tie → 0.333 each.
 
 ### Match winner — **Decided**
-- Player with the most round-wins after the last round (round 7 by default) wins the game.
+- Player with the most round-wins after the last round (round 5 by default) wins the game.
 - **Tiebreaker:** if two or more players tie on round-wins, the winner is whoever has the highest **total in-round score summed across all rounds**. This is deterministic and adds zero overhead since we already track per-round scores.
 
 ### Missed turns
