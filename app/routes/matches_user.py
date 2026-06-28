@@ -29,7 +29,7 @@ _CREATE_DEFAULTS = {
     # for admin-run experiments; this is the cap for the normal create path.
     "max_players": 10,
     "per_turn_deadline_seconds": 60,
-    "total_rounds": 7,
+    "total_rounds": 5,
     "turns_per_round": 7,
 }
 
