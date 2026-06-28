@@ -11,7 +11,7 @@ def test_pd_is_registered() -> None:
     module = get("hoard-hurt-help")
     assert module.game_type == "hoard-hurt-help"
     cfg = module.config_defaults()
-    assert cfg.total_rounds == 7
+    assert cfg.total_rounds == 5
     assert cfg.turns_per_round == 7
     assert cfg.simultaneous is True
 

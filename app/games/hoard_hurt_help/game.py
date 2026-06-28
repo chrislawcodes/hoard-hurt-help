@@ -65,7 +65,7 @@ class HoardHurtHelp(BaseGameModule):
 
     def config_defaults(self) -> GameConfig:
         return GameConfig(
-            total_rounds=7,
+            total_rounds=5,
             turns_per_round=7,
             per_turn_deadline_seconds=60,
             min_players=6,
