@@ -37,6 +37,7 @@ from app.engine.agent_play_reads import (
     build_public_scoreboard_dicts,
     sorted_seat_names,
 )
+from app.engine.model_provider_match import model_for_provider
 from app.engine.next_turn import TurnCandidate, select_next_turn
 from app.engine.turn_routing import (
     ConnectionRouteState,
@@ -494,7 +495,12 @@ async def _build_turn_payload(
         # The AI the user picked for this seat — the connector reads this to run
         # the matching CLI; an MCP client ignores it and just plays as itself.
         "provider": player.chosen_provider,
-        "model": version.model,
+        # Agents are decoupled from models: forward a model only when it matches
+        # the chosen provider, else send None so the connector uses that
+        # provider's default. Guards against legacy versions whose stale model
+        # belongs to a different provider (e.g. a Claude seat carrying a gpt-*
+        # model, which would 404 the claude CLI every turn).
+        "model": model_for_provider(player.chosen_provider, version.model),
         "strategy": version.strategy_text,
         "version_no": version.version_no,
         "seat_name": seat_name_by_agent_id[player.agent_id],
