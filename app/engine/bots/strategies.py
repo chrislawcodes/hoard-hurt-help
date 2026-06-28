@@ -1,4 +1,13 @@
-"""Strategy selection for bots."""
+"""Strategy selection for bots.
+
+The per-strategy plan *rules* live in :mod:`app.engine.bots.plan_rules` — a
+registry of small rule functions, one per bot, built from shared row helpers.
+This module owns the seeded "read the table" selectors those rules consume
+(best partner, recent helper, runaway leader, the crowd-follower core, …) and
+the thin :func:`choose_action_plan` that wires the two together. Keeping the
+selectors here preserves their exact seeded-tiebreak behavior in their original
+home and avoids an import cycle with the rules module.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +17,8 @@ from typing import Sequence
 
 from app.engine.game_records import ActionRecord
 
+from . import plan_rules
+from .plan_rules import HOSTILE_TRUST
 from .signals import TalkSignal
 from .types import BotContext, BotPlan, BotProfile
 
@@ -23,21 +34,14 @@ STRATEGY_ALIASES: dict[str, str] = {
     "echo": "crowd_follower",
 }
 
-# Internal strategy ids. A few display names differ (set in bot_presets.py):
-# grudger -> "Long Memory", leader_pressure -> "Giant Slayer",
-# endgame_sniper -> "The Closer", diplomat -> "Instigator". Ids are kept stable
-# so saved bots and tests don't churn.
-VALID_STRATEGIES = {
-    "coalition_seeker",
-    "pragmatist",
-    "loyal_partner",
-    "grudger",
-    "leader_pressure",
-    "opportunist",
-    "endgame_sniper",
-    "diplomat",
-    "crowd_follower",
-}
+# Internal strategy ids. Sourced from the rule registry so the validator and the
+# planner can never disagree about which strategies exist — registering a new
+# rule function in plan_rules.py is all it takes to make a strategy valid. A few
+# display names differ (set in bot_presets.py): grudger -> "Long Memory",
+# leader_pressure -> "Giant Slayer", endgame_sniper -> "The Closer",
+# diplomat -> "Instigator". Ids are kept stable so saved bots and tests don't
+# churn.
+VALID_STRATEGIES: frozenset[str] = plan_rules.registered_strategy_ids()
 
 ACTION_INTENTS = {
     "start_partnership",
@@ -57,12 +61,6 @@ ACTION_INTENTS = {
 }
 
 
-# A player trusted at or below this reads as a known traitor / hostile. Bots
-# won't extend fresh cooperation to them (they may still HURT them). A personal
-# betrayal — or, under the less forgiving trust models, a witnessed one — clears it.
-HOSTILE_TRUST = -20
-
-
 def normalize_strategy_name(name: str) -> str:
     return STRATEGY_ALIASES.get(name.strip().lower().replace(" ", "_"), name.strip().lower())
 
@@ -73,139 +71,33 @@ def choose_action_plan(
     trust_map: dict[str, int],
     signals: Sequence[TalkSignal],
 ) -> list[BotPlan | None]:
+    """Ranked candidate plans for this bot's strategy, best first.
+
+    Reads the table once into a :class:`~app.engine.bots.plan_rules.PlanInputs`
+    bundle, then dispatches to the strategy's registered rule function. The
+    seeded selectors stay in this module (their original home) and are injected
+    into the bundle, so the rule functions in ``plan_rules`` carry no determinism
+    logic of their own. The runtime picks the first applicable, valid row.
+    """
     strategy = normalize_strategy_name(profile.strategy)
-    partner = _best_partner(context, profile, trust_map, minimum=20)
-    strong_partner = _best_partner(context, profile, trust_map, minimum=60)
-    helper = _recent_helper(context, trust_map)
-    attacker = _recent_attacker(context, trust_map)
-    leader = _leader(context)
-    leader_gap = _leader_gap_from_you(context, leader)
-    offers = [
-        speaker
-        for speaker in _cooperation_offers(signals, context.your_agent_id)
-        if trust_map.get(speaker, 0) > HOSTILE_TRUST
-    ]
-
-    if strategy == "coalition_seeker":
-        return [
-            BotPlan("keep_partner", strong_partner, "trusted partner") if strong_partner else None,
-            BotPlan("test_offer", offers[0], "cooperation offer") if offers else None,
-            BotPlan("reward_helper", helper, "recent helper") if helper else None,
-            BotPlan("start_partnership", partner, "best partner") if partner else None,
-            BotPlan("hoard_protect_score", None, "fallback"),
-        ]
-
-    if strategy == "pragmatist":
-        # Plays Coalition Seeker all round, then betrays at the buzzer: on the
-        # final turn it HURTs the partner it expects to still HELP it. Because the
-        # target is helping, the HURT lands for the full betrayal damage (-8) while
-        # it still pockets their +4 — a swing big enough to steal the round-win. It
-        # keeps talking cooperatively that turn (a false-mode bluff) so the partner
-        # doesn't see it coming. Falls back to hoarding if it has no likely helper.
-        if context.turn >= 7:
-            betray_target = strong_partner or partner or helper
-            return [
-                BotPlan("betray_helper", betray_target, "betray at the buzzer")
-                if betray_target
-                else None,
-                BotPlan("hoard_protect_score", None, "stop sharing"),
-            ]
-        return [
-            BotPlan("keep_partner", strong_partner, "trusted partner") if strong_partner else None,
-            BotPlan("test_offer", offers[0], "cooperation offer") if offers else None,
-            BotPlan("reward_helper", helper, "recent helper") if helper else None,
-            BotPlan("start_partnership", partner, "best partner") if partner else None,
-            BotPlan("hoard_protect_score", None, "fallback"),
-        ]
-
-    if strategy == "loyal_partner":
-        # Commits to players who have actually helped it: keeps a proven partner,
-        # reciprocates a fresh helper, defends the bond. With no partner yet, it
-        # throws out the occasional test HELP to feel out who gives back — then
-        # locks onto whoever reciprocates.
-        probe = _probe_target(context, profile, trust_map) if _should_probe(context, profile) else None
-        return [
-            BotPlan("keep_partner", strong_partner, "proven partner") if strong_partner else None,
-            BotPlan("repair_trust", partner, "trusted partner") if partner else None,
-            BotPlan("reward_helper", helper, "reciprocate help") if helper else None,
-            BotPlan("punish_attacker", attacker, "defend the bond") if attacker else None,
-            BotPlan("test_offer", probe, "feel out a partner") if probe else None,
-            BotPlan("hoard_protect_score", None, "fallback"),
-        ]
-
-    if strategy == "grudger":
-        # "Long Memory": remembers betrayal AND help. Punishes a fresh attacker,
-        # then rewards a fresh helper, and still gangs up on a runaway leader.
-        return [
-            BotPlan("punish_attacker", attacker, "remembers betrayal") if attacker else None,
-            BotPlan("reward_helper", helper, "remembers help") if helper else None,
-            BotPlan("hurt_leader", leader, "runaway leader") if leader is not None and leader_gap >= 12 else None,
-            BotPlan("punish_attacker", _most_hostile(context, profile, trust_map), "old grudge")
-            if _most_hostile(context, profile, trust_map)
-            else None,
-            BotPlan("hoard_protect_score", None, "fallback"),
-        ]
-
-    if strategy == "leader_pressure":
-        # A contender that polices the leader: it builds its own score through a
-        # partnership to climb, but drops everything to hit anyone who runs away
-        # with the game (12+ ahead of it).
-        return [
-            BotPlan("hurt_leader", leader, "runaway leader") if leader is not None and leader_gap >= 12 else None,
-            BotPlan("keep_partner", strong_partner, "proven partner") if strong_partner else None,
-            BotPlan("reward_helper", helper, "reciprocate help") if helper else None,
-            BotPlan("start_partnership", partner, "build to climb") if partner else None,
-            BotPlan("hoard_protect_score", None, "fallback"),
-        ]
-
-    if strategy == "opportunist":
-        # Works the standings: cooperates when offered a deal OR when someone
-        # actually helps it, and claws at the leader when it's falling behind.
-        # (No more pointless rival-shoving; hoards when it's sitting pretty.)
-        return [
-            BotPlan("test_offer", offers[0], "took an offer") if offers else None,
-            BotPlan("reward_helper", helper, "reward real help") if helper else None,
-            BotPlan("hurt_leader", leader, "claw at the leader")
-            if leader is not None and leader_gap >= 8
-            else None,
-            BotPlan("hoard_protect_score", None, "fallback"),
-        ]
-
-    if strategy == "endgame_sniper":
-        # Late game = the last couple of turns of the round (rounds are 7 turns).
-        if context.turn >= 6:
-            return [
-                BotPlan("hurt_leader", leader, "endgame") if leader is not None and leader_gap >= 8 else None,
-                BotPlan("keep_partner", partner, "late partner") if partner else None,
-                BotPlan("reward_helper", helper, "late helper") if helper else None,
-                BotPlan("hoard_protect_score", None, "fallback"),
-            ]
-        return [
-            BotPlan("keep_partner", partner, "early partner") if partner else None,
-            BotPlan("reward_helper", helper, "helper") if helper else None,
-            BotPlan("hoard_protect_score", None, "fallback"),
-        ]
-
-    if strategy == "diplomat":
-        # Experiment: rewards aggression. Helps whoever attacked someone last
-        # turn (a bounty for hurting), then repays its own helpers.
-        aggressor = _recent_aggressor(context, trust_map)
-        return [
-            BotPlan("test_offer", aggressor, "reward the aggressor") if aggressor else None,
-            BotPlan("reward_helper", helper, "repay a helper") if helper else None,
-            BotPlan("hoard_protect_score", None, "fallback"),
-        ]
-
-    if strategy == "crowd_follower":
-        # Sticks with anyone who helps it (so it can hold a partnership), but
-        # otherwise just copies whatever the table did last turn.
-        copied = _copy_crowd_action(context)
-        return [
-            BotPlan("reward_helper", helper, "stick with a helper") if helper else None,
-            copied if copied is not None else BotPlan("hoard_protect_score", None, "no crowd signal"),
-        ]
-
-    return [BotPlan("hoard_protect_score", None, "fallback")]
+    inputs = plan_rules.build_plan_inputs(
+        context,
+        profile,
+        trust_map,
+        signals,
+        best_partner=_best_partner,
+        most_hostile=_most_hostile,
+        probe_target=_probe_target,
+        recent_helper=_recent_helper,
+        recent_attacker=_recent_attacker,
+        recent_aggressor=_recent_aggressor,
+        cooperation_offers=_cooperation_offers,
+        leader=_leader,
+        leader_gap=_leader_gap_from_you,
+        should_probe=_should_probe,
+        crowd_plan=_copy_crowd_action,
+    )
+    return plan_rules.plan_for_strategy(strategy, inputs)
 
 
 def _should_probe(context: BotContext, profile: BotProfile) -> bool:
