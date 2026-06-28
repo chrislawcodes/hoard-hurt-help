@@ -303,17 +303,20 @@ async def test_join_never_configured_mcp_provider_redirects_to_mcp_setup(
 
 
 @pytest.mark.asyncio
-async def test_join_machine_only_claude_connection_still_redirects_to_mcp_setup(
+async def test_join_live_machine_connection_confirms_claude_seat(
     client, reset_db
 ):
-    """A live old-style connection does not count as Claude MCP setup."""
+    """A live, polling machine connection (the always-on connector) serves a Claude
+    agent: the seat confirms on join and goes straight to the match — no MCP setup
+    detour, because the connector can already play it."""
     await _seed_match(reset_db)
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         now = datetime.now(timezone.utc)
+        connection.mcp_connected_at = None  # machine connection, not an MCP sign-in
         connection.last_seen_at = now
-        connection.last_polled_at = now
+        connection.last_polled_at = now  # the connector is looping
         agent, _v = await make_agent(db, user, connection=connection, name="Atlas")
         await db.commit()
         uid, agent_id = user.id, agent.id
@@ -324,12 +327,12 @@ async def test_join_machine_only_claude_connection_still_redirects_to_mcp_setup(
         follow_redirects=False,
     )
     assert r.status_code == 303
+    assert r.headers["location"] == "/games/hoard-hurt-help/matches/G_001"
     async with reset_db() as db:
         player = (
             await db.execute(select(Player).where(Player.match_id == "G_001"))
         ).scalar_one()
-    next_url = quote(f"/games/hoard-hurt-help/matches/G_001/connect/{player.id}", safe="")
-    assert r.headers["location"] == f"/me/connections?provider=claude&next={next_url}"
+        assert player.seat_reserved_until is None  # confirmed, not held
 
 
 @pytest.mark.asyncio

@@ -52,11 +52,11 @@ async def live_provider_capacity(
     """Sum of max_concurrent_games over the user's live connections that have *provider* enabled.
 
     Returns 0 when no live connection covers the provider (join is always blocked).
+    Any live connection counts — an MCP sign-in or a machine connection (the
+    always-on connector / paste-in loop), since both can serve the provider.
     """
     now = datetime.now(timezone.utc)
-    query = _provider_connections_query(
-        user_id, provider, Connection, require_mcp_when_provider_uses=True
-    )
+    query = _provider_connections_query(user_id, provider, Connection)
     rows = (await db.execute(query)).scalars().all()
     return sum(c.max_concurrent_games for c in rows if _connection_is_live(c, now))
 

@@ -40,7 +40,7 @@ def _provider_connections_query(
     provider: ConnectionProvider,
     *columns: Any,
     require_mcp: bool = False,
-    require_mcp_when_provider_uses: bool = False,
+    require_machine: bool = False,
     exclude_paused: bool = False,
 ) -> Select[Any]:
     """Build the shared "connections that have *provider* enabled" query.
@@ -51,11 +51,10 @@ def _provider_connections_query(
     entity, ``Connection.id``, ``Connection.last_polled_at`` — whatever the caller
     needs). The flags add the small per-predicate variations verbatim:
 
-    - ``require_mcp`` — always require ``mcp_connected_at IS NOT NULL`` (the
-      MCP-only predicates).
-    - ``require_mcp_when_provider_uses`` — require ``mcp_connected_at IS NOT NULL``
-      only when ``provider_uses_mcp_connection(provider)`` (the gate clause that
-      appeared verbatim across several predicates).
+    - ``require_mcp`` — require ``mcp_connected_at IS NOT NULL`` (the MCP-sign-in
+      predicates, which care about the Google OAuth token).
+    - ``require_machine`` — require ``mcp_connected_at IS NULL`` (the always-on
+      connector / paste-in loop; a header-key machine connection).
     - ``exclude_paused`` — also require ``status != PAUSED`` at the DB level.
     """
     query: Select[Any] = (
@@ -73,8 +72,10 @@ def _provider_connections_query(
     )
     if exclude_paused:
         query = query.where(Connection.status != ConnectionStatus.PAUSED)
-    if require_mcp or (require_mcp_when_provider_uses and provider_uses_mcp_connection(provider)):
+    if require_mcp:
         query = query.where(Connection.mcp_connected_at.is_not(None))
+    if require_machine:
+        query = query.where(Connection.mcp_connected_at.is_(None))
     return query
 
 
@@ -155,33 +156,65 @@ async def provider_has_recent_mcp_connection(
     return False
 
 
+async def provider_has_machine_connection(
+    db: AsyncSession, user_id: int, provider: ConnectionProvider
+) -> bool:
+    """True when an *active* machine connection has *provider* enabled.
+
+    A machine connection is the always-on connector or a paste-in loop
+    (``mcp_connected_at IS NULL``). It authenticates with a header key and plays
+    through the user's own local CLI auth, so — unlike an MCP sign-in — it carries
+    no Google OAuth token that can expire. Merely existing (enabled, non-deleted,
+    non-paused) means this machine can serve the provider, which is why the "is it
+    set up at all" rung accepts it with no recency cutoff. Liveness, when it
+    matters, is handled by the live/poll predicates separately.
+
+    PAUSED is excluded here: a paused machine the user explicitly turned off should
+    fall through to "needs connecting", not read as a current setup. (The live
+    predicates already exclude PAUSED, so this only shapes the bottom rung.)
+    """
+    row = (
+        await db.execute(
+            _provider_connections_query(
+                user_id,
+                provider,
+                Connection.id,
+                require_machine=True,
+                exclude_paused=True,
+            ).limit(1)
+        )
+    ).first()
+    return row is not None
+
+
 async def provider_has_current_setup(
     db: AsyncSession, user_id: int, provider: ConnectionProvider
 ) -> bool:
     """True when the provider has the setup path we currently support.
 
-    Claude/OpenAI/Gemini are now MCP-first, so they require a recent MCP
-    connection. Hermes/OpenClaw still use the older connection signal until their
-    MCP setup path is handled separately.
+    Claude/OpenAI/Gemini are MCP-first, so a recent MCP connection counts — but a
+    machine connection (the always-on connector / paste-in loop) with the provider
+    enabled counts too, since it can serve the provider via local CLI auth with no
+    OAuth token to expire. Hermes/OpenClaw use the older connection signal.
     """
     if provider_uses_mcp_connection(provider):
-        return await provider_has_recent_mcp_connection(db, user_id, provider)
+        return await provider_has_recent_mcp_connection(
+            db, user_id, provider
+        ) or await provider_has_machine_connection(db, user_id, provider)
     return await provider_enabled_on_any_connection(db, user_id, provider)
 
 
 async def provider_has_live_current_setup(
     db: AsyncSession, user_id: int, provider: ConnectionProvider
 ) -> bool:
-    """True when the provider's current setup path is connected right now."""
-    if not provider_uses_mcp_connection(provider):
-        return await provider_is_covered(db, user_id, provider)
-    now = datetime.now(timezone.utc)
-    rows = (
-        await db.execute(
-            _provider_connections_query(user_id, provider, Connection, require_mcp=True)
-        )
-    ).scalars().all()
-    return any(_connection_is_live(connection, now) for connection in rows)
+    """True when the provider's current setup path is connected right now.
+
+    Any live connection counts — an MCP sign-in or a machine connection — because
+    both can serve the provider. (An expired MCP connection isn't live, so it
+    correctly fails this check regardless.) This is exactly ``provider_is_covered``
+    now; kept as a named rung for the readiness cascade's readability.
+    """
+    return await provider_is_covered(db, user_id, provider)
 
 
 async def provider_loop_running(
@@ -189,12 +222,14 @@ async def provider_loop_running(
 ) -> bool:
     """True when an AI is actually *running the play loop* for *provider*.
 
-    Keys off ``last_polled_at`` (only ``get_next_turn`` bumps it) on a non-paused,
-    non-deleted connection — so this answers "is an agent playing right now",
-    unlike ``provider_is_covered`` which keys off ``last_seen_at`` and so treats a
-    one-off sign-in handshake as "live". This is the gate for confirming a seat: a
-    seat only auto-confirms when an AI is genuinely looping; otherwise it's held
-    while the user starts their AI.
+    Keys off ``last_polled_at`` (only a get-next-turn poll bumps it — both the MCP
+    ``get_next_turn`` tool and the machine connector's ``/api/agent/next-turns``)
+    on a non-paused, non-deleted connection — so this answers "is an agent playing
+    right now", unlike ``provider_is_covered`` which keys off ``last_seen_at`` and
+    so treats a one-off sign-in handshake as "live". Any connection counts, MCP or
+    machine: an always-on connector polling for the provider is genuinely looping.
+    This is the gate for confirming a seat: a seat only auto-confirms when an AI is
+    genuinely looping; otherwise it's held while the user starts their AI.
     """
     now = datetime.now(timezone.utc)
     query = _provider_connections_query(
@@ -202,7 +237,6 @@ async def provider_loop_running(
         provider,
         Connection.last_polled_at,
         exclude_paused=True,
-        require_mcp_when_provider_uses=True,
     )
     polled = (
         (
