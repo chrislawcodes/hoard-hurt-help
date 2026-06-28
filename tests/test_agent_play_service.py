@@ -165,10 +165,17 @@ async def test_next_turn_service_returns_payload(reset_db):
 
 
 @pytest.mark.asyncio
-async def test_next_turn_stamps_play_loop_heartbeat(reset_db):
+async def test_next_turn_stamps_play_loop_heartbeat(reset_db, monkeypatch):
     """Calling get_next_turn records the play-loop heartbeat (last_polled_at) — the
     signal that an AI is actually running, which gates seating. A plain sign-in
     never reaches here, so it never sets this."""
+    # The connection isn't marked live, so get_next_turn long-polls before
+    # returning; shrink the hold so the test skips the full production wait. The
+    # heartbeat assertion below is unchanged.
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0.4)
+    monkeypatch.setattr(
+        "app.engine.agent_play_next_turn.LONG_POLL_INTERVAL_SECONDS", 0.05
+    )
     seed = await _seed_turn(reset_db, match_id="M_SERVICE_HB")
     async with reset_db() as db:
         connection = (
