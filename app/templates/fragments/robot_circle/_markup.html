@@ -1,0 +1,53 @@
+<div class="rc-wrap{% if rc_compact|default(false) %} rc-compact{% endif %}">
+    <div class="rc-main">
+      <div class="rc-card">
+        <div class="rc-head">
+          <span class="rc-title"><span class="rc-livedot"></span> Animated Replay</span>
+          <span class="rc-turnlabel" id="rc-turnlabel">—</span>
+        </div>
+        <div class="rc-stage" id="rc-stage">
+          <div class="rc-ring" id="rc-ring"></div>
+          <svg class="rc-fx" id="rc-fx" preserveAspectRatio="none"></svg>
+          <div class="rc-progress" id="rc-progress"></div>
+          <svg id="rc-tail-svg" aria-hidden="true"></svg>
+          <div class="rc-saybubble" id="rc-say">
+            <div class="rc-say-text" id="rc-say-text"></div>
+          </div>
+          {% if rc_countdown_iso %}
+          <div class="rc-countdown" id="rc-countdown" data-start="{{ rc_countdown_iso }}">
+            <span class="rc-countdown-label">Starts in</span>
+            <span class="rc-countdown-time" id="rc-countdown-time">—</span>
+            <span class="rc-countdown-sub" id="rc-countdown-sub"></span>
+            {# Solo start: the only player can begin now instead of waiting out the
+               clock. Empty seats fill with bots so the match can run. #}
+            {% if rc_can_start %}
+            <form class="rc-start" method="post" action="/games/{{ rc_start_game }}/matches/{{ rc_start_match }}/start">
+              <button type="submit" class="btn btn-primary rc-start-btn">Start now</button>
+              <span class="rc-start-note">{% if rc_start_bots and rc_start_bots > 0 %}{{ rc_start_bots }} bot{{ "s" if rc_start_bots != 1 else "" }} will fill the empty seats{% else %}Begins right away — no waiting{% endif %}</span>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+        <div class="rc-caption" id="rc-caption"><span class="rc-badge">—</span> Press play to watch the turns.</div>
+      </div>
+
+      <div class="rc-controls">
+        <button type="button" id="rc-prev">‹ Prev</button>
+        <button type="button" id="rc-play" class="btn btn-primary">▶ Play</button>
+        <button type="button" id="rc-next">Next ›</button>
+        <span class="rc-speed" role="group" aria-label="Playback speed">
+          <button type="button" class="rc-speed-btn" data-speed="1">1×</button>
+          <button type="button" class="rc-speed-btn is-active" data-speed="2">2×</button>
+          <button type="button" class="rc-speed-btn" data-speed="3">3×</button>
+        </span>
+        <label class="rc-skiptalk"><input type="checkbox" id="rc-skiptalk"> Skip talk</label>
+      </div>
+
+      <div class="rc-legend">
+        <span><span class="rc-sw" style="background:var(--hoard,#b07e0d)"></span><strong>Hoard</strong> — +2 to yourself</span>
+        <span><span class="rc-sw" style="background:var(--hurt,#c0392b)"></span><strong>Hurt</strong> — -4 to another</span>
+        <span><span class="rc-sw" style="background:var(--help,#1a8f4c)"></span><strong>Help</strong> — +4 to another; both players get +8 if help each other</span>
+      </div>
+    </div>
+</div>

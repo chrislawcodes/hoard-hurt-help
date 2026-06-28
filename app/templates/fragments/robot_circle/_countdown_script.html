@@ -1,0 +1,54 @@
+<script>
+// Pre-start countdown. While a match waits to begin, fill the centre of the
+// robot ring with a big, clear clock counting down to kickoff. Renders only for
+// a real waiting match (the #rc-countdown element is absent otherwise), so the
+// homepage/showcase sample replay is untouched. A scheduled-match page holds no
+// live stream, so when the clock runs out we reload once to land on the now-live
+// (or auto-cancelled) match instead of sitting on a frozen "Starting…".
+(function () {
+  var box = document.getElementById('rc-countdown');
+  if (!box) return;
+  var timeEl = document.getElementById('rc-countdown-time');
+  var labelEl = box.querySelector('.rc-countdown-label');
+  var subEl = document.getElementById('rc-countdown-sub');
+  var start = new Date(box.dataset.start);
+  if (isNaN(start.getTime())) { box.hidden = true; return; }
+
+  // This stage isn't replaying anything yet — relabel the "live" header and the
+  // caption so the waiting state reads as intentional, not a stalled replay, and
+  // hide the playback controls (there are no turns to step through yet).
+  var title = document.querySelector('.rc-title');
+  if (title) title.textContent = 'Waiting to start';
+  var caption = document.getElementById('rc-caption');
+  if (caption) caption.innerHTML = '<span class="rc-badge">Soon</span> Players are taking their seats.';
+  var controls = document.querySelector('.rc-controls');
+  if (controls) controls.style.display = 'none';
+
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+  function fmt(total) {
+    var h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    return h > 0 ? h + ':' + two(m) + ':' + two(s) : m + ':' + two(s);
+  }
+
+  var reloaded = false;
+  function tick() {
+    var ms = start.getTime() - Date.now();
+    if (ms <= 0) {
+      if (labelEl) labelEl.textContent = '';
+      timeEl.textContent = 'Starting…';
+      box.classList.remove('is-imminent');
+      if (subEl) subEl.textContent = 'Starting the match…';
+      // One gentle reload lands on the started match. If the poller hasn't
+      // flipped state yet (it runs every ~2s), the reloaded page still shows the
+      // countdown past zero and this runs again — self-healing, not a tight loop.
+      if (!reloaded) { reloaded = true; setTimeout(function () { location.reload(); }, 4000); }
+      return;
+    }
+    var total = Math.ceil(ms / 1000);
+    timeEl.textContent = fmt(total);
+    box.classList.toggle('is-imminent', total <= 60);
+    setTimeout(tick, 250);
+  }
+  tick();
+}());
+</script>

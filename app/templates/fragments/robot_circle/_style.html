@@ -1,0 +1,416 @@
+<style>
+/* Scoped to .rc- so it never collides with the main viewer's .feed/.stage. */
+.rc-wrap{max-width:920px;margin:0 auto 2rem}
+.rc-card{background:var(--surface,#fff);border:1px solid var(--line,#e2e6ea);border-radius:10px;overflow:hidden}
+.rc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line,#e2e6ea)}
+.rc-title{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft,#5b6470);font-weight:700}
+.rc-livedot{width:8px;height:8px;border-radius:50%;background:#c0392b;animation:rc-pulse 1.6s infinite}
+@keyframes rc-pulse{0%{box-shadow:0 0 0 0 rgba(192,57,43,.5)}70%{box-shadow:0 0 0 7px rgba(192,57,43,0)}100%{box-shadow:0 0 0 0 rgba(192,57,43,0)}}
+.rc-turnlabel{font-size:13px;color:var(--ink-soft,#5b6470);font-variant-numeric:tabular-nums}
+
+.rc-stage{position:relative;height:580px;background:radial-gradient(68% 68% at 50% 50%, var(--surface,#fff) 0%, var(--surface-2,#eef1f5) 70%, var(--bg,#e6eaef) 100%)}
+.rc-ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:1.5px dashed var(--line,#d4dae1);border-radius:50%}
+.rc-fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6}
+
+.rc-bot{position:absolute;transform:translate(-50%,-50%);z-index:2;cursor:pointer;transition:opacity .35s ease, filter .35s ease}
+.rc-bot.dim{opacity:.30;filter:saturate(.5)}
+.rc-bot.lit{z-index:8}
+/* Tap-to-reveal owner popover — floats above the tapped robot, on demand only. */
+.rc-owner-pop{position:absolute;transform:translate(-50%,-100%);z-index:20;display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 8px;border-radius:6px;background:var(--ink,#1a1d21);color:var(--surface,#fff);font-size:11px;line-height:1.3;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.rc-owner-pop[hidden]{display:none}
+.rc-op-name{font-weight:700}
+.rc-op-owner{opacity:.82;font-size:10px}
+.rc-mover{display:flex;flex-direction:column;align-items:center;gap:3px;will-change:transform}
+.rc-name{font-size:10px;color:var(--ink-soft,#5b6470);max-width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.rc-name-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-bot-tag{font-size:10px;padding:1px 6px;line-height:1}
+.rc-bot.lit .rc-name{color:var(--ink,#1a1d21);font-weight:700}
+
+.rc-body{transition:transform .3s ease;transform-origin:center}
+.rc-bot.act-hoard .rc-body{animation:rc-squash .5s ease}
+@keyframes rc-squash{40%{transform:translateY(3px) scaleY(.94)}100%{transform:none}}
+/* amber "banked" pulse, fired as the caught coin sinks into the chest */
+.rc-bot.act-hoard .torso{animation:rc-bank .5s ease .4s both}
+@keyframes rc-bank{0%{box-shadow:0 0 0 0 var(--hoard,#b07e0d)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+/* arms reach up to catch the spinning coin, then bring it in to the chest */
+.rc-bot.act-hoard .rc-robot .arm.l{animation:rc-catchL .72s ease}
+.rc-bot.act-hoard .rc-robot .arm.r{animation:rc-catchR .72s ease}
+@keyframes rc-catchL{0%,100%{transform:none}35%{transform:translate(2px,-12px) rotate(-42deg)}68%{transform:translate(1px,-3px) rotate(-16deg)}}
+@keyframes rc-catchR{0%,100%{transform:none}35%{transform:translate(-2px,-12px) rotate(42deg)}68%{transform:translate(-1px,-3px) rotate(16deg)}}
+.rc-bot.recoil .rc-body{animation:rc-recoil .55s ease}
+@keyframes rc-recoil{20%{transform:translateX(-6px) rotate(-10deg)}45%{transform:translateX(5px) rotate(5deg)}100%{transform:none}}
+/* red hit-flash on the struck bot — tinting the character reads as "damage" */
+.rc-bot.hit .rc-robot{animation:rc-hitflash .42s ease}
+@keyframes rc-hitflash{0%,100%{filter:none}25%{filter:drop-shadow(0 0 7px var(--hurt,#c0392b)) saturate(1.5) brightness(1.12)}}
+.rc-bot.betray .rc-body{animation:rc-turnback .6s ease}
+@keyframes rc-turnback{30%{transform:rotateY(180deg)}60%{transform:rotateY(180deg)}100%{transform:none}}
+
+.rc-robot{width:44px;height:52px;position:relative}
+.rc-robot .ant{position:absolute;top:-8px;left:50%;width:2.5px;height:9px;background:var(--ink-soft,#9aa6b6);transform:translateX(-50%)}
+.rc-robot .ant:after{content:"";position:absolute;top:-4px;left:50%;width:7px;height:7px;border-radius:50%;background:var(--c);transform:translateX(-50%)}
+.rc-robot .head{width:36px;height:28px;border-radius:9px;background:var(--surface,#fff);border:3px solid var(--c);margin:0 auto;display:flex;align-items:center;justify-content:center;gap:5px}
+.rc-robot .eye{width:7px;height:7px;border-radius:50%;background:var(--c)}
+.rc-robot .torso{width:28px;height:18px;border-radius:6px;background:var(--c);margin:3px auto 0;position:relative}
+.rc-robot .arm{position:absolute;top:34px;width:9px;height:3.5px;border-radius:2px;background:var(--c)}
+.rc-robot .arm.l{left:0}.rc-robot .arm.r{right:0}
+
+/* --- Identity kit: silhouette varies per bot (head, eyes, antennae, torso) --- */
+/* head shapes — kept clearly distinct so a bot is known by shape, not just colour */
+.rc-robot.rc-h1 .head{width:30px;height:34px;border-radius:8px}
+.rc-robot.rc-h2 .head{width:43px;height:23px;border-radius:12px}
+.rc-robot.rc-h3 .head{width:37px;height:30px;border-radius:17px 17px 7px 7px}
+/* eyes: always a pair so every expression reads; identity varies by SIZE +
+   SPACING (es0 small/close, es1 medium=default, es2 large/wide) */
+.rc-robot .eye{transition:transform .12s ease;transform-origin:center}
+.rc-robot.rc-es0 .head{gap:4px}
+.rc-robot.rc-es0 .eye{width:6px;height:6px}
+.rc-robot.rc-es2 .head{gap:9px}
+.rc-robot.rc-es2 .eye{width:8.5px;height:8.5px}
+/* antennae: default single centre; duo on the sides; none */
+.rc-robot .ant.l,.rc-robot .ant.r{display:none}
+.rc-robot .ant.l{left:33%}.rc-robot .ant.r{left:67%}
+.rc-robot.rc-a1 .ant.c{display:none}
+.rc-robot.rc-a1 .ant.l,.rc-robot.rc-a1 .ant.r{display:block}
+.rc-robot.rc-a2 .ant.c{display:none}
+/* torso details: plain, belt, button */
+.rc-robot.rc-t1 .torso::after{content:'';position:absolute;left:3px;right:3px;top:50%;height:2.5px;background:var(--surface,#fff);opacity:.55;transform:translateY(-50%)}
+.rc-robot.rc-t2 .torso::after{content:'';position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:50%;background:var(--surface,#fff);opacity:.6;transform:translate(-50%,-50%)}
+/* eye expressions: blink (idle), wide (hit), mean (swinging), happy (giving) */
+.rc-robot.blink .eye{animation:rc-blink .22s ease}
+@keyframes rc-blink{0%,100%{transform:scaleY(1)}45%{transform:scaleY(.1)}}
+.rc-robot.eyes-wide .eye{transform:scale(1.45)}
+.rc-robot.eyes-mean .eye{transform:scaleY(.4)}
+/* happy: eyes arch UPWARD (^^) — a downward curve read as sleepy/sad; the arch
+   reads cheerful and stays distinct from the mean squint. They "bloom" in. */
+.rc-robot.eyes-happy .eye{background:transparent;border-bottom:0;border-top:3px solid var(--c);border-radius:7px 7px 0 0;height:5px;animation:rc-smile .42s ease}
+@keyframes rc-smile{0%{transform:translateY(2px) scaleY(.3)}55%{transform:translateY(-1px) scaleY(1.25)}100%{transform:none}}
+
+/* ===== Idle fidgets =====================================================
+   Small ambient loops that give the ring life while it waits. Each is built
+   from the robot's real parts (eyes, antenna stalk + LED tip, head, the two
+   arm bars, the body), uses transforms/opacity only, and starts AND ends at
+   the resting pose so a bot can snap into a real move the instant it acts.
+   The class lands on .rc-bot (like act-hoard / recoil); the selector reaches
+   the part that moves. Names are namespaced idle-* so they never collide with
+   the action vocabulary, and the motion is kept deliberately distinct from it
+   (no full squash = hoard, no sideways body recoil = hurt, no 180 = betray,
+   no up-float pulse = talk). The JS traffic cop (scheduleIdle) decides who
+   fidgets, how often, and that only one "loud" one runs at a time. */
+
+/* — Eyes (the most legible thing at 44px) — */
+.rc-bot.idle-glance .eye{animation:rc-glance 1.6s ease}
+@keyframes rc-glance{0%,100%{transform:none}20%,35%{transform:translateX(2.2px)}55%,72%{transform:translateX(-2.2px)}}
+.rc-bot.idle-blink2 .eye{animation:rc-blink2 .55s ease}
+@keyframes rc-blink2{0%,30%,60%,100%{transform:scaleY(1)}15%,45%{transform:scaleY(.1)}}
+.rc-bot.idle-wink .eye.e2{animation:rc-wink .5s ease}
+@keyframes rc-wink{0%,100%{transform:scaleY(1)}30%,55%{transform:scaleY(.12)}}
+.rc-bot.idle-droop .eye{animation:rc-droop 2.4s ease}
+@keyframes rc-droop{0%,100%{transform:scaleY(1)}25%,70%{transform:scaleY(.45)}}
+.rc-bot.idle-cross .eye.e1{animation:rc-crossL 1.4s ease}
+.rc-bot.idle-cross .eye.e2{animation:rc-crossR 1.4s ease}
+@keyframes rc-crossL{0%,100%{transform:none}30%,70%{transform:translateX(2px)}}
+@keyframes rc-crossR{0%,100%{transform:none}30%,70%{transform:translateX(-2px)}}
+
+/* — Antenna (a status LED + a mood stick; no-antenna bots no-op) — */
+.rc-bot.idle-antwobble .ant{animation:rc-antwob 1.8s ease-in-out;transform-origin:50% 100%}
+@keyframes rc-antwob{0%,100%{transform:translateX(-50%) rotate(0)}30%{transform:translateX(-50%) rotate(12deg)}65%{transform:translateX(-50%) rotate(-10deg)}}
+.rc-bot.idle-tippulse .ant::after{animation:rc-tippulse 1.4s ease-in-out}
+@keyframes rc-tippulse{0%,100%{transform:translateX(-50%) scale(1);opacity:1}50%{transform:translateX(-50%) scale(1.5);opacity:.65}}
+.rc-bot.idle-scan .ant{animation:rc-scan 2.6s ease-in-out;transform-origin:50% 100%}
+@keyframes rc-scan{0%,100%{transform:translateX(-50%) rotate(0)}40%,60%{transform:translateX(-50%) rotate(-22deg)}}
+.rc-bot.idle-perk .ant{animation:rc-perk .7s ease;transform-origin:50% 100%}
+@keyframes rc-perk{0%,100%{transform:translateX(-50%) scaleY(1)}30%,55%{transform:translateX(-50%) scaleY(1.5)}}
+
+/* — Head (small tilts only, so it never reads as the hurt recoil) — */
+.rc-bot.idle-tilt .head{animation:rc-tilt 1.8s ease;transform-origin:50% 90%}
+@keyframes rc-tilt{0%,100%{transform:rotate(0)}30%,70%{transform:rotate(-9deg)}}
+.rc-bot.idle-nod .head{animation:rc-nod 1.2s ease;transform-origin:50% 90%}
+@keyframes rc-nod{0%,100%{transform:translateY(0) rotate(0)}40%{transform:translateY(3px) rotate(3deg)}}
+.rc-bot.idle-hshake .head{animation:rc-hshake .8s ease;transform-origin:50% 90%}
+@keyframes rc-hshake{0%,100%{transform:rotate(0)}20%{transform:rotate(7deg)}50%{transform:rotate(-7deg)}80%{transform:rotate(4deg)}}
+
+/* — Arms (9px bars, so the moves are broad; origin = the shoulder end) — */
+.rc-bot.idle-wave .arm.r{animation:rc-wave 1.1s ease;transform-origin:left center}
+@keyframes rc-wave{0%,100%{transform:rotate(0)}20%{transform:rotate(-38deg)}45%{transform:rotate(-18deg)}70%{transform:rotate(-38deg)}}
+.rc-bot.idle-stretch .arm.l{animation:rc-stretchL 1.6s ease;transform-origin:right center}
+.rc-bot.idle-stretch .arm.r{animation:rc-stretchR 1.6s ease;transform-origin:left center}
+@keyframes rc-stretchL{0%,100%{transform:rotate(0)}35%,65%{transform:rotate(38deg)}}
+@keyframes rc-stretchR{0%,100%{transform:rotate(0)}35%,65%{transform:rotate(-38deg)}}
+.rc-bot.idle-tap .arm.r{animation:rc-tap 1s ease;transform-origin:left center}
+@keyframes rc-tap{0%,100%{transform:rotate(0)}15%,45%,75%{transform:rotate(-13deg)}30%,60%{transform:rotate(0)}}
+
+/* — Body / posture (gentle; slower + subtler than the talk pulse) — */
+.rc-bot.idle-breath .rc-body{animation:rc-breath 3.2s ease-in-out}
+@keyframes rc-breath{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.03) translateY(-1px)}}
+.rc-bot.idle-sway .rc-body{animation:rc-sway 3s ease-in-out;transform-origin:50% 100%}
+@keyframes rc-sway{0%,100%{transform:rotate(0)}30%{transform:rotate(-3.5deg) translateX(-1px)}70%{transform:rotate(3.5deg) translateX(1px)}}
+.rc-bot.idle-hop .rc-body{animation:rc-hop .7s ease}
+@keyframes rc-hop{0%,100%{transform:translateY(0)}35%{transform:translateY(-7px)}72%{transform:translateY(0) scaleY(.96)}86%{transform:scaleY(1.02)}}
+
+/* — Character treats (combos; the rare ones the traffic cop hands out slowly) — */
+.rc-bot.idle-yawn .head{animation:rc-yawnhead 2.2s ease;transform-origin:50% 100%}
+@keyframes rc-yawnhead{0%,100%{transform:rotate(0)}30%,55%{transform:rotate(-12deg)}}
+.rc-bot.idle-yawn .eye{animation:rc-yawneyes 2.2s ease}
+@keyframes rc-yawneyes{0%,100%{transform:scaleY(1)}30%,55%{transform:scaleY(.15)}}
+.rc-bot.idle-yawn .rc-body{animation:rc-yawnbody 2.2s ease}
+@keyframes rc-yawnbody{0%,100%{transform:scaleY(1)}40%{transform:scaleY(1.07) translateY(-2px)}72%{transform:scaleY(.98)}}
+.rc-bot.idle-yawn .ant{animation:rc-yawnant 2.2s ease;transform-origin:50% 100%}
+@keyframes rc-yawnant{0%,100%{transform:translateX(-50%) rotate(0)}45%{transform:translateX(-50%) rotate(-16deg)}}
+.rc-bot.idle-nodoff .eye{animation:rc-nodeyes 3s ease}
+@keyframes rc-nodeyes{0%{transform:scaleY(1)}20%,55%{transform:scaleY(.12)}63%{transform:scaleY(1.4)}82%{transform:scaleY(1.4)}100%{transform:scaleY(1)}}
+.rc-bot.idle-nodoff .head{animation:rc-nodhead 3s ease;transform-origin:50% 100%}
+@keyframes rc-nodhead{0%,100%{transform:translateY(0) rotate(0)}28%{transform:translateY(2px) rotate(8deg)}55%{transform:translateY(3px) rotate(12deg)}63%{transform:translateY(-1px) rotate(0)}}
+.rc-bot.idle-nodoff .ant{animation:rc-nodant 3s ease;transform-origin:50% 100%}
+@keyframes rc-nodant{0%,100%{transform:translateX(-50%) rotate(0)}50%{transform:translateX(-50%) rotate(20deg)}63%{transform:translateX(-50%) scaleY(1.4)}80%{transform:translateX(-50%) scaleY(1.4)}}
+
+/* Accessibility: a calmer ring under reduced motion. The JS scheduler already
+   falls back to blink-only, but hard-stop every fidget here too as a backstop. */
+@media (prefers-reduced-motion:reduce){
+  .rc-bot[class*="idle-"] .eye,.rc-bot[class*="idle-"] .ant,.rc-bot[class*="idle-"] .ant::after,
+  .rc-bot[class*="idle-"] .head,.rc-bot[class*="idle-"] .arm,.rc-bot[class*="idle-"] .rc-body{animation:none}
+}
+
+/* Side-profile robot — swapped in when carrying a gift or bat */
+.rc-robot-side{display:none;width:44px;height:52px;position:relative}
+.rc-bot.carrying-gift .rc-robot{display:none}
+.rc-bot.carrying-gift .rc-robot-side{display:block}
+.rc-robot-side .ant-s{position:absolute;top:-7px;left:50%;width:2px;height:8px;background:#9aa6b6;transform:translateX(-50%)}
+.rc-robot-side .ant-s::after{content:'';position:absolute;top:-4px;left:50%;width:6px;height:6px;border-radius:50%;background:var(--c);transform:translateX(-50%)}
+.rc-robot-side .head-s{width:16px;height:28px;border-radius:6px 9px 9px 6px;background:var(--surface,#fff);border:3px solid var(--c);margin:0 auto;display:flex;align-items:center;justify-content:flex-end;padding-right:1px}
+.rc-robot-side .eye-s{width:6px;height:7px;border-radius:50%;background:var(--c)}
+.rc-robot-side .torso-s{width:14px;height:17px;border-radius:4px;background:var(--c);margin:3px auto 0;opacity:.9}
+.rc-robot-side .arm-s{position:absolute;top:35px;left:calc(50% + 7px);width:16px;height:3px;border-radius:2px;background:var(--c)}
+.rc-bot.carrying-gift .rc-carry-wrap{left:calc(50% + 16px);transform:none}
+.rc-bot.facing-left .rc-robot-side{transform:scaleX(-1)}
+.rc-bot.carrying-gift.facing-left .rc-carry-wrap{left:calc(50% - 30px)}
+.rc-bot.carrying-bat .rc-robot{display:none}
+.rc-bot.carrying-bat .rc-robot-side{display:block}
+.rc-bot.carrying-bat .rc-carry-wrap{top:6px;left:calc(50% + 16px);transform:none}
+.rc-bot.carrying-bat.facing-left .rc-carry-wrap{top:6px;left:calc(50% - 30px)}
+
+.rc-coin{position:absolute;left:50%;top:-30px;width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 36% 28%, #fff6cf, #e3a92f);border:2px solid #bd831c;box-shadow:inset 0 0 0 2px rgba(255,255,255,.3),0 2px 3px rgba(120,80,0,.3);transform:translateX(-50%);opacity:0;z-index:5}
+.rc-coin::after{content:'';position:absolute;inset:4px;border:1.5px solid rgba(154,102,16,.45);border-radius:50%}
+.rc-coin::before{content:'\2605';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:rgba(154,102,16,.6);line-height:1}
+/* Hoard: a big token coin spins down (the flip sells "coin"), the bot catches it
+   to its chest, then it sinks in as the amber bank pulse fires. */
+.rc-bot.act-hoard .rc-coin{animation:rc-coinin .72s ease forwards}
+@keyframes rc-coinin{
+  0%  {opacity:0;top:-30px;transform:translateX(-50%) scaleX(1)}
+  12% {opacity:1;transform:translateX(-50%) scaleX(.12)}
+  24% {transform:translateX(-50%) scaleX(1)}
+  38% {transform:translateX(-50%) scaleX(.12)}
+  52% {transform:translateX(-50%) scaleX(1)}
+  72% {opacity:1;top:-3px;transform:translateX(-50%) scale(1)}
+  100%{opacity:0;top:-3px;transform:translateX(-50%) scale(.4)}
+}
+
+.rc-delta{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;opacity:0;white-space:nowrap;z-index:9}
+.rc-delta.show{animation:rc-floatup 1.6s ease forwards}
+.rc-delta.pos{color:var(--help,#1a8f4c)}.rc-delta.neg{color:var(--hurt,#c0392b)}.rc-delta.zero{color:var(--ink-soft,#5b6470)}
+@keyframes rc-floatup{0%{opacity:0;top:-8px}25%{opacity:1}100%{opacity:0;top:-34px}}
+.rc-tag{position:absolute;top:-30px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:1px 5px;border-radius:999px;white-space:nowrap;z-index:9;opacity:0}
+.rc-tag.show{opacity:1;transition:opacity .3s}
+.rc-tag.betrayal{background:#fbe3df;color:#c0392b;border:1px solid #f0b8af}
+.rc-tag.mutual{background:#e0f3e8;color:#1a8f4c;border:1px solid #b6e0c6}
+.rc-tag.missed{background:#eef1f5;color:var(--ink-soft,#5b6470);border:1px solid var(--line,#e2e6ea)}
+
+/* ---- Speaking animation (talk phase) ---- */
+.rc-bot.speaking .rc-body{animation:rc-speakpulse 1.4s ease-in-out infinite}
+@keyframes rc-speakpulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.06)}}
+
+/* ---- Center say-bubble (talk phase) ---- */
+/* The one line the speaking bot is saying right now, shown near the center of
+   the ring. It lives only during the talk phase and clears before any bot moves,
+   so it never collides with the gift / bat / pact choreography that crosses
+   center. There is no name inside — the bubble wears the speaker's own colour as
+   its border, and only that bot is lit + pulsing, so it reads as theirs. It is
+   sized to hold ~200 chars (5 lines), so it may overlap idle seats; positionSay()
+   in JS shoves it away from the speaker so that one bot is always left clear, and
+   aims the tail (.rc-saytail) from the bubble's edge straight at that speaker. */
+.rc-saybubble{position:absolute;left:50%;top:50%;z-index:6;pointer-events:none;text-align:center;
+  width:max-content;max-width:380px;padding:12px 17px;border-radius:15px;
+  background:var(--surface,#fff);border:2px solid var(--c,var(--line,#e2e6ea));box-shadow:0 8px 24px rgba(20,20,40,.16);
+  opacity:0;transform:translate(-50%,-50%) scale(.96);transition:opacity .2s ease,transform .2s ease}
+.rc-saybubble.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+/* Compact lobby banter bubble — lighter + smaller than the match talk bubble. */
+.rc-saybubble.rc-banter-bubble{max-width:230px;padding:8px 13px;box-shadow:0 4px 14px rgba(20,20,40,.14)}
+.rc-banter-bubble .rc-say-text{font-size:13.5px;line-height:1.35;-webkit-line-clamp:3}
+@media (max-width:560px){.rc-saybubble.rc-banter-bubble{max-width:180px;padding:6px 10px}.rc-banter-bubble .rc-say-text{font-size:12px}}
+/* SVG tail that spans the full distance from the bubble edge to the talking bot.
+   positionSay() draws two filled polygons into this SVG: an outer triangle in the
+   speaker colour and a slightly inset inner triangle in the bubble surface colour,
+   producing a bordered wedge whose base tucks under the bubble body. */
+#rc-tail-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;overflow:visible}
+/* line-clamp is sized so the bubble holds ~200 chars before it ever cuts: at
+   380px wide / 15px font that is ~46 chars a line, and 5 lines clears 200. */
+.rc-say-text{font-size:15px;line-height:1.4;font-weight:500;color:var(--ink,#1a1d21);
+  display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+@media (max-width:560px){.rc-saybubble{padding:9px 13px}.rc-say-text{font-size:13px;-webkit-line-clamp:6}}
+@media (prefers-reduced-motion:reduce){
+  .rc-bot.speaking .rc-body{animation:none}
+  .rc-saybubble{transition:opacity .12s linear}
+  .rc-saybubble,.rc-saybubble.show{transform:translate(-50%,-50%)}
+}
+
+.rc-caption{padding:12px 14px;border-top:1px solid var(--line,#e2e6ea);font-size:14px;height:60px;overflow:hidden;display:flex;align-items:center;gap:8px}
+.rc-badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:#eef1f5;color:var(--ink-soft,#5b6470);flex:none}
+
+.rc-controls{display:flex;align-items:center;gap:8px;margin:14px 0 0;flex-wrap:wrap}
+.rc-speed{display:inline-flex;border:1px solid var(--line,#e2e6ea);border-radius:20px;overflow:hidden}
+.rc-speed-btn{background:transparent;border:0;border-left:1px solid var(--line,#e2e6ea);cursor:pointer;font-weight:700;font-size:12px;padding:5px 9px;color:var(--ink-soft,#5b6470)}
+.rc-speed-btn:first-child{border-left:0}
+.rc-speed-btn:hover{color:var(--accent,#2f6feb)}
+.rc-speed-btn.is-active{background:var(--accent,#2f6feb);color:#fff}
+.rc-skiptalk{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-soft,#5b6470);cursor:pointer}
+.rc-legend{display:flex;gap:14px;font-size:12px;color:var(--ink-soft,#5b6470);margin-top:10px;flex-wrap:wrap}
+.rc-sw{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+
+/* Seat ghost — faint home-position marker so the ring reads as a circuit board */
+.rc-seat{position:absolute;transform:translate(-50%,-50%);width:52px;height:52px;border-radius:50%;border:1.5px dashed var(--line,#d4dae1);opacity:.3;pointer-events:none;z-index:1}
+/* Turn progress dots — bottom of stage, current round only */
+.rc-progress{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:10;pointer-events:none;flex-wrap:wrap;justify-content:center;max-width:80%}
+.rc-pdot{width:7px;height:7px;border-radius:50%;background:var(--line,#d4dae1);transition:background .3s ease,transform .3s ease,box-shadow .3s ease;flex:none}
+.rc-pdot.is-done{background:var(--ink-soft,#9aa6b6)}
+.rc-pdot.is-cur{background:var(--accent,#2f6feb);transform:scale(1.4);box-shadow:0 0 4px var(--accent,#2f6feb)}
+
+@media (max-width:560px){.rc-stage{height:380px}.rc-robot{width:38px;height:46px}.rc-robot .head{width:30px;height:24px}}
+
+/* The standings rail is a SEPARATE component (fragments/robot_circle_standings.html)
+   so a page can place it anywhere, or leave it out. This viewer's JS fills #rc-rail
+   only when that component is present on the page. */
+
+/* Carry items */
+.rc-carry-wrap{position:absolute;top:30px;left:50%;transform:translateX(-50%);pointer-events:none;transition:top .15s ease,left .15s ease}
+.rc-carry-gift,.rc-carry-bat{display:none}
+/* CSS baseball bat */
+.rc-batbox{display:flex;flex-direction:column;align-items:center}
+.rc-batbox{filter:drop-shadow(0 1px 1px rgba(0,0,0,.28))}
+.rc-bat-barrel{width:10px;height:17px;background:linear-gradient(90deg,#a06640,#7a4a2c);border-radius:4px 4px 1px 1px}
+.rc-bat-handle{width:4px;height:23px;background:#8B5532;border-radius:1px;position:relative}
+.rc-bat-handle::after{content:'';position:absolute;bottom:-4px;left:-1px;width:6px;height:5px;background:#8B5532;border-radius:0 0 3px 3px}
+.rc-bot.carrying-bat .rc-batbox{transform:rotate(30deg);transform-origin:50% 80%}
+.rc-bot.carrying-bat.facing-left .rc-batbox{transform:rotate(-30deg);transform-origin:50% 80%}
+.rc-bot.turning-bat .rc-batbox{transform:rotate(0deg);transform-origin:50% 80%}
+.rc-bot.turning-bat.facing-left .rc-batbox{transform:rotate(0deg);transform-origin:50% 80%}
+.rc-bot.carrying-gift .rc-carry-gift{display:block}
+.rc-bot.carrying-bat .rc-carry-bat{display:block}
+
+/* Gift box */
+.rc-giftbox{width:22px;height:16px;background:var(--help,#1a8f4c);border-radius:0 0 3px 3px;position:relative;box-shadow:0 1px 2px rgba(0,0,0,.22);
+  background-image:linear-gradient(to right,transparent 8px,rgba(255,255,255,.65) 8px,rgba(255,255,255,.65) 14px,transparent 14px)}
+.rc-giftbox::before{content:'';position:absolute;left:0;right:0;top:5px;height:3px;background:rgba(255,255,255,.42)}
+.rc-giftlid{position:absolute;top:-5px;left:-2px;right:-2px;height:6px;background:var(--help,#1a8f4c);border-radius:2px 2px 0 0;box-shadow:inset 0 0 0 40px rgba(0,0,0,.16);
+  background-image:linear-gradient(to right,transparent 6px,rgba(255,255,255,.62) 6px,rgba(255,255,255,.62) 12px,transparent 12px)}
+.rc-giftlid::before,.rc-giftlid::after{content:'';position:absolute;top:-6px;width:6px;height:6px;border-radius:50%;background:var(--help,#1a8f4c);border:1px solid rgba(0,0,0,.28)}
+.rc-giftlid::before{left:1px}
+.rc-giftlid::after{right:1px}
+
+/* Pickup phases */
+.rc-bot.turning-gift .rc-body,.rc-bot.turning-bat .rc-body{animation:rc-turn-away .2s ease-in forwards}
+@keyframes rc-turn-away{from{transform:scaleX(1)}to{transform:scaleX(.05)}}
+.rc-bot.turning-gift .rc-carry-gift,.rc-bot.grabbing-gift .rc-carry-gift{display:block}
+.rc-bot.turning-bat .rc-carry-bat,.rc-bot.grabbing-bat .rc-carry-bat{display:block}
+.rc-bot.turning-gift .rc-carry-wrap,.rc-bot.turning-bat .rc-carry-wrap,
+.rc-bot.grabbing-gift .rc-carry-wrap,.rc-bot.grabbing-bat .rc-carry-wrap
+  {top:52px;left:calc(50% - 18px);transform:none}
+.rc-bot.turning-gift.facing-left .rc-carry-wrap,.rc-bot.turning-bat.facing-left .rc-carry-wrap,
+.rc-bot.grabbing-gift.facing-left .rc-carry-wrap,.rc-bot.grabbing-bat.facing-left .rc-carry-wrap
+  {left:calc(50% + 18px)}
+/* bat stands vertical on a stand, set off to the side OPPOSITE the bot's travel
+   direction (bot travels toward its target — right by default, left when facing-left),
+   so the bot walks up to it, grabs the handle, and flips it up onto the shoulder */
+.rc-bot.turning-bat .rc-carry-wrap,.rc-bot.grabbing-bat .rc-carry-wrap{top:20px;left:calc(50% - 22px)}
+.rc-bot.turning-bat.facing-left .rc-carry-wrap,.rc-bot.grabbing-bat.facing-left .rc-carry-wrap{left:calc(50% + 22px)}
+/* The prop rides the hands: it rests on the floor while the bot bends down, then
+   lifts up with the body as it stands back up (synced to rc-grab-bend's rise). */
+.rc-bot.grabbing-gift .rc-carry-wrap{animation:rc-lift .5s ease-in-out forwards}
+@keyframes rc-lift{
+  0%,20%{top:52px}
+  48%{top:60px}
+  72%{top:20px}
+  100%{top:30px}
+}
+/* bat stays still while bot bends to grab the handle (0-48%), then bot stands
+   and flips the bat from vertical up onto the shoulder (48-100%) */
+.rc-bot.grabbing-bat .rc-carry-wrap{animation:rc-bat-lift .5s ease-in-out forwards}
+@keyframes rc-bat-lift{
+  0%,48%{top:20px;left:calc(50% - 22px)}
+  72%{top:6px;left:calc(50% + 2px)}
+  100%{top:6px;left:calc(50% + 16px)}
+}
+.rc-bot.grabbing-bat.facing-left .rc-carry-wrap{animation:rc-bat-lift-l .5s ease-in-out forwards}
+@keyframes rc-bat-lift-l{
+  0%,48%{top:20px;left:calc(50% + 22px)}
+  72%{top:6px;left:calc(50% - 6px)}
+  100%{top:6px;left:calc(50% - 30px)}
+}
+/* vertical at rest, flips to shoulder angle as bot stands */
+.rc-bot.grabbing-bat .rc-batbox{animation:rc-bat-rot .5s ease-in-out forwards;transform-origin:50% 80%}
+@keyframes rc-bat-rot{0%,48%{transform:rotate(0deg)}100%{transform:rotate(30deg)}}
+.rc-bot.grabbing-bat.facing-left .rc-batbox{animation:rc-bat-rot-l .5s ease-in-out forwards;transform-origin:50% 80%}
+@keyframes rc-bat-rot-l{0%,48%{transform:rotate(0deg)}100%{transform:rotate(-30deg)}}
+.rc-bot.grabbing-gift .rc-robot,.rc-bot.grabbing-bat .rc-robot{display:none}
+.rc-bot.grabbing-gift .rc-robot-side,.rc-bot.grabbing-bat .rc-robot-side{display:block}
+.rc-bot.grabbing-gift .rc-robot-side,.rc-bot.grabbing-bat .rc-robot-side{transform:scaleX(-1)}
+.rc-bot.grabbing-gift.facing-left .rc-robot-side,.rc-bot.grabbing-bat.facing-left .rc-robot-side{transform:none}
+.rc-bot.grabbing-gift .rc-body{animation:rc-grab-bend .5s ease-in-out forwards}
+@keyframes rc-grab-bend{
+  0%  {transform:scaleX(.05)}
+  20% {transform:scaleX(1)}
+  48% {transform:translateY(25px) scaleX(1) scaleY(.5)}
+  72% {transform:translateY(-6px) scaleX(1) scaleY(1.1)}
+  87% {transform:scaleX(1)}
+  100%{transform:scaleX(.05)}
+}
+/* bat grab leans the bot toward the bat (set off to the side) to reach the handle,
+   then returns to center as it stands and flips the bat onto the shoulder */
+.rc-bot.grabbing-bat .rc-body{animation:rc-grab-bend-bat .5s ease-in-out forwards}
+@keyframes rc-grab-bend-bat{
+  0%  {transform:scaleX(.05)}
+  20% {transform:scaleX(1)}
+  48% {transform:translateX(-15px) translateY(25px) scaleX(1) scaleY(.5)}
+  72% {transform:translateX(0) translateY(-6px) scaleX(1) scaleY(1.1)}
+  87% {transform:scaleX(1)}
+  100%{transform:scaleX(.05)}
+}
+.rc-bot.grabbing-bat.facing-left .rc-body{animation:rc-grab-bend-bat-l .5s ease-in-out forwards}
+@keyframes rc-grab-bend-bat-l{
+  0%  {transform:scaleX(.05)}
+  20% {transform:scaleX(1)}
+  48% {transform:translateX(15px) translateY(25px) scaleX(1) scaleY(.5)}
+  72% {transform:translateX(0) translateY(-6px) scaleX(1) scaleY(1.1)}
+  87% {transform:scaleX(1)}
+  100%{transform:scaleX(.05)}
+}
+.rc-bot.carry-expand .rc-body{animation:rc-carry-expand .15s ease-out}
+@keyframes rc-carry-expand{from{transform:scaleX(.05)}to{transform:none}}
+/* compact mode (hero): hides the feed/legend and uses a full-bleed card, but
+   keeps the standard stage height so the ring — and the talk bubble sized to it
+   — match the game and showcase pages. The stage is one size everywhere:
+   580px (desktop) / 380px (mobile, via the media query above). */
+.rc-wrap.rc-compact{margin:0;max-width:none}
+.rc-compact .rc-legend{display:none}
+.rc-compact .rc-card{border-radius:var(--al-radius-lg,14px);box-shadow:var(--al-shadow-soft,0 6px 20px rgba(20,20,40,.08))}
+.rc-compact .rc-controls{margin-top:10px}
+
+/* Pre-start countdown — a big, clear clock parked in the centre of the ring
+   while a match waits to begin, so a watcher knows when play starts. Rendered
+   only for a real waiting match (see rc_countdown_iso); pointer-events:none so
+   tapping a robot underneath still works. */
+.rc-countdown{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:7;
+  display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;pointer-events:none;width:max-content}
+.rc-countdown-label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--ink-soft,#5b6470)}
+.rc-countdown-time{font-size:72px;line-height:1;font-weight:800;color:var(--ink,#1a1d21);font-variant-numeric:tabular-nums;
+  text-shadow:0 0 18px var(--surface,#fff),0 0 18px var(--surface,#fff),0 2px 6px var(--surface,#fff)}
+.rc-countdown.is-imminent .rc-countdown-time{color:var(--accent,#2f6feb)}
+.rc-countdown-sub{font-size:12.5px;color:var(--ink-soft,#5b6470)}
+/* Solo start button, parked right under the clock: the only player can begin
+   immediately instead of waiting it out. pointer-events re-enabled (the
+   countdown wrapper turns them off so robots stay tappable) so it's clickable. */
+.rc-start{display:flex;flex-direction:column;align-items:center;gap:5px;margin-top:6px;pointer-events:auto}
+.rc-start-btn{box-shadow:0 2px 12px rgba(0,0,0,.18)}
+.rc-start-note{font-size:12px;color:var(--ink-soft,#5b6470);
+  text-shadow:0 0 10px var(--surface,#fff),0 0 10px var(--surface,#fff)}
+@media (max-width:560px){.rc-countdown-time{font-size:48px}}
+@media (prefers-reduced-motion:reduce){.rc-countdown-time{text-shadow:none}}
+</style>
