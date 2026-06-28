@@ -8,7 +8,7 @@ each game's ``viewer.py``:
    agents/labels/bots/owners maps off the scoreboard, the per-turn ``talk`` list,
    and the ``payload``/``max_round``/``sample``/``viewer_seat`` envelope that is
    serialized to JSON. A game enriches this with its own extra maps (PD adds a
-   ``providers`` map) and its own per-turn body (badge/cap/spotlight/win_probs for
+   ``providers`` map) and its own per-turn body (badge/cap/spotlight for
    PD, just actions/talk for Liar's Dice).
 
 2. The per-turn talk-message projection: the ``messages`` list

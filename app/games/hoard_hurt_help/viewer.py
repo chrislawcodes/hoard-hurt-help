@@ -27,7 +27,6 @@ from app.games.hoard_hurt_help.rules import (
 )
 from app.games.hoard_hurt_help.scoring import apply_inround_turn
 from app.games.hoard_hurt_help.viewer_headline import _turn_headline
-from app.games.hoard_hurt_help.viewer_win_probs import _compute_round_win_probs
 from app.games.viewer_common import (
     project_turn_messages,
     rc_envelope,
@@ -172,7 +171,6 @@ def _turn_groups(actions: list[dict]) -> list[dict]:
 def _build_rc_data(
     scoreboard: list[dict[str, Any]],
     history: list[dict[str, Any]],
-    turns_per_round: int = 7,
     viewer_seat: str | None = None,
 ) -> str:
     """Serialize game history as the robot-circle viewer JSON format."""
@@ -181,8 +179,6 @@ def _build_rc_data(
     # for the standings rail's per-competitor badge. Omitted for bots and seats
     # not yet served (no provider). PD-only enrichment on top of the shared maps.
     providers = {r["agent_id"]: r["provider"] for r in scoreboard if r.get("provider")}
-
-    win_probs_by_turn = _compute_round_win_probs(scoreboard, history, turns_per_round)
 
     turns = []
     for h in history:
@@ -254,7 +250,6 @@ def _build_rc_data(
                 "spotlight": sorted(spot),
                 "actions": rc_actions,
                 "talk": rc_talk(h),
-                "win_probs": win_probs_by_turn.get((h["round"], h["turn"]), {}),
             }
         )
 
@@ -434,7 +429,7 @@ async def build_pd_replay_view(
         # the live fragment carries fresh turns too — that's what lets an
         # already-open page extend the animation as new turns resolve, instead of
         # staying frozen at the turn count present when the page first loaded.
-        "rc_data": _build_rc_data(scoreboard, history, g.turns_per_round, viewer_seat),
+        "rc_data": _build_rc_data(scoreboard, history, viewer_seat),
         # PD renders the animated robot-circle stage + narration dock above the
         # feed; games without that visual leave this off (see game.html).
         "show_replay_stage": True,

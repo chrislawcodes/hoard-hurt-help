@@ -591,7 +591,6 @@
 
   var rScore={}, rWins={}, railRowEl={};
   var seatEls={};
-  var curWinProbs={};  // win_probs dict from the current displayed turn
   AGENTS.forEach(function(id){ rScore[id]=0; rWins[id]=0; });
 
   function buildRail(){
@@ -615,7 +614,7 @@
         +'</span>'
         +(owner?'<span class="nm-owner">by @'+esc(owner)+'</span>':'')
         +'<span class="nm-pts">0 rounds won</span>'
-        +'<span class="nm-rwin"></span></span>'
+        +'</span>'
         +'<span class="sc">0<span class="sc-unit">pts</span></span>'
         +'<span class="track"><span class="bar"></span></span>';
       // Add a "Coach" button to the viewer's own row, wired to the dialog.
@@ -662,17 +661,6 @@
       row.querySelector('.nm-pts').textContent=fmtWins(winsVal)+' '+fmtWinsUnit(winsVal)+' won';
       // Bar shows points this round so it animates live within each round.
       row.querySelector('.bar').style.width=(maxS>0?Math.max(0,Math.min(100,(rScore[id]||0)/maxS*100)):0)+'%';
-      // Round-win probability + calibration range (hidden for round 1 — all ~10%).
-      var rwinEl=row.querySelector('.nm-rwin');
-      if(rwinEl){
-        var wp=curWinProbs[id];
-        if(wp && wp.p !== undefined){
-          var pct=Math.round(wp.p*100), lo=Math.round(wp.lo*100), hi=Math.round(wp.hi*100);
-          rwinEl.textContent=pct+'% ['+lo+'–'+hi+'%] to win round';
-        } else {
-          rwinEl.textContent='';
-        }
-      }
       row.classList.toggle('leader', i===0);
     });
   }
@@ -701,8 +689,6 @@
   // through turns, renderTurn() takes over and the rail follows the scrubber.
   function railToLatest(){
     AGENTS.forEach(function(id){ rScore[id]=finalScore[id]||0; rWins[id]=finalWins[id]||0; });
-    var last=TURNS.length-1;
-    curWinProbs=(last>=0&&TURNS[last].win_probs)||{};
     updateRail();
   }
 
@@ -988,7 +974,6 @@
     // The last turn finishes the final round, so show the fully-credited wins.
     var wsnap=(i===TURNS.length-1)?finalWins:(winsAt[i]||{});
     AGENTS.forEach(function(id){ rScore[id]=snap[id]||0; rWins[id]=wsnap[id]||0; });
-    curWinProbs=(TURNS[i]&&TURNS[i].win_probs)||{};
     updateRail();
     updateProgress(i);
     turnlabel.textContent='Round '+t.round+' · Turn '+t.turn;
