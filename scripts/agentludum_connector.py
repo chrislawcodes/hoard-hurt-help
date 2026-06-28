@@ -415,14 +415,16 @@ class _CodexAdapter:
     def _call(
         self, resume_id: str | None, model: str, prompt: str
     ) -> tuple[str, str, dict[str, int] | None]:
-        argv = ["codex", "exec"]
-        if resume_id:
-            argv += ["resume", resume_id]
         # read-only sandbox: a game move needs no file writes and no network, so
         # lock the model's shell tool to reads only. (Codex writes the
         # --output-last-message file itself, outside the sandbox, so capture
-        # still works.)
-        argv += ["--sandbox", "read-only", "--json", "--skip-git-repo-check", "--model", model]
+        # still works.) `--sandbox` must come BEFORE the `resume` subcommand —
+        # `codex exec resume` rejects it as an unknown argument (codex >= 0.142),
+        # so passing it after `resume <id>` failed every resumed turn.
+        argv = ["codex", "exec", "--sandbox", "read-only"]
+        if resume_id:
+            argv += ["resume", resume_id]
+        argv += ["--json", "--skip-git-repo-check", "--model", model]
         with tempfile.TemporaryDirectory() as tmp:
             out_file = Path(tmp) / "last_message.txt"
             argv += ["--output-last-message", str(out_file), prompt]
