@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.game_types import DEFAULT_GAME_TYPE
 from app.models.base import Base
 from app.models.connection import ConnectionProvider
 from app.models.enum_types import FlexibleEnumType
@@ -63,7 +64,7 @@ class Agent(Base):
     game: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        default="hoard-hurt-help",
+        default=DEFAULT_GAME_TYPE,
         index=True,
     )
     current_version_id: Mapped[int | None] = mapped_column(

@@ -4,11 +4,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.game_types import DEFAULT_GAME_TYPE
+
 
 class CreateGameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     scheduled_start: datetime
-    game_type: str = Field(default="hoard-hurt-help", max_length=64)
+    game_type: str = Field(default=DEFAULT_GAME_TYPE, max_length=64)
     min_players: int = Field(default=6, ge=3, le=100)
     max_players: int = Field(default=10, ge=3, le=100)
     per_turn_deadline_seconds: int = Field(default=60, ge=5, le=600)

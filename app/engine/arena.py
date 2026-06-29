@@ -18,6 +18,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+
+from app.game_types import DEFAULT_GAME_TYPE
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.bot_presets import allocate_default_bot_names, bot_presets
@@ -186,7 +188,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
     far_future = datetime.now(timezone.utc) + timedelta(days=365)
     arena = await create_match(
         db,
-        game="hoard-hurt-help",
+        game=DEFAULT_GAME_TYPE,
         name=PRACTICE_ARENA_NAME,
         scheduled_start=far_future,
         min_players=1,
@@ -235,7 +237,7 @@ async def ensure_auto_match(db: AsyncSession) -> None:
     name = _auto_match_name(boundary)
     auto = await create_match(
         db,
-        game="hoard-hurt-help",
+        game=DEFAULT_GAME_TYPE,
         name=name,
         scheduled_start=boundary,
         min_players=1,

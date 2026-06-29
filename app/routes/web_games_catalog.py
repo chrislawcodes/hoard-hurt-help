@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.deps import DbSession, get_current_user
+from app.game_types import DEFAULT_GAME_TYPE
 from app.games import get as get_game_module
 from app.games import is_admin_only, visible_types
 from app.games.base import GameError
@@ -79,7 +80,8 @@ async def operator_join_page(request: Request, db: DbSession):
 
     if user is None:
         return RedirectResponse(
-            "/auth/google/login?next=/games/hoard-hurt-help", status_code=status.HTTP_302_FOUND
+            f"/auth/google/login?next=/games/{DEFAULT_GAME_TYPE}",
+            status_code=status.HTTP_302_FOUND,
         )
 
     return RedirectResponse(LOBBY_URL, status_code=status.HTTP_302_FOUND)

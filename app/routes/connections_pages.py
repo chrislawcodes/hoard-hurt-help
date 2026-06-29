@@ -18,6 +18,7 @@ from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
+from app.game_types import DEFAULT_GAME_TYPE
 from app.engine.connection_health import (
     ProviderReadiness,
     calm_connection_status,
@@ -223,7 +224,7 @@ async def list_connections(
             "next_game_status": status_flags["next_game_status"],
             "has_agent": has_agent,
             "agent_summary": agent_summary,
-            "lobby_url": "/games/hoard-hurt-help",
+            "lobby_url": f"/games/{DEFAULT_GAME_TYPE}",
             "next_url": next_url,
             "provider_hint": provider_hint,
             "selected_client_id": selected_client_id,

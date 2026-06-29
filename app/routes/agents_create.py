@@ -16,6 +16,7 @@ from starlette.responses import Response
 
 from app.deps import DbSession, require_user_with_handle
 from app.engine.pending_connection_gc import gc_pending_connections
+from app.game_types import DEFAULT_GAME_TYPE
 from app.games import get as get_game_module, known_types
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -25,7 +26,7 @@ from app.templating import templates
 
 router = APIRouter()
 
-_DEFAULT_GAME = known_types()[0] if known_types() else "hoard-hurt-help"
+_DEFAULT_GAME = known_types()[0] if known_types() else DEFAULT_GAME_TYPE
 
 # Cap names at the column's own declared length so a too-long name returns a
 # friendly 400 instead of a Postgres "value too long" 500. Derived from the

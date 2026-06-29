@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.deps import DbSession
+from app.game_types import DEFAULT_GAME_TYPE
 from app.engine.agent_idle import GameTiming, game_timing_for_user
 from app.engine.connection_health import (
     LIVE_WINDOW_SECONDS,
@@ -220,7 +221,7 @@ async def _live_status_context(
         "has_agent": has_agent,
         "agent_summary": agent_summary,
         "play_prompt": _play_prompt(),
-        "lobby_url": "/games/hoard-hurt-help",
+        "lobby_url": f"/games/{DEFAULT_GAME_TYPE}",
         # When set, the connect→play flow forwards here the moment the AI is live
         # (a join hub sent the user to start their machine). None = stay put.
         "next_url": next_url,

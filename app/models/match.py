@@ -12,6 +12,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.game_types import DEFAULT_GAME_TYPE
 from app.models.base import Base
 from app.models.enum_types import FlexibleEnumType
 
@@ -39,7 +40,7 @@ class Match(Base):
     # a future game would set its own slug. Registry key string is unchanged;
     # only the column moved game_type→game. See specs/004-game-framework/.
     game: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="hoard-hurt-help", index=True
+        String(64), nullable=False, default=DEFAULT_GAME_TYPE, index=True
     )
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"),
