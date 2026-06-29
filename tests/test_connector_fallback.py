@@ -123,6 +123,32 @@ def test_decide_sets_is_connector_fallback_on_act_failure(connector, monkeypatch
     assert sess.token is None  # session was reset
 
 
+def test_decide_attaches_model_failure_marker(connector, monkeypatch) -> None:
+    """A real model-subprocess failure attaches a model_failure marker so
+    _handle_turn can flip the model's verification status (fail-loud, slice 3)."""
+
+    class UnavailableAdapter:
+        default_model = "claude-haiku-4-5"
+
+        def first(self, *, body, framing, model, session):
+            raise RuntimeError("model not found (404)")
+
+        def resume(self, *, body, model, session):
+            raise RuntimeError("model not found (404)")
+
+    monkeypatch.setitem(connector._ADAPTERS, "claude", UnavailableAdapter())
+    turn = _make_turn(phase="act")
+    sess = connector._GameSession(provider="claude", model="claude-opus-4-8")
+
+    decision = connector._decide(turn, sess)
+    assert decision.get("model_failure") == {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "outcome": "failed",
+        "error_text": "model not found (404)",
+    }
+
+
 def test_decide_sets_is_connector_fallback_on_talk_failure(connector, monkeypatch) -> None:
     class BrokenAdapter:
         default_model = "claude-haiku-4-5"

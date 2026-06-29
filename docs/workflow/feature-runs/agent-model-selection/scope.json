@@ -1,0 +1,17 @@
+{
+  "paths": [
+    "app/engine",
+    "app/models",
+    "app/routes",
+    "app/templates",
+    "scripts/agentludum_connector.py"
+  ],
+  "allowed_dirty_paths": [
+    "app/engine",
+    "app/models",
+    "app/routes",
+    "app/templates",
+    "docs/workflow/feature-runs/agent-model-selection",
+    "scripts/agentludum_connector.py"
+  ]
+}

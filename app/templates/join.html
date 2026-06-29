@@ -53,6 +53,9 @@
                 <span class="pick-sub">{{ row.version.strategy_text[:80] }}{% if row.version.strategy_text | length > 80 %}…{% endif %}</span>
                 {% endif %}
             </div>
+            {% if row.preferred_model_failing %}
+            <p class="pick-sub" style="color:var(--alert);">⚠ This agent's preferred model can't run on your connector — fix it in <a href="/me/agents/{{ row.agent.id }}">agent settings</a>, or this seat falls back to the default model.</p>
+            {% endif %}
             {% if not row.seated %}
             <div class="agent-ai-picker">
                 <input type="hidden" name="chosen_provider" value="" disabled data-provider-mirror>

@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, func, select
 from starlette.responses import Response
 
+from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
 from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -231,6 +232,29 @@ async def set_strategy(
     if clean_strategy == current.strategy_text.strip():
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
     await _apply_version_edit(db, agent=agent, strategy_text=clean_strategy)
+    await db.commit()
+    return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# Every model the picker may set — the union of the provider allowlists. An empty
+# submission clears the preference (back to the provider default).
+_ALL_PROVIDER_MODELS = {model for models in PROVIDER_MODELS.values() for model in models}
+
+
+@router.post("/{agent_id}/set-model")
+async def set_model(
+    agent_id: Annotated[int, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    preferred_model: Annotated[str, Form()] = "",
+) -> RedirectResponse:
+    """Set or clear an agent's advanced preferred model. Machine connections only;
+    MCP ignores it. Stored on the Agent (mutable), not a new version."""
+    agent = await load_owned_agent(db, user, agent_id)
+    clean = preferred_model.strip()
+    if clean and clean not in _ALL_PROVIDER_MODELS:
+        raise HTTPException(status_code=400, detail="Unknown model.")
+    agent.preferred_model = clean or None
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
 

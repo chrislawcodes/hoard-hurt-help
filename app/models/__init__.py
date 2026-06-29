@@ -9,6 +9,7 @@ from app.models.connection_provider import ConnectionProvider as ConnectionProvi
 from app.models.connection_setup import ConnectionSetup
 from app.models.game_state import MatchState, PlayerState
 from app.models.match import GameState, Match
+from app.models.model_verification import ModelVerification, ModelVerificationStatus
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
 from app.models.user import User
@@ -29,6 +30,8 @@ __all__ = [
     "AdminAuditLog",
     "User",
     "Match",
+    "ModelVerification",
+    "ModelVerificationStatus",
     "GameState",
     "MatchState",
     "PlayerState",
