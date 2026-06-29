@@ -17,8 +17,11 @@ from app.engine.connection_health import (
     provider_readiness,
     providers_busy_for_user,
 )
+from app.engine.model_provider_match import provider_for_model
+from app.engine.model_verification import model_status_for
 from app.engine.scheduler import start_game
 from app.engine.seat_hold import hold_deadline
+from app.models.model_verification import ModelVerificationStatus
 from app.games import is_admin_only
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
@@ -193,15 +196,28 @@ async def join_form(
         .scalars()
         .all()
     )
-    agent_rows = [
-        {
-            "agent": agent,
-            "version": version,
-            "seated": agent.id in seated_agent_ids,
-        }
-        for agent, version in agents
-        if agent.kind == AgentKind.AI and version is not None
-    ]
+    agent_rows = []
+    for agent, version in agents:
+        if agent.kind != AgentKind.AI or version is None:
+            continue
+        # FR-014: warn (not block) if the agent's preferred model is verified-
+        # failing on every live machine connection for its provider. A not-yet-
+        # checked model doesn't warn.
+        preferred_failing = False
+        if agent.preferred_model:
+            prov = provider_for_model(agent.preferred_model)
+            if prov:
+                preferred_failing = (
+                    await model_status_for(db, user.id, prov, agent.preferred_model)
+                ) is ModelVerificationStatus.FAILED
+        agent_rows.append(
+            {
+                "agent": agent,
+                "version": version,
+                "seated": agent.id in seated_agent_ids,
+                "preferred_model_failing": preferred_failing,
+            }
+        )
     # The "which AI plays it?" picker: each supported AI with its state
     # (ready / connected-not-playing / not-connected / busy-in-a-game). One AI
     # plays one seat at a time, so an AI already in any unfinished game is busy.

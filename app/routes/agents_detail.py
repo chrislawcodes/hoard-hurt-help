@@ -16,6 +16,8 @@ from starlette.responses import Response
 from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
+from app.engine.model_provider_match import provider_for_model
+from app.engine.model_verification import model_status_for
 from app.engine.connection_health import (
     ConnectionHealth,
     ConnectionHealthStatus,
@@ -216,6 +218,21 @@ async def _build_agent_detail_context(
         "match_count": await _count_agent_matches(db, agent.id),
         # Advanced per-agent model picker (machine connections only; MCP ignores).
         "preferred_model": agent.preferred_model,
+        "preferred_provider": provider_for_model(agent.preferred_model)
+        if agent.preferred_model
+        else None,
+        "model_status": (
+            (
+                await model_status_for(
+                    db,
+                    user.id,
+                    provider_for_model(agent.preferred_model) or "",
+                    agent.preferred_model,
+                )
+            ).value
+            if agent.preferred_model and provider_for_model(agent.preferred_model)
+            else None
+        ),
         "model_options": [
             (provider, models)
             for provider, models in PROVIDER_MODELS.items()

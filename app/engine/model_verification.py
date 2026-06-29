@@ -17,6 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
 from app.config import PROVIDER_MODELS
+from app.engine.connection_health_badge import (
+    LOOP_RUNNING_WINDOW_SECONDS,
+    within_window,
+)
 from app.engine.model_provider_match import default_model_for_provider, provider_for_model
 from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection, ConnectionStatus
@@ -220,9 +224,10 @@ async def model_status_for(
     connection has reported. The join warning (slice 4b) fires only on FAILED —
     i.e. at least one connection reports failure and none reports verified/checking.
     """
+    now = datetime.now(timezone.utc)
     rows = (
         await db.execute(
-            select(ModelVerification.status)
+            select(ModelVerification.status, Connection.last_polled_at)
             .join(Connection, Connection.id == ModelVerification.connection_id)
             .where(
                 Connection.user_id == user_id,
@@ -232,9 +237,18 @@ async def model_status_for(
                 ModelVerification.model == model,
             )
         )
-    ).scalars().all()
-    seen = set(rows)
+    ).all()
+    # Only LIVE machine connections count (a connector actively polling within the
+    # loop-running window). A turned-off connector is not auto-demoted from ACTIVE,
+    # so without this a stale row would keep falsely failing the model; and an
+    # MCP-only connection never polls → never live → correctly excluded (FR-014).
+    live = {
+        status
+        for status, last_polled in rows
+        if last_polled is not None
+        and within_window(ensure_aware(last_polled), now, LOOP_RUNNING_WINDOW_SECONDS)
+    }
     for status in _PRECEDENCE:
-        if status in seen:
+        if status in live:
             return status
     return ModelVerificationStatus.UNKNOWN

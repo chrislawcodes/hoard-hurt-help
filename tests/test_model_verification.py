@@ -7,6 +7,7 @@ timeout escalation, upsert), and model_status_for (aggregate precedence).
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
@@ -136,6 +137,9 @@ async def test_status_for_verified_wins_over_failed(db_session: AsyncSession) ->
     user = await make_user(db_session, 0)
     c1, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
     c2, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE, key="sk_conn_two")
+    now = datetime.now(timezone.utc)
+    c1.last_polled_at = now  # live connectors (model_status_for counts live only)
+    c2.last_polled_at = now
     await db_session.flush()
     m = "claude-opus-4-8"
     await record_results(db_session, c1, [{"provider": "claude", "model": m, "outcome": "failed"}])
@@ -148,6 +152,7 @@ async def test_status_for_verified_wins_over_failed(db_session: AsyncSession) ->
 async def test_status_for_failed_everywhere(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
+    conn.last_polled_at = datetime.now(timezone.utc)  # live connector
     await db_session.flush()
     m = "claude-opus-4-8"
     await record_results(db_session, conn, [{"provider": "claude", "model": m, "outcome": "failed"}])

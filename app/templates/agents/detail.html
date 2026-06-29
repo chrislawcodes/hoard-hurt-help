@@ -69,7 +69,22 @@
         </select>
         <button type="submit">Save</button>
     </form>
-    {# Per-model verification status + effective-model line are added in slice 4b. #}
+    {% if preferred_model %}
+    <p class="meta" style="margin-top:0.6rem;">
+        {% if model_status == 'verified' %}
+        <span class="badge badge-ok">✓ verified</span> your connector can run this model.
+        {% elif model_status == 'failed' %}
+        <span class="badge badge-alert">✗ can't run</span> your login can't run {{ preferred_model }} — pick another model or fix your login.
+        {% elif model_status == 'timeout' %}
+        <span class="badge badge-soon">… retrying</span> verification timed out; the connector will retry.
+        {% elif model_status == 'checking' %}
+        <span class="badge badge-soon">⏳ checking</span> on your connector…
+        {% else %}
+        <span class="badge badge-soon">waiting for your connector</span> — it verifies this model on its next idle check.
+        {% endif %}
+    </p>
+    <p class="meta">Run on <strong>{{ preferred_provider or 'the matching provider' }}</strong> via a machine connection, this agent uses <strong>{{ preferred_model }}</strong>. MCP clients ignore this and use your client's own model.</p>
+    {% endif %}
 </details>
 
 {% include "agents/_versions.html" %}
