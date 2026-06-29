@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import DbSession, get_current_user
+from app.game_types import DEFAULT_GAME_TYPE
 from app.engine.connection_health import (
     LIVE_WINDOW_SECONDS,
     ProviderReadiness,
@@ -40,7 +41,7 @@ from app.routes.web_support import safe_internal_next
 
 # The games lobby anchor every "ready to play" path lands on (nav CTA, /play,
 # and the play-setup resolver's READY/NEEDS_LIVE case).
-LOBBY_URL = "/games/hoard-hurt-help#lobby-upcoming"
+LOBBY_URL = f"/games/{DEFAULT_GAME_TYPE}#lobby-upcoming"
 
 
 @dataclass(frozen=True)

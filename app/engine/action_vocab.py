@@ -18,8 +18,9 @@ from collections import Counter
 from collections.abc import Iterable
 
 from app.engine.game_records import ActionRecord
+from app.game_types import DEFAULT_GAME_TYPE
 
-PD_GAME_TYPE = "hoard-hurt-help"
+PD_GAME_TYPE = DEFAULT_GAME_TYPE
 
 
 def pd_action_names() -> tuple[str, ...]:
