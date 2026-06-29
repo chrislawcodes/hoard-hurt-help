@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.models import Base
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
-from mcp_server import server
+from mcp_server import connection_identity, server, signin_middleware
 
 
 def _token(*, sub: str = "sub-123", email: str = "agent@example.com") -> AccessToken:
@@ -94,7 +94,7 @@ async def test_tool_path_still_records_the_call(
     and record the call."""
     tok = _token()
     DCR_ID = "dcr-uuid-gemini"
-    monkeypatch.setattr(server, "_dcr_client_id_from_request", lambda: DCR_ID)
+    monkeypatch.setattr(connection_identity, "_dcr_client_id_from_request", lambda: DCR_ID)
     async with db_session_factory() as db:
         # Simulate initialize: create the connection with provider + DCR id.
         await server._connection_from_token(
@@ -130,13 +130,17 @@ async def test_tool_call_routes_to_the_matching_client_not_another(
     CODEX_DCR = "dcr-uuid-codex"
 
     # Two initialize handshakes — one per client — create two connections.
-    monkeypatch.setattr(server, "_dcr_client_id_from_request", lambda: GEMINI_DCR)
+    monkeypatch.setattr(
+        connection_identity, "_dcr_client_id_from_request", lambda: GEMINI_DCR
+    )
     async with db_session_factory() as db:
         await server._connection_from_token(
             db, tok, provider=ConnectionProvider.GEMINI, oauth_client_id=GEMINI_DCR
         )
         await db.commit()
-    monkeypatch.setattr(server, "_dcr_client_id_from_request", lambda: CODEX_DCR)
+    monkeypatch.setattr(
+        connection_identity, "_dcr_client_id_from_request", lambda: CODEX_DCR
+    )
     async with db_session_factory() as db:
         await server._connection_from_token(
             db, tok, provider=ConnectionProvider.OPENAI, oauth_client_id=CODEX_DCR
@@ -186,12 +190,12 @@ async def test_signin_is_idempotent_one_connection_per_user(
 @pytest.mark.asyncio
 async def test_initialize_middleware_is_fail_open(monkeypatch: pytest.MonkeyPatch) -> None:
     """A bootstrap failure must not break the session — initialize still runs."""
-    monkeypatch.setattr(server, "get_access_token", lambda: _token())
+    monkeypatch.setattr(signin_middleware, "get_access_token", lambda: _token())
 
     async def _boom(token: object, provider: object) -> None:
         raise RuntimeError("db unavailable")
 
-    monkeypatch.setattr(server, "_bootstrap_signin_connection", _boom)
+    monkeypatch.setattr(connection_identity, "_bootstrap_signin_connection", _boom)
 
     seen = {}
 
@@ -214,14 +218,14 @@ async def test_initialize_middleware_skips_when_unauthenticated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No token (discovery / pre-auth) -> no bootstrap attempt, session proceeds."""
-    monkeypatch.setattr(server, "get_access_token", lambda: None)
+    monkeypatch.setattr(signin_middleware, "get_access_token", lambda: None)
 
     bootstrap_called = {"value": False}
 
     async def _bootstrap(token: object, provider: object) -> None:
         bootstrap_called["value"] = True
 
-    monkeypatch.setattr(server, "_bootstrap_signin_connection", _bootstrap)
+    monkeypatch.setattr(connection_identity, "_bootstrap_signin_connection", _bootstrap)
 
     async def _call_next(context: object) -> str:
         return "initialized"

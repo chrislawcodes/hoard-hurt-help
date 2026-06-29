@@ -58,6 +58,47 @@ async def test_mcp_tools_registered() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mcp_tool_schema_fields_are_frozen() -> None:
+    """Pin each tool's LLM-visible input fields.
+
+    This is the behavior-preserving guard for the server.py module split: the
+    7 tools must register with exactly these names and input-schema fields after
+    being moved into mcp_tools.register_tools(). A drift here means a tool's
+    public shape changed, which would break the AI clients calling it.
+    """
+    from mcp_server.server import mcp_app
+
+    actual = {
+        t.name: sorted((t.parameters or {}).get("properties", {}).keys())
+        for t in await mcp_app.list_tools()
+    }
+    assert actual == {
+        "get_chat": ["game_id", "match_id", "since"],
+        "get_game_state": ["game_id", "match_id"],
+        "get_instructions": ["agent_id", "match_id"],
+        "get_next_turn": ["agent_id"],
+        "get_next_turns": [],
+        "submit_action": [
+            "action",
+            "agent_turn_token",
+            "game_id",
+            "match_id",
+            "message",
+            "target_id",
+            "turn_token",
+        ],
+        "submit_talk": [
+            "agent_turn_token",
+            "game_id",
+            "match_id",
+            "message",
+            "thinking",
+            "turn_token",
+        ],
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_next_turn_exposes_agent_id_for_parallel_play() -> None:
     """The agent_id selector is LLM-visible so a client can run one loop per agent."""
     from mcp_server.server import mcp_app
@@ -147,7 +188,7 @@ async def test_get_next_turn_uses_google_identity_and_mcp_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The bridge resolves the Google identity and builds the MCP connection."""
-    from mcp_server import server
+    from mcp_server import connection_identity, mcp_tools, server
 
     captured: dict[str, object] = {}
 
@@ -180,11 +221,13 @@ async def test_get_next_turn_uses_google_identity_and_mcp_connection(
         captured["agent_id"] = agent_id
         return {"status": "waiting", "next_poll_after_seconds": 2}
 
-    monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
-    monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
-    monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
-    monkeypatch.setattr(server, "play_get_next_turn", fake_get_next_turn)
+    monkeypatch.setattr(connection_identity, "sync_google_user", fake_sync_google_user)
+    monkeypatch.setattr(connection_identity, "mcp_connection_for", fake_mcp_connection_for)
+    monkeypatch.setattr(
+        connection_identity, "assert_connection_usable", fake_assert_connection_usable
+    )
+    monkeypatch.setattr(connection_identity, "mark_seen", fake_mark_seen)
+    monkeypatch.setattr(mcp_tools, "play_get_next_turn", fake_get_next_turn)
 
     result = await server.get_next_turn(token=_token(), db=object())
 
@@ -203,7 +246,7 @@ async def test_get_next_turn_uses_google_identity_and_mcp_connection(
 async def test_get_next_turn_strips_duplicate_static_for_mcp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from mcp_server import server
+    from mcp_server import connection_identity, mcp_tools, server
 
     async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
@@ -251,11 +294,13 @@ async def test_get_next_turn_strips_duplicate_static_for_mcp(
             "public_state": {"board": 1},
         }
 
-    monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
-    monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
-    monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
-    monkeypatch.setattr(server, "play_get_next_turn", fake_get_next_turn)
+    monkeypatch.setattr(connection_identity, "sync_google_user", fake_sync_google_user)
+    monkeypatch.setattr(connection_identity, "mcp_connection_for", fake_mcp_connection_for)
+    monkeypatch.setattr(
+        connection_identity, "assert_connection_usable", fake_assert_connection_usable
+    )
+    monkeypatch.setattr(connection_identity, "mark_seen", fake_mark_seen)
+    monkeypatch.setattr(mcp_tools, "play_get_next_turn", fake_get_next_turn)
 
     result = await server.get_next_turn(token=_token(), db=object())
 
@@ -285,7 +330,7 @@ async def test_get_next_turn_strips_duplicate_static_for_mcp(
 async def test_get_next_turns_strips_duplicate_static_for_mcp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from mcp_server import server
+    from mcp_server import connection_identity, mcp_tools, server
 
     async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
@@ -331,11 +376,13 @@ async def test_get_next_turns_strips_duplicate_static_for_mcp(
             ],
         }
 
-    monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
-    monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
-    monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
-    monkeypatch.setattr(server, "play_get_next_turns", fake_get_next_turns)
+    monkeypatch.setattr(connection_identity, "sync_google_user", fake_sync_google_user)
+    monkeypatch.setattr(connection_identity, "mcp_connection_for", fake_mcp_connection_for)
+    monkeypatch.setattr(
+        connection_identity, "assert_connection_usable", fake_assert_connection_usable
+    )
+    monkeypatch.setattr(connection_identity, "mark_seen", fake_mark_seen)
+    monkeypatch.setattr(mcp_tools, "play_get_next_turns", fake_get_next_turns)
 
     result = await server.get_next_turns(token=_token(), db=object())
 
@@ -385,7 +432,7 @@ async def test_pull_tools_use_shared_oauth_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Pull tools all resolve through the OAuth identity path."""
-    from mcp_server import server
+    from mcp_server import connection_identity, mcp_tools, server
 
     captured: dict[str, object] = {}
 
@@ -428,12 +475,16 @@ async def test_pull_tools_use_shared_oauth_resolution(
         captured["rate_state"] = rate_state
         return {"status": "ok"}
 
-    monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
-    monkeypatch.setattr(server, "assert_connection_usable", fake_assert_connection_usable)
-    monkeypatch.setattr(server, "mark_seen", fake_mark_seen)
-    monkeypatch.setattr(server, "require_agent_player", fake_require_agent_player)
-    monkeypatch.setattr(server, "chat_transcript", fake_pull)
+    monkeypatch.setattr(connection_identity, "sync_google_user", fake_sync_google_user)
+    monkeypatch.setattr(connection_identity, "mcp_connection_for", fake_mcp_connection_for)
+    monkeypatch.setattr(
+        connection_identity, "assert_connection_usable", fake_assert_connection_usable
+    )
+    monkeypatch.setattr(connection_identity, "mark_seen", fake_mark_seen)
+    monkeypatch.setattr(
+        connection_identity, "require_agent_player", fake_require_agent_player
+    )
+    monkeypatch.setattr(mcp_tools, "chat_transcript", fake_pull)
 
     token = _token()
     assert await server.get_chat(match_id="M_001", token=token, db=object()) == {
@@ -472,13 +523,13 @@ def test_dcr_client_id_from_request_decodes_bearer_jwt(
     import base64
     import json
 
-    from mcp_server import server
+    from mcp_server import connection_identity, server
 
     payload = {"iss": "x", "client_id": "dcr-uuid-codex", "jti": "abc"}
     seg = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
     jwt = f"HEADER.{seg}.SIG"
     fake_request = SimpleNamespace(headers={"authorization": f"Bearer {jwt}"})
-    monkeypatch.setattr(server, "get_http_request", lambda: fake_request)
+    monkeypatch.setattr(connection_identity, "get_http_request", lambda: fake_request)
 
     assert server._dcr_client_id_from_request() == "dcr-uuid-codex"
 
@@ -487,11 +538,13 @@ def test_dcr_client_id_from_request_fails_open_without_bearer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No/!bearer/opaque token → None, so the caller falls back to provider lookup."""
-    from mcp_server import server
+    from mcp_server import connection_identity, server
 
     for header in ({}, {"authorization": "Basic abc"}, {"authorization": "Bearer opaque"}):
         monkeypatch.setattr(
-            server, "get_http_request", lambda h=header: SimpleNamespace(headers=h)
+            connection_identity,
+            "get_http_request",
+            lambda h=header: SimpleNamespace(headers=h),
         )
         assert server._dcr_client_id_from_request() is None
 
@@ -509,7 +562,7 @@ async def test_multi_connection_user_resolves_via_oauth_client_id(
     """
     from app.models.connection import ConnectionStatus
 
-    from mcp_server import server
+    from mcp_server import connection_identity, server
 
     EXPECTED_CLIENT_ID = "dcr-uuid-client"  # the per-client DCR id used for routing
 
@@ -532,9 +585,9 @@ async def test_multi_connection_user_resolves_via_oauth_client_id(
             )
         return None
 
-    monkeypatch.setattr(server, "sync_google_user", fake_sync_google_user)
-    monkeypatch.setattr(server, "mcp_connection_for", fake_mcp_connection_for)
-    monkeypatch.setattr(server, "assert_connection_usable", lambda conn: None)
+    monkeypatch.setattr(connection_identity, "sync_google_user", fake_sync_google_user)
+    monkeypatch.setattr(connection_identity, "mcp_connection_for", fake_mcp_connection_for)
+    monkeypatch.setattr(connection_identity, "assert_connection_usable", lambda conn: None)
 
     access_token, _userinfo, connection = await server._connection_from_token(
         object(), _token(), provider=None, oauth_client_id=EXPECTED_CLIENT_ID

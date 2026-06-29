@@ -94,7 +94,7 @@ async def _seat_agent(
 async def test_get_instructions_returns_sections_and_tool_format_for_selected_agent(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from mcp_server import server
+    from mcp_server import connection_identity, server
 
     async with session_factory() as db:
         user = await make_user(db)
@@ -125,7 +125,9 @@ async def test_get_instructions_returns_sections_and_tool_format_for_selected_ag
     async def fake_resolve_oauth_connection(db: object, token: object) -> tuple[object, object, SimpleNamespace]:
         return object(), object(), _fake_connection(user.id)
 
-    monkeypatch.setattr(server, "_resolve_oauth_connection", fake_resolve_oauth_connection)
+    monkeypatch.setattr(
+        connection_identity, "_resolve_oauth_connection", fake_resolve_oauth_connection
+    )
 
     async with session_factory() as db:
         hhh_text = await server.get_instructions(agent_id=alpha.id, token=object(), db=db)
@@ -151,7 +153,7 @@ async def test_get_instructions_returns_sections_and_tool_format_for_selected_ag
 async def test_get_instructions_multiple_active_agents_returns_agent_note(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from mcp_server import server
+    from mcp_server import connection_identity, server
 
     async with session_factory() as db:
         user = await make_user(db)
@@ -182,7 +184,9 @@ async def test_get_instructions_multiple_active_agents_returns_agent_note(
     async def fake_resolve_oauth_connection(db: object, token: object) -> tuple[object, object, SimpleNamespace]:
         return object(), object(), _fake_connection(user.id)
 
-    monkeypatch.setattr(server, "_resolve_oauth_connection", fake_resolve_oauth_connection)
+    monkeypatch.setattr(
+        connection_identity, "_resolve_oauth_connection", fake_resolve_oauth_connection
+    )
 
     async with session_factory() as db:
         text = await server.get_instructions(token=object(), db=db)
@@ -197,7 +201,7 @@ async def test_get_instructions_multiple_active_agents_returns_agent_note(
 async def test_get_instructions_no_active_game_returns_short_note(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from mcp_server import server
+    from mcp_server import connection_identity, server
 
     async with session_factory() as db:
         user = await make_user(db)
@@ -206,7 +210,9 @@ async def test_get_instructions_no_active_game_returns_short_note(
     async def fake_resolve_oauth_connection(db: object, token: object) -> tuple[object, object, SimpleNamespace]:
         return object(), object(), _fake_connection(user.id)
 
-    monkeypatch.setattr(server, "_resolve_oauth_connection", fake_resolve_oauth_connection)
+    monkeypatch.setattr(
+        connection_identity, "_resolve_oauth_connection", fake_resolve_oauth_connection
+    )
 
     async with session_factory() as db:
         text = await server.get_instructions(token=object(), db=db)
