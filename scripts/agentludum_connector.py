@@ -115,6 +115,11 @@ _POLL_FAIL_THRESHOLD = 24
 # Re-reporting on this interval lets the website reflect a freshly installed CLI
 # within a few minutes without the operator restarting the connector.
 _DETECT_REPORT_INTERVAL = 300  # seconds
+# Model verification (fail-fast): when idle, pull the worklist and test each model
+# at most this often, with a short per-call timeout. Runs only on the idle branch
+# so it never delays a live turn.
+_VERIFY_INTERVAL = 60  # seconds
+_VERIFY_TIMEOUT = 30  # seconds per test call
 
 _PROTOCOL = _CANONICAL_PROTOCOL or """TALK PHASE response:
 {"message": "<public message, max 200 chars>", "thinking": "<private reasoning, max 200 chars>"}
@@ -739,6 +744,157 @@ def _report_pid(base: str, headers: dict[str, str], pid: int) -> None:
         )
 
 
+# Stderr markers that mean "this login genuinely can't run this model" → sticky
+# FAILED. Anything else (timeout, CLI missing, network, odd output) is retryable
+# TIMEOUT — the conservative default, so a blip never reads as a permanent fault.
+_MODEL_UNAVAILABLE_MARKERS = (
+    "not found",
+    "404",
+    "unauthorized",
+    "not available",
+    "no access",
+    "does not exist",
+    "invalid model",
+    "unknown model",
+    "permission",
+)
+
+# A signed-out CLI can exit 0 yet print a login nudge to stdout — that is NOT a
+# pass. These markers (in either stream) force a FAILED so a logged-out provider
+# can't masquerade as a verified model.
+_NOT_LOGGED_IN_MARKERS = (
+    "login",
+    "log in",
+    "sign in",
+    "signed out",
+    "not authenticated",
+    "authenticate",
+)
+
+
+def _should_verify(now: float, last_verify: float) -> bool:
+    """Pure cadence gate: has it been at least _VERIFY_INTERVAL since last verify?"""
+    return now - last_verify >= _VERIFY_INTERVAL
+
+
+def _classify_verify(
+    returncode: int, stdout: str, stderr: str, timed_out: bool
+) -> str:
+    """Classify a verification test call into verified / failed / timeout.
+
+    verified = clean exit with some output (a runnability check — looser than the
+    move-parse path, so a model that runs but returns non-JSON still counts).
+    failed = a clear model-unavailable/unauthorized signal (sticky). Everything
+    else is a retryable timeout.
+    """
+    if timed_out:
+        return "timeout"
+    both = f"{stdout}\n{stderr}".lower()
+    # A not-logged-in signal (even on stdout with exit 0) is a sticky failure.
+    if any(marker in both for marker in _NOT_LOGGED_IN_MARKERS):
+        return "failed"
+    if returncode == 0 and stdout.strip():
+        return "verified"
+    if any(marker in stderr.lower() for marker in _MODEL_UNAVAILABLE_MARKERS):
+        return "failed"
+    return "timeout"
+
+
+def _verify_argv(provider: str, model: str) -> tuple[list[str], str | None] | None:
+    """Minimal CLI invocation to test a model, or None if the provider takes no
+    model (hermes/openclaw run their own configured model). Returns (argv, stdin)."""
+    p = provider.lower()
+    if p == "claude":
+        return (["claude", "--print", "--model", model, "--tools", ""], "reply with ok")
+    if p == "openai":
+        return (
+            ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check",
+             "--model", model, "reply with ok"],
+            None,
+        )
+    if p == "gemini":
+        return (["gemini", "-p", "reply with ok", "-m", model, "--skip-trust"], None)
+    return None
+
+
+def _run_verifications(
+    base: str, headers: dict[str, str], worklist: list[dict[str, str]]
+) -> None:
+    """Run each worklist model's test call (short timeout, off the turn executor)
+    and best-effort POST the outcomes. Never raises into the poll loop."""
+    results: list[dict[str, str | None]] = []
+    for item in worklist:
+        provider = str(item.get("provider") or "")
+        model = str(item.get("model") or "")
+        spec = _verify_argv(provider, model)
+        if spec is None:
+            continue
+        argv, stdin = spec
+        token = _call_timeout.set(float(_VERIFY_TIMEOUT))
+        try:
+            proc = _run(argv, stdin_input=stdin)
+        except subprocess.TimeoutExpired:
+            results.append(
+                {"provider": provider, "model": model, "outcome": "timeout",
+                 "error_text": "verification timed out"}
+            )
+            continue
+        except OSError as exc:
+            results.append(
+                {"provider": provider, "model": model, "outcome": "timeout",
+                 "error_text": f"could not run {provider} CLI: {exc}"}
+            )
+            continue
+        finally:
+            _call_timeout.reset(token)
+        outcome = _classify_verify(proc.returncode, proc.stdout, proc.stderr, False)
+        error_text = (
+            None
+            if outcome == "verified"
+            else (proc.stderr.strip()[:300] or f"exit {proc.returncode}")
+        )
+        results.append(
+            {"provider": provider, "model": model, "outcome": outcome,
+             "error_text": error_text}
+        )
+    if not results:
+        return
+    try:
+        httpx.post(
+            f"{base}/api/agent/model-verification",
+            headers=headers,
+            json={"results": results},
+            timeout=10,
+        ).raise_for_status()
+    except httpx.HTTPError as exc:
+        print(
+            f"[agentludum-connector] WARNING: could not report model verification: {exc}",
+            file=sys.stderr,
+        )
+
+
+def _verify_tick(base: str, headers: dict[str, str]) -> None:
+    """Pull the verification worklist and run it. Best-effort; never raises."""
+    try:
+        r = httpx.get(f"{base}/api/agent/model-worklist", headers=headers, timeout=10)
+        r.raise_for_status()
+        # .json() must be inside the try: a 200 with a non-JSON body (CDN/proxy
+        # HTML, route misconfig) raises ValueError, which would otherwise escape
+        # and kill the poll loop.
+        payload = r.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        print(
+            f"[agentludum-connector] WARNING: could not fetch model worklist: {exc}",
+            file=sys.stderr,
+        )
+        return
+    worklist = payload.get("worklist") if isinstance(payload, dict) else None
+    if isinstance(worklist, list):
+        items = [item for item in worklist if isinstance(item, dict)]
+        if items:
+            _run_verifications(base, headers, items)
+
+
 def _resolve(turn: dict, args: argparse.Namespace) -> tuple[str, str]:
     """Pick the provider and model for a turn.
 
@@ -1268,6 +1424,7 @@ def main() -> None:
     pid = os.getpid()
     _report_pid(base, headers, pid)
     last_detect_report = time.monotonic()
+    last_verify = 0.0  # 0 → verify on the first idle poll
     print(
         f"[agentludum-connector] connected to {base}; PID {pid}; one chained session per agent+match."
     )
@@ -1370,7 +1527,13 @@ def main() -> None:
 
         data = r.json()
         if data.get("status") != "your_turn":
-            time.sleep(data.get("next_poll_after_seconds", 5))
+            # Idle: a good moment to fail-fast-verify models (never during a live
+            # turn, so play is never delayed). Cap the nap so the ~60s cadence is
+            # real even when the server asks us to wait longer.
+            if _should_verify(time.monotonic(), last_verify):
+                _verify_tick(base, headers)
+                last_verify = time.monotonic()
+            time.sleep(min(data.get("next_poll_after_seconds", 5), _VERIFY_INTERVAL))
             continue
 
         # Plural endpoint returns every servable turn; the legacy singular endpoint
