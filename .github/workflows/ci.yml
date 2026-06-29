@@ -39,5 +39,10 @@ jobs:
       # runs in a single process. A guardrail test (test_no_sys_modules_reload)
       # fails if a test file reintroduces a sys.modules reload — which is what
       # used to force the old per-file-isolation runs.
+      #
+      # `-n0` forces single-process: the app's pytest `addopts` adds `-n auto`
+      # (pytest-xdist) to parallelize the app suite, but this suite shares module
+      # state across tests and breaks when split across xdist workers. `-n0`
+      # overrides that default just for this run.
       - name: Test (Feature Factory engine)
-        run: python -m pytest docs/workflow/operations/codex-skills -q
+        run: python -m pytest docs/workflow/operations/codex-skills -q -n0
