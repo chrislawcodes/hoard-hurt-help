@@ -52,6 +52,26 @@
     {% endif %}
 </div>
 
+<details class="card">
+    <summary><strong>Preferred model</strong>
+        <span class="meta">— advanced; used by machine connections only, ignored by MCP (your client picks its own model)</span>
+    </summary>
+    <form method="post" action="/me/agents/{{ agent.id }}/set-model" class="form" style="max-width:420px; margin-top:0.75rem;">
+        <select name="preferred_model" aria-label="Preferred model">
+            <option value="" {% if not preferred_model %}selected{% endif %}>Provider default</option>
+            {% for provider, models in model_options %}
+            <optgroup label="{{ provider }}">
+                {% for m in models %}
+                <option value="{{ m }}" {% if preferred_model == m %}selected{% endif %}>{{ m }}</option>
+                {% endfor %}
+            </optgroup>
+            {% endfor %}
+        </select>
+        <button type="submit">Save</button>
+    </form>
+    {# Per-model verification status + effective-model line are added in slice 4b. #}
+</details>
+
 {% include "agents/_versions.html" %}
 
 <h2>Matches</h2>

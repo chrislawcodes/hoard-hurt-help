@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from starlette.responses import Response
 
+from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health import (
@@ -213,6 +214,13 @@ async def _build_agent_detail_context(
         "capacity_sum": capacity_sum,
         "join_blocked": join_blocked,
         "match_count": await _count_agent_matches(db, agent.id),
+        # Advanced per-agent model picker (machine connections only; MCP ignores).
+        "preferred_model": agent.preferred_model,
+        "model_options": [
+            (provider, models)
+            for provider, models in PROVIDER_MODELS.items()
+            if models
+        ],
     }
 
 
