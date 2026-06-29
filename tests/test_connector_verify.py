@@ -7,6 +7,7 @@ be correct (and that CI can guard without a live server)."""
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -90,3 +91,23 @@ def test_verify_argv_per_provider(runner) -> None:
 def test_verify_argv_none_for_modelless_providers(runner) -> None:
     assert runner._verify_argv("hermes", "whatever") is None
     assert runner._verify_argv("openclaw", "whatever") is None
+
+
+# --- _classify_play_failure (slice 3: fail-loud at play time) ------------------
+
+
+def test_play_failure_timeout(runner) -> None:
+    outcome, _ = runner._classify_play_failure(subprocess.TimeoutExpired("claude", 180))
+    assert outcome == "timeout"
+
+
+def test_play_failure_failed_on_model_unavailable(runner) -> None:
+    outcome, reason = runner._classify_play_failure(RuntimeError("model not found (404)"))
+    assert outcome == "failed"
+    assert "not found" in reason
+
+
+def test_play_failure_timeout_on_generic_error(runner) -> None:
+    # An unclassifiable failure is retryable, never sticky-failed.
+    outcome, _ = runner._classify_play_failure(RuntimeError("subprocess exploded"))
+    assert outcome == "timeout"

@@ -756,7 +756,9 @@ _MODEL_UNAVAILABLE_MARKERS = (
     "does not exist",
     "invalid model",
     "unknown model",
-    "permission",
+    # NB: no bare "permission" — it false-matches a local "Permission denied"
+    # file error (e.g. the codex output-file wrapper), which is transient, not a
+    # model fault. Genuine auth failures are caught by "unauthorized"/"no access".
 )
 
 # A signed-out CLI can exit 0 yet print a login nudge to stdout — that is NOT a
@@ -857,6 +859,13 @@ def _run_verifications(
             {"provider": provider, "model": model, "outcome": outcome,
              "error_text": error_text}
         )
+    _post_verification_results(base, headers, results)
+
+
+def _post_verification_results(
+    base: str, headers: dict[str, str], results: list[dict[str, str | None]]
+) -> None:
+    """Best-effort POST of verification/play-time outcomes. Never raises."""
     if not results:
         return
     try:
@@ -871,6 +880,21 @@ def _run_verifications(
             f"[agentludum-connector] WARNING: could not report model verification: {exc}",
             file=sys.stderr,
         )
+
+
+def _classify_play_failure(exc: BaseException) -> tuple[str, str]:
+    """Classify a model failure that happened during a live turn into
+    (outcome, reason). A timeout or unclassifiable error is retryable; a clear
+    model-unavailable / not-logged-in signal is sticky failed."""
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "timeout", "model call timed out during a live turn"
+    text = str(exc)
+    low = text.lower()
+    if any(m in low for m in _NOT_LOGGED_IN_MARKERS) or any(
+        m in low for m in _MODEL_UNAVAILABLE_MARKERS
+    ):
+        return "failed", text[:300]
+    return "timeout", text[:300]
 
 
 def _verify_tick(base: str, headers: dict[str, str]) -> None:
@@ -1026,7 +1050,22 @@ def _decide(turn: dict, sess: _GameSession) -> dict | None:
             file=sys.stderr,
         )
         sess.token = None  # a bad resume → re-establish the session next turn
-        return {**default, "is_connector_fallback": True}
+        # Surface WHY this turn failed: a real model-subprocess failure flips the
+        # model's verification status (fail-loud). The marker rides the move dict
+        # (ignored by _move_request) and _handle_turn POSTs it up-channel. The
+        # deadline-passed and too-little-time branches above never reach here, so
+        # they are never mis-reported as model failures.
+        outcome, reason = _classify_play_failure(exc)
+        return {
+            **default,
+            "is_connector_fallback": True,
+            "model_failure": {
+                "provider": str(sess.provider),
+                "model": str(sess.model),
+                "outcome": outcome,
+                "error_text": reason,
+            },
+        }
     finally:
         _call_timeout.reset(token)
     if usage:
@@ -1347,6 +1386,7 @@ def _handle_turn(
         # This phase's deadline already passed — let it resolve server-side; the
         # next poll hands us the next live phase. No submit (it would just 410).
         return
+    failure = decision.get("model_failure")
     is_fallback = bool(decision.get("is_connector_fallback"))
     url, params, body = _move_request(base, match_id, turn, decision)
     try:
@@ -1371,6 +1411,10 @@ def _handle_turn(
             f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} ACT: "
             f"{body['action']}{arrow} ({r2.status_code}){fallback_tag}"
         )
+    # Fail-loud: a real play-time model failure flips the model's verification
+    # status up-channel so it surfaces on status (best-effort, after the move).
+    if failure:
+        _post_verification_results(base, headers, [failure])
 
 
 def _make_release_cb(
