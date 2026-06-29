@@ -52,6 +52,21 @@ def test_sanitize_strips_tokens_and_paths() -> None:
     assert "[redacted]" in out
 
 
+def test_sanitize_strips_dash_form_key_and_nonhome_paths() -> None:
+    # Real OpenAI keys use a dash (sk-proj-…), and the CLI lives at /opt/homebrew —
+    # both must be redacted (these were the leaks the blind judge caught).
+    out = sanitize_error("model error sk-proj-ABCDEF123456 running /opt/homebrew/bin/claude")
+    assert out is not None
+    assert "sk-proj-ABCDEF123456" not in out
+    assert "/opt/homebrew" not in out
+
+
+def test_sanitize_keeps_relative_paths() -> None:
+    # Only absolute paths are stripped — a relative path isn't a leak.
+    out = sanitize_error("could not read config/app.yaml")
+    assert out == "could not read config/app.yaml"
+
+
 def test_sanitize_truncates_to_300() -> None:
     out = sanitize_error("e" * 500)
     assert out is not None and len(out) <= 300

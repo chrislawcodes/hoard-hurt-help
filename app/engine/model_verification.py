@@ -22,7 +22,7 @@ from app.engine.connection_health_badge import (
     within_window,
 )
 from app.engine.model_provider_match import default_model_for_provider, provider_for_model
-from app.models.agent import Agent, AgentKind
+from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.model_verification import ModelVerification, ModelVerificationStatus
@@ -79,6 +79,7 @@ async def compute_worklist(
                 select(Agent.preferred_model).where(
                     Agent.user_id == connection.user_id,
                     Agent.kind == AgentKind.AI,
+                    Agent.status == AgentStatus.ACTIVE,
                     Agent.archived_at.is_(None),
                     Agent.preferred_model.is_not(None),
                 )
@@ -117,10 +118,13 @@ async def compute_worklist(
     ]
 
 _MAX_ERROR_LEN = 300
-# Token-shaped secrets and home/temp absolute paths get redacted before storage.
+# Token-shaped secrets redacted FIRST (so a key embedded in a path is caught
+# before the path rule eats it): sk_/sk- API keys (incl. sk-proj-…), GitHub ghp_,
+# Bearer tokens. Then absolute paths of ANY root — POSIX `/…` (the slash not
+# mid-word, so a relative "config/app.yaml" isn't eaten) and Windows `C:\…`.
 _REDACTIONS = (
-    re.compile(r"\b(sk_[A-Za-z0-9_-]{6,}|ghp_[A-Za-z0-9]{6,}|Bearer\s+\S+)"),
-    re.compile(r"/(?:Users|home|private|var|tmp)/\S+"),
+    re.compile(r"\b(sk[-_][A-Za-z0-9_-]{4,}|ghp_[A-Za-z0-9]{6,}|Bearer\s+\S+)"),
+    re.compile(r"(?<![\w.])(?:[A-Za-z]:\\[\w.\\-]+|/[\w./-]{2,})"),
 )
 
 
@@ -216,15 +220,16 @@ _PRECEDENCE = [
 
 
 async def model_status_for(
-    db: AsyncSession, user_id: int, provider: str, model: str
+    db: AsyncSession, user_id: int, provider: str, model: str, *, now: datetime | None = None
 ) -> ModelVerificationStatus:
     """Aggregate a model's status across a user's active connections.
 
     Returns the highest-precedence status seen (verified wins), or UNKNOWN when no
     connection has reported. The join warning (slice 4b) fires only on FAILED —
     i.e. at least one connection reports failure and none reports verified/checking.
+    ``now`` is injectable so the liveness-window boundary is deterministically testable.
     """
-    now = datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)
     rows = (
         await db.execute(
             select(ModelVerification.status, Connection.last_polled_at)
