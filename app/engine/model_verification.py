@@ -10,17 +10,107 @@ bounds and scrubs CLI stderr before it is ever stored or shown.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.aware_datetime import ensure_aware
+from app.config import PROVIDER_MODELS
+from app.engine.model_provider_match import default_model_for_provider, provider_for_model
+from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection, ConnectionStatus
+from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.model_verification import ModelVerification, ModelVerificationStatus
 
 # After this many consecutive timeouts a model is stored as FAILED, so a
 # chronically-timing-out model never sits in a silent retry loop (FR-013).
 TIMEOUT_ESCALATION_THRESHOLD = 3
+
+# Re-verify a model at most this often; a fresher cached result is skipped so the
+# connector doesn't re-test every tick (FR-016). A new/changed model has no row,
+# so it is verified on the next tick.
+REFRESH_INTERVAL = timedelta(hours=6)
+
+
+async def compute_worklist(
+    db: AsyncSession, connection: Connection, *, now: datetime | None = None
+) -> list[dict[str, str]]:
+    """The (provider, model) pairs this connection should verify.
+
+    For each of the connection's ENABLED providers with a non-empty allowlist:
+    the provider's default model (the model most seats actually run, since
+    preferred_model is NULL for nearly all agents) PLUS the distinct non-NULL
+    `Agent.preferred_model` values for the user that belong to that provider.
+    A pair already verified within REFRESH_INTERVAL is skipped (FR-016).
+    """
+    now = now or datetime.now(timezone.utc)
+    enabled = (
+        (
+            await db.execute(
+                select(ConnectionProviderRow.provider).where(
+                    ConnectionProviderRow.connection_id == connection.id,
+                    ConnectionProviderRow.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    enabled_providers = {
+        p.value for p in enabled if PROVIDER_MODELS.get(p.value)
+    }  # non-empty allowlist only
+    if not enabled_providers:
+        return []
+
+    # Desired (provider, model) set: provider defaults + matching preferreds.
+    desired: set[tuple[str, str]] = set()
+    for provider in enabled_providers:
+        default = default_model_for_provider(provider)
+        if default:
+            desired.add((provider, default))
+    preferreds = (
+        (
+            await db.execute(
+                select(Agent.preferred_model).where(
+                    Agent.user_id == connection.user_id,
+                    Agent.kind == AgentKind.AI,
+                    Agent.archived_at.is_(None),
+                    Agent.preferred_model.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for model in {m for m in preferreds if m}:
+        model_provider = provider_for_model(model)
+        if model_provider and model_provider in enabled_providers:
+            desired.add((model_provider, model))
+
+    # Drop pairs already checked within the refresh window.
+    fresh_cutoff = now - REFRESH_INTERVAL
+    rows = (
+        (
+            await db.execute(
+                select(
+                    ModelVerification.provider,
+                    ModelVerification.model,
+                    ModelVerification.checked_at,
+                ).where(ModelVerification.connection_id == connection.id)
+            )
+        )
+        .all()
+    )
+    fresh = {
+        (provider, model)
+        for provider, model, checked_at in rows
+        if checked_at is not None and ensure_aware(checked_at) > fresh_cutoff
+    }
+    return [
+        {"provider": provider, "model": model}
+        for provider, model in sorted(desired - fresh)
+    ]
 
 _MAX_ERROR_LEN = 300
 # Token-shaped secrets and home/temp absolute paths get redacted before storage.

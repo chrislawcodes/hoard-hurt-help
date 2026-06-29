@@ -29,6 +29,7 @@ from app.routes import (
     admin_api,
     admin_web,
     agent_api,
+    agent_model_verification,
     agent_next_turn,
     agents_lifecycle,
     agents_setup,
@@ -266,6 +267,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_api.router, prefix="/api/matches/{match_id}")
     app.include_router(agent_api.router, prefix="/api/games/{match_id}")
     app.include_router(agent_next_turn.router)
+    app.include_router(agent_model_verification.router)
     app.include_router(agents_setup.router, prefix="/me/agents")
     app.include_router(agents_status.router, prefix="/me/agents")
     app.include_router(agents_lifecycle.router, prefix="/me/agents")
