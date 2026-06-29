@@ -21,11 +21,11 @@ from app.provider_labels import provider_label
 from app.read_models.matches import load_match_timeline, load_players
 from app.read_models.agent_display import agent_display_name
 from app.routes.web_support import (
+    GameScopedMatch,
+    GameScopedMatchToViewer,
     _game_theme,
     _is_any_admin,
     _is_game_admin,
-    _load_match_or_404,
-    _redirect_if_game_slug_mismatch,
     _redirect_to_match,
 )
 from app.templating import templates
@@ -466,29 +466,21 @@ async def _load_viewer_prompt_version(
 
 @router.get("/games/{game}/matches/{match_id}", response_class=HTMLResponse)
 async def game_viewer(
-    game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
+    match: GameScopedMatch,
     request: Request,
     db: DbSession,
 ):
-    match = await _load_match_or_404(db, match_id)
-    if redirect := _redirect_if_game_slug_mismatch(match, game):
-        return redirect
     ctx = await _game_view_context(request, db, match)
     return templates.TemplateResponse(request, "game.html", ctx)
 
 
 @router.get("/games/{game}/matches/{match_id}/live", response_class=HTMLResponse)
 async def game_live_fragment(
-    game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
+    match: GameScopedMatch,
     request: Request,
     db: DbSession,
 ):
     """Server-rendered live region. SSE events trigger the page to re-fetch this."""
-    match = await _load_match_or_404(db, match_id)
-    if redirect := _redirect_if_game_slug_mismatch(match, game, "/live"):
-        return redirect
     ctx = await _game_view_context(request, db, match)
     return templates.TemplateResponse(request, "fragments/live_region.html", ctx)
 
@@ -503,26 +495,27 @@ async def legacy_game_live_redirect(
 
 @router.post("/games/{game}/matches/{match_id}/coach-note", response_class=HTMLResponse)
 async def post_coach_note(
-    game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user)],
+    match: GameScopedMatchToViewer,
     note: Annotated[str, Form()] = "",
 ) -> HTMLResponse:
-    """Save or clear the operator's sideline coaching note for the next round."""
+    """Save or clear the operator's sideline coaching note for the next round.
+
+    A wrong ``{game}`` slug 301-redirects to the bare viewer URL, raised by the
+    ``GameScopedMatchToViewer`` dependency before this body runs (``user`` resolves
+    first, so a signed-out request still 401s before the redirect, as before).
+    """
     from app.read_models.agent_display import agent_display_name
 
-    match = await _load_match_or_404(db, match_id)
-    if redirect := _redirect_if_game_slug_mismatch(match, game):
-        return redirect  # type: ignore[return-value]
     if match.state.value != "active":
         raise HTTPException(status_code=409, detail="Match is not active.")
     player_rows = (
         await db.execute(
             select(Player, Agent)
             .join(Agent, Agent.id == Player.agent_id)
-            .where(Player.match_id == match_id, Agent.user_id == user.id)
+            .where(Player.match_id == match.id, Agent.user_id == user.id)
         )
     ).all()
     if not player_rows:

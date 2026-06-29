@@ -38,14 +38,6 @@ async def load_match_or_404(db: AsyncSession, match_id: str) -> Match:
     return g
 
 
-async def load_game_match_or_404(db: AsyncSession, game: str, match_id: str) -> Match:
-    """Load a match and verify it belongs to this game; 404 if not."""
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None or g.game != game:
-        raise HTTPException(404)
-    return g
-
-
 def build_game_record(match: Match) -> GameRecord:
     """Build the ``GameRecord`` response from a created/loaded match."""
     return GameRecord(

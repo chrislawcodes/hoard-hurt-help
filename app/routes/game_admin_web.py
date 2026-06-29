@@ -22,8 +22,10 @@ from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User
-from app.routes.game_admin_actions import load_game_match_or_404 as _load_game_match_or_404
-from app.routes.web_support import _bucket_matches
+from app.routes.web_support import (
+    _bucket_matches,
+    load_game_match_or_404 as _load_game_match_or_404,
+)
 from app.templating import templates
 
 router = APIRouter(prefix="/games/{game}/admin", tags=["game-admin"])
