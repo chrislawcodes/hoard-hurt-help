@@ -44,5 +44,17 @@ jobs:
       # (pytest-xdist) to parallelize the app suite, but this suite shares module
       # state across tests and breaks when split across xdist workers. `-n0`
       # overrides that default just for this run.
+      #
+      # The capture-baseline / --check wrapper enforces the test-isolation gate:
+      # the suite must not create or delete ANY file under
+      # docs/workflow/feature-runs/ (it uses `git status --porcelain -uall`, so it
+      # catches untracked scratch run-dirs too). An autouse fixture in
+      # feature-factory/conftest.py repoints factory_state's REPO_ROOT /
+      # FACTORY_RUNS_ROOT at a tempdir per test; this gate fails the build if a
+      # new test ever regresses that isolation and writes into the live repo tree.
       - name: Test (Feature Factory engine)
-        run: python -m pytest docs/workflow/operations/codex-skills -q -n0
+        run: |
+          ISO=docs/workflow/operations/codex-skills/feature-factory/scripts/check_workflow_isolation.py
+          python "$ISO" --capture-baseline "$RUNNER_TEMP/ff-isolation-baseline.json"
+          python -m pytest docs/workflow/operations/codex-skills -q -n0
+          python "$ISO" --check --baseline "$RUNNER_TEMP/ff-isolation-baseline.json"
