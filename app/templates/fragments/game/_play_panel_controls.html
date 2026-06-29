@@ -1,0 +1,226 @@
+<script>
+// Human play panel: countdown, target show/hide, Pass, and near-deadline
+// auto-submit of the current selection. The panel HTML is re-rendered into
+// #live-region on every swap, so this re-applies on htmx:afterSwap (the same
+// pattern the round-nav uses). All panel-driving JS lives here (loaded once),
+// because scripts inside a swapped fragment don't reliably re-run.
+(function () {
+    const region = document.getElementById('live-region');
+    if (!region) return;
+    const SAFETY_MS = 2000;  // submit the selection a beat before the server clock
+    let timer = null;
+
+    function setupPanel() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        const panel = document.getElementById('play-panel');
+        if (!panel) return;
+
+        // Target picker shows only for HELP/HURT.
+        const actForm = document.getElementById('act-form');
+        if (actForm) {
+            const wrap = actForm.querySelector('[data-play-target-wrap]');
+            const radios = actForm.querySelectorAll('input[name="action"]');
+            const toggle = function () {
+                const sel = actForm.querySelector('input[name="action"]:checked');
+                const needs = sel && sel.value !== 'HOARD';
+                if (wrap) wrap.style.display = needs ? '' : 'none';
+            };
+            radios.forEach(function (r) { r.addEventListener('change', toggle); });
+            toggle();
+        }
+
+        // Talk character counter.
+        const msg = panel.querySelector('[data-play-msg]');
+        const counter = panel.querySelector('[data-play-counter]');
+        if (msg && counter) {
+            const updateCount = function () { counter.textContent = String(msg.value.length); };
+            msg.addEventListener('input', updateCount);
+            updateCount();
+        }
+
+        // Countdown + near-deadline auto-submit.
+        // The countdown lives in the top-bar standings strip now (spec 019), so
+        // find it in the whole live region, not just the dock panel.
+        const clock = region.querySelector('[data-play-clock]');
+        const iso = panel.dataset.playDeadline;
+        const yourTurn = panel.dataset.yourTurn;
+        if (clock && iso) {
+            const deadline = new Date(iso);
+            let autoFired = false;
+            const tick = function () {
+                const ms = deadline - new Date();
+                const s = Math.max(0, Math.ceil(ms / 1000));
+                clock.textContent = s + 's';
+                clock.classList.toggle('play-clock-low', ms <= 10000);
+                if (ms <= SAFETY_MS && !autoFired && yourTurn && actForm) {
+                    // Record whatever's selected (Hoard by default) before the
+                    // server clock closes the turn. Talk needs no client submit —
+                    // the server records an empty message on timeout.
+                    autoFired = true;
+                    if (typeof actForm.requestSubmit === 'function') actForm.requestSubmit();
+                    else actForm.submit();
+                }
+                if (ms > 0) timer = setTimeout(tick, 250);
+            };
+            tick();
+        }
+    }
+
+    // Pass = submit the talk phase with an empty message.
+    region.addEventListener('click', function (e) {
+        const pass = e.target.closest('[data-play-pass]');
+        if (!pass) return;
+        e.preventDefault();
+        const panel = document.getElementById('play-panel');
+        if (!panel) return;
+        htmx.ajax('POST',
+            '/games/' + panel.dataset.game + '/matches/' + panel.dataset.match + '/play/talk',
+            { target: '#live-region', swap: 'innerHTML', values: { message: '' } });
+    });
+
+    // Tap a player's name in the feed (or the live "this turn" card) to set them
+    // as the act-phase target. If no Help/Hurt is chosen yet, default to Help so
+    // the target applies — the player can still switch to Hurt.
+    function applyTarget(name) {
+        const actForm = document.getElementById('act-form');
+        if (!actForm || !name) return;
+        const targetInput = actForm.querySelector('input[name="target"]');
+        if (!targetInput) return;
+        const checked = actForm.querySelector('input[name="action"]:checked');
+        if (!checked || checked.value === 'HOARD') {
+            const help = actForm.querySelector('input[name="action"][value="HELP"]');
+            if (help) { help.checked = true; help.dispatchEvent(new Event('change', { bubbles: true })); }
+        }
+        targetInput.value = name;
+        const wrap = actForm.querySelector('[data-play-target-wrap]');
+        if (wrap) wrap.style.display = '';
+    }
+    region.addEventListener('click', function (e) {
+        const el = e.target.closest('[data-target-name]');
+        if (!el) return;
+        e.preventDefault();
+        applyTarget(el.getAttribute('data-target-name'));
+    });
+    region.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const el = e.target.closest('[data-target-name]');
+        if (!el) return;
+        e.preventDefault();
+        applyTarget(el.getAttribute('data-target-name'));
+    });
+
+    // Surface a friendly inline error if a submit is rejected (deadline race,
+    // illegal move) instead of silently doing nothing.
+    region.addEventListener('htmx:responseError', function (e) {
+        const panel = document.getElementById('play-panel');
+        const box = panel && panel.querySelector('[data-play-error]');
+        if (!box) return;
+        let msg = 'That move could not be recorded.';
+        try {
+            const detail = JSON.parse(e.detail.xhr.responseText);
+            if (detail && detail.detail && detail.detail.error && detail.detail.error.message) {
+                msg = detail.detail.error.message;
+            }
+        } catch (_err) { /* fail-open: advisory only, keep the default message */ }
+        box.textContent = msg;
+        box.hidden = false;
+    });
+
+    region.addEventListener('htmx:afterSwap', setupPanel);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setupPanel);
+    } else {
+        setupPanel();
+    }
+})();
+
+// Jump to the standings bar when the act phase opens. During the talk phase you
+// write blind, so the feed's top card is the PREVIOUS turn's transcript — and
+// that's where a reading human ends up scrolled. When the turn flips to the act
+// phase the swap doesn't move the viewport, so the page stays parked deep in the
+// old turn. Pull the standings strip (which leads the cockpit) back into view so
+// the player re-orients at the top of the match before choosing a move. We fire
+// ONLY on the talk->act transition (tracked via the panel's play-phase), so
+// re-submits and waiting-on ticks during the act phase never yank the page.
+(function () {
+    const region = document.getElementById('live-region');
+    if (!region) return;
+    let lastPhase = null;
+
+    function syncScroll() {
+        const panel = document.getElementById('play-panel');
+        const phase = panel ? (panel.dataset.playPhase || null) : null;
+        if (phase === 'act' && lastPhase && lastPhase !== 'act') {
+            const standings = region.querySelector('#play-standings');
+            if (standings) {
+                // Offset for the sticky site nav so the bar isn't tucked under it.
+                const nav = document.querySelector('.al-nav');
+                const offset = (nav ? nav.getBoundingClientRect().height : 0) + 8;
+                const top = standings.getBoundingClientRect().top + window.pageYOffset - offset;
+                window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+            }
+        }
+        lastPhase = phase;
+    }
+
+    region.addEventListener('htmx:afterSwap', syncScroll);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', syncScroll);
+    } else {
+        syncScroll();
+    }
+})();
+
+// Out-of-page alerts (FR-026/FR-027): when the seated viewer's turn opens, fire
+// a browser notification (if granted), flash the tab title, and play an optional
+// sound (default off). Permission is requested at join time (the Play CTA), not
+// mid-turn. The trigger is the existing /live swap — no new server events.
+(function () {
+    const region = document.getElementById('live-region');
+    if (!region) return;
+
+    // Notification permission is requested up front on the join screen (when the
+    // user picks "Play as yourself"), so by here we only fire the alert.
+    const baseTitle = document.title;
+    let flashTimer = null;
+    let lastPhase = null;
+
+    function clearFlash() {
+        if (flashTimer) { clearInterval(flashTimer); flashTimer = null; }
+        document.title = baseTitle;
+    }
+
+    function onYourTurn(phase) {
+        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+            try { new Notification('Your turn — Hoard Hurt Help', { body: 'Make your move before the clock runs out.' }); } catch (_e) { /* fail-open */ }
+        }
+        // Tab-title flash is the always-on fallback.
+        if (!flashTimer) {
+            let on = false;
+            flashTimer = setInterval(function () {
+                document.title = on ? baseTitle : '(Your turn!) ' + baseTitle;
+                on = !on;
+            }, 1000);
+        }
+    }
+
+    function check() {
+        const panel = document.getElementById('play-panel');
+        const phase = panel ? panel.dataset.yourTurn : null;
+        if (phase && phase !== lastPhase) {
+            onYourTurn(phase);
+        } else if (!phase) {
+            clearFlash();
+        }
+        lastPhase = phase || null;
+    }
+
+    window.addEventListener('focus', clearFlash);
+    region.addEventListener('htmx:afterSwap', check);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', check);
+    } else {
+        check();
+    }
+})();
+</script>
