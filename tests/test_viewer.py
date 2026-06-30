@@ -351,7 +351,7 @@ async def test_list_games_public_filter_by_state(client, reset_db):
 
 @pytest.mark.asyncio
 async def test_scheduled_viewer_shows_start_countdown(client, reset_db):
-    """A waiting match centres a big start-countdown clock in the robot ring."""
+    """A waiting match shows a start-countdown band below the robot stage."""
     start = datetime(2099, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
     await _seed(reset_db, GameState.SCHEDULED, scheduled_start=start)
     r = await client.get("/games/hoard-hurt-help/matches/G_001")

@@ -13,22 +13,27 @@
           <div class="rc-saybubble" id="rc-say">
             <div class="rc-say-text" id="rc-say-text"></div>
           </div>
-          {% if rc_countdown_iso %}
-          <div class="rc-countdown" id="rc-countdown" data-start="{{ rc_countdown_iso }}">
+        </div>
+        {% if rc_countdown_iso %}
+        {# Pre-start countdown lives in a band below the stage, not over it: the
+           centre of the ring stays free for the bots' pre-game banter, which
+           runs before kickoff. #}
+        <div class="rc-countdown" id="rc-countdown" data-start="{{ rc_countdown_iso }}">
+          <span class="rc-countdown-time" id="rc-countdown-time">—</span>
+          <span class="rc-countdown-meta">
             <span class="rc-countdown-label">Starts in</span>
-            <span class="rc-countdown-time" id="rc-countdown-time">—</span>
             <span class="rc-countdown-sub" id="rc-countdown-sub"></span>
-            {# Solo start: the only player can begin now instead of waiting out the
-               clock. Empty seats fill with bots so the match can run. #}
-            {% if rc_can_start %}
-            <form class="rc-start" method="post" action="/games/{{ rc_start_game }}/matches/{{ rc_start_match }}/start">
-              <button type="submit" class="btn btn-primary rc-start-btn">Start now</button>
-              <span class="rc-start-note">{% if rc_start_bots and rc_start_bots > 0 %}{{ rc_start_bots }} bot{{ "s" if rc_start_bots != 1 else "" }} will fill the empty seats{% else %}Begins right away — no waiting{% endif %}</span>
-            </form>
-            {% endif %}
-          </div>
+          </span>
+          {# Solo start: the only player can begin now instead of waiting out the
+             clock. Empty seats fill with bots so the match can run. #}
+          {% if rc_can_start %}
+          <form class="rc-start" method="post" action="/games/{{ rc_start_game }}/matches/{{ rc_start_match }}/start">
+            <button type="submit" class="btn btn-primary rc-start-btn">Start now</button>
+            <span class="rc-start-note">{% if rc_start_bots and rc_start_bots > 0 %}{{ rc_start_bots }} bot{{ "s" if rc_start_bots != 1 else "" }} will fill the empty seats{% else %}Begins right away — no waiting{% endif %}</span>
+          </form>
           {% endif %}
         </div>
+        {% endif %}
         <div class="rc-caption" id="rc-caption"><span class="rc-badge">—</span> Press play to watch the turns.</div>
       </div>
 
