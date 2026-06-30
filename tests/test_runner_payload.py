@@ -305,11 +305,13 @@ def test_fetch_full_history_maps_spectator_state(runner, monkeypatch):
 
     captured: dict[str, object] = {}
 
+    import types
+
     def fake_get(url, timeout=None):
         captured["url"] = url
         return FakeResp()
 
-    monkeypatch.setattr(runner.httpx, "get", fake_get)
+    monkeypatch.setattr(runner, "_http", lambda: types.SimpleNamespace(get=fake_get))
 
     result = runner._fetch_full_history("http://x", "M_1")
 
@@ -338,11 +340,12 @@ def test_fetch_full_history_fails_open_on_error(runner, monkeypatch):
     """A failed pull returns None (fail-open) so the caller still primes with the
     windowed history it already has — the agent keeps playing."""
     import httpx
+    import types
 
     def boom(url, timeout=None):
         raise httpx.HTTPError("network down")
 
-    monkeypatch.setattr(runner.httpx, "get", boom)
+    monkeypatch.setattr(runner, "_http", lambda: types.SimpleNamespace(get=boom))
     assert runner._fetch_full_history("http://x", "M_1") is None
 
 
