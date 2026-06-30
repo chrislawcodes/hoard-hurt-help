@@ -385,12 +385,28 @@ class _ClaudeAdapter:
 
     def _call(self, argv: list[str], body: str) -> dict:
         proc = _run(argv, stdin_input=body)
+        # `claude --output-format json` reports API failures inside the stdout
+        # JSON (is_error / api_error_status / result), usually with a non-zero
+        # exit AND an empty stderr. Prefer that structured reason: a bare
+        # "claude exit 1" hides an auth/model failure (e.g. a 401) and blinds the
+        # fail-fast classifier, which keys off the error text, to what went wrong.
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, dict) and data.get("is_error"):
+            status = data.get("api_error_status")
+            detail = str(data.get("result", "")).strip() or (
+                f"claude API error {status}" if status else ""
+            )
+            raise RuntimeError(
+                detail or proc.stderr.strip() or f"claude exit {proc.returncode}"
+            )
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.strip() or f"claude exit {proc.returncode}")
-        try:
-            return json.loads(proc.stdout)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"claude returned non-JSON: {proc.stdout[:300]}") from exc
+        if data is None:
+            raise RuntimeError(f"claude returned non-JSON: {proc.stdout[:300]}")
+        return data
 
     def first(self, *, body: str, framing: str, model: str, session: _GameSession):
         data = self._call(
