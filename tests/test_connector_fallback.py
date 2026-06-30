@@ -192,6 +192,67 @@ def test_decide_no_fallback_flag_on_success(connector, monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# _ClaudeAdapter._call surfaces the REAL failure reason (not "claude exit 1")
+# ---------------------------------------------------------------------------
+
+
+def _fake_claude_proc(returncode, stdout="", stderr=""):
+    return subprocess.CompletedProcess(["claude"], returncode, stdout=stdout, stderr=stderr)
+
+
+def test_claude_call_surfaces_api_error_from_stdout(connector, monkeypatch) -> None:
+    """A failed claude turn reports the stdout-JSON reason (e.g. a 401), not a
+    bare 'claude exit 1' — the fail-fast classifier keys off this error text."""
+    err = (
+        '{"type":"result","is_error":true,"api_error_status":401,'
+        '"result":"Failed to authenticate. API Error: 401 Invalid authentication credentials"}'
+    )
+    monkeypatch.setattr(
+        connector, "_run", lambda argv, stdin_input=None: _fake_claude_proc(1, stdout=err)
+    )
+    with pytest.raises(RuntimeError, match="authenticate"):
+        connector._ClaudeAdapter()._call(["claude"], "body")
+
+
+def test_claude_call_prefers_structured_error_over_noisy_stderr(connector, monkeypatch) -> None:
+    """When claude prints a harmless notice to stderr but the real failure is in
+    the stdout JSON, surface the JSON reason — not the stderr noise."""
+    err = '{"is_error":true,"api_error_status":401,"result":"Failed to authenticate. API Error: 401"}'
+    monkeypatch.setattr(
+        connector,
+        "_run",
+        lambda argv, stdin_input=None: _fake_claude_proc(
+            1, stdout=err, stderr="Shell cwd was reset to /repo"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="authenticate") as excinfo:
+        connector._ClaudeAdapter()._call(["claude"], "body")
+    assert "Shell cwd was reset" not in str(excinfo.value)
+
+
+def test_claude_call_raises_on_is_error_even_with_exit_zero(connector, monkeypatch) -> None:
+    """claude can exit 0 yet flag is_error in the JSON; that must still raise so
+    the error text is never handed back as if it were a real move."""
+    err = '{"is_error":true,"api_error_status":529,"result":"Overloaded"}'
+    monkeypatch.setattr(
+        connector, "_run", lambda argv, stdin_input=None: _fake_claude_proc(0, stdout=err)
+    )
+    with pytest.raises(RuntimeError, match="Overloaded"):
+        connector._ClaudeAdapter()._call(["claude"], "body")
+
+
+def test_claude_call_returns_data_on_success(connector, monkeypatch) -> None:
+    """A clean success still returns the parsed JSON dict unchanged."""
+    ok = '{"is_error":false,"result":"HOARD","session_id":"sess-1"}'
+    monkeypatch.setattr(
+        connector, "_run", lambda argv, stdin_input=None: _fake_claude_proc(0, stdout=ok)
+    )
+    data = connector._ClaudeAdapter()._call(["claude"], "body")
+    assert data["result"] == "HOARD"
+    assert data["session_id"] == "sess-1"
+
+
+# ---------------------------------------------------------------------------
 # Server-side HTTP tests: is_connector_fallback persists was_defaulted
 # ---------------------------------------------------------------------------
 
