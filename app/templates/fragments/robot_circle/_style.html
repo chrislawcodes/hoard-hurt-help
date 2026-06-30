@@ -219,14 +219,14 @@
 @keyframes rc-speakpulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.06)}}
 
 /* ---- Center say-bubble (talk phase) ---- */
-/* The one line the speaking bot is saying right now, shown near the center of
-   the ring. It lives only during the talk phase and clears before any bot moves,
-   so it never collides with the gift / bat / pact choreography that crosses
-   center. There is no name inside — the bubble wears the speaker's own colour as
-   its border, and only that bot is lit + pulsing, so it reads as theirs. It is
-   sized to hold ~200 chars (5 lines), so it may overlap idle seats; positionSay()
-   in JS shoves it away from the speaker so that one bot is always left clear, and
-   aims the tail (.rc-saytail) from the bubble's edge straight at that speaker. */
+/* The one line the speaking bot is saying right now, parked in the CENTRE of the
+   ring. It lives only during the talk phase and clears before any bot moves, so
+   it never collides with the gift / bat / pact choreography that crosses center.
+   There is no name inside — the bubble wears the speaker's own colour as its
+   border, and only that bot is lit + pulsing, so it reads as theirs. layout()
+   caps its width to the ring's empty hole so it stays clear of the seats (on a
+   narrow phone too); positionSay() keeps it centred and aims the tail
+   (.rc-saytail) from the bubble's edge straight at that speaker. */
 .rc-saybubble{position:absolute;left:50%;top:50%;z-index:6;pointer-events:none;text-align:center;
   width:max-content;max-width:380px;padding:12px 17px;border-radius:15px;
   background:var(--surface,#fff);border:2px solid var(--c,var(--line,#e2e6ea));box-shadow:0 8px 24px rgba(20,20,40,.16);
@@ -393,24 +393,18 @@
 .rc-compact .rc-card{border-radius:var(--al-radius-lg,14px);box-shadow:var(--al-shadow-soft,0 6px 20px rgba(20,20,40,.08))}
 .rc-compact .rc-controls{margin-top:10px}
 
-/* Pre-start countdown — a big, clear clock parked in the centre of the ring
-   while a match waits to begin, so a watcher knows when play starts. Rendered
-   only for a real waiting match (see rc_countdown_iso); pointer-events:none so
-   tapping a robot underneath still works. */
-.rc-countdown{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:7;
-  display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;pointer-events:none;width:max-content}
-.rc-countdown-label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--ink-soft,#5b6470)}
-.rc-countdown-time{font-size:72px;line-height:1;font-weight:800;color:var(--ink,#1a1d21);font-variant-numeric:tabular-nums;
-  text-shadow:0 0 18px var(--surface,#fff),0 0 18px var(--surface,#fff),0 2px 6px var(--surface,#fff)}
+/* Pre-start countdown — a band BELOW the stage while a match waits to begin, so
+   the centre of the ring stays free for the bots' pre-game banter. Rendered only
+   for a real waiting match (see rc_countdown_iso). */
+.rc-countdown{display:flex;align-items:center;gap:13px;padding:13px 15px;border-top:1px solid var(--line,#e2e6ea)}
+.rc-countdown-time{font-size:44px;line-height:1;font-weight:800;color:var(--ink,#1a1d21);font-variant-numeric:tabular-nums;flex:none}
 .rc-countdown.is-imminent .rc-countdown-time{color:var(--accent,#2f6feb)}
+.rc-countdown-meta{display:flex;flex-direction:column;gap:1px;min-width:0}
+.rc-countdown-label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--ink-soft,#5b6470)}
 .rc-countdown-sub{font-size:12.5px;color:var(--ink-soft,#5b6470)}
-/* Solo start button, parked right under the clock: the only player can begin
-   immediately instead of waiting it out. pointer-events re-enabled (the
-   countdown wrapper turns them off so robots stay tappable) so it's clickable. */
-.rc-start{display:flex;flex-direction:column;align-items:center;gap:5px;margin-top:6px;pointer-events:auto}
-.rc-start-btn{box-shadow:0 2px 12px rgba(0,0,0,.18)}
-.rc-start-note{font-size:12px;color:var(--ink-soft,#5b6470);
-  text-shadow:0 0 10px var(--surface,#fff),0 0 10px var(--surface,#fff)}
-@media (max-width:560px){.rc-countdown-time{font-size:48px}}
-@media (prefers-reduced-motion:reduce){.rc-countdown-time{text-shadow:none}}
+/* Solo start button, pushed to the right of the band: the only player can begin
+   immediately instead of waiting it out. */
+.rc-start{margin-left:auto;flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.rc-start-note{font-size:11.5px;color:var(--ink-soft,#5b6470);text-align:right}
+@media (max-width:560px){.rc-countdown{gap:11px;padding:12px 13px}.rc-countdown-time{font-size:36px}.rc-start-btn{padding:9px 13px}}
 </style>

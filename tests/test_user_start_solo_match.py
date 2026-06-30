@@ -313,8 +313,8 @@ async def test_viewer_page_shows_start_button_for_sole_owner(client, reset_db):
     )
     assert r.status_code == 200
     assert "Start now" in r.text
-    # The button now lives inside the countdown ring — the form must appear after
-    # the ring element, not in a separate section.
+    # The button now lives inside the countdown band — the form must appear after
+    # the countdown element, not in a separate section.
     ring_idx = r.text.find('id="rc-countdown"')
     form_idx = r.text.find('action="/games/hoard-hurt-help/matches/M_BTN/start"')
     assert ring_idx != -1

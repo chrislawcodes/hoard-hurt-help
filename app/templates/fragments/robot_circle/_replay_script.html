@@ -288,10 +288,16 @@
     var cx=w/2, cy=h/2, rad=Math.max(40, Math.min(w,h)/2 - 60);
     ring.style.width=ring.style.height=(rad*2)+'px';
     sayGeo.cx=cx; sayGeo.cy=cy;
-    // The say-bubble may overlap idle seats, so cap its width to the stage (not
-    // the ring) to hold a long line without clipping off-screen. positionSay()
-    // then pushes it clear of whichever bot is actually speaking.
-    sayEl.style.maxWidth=Math.min(380,w-24)+'px';
+    // The say-bubble sits in the CENTRE of the ring, so cap its width to the
+    // ring's empty hole — never the full stage — so it can't reach the seats.
+    // holeR is the clear radius inside the ring (ring radius minus a seat's
+    // half-footprint); 1.9× turns that into a width that stays clear of the
+    // usual 5-6 seat angles while still holding a long line on desktop. The
+    // line-clamp (CSS) bounds the height. This is what keeps talk off the
+    // robots on a narrow phone, where the old stage-width cap filled the ring.
+    var seatHalf=(w<=560?24:30);
+    var holeR=Math.max(70, rad-seatHalf);
+    sayEl.style.maxWidth=Math.max(150,Math.min(380,Math.round(holeR*1.9)))+'px';
     AGENTS.forEach(function(id,i){
       var ang=-Math.PI/2 + i/AGENTS.length*2*Math.PI;
       var x=cx+rad*Math.cos(ang), y=cy+rad*Math.sin(ang);
@@ -355,26 +361,18 @@
     saySpeaker=id;
     positionSay(id);
   }
-  // Offset the bubble directly away from the speaking bot by the minimum amount
-  // that keeps that bot's seat uncovered (idle seats may be overlapped). Measured
-  // with offsetWidth/Height so the show-transition's scale doesn't skew the math,
-  // then clamped to keep the whole card on the stage. An SVG wedge is drawn from
-  // the bubble's nearest edge all the way to the speaking robot.
+  // The bubble stays in the CENTRE of the ring (its width is capped to the ring's
+  // hole in layout(), so it never reaches the seats). Only the tail moves: an SVG
+  // wedge is drawn from the bubble's edge to whichever robot is speaking, so one
+  // centred bubble reads as theirs without ever covering the other robots.
+  // Measured with offsetWidth/Height so the show-transition's scale doesn't skew
+  // the edge math.
   function positionSay(id){
     var bot=botEls[id]; if(!bot) return;
-    var cx=sayGeo.cx, cy=sayGeo.cy;
-    var dx=(+bot.dataset.x)-cx, dy=(+bot.dataset.y)-cy;
-    var d=Math.hypot(dx,dy)||1, ux=dx/d, uy=dy/d;
+    var bx=sayGeo.cx, by=sayGeo.cy;
     var hw=sayEl.offsetWidth/2, hh=sayEl.offsetHeight/2;
-    var SEAT_CLEAR=48;                              // robot half-size + a small gap
-    var reach=hw*Math.abs(ux)+hh*Math.abs(uy);     // bubble's extent toward the speaker
-    var off=Math.max(0, SEAT_CLEAR+reach-d);       // minimum push to clear that seat
-    var w=stage.clientWidth, h=stage.clientHeight, m=8;
-    var bx=Math.min(Math.max(cx-off*ux,hw+m), w-hw-m);
-    var by=Math.min(Math.max(cy-off*uy,hh+m), h-hh-m);
     sayEl.style.left=bx+'px'; sayEl.style.top=by+'px';
     // Draw the SVG tail: a bordered wedge from the bubble edge to the robot.
-    // Re-derive direction from the bubble's final (clamped) centre.
     var botX=+bot.dataset.x, botY=+bot.dataset.y;
     var tdx=botX-bx, tdy=botY-by;
     var ta=Math.atan2(tdy,tdx), ca=Math.cos(ta), sa=Math.sin(ta);
