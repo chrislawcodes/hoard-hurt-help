@@ -104,10 +104,32 @@ _call_timeout: contextvars.ContextVar[float | None] = contextvars.ContextVar(
     "call_timeout", default=None
 )
 
+# One pooled HTTP client for the whole run. The connector is a long-lived daemon
+# that polls every few seconds and POSTs every turn; a single shared client keeps
+# the connection alive and reuses it, instead of doing a fresh TCP+TLS handshake
+# on every call. Created lazily so importing this module (e.g. in tests) opens no
+# sockets; httpx.Client is safe to share across the poll loop, the turn workers,
+# and the verification thread.
+_http_client: httpx.Client | None = None
+
+
+def _http() -> httpx.Client:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.Client()
+    return _http_client
+
+
 # Circuit-breaker threshold for the poll loop. Each failed poll sleeps ~5 s, so
 # 24 consecutive failures ≈ 2 minutes of a permanently unreachable server before
 # we give up and exit with a non-zero code.
 _POLL_FAIL_THRESHOLD = 24
+
+# How long to idle between polls once the key is revoked/deleted (401/410). We do
+# NOT exit on those: under launchd/systemd auto-restart, exiting just respawns us
+# to hit the same status in seconds — a churning, log-spamming spin. Idling slowly
+# instead keeps the cost near zero until a reinstall replaces this process.
+_AUTH_BLOCKED_SLEEP_SECONDS = 60
 
 # How often the connector re-reports its PID + detected provider CLIs while
 # running. Detection is otherwise a one-shot at startup, so installing a CLI (or
@@ -303,7 +325,7 @@ def _fetch_full_history(base: str, match_id: str) -> tuple[list, list] | None:
     just starts with less of the early game in view.
     """
     try:
-        resp = httpx.get(f"{base}/api/spectator/games/{match_id}/state", timeout=20)
+        resp = _http().get(f"{base}/api/spectator/games/{match_id}/state", timeout=20)
         resp.raise_for_status()
         data = resp.json()
     except (httpx.HTTPError, ValueError) as exc:
@@ -743,7 +765,7 @@ def _report_pid(base: str, headers: dict[str, str], pid: int) -> None:
     fails.
     """
     try:
-        httpx.post(
+        _http().post(
             f"{base}/api/agent/report-pid",
             headers=headers,
             json={
@@ -885,7 +907,7 @@ def _post_verification_results(
     if not results:
         return
     try:
-        httpx.post(
+        _http().post(
             f"{base}/api/agent/model-verification",
             headers=headers,
             json={"results": results},
@@ -916,7 +938,7 @@ def _classify_play_failure(exc: BaseException) -> tuple[str, str]:
 def _verify_tick(base: str, headers: dict[str, str]) -> None:
     """Pull the verification worklist and run it. Best-effort; never raises."""
     try:
-        r = httpx.get(f"{base}/api/agent/model-worklist", headers=headers, timeout=10)
+        r = _http().get(f"{base}/api/agent/model-worklist", headers=headers, timeout=10)
         r.raise_for_status()
         # .json() must be inside the try: a 200 with a non-JSON body (CDN/proxy
         # HTML, route misconfig) raises ValueError, which would otherwise escape
@@ -1406,7 +1428,7 @@ def _handle_turn(
     is_fallback = bool(decision.get("is_connector_fallback"))
     url, params, body = _move_request(base, match_id, turn, decision)
     try:
-        r2 = httpx.post(url, headers=headers, params=params, json=body, timeout=20)
+        r2 = _http().post(url, headers=headers, params=params, json=body, timeout=20)
     except httpx.HTTPError as exc:
         print(
             f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} "
@@ -1503,6 +1525,24 @@ def main() -> None:
     in_flight: set[tuple[str, str]] = set()
     state_lock = threading.Lock()
     use_plural = True
+    # Set after a 401/410 so we log that outage once, not on every poll while we
+    # idle waiting for a reinstall.
+    auth_blocked = False
+    # Model verification runs on its OWN single worker, off the poll thread, so a
+    # slow CLI test call can never stall polling (and so never delays a live turn
+    # the way an inline verify could). One verify at a time, guarded by
+    # `verify_running`.
+    verify_executor = ThreadPoolExecutor(max_workers=1)
+    verify_running = threading.Event()
+
+    def _verify_release(fut: Future[None]) -> None:
+        verify_running.clear()
+        exc = fut.exception()
+        if exc is not None:
+            print(
+                f"[agentludum-connector] verification worker crashed: {exc!r}",
+                file=sys.stderr,
+            )
 
     while True:
         # Refresh detection periodically so a CLI installed (or a provider
@@ -1512,7 +1552,7 @@ def main() -> None:
             last_detect_report = time.monotonic()
         try:
             endpoint = "next-turns" if use_plural else "next-turn"
-            r = httpx.get(f"{base}/api/agent/{endpoint}", headers=headers, timeout=40)
+            r = _http().get(f"{base}/api/agent/{endpoint}", headers=headers, timeout=40)
         except httpx.HTTPError as exc:
             consecutive_poll_failures += 1
             print(
@@ -1531,21 +1571,28 @@ def main() -> None:
             continue
 
         if r.status_code in (401, 410):
-            if r.status_code == 410:
-                message = (
-                    "[agentludum-connector] connection deleted; exiting now so the "
-                    "replacement can start."
+            # Connection deleted (410) or key revoked/invalid (401). Do NOT exit:
+            # under launchd/systemd auto-restart, exiting just respawns us to hit
+            # the same status within seconds — a churning, log-spamming spin that
+            # never makes progress. Idle slowly and keep checking instead; a
+            # reinstall replaces this process via bootout, and a manual foreground
+            # run can be Ctrl-C'd. Log once per outage, not on every poll.
+            if not auth_blocked:
+                auth_blocked = True
+                reason = (
+                    "connection deleted"
+                    if r.status_code == 410
+                    else "connection key revoked or invalid (401)"
                 )
-            else:
-                message = (
-                    "[agentludum-connector] connection deleted or key revoked (401). "
-                    "Stop this runner and install the replacement."
+                print(
+                    f"[agentludum-connector] {reason}; idling. This runner keeps "
+                    "checking and is replaced automatically when you reinstall.",
+                    file=sys.stderr,
                 )
-            print(
-                message,
-                file=sys.stderr,
-            )
-            return
+            consecutive_poll_failures = 0
+            time.sleep(_AUTH_BLOCKED_SLEEP_SECONDS)
+            continue
+        auth_blocked = False  # any non-401/410 response means the key works again
         if r.status_code == 403:  # connection paused by its owner
             consecutive_poll_failures = 0
             time.sleep(30)
@@ -1590,9 +1637,12 @@ def main() -> None:
             # Idle: a good moment to fail-fast-verify models (never during a live
             # turn, so play is never delayed). Cap the nap so the ~60s cadence is
             # real even when the server asks us to wait longer.
-            if _should_verify(time.monotonic(), last_verify):
-                _verify_tick(base, headers)
+            if _should_verify(time.monotonic(), last_verify) and not verify_running.is_set():
                 last_verify = time.monotonic()
+                verify_running.set()
+                verify_executor.submit(_verify_tick, base, headers).add_done_callback(
+                    _verify_release
+                )
             time.sleep(min(data.get("next_poll_after_seconds", 5), _VERIFY_INTERVAL))
             continue
 

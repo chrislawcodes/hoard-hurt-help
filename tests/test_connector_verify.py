@@ -111,3 +111,23 @@ def test_play_failure_timeout_on_generic_error(runner) -> None:
     # An unclassifiable failure is retryable, never sticky-failed.
     outcome, _ = runner._classify_play_failure(RuntimeError("subprocess exploded"))
     assert outcome == "timeout"
+
+
+# --- _http (pooled connection client) -----------------------------------------
+
+
+def test_http_returns_pooled_singleton(runner) -> None:
+    """The connector reuses ONE httpx.Client for the whole run (keep-alive
+    connection pooling) instead of opening a fresh connection per request."""
+    import httpx
+
+    runner._http_client = None  # start from a clean slate
+    try:
+        c1 = runner._http()
+        c2 = runner._http()
+        assert c1 is c2
+        assert isinstance(c1, httpx.Client)
+    finally:
+        if runner._http_client is not None:
+            runner._http_client.close()
+        runner._http_client = None
