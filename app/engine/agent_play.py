@@ -341,9 +341,27 @@ async def submit_action(
     )
     seat_name_by_agent_id = _seat_name_map(all_players)
     all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
+    # Resolve the target to a real seat_name up front, tolerating case and
+    # surrounding whitespace, so a move that names a real player the way the AI
+    # saw them ("Hannibal", "hannibal", " Hannibal ") lands instead of 400ing on
+    # an exact-match miss. Prefer an exact seat_name match, then fall back to a
+    # trimmed, case-insensitive one. The canonical seat_name is what validate_move
+    # and the resolution below then see. Only PD-style moves (move is None) carry a
+    # target_id here; free-form `move` payloads are left untouched.
+    target_match: Player | None = None
+    canonical_target_id = target_id
+    if move is None and target_id is not None:
+        needle = target_id.strip().casefold()
+        target_match = next(
+            (p for p in all_players if p.seat_name == target_id), None
+        ) or next(
+            (p for p in all_players if p.seat_name.strip().casefold() == needle), None
+        )
+        if target_match is not None:
+            canonical_target_id = target_match.seat_name
     built_move = _pack_move(
         action=action,
-        target_id=target_id,
+        target_id=canonical_target_id,
         message=word_filter.mask(message),
         thinking=word_filter.mask(thinking),
         move=move,
@@ -363,11 +381,9 @@ async def submit_action(
         key: value for key, value in built_move.items() if key not in _LD_VALIDATION_SNAPSHOT_KEYS
     }
     if move is None and target_id is not None:
-        target_player = next(
-            (candidate for candidate in all_players if candidate.seat_name == target_id),
-            None,
+        internal_move["target_id"] = (
+            target_match.agent_id if target_match is not None else None
         )
-        internal_move["target_id"] = target_player.agent_id if target_player else None
     await module.record_submission(
         db,
         turn,
