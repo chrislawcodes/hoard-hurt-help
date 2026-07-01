@@ -201,22 +201,18 @@ def _format_talk_messages(cur: dict) -> str:
     return json.dumps(cur.get("talk_messages", []), separators=(",", ":"))
 
 
-def _phase_suffix(cur: dict, valid_ids: list[str] | None = None) -> str:
+def _phase_suffix(cur: dict) -> str:
     clock = _time_left_note(cur)
     if _phase(cur) == "talk":
         return f"TALK PHASE — JSON only.{clock}"
-    # Restate the ACT rules and the exact valid targets EVERY turn. In a chained
-    # session these rules otherwise live only in the first turn's system prompt,
-    # and on later turns the model intermittently drops target_id (server 400s the
-    # move) or answers as if chatting. Repeating them here keeps the move valid.
-    targets = list(valid_ids or [])
+    # A short per-turn nudge of the ACT rule — NOT the full agent list, which is
+    # already in this turn's scoreboard/messages. In a chained session the
+    # "HELP/HURT need a target" rule fades from the first turn's system prompt and
+    # the model intermittently drops target_id (→ server 400). This one line keeps
+    # most moves valid; a rare miss is caught by the re-ask in `_decide`.
     return (
-        f"ACT PHASE. This turn's messages: {_format_talk_messages(cur)}. "
-        'Reply with ONE JSON object: '
-        '{"action":"HOARD|HELP|HURT","target_id":"<agent id or null>","thinking":"<short reason>"}. '
-        f"HELP and HURT REQUIRE target_id to be one of: {targets}. "
-        "HOARD uses target_id null. Do NOT include a message field this turn — JSON only."
-        f"{clock}"
+        f"ACT PHASE — this turn's messages: {_format_talk_messages(cur)}. "
+        f"Decide your action, JSON only; HELP/HURT need a target_id (HOARD: null).{clock}"
     )
 
 
@@ -347,21 +343,17 @@ def _setup_body(turn: dict) -> str:
         f"{json.dumps(turn.get('scoreboard', []), separators=(',', ':'))}\n"
         "HISTORY (oldest to newest):\n"
         f"{json.dumps(turn.get('history', []), separators=(',', ':'))}\n\n"
-        f"It is now round {cur['round']}, turn {cur['turn']}. "
-        f"{_phase_suffix(cur, _valid_target_ids(turn))}"
+        f"It is now round {cur['round']}, turn {cur['turn']}. {_phase_suffix(cur)}"
     )
 
 
-def _delta_body(
-    new_history: list, scoreboard: list, cur: dict, valid_ids: list[str] | None = None
-) -> str:
+def _delta_body(new_history: list, scoreboard: list, cur: dict) -> str:
     """Later-message body: only what's resolved since the model's last move."""
     return (
         "Since your last move:\n"
         f"NEW EVENTS:\n{json.dumps(new_history, separators=(',', ':'))}\n"
         f"SCOREBOARD:\n{json.dumps(scoreboard, separators=(',', ':'))}\n\n"
-        f"It is now round {cur['round']}, turn {cur['turn']}. "
-        f"{_phase_suffix(cur, valid_ids)}"
+        f"It is now round {cur['round']}, turn {cur['turn']}. {_phase_suffix(cur)}"
     )
 
 
@@ -1129,7 +1121,7 @@ def _decide(turn: dict, sess: _GameSession) -> dict | None:
         else:
             new = [h for h in history if (h["round"], h["turn"]) > sess.last_marker]
             text, usage = adapter.resume(
-                body=_delta_body(new, turn.get("scoreboard", []), cur, valid_ids),
+                body=_delta_body(new, turn.get("scoreboard", []), cur),
                 model=str(sess.model),
                 session=sess,
             )
