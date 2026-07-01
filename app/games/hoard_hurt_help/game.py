@@ -67,7 +67,10 @@ class HoardHurtHelp(BaseGameModule):
         return GameConfig(
             total_rounds=5,
             turns_per_round=7,
-            per_turn_deadline_seconds=60,
+            # Act-phase window. Reasoning models (e.g. gpt-5.4-mini) can take ~50s
+            # to decide a move; 75s clears them with margin. The talk phase is
+            # capped shorter separately (scheduler TALK_DEADLINE_SECONDS).
+            per_turn_deadline_seconds=75,
             min_players=6,
             max_players=10,
         )

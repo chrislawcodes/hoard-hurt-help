@@ -51,3 +51,40 @@ async def test_simultaneous_opener_writes_round_and_is_get_or_create(db) -> None
     # Resume: a second call for the same (round, turn) returns the SAME row.
     second = await _open_turn(db, game, round_num=2, turn_num=1)
     assert second.id == first.id
+
+
+async def test_talk_deadline_is_capped_below_the_match_window(db) -> None:
+    """Talk gets the shorter TALK_DEADLINE_SECONDS even when the match allows more."""
+    from app.engine.scheduler_turn_loop import TALK_DEADLINE_SECONDS
+
+    game = await _seed_game(db, current_round=0)
+    game.per_turn_deadline_seconds = 75  # act window; talk should still be capped
+    await db.commit()
+    turn = await _open_turn(db, game, round_num=1, turn_num=1)
+    assert turn.phase == "talk"
+    window = (turn.deadline_at - turn.opened_at).total_seconds()
+    assert window == TALK_DEADLINE_SECONDS  # 45, not 75
+
+
+async def test_act_phase_resets_to_the_full_match_window(db) -> None:
+    """The talk->act transition restores the full per_turn_deadline_seconds."""
+    from app.engine.scheduler_turn_loop import _begin_act_phase
+    from app.engine.turn_clock import now_utc
+
+    game = await _seed_game(db, current_round=0)
+    game.per_turn_deadline_seconds = 75
+    await db.commit()
+    turn = await _open_turn(db, game, round_num=1, turn_num=1)
+    await _begin_act_phase(db, game, turn)
+    assert turn.phase == "act"
+    remaining = (turn.deadline_at - now_utc()).total_seconds()
+    assert 73 <= remaining <= 75  # ~75s, well above the 45s talk cap
+
+
+def test_new_hoard_hurt_help_matches_default_to_a_75s_act_window() -> None:
+    """Both creation paths give HHH a 75s act window (kept in sync)."""
+    from app.games import get as get_game_module
+    from app.routes.matches_user import _CREATE_DEFAULTS
+
+    assert get_game_module("hoard-hurt-help").config_defaults().per_turn_deadline_seconds == 75
+    assert _CREATE_DEFAULTS["per_turn_deadline_seconds"] == 75
