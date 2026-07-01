@@ -192,6 +192,103 @@ def test_decide_no_fallback_flag_on_success(connector, monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# ACT target validation: re-ask on a bad/missing target, HOARD as last resort
+# ---------------------------------------------------------------------------
+
+
+def test_phase_suffix_act_restates_targets_and_rule(connector) -> None:
+    cur = {"phase": "act", "talk_messages": []}
+    suffix = connector._phase_suffix(cur, ["seat-other", "seat-c"])
+    assert "ACT PHASE" in suffix
+    assert "seat-other" in suffix and "seat-c" in suffix
+    assert "REQUIRE" in suffix  # HELP/HURT must name a target
+
+
+def test_target_is_valid_tolerates_case_and_space(connector) -> None:
+    valid = ["seat-other"]
+    assert connector._target_is_valid("seat-other", valid)
+    assert connector._target_is_valid("  SEAT-OTHER ", valid)
+    assert not connector._target_is_valid(None, valid)
+    assert not connector._target_is_valid("", valid)
+    assert not connector._target_is_valid("ghost", valid)
+
+
+class _ReAskAdapter:
+    """Fake adapter: first() returns `first_move`, resume() returns `resume_move`.
+    Records call kinds so a test can assert whether a re-ask happened."""
+
+    default_model = "claude-haiku-4-5"
+    supports_resume = True
+
+    def __init__(self, first_move: str, resume_move: str) -> None:
+        self.first_move = first_move
+        self.resume_move = resume_move
+        self.calls: list[str] = []
+
+    def first(self, *, body, framing, model, session):
+        self.calls.append("first")
+        session.token = "tok"
+        return self.first_move, None
+
+    def resume(self, *, body, model, session):
+        self.calls.append("resume")
+        return self.resume_move, None
+
+
+def test_decide_reasks_and_recovers_missing_target(connector, monkeypatch) -> None:
+    """A HELP with no target triggers ONE re-ask; a valid target then lands."""
+    adapter = _ReAskAdapter(
+        first_move='{"action":"HELP","target_id":null,"thinking":"help someone"}',
+        resume_move='{"action":"HELP","target_id":"seat-other","thinking":"help them"}',
+    )
+    monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
+    turn = _make_turn(phase="act")
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    decision = connector._decide(turn, sess)
+
+    assert decision["action"] == "HELP"
+    assert decision["target_id"] == "seat-other"
+    assert not decision.get("is_connector_fallback")
+    assert adapter.calls == ["first", "resume"]  # exactly one re-ask
+
+
+def test_decide_hoards_when_target_unrecoverable(connector, monkeypatch) -> None:
+    """If the re-ask still lacks a valid target, HOARD (a valid move) — no storm."""
+    adapter = _ReAskAdapter(
+        first_move='{"action":"HELP","target_id":null,"thinking":"x"}',
+        resume_move='{"action":"HELP","target_id":null,"thinking":"still x"}',
+    )
+    monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
+    turn = _make_turn(phase="act")
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    decision = connector._decide(turn, sess)
+
+    assert decision["action"] == "HOARD"
+    assert decision["target_id"] is None
+    assert decision["is_connector_fallback"] is True
+    assert adapter.calls == ["first", "resume"]  # tried once, then HOARDed
+
+
+def test_decide_passes_valid_target_without_reask(connector, monkeypatch) -> None:
+    """A HELP that already names a valid target is sent as-is, with no re-ask."""
+    adapter = _ReAskAdapter(
+        first_move='{"action":"HELP","target_id":"seat-other","thinking":"go"}',
+        resume_move='{"action":"HOARD","target_id":null,"thinking":"unused"}',
+    )
+    monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
+    turn = _make_turn(phase="act")
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    decision = connector._decide(turn, sess)
+
+    assert decision["action"] == "HELP"
+    assert decision["target_id"] == "seat-other"
+    assert adapter.calls == ["first"]  # no re-ask
+
+
+# ---------------------------------------------------------------------------
 # _ClaudeAdapter._call surfaces the REAL failure reason (not "claude exit 1")
 # ---------------------------------------------------------------------------
 

@@ -201,13 +201,22 @@ def _format_talk_messages(cur: dict) -> str:
     return json.dumps(cur.get("talk_messages", []), separators=(",", ":"))
 
 
-def _phase_suffix(cur: dict) -> str:
+def _phase_suffix(cur: dict, valid_ids: list[str] | None = None) -> str:
     clock = _time_left_note(cur)
     if _phase(cur) == "talk":
         return f"TALK PHASE — JSON only.{clock}"
+    # Restate the ACT rules and the exact valid targets EVERY turn. In a chained
+    # session these rules otherwise live only in the first turn's system prompt,
+    # and on later turns the model intermittently drops target_id (server 400s the
+    # move) or answers as if chatting. Repeating them here keeps the move valid.
+    targets = list(valid_ids or [])
     return (
-        f"ACT PHASE — here are this turn's messages: {_format_talk_messages(cur)} "
-        f"— JSON only.{clock}"
+        f"ACT PHASE. This turn's messages: {_format_talk_messages(cur)}. "
+        'Reply with ONE JSON object: '
+        '{"action":"HOARD|HELP|HURT","target_id":"<agent id or null>","thinking":"<short reason>"}. '
+        f"HELP and HURT REQUIRE target_id to be one of: {targets}. "
+        "HOARD uses target_id null. Do NOT include a message field this turn — JSON only."
+        f"{clock}"
     )
 
 
@@ -263,6 +272,48 @@ def _normalize_move(move: dict, phase: str) -> dict:
     }
 
 
+def _valid_target_ids(turn: dict) -> list[str]:
+    """The agent IDs this player may target (everyone but itself), from the
+    payload's static block — the same identifiers the model is shown."""
+    static = turn.get("static", {})
+    you = static.get("your_agent_id")
+    return [a for a in static.get("all_agent_ids", []) if a != you]
+
+
+def _target_is_valid(target: object, valid_ids: list[str]) -> bool:
+    """True if `target` names a real other agent, tolerating case and surrounding
+    whitespace (mirrors the server's forgiving match so we don't re-ask for a
+    target the server would have accepted)."""
+    if not target:
+        return False
+    needle = str(target).strip().casefold()
+    return any(needle == str(v).strip().casefold() for v in valid_ids)
+
+
+def _retarget_body(action: str, valid_ids: list[str], cur: dict) -> str:
+    """A corrective re-prompt for when the model chose HELP/HURT but gave no valid
+    target. Restates the requirement and the exact allowed list, and asks again."""
+    return (
+        f"Your last reply chose {action} but target_id was missing or was not one of "
+        f"the other agents. {action} REQUIRES a target_id chosen from this exact list: "
+        f"{valid_ids}. Reply again with exactly one JSON object: "
+        f'{{"action":"{action}","target_id":"<one of {valid_ids}>","thinking":"<short reason>"}} '
+        f"— JSON only, no code fence.{_time_left_note(cur)}"
+    )
+
+
+def _sum_usage(
+    a: dict[str, int] | None, b: dict[str, int] | None
+) -> dict[str, int] | None:
+    """Combine two token-usage tallies (either may be None), for when a turn makes
+    more than one model call (the target re-ask)."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return {k: a.get(k, 0) + b.get(k, 0) for k in _TOKEN_KEYS}
+
+
 def _framing(turn: dict) -> str:
     """The stable per-game framing (strategy + rules + protocol). Claude sends it
     as a `--system-prompt`; Codex/Gemini fold it into the first message."""
@@ -296,17 +347,21 @@ def _setup_body(turn: dict) -> str:
         f"{json.dumps(turn.get('scoreboard', []), separators=(',', ':'))}\n"
         "HISTORY (oldest to newest):\n"
         f"{json.dumps(turn.get('history', []), separators=(',', ':'))}\n\n"
-        f"It is now round {cur['round']}, turn {cur['turn']}. {_phase_suffix(cur)}"
+        f"It is now round {cur['round']}, turn {cur['turn']}. "
+        f"{_phase_suffix(cur, _valid_target_ids(turn))}"
     )
 
 
-def _delta_body(new_history: list, scoreboard: list, cur: dict) -> str:
+def _delta_body(
+    new_history: list, scoreboard: list, cur: dict, valid_ids: list[str] | None = None
+) -> str:
     """Later-message body: only what's resolved since the model's last move."""
     return (
         "Since your last move:\n"
         f"NEW EVENTS:\n{json.dumps(new_history, separators=(',', ':'))}\n"
         f"SCOREBOARD:\n{json.dumps(scoreboard, separators=(',', ':'))}\n\n"
-        f"It is now round {cur['round']}, turn {cur['turn']}. {_phase_suffix(cur)}"
+        f"It is now round {cur['round']}, turn {cur['turn']}. "
+        f"{_phase_suffix(cur, valid_ids)}"
     )
 
 
@@ -1038,6 +1093,7 @@ def _decide(turn: dict, sess: _GameSession) -> dict | None:
     cur = turn["current"]
     phase = _phase(cur)
     match_id = _turn_match_id(turn)
+    valid_ids = _valid_target_ids(turn)
 
     # Don't burn the whole phase thinking and then miss the deadline: bound the
     # model call to the time left. If the deadline has already passed, skip the
@@ -1073,11 +1129,59 @@ def _decide(turn: dict, sess: _GameSession) -> dict | None:
         else:
             new = [h for h in history if (h["round"], h["turn"]) > sess.last_marker]
             text, usage = adapter.resume(
-                body=_delta_body(new, turn.get("scoreboard", []), cur),
+                body=_delta_body(new, turn.get("scoreboard", []), cur, valid_ids),
                 model=str(sess.model),
                 session=sess,
             )
-        move = _parse_move(text)
+        decision = _normalize_move(_parse_move(text), phase)
+        # An ACT HELP/HURT must name a valid target. If the model dropped it, the
+        # server rejects the move (400); the poll loop would then re-serve the turn
+        # and we'd re-submit the same doomed move until the deadline and default to
+        # HOARD (a "missed turn"). Salvage it: re-ask the model ONCE for a valid
+        # target (bounded by the time left); if that still fails, HOARD — a valid
+        # move that CLOSES the turn — rather than storming rejected moves.
+        if phase == "act" and decision["action"] in ("HELP", "HURT"):
+            if not _target_is_valid(decision.get("target_id"), valid_ids):
+                remaining = _phase_time_budget(cur)
+                retried: dict | None = None
+                if (
+                    getattr(adapter, "supports_resume", True)
+                    and sess.token is not None
+                    and (remaining is None or remaining >= _MIN_MODEL_SECONDS)
+                ):
+                    if remaining is not None:
+                        _call_timeout.set(remaining)  # bound the re-ask to time left
+                    retry_text, retry_usage = adapter.resume(
+                        body=_retarget_body(decision["action"], valid_ids, cur),
+                        model=str(sess.model),
+                        session=sess,
+                    )
+                    usage = _sum_usage(usage, retry_usage)
+                    candidate = _normalize_move(_parse_move(retry_text), phase)
+                    if candidate["action"] in ("HELP", "HURT") and _target_is_valid(
+                        candidate.get("target_id"), valid_ids
+                    ):
+                        retried = candidate
+                if retried is not None:
+                    decision = retried
+                    print(
+                        f"[agentludum-connector] {match_id} R{cur.get('round')}T{cur.get('turn')} "
+                        f"recovered a valid {decision['action']} target on re-ask.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        f"[agentludum-connector] {match_id} R{cur.get('round')}T{cur.get('turn')} "
+                        f"{decision['action']} had no valid target after a re-ask — HOARDing "
+                        f"to avoid a rejected-move retry storm.",
+                        file=sys.stderr,
+                    )
+                    decision = {
+                        "action": "HOARD",
+                        "target_id": None,
+                        "thinking": decision.get("thinking", ""),
+                        "is_connector_fallback": True,
+                    }
     except (RuntimeError, subprocess.SubprocessError, OSError) as exc:
         default = _default_move(phase)
         print(
@@ -1110,7 +1214,7 @@ def _decide(turn: dict, sess: _GameSession) -> dict | None:
         _record_usage(match_id, cur, usage, sess)
     if history:
         sess.last_marker = max((h["round"], h["turn"]) for h in history)
-    return _normalize_move(move, phase)
+    return decision
 
 
 def _move_request(
