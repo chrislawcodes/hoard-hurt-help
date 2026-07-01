@@ -306,7 +306,9 @@
       el.dataset.x=x; el.dataset.y=y;
       var s=seatEls[id]; if(s){s.style.left=x+'px';s.style.top=y+'px';}
     });
+    // Re-centre whichever bubble is live (match talk or lobby banter) on resize.
     if(saySpeaker) positionSay(saySpeaker);
+    else if(banterSpeaker) positionSay(banterSpeaker);
   }
 
   var NS='http://www.w3.org/2000/svg';
@@ -714,27 +716,17 @@
   function clearIdleClasses(el){
     Array.prototype.slice.call(el.classList).forEach(function(c){ if(c.indexOf('idle-')===0) el.classList.remove(c); });
   }
-  // The compact lobby bubble sits just inside the ring from the speaker, so it
-  // never lands on the centre countdown. No tail — proximity + colour + the lit,
-  // fidgeting speaker make it clear who's talking.
+  // The lobby bubble sits in the CENTRE of the ring, like the match talk bubble,
+  // with a tail pointing to the speaker. (It used to hug the speaker to dodge the
+  // centre countdown clock; that clock now lives in a band below the stage, so
+  // the centre is free and banter reads the same as live talk.)
   function bSay(id,text){
     var bot=botEls[id]; if(!bot) return;
     sayTextEl.textContent=text;
     sayEl.style.setProperty('--c', colorOf[id]);
     sayEl.classList.add('rc-banter-bubble','show');
     banterSpeaker=id; saySpeaker=null;
-    var cx=sayGeo.cx, cy=sayGeo.cy, bx=+bot.dataset.x, by=+bot.dataset.y;
-    var w=stage.clientWidth, h=stage.clientHeight;
-    // Sit on a "bubble ring" inside the bots, at the speaker's angle: close to the
-    // bot but always clear of the centre countdown — and scaled to the ring size
-    // so it works on the tight mobile stage too (a fixed inset overlapped it).
-    var ang=Math.atan2(by-cy, bx-cx), d=Math.hypot(bx-cx, by-cy)||1;
-    var rb=Math.min(Math.min(w,h)*0.30, d-14);
-    var px=cx+Math.cos(ang)*rb, py=cy+Math.sin(ang)*rb;
-    var hw=sayEl.offsetWidth/2, hh=sayEl.offsetHeight/2, m=8;
-    sayEl.style.left=Math.min(Math.max(px,hw+m), w-hw-m)+'px';
-    sayEl.style.top =Math.min(Math.max(py,hh+m), h-hh-m)+'px';
-    tailSvg.innerHTML='';
+    positionSay(id);
   }
   function clearBanter(){
     banterTimers.forEach(function(t){ clearTimeout(t); }); banterTimers=[];
