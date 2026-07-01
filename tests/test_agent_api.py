@@ -231,6 +231,86 @@ async def test_submit_invalid_target(client, reset_db):
     assert r.json()["detail"]["error"]["code"] == "INVALID_TARGET"
 
 
+async def _open_act_turn(reset_db, match_id: str = "G_001") -> str:
+    """Open an act-phase turn in the DB and return its turn_token."""
+    from sqlalchemy import select
+
+    async with reset_db() as db:
+        game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+        game.current_round = 1
+        game.current_turn = 1
+        now = datetime.now(timezone.utc)
+        t = Turn(
+            match_id=game.id,
+            round=1,
+            turn=1,
+            turn_token=generate_turn_token(),
+            opened_at=now,
+            deadline_at=now + timedelta(seconds=60),
+            phase="act",
+        )
+        db.add(t)
+        await db.commit()
+        await db.refresh(t)
+        return t.turn_token
+
+
+async def _submit_help(client, key, turn_token, agent_id, target_id):
+    return await client.post(
+        "/api/games/G_001/submit",
+        params={"agent_turn_token": f"{turn_token}:{agent_id}:G_001"},
+        headers={"X-Connection-Key": key},
+        json={
+            "turn_token": turn_token,
+            "action": "HELP",
+            "target_id": target_id,
+            "message": "",
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_submit_target_case_insensitive(client, reset_db):
+    """A HELP that names a real player with different casing still resolves (202)."""
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    p0, p1 = players[0], players[1]
+    turn_token = await _open_act_turn(reset_db)
+    r = await _submit_help(client, p0._test_key, turn_token, p0.agent_id, p1.seat_name.lower())
+    assert r.status_code == 202, r.text
+
+
+@pytest.mark.asyncio
+async def test_submit_target_whitespace_trimmed(client, reset_db):
+    """A HELP target with stray surrounding whitespace still resolves (202)."""
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    p0, p1 = players[0], players[1]
+    turn_token = await _open_act_turn(reset_db)
+    r = await _submit_help(client, p0._test_key, turn_token, p0.agent_id, f"  {p1.seat_name}  ")
+    assert r.status_code == 202, r.text
+
+
+@pytest.mark.asyncio
+async def test_submit_unknown_target_still_rejected(client, reset_db):
+    """A target that matches no player is still a 400 — the guard isn't loosened."""
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    p0 = players[0]
+    turn_token = await _open_act_turn(reset_db)
+    r = await _submit_help(client, p0._test_key, turn_token, p0.agent_id, "NoSuchAgent")
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "INVALID_TARGET"
+
+
+@pytest.mark.asyncio
+async def test_submit_self_target_case_variant_still_rejected(client, reset_db):
+    """A case-variant self-target resolves to self and is still rejected (400)."""
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    p0 = players[0]
+    turn_token = await _open_act_turn(reset_db)
+    r = await _submit_help(client, p0._test_key, turn_token, p0.agent_id, p0.seat_name.lower())
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "INVALID_TARGET"
+
+
 @pytest.mark.asyncio
 async def test_rate_limit(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=1)
