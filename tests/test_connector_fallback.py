@@ -196,12 +196,15 @@ def test_decide_no_fallback_flag_on_success(connector, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_phase_suffix_act_restates_targets_and_rule(connector) -> None:
-    cur = {"phase": "act", "talk_messages": []}
-    suffix = connector._phase_suffix(cur, ["seat-other", "seat-c"])
+def test_phase_suffix_act_states_target_rule_without_listing_agents(connector) -> None:
+    # A terse per-turn rule (keeps the target from being dropped) — but NOT the
+    # full agent list, which is already in the turn's scoreboard/messages.
+    cur = {"phase": "act", "talk_messages": [{"agent_id": "seat-other", "message": "hi"}]}
+    suffix = connector._phase_suffix(cur)
     assert "ACT PHASE" in suffix
-    assert "seat-other" in suffix and "seat-c" in suffix
-    assert "REQUIRE" in suffix  # HELP/HURT must name a target
+    assert "target_id" in suffix  # the HELP/HURT target rule is present
+    # We do not re-list every agent id in the rule text (the token waste we cut).
+    assert "HELP/HURT need a target_id" in suffix
 
 
 def test_target_is_valid_tolerates_case_and_space(connector) -> None:
