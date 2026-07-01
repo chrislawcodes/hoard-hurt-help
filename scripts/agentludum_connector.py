@@ -1495,6 +1495,11 @@ def _acquire_singleton_lock(key: str):
     return handle
 
 
+def _ts() -> str:
+    """Short wall-clock stamp for diagnostic timing logs."""
+    return datetime.now(timezone.utc).strftime("%H:%M:%S")
+
+
 def _handle_turn(
     base: str, headers: dict[str, str], turn: dict, sess: _GameSession
 ) -> None:
@@ -1505,6 +1510,17 @@ def _handle_turn(
     match_id = _turn_match_id(turn)
     cur = turn["current"]
     phase = _phase(cur)
+    # Diagnostic timing: how much of the phase deadline was left when this worker
+    # picked up the turn (t0), so we can tell "server served it late" (little left
+    # on arrival) from "connector was slow to submit" (plenty on arrival, late POST).
+    t0 = time.monotonic()
+    arrival = _phase_time_budget(cur)
+    arrival_str = f"{arrival:.0f}s" if arrival is not None else "?"
+    print(
+        f"[agentludum-connector] {_ts()} {match_id} R{cur['round']}T{cur['turn']} "
+        f"{phase.upper()} received — {arrival_str} left on arrival",
+        file=sys.stderr,
+    )
     adapter = _ADAPTERS[str(sess.provider)]
     # A session that is about to be PRIMED (a brand-new chained session, or a
     # sessionless provider that re-primes every turn) gets the full game so far,
@@ -1527,6 +1543,12 @@ def _handle_turn(
     if decision is None:
         # This phase's deadline already passed — let it resolve server-side; the
         # next poll hands us the next live phase. No submit (it would just 410).
+        print(
+            f"[agentludum-connector] {_ts()} {match_id} R{cur['round']}T{cur['turn']} "
+            f"{phase.upper()} SKIPPED (deadline passed) — {time.monotonic() - t0:.1f}s "
+            f"after this worker picked it up",
+            file=sys.stderr,
+        )
         return
     failure = decision.get("model_failure")
     is_fallback = bool(decision.get("is_connector_fallback"))
@@ -1541,17 +1563,18 @@ def _handle_turn(
         )
         return
     fallback_tag = " [FALLBACK]" if is_fallback else ""
+    took = f"handled in {time.monotonic() - t0:.1f}s"
     if phase == "talk":
         print(
-            f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} TALK: "
-            f"({r2.status_code}){fallback_tag}"
+            f"[agentludum-connector] {_ts()} {match_id} R{cur['round']}T{cur['turn']} TALK: "
+            f"({r2.status_code}){fallback_tag} — {took}"
         )
     else:
         target = body.get("target_id")
         arrow = f" -> {target}" if target else ""
         print(
-            f"[agentludum-connector] {match_id} R{cur['round']}T{cur['turn']} ACT: "
-            f"{body['action']}{arrow} ({r2.status_code}){fallback_tag}"
+            f"[agentludum-connector] {_ts()} {match_id} R{cur['round']}T{cur['turn']} ACT: "
+            f"{body['action']}{arrow} ({r2.status_code}){fallback_tag} — {took}"
         )
     # Fail-loud: a real play-time model failure flips the model's verification
     # status up-channel so it surfaces on status (best-effort, after the move).
@@ -1596,6 +1619,14 @@ def main() -> None:
         help="Install as a background service that starts on login, then exit.",
     )
     args = ap.parse_args()
+
+    # Flush logs immediately. Under launchd, block-buffered stdout froze
+    # connector.log for hours, hiding what the connector was doing; line-buffering
+    # both streams keeps output (and the per-turn timing below) actually visible.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(line_buffering=True)
 
     if args.install:
         sys.exit(_install_service(args.key, args.url))
