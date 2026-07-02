@@ -13,6 +13,7 @@ from factory_state import (  # noqa: E402
     DISCOVERY_KEY,
     blocking_unresolved_items,
     discovery_blockers_are_malformed,
+    default_checklist_state,
     default_discovery_state,
     update_discovery_state,
 )
@@ -26,7 +27,32 @@ from factory_mutating import mutates_state  # noqa: E402
 from factory_size_estimate import estimate_size  # noqa: E402
 
 
-CHECKLIST_ITEMS = ("goal", "audience", "success criteria", "non-goals", "constraints/risks")
+CHECKLIST_ITEMS = (
+    "goal",
+    "audience",
+    "success criteria",
+    "non-goals",
+    "constraints/risks",
+    "silent-risk",
+    "design-settled",
+)
+
+# Routing answers: each takes "yes"/"no" plus a short free-text note. They are
+# part of the required checklist and drive the path recommendation printed at
+# `discover --complete`. Evidence: experiments.md Running Tally — silent vs
+# test-visible risk and settled vs open design predict whether Feature Factory
+# ceremony pays off, not backend-vs-UI.
+ROUTING_FIELDS = (
+    ("silent_risk", "--silent-risk"),
+    ("design_settled", "--design-settled"),
+)
+_ROUTING_ANSWERS = ("yes", "no")
+
+
+def _routing_answer(checklist: dict, field: str) -> str:
+    """Return the normalized "yes"/"no" routing answer, or "" if unanswered."""
+    answer = str(checklist.get(field, "")).strip().lower()
+    return answer if answer in _ROUTING_ANSWERS else ""
 
 
 def _missing_checklist_items(discovery: dict) -> list[str]:
@@ -43,7 +69,67 @@ def _missing_checklist_items(discovery: dict) -> list[str]:
         missing.append("non-goals (--non-goal)")
     if not str(checklist.get("constraints", "")).strip():
         missing.append("constraints/risks (--constraints)")
+    if not _routing_answer(checklist, "silent_risk"):
+        missing.append('silent-risk (--silent-risk yes|no "<note>")')
+    if not _routing_answer(checklist, "design_settled"):
+        missing.append('design-settled (--design-settled yes|no "<note>")')
     return missing
+
+
+def _routing_recommendation(checklist: dict) -> list[str] | None:
+    """Derive the routing block printed when `discover --complete` succeeds.
+
+    Returns the block as printable lines, or None when either routing answer is
+    missing (legacy runs and --force-complete runs are not gated on the
+    answers, so they get no recommendation). The mapping encodes the repo's own
+    experiment data (experiments.md, Running Tally): silent risk is where the
+    adversarial reviews have a real catch record; on settled designs the
+    planning ceremony just re-derives a plan you already have at ~2x cost.
+    This is a recommendation, not a gate — the trivial skip-FF detection and
+    --force-path overrides are unchanged.
+    """
+    if not isinstance(checklist, dict):
+        return None
+    silent_risk = _routing_answer(checklist, "silent_risk")
+    design_settled = _routing_answer(checklist, "design_settled")
+    if not silent_risk or not design_settled:
+        return None
+    silent_note = trim_detail(str(checklist.get("silent_risk_note", "")).strip())
+    settled_note = trim_detail(str(checklist.get("design_settled_note", "")).strip())
+    lines = [
+        "[ff] Routing (from the recorded answers; evidence: experiments.md Running Tally):",
+        f"[ff]   silent-risk: {silent_risk}" + (f" — {silent_note}" if silent_note else ""),
+        f"[ff]   design-settled: {design_settled}" + (f" — {settled_note}" if settled_note else ""),
+    ]
+    if silent_risk == "yes":
+        lines += [
+            "[ff] → Recommended: FULL FEATURE FACTORY (spec → plan → tasks → implement",
+            "[ff]   with adversarial-review checkpoints). Silent failure modes — bugs that",
+            "[ff]   pass tests and CI and only break in prod — are where the adversarial",
+            "[ff]   reviews have a real catch record (wrong-key / data-model / semantics",
+            "[ff]   bugs: Experiments 2, 4, 6).",
+        ]
+    elif design_settled == "yes":
+        lines += [
+            "[ff] → Recommended: DIRECT PATH (or the MIDDLE LANE if you still want one",
+            "[ff]   independent review). The risk here is test-visible, and the factory's",
+            "[ff]   own experiment log shows the planning ceremony added nothing on settled",
+            "[ff]   designs at ~2x the cost (Experiments 8, 9) — a single self-review",
+            "[ff]   caught the real risks.",
+        ]
+    else:
+        lines += [
+            "[ff] → Recommended: MIDDLE LANE — author a spec + one adversarial spec review",
+            "[ff]   to settle the design, then build directly and take one independent",
+            "[ff]   whole-branch review before the PR. No plan/tasks ceremony, no per-slice",
+            "[ff]   diff checkpoints. Operator-driven — no dedicated runner command yet;",
+            "[ff]   see 'Middle lane' in the engine SKILL.md.",
+        ]
+    lines.append(
+        "[ff] (Recommendation only — the trivial skip-FF detection and --force-path"
+        " overrides still apply.)"
+    )
+    return lines
 
 
 @mutates_state("discover")
@@ -73,6 +159,8 @@ def command_discover(args: argparse.Namespace) -> int:
             getattr(args, "goal", None) is not None,
             getattr(args, "audience", None) is not None,
             getattr(args, "constraints", None) is not None,
+            getattr(args, "silent_risk", None) is not None,
+            getattr(args, "design_settled", None) is not None,
         ]
     ):
         raise SystemExit("discover --clear cannot be combined with other discovery updates")
@@ -102,6 +190,8 @@ def command_discover(args: argparse.Namespace) -> int:
             getattr(args, "goal", None) is not None,
             getattr(args, "audience", None) is not None,
             getattr(args, "constraints", None) is not None,
+            getattr(args, "silent_risk", None) is not None,
+            getattr(args, "design_settled", None) is not None,
         ]
     ):
         raise SystemExit("discover requires at least one update, or use --clear to reset discovery state")
@@ -231,9 +321,9 @@ def command_discover(args: argparse.Namespace) -> int:
             ac = discovery.setdefault("acceptance_criteria", [])
             if stripped not in ac:
                 ac.append(stripped)
-        checklist = discovery.setdefault("checklist", {"goal": "", "audience": "", "constraints": ""})
+        checklist = discovery.setdefault("checklist", default_checklist_state())
         if not isinstance(checklist, dict):
-            checklist = {"goal": "", "audience": "", "constraints": ""}
+            checklist = default_checklist_state()
             discovery["checklist"] = checklist
         for _field in ("goal", "audience", "constraints"):
             _val = getattr(args, _field, None)
@@ -243,6 +333,25 @@ def command_discover(args: argparse.Namespace) -> int:
                     raise SystemExit(f"discover --{_field} cannot be empty or whitespace-only")
                 checklist[_field] = _stripped
                 discovery["required"] = True
+        for _field, _flag in ROUTING_FIELDS:
+            _pair = getattr(args, _field, None)
+            if _pair is None:
+                continue
+            _answer_raw, _note_raw = _pair
+            _answer = str(_answer_raw).strip().lower()
+            if _answer not in _ROUTING_ANSWERS:
+                raise SystemExit(
+                    f"discover {_flag} takes 'yes' or 'no' as its first value "
+                    f"(got {_answer_raw!r}), followed by a short note"
+                )
+            _note = str(_note_raw).strip()
+            if not _note:
+                raise SystemExit(
+                    f"discover {_flag} requires a non-empty note as its second value"
+                )
+            checklist[_field] = _answer
+            checklist[f"{_field}_note"] = _note
+            discovery["required"] = True
         blocking = blocking_unresolved_items(discovery)
         if args.complete:
             if blocking:
@@ -268,7 +377,9 @@ def command_discover(args: argparse.Namespace) -> int:
                         "incomplete. Provide: " + ", ".join(missing) + ". "
                         "Required every run: goal (--goal), audience (--audience), success "
                         "criteria (--acceptance-criteria), non-goals (--non-goal), constraints/"
-                        "risks (--constraints). Use --force-complete only for trivial / skip-FF features."
+                        'risks (--constraints), silent-risk (--silent-risk yes|no "<note>"), '
+                        'design-settled (--design-settled yes|no "<note>"). '
+                        "Use --force-complete only for trivial / skip-FF features."
                     )
             discovery["complete"] = True
         elif (
@@ -286,6 +397,8 @@ def command_discover(args: argparse.Namespace) -> int:
             or getattr(args, "goal", None) is not None
             or getattr(args, "audience", None) is not None
             or getattr(args, "constraints", None) is not None
+            or getattr(args, "silent_risk", None) is not None
+            or getattr(args, "design_settled", None) is not None
         ):
             discovery["complete"] = False
         if force_complete:
@@ -322,6 +435,14 @@ def command_discover(args: argparse.Namespace) -> int:
         print(f"- acceptance-criteria: {len(discovery['acceptance_criteria'])}")
         for ac in discovery["acceptance_criteria"]:
             print(f"  - {ac}")
+    checklist_state = discovery.get("checklist", {})
+    if isinstance(checklist_state, dict):
+        for _field, _ in ROUTING_FIELDS:
+            answer = _routing_answer(checklist_state, _field)
+            if answer:
+                note = trim_detail(str(checklist_state.get(f"{_field}_note", "")).strip())
+                suffix = f" — {note}" if note else ""
+                print(f"- {_field.replace('_', '-')}: {answer}{suffix}")
     if discovery.get("answers"):
         print(f"- answers: {len(discovery['answers'])}")
     if discovery.get("unresolved"):
@@ -393,4 +514,11 @@ def command_discover(args: argparse.Namespace) -> int:
                 print("[workflow] → recommended: author_spec")
         except Exception:
             pass  # size estimate is advisory; never fail discover --complete
+        # Routing recommendation from the two recorded answers (pure dict
+        # derivation — no I/O, so no advisory try/except needed). Prints
+        # nothing when either answer is missing (legacy / --force-complete).
+        routing_lines = _routing_recommendation(discovery.get("checklist", {}))
+        if routing_lines:
+            for line in routing_lines:
+                print(line)
     return 0
