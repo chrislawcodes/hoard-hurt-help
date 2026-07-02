@@ -206,6 +206,27 @@ def default_artifact_path(slug: str, stage: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def default_checklist_state() -> dict:
+    """The required discovery checklist, empty.
+
+    ``silent_risk`` / ``design_settled`` are the routing answers ("yes"/"no"
+    plus a free-text ``*_note``): they gate ``discover --complete`` for real
+    runs and drive the path recommendation it prints (see experiments.md,
+    Running Tally). Added without a discovery version bump — like the original
+    goal/audience/constraints fields, they ride the setdefault-on-write /
+    get-with-default-on-read convention, so old state files load unchanged.
+    """
+    return {
+        "goal": "",
+        "audience": "",
+        "constraints": "",
+        "silent_risk": "",
+        "silent_risk_note": "",
+        "design_settled": "",
+        "design_settled_note": "",
+    }
+
+
 def default_discovery_state() -> dict:
     return {
         "version": 2,
@@ -220,7 +241,7 @@ def default_discovery_state() -> dict:
         "answers": {},
         "non_goals": [],
         "acceptance_criteria": [],
-        "checklist": {"goal": "", "audience": "", "constraints": ""},
+        "checklist": default_checklist_state(),
         "unresolved": [],
     }
 
