@@ -32,7 +32,9 @@ _CREATE_DEFAULTS = {
     # Matches top out at 10 players (spec 018). The game's hard cap stays higher
     # for admin-run experiments; this is the cap for the normal create path.
     "max_players": 10,
-    "per_turn_deadline_seconds": 60,
+    # Act-phase window (talk is capped shorter in the scheduler). 75s clears a
+    # reasoning model's ~50s think time; matches the game's config_defaults.
+    "per_turn_deadline_seconds": 75,
     "total_rounds": 5,
     "turns_per_round": 7,
 }

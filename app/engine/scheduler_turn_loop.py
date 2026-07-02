@@ -41,6 +41,13 @@ from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.ops_events import log_ops_event
 
+# The talk phase is quick "table talk", so cap it even when the match allows a long
+# per-turn window — the ACT phase still gets the full `per_turn_deadline_seconds`.
+# Applied as a ceiling: talk deadline = min(per_turn_deadline_seconds, this). Keeps
+# chat snappy; a slow reasoner that overruns just stays silent that turn (its actual
+# move, in the act phase, is unaffected).
+TALK_DEADLINE_SECONDS = 45
+
 if TYPE_CHECKING:
     from app.games.base import GameModule
 
@@ -311,7 +318,12 @@ async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
         turn=turn_num,
         turn_token=generate_turn_token(),
         opened_at=now,
-        deadline_at=now + timedelta(seconds=game.per_turn_deadline_seconds),
+        # Talk gets the shorter of the match window and the talk cap; the act phase
+        # (see _begin_act_phase) resets to the full per_turn_deadline_seconds.
+        deadline_at=now
+        + timedelta(
+            seconds=min(game.per_turn_deadline_seconds, TALK_DEADLINE_SECONDS)
+        ),
         phase="talk",
     )
     db.add(turn)
