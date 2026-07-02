@@ -1,6 +1,7 @@
 """The required discovery checklist: `discover --complete` is gated on a filled
-checklist (goal, audience, success criteria, non-goals, constraints/risks) for
-real (required) runs; `--force-complete` bypasses it for trivial/skip-FF work.
+checklist (goal, audience, success criteria, non-goals, constraints/risks, plus
+the two routing answers silent-risk and design-settled) for real (required)
+runs; `--force-complete` bypasses it for trivial/skip-FF work.
 """
 import os
 import subprocess
@@ -20,11 +21,15 @@ import factory_cmd_discover as FCD  # noqa: E402
 class MissingChecklistHelperTests(unittest.TestCase):
     def test_empty_discovery_misses_everything(self):
         missing = FCD._missing_checklist_items({})
-        self.assertEqual(len(missing), 5)
+        self.assertEqual(len(missing), 7)
 
     def test_full_checklist_misses_nothing(self):
         discovery = {
-            "checklist": {"goal": "g", "audience": "a", "constraints": "c"},
+            "checklist": {
+                "goal": "g", "audience": "a", "constraints": "c",
+                "silent_risk": "yes", "silent_risk_note": "n",
+                "design_settled": "no", "design_settled_note": "n",
+            },
             "acceptance_criteria": ["sc"],
             "non_goals": ["ng"],
         }
@@ -62,7 +67,9 @@ class DiscoverCompleteGateTests(unittest.TestCase):
                   "--goal", "add /healthz", "--audience", "operators",
                   "--acceptance-criteria", "200 in <200ms",
                   "--non-goal", "not a readiness probe",
-                  "--constraints", "no DB access")
+                  "--constraints", "no DB access",
+                  "--silent-risk", "no", "a broken probe fails the test suite",
+                  "--design-settled", "yes", "endpoint shape decided up front")
         r = self._run("discover", "--slug", self.slug, "--complete")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("complete: yes", r.stdout)

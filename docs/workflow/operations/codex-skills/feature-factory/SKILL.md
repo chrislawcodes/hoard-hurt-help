@@ -13,6 +13,29 @@ This skill is the orchestrator. It should reuse the existing repo-owned scripts 
 
 Trivial features — single-component UI tweaks, type-cast fixes, copy edits, one-file additions under ~100 lines — should bypass the runner entirely. For work that small, the overhead of spec/plan/tasks authoring, two adversarial review rounds, and checkpoint discipline exceeds the protection those steps provide. When `discover --complete` detects a trivial feature it will print a loud "SKIP FF ENTIRELY" block with the direct Codex dispatch command to use instead. You can override it with `--force-path quick` or `--force-path full` if you want the runner for record-keeping. The right default for trivial features is: write the spec inline as a short Codex prompt, dispatch Codex directly, open a PR, and merge on green CI.
 
+### Routing: two questions decide the path
+
+The repo's own experiment log (`experiments.md`, Running Tally) shows the best predictor of whether FF ceremony pays off is **not** backend-vs-UI. It is:
+
+1. **Silent risk** — would a bug here be invisible to tests, CI, and manual poking (pass green, break in prod)? Silent failure modes are where the adversarial reviews have a real catch record — wrong-key / data-model / semantics bugs (Experiments 2, 4, 6). When the risk is test-visible, a single self-review catches it and the extra review rounds are overhead (Experiment 8).
+2. **Settled design** — is the design already decided up front? When it is, the factory's planning stages just re-derive a plan you already have, at ~2× the cost (Experiment 9).
+
+`discover` records both answers as part of the required checklist — `--silent-risk yes|no "<note>"` and `--design-settled yes|no "<note>"` — and `discover --complete` prints the routing recommendation derived from them:
+
+| silent risk | design settled | Recommended path |
+|---|---|---|
+| yes | (either) | Full Feature Factory |
+| no | yes | Direct Path (or middle lane) |
+| no | no | Middle lane |
+
+The recommendation is advisory, not a gate — the trivial "SKIP FF ENTIRELY" detection and the `--force-path` overrides above are unchanged.
+
+### Middle lane
+
+The middle lane sits between the Direct Path and the full factory: **spec authoring + one adversarial spec review** (to settle the design), then **direct implementation**, then **one independent whole-branch review** before the PR. No plan/tasks ceremony, no per-slice diff checkpoints.
+
+Choose it when the design is **not settled** but the risk is **test-visible**: the spec review settles the open design questions cheaply, and one independent review of the finished branch covers the visible failure modes without per-slice overhead. It is currently an **operator-driven path** — there is no dedicated runner command for it yet.
+
 ## Choosing an Orchestrator
 
 The orchestrator is **whichever agent the run is driven from** — it is set by execution context, not a fixed default. Both modes are first-class.
@@ -90,7 +113,7 @@ Do not duplicate checkpoint manifest logic, review file validation, diff writing
 
 | Phase | Task | Claude Orchestrator | Codex Orchestrator |
 |---|---|---|---|
-| Discovery | Ask clarifying questions one at a time, record assumptions, and fill the **required discovery checklist** (goal, audience, success criteria, non-goals, constraints/risks) — `discover --complete` is gated on it for real runs. | Claude | Codex |
+| Discovery | Ask clarifying questions one at a time, record assumptions, and fill the **required discovery checklist** (goal, audience, success criteria, non-goals, constraints/risks, plus the two routing answers `--silent-risk` and `--design-settled`) — `discover --complete` is gated on it for real runs and prints the path recommendation (see "Routing: two questions decide the path"). | Claude | Codex |
 | Write spec | Research real file paths in codebase, author `spec.md` with scope boundaries and acceptance criteria | Claude (research) · Codex (file paths) | Gemini (research) · Codex (authors) |
 | Spec checkpoint | Adversarial attack on spec, semantic review, reconcile findings into spec | Codex (1 adversarial review: `feasibility`) · Gemini (1 adversarial review: `requirements`) · Claude (reconciles) | Codex (1 adversarial review: `feasibility`) · Gemini (1 adversarial review: `requirements`) · Codex (reconciles, escalates blockers to human) |
 | Design · Reuse audit (no-duplication) | **Sub-agent** scans the codebase (guided by the scoped architecture doc) for existing modules/functions that overlap what the feature needs. Writes `reuse-report.md` — each overlap → `reuse` / `extend` / `justified-new`. The plan MUST address every entry. See "Architecture awareness" below. | Claude (spawns a Task sub-agent) | Codex (`codex exec` read-only sub-session) |
