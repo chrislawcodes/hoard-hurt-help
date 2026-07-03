@@ -224,7 +224,6 @@ async def _seat_agent(
     return agent, version, player
 
 
-@pytest.mark.asyncio
 async def test_one_connection_one_agent_one_match_returns_correct_version(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -265,7 +264,6 @@ async def test_one_connection_one_agent_one_match_returns_correct_version(
     assert "alpha strategy" not in body["static"]["base_prompt"]
 
 
-@pytest.mark.asyncio
 async def test_multiple_agents_and_matches_pick_the_most_urgent_turn(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -307,7 +305,6 @@ async def test_multiple_agents_and_matches_pick_the_most_urgent_turn(
     assert body["match_id"] == match_b.id
 
 
-@pytest.mark.asyncio
 async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_rejected(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -406,7 +403,6 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
     assert correct_submit.status_code == 202, correct_submit.text
 
 
-@pytest.mark.asyncio
 async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -475,7 +471,6 @@ async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
     assert any_turn.json()["agent_id"] in {agent_a.id, agent_b.id}
 
 
-@pytest.mark.asyncio
 async def test_paused_connection_next_turn_is_rejected(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -489,7 +484,6 @@ async def test_paused_connection_next_turn_is_rejected(
     assert r.json()["detail"]["error"]["code"] == "CONNECTION_PAUSED"
 
 
-@pytest.mark.asyncio
 async def test_urgency_ordering_prefers_the_earliest_deadline(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -530,7 +524,6 @@ async def test_urgency_ordering_prefers_the_earliest_deadline(
     assert body["seat_name"] == early_player.seat_name
 
 
-@pytest.mark.asyncio
 async def test_next_turn_payload_includes_provider(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -555,7 +548,6 @@ async def test_next_turn_payload_includes_provider(
     assert r.json()["provider"] == "claude"
 
 
-@pytest.mark.asyncio
 async def test_report_pid_with_detected_providers_sets_detected_only(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -597,7 +589,6 @@ async def test_report_pid_with_detected_providers_sets_detected_only(
         assert conn.runner_pid == 4321
 
 
-@pytest.mark.asyncio
 async def test_report_pid_without_detected_providers_still_works(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -619,7 +610,6 @@ async def test_report_pid_without_detected_providers_still_works(
         assert conn.runner_pid == 99
 
 
-@pytest.mark.asyncio
 async def test_report_pid_hostname_defaults_unnamed_connection(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -643,7 +633,6 @@ async def test_report_pid_hostname_defaults_unnamed_connection(
         assert conn.nickname == "chris-macbook"
 
 
-@pytest.mark.asyncio
 async def test_report_pid_hostname_never_overrides_a_typed_name(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -667,7 +656,6 @@ async def test_report_pid_hostname_never_overrides_a_typed_name(
         assert conn.nickname == "Battlestation"
 
 
-@pytest.mark.asyncio
 async def test_failover_live_connection_serves_match_pinned_to_dead_connection(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -708,7 +696,6 @@ async def test_failover_live_connection_serves_match_pinned_to_dead_connection(
         assert moved.served_by_connection_id == live_id
 
 
-@pytest.mark.asyncio
 async def test_next_turns_returns_every_servable_turn_at_once(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -760,7 +747,6 @@ async def test_next_turns_returns_every_servable_turn_at_once(
     assert len({t["agent_turn_token"] for t in body["turns"]}) == 2
 
 
-@pytest.mark.asyncio
 async def test_next_turns_omits_a_turn_already_submitted(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -809,7 +795,6 @@ async def test_next_turns_omits_a_turn_already_submitted(
     assert [t["match_id"] for t in body["turns"]] == ["M_0711"]
 
 
-@pytest.mark.asyncio
 async def test_no_game_returns_no_game_immediately_with_idle_cadence(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -844,7 +829,6 @@ async def test_no_game_returns_no_game_immediately_with_idle_cadence(
     assert bbody["should_stop"] is False
 
 
-@pytest.mark.asyncio
 async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -900,7 +884,6 @@ async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
     assert body["next_poll_after_seconds"] <= 5
 
 
-@pytest.mark.asyncio
 async def test_long_poll_returns_promptly_when_a_turn_opens(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -974,7 +957,6 @@ async def test_long_poll_returns_promptly_when_a_turn_opens(
     assert elapsed < 2.0
 
 
-@pytest.mark.asyncio
 async def test_pacing_is_agent_scoped_when_a_loop_asks_for_one_agent(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -1044,7 +1026,6 @@ async def test_pacing_is_agent_scoped_when_a_loop_asks_for_one_agent(
         assert next_poll == 300
 
 
-@pytest.mark.asyncio
 async def test_api_call_count_increments_and_turn_count_on_real_submit(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1105,7 +1086,6 @@ async def test_api_call_count_increments_and_turn_count_on_real_submit(
         assert stored.turns_played == 1
 
 
-@pytest.mark.asyncio
 async def test_no_game_after_idle_window_tells_client_to_stop(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1130,7 +1110,6 @@ async def test_no_game_after_idle_window_tells_client_to_stop(
     assert body["idle_seconds"] >= 600
 
 
-@pytest.mark.asyncio
 async def test_seated_in_active_game_is_waiting_not_no_game(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -1181,7 +1160,6 @@ async def test_seated_in_active_game_is_waiting_not_no_game(
     assert "should_stop" not in body
 
 
-@pytest.mark.asyncio
 async def test_scheduled_game_keeps_caller_waiting_not_no_game(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1222,7 +1200,6 @@ async def test_scheduled_game_keeps_caller_waiting_not_no_game(
     assert "should_stop" not in body
 
 
-@pytest.mark.asyncio
 async def test_provider_agnostic_serving_stamps_played_provider(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1269,7 +1246,6 @@ async def test_provider_agnostic_serving_stamps_played_provider(
         assert refreshed.served_by_connection_id == connection.id
 
 
-@pytest.mark.asyncio
 async def test_connection_only_serves_seats_for_its_own_ai(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -1320,7 +1296,6 @@ async def test_connection_only_serves_seats_for_its_own_ai(
     assert r_gemini.json()["provider"] == "gemini"
 
 
-@pytest.mark.asyncio
 async def test_next_turn_history_is_windowed_to_recent_turns(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

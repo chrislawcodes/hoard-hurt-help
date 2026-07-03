@@ -4,13 +4,11 @@ Mocks the Google OAuth dance — we don't actually call Google in tests.
 """
 
 
-import pytest
 from sqlalchemy import select
 
 from app.models import User
 
 
-@pytest.mark.asyncio
 async def test_new_user_upsert(db):
     """A first sign-in creates a User row."""
     db.add(
@@ -29,7 +27,6 @@ async def test_new_user_upsert(db):
     assert found.name == "Alice"
 
 
-@pytest.mark.asyncio
 async def test_returning_user_reused(db):
     """A returning sign-in finds the existing User by google_sub."""
     db.add(User(google_sub="sub-456", email="bob@example.com", name="Bob"))
@@ -56,7 +53,6 @@ def test_oauth_module_imports():
     assert oauth.google is not None
 
 
-@pytest.mark.asyncio
 async def test_zero_bot_user_redirect_destination(db):
     """A signed-in user with no agents should be redirected to /me/agents."""
     from sqlalchemy import func
@@ -76,7 +72,6 @@ async def test_zero_bot_user_redirect_destination(db):
     assert bot_count == 0  # confirms the redirect condition would trigger
 
 
-@pytest.mark.asyncio
 async def test_existing_bot_user_no_redirect_override(db):
     """A signed-in user with an existing agent should NOT be redirected to /me/agents."""
     from sqlalchemy import func

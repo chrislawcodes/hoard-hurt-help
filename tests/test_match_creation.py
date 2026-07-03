@@ -23,7 +23,6 @@ async def session():
     await engine.dispose()
 
 
-@pytest.mark.asyncio
 async def test_create_match_retries_after_pk_collision(session, monkeypatch):
     future = datetime.now(timezone.utc) + timedelta(hours=1)
     session.add(

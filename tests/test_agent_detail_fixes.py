@@ -255,7 +255,6 @@ async def _seat_player(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_load_agent_matches_returns_active_upcoming_done_ordering(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -288,7 +287,6 @@ async def test_load_agent_matches_returns_active_upcoming_done_ordering(
     assert entries[2].pre_game is False
 
 
-@pytest.mark.asyncio
 async def test_load_agent_matches_caps_done_at_10(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -309,7 +307,6 @@ async def test_load_agent_matches_caps_done_at_10(
     assert all(e.state == GameState.COMPLETED for e in entries)
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_shows_matches_section(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -332,7 +329,6 @@ async def test_agent_detail_shows_matches_section(
     assert "Leave" not in resp.text
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_matches_shows_leave_for_pre_game(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -352,7 +348,6 @@ async def test_agent_detail_matches_shows_leave_for_pre_game(
     assert "Leave" in resp.text
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_shows_no_matches_empty_state(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -458,7 +453,6 @@ def test_is_ready_to_play_false_when_join_blocked() -> None:
     assert _is_ready_to_play(ctx) is False
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_shows_ready_to_play_card_when_warm(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -476,7 +470,6 @@ async def test_agent_detail_shows_ready_to_play_card_when_warm(
     assert "Find a match →" in resp.text
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_hides_ready_to_play_when_at_capacity(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -503,7 +496,6 @@ async def test_agent_detail_hides_ready_to_play_when_at_capacity(
     assert "In a match" in resp.text or "At capacity" not in resp.text
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_hides_ready_to_play_when_paused(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -527,7 +519,6 @@ async def test_agent_detail_hides_ready_to_play_when_paused(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_shows_no_live_connection_when_never_connected(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -545,7 +536,6 @@ async def test_agent_detail_shows_no_live_connection_when_never_connected(
     assert "No live AI connection yet" in resp.text
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_shows_no_live_connection_when_cold(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -563,7 +553,6 @@ async def test_agent_detail_shows_no_live_connection_when_cold(
     assert "No live AI connection yet" in resp.text
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_no_reconnect_card_when_live(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -621,7 +610,6 @@ async def _make_turn_submission(
     return sub
 
 
-@pytest.mark.asyncio
 async def test_onboarding_state_waiting_never_connected(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -643,7 +631,6 @@ async def test_onboarding_state_waiting_never_connected(
     assert status.match_id is None
 
 
-@pytest.mark.asyncio
 async def test_onboarding_state_connected_no_game(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -665,7 +652,6 @@ async def test_onboarding_state_connected_no_game(
     assert status.match_id is None
 
 
-@pytest.mark.asyncio
 async def test_onboarding_state_connected_pregame(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -691,7 +677,6 @@ async def test_onboarding_state_connected_pregame(
     assert status.match_name == "Match M_pregame"
 
 
-@pytest.mark.asyncio
 async def test_onboarding_state_in_game_no_move(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -720,7 +705,6 @@ async def test_onboarding_state_in_game_no_move(
     assert status.match_id == "M_active_nomove"
 
 
-@pytest.mark.asyncio
 async def test_onboarding_state_playing_first_real_move(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -750,7 +734,6 @@ async def test_onboarding_state_playing_first_real_move(
     assert status.game_type == "hoard-hurt-help"
 
 
-@pytest.mark.asyncio
 async def test_onboarding_state_playing_even_when_cold(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -784,7 +767,6 @@ async def test_onboarding_state_playing_even_when_cold(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_status_fragment_shows_ready_to_play_for_connected_idle_agent(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -805,7 +787,6 @@ async def test_status_fragment_shows_ready_to_play_for_connected_idle_agent(
     assert "Find a match →" in resp.text
 
 
-@pytest.mark.asyncio
 async def test_status_fragment_hides_playing_banner(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -830,7 +811,6 @@ async def test_status_fragment_hides_playing_banner(
     assert resp.text.strip() == ""
 
 
-@pytest.mark.asyncio
 async def test_status_fragment_shows_at_capacity_card(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -864,7 +844,6 @@ async def test_status_fragment_shows_at_capacity_card(
     assert "Ready to play" not in resp.text
 
 
-@pytest.mark.asyncio
 async def test_detail_page_shows_onboarding_card_inline(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -887,7 +866,6 @@ async def test_detail_page_shows_onboarding_card_inline(
     assert "Ready to play" in resp.text
 
 
-@pytest.mark.asyncio
 async def test_detail_name_field_autosaves_on_change(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],

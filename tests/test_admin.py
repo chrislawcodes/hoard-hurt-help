@@ -214,14 +214,12 @@ async def _seed_turn_timing_match(
         return match.id
 
 
-@pytest.mark.asyncio
 async def test_non_admin_blocked(client, reset_db):
     user = await _seed_user(reset_db, "regular@test.com")
     r = await client.get("/admin/matches", cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 403
 
 
-@pytest.mark.asyncio
 async def test_admin_can_see_dashboard(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     r = await client.get("/admin/matches", cookies=_cookies(admin.id))
@@ -229,14 +227,12 @@ async def test_admin_can_see_dashboard(client, reset_db):
     assert "Match Admin" in r.text
 
 
-@pytest.mark.asyncio
 async def test_old_admin_root_is_gone(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     r = await client.get("/admin", cookies=_cookies(admin.id), follow_redirects=False)
     assert r.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test_create_game_button_links_to_a_real_route(client, reset_db):
     # The "+ Create game" button used to point at /admin/matches/new, which has
     # no route, so admins got a 404. It must link to the game-scoped create
@@ -252,7 +248,6 @@ async def test_create_game_button_links_to_a_real_route(client, reset_db):
     assert form.status_code == 200
 
 
-@pytest.mark.asyncio
 async def test_dashboard_prompts_link_is_game_scoped(client, reset_db):
     # The "Strategy prompts" link had the same bug as the create button: it
     # pointed at /admin/prompts, which has no route. It must be game-scoped.
@@ -267,7 +262,6 @@ async def test_dashboard_prompts_link_is_game_scoped(client, reset_db):
     assert prompts.status_code == 200
 
 
-@pytest.mark.asyncio
 async def test_admin_menu_groups_platform_admin_links(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     r = await client.get("/admin/matches", cookies=_cookies(admin.id))
@@ -277,7 +271,6 @@ async def test_admin_menu_groups_platform_admin_links(client, reset_db):
     assert 'href="/admin/reports" role="menuitem">Reporting</a>' in r.text
 
 
-@pytest.mark.asyncio
 async def test_turn_timing_report_counts_and_buckets(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_turn_timing_match(reset_db)
@@ -310,7 +303,6 @@ async def test_turn_timing_report_counts_and_buckets(client, reset_db):
     assert "Defaulted rows" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_turn_timing_report_date_filter_limits_matches(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     included_at = datetime(2026, 6, 12, 6, 30, tzinfo=timezone.utc)
@@ -350,7 +342,6 @@ async def test_turn_timing_report_date_filter_limits_matches(client, reset_db):
     assert 'value="America/Los_Angeles"' in r.text
 
 
-@pytest.mark.asyncio
 async def test_game_admin_api_records_creator(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
@@ -374,7 +365,6 @@ async def test_game_admin_api_records_creator(client, reset_db):
         assert match.created_by_user_id == admin.id
 
 
-@pytest.mark.asyncio
 async def test_platform_admin_api_records_creator(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
@@ -396,7 +386,6 @@ async def test_platform_admin_api_records_creator(client, reset_db):
         assert match.created_by_user_id == admin.id
 
 
-@pytest.mark.asyncio
 async def test_admin_api_rejects_player_count_over_max(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
@@ -415,7 +404,6 @@ async def test_admin_api_rejects_player_count_over_max(client, reset_db):
     assert "supports 6-10 players" in r.text
 
 
-@pytest.mark.asyncio
 async def test_api_rejects_unknown_game_type(client, reset_db):
     # An unknown game type must be rejected at creation (4xx), so a match with a
     # game the scheduler can't run never gets persisted as a future zombie.
@@ -436,7 +424,6 @@ async def test_api_rejects_unknown_game_type(client, reset_db):
     assert "Unknown game type" in r.text
 
 
-@pytest.mark.asyncio
 async def test_web_form_rejects_unknown_game_type(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
@@ -458,7 +445,6 @@ async def test_web_form_rejects_unknown_game_type(client, reset_db):
     assert "Unknown game type" in r.text
 
 
-@pytest.mark.asyncio
 async def test_create_game_via_web_form(client, reset_db):
     """The browser posts a UTC ISO string (from datetime-local JS conversion)."""
     admin = await _seed_user(reset_db, "admin@test.com")
@@ -485,7 +471,6 @@ async def test_create_game_via_web_form(client, reset_db):
         assert match.created_by_user_id == admin.id
 
 
-@pytest.mark.asyncio
 async def test_web_form_rejects_player_count_over_max(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
@@ -507,7 +492,6 @@ async def test_web_form_rejects_player_count_over_max(client, reset_db):
     assert "6 to 10" in r.text
 
 
-@pytest.mark.asyncio
 async def test_web_form_rejects_past_time(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     past = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime(
@@ -529,7 +513,6 @@ async def test_web_form_rejects_past_time(client, reset_db):
     assert "must be in the future" in r.text
 
 
-@pytest.mark.asyncio
 async def test_platform_admin_api_creates_liars_dice_match_and_persists_config(
     client, reset_db
 ):
@@ -560,7 +543,6 @@ async def test_platform_admin_api_creates_liars_dice_match_and_persists_config(
         assert state.state_json["config"] == {"wild_ones": False, "dice_per_player": 4}
 
 
-@pytest.mark.asyncio
 async def test_game_admin_web_form_creates_liars_dice_match_and_persists_config(
     client, reset_db
 ):
@@ -594,7 +576,6 @@ async def test_game_admin_web_form_creates_liars_dice_match_and_persists_config(
         assert state.state_json["config"] == {"wild_ones": True, "dice_per_player": 4}
 
 
-@pytest.mark.asyncio
 async def test_admin_cancel_pre_start(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     async with reset_db() as db:
@@ -613,7 +594,6 @@ async def test_admin_cancel_pre_start(client, reset_db):
     assert r.status_code == 200
 
 
-@pytest.mark.asyncio
 async def test_admin_delete_completed_match_with_winner(client, reset_db):
     """Deleting a finished match must not 500 on the winner_player_id FK.
 
@@ -685,7 +665,6 @@ async def test_admin_delete_completed_match_with_winner(client, reset_db):
         ).scalars().all() == []
 
 
-@pytest.mark.asyncio
 async def test_export_csv_shape(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     async with reset_db() as db:
@@ -746,7 +725,6 @@ async def test_export_csv_shape(client, reset_db):
     assert "HOARD" in text
 
 
-@pytest.mark.asyncio
 async def test_export_json_includes_strategy_prompts(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     async with reset_db() as db:
@@ -787,7 +765,6 @@ async def test_export_json_includes_strategy_prompts(client, reset_db):
 # --- Role boundary tests ---
 
 
-@pytest.mark.asyncio
 async def test_game_admin_only_cannot_access_platform_admin(client, reset_db, monkeypatch):
     """A user who is only a game admin cannot reach the platform admin dashboard."""
     monkeypatch.setattr(settings, "platform_admin_emails", "platformonly@test.com")
@@ -798,7 +775,6 @@ async def test_game_admin_only_cannot_access_platform_admin(client, reset_db, mo
     assert r.status_code == 403
 
 
-@pytest.mark.asyncio
 async def test_platform_admin_only_cannot_access_game_admin(client, reset_db, monkeypatch):
     """A user who is only a platform admin cannot reach the game admin dashboard."""
     monkeypatch.setattr(settings, "platform_admin_emails", "platformonly@test.com")
@@ -811,7 +787,6 @@ async def test_platform_admin_only_cannot_access_game_admin(client, reset_db, mo
     assert r.status_code == 403
 
 
-@pytest.mark.asyncio
 async def test_game_admin_wrong_game_cannot_access(client, reset_db, monkeypatch):
     """A game admin for game X cannot reach the admin dashboard for game Y."""
     monkeypatch.setattr(settings, "admin_emails", "")
@@ -823,7 +798,6 @@ async def test_game_admin_wrong_game_cannot_access(client, reset_db, monkeypatch
     assert r.status_code == 403
 
 
-@pytest.mark.asyncio
 async def test_game_admin_dashboard_handles_missing_start_time(monkeypatch):
     """A bad match row should not take the whole dashboard down."""
 
@@ -883,7 +857,6 @@ async def test_game_admin_dashboard_handles_missing_start_time(monkeypatch):
     assert response.context["scheduled_games"][0]["scheduled_start"] is None
 
 
-@pytest.mark.asyncio
 async def test_platform_admin_dashboard_handles_missing_start_time(monkeypatch):
     """The top-level admin page should also survive a broken timestamp."""
 
@@ -944,7 +917,6 @@ async def test_platform_admin_dashboard_handles_missing_start_time(monkeypatch):
     assert response.context["scheduled_games"][0]["scheduled_start"] is None
 
 
-@pytest.mark.asyncio
 async def test_game_admin_api_accessible(client, reset_db):
     """A game admin can create a match via the game-admin API."""
     admin = await _seed_user(reset_db, "admin@test.com")
@@ -957,7 +929,6 @@ async def test_game_admin_api_accessible(client, reset_db):
     assert r.status_code == 201
 
 
-@pytest.mark.asyncio
 async def test_agent_api_not_shadowed(client, reset_db):
     """The game/{match_id} agent API route is not shadowed by the game-admin router."""
     # A non-existent match returns 404 from the agent API, not a routing error.
@@ -965,7 +936,6 @@ async def test_agent_api_not_shadowed(client, reset_db):
     assert r.status_code in (401, 404, 422)  # any non-405 proves the route is reachable
 
 
-@pytest.mark.asyncio
 async def test_delete_active_match_succeeds(client, reset_db):
     """Deleting an in-progress match must not 500.
 
@@ -1030,7 +1000,6 @@ async def test_delete_active_match_succeeds(client, reset_db):
     assert remaining is None
 
 
-@pytest.mark.asyncio
 async def test_delete_cascade_handles_in_flight_submission(reset_db, monkeypatch):
     """The shared delete cascade must stop the scheduler before row cleanup.
 

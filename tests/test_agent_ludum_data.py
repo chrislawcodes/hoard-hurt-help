@@ -7,7 +7,6 @@ from a real game, or an honest empty state.
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from app.models import Match, GameState
 from tests.factories import seat_player
@@ -20,7 +19,6 @@ def _assert_no_fabricated_marketing_claims(text: str) -> None:
     assert "rival in" not in text.lower()
 
 
-@pytest.mark.asyncio
 async def test_empty_state_has_no_fabricated_rows(client, reset_db):
     """With zero games the page still renders, with an honest empty state."""
     r = await client.get("/")
@@ -30,7 +28,6 @@ async def test_empty_state_has_no_fabricated_rows(client, reset_db):
     assert "No ranked competitors yet" in r.text
 
 
-@pytest.mark.asyncio
 async def test_standings_band_shows_real_agents(client, reset_db):
     """A finished showcase game's real agents appear in the standings band."""
     async with reset_db() as db:

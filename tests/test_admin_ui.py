@@ -6,7 +6,6 @@ import base64
 import json
 from datetime import datetime, timezone
 
-import pytest
 from httpx import AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -41,7 +40,6 @@ async def _regular_user(reset_db: async_sessionmaker, i: int = 1) -> User:
         return u
 
 
-@pytest.mark.asyncio
 async def test_users_list_renders(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -55,7 +53,6 @@ async def test_users_list_renders(
     assert b"Users" in resp.content
 
 
-@pytest.mark.asyncio
 async def test_users_list_q_filter_email(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -70,7 +67,6 @@ async def test_users_list_q_filter_email(
     assert other.email.encode() in resp.content
 
 
-@pytest.mark.asyncio
 async def test_users_list_q_filter_handle(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -85,7 +81,6 @@ async def test_users_list_q_filter_handle(
     assert other.handle.encode() in resp.content
 
 
-@pytest.mark.asyncio
 async def test_user_detail_renders(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -100,7 +95,6 @@ async def test_user_detail_renders(
     assert other.email.encode() in resp.content
 
 
-@pytest.mark.asyncio
 async def test_user_detail_shows_audit(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -120,7 +114,6 @@ async def test_user_detail_shows_audit(
     assert b"disable" in resp.content
 
 
-@pytest.mark.asyncio
 async def test_user_detail_shows_counts_and_recent_match(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -158,7 +151,6 @@ async def test_user_detail_shows_counts_and_recent_match(
     assert b"Admin UI Match" in resp.content
 
 
-@pytest.mark.asyncio
 async def test_non_admin_cannot_view_list(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:

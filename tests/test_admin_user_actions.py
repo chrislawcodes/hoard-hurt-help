@@ -32,7 +32,6 @@ def _signed_in(user_id: int) -> dict[str, str]:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
-@pytest.mark.asyncio
 async def test_disable_writes_audit_row(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         actor = await make_user(db, 0)
@@ -46,7 +45,6 @@ async def test_disable_writes_audit_row(reset_db: async_sessionmaker) -> None:
     assert logs[0].target_user_id == target.id
 
 
-@pytest.mark.asyncio
 async def test_disable_noop_no_audit_row(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         actor = await make_user(db, 0)
@@ -59,7 +57,6 @@ async def test_disable_noop_no_audit_row(reset_db: async_sessionmaker) -> None:
     assert len(logs) == 0
 
 
-@pytest.mark.asyncio
 async def test_enable_writes_audit_row(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         actor = await make_user(db, 0)
@@ -73,7 +70,6 @@ async def test_enable_writes_audit_row(reset_db: async_sessionmaker) -> None:
     assert logs[0].action.value == "enable"
 
 
-@pytest.mark.asyncio
 async def test_promote_writes_audit_row(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         actor = await make_user(db, 0)
@@ -85,7 +81,6 @@ async def test_promote_writes_audit_row(reset_db: async_sessionmaker) -> None:
     assert logs[0].action.value == "promote"
 
 
-@pytest.mark.asyncio
 async def test_demote_writes_audit_row(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         actor = await make_user(db, 0)
@@ -99,7 +94,6 @@ async def test_demote_writes_audit_row(reset_db: async_sessionmaker) -> None:
     assert logs[0].action.value == "demote"
 
 
-@pytest.mark.asyncio
 async def test_floor_admin_refuses_demote(
     reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -118,7 +112,6 @@ async def test_floor_admin_refuses_demote(
     assert exc_info.value.status_code == 403
 
 
-@pytest.mark.asyncio
 async def test_floor_admin_refuses_disable(
     reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -136,7 +129,6 @@ async def test_floor_admin_refuses_disable(
     assert exc_info.value.status_code == 403
 
 
-@pytest.mark.asyncio
 async def test_handle_reset_writes_audit_row(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         actor = await make_user(db, 0)
@@ -148,7 +140,6 @@ async def test_handle_reset_writes_audit_row(reset_db: async_sessionmaker) -> No
     assert logs[0].action.value == "handle_reset"
 
 
-@pytest.mark.asyncio
 async def test_handle_reset_no_handle_is_noop(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         actor = await make_user(db, 0)
@@ -162,7 +153,6 @@ async def test_handle_reset_no_handle_is_noop(reset_db: async_sessionmaker) -> N
     assert len(logs) == 0
 
 
-@pytest.mark.asyncio
 async def test_non_admin_cannot_disable(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:

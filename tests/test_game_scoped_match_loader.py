@@ -23,7 +23,6 @@ import base64
 import json
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from itsdangerous import TimestampSigner
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -88,7 +87,6 @@ async def _seed_match_and_user(
 # --- Form A: GET pages redirect 301 to the corrected URL --------------------
 
 
-@pytest.mark.asyncio
 async def test_form_a_get_viewer_wrong_slug_redirects_301(client, reset_db) -> None:
     """GET viewer with a wrong slug: 301 to the canonical viewer URL (no suffix)."""
     await _seed_match(reset_db, state=GameState.ACTIVE)
@@ -100,7 +98,6 @@ async def test_form_a_get_viewer_wrong_slug_redirects_301(client, reset_db) -> N
     assert r.headers["location"] == f"/games/{REAL_GAME}/matches/{MATCH_ID}"
 
 
-@pytest.mark.asyncio
 async def test_form_a_get_analysis_wrong_slug_redirects_301_with_suffix(
     client, reset_db
 ) -> None:
@@ -117,7 +114,6 @@ async def test_form_a_get_analysis_wrong_slug_redirects_301_with_suffix(
 # --- Form A exception: the join POST redirects 308 (keeps the method) -------
 
 
-@pytest.mark.asyncio
 async def test_form_a_post_join_wrong_slug_redirects_308(client, reset_db) -> None:
     """POST join with a wrong slug: 308 (not 301) to the canonical join URL.
 
@@ -139,7 +135,6 @@ async def test_form_a_post_join_wrong_slug_redirects_308(client, reset_db) -> No
 # --- Form A edge: coach-note POST redirects 301 to the BARE viewer URL ------
 
 
-@pytest.mark.asyncio
 async def test_form_a_post_coach_note_wrong_slug_redirects_301_to_viewer(
     client, reset_db
 ) -> None:
@@ -165,7 +160,6 @@ async def test_form_a_post_coach_note_wrong_slug_redirects_301_to_viewer(
 # --- Form B: POST mutations 404 on slug mismatch (no redirect) --------------
 
 
-@pytest.mark.asyncio
 async def test_form_b_post_play_join_wrong_slug_is_404(client, reset_db) -> None:
     """POST play/join with a wrong slug: 404 with body detail "Match not found.".
 
@@ -184,7 +178,6 @@ async def test_form_b_post_play_join_wrong_slug_is_404(client, reset_db) -> None
     assert r.json() == {"detail": "Match not found."}
 
 
-@pytest.mark.asyncio
 async def test_form_b_post_start_wrong_slug_is_404_with_detail(client, reset_db) -> None:
     """POST start with a wrong slug: 404 with body detail "Match not found." too.
 
@@ -205,7 +198,6 @@ async def test_form_b_post_start_wrong_slug_is_404_with_detail(client, reset_db)
 # --- Form C: the game-admin API copy 404s on slug mismatch ------------------
 
 
-@pytest.mark.asyncio
 async def test_form_c_admin_export_wrong_slug_is_bare_404(
     client, reset_db, monkeypatch
 ) -> None:

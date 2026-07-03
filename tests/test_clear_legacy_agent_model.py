@@ -47,7 +47,6 @@ async def _model_of(db: AsyncSession, version_id: int) -> str | None:
     return row[0]
 
 
-@pytest.mark.asyncio
 async def test_backfill_nulls_legacy_models_and_preserves_human(
     db_session: AsyncSession,
 ) -> None:
@@ -88,7 +87,6 @@ async def test_backfill_nulls_legacy_models_and_preserves_human(
     assert await _model_of(db_session, null_id) is None
 
 
-@pytest.mark.asyncio
 async def test_backfill_is_idempotent(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     _, gpt_ver = await make_agent(db_session, user, model="gpt-5.4-mini")

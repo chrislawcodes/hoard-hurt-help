@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
 
-import pytest
 from fastmcp.dependencies import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +29,6 @@ def test_session_scope_is_an_async_context_manager() -> None:
     assert isinstance(scope, AbstractAsyncContextManager)
 
 
-@pytest.mark.asyncio
 async def test_di_resolves_session_scope_to_a_real_session() -> None:
     """Resolving the tool dependency through FastMCP's DI yields an AsyncSession,
     not the async generator that caused the production error."""

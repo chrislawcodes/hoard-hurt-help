@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import make_engine
@@ -34,7 +33,6 @@ def test_action_names_contract() -> None:
     assert LiarsDice().action_names() == ("BID", "CHALLENGE")
 
 
-@pytest.mark.asyncio
 async def test_pd_inherits_default_hooks() -> None:
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:

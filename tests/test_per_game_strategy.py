@@ -108,7 +108,6 @@ def test_agent_base_prompt_contains_shared_instructions_not_strategy() -> None:
     assert "Prioritize round wins" not in prompt
 
 
-@pytest.mark.asyncio
 async def test_join_with_custom_strategy_seeds_it(client, reset_db) -> None:
     user_id, _connection_id = await _seed_game_user_agent(reset_db)
     r = await client.post(
@@ -130,7 +129,6 @@ async def test_join_with_custom_strategy_seeds_it(client, reset_db) -> None:
     assert await _latest_strategy(reset_db, agent_id) == "CUSTOM: always cooperate."
 
 
-@pytest.mark.asyncio
 async def test_join_without_strategy_uses_module_default(client, reset_db) -> None:
     user_id, _connection_id = await _seed_game_user_agent(reset_db)
     r = await client.post(
@@ -152,7 +150,6 @@ async def test_join_without_strategy_uses_module_default(client, reset_db) -> No
     assert seeded == get_game_module("hoard-hurt-help").default_strategy()
 
 
-@pytest.mark.asyncio
 async def test_join_with_preset_strategy_seeds_preset_prompt(client, reset_db) -> None:
     user_id, _connection_id = await _seed_game_user_agent(reset_db)
     r = await client.post(
@@ -179,7 +176,6 @@ async def test_join_with_preset_strategy_seeds_preset_prompt(client, reset_db) -
     assert await _latest_strategy(reset_db, agent_id) == expected
 
 
-@pytest.mark.asyncio
 async def test_create_form_has_no_model_picker_but_keeps_presets(
     client, reset_db
 ) -> None:
@@ -204,7 +200,6 @@ async def test_create_form_has_no_model_picker_but_keeps_presets(
     assert 'aria-pressed="true"' in tit_snippet
 
 
-@pytest.mark.asyncio
 async def test_agent_instructions_page_shows_canonical_base_prompt(client, reset_db) -> None:
     r = await client.get("/games/hoard-hurt-help/agent-instructions")
     assert r.status_code == 200
@@ -216,7 +211,6 @@ async def test_agent_instructions_page_shows_canonical_base_prompt(client, reset
     assert "Prioritize round wins" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_create_agent_page_without_any_connection_shows_full_form(
     client, reset_db
 ) -> None:
@@ -235,7 +229,6 @@ async def test_create_agent_page_without_any_connection_shows_full_form(
     assert 'name="strategy_text"' in r.text
 
 
-@pytest.mark.asyncio
 async def test_create_agent_without_live_connection_still_creates_agent(
     client, reset_db
 ) -> None:
@@ -266,7 +259,6 @@ async def test_create_agent_without_live_connection_still_creates_agent(
     assert agent.status == AgentStatus.ACTIVE
 
 
-@pytest.mark.asyncio
 async def test_create_agent_with_next_returns_to_next_target(
     client, reset_db
 ) -> None:
@@ -295,7 +287,6 @@ async def test_create_agent_with_next_returns_to_next_target(
     assert loc == join_url
 
 
-@pytest.mark.asyncio
 async def test_strategy_profiles_route_removed(client, reset_db) -> None:
     user_id, _ = await _seed_game_user_agent(reset_db)
     r = await client.get(

@@ -119,7 +119,6 @@ def test_safe_internal_next_rejects_external(raw, expected) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_not_signed_in_redirects_to_login_with_next(client, reset_db):
     await _seed_match(reset_db)
     r = await client.get(JOIN_URL, follow_redirects=False)
@@ -127,7 +126,6 @@ async def test_not_signed_in_redirects_to_login_with_next(client, reset_db):
     assert r.headers["location"] == f"/auth/google/login?next={JOIN_URL}"
 
 
-@pytest.mark.asyncio
 async def test_no_handle_redirects_to_handle_with_next(client, reset_db):
     await _seed_match(reset_db)
     async with reset_db() as db:
@@ -143,7 +141,6 @@ async def test_no_handle_redirects_to_handle_with_next(client, reset_db):
     assert JOIN_NEXT in loc
 
 
-@pytest.mark.asyncio
 async def test_fresh_user_no_connection_lands_on_join_form_as_human(client, reset_db):
     # Brand-new user: handle, but ZERO connections and ZERO agents. They are NOT
     # bounced to setup — the join form renders with "Play as yourself" leading,
@@ -157,7 +154,6 @@ async def test_fresh_user_no_connection_lands_on_join_form_as_human(client, rese
     assert await _seated_players(reset_db) == 0  # GET seats nobody
 
 
-@pytest.mark.asyncio
 async def test_provider_but_no_agent_lands_on_join_form_as_human(client, reset_db):
     # A connected provider but no agent yet: still no bounce. The join form renders
     # with the human option; the AI path waits until they create an agent.
@@ -173,7 +169,6 @@ async def test_provider_but_no_agent_lands_on_join_form_as_human(client, reset_d
     assert await _seated_players(reset_db) == 0
 
 
-@pytest.mark.asyncio
 async def test_agent_without_any_connection_shows_form_not_connected(client, reset_db):
     # With no connection at all, the agent still SHOWS on the form and the overall
     # status reads "No AI connected" — the user can pick it and connect on the next
@@ -191,7 +186,6 @@ async def test_agent_without_any_connection_shows_form_not_connected(client, res
     assert "not connected" in r.text
 
 
-@pytest.mark.asyncio
 async def test_agent_but_stale_connection_shows_form_not_running(client, reset_db):
     # Provider enabled on a connection but the connection is stale (never seen) =>
     # not live. The form still renders, showing the provider as "Not running".
@@ -212,7 +206,6 @@ async def test_agent_but_stale_connection_shows_form_not_running(client, reset_d
     assert "○ idle" in r.text
 
 
-@pytest.mark.asyncio
 async def test_create_agent_from_join_returns_and_shows_agent(client, reset_db):
     # A user with a (live) machine but no agent lands on the join form (human
     # option). The AI path's "create an agent" link carries ?next; creating the
@@ -254,7 +247,6 @@ async def test_create_agent_from_join_returns_and_shows_agent(client, reset_db):
     assert await _seated_players(reset_db) == 0
 
 
-@pytest.mark.asyncio
 async def test_all_set_renders_join_form_and_seats_nothing(client, reset_db):
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)
@@ -276,7 +268,6 @@ async def test_all_set_renders_join_form_and_seats_nothing(client, reset_db):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_create_agent_form_carries_next_hidden_field(client, reset_db):
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
@@ -291,7 +282,6 @@ async def test_create_agent_form_carries_next_hidden_field(client, reset_db):
     assert JOIN_URL in r.text
 
 
-@pytest.mark.asyncio
 async def test_create_agent_post_forwards_to_next(client, reset_db):
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
@@ -315,7 +305,6 @@ async def test_create_agent_post_forwards_to_next(client, reset_db):
     assert r.headers["location"] == JOIN_URL
 
 
-@pytest.mark.asyncio
 async def test_create_agent_post_rejects_external_next(client, reset_db):
     # An external next is dropped; we fall back to the lobby (not the external
     # target). This is the security property: the evil URL never reaches Location.
@@ -340,7 +329,6 @@ async def test_create_agent_post_rejects_external_next(client, reset_db):
     assert "evil.example.com" not in r.headers["location"]
 
 
-@pytest.mark.asyncio
 async def test_connections_page_forwards_to_next_when_already_live(client, reset_db):
     # Reaching /me/connections?next=... while a connection is already live jumps
     # straight back to the join hub instead of showing the "Connected" box.
@@ -359,7 +347,6 @@ async def test_connections_page_forwards_to_next_when_already_live(client, reset
     assert r.headers["location"] == JOIN_URL
 
 
-@pytest.mark.asyncio
 async def test_connect_target_provider_not_bounced_by_a_different_live_provider(
     client, reset_db
 ):
@@ -385,7 +372,6 @@ async def test_connect_target_provider_not_bounced_by_a_different_live_provider(
     assert "X-Connection-Key" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_connect_gemini_status_ignores_a_playing_claude(client, reset_db):
     """On a Connect-Gemini page, the live/playing status must reflect GEMINI only —
     a Claude that's live and playing must NOT make it say 'Your AI is playing'."""
@@ -406,7 +392,6 @@ async def test_connect_gemini_status_ignores_a_playing_claude(client, reset_db):
     assert "Connect Gemini" in r.text
 
 
-@pytest.mark.asyncio
 async def test_connect_target_shows_mcp_setup_without_self_setup_key(client, reset_db):
     """The connect-a-provider page leads with MCP setup, not the raw HTTP
     self-setup key prompt."""
@@ -428,7 +413,6 @@ async def test_connect_target_shows_mcp_setup_without_self_setup_key(client, res
     assert "X-Connection-Key" not in gemini_block
 
 
-@pytest.mark.asyncio
 async def test_connections_page_waits_when_not_live(client, reset_db):
     # Not live yet: render the page (no forward), and the poll fragment carries
     # ?next so it can forward once the AI connects.
@@ -448,7 +432,6 @@ async def test_connections_page_waits_when_not_live(client, reset_db):
     assert "/me/connections/live-status?next=" in r.text
 
 
-@pytest.mark.asyncio
 async def test_live_status_fragment_hx_redirects_when_live(client, reset_db):
     # The 4s poll: once live, it answers with HX-Redirect to ?next so HTMX
     # navigates the whole page back to the join hub.
@@ -467,7 +450,6 @@ async def test_live_status_fragment_hx_redirects_when_live(client, reset_db):
     assert r.headers.get("HX-Redirect") == JOIN_URL
 
 
-@pytest.mark.asyncio
 async def test_live_status_fragment_external_next_is_ignored(client, reset_db):
     # An external next is dropped: no HX-Redirect leaks an open redirect.
     user = await _user_with_handle(reset_db)

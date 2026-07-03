@@ -38,7 +38,6 @@ def test_historical_bot_name_pool_has_curated_display_safe_names() -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test_game_defaults_to_ten_player_cap(reset_db):
     async with reset_db() as db:
         g = Match(
@@ -52,7 +51,6 @@ async def test_game_defaults_to_ten_player_cap(reset_db):
         assert g.max_players == 10
 
 
-@pytest.mark.asyncio
 async def test_make_agent_defaults_to_ai_and_keeps_bot_fields_empty(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
@@ -62,7 +60,6 @@ async def test_make_agent_defaults_to_ai_and_keeps_bot_fields_empty(reset_db):
         assert agent.kind is AgentKind.AI
 
 
-@pytest.mark.asyncio
 async def test_make_agent_can_persist_bot_traits(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
@@ -89,7 +86,6 @@ async def test_make_agent_can_persist_bot_traits(reset_db):
         assert agent.bot_fixture_pack == "fixture-a"
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("stored_kind", ["bot", "BOT"])
 async def test_agent_kind_loads_legacy_storage_values(reset_db, stored_kind):
     async with reset_db() as db:
@@ -106,7 +102,6 @@ async def test_agent_kind_loads_legacy_storage_values(reset_db, stored_kind):
         assert loaded.kind is AgentKind.BOT
 
 
-@pytest.mark.asyncio
 async def test_make_agent_persists_lowercase_enum_value(reset_db):
     async with reset_db() as db:
         user = await make_user(db)

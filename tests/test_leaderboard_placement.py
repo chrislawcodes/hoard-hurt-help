@@ -12,7 +12,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import app.games as registry
@@ -49,7 +48,6 @@ async def _seed_completed_match(
     await db.commit()
 
 
-@pytest.mark.asyncio
 async def test_pd_leaderboard_ratings_unchanged() -> None:
     """PD parity: exact Elo ratings for a known 3-agent match (baseline-captured)."""
     engine = make_engine("sqlite+aiosqlite:///:memory:")
@@ -81,7 +79,6 @@ class _ScoreOnlyGame(BaseGameModule):
         return (float(total_score),)
 
 
-@pytest.mark.asyncio
 async def test_per_game_placement_key_reorders_its_section() -> None:
     """A module's match_placement_key drives its own section's finish order."""
     registry.register(_ScoreOnlyGame())

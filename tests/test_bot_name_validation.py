@@ -10,7 +10,6 @@ import base64
 import json
 from datetime import datetime, timezone
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
@@ -39,7 +38,6 @@ def _authed_client(user_id: int, *, follow_redirects: bool = True) -> AsyncClien
     )
 
 
-@pytest.mark.asyncio
 async def test_long_name_with_spaces_is_accepted(reset_db) -> None:
     # Spaces, mixed case, right at the 120-char ceiling.
     name = ("Strategic Tit For Tat " * 6).strip()  # 137 -> trimmed below
@@ -64,7 +62,6 @@ async def test_long_name_with_spaces_is_accepted(reset_db) -> None:
     assert name in agents_page.text
 
 
-@pytest.mark.asyncio
 async def test_name_over_120_chars_is_rejected(reset_db) -> None:
     # The name column is VARCHAR(120). Postgres rejects anything longer, so the
     # form must catch it with a friendly 400 rather than 500 in prod.
@@ -92,7 +89,6 @@ async def test_name_over_120_chars_is_rejected(reset_db) -> None:
         assert (await db.execute(_select(Agent))).scalars().all() == []
 
 
-@pytest.mark.asyncio
 async def test_rename_to_long_spaced_name_is_accepted(reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)

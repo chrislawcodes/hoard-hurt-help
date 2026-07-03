@@ -100,7 +100,6 @@ async def _seed_bot_game(db: AsyncSession) -> tuple[Match, list[Player]]:
     return game, players
 
 
-@pytest.mark.asyncio
 async def test_scheduler_auto_submits_bot_talk_and_actions(db, published):
     game, players = await _seed_bot_game(db)
 
@@ -138,7 +137,6 @@ async def test_scheduler_auto_submits_bot_talk_and_actions(db, published):
     ]
 
 
-@pytest.mark.asyncio
 async def test_bot_targeted_move_records_internal_agent_id(db, monkeypatch):
     """A bot HELP/HURT must store the target's internal player id, not its seat name.
 
@@ -206,7 +204,6 @@ async def test_bot_targeted_move_records_internal_agent_id(db, monkeypatch):
     assert actor_sub.target_player_id == target.id
 
 
-@pytest.mark.asyncio
 async def test_turn_loop_crash_persists_incident(db, monkeypatch):
     """A crashed turn loop must leave a queryable incident row.
 

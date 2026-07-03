@@ -49,7 +49,6 @@ def _cookies(user_id: int) -> dict[str, str]:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
-@pytest.mark.asyncio
 async def test_request_logging_persists_incident_and_request_id(reset_db):
     trace_app = FastAPI()
     install_request_logging(trace_app)
@@ -91,7 +90,6 @@ async def test_request_logging_persists_incident_and_request_id(reset_db):
     assert '"match_id": "G_999"' in (incident.context_json or "")
 
 
-@pytest.mark.asyncio
 async def test_admin_incidents_page_lists_seeded_incident(client, reset_db):
     async with reset_db() as db:
         admin = User(

@@ -90,7 +90,6 @@ async def _seat_agent(
     return agent, match, player
 
 
-@pytest.mark.asyncio
 async def test_get_instructions_returns_sections_and_tool_format_for_selected_agent(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -149,7 +148,6 @@ async def test_get_instructions_returns_sections_and_tool_format_for_selected_ag
         assert "Hoard-Hurt-Help" not in ld_text
 
 
-@pytest.mark.asyncio
 async def test_get_instructions_multiple_active_agents_returns_agent_note(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -197,7 +195,6 @@ async def test_get_instructions_multiple_active_agents_returns_agent_note(
         assert "## The rules" not in text
 
 
-@pytest.mark.asyncio
 async def test_get_instructions_no_active_game_returns_short_note(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:

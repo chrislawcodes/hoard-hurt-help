@@ -65,7 +65,6 @@ async def _seed_turn(
         }
 
 
-@pytest.mark.asyncio
 async def test_poll_turn_service_rate_limits(reset_db):
     seed = await _seed_turn(reset_db, match_id="M_SERVICE_1")
 
@@ -97,7 +96,6 @@ async def test_poll_turn_service_rate_limits(reset_db):
         assert exc.value.detail["error"]["code"] == "RATE_LIMITED"
 
 
-@pytest.mark.asyncio
 async def test_submit_action_service_updates_turn_count_and_first_move(
     reset_db, monkeypatch
 ):
@@ -147,7 +145,6 @@ async def test_submit_action_service_updates_turn_count_and_first_move(
         assert calls == [seed["player_agent_id"]]
 
 
-@pytest.mark.asyncio
 async def test_next_turn_service_returns_payload(reset_db):
     seed = await _seed_turn(reset_db, match_id="M_SERVICE_3")
 
@@ -164,7 +161,6 @@ async def test_next_turn_service_returns_payload(reset_db):
         assert response["turn_token"] == seed["turn_token"]
 
 
-@pytest.mark.asyncio
 async def test_next_turn_stamps_play_loop_heartbeat(reset_db, monkeypatch):
     """Calling get_next_turn records the play-loop heartbeat (last_polled_at) — the
     signal that an AI is actually running, which gates seating. A plain sign-in
@@ -194,7 +190,6 @@ async def test_next_turn_stamps_play_loop_heartbeat(reset_db, monkeypatch):
         assert refreshed.last_polled_at is not None
 
 
-@pytest.mark.asyncio
 async def test_next_turns_stamps_play_loop_heartbeat_when_waiting(reset_db):
     """get_next_turns (the fan-out discovery call) is the AI running its play loop
     too, so it must stamp the heartbeat (last_polled_at) EVEN when no turn is due.

@@ -91,7 +91,6 @@ async def _submit(
 # --- Tests ---
 
 
-@pytest.mark.asyncio
 async def test_single_hoard(db):
     game, [p0] = await _make_game_with_players(db, 1)
     turn = await _open_turn(db, game)
@@ -101,7 +100,6 @@ async def test_single_hoard(db):
     assert p0.current_round_score == 2
 
 
-@pytest.mark.asyncio
 async def test_single_help(db):
     """A Helps B → A gets 0, B gets +4."""
     game, [a, b] = await _make_game_with_players(db, 2)
@@ -115,7 +113,6 @@ async def test_single_help(db):
     assert b.current_round_score == 2 + 4  # Hoard +2 plus Help received
 
 
-@pytest.mark.asyncio
 async def test_single_hurt(db):
     """A Hurts B → A gets 0, B gets -4 (clipped to 0 from 0)."""
     game, [a, b] = await _make_game_with_players(db, 2)
@@ -130,7 +127,6 @@ async def test_single_hurt(db):
     assert b.current_round_score == 0
 
 
-@pytest.mark.asyncio
 async def test_help_stacks(db):
     """5 helps on one target → +20 to target."""
     game, players = await _make_game_with_players(db, 6)
@@ -146,7 +142,6 @@ async def test_help_stacks(db):
     assert target.current_round_score == 22
 
 
-@pytest.mark.asyncio
 async def test_hurt_stacks_with_floor(db):
     """5 hurts on one target → floored at 0."""
     game, players = await _make_game_with_players(db, 6)
@@ -162,7 +157,6 @@ async def test_hurt_stacks_with_floor(db):
     assert target.current_round_score == 0
 
 
-@pytest.mark.asyncio
 async def test_mutual_help_bonus(db):
     """A Helps B and B Helps A → each ends +8."""
     game, [a, b] = await _make_game_with_players(db, 2)
@@ -176,7 +170,6 @@ async def test_mutual_help_bonus(db):
     assert b.current_round_score == 8
 
 
-@pytest.mark.asyncio
 async def test_mutual_bonus_does_not_double(db):
     """If A Helps B, B Helps A, and C also Helps A, mutual bonus only counts the A↔B pair.
 
@@ -198,7 +191,6 @@ async def test_mutual_bonus_does_not_double(db):
     assert c.current_round_score == 0
 
 
-@pytest.mark.asyncio
 async def test_score_floor_on_final_delta(db):
     """Floor applies to the final summed delta, not per incoming Hurt.
 
@@ -220,7 +212,6 @@ async def test_score_floor_on_final_delta(db):
     assert target.current_round_score == 1
 
 
-@pytest.mark.asyncio
 async def test_hurt_against_zero_target(db):
     """HURT against 0-score target: target stays at 0; attacker gets 0 (not +2)."""
     game, [a, b] = await _make_game_with_players(db, 2)
@@ -235,7 +226,6 @@ async def test_hurt_against_zero_target(db):
     assert b.current_round_score == 0  # +2 - 4, clipped to 0
 
 
-@pytest.mark.asyncio
 async def test_betraying_a_helper_hurts_for_eight(db):
     """HURTing a player who HELPs you this turn lands for -8, not -4.
 
@@ -255,7 +245,6 @@ async def test_betraying_a_helper_hurts_for_eight(db):
     assert b.current_round_score == 2  # 10 - 8 betrayal
 
 
-@pytest.mark.asyncio
 async def test_hurt_non_helper_stays_four(db):
     """A normal HURT (target did NOT help the attacker) still lands for -4.
 
@@ -273,7 +262,6 @@ async def test_hurt_non_helper_stays_four(db):
     assert b.current_round_score == 8  # 10 + 2 - 4, NOT -8
 
 
-@pytest.mark.asyncio
 async def test_betrayal_only_for_the_helped_attacker(db):
     """Only the attacker the victim HELPed lands the -8; other attackers stay -4.
 
@@ -294,7 +282,6 @@ async def test_betrayal_only_for_the_helped_attacker(db):
     assert b.current_round_score == 8  # 20 - 8 (A betrayal) - 4 (C normal)
 
 
-@pytest.mark.asyncio
 async def test_missed_turn_defaults_to_hoard(db):
     """A player with no submission gets defaulted to Hoard with canonical message."""
     game, [a, b] = await _make_game_with_players(db, 2)
@@ -319,7 +306,6 @@ async def test_missed_turn_defaults_to_hoard(db):
     assert sub.message == DEFAULT_MISSED_MESSAGE
 
 
-@pytest.mark.asyncio
 async def test_round_award_single_winner(db):
     game, [a, b, c] = await _make_game_with_players(db, 3)
     a.current_round_score = 10
@@ -338,7 +324,6 @@ async def test_round_award_single_winner(db):
     assert c.total_round_score == 4
 
 
-@pytest.mark.asyncio
 async def test_round_award_three_way_tie(db):
     game, [a, b, c] = await _make_game_with_players(db, 3)
     a.current_round_score = 8
@@ -354,7 +339,6 @@ async def test_round_award_three_way_tie(db):
     assert c.total_round_wins == pytest.approx(1 / 3)
 
 
-@pytest.mark.asyncio
 async def test_round_award_is_idempotent(db):
     """Awarding the same round twice (a mid-game restart re-entering the loop at
     an already-finished round) must NOT double-count wins or scores."""
@@ -380,7 +364,6 @@ async def test_round_award_is_idempotent(db):
     assert game.rounds_awarded == 1
 
 
-@pytest.mark.asyncio
 async def test_round_award_accumulates_across_rounds(db):
     """Consecutive rounds each award once and advance rounds_awarded."""
     game, [a, b] = await _make_game_with_players(db, 2)
@@ -404,7 +387,6 @@ async def test_round_award_accumulates_across_rounds(db):
     assert b.total_round_wins == 1.0  # round 2
 
 
-@pytest.mark.asyncio
 async def test_finalize_game_with_tiebreaker(db):
     """Two players tie on round wins; tiebreaker is total in-round score."""
     game, [a, b] = await _make_game_with_players(db, 2)
@@ -444,7 +426,6 @@ def test_mutual_help_counts_helper() -> None:
     assert frozenset({1, 3}) not in counts  # one-directional help never counts
 
 
-@pytest.mark.asyncio
 async def test_mutual_help_decays_to_floor(db):
     """A pair's repeated mutual help pays 8,7,6,5,4,3,2,2 — decays -1/repeat, floor 2.
 
@@ -463,7 +444,6 @@ async def test_mutual_help_decays_to_floor(db):
         prev = a.current_round_score
 
 
-@pytest.mark.asyncio
 async def test_decay_persists_across_rounds(db):
     """k counts prior mutual-help turns match-wide — it does NOT reset each round."""
     game, [a, b] = await _make_game_with_players(db, 2)
@@ -483,7 +463,6 @@ async def test_decay_persists_across_rounds(db):
     assert a.current_round_score - base == 7  # k=1 even though it's a later round
 
 
-@pytest.mark.asyncio
 async def test_fresh_partner_resets_decay(db):
     """A farmed pact decays, but a brand-new partner starts fresh at +8."""
     game, [a, b, c] = await _make_game_with_players(db, 3)
@@ -504,7 +483,6 @@ async def test_fresh_partner_resets_decay(db):
     assert a.current_round_score - base == 8  # A↔C is a fresh pair, k=0
 
 
-@pytest.mark.asyncio
 async def test_decay_is_per_pair_independent(db):
     """Two pacts at the same table decay on their own counters."""
     game, [a, b, c, d] = await _make_game_with_players(db, 4)
@@ -522,7 +500,6 @@ async def test_decay_is_per_pair_independent(db):
     assert c.current_round_score == 15
 
 
-@pytest.mark.asyncio
 async def test_prior_hoard_turn_does_not_count_toward_k(db):
     """A prior non-mutual (HOARD/defaulted) turn leaves k=0 — first pact still pays 8."""
     game, [a, b] = await _make_game_with_players(db, 2)

@@ -243,7 +243,6 @@ async def _make_agent_for_provider(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_connections_page_load_auto_forwards_when_seen_not_polling(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -271,7 +270,6 @@ async def test_connections_page_load_auto_forwards_when_seen_not_polling(
     assert resp.headers["location"] == "/lobby"
 
 
-@pytest.mark.asyncio
 async def test_connections_page_load_no_forward_when_no_mcp_connection(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -290,7 +288,6 @@ async def test_connections_page_load_no_forward_when_no_mcp_connection(
     assert resp.status_code == 200
 
 
-@pytest.mark.asyncio
 async def test_connections_poll_auto_forwards_when_seen_not_polling(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -318,7 +315,6 @@ async def test_connections_poll_auto_forwards_when_seen_not_polling(
     assert resp.headers.get("hx-redirect") == "/lobby"
 
 
-@pytest.mark.asyncio
 async def test_connections_poll_no_forward_when_no_mcp_connection(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -347,7 +343,6 @@ async def test_connections_poll_no_forward_when_no_mcp_connection(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_agents_list_badge_needs_connecting_when_mcp_stale(
     db_session: AsyncSession,
 ) -> None:
@@ -373,7 +368,6 @@ async def test_agents_list_badge_needs_connecting_when_mcp_stale(
     assert needs_connecting is True
 
 
-@pytest.mark.asyncio
 async def test_agents_list_badge_ready_when_mcp_recent(
     db_session: AsyncSession,
 ) -> None:
@@ -398,7 +392,6 @@ async def test_agents_list_badge_ready_when_mcp_recent(
     assert needs_connecting is False
 
 
-@pytest.mark.asyncio
 async def test_agents_list_badge_ready_when_seen_not_polling(
     db_session: AsyncSession,
 ) -> None:
@@ -426,7 +419,6 @@ async def test_agents_list_badge_ready_when_seen_not_polling(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_agents_detail_ready_when_live(
     db_session: AsyncSession,
 ) -> None:
@@ -459,7 +451,6 @@ async def test_agents_detail_ready_when_live(
     assert health["needs_reconnect"] is False
 
 
-@pytest.mark.asyncio
 async def test_agents_detail_ready_when_seen_not_polling(
     db_session: AsyncSession,
 ) -> None:
@@ -490,7 +481,6 @@ async def test_agents_detail_ready_when_seen_not_polling(
     assert health["needs_reconnect"] is False
 
 
-@pytest.mark.asyncio
 async def test_agents_detail_disconnected_when_connected_not_live(
     db_session: AsyncSession,
 ) -> None:
@@ -521,7 +511,6 @@ async def test_agents_detail_disconnected_when_connected_not_live(
     assert health["needs_reconnect"] is True
 
 
-@pytest.mark.asyncio
 async def test_agents_detail_disconnected_when_no_mcp_connection(
     db_session: AsyncSession,
 ) -> None:
@@ -575,7 +564,6 @@ async def _make_player_with_held_seat(
     return player
 
 
-@pytest.mark.asyncio
 async def test_seat_hold_confirms_and_resolver_ready_when_live(
     db_session: AsyncSession,
 ) -> None:
@@ -612,7 +600,6 @@ async def test_seat_hold_confirms_and_resolver_ready_when_live(
     )
 
 
-@pytest.mark.asyncio
 async def test_seat_hold_does_not_confirm_and_resolver_not_ready_when_seen_not_polling(
     db_session: AsyncSession,
 ) -> None:
@@ -648,7 +635,6 @@ async def test_seat_hold_does_not_confirm_and_resolver_not_ready_when_seen_not_p
     )
 
 
-@pytest.mark.asyncio
 async def test_seat_hold_does_not_confirm_and_resolver_not_ready_when_connected_not_live(
     db_session: AsyncSession,
 ) -> None:
@@ -684,7 +670,6 @@ async def test_seat_hold_does_not_confirm_and_resolver_not_ready_when_connected_
     )
 
 
-@pytest.mark.asyncio
 async def test_seat_hold_does_not_confirm_and_resolver_not_ready_when_no_mcp_connection(
     db_session: AsyncSession,
 ) -> None:
@@ -713,7 +698,6 @@ async def test_seat_hold_does_not_confirm_and_resolver_not_ready_when_no_mcp_con
     )
 
 
-@pytest.mark.asyncio
 async def test_seat_hold_does_not_confirm_hermes_stale_seen_but_polling(
     db_session: AsyncSession,
 ) -> None:

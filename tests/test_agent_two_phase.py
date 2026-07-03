@@ -126,7 +126,6 @@ def _json_text(body: object) -> str:
     return json.dumps(body, sort_keys=True)
 
 
-@pytest.mark.asyncio
 async def test_message_talk_phase_is_idempotent_and_act_phase_signals_window_closed(
     client, reset_db
 ):
@@ -200,7 +199,6 @@ async def test_message_talk_phase_is_idempotent_and_act_phase_signals_window_clo
     assert "thinking" not in body3
 
 
-@pytest.mark.asyncio
 async def test_submit_talk_phase_rejects_then_act_phase_stores_thinking(client, reset_db):
     game, players = await _seed_game(reset_db)
     turn = await _open_turn(reset_db, game.id, phase="talk")
@@ -253,7 +251,6 @@ async def test_submit_talk_phase_rejects_then_act_phase_stores_thinking(client, 
     assert row.thinking == "secret-act-2"
 
 
-@pytest.mark.asyncio
 async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db):
     game, players = await _seed_game(reset_db)
     key = players[0]._test_key
@@ -324,7 +321,6 @@ async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db
     ]
 
 
-@pytest.mark.asyncio
 async def test_next_turn_stops_reserving_talk_turn_after_message(
     client, reset_db, monkeypatch
 ):
@@ -381,7 +377,6 @@ async def test_next_turn_stops_reserving_talk_turn_after_message(
     assert body3["current"]["phase"] == "act"
 
 
-@pytest.mark.asyncio
 async def test_agent_endpoints_do_not_leak_thinking(client, reset_db):
     game, players = await _seed_game(reset_db)
     key = players[0]._test_key

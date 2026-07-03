@@ -6,7 +6,6 @@ game produces a deterministic winner.
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import select
 
 from app.engine.resolver import award_round_winners, finalize_game
@@ -97,7 +96,6 @@ async def _play_turn(db, game: Match, players: list[Player], round_num: int, tur
     return turn
 
 
-@pytest.mark.asyncio
 async def test_full_game_runs_to_completion(db):
     """3 rounds × 4 turns × 4 players. AI_1 and AI_2 (mutual pact) should win each round."""
     game, players = await _setup_game(db, n_players=4)
@@ -132,7 +130,6 @@ async def test_full_game_runs_to_completion(db):
     assert winner_seat_names == {"AI_1", "AI_2"}, f"unexpected winners: {winner_seat_names}"
 
 
-@pytest.mark.asyncio
 async def test_static_prefix_byte_identical_concept(db):
     """The shape of the static prefix is stable game-wide — we test this here
     indirectly by ensuring rules text constant doesn't change at runtime."""

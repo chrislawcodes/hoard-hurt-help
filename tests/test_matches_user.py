@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 import base64
 import json
 
-import pytest
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -36,7 +35,6 @@ async def _seed_user(
         return user
 
 
-@pytest.mark.asyncio
 async def test_lobby_shows_create_match_action_for_signed_in_users(client, reset_db):
     user = await _seed_user(reset_db, i=1)
     r = await client.get(
@@ -47,7 +45,6 @@ async def test_lobby_shows_create_match_action_for_signed_in_users(client, reset
     assert 'href="/games/hoard-hurt-help/matches/new"' in r.text
 
 
-@pytest.mark.asyncio
 async def test_create_match_form_is_available(client, reset_db):
     user = await _seed_user(reset_db, i=2)
     r = await client.get(
@@ -58,7 +55,6 @@ async def test_create_match_form_is_available(client, reset_db):
     assert "Create match" in r.text
 
 
-@pytest.mark.asyncio
 async def test_user_create_flow_records_creator(client, reset_db):
     user = await _seed_user(reset_db, i=3)
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
@@ -83,7 +79,6 @@ async def test_user_create_flow_records_creator(client, reset_db):
         assert match.state == GameState.REGISTERING
 
 
-@pytest.mark.asyncio
 async def test_user_create_flow_rejects_at_active_match_cap(client, reset_db):
     user = await _seed_user(reset_db, i=4)
     when = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -117,7 +112,6 @@ async def test_user_create_flow_rejects_at_active_match_cap(client, reset_db):
     assert "active matches at once" in r.text
 
 
-@pytest.mark.asyncio
 async def test_my_matches_includes_owned_unjoined_matches_and_owner_controls(
     client, reset_db
 ):
@@ -158,7 +152,6 @@ async def test_my_matches_includes_owned_unjoined_matches_and_owner_controls(
     assert f"Playing as {joined_seat_name}" in r.text
 
 
-@pytest.mark.asyncio
 async def test_owner_delete_pre_start_succeeds(client, reset_db):
     user = await _seed_user(reset_db, i=6)
     future = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -187,7 +180,6 @@ async def test_owner_delete_pre_start_succeeds(client, reset_db):
         assert await db.get(Match, "M_PRE") is None
 
 
-@pytest.mark.asyncio
 async def test_owner_delete_active_match_is_rejected(client, reset_db):
     user = await _seed_user(reset_db, i=7)
     future = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -214,7 +206,6 @@ async def test_owner_delete_active_match_is_rejected(client, reset_db):
     assert r.json()["detail"]["error"]["code"] == "MATCH_ALREADY_STARTED"
 
 
-@pytest.mark.asyncio
 async def test_non_owner_delete_is_rejected(client, reset_db):
     owner = await _seed_user(reset_db, i=8)
     other = await _seed_user(reset_db, i=9)
@@ -242,7 +233,6 @@ async def test_non_owner_delete_is_rejected(client, reset_db):
     assert r.json()["detail"]["error"]["code"] == "NOT_MATCH_OWNER"
 
 
-@pytest.mark.asyncio
 async def test_admin_can_delete_any_match(client, reset_db):
     owner = await _seed_user(reset_db, i=10)
     admin = await _seed_user(reset_db, i=11, role=UserRole.ADMIN)
@@ -293,7 +283,6 @@ async def _seed_match(reset_db, *, match_id, owner_id, state):
 # match owner — cannot cancel; they can only delete their own match pre-start.
 
 
-@pytest.mark.asyncio
 async def test_owner_cannot_cancel_their_match(client, reset_db):
     user = await _seed_user(reset_db, i=20)
     await _seed_match(reset_db, match_id="M_C1", owner_id=user.id, state=GameState.REGISTERING)
@@ -307,7 +296,6 @@ async def test_owner_cannot_cancel_their_match(client, reset_db):
         assert (await db.get(Match, "M_C1")).state == GameState.REGISTERING  # unchanged
 
 
-@pytest.mark.asyncio
 async def test_signed_out_cannot_cancel(client, reset_db):
     owner = await _seed_user(reset_db, i=21)
     await _seed_match(reset_db, match_id="M_C2", owner_id=owner.id, state=GameState.ACTIVE)
@@ -316,7 +304,6 @@ async def test_signed_out_cannot_cancel(client, reset_db):
     assert r.status_code == 401
 
 
-@pytest.mark.asyncio
 async def test_admin_can_cancel_pre_start_and_active(client, reset_db):
     admin = await _seed_user(reset_db, i=22, role=UserRole.ADMIN)
     owner = await _seed_user(reset_db, i=23)
@@ -332,7 +319,6 @@ async def test_admin_can_cancel_pre_start_and_active(client, reset_db):
             assert (await db.get(Match, mid)).state == GameState.CANCELLED
 
 
-@pytest.mark.asyncio
 async def test_admin_cancel_already_ended_match_is_rejected(client, reset_db):
     admin = await _seed_user(reset_db, i=24, role=UserRole.ADMIN)
     await _seed_match(reset_db, match_id="M_C5", owner_id=admin.id, state=GameState.COMPLETED)

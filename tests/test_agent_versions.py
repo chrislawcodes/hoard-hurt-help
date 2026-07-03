@@ -220,7 +220,6 @@ async def _seat_player(
     return player
 
 
-@pytest.mark.asyncio
 async def test_create_connection_reuses_existing_pending_setup(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -263,7 +262,6 @@ async def test_create_connection_reuses_existing_pending_setup(
         assert setup.key_lookup == bot_key_lookup(first_key)
 
 
-@pytest.mark.asyncio
 async def test_new_agent_creates_and_goes_to_lobby(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -287,7 +285,6 @@ async def test_new_agent_creates_and_goes_to_lobby(
     assert resp.headers["location"] == "/games/hoard-hurt-help"
 
 
-@pytest.mark.asyncio
 async def test_version_edit_updates_draft_then_forks_after_rated_match(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -355,7 +352,6 @@ async def test_version_edit_updates_draft_then_forks_after_rated_match(
         assert stored_player.agent_version_id == versions[0].id
 
 
-@pytest.mark.asyncio
 async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -402,7 +398,6 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
         assert "bob" not in "".join(seat_names)
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_shows_connection_capacity_when_at_limit(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -453,7 +448,6 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
     assert "1 / 1 active matches" in resp.text
 
 
-@pytest.mark.asyncio
 async def test_agent_in_active_practice_match_is_locked_against_delete_and_edit(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

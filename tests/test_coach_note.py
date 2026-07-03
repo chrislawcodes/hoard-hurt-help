@@ -14,7 +14,6 @@ import base64
 import json
 from datetime import datetime, timezone
 
-import pytest
 from httpx import AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
@@ -54,7 +53,6 @@ async def _make_active_match(db_factory: async_sessionmaker) -> tuple[str, Playe
 # Unit: coach_note field semantics on Player
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
 async def test_coach_note_fields_default_null(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         g = Match(
@@ -73,7 +71,6 @@ async def test_coach_note_fields_default_null(reset_db: async_sessionmaker) -> N
         assert row.coach_note_round is None
 
 
-@pytest.mark.asyncio
 async def test_coach_note_persists(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         g = Match(
@@ -98,7 +95,6 @@ async def test_coach_note_persists(reset_db: async_sessionmaker) -> None:
 # Integration: coach note included in next-turn payload
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
 async def test_coach_note_injected_when_round_matches(reset_db: async_sessionmaker) -> None:
     """coach_note appears in static payload only when current_round matches."""
     async with reset_db() as db:
@@ -125,7 +121,6 @@ async def test_coach_note_injected_when_round_matches(reset_db: async_sessionmak
         assert row.coach_note == "Be cooperative this round"
 
 
-@pytest.mark.asyncio
 async def test_coach_note_not_active_wrong_round(reset_db: async_sessionmaker) -> None:
     async with reset_db() as db:
         g = Match(
@@ -153,7 +148,6 @@ async def test_coach_note_not_active_wrong_round(reset_db: async_sessionmaker) -
 # HTTP: POST /games/{game}/matches/{match_id}/coach-note
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
 async def test_post_coach_note_saves_for_next_round(
     reset_db: async_sessionmaker, client: AsyncClient
 ) -> None:
@@ -174,7 +168,6 @@ async def test_post_coach_note_saves_for_next_round(
     assert row.coach_note_round == match.current_round + 1
 
 
-@pytest.mark.asyncio
 async def test_post_coach_note_clears_when_empty(
     reset_db: async_sessionmaker, client: AsyncClient
 ) -> None:
@@ -202,7 +195,6 @@ async def test_post_coach_note_clears_when_empty(
     assert row.coach_note_round is None
 
 
-@pytest.mark.asyncio
 async def test_post_coach_note_truncates_at_280(
     reset_db: async_sessionmaker, client: AsyncClient
 ) -> None:
@@ -222,7 +214,6 @@ async def test_post_coach_note_truncates_at_280(
     assert len(row.coach_note) <= 280
 
 
-@pytest.mark.asyncio
 async def test_post_coach_note_requires_auth(
     reset_db: async_sessionmaker, client: AsyncClient
 ) -> None:
@@ -236,7 +227,6 @@ async def test_post_coach_note_requires_auth(
     assert r.status_code == 401
 
 
-@pytest.mark.asyncio
 async def test_post_coach_note_rejects_non_player(
     reset_db: async_sessionmaker, client: AsyncClient
 ) -> None:
@@ -255,7 +245,6 @@ async def test_post_coach_note_rejects_non_player(
     assert r.status_code == 403
 
 
-@pytest.mark.asyncio
 async def test_game_view_shows_prompt_window(
     reset_db: async_sessionmaker, client: AsyncClient
 ) -> None:

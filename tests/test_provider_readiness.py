@@ -60,7 +60,6 @@ async def db_session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_mcp_live_when_recently_polled(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
@@ -73,7 +72,6 @@ async def test_mcp_live_when_recently_polled(db_session: AsyncSession) -> None:
     assert result is ProviderReadiness.LIVE
 
 
-@pytest.mark.asyncio
 async def test_mcp_seen_not_polling_when_seen_but_poll_stale(
     db_session: AsyncSession,
 ) -> None:
@@ -88,7 +86,6 @@ async def test_mcp_seen_not_polling_when_seen_but_poll_stale(
     assert result is ProviderReadiness.SEEN_NOT_POLLING
 
 
-@pytest.mark.asyncio
 async def test_mcp_connected_not_live_when_mcp_recent_but_cold(
     db_session: AsyncSession,
 ) -> None:
@@ -103,7 +100,6 @@ async def test_mcp_connected_not_live_when_mcp_recent_but_cold(
     assert result is ProviderReadiness.CONNECTED_NOT_LIVE
 
 
-@pytest.mark.asyncio
 async def test_mcp_no_connection_when_provider_absent(db_session: AsyncSession) -> None:
     """An MCP provider with no connection enabled at all has no current setup."""
     user = await make_user(db_session, 3)
@@ -116,7 +112,6 @@ async def test_mcp_no_connection_when_provider_absent(db_session: AsyncSession) 
     assert result is ProviderReadiness.NO_MCP_CONNECTION
 
 
-@pytest.mark.asyncio
 async def test_mcp_no_connection_when_only_expired_mcp(db_session: AsyncSession) -> None:
     """An MCP-sign-in whose token aged out (no recent activity, no machine) is not
     set up: the OAuth-expiry semantics still hold for MCP-only users."""
@@ -139,7 +134,6 @@ async def test_mcp_no_connection_when_only_expired_mcp(db_session: AsyncSession)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_mcp_provider_live_via_machine_connection(
     db_session: AsyncSession,
 ) -> None:
@@ -156,7 +150,6 @@ async def test_mcp_provider_live_via_machine_connection(
     assert result is ProviderReadiness.LIVE
 
 
-@pytest.mark.asyncio
 async def test_mcp_provider_seen_not_polling_via_machine_connection(
     db_session: AsyncSession,
 ) -> None:
@@ -172,7 +165,6 @@ async def test_mcp_provider_seen_not_polling_via_machine_connection(
     assert result is ProviderReadiness.SEEN_NOT_POLLING
 
 
-@pytest.mark.asyncio
 async def test_mcp_provider_connected_not_live_via_cold_machine_connection(
     db_session: AsyncSession,
 ) -> None:
@@ -194,7 +186,6 @@ async def test_mcp_provider_connected_not_live_via_cold_machine_connection(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_non_mcp_live_when_recently_polled(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 10)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.HERMES)
@@ -206,7 +197,6 @@ async def test_non_mcp_live_when_recently_polled(db_session: AsyncSession) -> No
     assert result is ProviderReadiness.LIVE
 
 
-@pytest.mark.asyncio
 async def test_non_mcp_live_when_polling_but_seen_stale_cascade_order(
     db_session: AsyncSession,
 ) -> None:
@@ -225,7 +215,6 @@ async def test_non_mcp_live_when_polling_but_seen_stale_cascade_order(
     assert result is ProviderReadiness.LIVE
 
 
-@pytest.mark.asyncio
 async def test_non_mcp_seen_not_polling_when_seen_but_poll_stale(
     db_session: AsyncSession,
 ) -> None:
@@ -239,7 +228,6 @@ async def test_non_mcp_seen_not_polling_when_seen_but_poll_stale(
     assert result is ProviderReadiness.SEEN_NOT_POLLING
 
 
-@pytest.mark.asyncio
 async def test_non_mcp_connected_not_live_when_enabled_but_cold(
     db_session: AsyncSession,
 ) -> None:
@@ -255,7 +243,6 @@ async def test_non_mcp_connected_not_live_when_enabled_but_cold(
     assert result is ProviderReadiness.CONNECTED_NOT_LIVE
 
 
-@pytest.mark.asyncio
 async def test_non_mcp_no_connection_when_provider_absent(
     db_session: AsyncSession,
 ) -> None:
@@ -275,7 +262,6 @@ async def test_non_mcp_no_connection_when_provider_absent(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_paused_only_resolves_connected_not_live(
     db_session: AsyncSession,
 ) -> None:
@@ -303,7 +289,6 @@ async def test_paused_only_resolves_connected_not_live(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_provider_readiness_issues_at_most_three_queries(
     engine: AsyncEngine, db_session: AsyncSession
 ) -> None:

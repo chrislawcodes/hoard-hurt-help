@@ -40,7 +40,6 @@ async def db_session_factory(
     yield async_sessionmaker(engine, expire_on_commit=False)
 
 
-@pytest.mark.asyncio
 async def test_mcp_tools_registered() -> None:
     """The MCP tool set matches the cleaned 7-tool surface."""
     from mcp_server.server import mcp_app
@@ -57,7 +56,6 @@ async def test_mcp_tools_registered() -> None:
     }
 
 
-@pytest.mark.asyncio
 async def test_mcp_tool_schema_fields_are_frozen() -> None:
     """Pin each tool's LLM-visible input fields.
 
@@ -98,7 +96,6 @@ async def test_mcp_tool_schema_fields_are_frozen() -> None:
     }
 
 
-@pytest.mark.asyncio
 async def test_get_next_turn_exposes_agent_id_for_parallel_play() -> None:
     """The agent_id selector is LLM-visible so a client can run one loop per agent."""
     from mcp_server.server import mcp_app
@@ -114,7 +111,6 @@ async def test_get_next_turn_exposes_agent_id_for_parallel_play() -> None:
     assert "db" not in schemas["get_next_turns"]
 
 
-@pytest.mark.asyncio
 async def test_authed_tools_hide_token_and_db_from_schema() -> None:
     """OAuth plumbing stays hidden from the LLM-visible tool schema."""
     from mcp_server.server import mcp_app
@@ -136,7 +132,6 @@ async def test_authed_tools_hide_token_and_db_from_schema() -> None:
         assert "db" not in schemas[name]
 
 
-@pytest.mark.asyncio
 async def test_mcp_discovery_requires_bearer_token() -> None:
     """The MCP endpoint advertises OAuth discovery instead of a secret header.
 
@@ -183,7 +178,6 @@ async def test_mcp_discovery_requires_bearer_token() -> None:
         assert as_metadata.json()["registration_endpoint"].endswith("/register")
 
 
-@pytest.mark.asyncio
 async def test_get_next_turn_uses_google_identity_and_mcp_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -242,7 +236,6 @@ async def test_get_next_turn_uses_google_identity_and_mcp_connection(
     assert captured["max_hold_seconds"] == server._NEXT_TURN_HOLD_SECONDS
 
 
-@pytest.mark.asyncio
 async def test_get_next_turn_strips_duplicate_static_for_mcp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -326,7 +319,6 @@ async def test_get_next_turn_strips_duplicate_static_for_mcp(
     }
 
 
-@pytest.mark.asyncio
 async def test_get_next_turns_strips_duplicate_static_for_mcp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -398,7 +390,6 @@ async def test_get_next_turns_strips_duplicate_static_for_mcp(
     assert turn["history"] == []  # rolling window preserved, not stripped
 
 
-@pytest.mark.asyncio
 async def test_get_game_state_requires_auth() -> None:
     """Anonymous MCP calls are rejected before any game state is read."""
     from mcp_server import server
@@ -427,7 +418,6 @@ def test_mcp_root_mount_and_public_mcp_route() -> None:
     assert any(getattr(route, "path", None) == "/mcp" for route in asgi_app.routes)
 
 
-@pytest.mark.asyncio
 async def test_pull_tools_use_shared_oauth_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -549,7 +539,6 @@ def test_dcr_client_id_from_request_fails_open_without_bearer(
         assert server._dcr_client_id_from_request() is None
 
 
-@pytest.mark.asyncio
 async def test_multi_connection_user_resolves_via_oauth_client_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

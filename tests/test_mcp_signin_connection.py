@@ -46,7 +46,6 @@ async def db_session_factory(
     yield session_factory
 
 
-@pytest.mark.asyncio
 async def test_signin_creates_active_connection_without_counting_a_call(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -82,7 +81,6 @@ async def test_signin_creates_active_connection_without_counting_a_call(
         }
 
 
-@pytest.mark.asyncio
 async def test_tool_path_still_records_the_call(
     db_session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
@@ -114,7 +112,6 @@ async def test_tool_path_still_records_the_call(
         assert refreshed.api_call_count == 1
 
 
-@pytest.mark.asyncio
 async def test_tool_call_routes_to_the_matching_client_not_another(
     db_session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
@@ -155,7 +152,6 @@ async def test_tool_call_routes_to_the_matching_client_not_another(
         assert connection.oauth_client_id == CODEX_DCR
 
 
-@pytest.mark.asyncio
 async def test_signin_is_idempotent_one_connection_per_user(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -187,7 +183,6 @@ async def test_signin_is_idempotent_one_connection_per_user(
         assert len(live) == 1
 
 
-@pytest.mark.asyncio
 async def test_initialize_middleware_is_fail_open(monkeypatch: pytest.MonkeyPatch) -> None:
     """A bootstrap failure must not break the session — initialize still runs."""
     monkeypatch.setattr(signin_middleware, "get_access_token", lambda: _token())
@@ -213,7 +208,6 @@ async def test_initialize_middleware_is_fail_open(monkeypatch: pytest.MonkeyPatc
     assert seen["called"] is True
 
 
-@pytest.mark.asyncio
 async def test_initialize_middleware_skips_when_unauthenticated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -264,7 +258,6 @@ def test_userinfo_from_claims_requires_email() -> None:
         server._userinfo_from_claims({"sub": "abc"})
 
 
-@pytest.mark.asyncio
 async def test_signin_hook_syncs_user_without_creating_a_connection(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -284,7 +277,6 @@ async def test_signin_hook_syncs_user_without_creating_a_connection(
         assert connections == []
 
 
-@pytest.mark.asyncio
 async def test_signin_hook_skips_when_no_id_token(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

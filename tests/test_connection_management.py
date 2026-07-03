@@ -255,7 +255,6 @@ async def _make_turn(
     await db.flush()
 
 
-@pytest.mark.asyncio
 async def test_create_machine_connection_shows_setup_page_before_connect(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -317,7 +316,6 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
         assert rows == []
 
 
-@pytest.mark.asyncio
 async def test_save_machine_name_rejects_overlong_nickname(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -341,7 +339,6 @@ async def test_save_machine_name_rejects_overlong_nickname(
         assert setup is None
 
 
-@pytest.mark.asyncio
 async def test_connections_list_shows_inline_setup_and_no_provider_picker(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -370,7 +367,6 @@ async def _set_live(db: AsyncSession, connection: Connection) -> None:
     await db.flush()
 
 
-@pytest.mark.asyncio
 async def test_connections_list_new_state_shows_connect_command_and_listening(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -450,7 +446,6 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     assert "setup-files/agentludum_connector.py" in text
 
 
-@pytest.mark.asyncio
 async def test_connections_list_returning_state_shows_play_prompt(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -486,7 +481,6 @@ async def test_connections_list_returning_state_shows_play_prompt(
     assert "My Mac" in text
 
 
-@pytest.mark.asyncio
 async def test_connections_list_connected_with_agent_leads_with_play_prompt(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -526,7 +520,6 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
     assert "Create your agent →" not in text
 
 
-@pytest.mark.asyncio
 async def test_connections_list_playing_state_shows_success(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -564,7 +557,6 @@ async def test_connections_list_playing_state_shows_success(
     assert "No game yet" in text
 
 
-@pytest.mark.asyncio
 async def test_connections_list_live_state_without_agent_nudges_create(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -589,7 +581,6 @@ async def test_connections_list_live_state_without_agent_nudges_create(
     assert "Paste this to your AI to start playing:" not in text
 
 
-@pytest.mark.asyncio
 async def test_live_status_fragment_not_live_shows_listening(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -606,7 +597,6 @@ async def test_live_status_fragment_not_live_shows_listening(
     assert "Create your agent →" not in resp.text
 
 
-@pytest.mark.asyncio
 async def test_live_status_fragment_live_shows_post_connect_block(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -630,7 +620,6 @@ async def test_live_status_fragment_live_shows_post_connect_block(
     assert "Waiting for your AI to connect…" not in resp.text
 
 
-@pytest.mark.asyncio
 async def test_connections_list_renders_existing_connection(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -655,7 +644,6 @@ async def test_connections_list_renders_existing_connection(
     assert "Disconnected" not in resp.text
 
 
-@pytest.mark.asyncio
 async def test_connections_list_groups_mcp_and_machine_with_calm_status(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -719,7 +707,6 @@ def test_calm_connection_status_is_type_aware_and_low_alarm() -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test_naming_machine_autosaves_into_one_setup_and_keeps_a_stable_key(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -778,7 +765,6 @@ async def test_naming_machine_autosaves_into_one_setup_and_keeps_a_stable_key(
         assert setup.nickname is None
 
 
-@pytest.mark.asyncio
 async def test_first_authenticated_call_creates_real_connection_from_setup(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -861,7 +847,6 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
         assert connection.status is ConnectionStatus.PAUSED
 
 
-@pytest.mark.asyncio
 async def test_rotate_overlap_keeps_old_key_until_new_key_used(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -905,7 +890,6 @@ async def test_rotate_overlap_keeps_old_key_until_new_key_used(
     assert old_dead.status_code == 401
 
 
-@pytest.mark.asyncio
 async def test_delete_stops_runner_but_leaves_agents_active(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -971,7 +955,6 @@ async def test_delete_stops_runner_but_leaves_agents_active(
         assert stored_player.id == player.id
 
 
-@pytest.mark.asyncio
 async def test_toggle_provider_enables_and_strand_guard(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1039,7 +1022,6 @@ async def test_toggle_provider_enables_and_strand_guard(
         assert claude_row.enabled is False
 
 
-@pytest.mark.asyncio
 async def test_detail_renders_provider_toggles_and_install_hint(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1064,7 +1046,6 @@ async def test_detail_renders_provider_toggles_and_install_hint(
     assert "<code>claude</code>" in r.text
 
 
-@pytest.mark.asyncio
 async def test_mcp_connection_detail_shows_read_only_provider_not_machine_toggles(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1092,7 +1073,6 @@ async def test_mcp_connection_detail_shows_read_only_provider_not_machine_toggle
     assert "this machine should run" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_connection_controls_live_in_status_card(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1121,7 +1101,6 @@ async def test_connection_controls_live_in_status_card(
     assert "<h3 style=\"margin-top:0;\">Connection controls</h3>" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_mcp_connection_status_card_hides_rotate_key(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1149,7 +1128,6 @@ async def test_mcp_connection_status_card_hides_rotate_key(
     assert "Sign in again from your AI client" in r.text
 
 
-@pytest.mark.asyncio
 async def test_detail_shows_when_connection_last_connected(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1173,7 +1151,6 @@ async def test_detail_shows_when_connection_last_connected(
     assert "Last seen" in r.text  # precise line in the status card
 
 
-@pytest.mark.asyncio
 async def test_never_connected_shows_no_last_connected_time(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1195,7 +1172,6 @@ async def test_never_connected_shows_no_last_connected_time(
     assert "Last seen" not in r.text  # the precise status-card line is hidden
 
 
-@pytest.mark.asyncio
 async def test_ready_status_copy_is_honest_about_staleness(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -1224,7 +1200,6 @@ async def test_ready_status_copy_is_honest_about_staleness(
     assert "connected and idle, ready for the next turn" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_pending_connections_gc_after_24h(session_factory: async_sessionmaker[AsyncSession]) -> None:
     async with session_factory() as db:
         user = await _make_user(db)
@@ -1254,7 +1229,6 @@ async def test_pending_connections_gc_after_24h(session_factory: async_sessionma
         assert [setup.id for setup in remaining] == [fresh.id]
 
 
-@pytest.mark.asyncio
 async def test_gc_raises_when_connection_setups_table_missing(
     engine: AsyncEngine,
 ) -> None:
@@ -1274,7 +1248,6 @@ async def test_gc_raises_when_connection_setups_table_missing(
             await gc_pending_connections(db, now=NOW)
 
 
-@pytest.mark.asyncio
 async def test_connection_health_across_multiple_agents_tracks_the_active_game(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

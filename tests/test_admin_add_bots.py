@@ -97,7 +97,6 @@ def _roster(*pairs: tuple[str, str]) -> dict[str, list[str]]:
     }
 
 
-@pytest.mark.asyncio
 async def test_form_renders_with_personalities(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
@@ -108,7 +107,6 @@ async def test_form_renders_with_personalities(client, reset_db):
     assert "Fill remaining seats" in r.text
 
 
-@pytest.mark.asyncio
 async def test_non_admin_blocked(client, reset_db):
     user = await _seed_user(reset_db, "regular@test.com")
     await _seed_game(reset_db)
@@ -125,7 +123,6 @@ async def test_non_admin_blocked(client, reset_db):
     assert r2.status_code == 403
 
 
-@pytest.mark.asyncio
 async def test_seats_bots_as_players(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
@@ -177,7 +174,6 @@ async def test_seats_bots_as_players(client, reset_db):
         assert all(agent.bot_strategy is not None for agent in agents.values())
 
 
-@pytest.mark.asyncio
 async def test_rejects_over_cap(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db, max_players=3)
@@ -205,7 +201,6 @@ async def test_rejects_over_cap(client, reset_db):
     assert count == 1  # nothing seated
 
 
-@pytest.mark.asyncio
 async def test_rejects_duplicate_name(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
@@ -227,7 +222,6 @@ async def test_rejects_duplicate_name(client, reset_db):
     assert "already taken" in r.text
 
 
-@pytest.mark.asyncio
 async def test_rejects_invalid_name(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
@@ -241,7 +235,6 @@ async def test_rejects_invalid_name(client, reset_db):
     assert "valid name" in r.text
 
 
-@pytest.mark.asyncio
 async def test_rejects_empty_roster(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)
@@ -255,7 +248,6 @@ async def test_rejects_empty_roster(client, reset_db):
     assert "at least one bot" in r.text
 
 
-@pytest.mark.asyncio
 async def test_cannot_add_after_start(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db, state=GameState.ACTIVE)
@@ -277,7 +269,6 @@ async def test_cannot_add_after_start(client, reset_db):
     assert count == 0
 
 
-@pytest.mark.asyncio
 async def test_detail_labels_bots_and_shows_banner(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     await _seed_game(reset_db)

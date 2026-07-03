@@ -98,7 +98,6 @@ def _account_menu(page: str) -> str | None:
     return None
 
 
-@pytest.mark.asyncio
 async def test_signed_out_nav_offers_sign_in_and_no_account_menu(client):
     r = await client.get("/games")
     assert r.status_code == 200
@@ -110,7 +109,6 @@ async def test_signed_out_nav_offers_sign_in_and_no_account_menu(client):
     assert "Sign out" not in _text(nav)
 
 
-@pytest.mark.asyncio
 async def test_signed_in_account_menu_carries_wayfinding_and_hides_sign_in(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db)
@@ -137,7 +135,6 @@ async def test_signed_in_account_menu_carries_wayfinding_and_hides_sign_in(clien
     assert not any(text == "Sign in" for text, _ in _links(nav))
 
 
-@pytest.mark.asyncio
 async def test_marketing_nav_override_follows_into_account_menu(client, reset_db):
     # The marketing home adds "How it works" to nav_links; the account menu
     # renders the same block, so that page override must follow along into it.

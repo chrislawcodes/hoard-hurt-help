@@ -426,7 +426,6 @@ async def _open_turn(
         return turn
 
 
-@pytest.mark.asyncio
 async def test_submit_with_connector_fallback_sets_was_defaulted(client, reset_db) -> None:
     """is_connector_fallback=True on /submit stores was_defaulted=True in DB."""
     game, players = await _seed_active_game(reset_db)
@@ -462,7 +461,6 @@ async def test_submit_with_connector_fallback_sets_was_defaulted(client, reset_d
     assert row.action == "HOARD"
 
 
-@pytest.mark.asyncio
 async def test_submit_without_fallback_flag_sets_was_defaulted_false(client, reset_db) -> None:
     """A normal submit (no is_connector_fallback) sets was_defaulted=False."""
     game, players = await _seed_active_game(reset_db)
@@ -496,7 +494,6 @@ async def test_submit_without_fallback_flag_sets_was_defaulted_false(client, res
     assert row.was_defaulted is False
 
 
-@pytest.mark.asyncio
 async def test_message_with_connector_fallback_sets_was_defaulted(client, reset_db) -> None:
     """is_connector_fallback=True on /message stores was_defaulted=True in DB."""
     game, players = await _seed_active_game(reset_db)
@@ -530,7 +527,6 @@ async def test_message_with_connector_fallback_sets_was_defaulted(client, reset_
     assert row.was_defaulted is True
 
 
-@pytest.mark.asyncio
 async def test_fallback_submit_can_be_overridden_by_genuine_submit(client, reset_db) -> None:
     """A fallback submission (was_defaulted=True) can be replaced by a real move."""
     game, players = await _seed_active_game(reset_db)
@@ -715,7 +711,6 @@ def test_move_request_includes_agent_turn_token(connector) -> None:
     assert act_params["agent_turn_token"] == "tok-9:7:M_1"
 
 
-@pytest.mark.asyncio
 async def test_connector_submit_lands_on_real_endpoint(connector, client, reset_db) -> None:
     """The connector's POST (as built by _move_request) is accepted by the live
     /submit endpoint and records a genuine, non-defaulted move.

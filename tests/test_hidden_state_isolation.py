@@ -12,7 +12,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -86,7 +85,6 @@ async def _poll_for(db: Any, match: Match, player: Player) -> YourTurnResponse:
     return resp
 
 
-@pytest.mark.asyncio
 async def test_private_state_never_leaks_across_players() -> None:
     registry.register(_HiddenStub())
 

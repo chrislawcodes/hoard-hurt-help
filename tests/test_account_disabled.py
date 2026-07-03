@@ -36,7 +36,6 @@ async def _seed_disabled_user(reset_db: async_sessionmaker) -> User:
         return user
 
 
-@pytest.mark.asyncio
 async def test_disabled_user_html_redirect(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -52,7 +51,6 @@ async def test_disabled_user_html_redirect(
     assert resp.headers["location"] == "/disabled"
 
 
-@pytest.mark.asyncio
 async def test_disabled_user_htmx_redirect(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -68,7 +66,6 @@ async def test_disabled_user_htmx_redirect(
     assert resp.headers["hx-redirect"] == "/disabled"
 
 
-@pytest.mark.asyncio
 async def test_disabled_page_loads_no_loop(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -82,7 +79,6 @@ async def test_disabled_page_loads_no_loop(
     assert resp.status_code == 200
 
 
-@pytest.mark.asyncio
 async def test_connection_key_disabled_user_blocked(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -101,7 +97,6 @@ async def test_connection_key_disabled_user_blocked(
     assert resp.json()["detail"]["error"]["code"] == "ACCOUNT_DISABLED"
 
 
-@pytest.mark.asyncio
 async def test_connection_setup_for_disabled_user_is_blocked(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -128,7 +123,6 @@ async def test_connection_setup_for_disabled_user_is_blocked(
     assert resp.json()["detail"]["error"]["code"] == "ACCOUNT_DISABLED"
 
 
-@pytest.mark.asyncio
 async def test_promoted_user_keeps_admin_role_after_login(
     reset_db: async_sessionmaker,
 ) -> None:
@@ -158,7 +152,6 @@ async def test_promoted_user_keeps_admin_role_after_login(
     assert result.role == UserRole.ADMIN
 
 
-@pytest.mark.asyncio
 async def test_config_email_always_gets_admin(
     reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:

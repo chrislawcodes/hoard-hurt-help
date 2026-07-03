@@ -74,7 +74,6 @@ async def _connect(reset_db: async_sessionmaker, connection_id: int) -> None:
 # ── pure resolver ───────────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
 async def test_cta_signed_out_is_get_started(reset_db):
     async with reset_db() as db:
         cta = await compute_nav_cta(db, None)
@@ -82,7 +81,6 @@ async def test_cta_signed_out_is_get_started(reset_db):
     assert cta.href == "/play"
 
 
-@pytest.mark.asyncio
 async def test_cta_signed_in_no_agent_is_play_now(reset_db):
     # The nav is dumb now: a signed-in user always gets "Play now" → lobby,
     # regardless of setup state. All gating moved to the join flow.
@@ -94,7 +92,6 @@ async def test_cta_signed_in_no_agent_is_play_now(reset_db):
     assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_cta_signed_in_connection_no_agent_is_play_now(reset_db):
     # Has a connection but no agent yet -> still just "Play now" (no smart funnel).
     async with reset_db() as db:
@@ -106,7 +103,6 @@ async def test_cta_signed_in_connection_no_agent_is_play_now(reset_db):
     assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_cta_signed_in_unconnected_agent_is_play_now(reset_db):
     # Has an agent but it has never connected -> still "Play now" (no smart funnel).
     async with reset_db() as db:
@@ -119,7 +115,6 @@ async def test_cta_signed_in_unconnected_agent_is_play_now(reset_db):
     assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_cta_connected_agent_is_play_now(reset_db):
     # A fully set-up user also gets "Play now" → lobby.
     async with reset_db() as db:
@@ -134,7 +129,6 @@ async def test_cta_connected_agent_is_play_now(reset_db):
     assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_cta_signed_in_bot_only_is_play_now(reset_db):
     # A bot-only user has no seatable agent, but the nav still just says "Play now".
     async with reset_db() as db:
@@ -149,7 +143,6 @@ async def test_cta_signed_in_bot_only_is_play_now(reset_db):
 # ── rendered nav ────────────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
 async def test_nav_renders_get_started_when_signed_out(client):
     # Interior page: the pill is the single entry — no separate "Sign in" beside it.
     r = await client.get("/games")
@@ -159,7 +152,6 @@ async def test_nav_renders_get_started_when_signed_out(client):
     assert "al-nav-auth" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_home_drops_pill_keeps_signin_when_signed_out(client):
     # Marketing home: the hero is the CTA, so the nav pill is dropped; the bar
     # offers the quiet "Sign in" instead — exactly one entry, no double button.
@@ -169,7 +161,6 @@ async def test_home_drops_pill_keeps_signin_when_signed_out(client):
     assert "al-nav-auth" in r.text  # the quiet "Sign in"
 
 
-@pytest.mark.asyncio
 async def test_desktop_nav_renders_primary_links_inline(client):
     r = await client.get("/games")
     assert r.status_code == 200
@@ -178,7 +169,6 @@ async def test_desktop_nav_renders_primary_links_inline(client):
     assert 'href="/leaderboard"' in desktop_nav
 
 
-@pytest.mark.asyncio
 async def test_home_desktop_nav_keeps_how_it_works_inline(client):
     r = await client.get("/")
     assert r.status_code == 200
@@ -186,7 +176,6 @@ async def test_home_desktop_nav_keeps_how_it_works_inline(client):
     assert 'href="/#how"' in desktop_nav
 
 
-@pytest.mark.asyncio
 async def test_nav_renders_play_now_for_connected_user(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db)
@@ -202,7 +191,6 @@ async def test_nav_renders_play_now_for_connected_user(client, reset_db):
     assert "Get started" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_nav_renders_play_now_for_user_without_agent(client, reset_db):
     # The nav is dumb: even a brand-new signed-in user sees "Play now" → lobby.
     async with reset_db() as db:
@@ -218,7 +206,6 @@ async def test_nav_renders_play_now_for_user_without_agent(client, reset_db):
     assert "Get started" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_nav_renders_play_now_for_user_with_connection_no_agent(client, reset_db):
     # A connection-but-no-agent user also just sees "Play now" — no smart funnel.
     async with reset_db() as db:
@@ -238,14 +225,12 @@ async def test_nav_renders_play_now_for_user_with_connection_no_agent(client, re
 # ── /play smart redirect ────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
 async def test_play_signed_out_redirects_to_login(client):
     r = await client.get("/play", follow_redirects=False)
     assert r.status_code == 302
     assert "/auth/google/login" in r.headers["location"]
 
 
-@pytest.mark.asyncio
 async def test_play_setup_incomplete_user_goes_to_lobby(client, reset_db):
     # /play is dumb now: a signed-in user always lands on the lobby, even with
     # setup incomplete. The handle/agent/connection gating moved to the join flow.
@@ -261,7 +246,6 @@ async def test_play_setup_incomplete_user_goes_to_lobby(client, reset_db):
     assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_play_connected_agent_goes_to_lobby(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db)
@@ -281,7 +265,6 @@ async def test_play_connected_agent_goes_to_lobby(client, reset_db):
 # ── live connection count (nav green dot) ───────────────────────────────────
 
 
-@pytest.mark.asyncio
 async def test_live_connection_count_zero_when_no_connections(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
@@ -290,7 +273,6 @@ async def test_live_connection_count_zero_when_no_connections(reset_db):
     assert count == 0
 
 
-@pytest.mark.asyncio
 async def test_live_connection_count_zero_when_connection_never_seen(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
@@ -300,7 +282,6 @@ async def test_live_connection_count_zero_when_connection_never_seen(reset_db):
     assert count == 0
 
 
-@pytest.mark.asyncio
 async def test_live_connection_count_zero_when_connection_stale(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
@@ -313,7 +294,6 @@ async def test_live_connection_count_zero_when_connection_stale(reset_db):
     assert count == 0
 
 
-@pytest.mark.asyncio
 async def test_live_connection_count_one_when_connection_warm(reset_db):
     async with reset_db() as db:
         user = await make_user(db)
@@ -324,7 +304,6 @@ async def test_live_connection_count_one_when_connection_warm(reset_db):
     assert count == 1
 
 
-@pytest.mark.asyncio
 async def test_nav_shows_green_badge_for_warm_provider(client, reset_db):
     # 1 warm connection → green badge shows, no red badge
     async with reset_db() as db:
@@ -340,7 +319,6 @@ async def test_nav_shows_green_badge_for_warm_provider(client, reset_db):
     assert "al-acct-badge-off" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_nav_badge_absent_when_connection_stale(client, reset_db):
     # Stale connection → no badge at all (not live, no red dot)
     async with reset_db() as db:
@@ -358,7 +336,6 @@ async def test_nav_badge_absent_when_connection_stale(client, reset_db):
     assert "al-acct-badge-off" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_nav_badge_green_when_connection_warm(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db)

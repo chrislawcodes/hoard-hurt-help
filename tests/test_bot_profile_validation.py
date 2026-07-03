@@ -84,7 +84,6 @@ def test_validate_bot_profile_fields_accepts_all_known_strategies() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_build_bot_profile_succeeds_for_valid_agent(reset_db) -> None:
     async with reset_db() as db:
         match = await _seed_match(db, "M_bp")
@@ -101,7 +100,6 @@ async def test_build_bot_profile_succeeds_for_valid_agent(reset_db) -> None:
         assert profile.seed == agent.bot_seed
 
 
-@pytest.mark.asyncio
 async def test_build_bot_profile_rejects_missing_strategy(reset_db) -> None:
     async with reset_db() as db:
         match = await _seed_match(db, "M_bp2")
@@ -117,7 +115,6 @@ async def test_build_bot_profile_rejects_missing_strategy(reset_db) -> None:
             build_bot_profile(agent)
 
 
-@pytest.mark.asyncio
 async def test_build_bot_profile_rejects_unknown_strategy(reset_db) -> None:
     async with reset_db() as db:
         match = await _seed_match(db, "M_bp3")
@@ -207,7 +204,6 @@ async def _seed_match(db, match_id: str = "M_test") -> Match:
     return match
 
 
-@pytest.mark.asyncio
 async def test_add_bots_to_game_succeeds_for_valid_preset(reset_db) -> None:
     async with reset_db() as db:
         match = await _seed_match(db)
@@ -222,7 +218,6 @@ async def test_add_bots_to_game_succeeds_for_valid_preset(reset_db) -> None:
         assert agent.name == f"{match.id}:Caesar"
 
 
-@pytest.mark.asyncio
 async def test_add_bots_to_game_rejects_unknown_personality(reset_db) -> None:
     async with reset_db() as db:
         match = await _seed_match(db)

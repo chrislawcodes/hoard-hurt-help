@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -41,7 +40,6 @@ async def _seed(reset_db: async_sessionmaker, *, outcome: str) -> tuple[int, int
         return user.id, agent.id
 
 
-@pytest.mark.asyncio
 async def test_detail_shows_failed_badge(client: AsyncClient, reset_db: async_sessionmaker) -> None:
     uid, aid = await _seed(reset_db, outcome="failed")
     r = await client.get(f"/me/agents/{aid}", cookies={"hhh_session": session_cookie(uid)})
@@ -49,7 +47,6 @@ async def test_detail_shows_failed_badge(client: AsyncClient, reset_db: async_se
     assert "can't run" in r.text
 
 
-@pytest.mark.asyncio
 async def test_detail_shows_verified_badge(client: AsyncClient, reset_db: async_sessionmaker) -> None:
     uid, aid = await _seed(reset_db, outcome="verified")
     r = await client.get(f"/me/agents/{aid}", cookies={"hhh_session": session_cookie(uid)})
@@ -57,7 +54,6 @@ async def test_detail_shows_verified_badge(client: AsyncClient, reset_db: async_
     assert "your connector can run this model" in r.text
 
 
-@pytest.mark.asyncio
 async def test_join_warns_on_failing_preferred_model(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
@@ -67,7 +66,6 @@ def test_non_dict_json_is_left_alone() -> None:
     assert _normalize_registration_body(body) is body
 
 
-@pytest.mark.asyncio
 async def test_registration_without_refresh_token_succeeds() -> None:
     """End to end: a client that registers only the auth-code flow is accepted.
 
