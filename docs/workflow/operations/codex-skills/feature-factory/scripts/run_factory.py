@@ -15,6 +15,8 @@ from factory_state import (  # noqa: E402
     BLOCKED_KEY,
     DISCOVERY_KEY,
     CHECKPOINT_PROGRESS_KEY,
+    EXPERIMENT_KEY,
+    EXPERIMENT_LOG_FILES,
     INIT_HEAD_SHA_KEY,
     checkpoint_manifest_path,
     default_artifact_path,
@@ -184,6 +186,23 @@ def command_init(args: argparse.Namespace) -> int:
     # Always reset checkpoint_progress on init so stale slice state from a
     # previous run does not corrupt the new one.
     existing_state[CHECKPOINT_PROGRESS_KEY] = _default_checkpoint_progress()
+    # Experiment membership: closeout hard-blocks until the experiment's log
+    # file mentions this slug (see factory_cmd_closeout). Reject unknown names
+    # here so a typo fails at init, not at closeout weeks later.
+    experiment_name = (getattr(args, "experiment", None) or "").strip()
+    if experiment_name:
+        if experiment_name not in EXPERIMENT_LOG_FILES:
+            known = ", ".join(sorted(EXPERIMENT_LOG_FILES))
+            raise SystemExit(
+                f"init --experiment {experiment_name!r} is not a known experiment. "
+                f"Known experiments: {known}. Add a name→log-file entry to "
+                "factory_state.EXPERIMENT_LOG_FILES to register a new one."
+            )
+        experiment_record = existing_state.get(EXPERIMENT_KEY)
+        if not isinstance(experiment_record, dict):
+            experiment_record = {}
+        experiment_record["name"] = experiment_name
+        existing_state[EXPERIMENT_KEY] = experiment_record
     # Record the HEAD SHA at init time so we can verify STATUS.md was updated.
     head_sha = _git_head_sha(REPO_ROOT)
     if head_sha:
@@ -200,6 +219,10 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser = subparsers.add_parser("init")
     init_parser.add_argument("--slug", required=True)
     init_parser.add_argument("--path", action="append", default=[])
+    init_parser.add_argument("--experiment", default=None,
+        help="Name of the A/B experiment this run belongs to (e.g. 'thin-vs-factory'). "
+             "Recorded in state.json; closeout then hard-blocks until the experiment's "
+             "log file contains an entry mentioning this slug.")
     init_parser.set_defaults(func=command_init)
 
     doctor_parser = subparsers.add_parser("doctor")
@@ -476,6 +499,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional 1–2 sentence operator note for the closeout")
     closeout_parser.add_argument("--out", default=None,
         help="Override output path for closeout.md (default: <slug-dir>/closeout.md)")
+    closeout_parser.add_argument("--skip-experiment-log", dest="skip_experiment_log",
+        default=None, metavar="REASON",
+        help="Bypass the experiment-log gate with a one-sentence reason; the "
+             "reason is recorded in state.json. Only applies to runs initialized "
+             "with init --experiment.")
     closeout_parser.set_defaults(func=command_standalone_closeout)
 
     review_extract_parser = subparsers.add_parser("review-extract")

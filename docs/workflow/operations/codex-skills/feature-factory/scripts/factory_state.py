@@ -92,6 +92,16 @@ INIT_HEAD_SHA_KEY = "init_head_sha"
 ARCH_DOCS_KEY = "arch_docs"
 INVARIANT_WARNINGS_KEY = "invariant_warnings"
 _INVARIANT_WARNINGS_CAP = 100
+# A/B experiment membership recorded at init (``init --experiment <name>``).
+# Shape: {"name": str, "log_skip_reason": str}. When "name" is set, the
+# standalone closeout hard-blocks until the experiment's log file mentions the
+# run's slug (or the operator bypasses with --skip-experiment-log "<reason>").
+EXPERIMENT_KEY = "experiment"
+# Known experiment name → repo-relative log file. Closeout resolves the file
+# against the live repo root at call time; init rejects names not listed here.
+EXPERIMENT_LOG_FILES: dict[str, str] = {
+    "thin-vs-factory": "docs/workflow/experiments-thin-vs-factory.md",
+}
 
 # ---------------------------------------------------------------------------
 # Atomic JSON I/O
@@ -275,6 +285,7 @@ def _default_workflow_state() -> dict:
         CHECKPOINT_FALLBACK_KEY: {},
         PARALLEL_ANALYSIS_KEY: default_parallel_analysis_state(),
         INIT_HEAD_SHA_KEY: "",
+        EXPERIMENT_KEY: {},
         "token_usage": [],
         "command_telemetry": [],
         "stages": {},
@@ -514,6 +525,7 @@ def load_workflow_state(slug: str) -> dict:
     state.setdefault(CHECKPOINT_FALLBACK_KEY, {})
     state.setdefault(PARALLEL_ANALYSIS_KEY, default_parallel_analysis_state())
     state.setdefault(INIT_HEAD_SHA_KEY, "")
+    state.setdefault(EXPERIMENT_KEY, {})
     state.setdefault("token_usage", [])
     state.setdefault("command_telemetry", [])
     state.setdefault("stages", {})

@@ -26,8 +26,12 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+import factory_state  # noqa: E402
 from factory_state import (  # noqa: E402
     DELIVERY_KEY,
+    EXPERIMENT_KEY,
+    EXPERIMENT_LOG_FILES,
+    INIT_HEAD_SHA_KEY,
     load_workflow_state,
     save_workflow_state,
     workflow_dir,
@@ -101,6 +105,166 @@ def _is_real_call_error(parse_error: object) -> bool:
 
 # Checkbox patterns in tasks.md
 _OPEN_CHECKBOX_RE = re.compile(r"^\s*[-*]\s+\[ \]")
+
+# ---------------------------------------------------------------------------
+# Experiment-log gate (init --experiment → closeout hard-block)
+# ---------------------------------------------------------------------------
+
+
+def _experiment_log_gate(slug: str, state: dict, skip_reason: str) -> None:
+    """Hard-block closeout for experiment runs until the A/B log mentions the slug.
+
+    The thin-vs-factory experiment log stayed empty after a real run because
+    nothing forced the entry to be written. When state.json records an
+    experiment name (``init --experiment``), closeout refuses to finish until
+    the experiment's log file contains the run's slug, or the operator
+    explicitly bypasses with ``--skip-experiment-log "<reason>"`` (the caller
+    persists the reason).
+
+    Fails open for legacy runs with no recorded init SHA — mirrors how
+    ``status_md_changed_since_init`` and the arch-docs gate treat pre-gate runs.
+    Raises SystemExit when blocked.
+    """
+    experiment = state.get(EXPERIMENT_KEY)
+    experiment_name = ""
+    if isinstance(experiment, dict):
+        experiment_name = str(experiment.get("name", "") or "").strip()
+    if not experiment_name:
+        return
+    init_sha = state.get(INIT_HEAD_SHA_KEY, "")
+    if not init_sha:
+        return  # legacy run predating the gate — can't verify, don't block
+    if skip_reason:
+        return  # explicit bypass; the caller records the reason in state.json
+    log_rel = EXPERIMENT_LOG_FILES.get(experiment_name)
+    if not log_rel:
+        raise SystemExit(
+            f"closeout blocked: run '{slug}' belongs to experiment "
+            f"'{experiment_name}', which has no log file registered in "
+            "factory_state.EXPERIMENT_LOG_FILES. Register it, or bypass with "
+            '--skip-experiment-log "<one-sentence reason>".'
+        )
+    log_path = factory_state.REPO_ROOT / log_rel
+    log_text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+    if slug not in log_text:
+        raise SystemExit(
+            f"closeout blocked: run '{slug}' belongs to experiment "
+            f"'{experiment_name}' but {log_rel} has no entry mentioning the "
+            "slug. Append the run's A/B entry to that log first, or bypass "
+            'with --skip-experiment-log "<one-sentence reason>".'
+        )
+
+
+# ---------------------------------------------------------------------------
+# Proposed-fixes tracker (postmortem → recurring-fix log)
+# ---------------------------------------------------------------------------
+
+# Repo-relative tracker path; resolved against factory_state.REPO_ROOT at call
+# time so tests (which repoint REPO_ROOT at a tmp dir) never touch the live file.
+_PROPOSED_FIXES_REL_PATH = (
+    "docs/workflow/operations/codex-skills/feature-factory/proposed-fixes.md"
+)
+
+# Heading like "## Proposed workflow changes (for human approval)" — postmortems
+# vary the parenthetical, so match on the stable prefix, case-insensitive.
+_PROPOSED_SECTION_RE = re.compile(r"^#{2,}\s*proposed workflow changes\b", re.IGNORECASE)
+
+# A top-level list item: "- ...", "* ...", "1. ...", "2) ...". Indent capped at
+# 3 spaces so nested sub-bullets fold into their parent as continuations.
+_ITEM_START_RE = re.compile(r"^\s{0,3}(?:[-*]|\d+[.)])\s+(?P<text>.*)$")
+
+_BOLD_RE = re.compile(r"\*\*(?P<bold>.+?)\*\*")
+
+_PROPOSAL_MAX_CHARS = 240
+
+_TRACKER_HEADER = (
+    "# Feature Factory — Proposed Fixes Tracker\n\n"
+    "The rule: any proposal appearing from 2+ different runs MUST become a "
+    "tracked fix.\n\n"
+    "## Proposals\n"
+)
+
+
+def _extract_proposed_changes(postmortem_text: str) -> list[str]:
+    """Return one-line proposals from the 'Proposed workflow changes' section.
+
+    Each list item becomes one proposal. Items that lead with a bold headline
+    (the convention in every existing postmortem) contribute just that
+    headline; otherwise the whole item is collapsed to a single line and
+    truncated. Returns [] when the section is absent.
+    """
+    lines = postmortem_text.splitlines()
+    section_start: int | None = None
+    for idx, line in enumerate(lines):
+        if _PROPOSED_SECTION_RE.match(line.strip()):
+            section_start = idx + 1
+            break
+    if section_start is None:
+        return []
+
+    items: list[list[str]] = []
+    for line in lines[section_start:]:
+        if line.lstrip().startswith("#"):
+            break  # next heading ends the section
+        match = _ITEM_START_RE.match(line)
+        if match:
+            items.append([match.group("text").strip()])
+        elif line.strip() and items:
+            items[-1].append(line.strip())
+
+    one_liners: list[str] = []
+    for parts in items:
+        joined = " ".join(part for part in parts if part)
+        bold = _BOLD_RE.search(joined)
+        text = bold.group("bold") if bold else joined
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) > _PROPOSAL_MAX_CHARS:
+            text = text[:_PROPOSAL_MAX_CHARS].rstrip() + "…"
+        if text:
+            one_liners.append(text)
+    return one_liners
+
+
+def _sync_proposed_fixes(
+    slug: str, postmortem_path: Path, tracker_path: Path, date_str: str
+) -> int:
+    """Append this run's new postmortem proposals to the tracker file.
+
+    Lines are appended as ``- [<slug>, <date>] <proposal one-liner>``;
+    exact-duplicate lines are skipped. Returns the number appended. Advisory:
+    a missing postmortem or missing section appends nothing (postmortems are
+    often written after closeout — a re-run picks them up).
+    """
+    if not postmortem_path.exists():
+        return 0
+    proposals = _extract_proposed_changes(
+        postmortem_path.read_text(encoding="utf-8")
+    )
+    if not proposals:
+        return 0
+
+    existing_text = (
+        tracker_path.read_text(encoding="utf-8")
+        if tracker_path.exists()
+        else _TRACKER_HEADER
+    )
+    existing_lines = set(existing_text.splitlines())
+    new_lines: list[str] = []
+    for proposal in proposals:
+        candidate = f"- [{slug}, {date_str}] {proposal}"
+        if candidate in existing_lines or candidate in new_lines:
+            continue
+        new_lines.append(candidate)
+    if not new_lines:
+        return 0
+
+    updated = existing_text
+    if not updated.endswith("\n"):
+        updated += "\n"
+    updated += "\n".join(new_lines) + "\n"
+    tracker_path.parent.mkdir(parents=True, exist_ok=True)
+    tracker_path.write_text(updated, encoding="utf-8")
+    return len(new_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -538,6 +702,15 @@ def command_standalone_closeout(args: argparse.Namespace) -> int:
         )
         return 0
 
+    # Experiment-log gate: block before any state or file mutation.
+    skip_reason_raw = getattr(args, "skip_experiment_log", None)
+    skip_reason = (skip_reason_raw or "").strip()
+    if skip_reason_raw is not None and not skip_reason:
+        raise SystemExit(
+            "closeout --skip-experiment-log requires a non-empty one-sentence reason"
+        )
+    _experiment_log_gate(slug, state, skip_reason)
+
     # PR metadata — use provided args, fall back to gh CLI detection
     pr_url: str = getattr(args, "pr_url", None) or ""
     pr_number_raw = getattr(args, "pr_number", None)
@@ -605,6 +778,13 @@ def command_standalone_closeout(args: argparse.Namespace) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(closeout_text, encoding="utf-8")
 
+    # Record an experiment-log bypass so the skipped gate leaves a trace.
+    if skip_reason:
+        experiment_record = state.get(EXPERIMENT_KEY)
+        if isinstance(experiment_record, dict) and experiment_record.get("name"):
+            experiment_record["log_skip_reason"] = skip_reason
+            print(f"experiment-log gate bypassed: {skip_reason}", file=sys.stderr)
+
     # Update state.delivery
     delivery_record = {
         "pr_url": pr_url,
@@ -616,6 +796,21 @@ def command_standalone_closeout(args: argparse.Namespace) -> int:
     }
     state[DELIVERY_KEY] = delivery_record
     save_workflow_state(slug, state)
+
+    # Proposed-fixes tracker: fold this run's postmortem proposals into the
+    # recurring-fix log (advisory, non-gating — see proposed-fixes.md).
+    appended = _sync_proposed_fixes(
+        slug,
+        root / "postmortem.md",
+        factory_state.REPO_ROOT / _PROPOSED_FIXES_REL_PATH,
+        closed_at[:10],
+    )
+    if appended:
+        print(
+            f"proposed-fixes: appended {appended} new proposal(s) to "
+            f"{_PROPOSED_FIXES_REL_PATH}",
+            file=sys.stderr,
+        )
 
     print(str(out_path))
     return 0
