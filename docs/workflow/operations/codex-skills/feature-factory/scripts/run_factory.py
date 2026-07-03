@@ -419,6 +419,13 @@ def build_parser() -> argparse.ArgumentParser:
         dest="max_workers",
         help="max concurrent Codex workers (default: 4)",
     )
+    implement_parser.add_argument(
+        "--allow-unsliced",
+        action="store_true",
+        dest="allow_unsliced",
+        help="proceed although tasks.md has zero [CHECKPOINT] markers (genuinely "
+             "single-slice feature); records an unsliced_accepted annotation in state.json",
+    )
     implement_parser.set_defaults(func=command_implement)
 
     deliver_parser = subparsers.add_parser("deliver")

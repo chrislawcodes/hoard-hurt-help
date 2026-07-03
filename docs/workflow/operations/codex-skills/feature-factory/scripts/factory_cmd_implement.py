@@ -33,6 +33,7 @@ from factory_git import (  # noqa: E402
     check_clean_tree,
     prune_orphaned_worktrees,
     PROTECTED_FILES,
+    _git_head_sha,
 )
 from factory_codex_runner import (  # noqa: E402
     RC_HARD_TIMEOUT,
@@ -45,8 +46,13 @@ from factory_codex_runner import (  # noqa: E402
 )
 
 from factory_runlock import acquire_run_lock, release_run_lock, run_lock_path  # noqa: E402
-from factory_stages import checkpoint_progress_state, parse_parallel_task_groups  # noqa: E402
-from factory_parallel import prior_slice_unbuilt  # noqa: E402
+from factory_stages import (  # noqa: E402
+    _is_diff_bookkeeping_path,
+    checkpoint_progress_state,
+    parse_parallel_task_groups,
+    unsliced_tasks_error,
+)
+from factory_parallel import prior_slice_unbuilt, slice_task_declared_files  # noqa: E402
 
 from factory_emit import _emit_next_action  # noqa: E402
 from factory_mutating import mutates_state  # noqa: E402
@@ -133,6 +139,239 @@ def _classify_codex_rc(rc: int) -> int:
     return rc
 
 
+def _record_unsliced_annotation(slug: str) -> None:
+    """Record that the operator accepted an unsliced build via --allow-unsliced.
+
+    Mirrors the cap_accepted annotation the checkpoint command writes: an
+    append-only entry in state.json's annotations[] so the bypass is auditable
+    per run.
+    """
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+
+    def mutate(state: dict) -> None:
+        annotations = state.setdefault("annotations", [])
+        annotations.append(
+            {
+                "stage": "implement",
+                "ts": ts,
+                "type": "unsliced_accepted",
+                "reason": (
+                    "operator passed --allow-unsliced: building without "
+                    "[CHECKPOINT] slice boundaries (single-slice feature)"
+                ),
+                "marker_count": 0,
+            }
+        )
+
+    update_workflow_state(slug, mutate)
+
+
+def _git_capture(git_args: list[str]) -> list[str] | None:
+    """Run git in REPO_ROOT; return stripped non-empty stdout lines, or None on failure."""
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *git_args],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _porcelain_paths(lines: list[str]) -> list[str]:
+    """Repo-relative paths from ``git status --porcelain`` lines (renames → new path)."""
+    paths: list[str] = []
+    for line in lines:
+        # Porcelain v1: "XY path" (or "XY old -> new" for renames).
+        path = line[2:].strip() if len(line) > 2 else ""
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if path:
+            paths.append(path)
+    return paths
+
+
+def _real_slice_paths(paths: list[str]) -> list[str]:
+    """Drop paths that are never evidence of slice work.
+
+    The factory's own run bookkeeping changes on every dispatch — the prompt
+    and transcript under codex-specs/, heartbeat writes to state.json (all
+    under docs/workflow/feature-runs/), STATUS.md — and PROTECTED_FILES are
+    reverted after every dispatch anyway. Counting either as "the slice was
+    built" would let a no-op dispatch slip through the completion gate.
+    """
+    protected = set(PROTECTED_FILES)
+    return [
+        path
+        for path in paths
+        if path not in protected and not _is_diff_bookkeeping_path(path)
+    ]
+
+
+def _short_task(text: str, limit: int = 90) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _slice_completion_error(slug: str, index: int, base_sha: str) -> str | None:
+    """Hard slice-completion gate for a serial dispatch that reported success.
+
+    Codex has returned exit 0 while silently skipping the work (user-roles run:
+    3 of 5 slices never built, nothing checked). Fail closed when nothing
+    verifiable was produced: no new commit AND no working-tree changes, or
+    commits whose combined diff against the pre-dispatch HEAD is empty. Run
+    bookkeeping and protected files never count as evidence — the dispatch
+    prompt/transcript and heartbeat state.json change on every dispatch, so
+    without _real_slice_paths this gate could never fire. Returns the error
+    message, or None when the dispatch demonstrably changed something. A git
+    failure during verification also fails the gate — an unverifiable slice
+    must not advance silently.
+    """
+    log_hint = f"Inspect the codex transcript at {_codex_log_path(slug, index)}."
+    commits = _git_capture(["log", "--format=%H", f"{base_sha}..HEAD"])
+    if commits is None:
+        return (
+            f"could not verify slice completion (git log {base_sha[:12]}..HEAD failed) — "
+            f"refusing to treat the dispatch as done. {log_hint}"
+        )
+    # -uall lists untracked files individually; the default collapses them to
+    # their deepest untracked directory, which would defeat the bookkeeping
+    # prefix filter (e.g. "?? docs/" instead of the codex-specs files).
+    status_lines = _git_capture(["status", "--porcelain", "-uall"])
+    if status_lines is None:
+        return (
+            "could not verify slice completion (git status failed) — refusing to "
+            f"treat the dispatch as done. {log_hint}"
+        )
+    dirty = _real_slice_paths(_porcelain_paths(status_lines))
+    if not commits and not dirty:
+        return (
+            "codex exited 0 but produced NO new commit and NO working-tree changes "
+            "(beyond run bookkeeping) — the slice was not implemented. This is the "
+            f"silent-skip failure mode: do not advance the checkpoint. {log_hint}"
+        )
+    if commits and not dirty:
+        diff_files = _git_capture(["diff", "--name-only", f"{base_sha}..HEAD"])
+        if diff_files is None:
+            return (
+                f"could not verify slice completion (git diff {base_sha[:12]}..HEAD "
+                f"failed) — refusing to treat the dispatch as done. {log_hint}"
+            )
+        if not _real_slice_paths(diff_files):
+            return (
+                f"codex exited 0 and committed, but the slice diff {base_sha[:12]}..HEAD "
+                f"is EMPTY (beyond run bookkeeping) — the commit(s) implemented nothing. "
+                f"{log_hint}"
+            )
+    return None
+
+
+def _parallel_completion_error(
+    commits_by_task: dict[int, list[str]],
+    files_by_task: dict[int, set[str]],
+    tasks: list[str],
+) -> str | None:
+    """Per-worker completion gate for a parallel dispatch that reported success.
+
+    Each worker's worktree was auto-committed if dirty before this runs, so a
+    worker with no new commits produced nothing at all, and a worker with
+    commits but an empty changed-file set (bookkeeping and protected files
+    don't count — see _real_slice_paths) produced an empty diff. Either way
+    its task was silently skipped — fail closed instead of cherry-picking a
+    partial slice.
+    """
+    for i in range(len(tasks)):
+        task = _short_task(tasks[i])
+        if not commits_by_task.get(i):
+            return (
+                f"parallel codex worker {i} exited 0 but produced no commit and no "
+                f"working-tree changes — its task was silently skipped: {task}"
+            )
+        if not _real_slice_paths(sorted(files_by_task.get(i, set()))):
+            return (
+                f"parallel codex worker {i} committed an EMPTY diff (beyond run "
+                f"bookkeeping) — its task was silently skipped: {task}"
+            )
+    return None
+
+
+def _changed_paths_since(base_sha: str) -> set[str] | None:
+    """Paths changed since base_sha: committed diff plus any working-tree changes.
+
+    -uall so untracked files appear individually (a collapsed "?? dir/" entry
+    would never equal a task's declared file path).
+    """
+    committed = _git_capture(["diff", "--name-only", f"{base_sha}..HEAD"])
+    if committed is None:
+        return None
+    porcelain = _git_capture(["status", "--porcelain", "-uall"])
+    if porcelain is None:
+        return None
+    return set(committed) | set(_porcelain_paths(porcelain))
+
+
+def _coverage_report(
+    task_files: list[tuple[str, list[str]]], changed: set[str]
+) -> tuple[list[str], int]:
+    """Per-task coverage checklist lines + count of tasks with uncovered files.
+
+    A declared path counts as covered when the diff touched it exactly or
+    touched anything under it (directory declarations). Pure so it is unit-
+    testable; the caller decides how loudly to print.
+    """
+
+    def covered(declared: str) -> bool:
+        norm = declared.rstrip("/")
+        return any(path == norm or path.startswith(norm + "/") for path in changed)
+
+    lines: list[str] = []
+    gaps = 0
+    for task, paths in task_files:
+        if not paths:
+            continue
+        missing = [p for p in paths if not covered(p)]
+        if missing:
+            gaps += 1
+            lines.append(f"  ⚠ {_short_task(task)} — missing: {', '.join(missing)}")
+        else:
+            lines.append(f"  ✓ {_short_task(task)} — {len(paths)} file(s) touched")
+    return lines, gaps
+
+
+def _print_slice_coverage(slug: str, base_sha: str) -> None:
+    """Advisory per-task file-coverage report after a successful slice dispatch.
+
+    Cross-checks the file paths each task names against what actually changed.
+    Loud warning on gaps but NEVER a hard failure: task prose names files too
+    loosely to gate on (renames, paths mentioned as context, helper files).
+    """
+    index = checkpoint_progress_state(slug)["index"]
+    task_files = [
+        (task, paths) for task, paths in slice_task_declared_files(slug, index) if paths
+    ]
+    if not task_files:
+        return
+    changed = _changed_paths_since(base_sha)
+    if changed is None:
+        print(
+            "[implement] warn: could not diff against the pre-dispatch HEAD — "
+            "skipping the per-task coverage report",
+            file=sys.stderr,
+        )
+        return
+    lines, gaps = _coverage_report(task_files, changed)
+    print(f"[implement] slice {index} per-task file coverage:")
+    for line in lines:
+        print(line)
+    if gaps:
+        print(
+            f"[implement] WARNING: {gaps} of {len(task_files)} task(s) name files "
+            "with no matching change in this slice's diff. Codex may have skipped "
+            "them — verify each ⚠ task before checkpointing. (Not fatal: task "
+            "prose can name files loosely.)",
+            file=sys.stderr,
+        )
+
+
 def _build_codex_prompt(slug: str, i: int, tasks: list[str], file_scope: list[str]) -> str:
     root = workflow_dir(slug)
     # Prefer compact summaries — they contain everything Codex needs for implementation
@@ -166,6 +405,14 @@ def _build_codex_prompt(slug: str, i: int, tasks: list[str], file_scope: list[st
 
 
 def _run_serial(slug: str, tasks: list[str]) -> int:
+    base_sha = _git_head_sha(REPO_ROOT)
+    if not base_sha:
+        print(
+            "[error] unable to capture the pre-dispatch HEAD — cannot verify slice "
+            "completion afterwards, refusing to dispatch",
+            file=sys.stderr,
+        )
+        return 1
     prompt_text = _build_codex_prompt(slug, 0, tasks, [])
     round_number = _implementation_round(slug)
     command = ["codex", "exec", "-m", "gpt-5.4-mini", "-s", "workspace-write", prompt_text]
@@ -185,7 +432,13 @@ def _run_serial(slug: str, tasks: list[str]) -> int:
 
     try:
         result = run_codex_with_retry(_dispatch, label=f"implement[{slug}#0]")
-        return _classify_codex_rc(result.returncode)
+        rc = _classify_codex_rc(result.returncode)
+        if rc == 0:
+            completion_error = _slice_completion_error(slug, 0, base_sha)
+            if completion_error:
+                print(f"[error] {completion_error}", file=sys.stderr)
+                return 1
+        return rc
     finally:
         revert_protected_files()
 
@@ -321,6 +574,27 @@ def _run_parallel(slug: str, group: dict, max_workers: int = 4) -> int:
             print(f"[error] failed to collect commits from worker worktrees: {exc}", file=sys.stderr)
             return 1
 
+        # Slice-completion gate: every worker that reported success must have
+        # produced a real commit with a non-empty diff. A silent no-op worker
+        # means its task was skipped — fail closed before cherry-picking a
+        # partial slice.
+        completion_error = _parallel_completion_error(
+            commits_by_task, files_by_task, [str(t) for t in tasks]
+        )
+        if completion_error:
+            reset_result = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "reset", "--hard", base_sha],
+                capture_output=True,
+                text=True,
+            )
+            if reset_result.returncode != 0:
+                print(
+                    f"[warn] failed to reset repository to {base_sha[:12]}: {reset_result.stderr.strip() or reset_result.stdout.strip() or 'git reset failed'}",
+                    file=sys.stderr,
+                )
+            print(f"[error] {completion_error}", file=sys.stderr)
+            return 1
+
         # Runtime [P:] safety: parallel workers must write disjoint file sets.
         # Detect a violation here rather than letting it surface as a confusing
         # cherry-pick conflict (or, worse, silently merge two unrelated edits).
@@ -385,6 +659,22 @@ def command_implement(args: argparse.Namespace) -> int:
         print("nothing to implement — all tasks complete or no tasks.md")
         return 0
 
+    # Fail closed on an unsliced tasks.md: zero [CHECKPOINT] markers collapses
+    # every slice into one giant dispatch (exp 10, user-roles incidents).
+    # --allow-unsliced is the audited escape hatch for a genuinely single-slice feature.
+    unsliced = unsliced_tasks_error(args.slug)
+    if unsliced:
+        if getattr(args, "allow_unsliced", False):
+            _record_unsliced_annotation(args.slug)
+            print(
+                "[implement] --allow-unsliced: building without [CHECKPOINT] slice "
+                "boundaries (unsliced_accepted annotation recorded in state.json)",
+                file=sys.stderr,
+            )
+        else:
+            print(f"[error] {unsliced}", file=sys.stderr)
+            return 1
+
     # Guard against checkpoint-index drift: never dispatch a slice when the
     # prior slice was never built (e.g. a repair that wrongly advanced the index).
     drift_error = prior_slice_unbuilt(
@@ -399,6 +689,9 @@ def command_implement(args: argparse.Namespace) -> int:
         print(lock_err, file=sys.stderr)
         return 1
     try:
+        # Captured before any dispatch so the advisory per-task coverage report
+        # can compare the slice's declared files against what actually changed.
+        coverage_base_sha = _git_head_sha(REPO_ROOT)
         with HeartbeatEmitter(args.slug, "implement"):
             for group in groups:
                 heartbeat_set_activity("codex exec running")
@@ -411,6 +704,14 @@ def command_implement(args: argparse.Namespace) -> int:
                     rc = _run_parallel(args.slug, group, max_workers=args.max_workers)
                 if rc != 0:
                     return rc
+        if coverage_base_sha:
+            _print_slice_coverage(args.slug, coverage_base_sha)
+        else:
+            print(
+                "[implement] warn: could not capture the pre-dispatch HEAD — "
+                "skipping the per-task coverage report",
+                file=sys.stderr,
+            )
         return 0
     finally:
         _release_implement_lock(lock_fd)
