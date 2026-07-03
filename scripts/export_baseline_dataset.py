@@ -28,16 +28,23 @@ import argparse
 import asyncio
 import csv
 import math
-import os
 import sys
 from pathlib import Path
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from offline_db import ensure_repo_root_on_path, set_database_url  # noqa: E402
+
 
 def _setup(db_path: str) -> None:
-    root = Path(__file__).resolve().parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    ensure_repo_root_on_path()
+    # setdefault, not override: this script only reads a DB another script
+    # (baseline_tournament.py) already created and must not clobber a
+    # caller's own DATABASE_URL. No mkdir/schema-create either — the file and
+    # its schema are expected to exist already.
+    set_database_url(db_path, mkdir=False, override=False)
 
 
 def _mean(values: list[float]) -> float:

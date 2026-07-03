@@ -20,32 +20,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import random
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Bootstrap: point the app at the baseline DB before any app imports.
-# ---------------------------------------------------------------------------
+# Make sibling `scripts/` modules importable regardless of how this script is
+# invoked (direct `python scripts/baseline_tournament.py` already puts
+# `scripts/` on sys.path; this covers other invocation styles too).
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
-def _setup_db_url(db_path: str) -> None:
-    path = Path(db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{path}"
-
-
-# ---------------------------------------------------------------------------
-# App imports (after env is set).
-# ---------------------------------------------------------------------------
-
-def _import_app() -> None:
-    # Ensure repo root is on sys.path so `app.*` resolves.
-    root = Path(__file__).resolve().parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-
+from offline_db import bootstrap_file_db  # noqa: E402 - needs sys.path setup above
 
 # ---------------------------------------------------------------------------
 # Tournament logic
@@ -65,14 +52,6 @@ STRATEGIES: tuple[str, ...] = (
 
 PLAYERS_PER_MATCH = 10
 BATCH_SIZE = 25
-
-
-async def _ensure_schema() -> None:
-    from app.db import engine
-    from app.models import Base
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
 
 # Serializes match creation: match IDs derive from a row count, so two
@@ -245,10 +224,7 @@ async def run_tournament(
     db_path: str,
     concurrency: int,
 ) -> None:
-    _setup_db_url(db_path)
-    _import_app()
-
-    await _ensure_schema()
+    await bootstrap_file_db(db_path)
 
     rng = random.Random(seed)
     all_match_ids: list[str] = []

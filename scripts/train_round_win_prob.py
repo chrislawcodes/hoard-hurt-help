@@ -31,13 +31,16 @@ Run:
 
 from __future__ import annotations
 
-import argparse
 import csv
-import pickle
-import random
+import sys
 from collections import defaultdict
 from pathlib import Path
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from winprob_training import run_training_cli  # noqa: E402
 
 FEATURE_NAMES: list[str] = [
     # within-round state
@@ -66,9 +69,6 @@ FEATURE_NAMES: list[str] = [
     "match_help_rate",
     "match_hurt_rate",
 ]
-
-TRAIN_FRAC = 0.8
-RANDOM_STATE = 42
 
 
 # ---------------------------------------------------------------------------
@@ -153,106 +153,10 @@ def load_dataset(
     return match_ids, X, y
 
 
-def split_by_match(
-    match_ids: list[str],
-    X: list[list[float]],
-    y: list[int],
-    *,
-    train_frac: float,
-    seed: int,
-) -> tuple[list[list[float]], list[int], list[list[float]], list[int]]:
-    all_matches = list(dict.fromkeys(match_ids))
-    rng = random.Random(seed)
-    rng.shuffle(all_matches)
-    split = int(len(all_matches) * train_frac)
-    train_set = set(all_matches[:split])
-
-    X_train, y_train, X_test, y_test = [], [], [], []
-    for mid, feats, label in zip(match_ids, X, y):
-        if mid in train_set:
-            X_train.append(feats)
-            y_train.append(label)
-        else:
-            X_test.append(feats)
-            y_test.append(label)
-
-    return X_train, y_train, X_test, y_test
-
-
-# ---------------------------------------------------------------------------
-# Training
-# ---------------------------------------------------------------------------
-
-def train(X_train: list[list[float]], y_train: list[int]):  # type: ignore[return]
-    from sklearn.ensemble import HistGradientBoostingClassifier
-
-    model = HistGradientBoostingClassifier(
-        max_iter=400,
-        learning_rate=0.05,
-        max_depth=4,
-        min_samples_leaf=30,
-        random_state=RANDOM_STATE,
-    )
-    model.fit(X_train, y_train)
-    return model
-
-
-# ---------------------------------------------------------------------------
-# Evaluation
-# ---------------------------------------------------------------------------
-
-def evaluate(model, X_test: list[list[float]], y_test: list[int]) -> None:  # type: ignore[no-untyped-def]
-    import numpy as np
-    from sklearn.metrics import roc_auc_score, log_loss, brier_score_loss
-    from sklearn.inspection import permutation_importance
-
-    probs = model.predict_proba(X_test)[:, 1]
-    n = len(y_test)
-    pos_rate = sum(y_test) / n
-
-    auc = roc_auc_score(y_test, probs)
-    ll = log_loss(y_test, probs)
-    brier = brier_score_loss(y_test, probs)
-
-    print(f"\n{'='*56}")
-    print("  Round-Win-Probability Model — Evaluation")
-    print(f"{'='*56}")
-    print(f"  Test rows:       {n:,}  ({pos_rate:.1%} round wins)")
-    print(f"  ROC-AUC:         {auc:.4f}")
-    print(f"  Log loss:        {ll:.4f}")
-    print(f"  Brier score:     {brier:.4f}")
-
-    print(f"\n  {'Predicted':>12}  {'Actual win%':>12}  {'N':>7}")
-    print(f"  {'-'*12}  {'-'*12}  {'-'*7}")
-    buckets: dict[int, list[float]] = {}
-    bucket_y: dict[int, list[int]] = {}
-    for p, label in zip(probs, y_test):
-        b = min(int(p * 10), 9)
-        buckets.setdefault(b, []).append(p)
-        bucket_y.setdefault(b, []).append(label)
-    for b in range(10):
-        if b not in buckets:
-            continue
-        mean_pred = sum(buckets[b]) / len(buckets[b])
-        actual = sum(bucket_y[b]) / len(bucket_y[b])
-        print(f"  {mean_pred:>12.3f}  {actual:>12.3f}  {len(bucket_y[b]):>7,}")
-
-    perm = permutation_importance(
-        model,
-        np.array(X_test),
-        y_test,
-        n_repeats=5,
-        random_state=RANDOM_STATE,
-        scoring="roc_auc",
-    )
-    print("  Feature importances (permutation, Δ ROC-AUC):")
-    importances = list(zip(FEATURE_NAMES, perm.importances_mean))
-    importances.sort(key=lambda x: -x[1])
-    for name, imp in importances:
-        bar = "█" * max(0, int(imp * 200))
-        print(f"  {name:<22} {imp:+.4f}  {bar}")
-
-    print()
+def _describe_loaded(match_ids: list[str], X: list[list[float]], y: list[int]) -> str:
+    unique_matches = len(set(match_ids))
+    pos_rate = sum(y) / len(y)
+    return f"{len(X):,} rows, {unique_matches} matches, {pos_rate:.1%} round wins"
 
 
 # ---------------------------------------------------------------------------
@@ -260,48 +164,17 @@ def evaluate(model, X_test: list[list[float]], y_test: list[int]) -> None:  # ty
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Train round-win-probability model")
-    ap.add_argument("--csv", default="data/baseline_features.csv", help="Input CSV path")
-    ap.add_argument(
-        "--out",
-        default="data/round_win_prob_model.pkl",
-        help="Output model path",
+    run_training_cli(
+        description="Train round-win-probability model",
+        default_csv="data/baseline_features.csv",
+        default_out="data/round_win_prob_model.pkl",
+        feature_names=FEATURE_NAMES,
+        load_dataset=load_dataset,
+        loading_message="Loading {csv} and deriving round_won …",
+        title="Round-Win-Probability Model",
+        pos_label="round wins",
+        describe_loaded=_describe_loaded,
     )
-    ap.add_argument(
-        "--train-frac",
-        type=float,
-        default=TRAIN_FRAC,
-        help="Fraction of matches used for training (default 0.8)",
-    )
-    args = ap.parse_args()
-
-    print(f"Loading {args.csv} and deriving round_won …", end=" ", flush=True)
-    match_ids, X, y = load_dataset(args.csv)
-    unique_matches = len(set(match_ids))
-    pos_rate = sum(y) / len(y)
-    print(f"{len(X):,} rows, {unique_matches} matches, {pos_rate:.1%} round wins")
-
-    X_train, y_train, X_test, y_test = split_by_match(
-        match_ids, X, y, train_frac=args.train_frac, seed=RANDOM_STATE
-    )
-    n_train = int(unique_matches * args.train_frac)
-    n_test = unique_matches - n_train
-    print(
-        f"Split: {n_train} train matches ({len(X_train):,} rows) / "
-        f"{n_test} test matches ({len(X_test):,} rows)"
-    )
-
-    print("Training HistGradientBoostingClassifier …", end=" ", flush=True)
-    model = train(X_train, y_train)
-    print("done")
-
-    evaluate(model, X_test, y_test)
-
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "wb") as fh:
-        pickle.dump({"model": model, "feature_names": FEATURE_NAMES}, fh)
-    print(f"Model saved to {args.out}")
 
 
 if __name__ == "__main__":
