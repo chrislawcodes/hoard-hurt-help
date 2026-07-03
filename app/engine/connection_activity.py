@@ -16,6 +16,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Sequence
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -198,6 +199,25 @@ async def mark_first_move(db: AsyncSession, bot_id: int) -> None:
         await broadcast.publish(bot_channel(bot_id), "moved", {})
 
 
+async def _seated_matches(db: AsyncSession, bot_id: int) -> Sequence[Match]:
+    """Every match this bot is currently seated in (not left).
+
+    The one query behind both onboarding-state and health resolution, which each
+    scan these to find the bot's active / pregame game.
+    """
+    return (
+        (
+            await db.execute(
+                select(Match)
+                .join(Player, Player.match_id == Match.id)
+                .where(Player.agent_id == bot_id, Player.left_at.is_(None))
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingStatus:
     """Resolve the bot's onboarding state from its stored + derived facts.
 
@@ -208,17 +228,7 @@ async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingSta
     the detail page no longer renders as a persistent line (the health badge owns
     that), keeping it only as the one-time first-move flourish.
     """
-    games = (
-        (
-            await db.execute(
-                select(Match)
-                .join(Player, Player.match_id == Match.id)
-                .where(Player.agent_id == bot.id, Player.left_at.is_(None))
-            )
-        )
-        .scalars()
-        .all()
-    )
+    games = await _seated_matches(db, bot.id)
     active = next((g for g in games if g.state == GameState.ACTIVE), None)
     pregame = next((g for g in games if g.state in PREGAME_STATES), None)
     connected = bot.first_connected_at is not None
@@ -320,17 +330,7 @@ async def compute_bot_health(
     if bot.status == BotStatus.PAUSED:
         return build(ConnectionHealth.PAUSED)
 
-    games = (
-        (
-            await db.execute(
-                select(Match)
-                .join(Player, Player.match_id == Match.id)
-                .where(Player.agent_id == bot.id, Player.left_at.is_(None))
-            )
-        )
-        .scalars()
-        .all()
-    )
+    games = await _seated_matches(db, bot.id)
     active = next((g for g in games if g.state == GameState.ACTIVE), None)
 
     if active is not None:

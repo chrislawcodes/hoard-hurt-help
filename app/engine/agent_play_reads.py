@@ -79,40 +79,53 @@ async def _load_public_action_records(
     """
     seat_name_by_agent_id = _seat_name_map(players)
     seat_name_by_player_id = {player.id: player.seat_name for player in players}
-    public_actions: list[_PublicActionRecord] = []
     turns_stmt = select(Turn).where(
         Turn.match_id == match_id, Turn.resolved_at.is_not(None)
     )
     if recent_turns is not None:
-        # Take the newest N by (round, turn); the loop below re-sorts ascending so
-        # the window is still projected oldest-to-newest.
+        # Take the newest N by (round, turn); the projection below re-sorts ascending
+        # so the window is still emitted oldest-to-newest.
         turns_stmt = turns_stmt.order_by(
             Turn.round.desc(), Turn.turn.desc()
         ).limit(recent_turns)
     turns = (await db.execute(turns_stmt)).scalars().all()
-    for turn in sorted(turns, key=lambda t: (t.round, t.turn)):
-        message_rows = (
-            (
-                await db.execute(
-                    select(TurnMessage, Player.id)
-                    .join(Player, Player.id == TurnMessage.player_id)
-                    .where(TurnMessage.turn_id == turn.id)
-                )
-            )
-            .all()
+    ordered_turns = sorted(turns, key=lambda t: (t.round, t.turn))
+    turn_ids = [turn.id for turn in ordered_turns]
+    if not turn_ids:
+        return []
+
+    # Two batched reads keyed by the turn-id set, then grouped in memory — instead
+    # of a message + submission query per turn. Messages fold into a dict keyed by
+    # (turn_id, player_id), so their row order is irrelevant. Submissions are the
+    # emitted records, so they carry an explicit (turn_id, id) order that matches
+    # the per-turn index scan the old per-turn query used — same within-turn order.
+    message_rows = (
+        await db.execute(
+            select(TurnMessage, Player.id)
+            .join(Player, Player.id == TurnMessage.player_id)
+            .where(TurnMessage.turn_id.in_(turn_ids))
         )
-        message_by_player_id = {player_id: msg.text for msg, player_id in message_rows}
-        submission_rows = (
-            (
-                await db.execute(
-                    select(TurnSubmission, Player.id, Player.agent_id)
-                    .join(Player, Player.id == TurnSubmission.player_id)
-                    .where(TurnSubmission.turn_id == turn.id)
-                )
-            )
-            .all()
+    ).all()
+    message_by_turn_player: dict[tuple[int, int], str] = {
+        (msg.turn_id, player_id): msg.text for msg, player_id in message_rows
+    }
+    submission_rows = (
+        await db.execute(
+            select(TurnSubmission, Player.id, Player.agent_id)
+            .join(Player, Player.id == TurnSubmission.player_id)
+            .where(TurnSubmission.turn_id.in_(turn_ids))
+            .order_by(TurnSubmission.turn_id, TurnSubmission.id)
         )
-        for submission, player_id, agent_id in submission_rows:
+    ).all()
+    submissions_by_turn: dict[int, list[tuple[TurnSubmission, int, int]]] = {}
+    for submission, player_id, agent_id in submission_rows:
+        submissions_by_turn.setdefault(submission.turn_id, []).append(
+            (submission, player_id, agent_id)
+        )
+
+    public_actions: list[_PublicActionRecord] = []
+    for turn in ordered_turns:
+        for submission, player_id, agent_id in submissions_by_turn.get(turn.id, []):
             public_actions.append(
                 _PublicActionRecord(
                     round=turn.round,
@@ -124,7 +137,9 @@ async def _load_public_action_records(
                         if submission.target_player_id is not None
                         else None
                     ),
-                    message=message_by_player_id.get(player_id, submission.message),
+                    message=message_by_turn_player.get(
+                        (turn.id, player_id), submission.message
+                    ),
                     points_delta=submission.points_delta,
                     was_defaulted=submission.was_defaulted,
                 )
@@ -219,6 +234,21 @@ async def _build_current_turn(db: AsyncSession, turn: Turn) -> CurrentTurn:
     )
 
 
+async def load_match_players(
+    db: AsyncSession, match_id: str, *, exclude_left: bool = False
+) -> Sequence[Player]:
+    """All players seated in a match. With ``exclude_left`` set, drop those who
+    have left (``left_at IS NOT NULL``) — the standings view's filter.
+
+    The one loader behind the repeated ``select(Player).where(match_id == …)`` the
+    per-match verbs and the next-turn payload both run.
+    """
+    stmt = select(Player).where(Player.match_id == match_id)
+    if exclude_left:
+        stmt = stmt.where(Player.left_at.is_(None))
+    return (await db.execute(stmt)).scalars().all()
+
+
 async def load_open_turn(db: AsyncSession, match_id: str) -> Turn | None:
     """Return the latest open (unresolved) turn for a match, or None.
 
@@ -233,6 +263,36 @@ async def load_open_turn(db: AsyncSession, match_id: str) -> Turn | None:
             .limit(1)
         )
     ).scalar_one_or_none()
+
+
+async def load_open_turns(
+    db: AsyncSession, match_ids: Sequence[str]
+) -> dict[str, Turn]:
+    """Batched sibling of :func:`load_open_turn`: the latest open (unresolved)
+    turn for each of ``match_ids``, keyed by match id.
+
+    Matches with no open turn are absent from the result (same as ``None`` from the
+    single loader). Ordering matches ``load_open_turn`` per match: greatest
+    ``(round, turn, id)`` wins — here by scanning ascending and letting the last
+    row per match overwrite the earlier ones.
+    """
+    if not match_ids:
+        return {}
+    rows = (
+        (
+            await db.execute(
+                select(Turn)
+                .where(Turn.match_id.in_(match_ids), Turn.resolved_at.is_(None))
+                .order_by(Turn.round.asc(), Turn.turn.asc(), Turn.id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    open_turn_by_match: dict[str, Turn] = {}
+    for turn in rows:
+        open_turn_by_match[turn.match_id] = turn
+    return open_turn_by_match
 
 
 async def _load_active_phase_turn(

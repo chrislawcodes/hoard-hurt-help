@@ -35,7 +35,8 @@ from app.engine.agent_play_reads import (
     _group_into_turns,
     _load_public_action_records,
     build_public_scoreboard_dicts,
-    load_open_turn,
+    load_match_players,
+    load_open_turns,
     sorted_seat_names,
 )
 from app.engine.model_provider_match import resolve_seat_model
@@ -56,6 +57,10 @@ from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 
 logger = logging.getLogger(__name__)
+
+# One (agent, player, match, version) row of the connection's in-play seats; the
+# version is optional because the AgentVersion join is an outer join.
+_AgentMatchRow = tuple[Agent, Player, Match, AgentVersion | None]
 
 
 @dataclass
@@ -162,7 +167,8 @@ async def _build_candidate_lookups(
     """Fold the agent rows into the lookup maps used to claim and serve turns.
 
     Only rows the polling connection is allowed to claim survive (routing + the
-    sticky pin). For each surviving match we load its single open turn once.
+    sticky pin). The surviving matches' open turns are then loaded in one batched
+    query rather than one round trip per match.
     """
     dead_ids = [
         cid
@@ -198,10 +204,10 @@ async def _build_candidate_lookups(
         ctx.player_by_key[(agent.id, match.id)] = player
         ctx.agent_by_id[agent.id] = agent
         ctx.version_by_agent_id[agent.id] = version
-        if match.id not in ctx.latest_turn_by_match:
-            turn = await load_open_turn(db, match.id)
-            if turn is not None:
-                ctx.latest_turn_by_match[match.id] = turn
+    # Matches with no open turn are simply absent from the map (same as the old
+    # per-match ``None`` skip), so the downstream ``.get`` lookups are unchanged.
+    match_ids = {match_id for _agent_id, match_id in ctx.player_by_key}
+    ctx.latest_turn_by_match = dict(await load_open_turns(db, list(match_ids)))
     return ctx
 
 
@@ -282,21 +288,9 @@ async def _collect_candidates(
     return candidates, ctx
 
 
-async def agent_identity_for(
-    db: AsyncSession,
-    connection: Connection,
-    *,
-    agent_id: int | None = None,
-    match_id: str | None = None,
-) -> tuple[Match | None, str | None, list[Any], str | None]:
-    """Resolve one active agent's match, identity, targets, and strategy.
-
-    This is for the MCP instructions flow, not turn claiming. It looks at the
-    user's active AI agents and their live or upcoming matches, but it never
-    claims a turn and it does not depend on an open turn window.
-    """
-
-    active_agent_ids = sorted(
+async def _active_ai_agent_ids(db: AsyncSession, connection: Connection) -> list[int]:
+    """The connection user's active, non-archived AI agent ids, sorted."""
+    return sorted(
         (
             await db.execute(
                 select(Agent.id).where(
@@ -310,39 +304,139 @@ async def agent_identity_for(
         .scalars()
         .all()
     )
+
+
+async def _identity_candidate_rows(
+    db: AsyncSession, connection: Connection
+) -> list[_AgentMatchRow]:
+    """Every (agent, player, match, version) the user has in a live or upcoming
+    match — the candidate set the identity picker ranks over.
+    """
+    return [
+        cast(_AgentMatchRow, row)
+        for row in (
+            await db.execute(
+                select(Agent, Player, Match, AgentVersion)
+                .join(Player, Player.agent_id == Agent.id)
+                .join(Match, Match.id == Player.match_id)
+                .join(
+                    AgentVersion,
+                    AgentVersion.id == Agent.current_version_id,
+                    isouter=True,
+                )
+                .where(
+                    Agent.user_id == connection.user_id,
+                    Agent.kind == AgentKind.AI,
+                    Agent.status == AgentStatus.ACTIVE,
+                    Agent.archived_at.is_(None),
+                    Player.left_at.is_(None),
+                    Match.state.in_(
+                        [GameState.ACTIVE, GameState.SCHEDULED, GameState.REGISTERING]
+                    ),
+                )
+            )
+        ).all()
+    ]
+
+
+def _rank_agent_matches(
+    match_rows: list[list[_AgentMatchRow]],
+    open_turns_by_match: dict[str, Turn],
+) -> list[list[_AgentMatchRow]]:
+    """Order the candidate matches so the most urgent one sorts first.
+
+    Ranking key (smallest wins): active-before-upcoming, then the soonest "when"
+    (an active match's open-turn deadline, else the match's scheduled start, else
+    the far future), then match id as a stable final tiebreak. Open turns come
+    from a single batched lookup rather than one query per match.
+    """
+    ranked: list[tuple[tuple[object, ...], list[_AgentMatchRow]]] = []
+    for rows in match_rows:
+        match = rows[0][2]
+        current_turn = (
+            open_turns_by_match.get(match.id)
+            if match.state == GameState.ACTIVE
+            else None
+        )
+        if current_turn is not None:
+            when = ensure_aware(current_turn.deadline_at)
+        elif match.scheduled_start is not None:
+            when = ensure_aware(match.scheduled_start)
+        else:
+            when = datetime.max.replace(tzinfo=timezone.utc)
+        ranked.append(
+            ((0 if match.state == GameState.ACTIVE else 1, when, match.id), rows)
+        )
+    return [rows for _key, rows in sorted(ranked, key=lambda item: item[0])]
+
+
+def _extract_agent_identity(
+    selected_rows: list[_AgentMatchRow], selected_agent_id: int
+) -> tuple[Match, str, list[Any], str] | None:
+    """Pull the chosen agent's identity out of its match's rows, or None if the
+    seat or its current version is missing.
+    """
+    match = selected_rows[0][2]
+    your_player = next(
+        (
+            player
+            for agent, player, _match, _version in selected_rows
+            if agent.id == selected_agent_id
+        ),
+        None,
+    )
+    version = next(
+        (
+            version
+            for agent, _player, _match, version in selected_rows
+            if agent.id == selected_agent_id and version is not None
+        ),
+        None,
+    )
+    if your_player is None or version is None:
+        return None
+    seat_name_by_agent_id = {
+        player.agent_id: player.seat_name
+        for _agent, player, _match, _version in selected_rows
+    }
+    all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
+    return (
+        match,
+        seat_name_by_agent_id[your_player.agent_id],
+        all_agent_ids,
+        version.strategy_text,
+    )
+
+
+async def agent_identity_for(
+    db: AsyncSession,
+    connection: Connection,
+    *,
+    agent_id: int | None = None,
+    match_id: str | None = None,
+) -> tuple[Match | None, str | None, list[Any], str | None]:
+    """Resolve one active agent's match, identity, targets, and strategy.
+
+    This is for the MCP instructions flow, not turn claiming. It looks at the
+    user's active AI agents and their live or upcoming matches, but it never
+    claims a turn and it does not depend on an open turn window.
+    """
+    active_agent_ids = await _active_ai_agent_ids(db, connection)
     if not active_agent_ids:
         return None, None, [], None
     if agent_id is None and len(active_agent_ids) > 1:
-        return None, None, active_agent_ids, None
+        return None, None, list(active_agent_ids), None
 
     selected_agent_id = agent_id or active_agent_ids[0]
     if selected_agent_id not in active_agent_ids:
         return None, None, [], None
 
-    candidate_rows = (
-        await db.execute(
-            select(Agent, Player, Match, AgentVersion)
-            .join(Player, Player.agent_id == Agent.id)
-            .join(Match, Match.id == Player.match_id)
-            .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-            .where(
-                Agent.user_id == connection.user_id,
-                Agent.kind == AgentKind.AI,
-                Agent.status == AgentStatus.ACTIVE,
-                Agent.archived_at.is_(None),
-                Player.left_at.is_(None),
-                Match.state.in_(
-                    [GameState.ACTIVE, GameState.SCHEDULED, GameState.REGISTERING]
-                ),
-            )
-        )
-    ).all()
+    candidate_rows = await _identity_candidate_rows(db, connection)
     if not candidate_rows:
         return None, None, [], None
 
-    rows_by_match_id: dict[str, list[tuple[Agent, Player, Match, AgentVersion | None]]] = {}
-    for row in candidate_rows:
-        agent, player, match, version = row
+    rows_by_match_id: dict[str, list[_AgentMatchRow]] = {}
+    for agent, player, match, version in candidate_rows:
         rows_by_match_id.setdefault(match.id, []).append((agent, player, match, version))
 
     match_rows = [
@@ -357,35 +451,16 @@ async def agent_identity_for(
         if not match_rows:
             return None, None, [], None
 
-    ranked_rows: list[tuple[tuple[object, ...], list[tuple[Agent, Player, Match, AgentVersion | None]]]] = []
-    for rows in match_rows:
-        _agent, _player, match, _version = rows[0]
-        current_turn = None
-        if match.state == GameState.ACTIVE:
-            current_turn = await load_open_turn(db, match.id)
-        if current_turn is not None:
-            when = ensure_aware(current_turn.deadline_at)
-        elif match.scheduled_start is not None:
-            when = ensure_aware(match.scheduled_start)
-        else:
-            when = datetime.max.replace(tzinfo=timezone.utc)
-        ranked_rows.append(((0 if match.state == GameState.ACTIVE else 1, when, match.id), rows))
-
-    selected_rows = min(ranked_rows, key=lambda item: item[0])[1]
-    match = selected_rows[0][2]
-    your_player = next(
-        (player for agent, player, _match, _version in selected_rows if agent.id == selected_agent_id),
-        None,
+    # Batch the open-turn lookup for every candidate match in one query instead of
+    # one per match; only active matches consult it during ranking.
+    open_turns_by_match = await load_open_turns(
+        db, [rows[0][2].id for rows in match_rows]
     )
-    version = next(
-        (version for agent, _player, _match, version in selected_rows if agent.id == selected_agent_id and version is not None),
-        None,
-    )
-    if your_player is None or version is None:
+    selected_rows = _rank_agent_matches(match_rows, open_turns_by_match)[0]
+    identity = _extract_agent_identity(selected_rows, selected_agent_id)
+    if identity is None:
         return None, None, [], None
-    seat_name_by_agent_id = {player.agent_id: player.seat_name for _agent, player, _match, _version in selected_rows}
-    all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
-    return match, seat_name_by_agent_id[your_player.agent_id], all_agent_ids, version.strategy_text
+    return identity
 
 
 async def _claim_pin(
@@ -434,9 +509,7 @@ async def _build_turn_payload(
         await db.execute(select(Match).where(Match.id == cand.match_id))
     ).scalar_one()
     turn = ctx.latest_turn_by_match[cand.match_id]
-    all_players = (
-        (await db.execute(select(Player).where(Player.match_id == match.id))).scalars().all()
-    )
+    all_players = await load_match_players(db, match.id)
     seat_name_by_agent_id = {player.agent_id: player.seat_name for player in all_players}
     # Rolling window, not the whole transcript: this payload is re-served on every
     # poll, so it must stay small (full history is reachable on demand instead).
