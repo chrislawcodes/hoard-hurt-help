@@ -1,25 +1,34 @@
 ---
 name: game-art
 description: >-
-  Design and improve the art, animation, and motion of the Hoard Hurt Help game
-  viewer — the look of the robot characters and props, the color and shape
-  language of the three actions (Hoard / Help / Hurt), the visual effects, the
-  composition of the stage, the motion and timing, and the whole visual language
-  that makes a turn readable as a story. Use this whenever the work is about how
-  the game *looks or moves*: the animated replay / robot circle, character or
+  Design and improve the art, animation, and motion of this platform's game
+  viewers — Hoard Hurt Help's robot circle today, Liar's Dice's viewer, and any
+  future game's — the look of the characters and props, the color and shape
+  language of a game's actions (e.g. Hoard / Help / Hurt), the visual effects,
+  the composition of the stage, the motion and timing, and the whole visual
+  language that makes a turn readable as a story. Use this whenever the work is
+  about how a game *looks or moves*: the animated replay / robot circle, character or
   prop art and styling, the visual treatment of an action, color/shape/silhouette
   choices, motion timing and easing, action effects (coins, gifts, bats, strikes,
   score deltas), live-turn animation, or any request about "the art", "the look",
   "the visuals", "the robots", "the animation", "the viewer motion", "make the
   action look/read better", or "how the action looks". Reach for it even when the
   user doesn't say "art" or "animation" — if they're shaping how the action of
-  the game is portrayed visually, still or moving, this skill applies. It does
+  the game is portrayed visually, still or moving, this skill applies — for any
+  game on the platform, including one whose viewer doesn't exist yet. It does
   NOT cover page layout, navigation, onboarding, copy, or information hierarchy
   (that's the ux-design skill), nor bot prompts, MCP wiring, or game-rule /
   payoff design.
 ---
 
-# Game Art & Animation for Hoard Hurt Help
+# Game Art & Animation for the platform's game viewers
+
+This skill is two layers. Everything down to the game-grounding section is
+**platform-level judgment** — it applies to every game viewer on this platform,
+including ones not built yet. The grounding section holds the **per-game
+facts** (today: Hoard Hurt Help, the only richly animated surface). When a new
+game's viewer gets real art, add a grounding block for it there; don't dilute
+the judgment layer with game specifics.
 
 You are acting as the art director *and* animator for a spectator game — the
 person who decides both how the match *looks* and how it *moves*, and makes a
@@ -43,8 +52,9 @@ but looks generic, or looks gorgeous but moves confusingly, both fail.
   like one hand drew everything. New art matches the existing robots' weight,
   corner radius, and line style rather than introducing a second style.
 - **Color is identity and meaning, not decoration.** The per-bot palette gives
-  each robot a stable identity; the action colors (Hoard blue, Help green, Hurt
-  red) carry meaning. A new color has to earn a job — never add one for flavor.
+  each character a stable identity; a game's action colors carry meaning (see
+  the game grounding for the current trio). A new color has to earn a job —
+  never add one for flavor.
 - **Theme-aware by default.** The viewer has light/dark/terminal themes. Art
   pulls from theme variables and reads well in all of them; nothing is hardcoded
   to look right in only one.
@@ -87,9 +97,15 @@ drawing or a running animation. When a request straddles the line (e.g. "rework
 the viewer"), say so and recommend which skill leads — don't silently take the
 whole thing.
 
-## What you're working with (the one real surface today)
+## Game grounding: Hoard Hurt Help (the main animated surface today)
 
-The art lives in the "Animated Replay" / robot-circle viewer. It used to be one
+Per-game facts start here. Other games so far: **Liar's Dice** has its own,
+much simpler viewer fragments (`app/templates/fragments/liars_dice_turn.html`,
+`liars_dice_live_region.html`) — the judgment above applies there too, but the
+grounding below does not. A new game's viewer gets its own grounding block in
+this section when it grows real art.
+
+The Hoard Hurt Help art lives in the "Animated Replay" / robot-circle viewer. It used to be one
 ~1,500-line fragment; it is now a **thin shell that includes four parts in
 order** (the split was mechanical — same rendered HTML):
 
@@ -281,8 +297,9 @@ read-only field, that's outside this skill — surface it and hand off.
 
 *Both:*
 
-- **Distinguish by more than color** — Hoard/Help/Hurt must be told apart by
-  shape, prop, and motion too, for color-blind viewers and tiny robots.
+- **Distinguish by more than color** — a game's actions (e.g. Hoard/Help/Hurt)
+  must be told apart by shape, prop, and motion too, for color-blind viewers
+  and tiny characters.
 - **Performance** — transforms/opacity, `will-change`, no per-frame layout
   thrash; the stage can hold many bots at once.
 - **Accessibility** — honor `prefers-reduced-motion` with a calmer path.
@@ -317,5 +334,7 @@ and how to re-check each before relying on it:
 - Data contract: read `_build_rc_data` in `app/games/hoard_hurt_help/viewer.py`.
 - Timing constants and `PALETTE`:
   `grep -n "PALETTE\|_DUR\|totalDuration" app/templates/fragments/robot_circle/_replay_script.html`.
+- Which games have viewers (a new one needs a grounding block here):
+  `ls app/templates/fragments/` and `ls app/games/`.
 
 If a check contradicts this file, trust the code and fix this file in the same PR.
