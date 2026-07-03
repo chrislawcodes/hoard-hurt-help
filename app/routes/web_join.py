@@ -22,7 +22,6 @@ from app.engine.model_verification import model_status_for
 from app.engine.scheduler import start_game
 from app.engine.seat_hold import hold_deadline
 from app.models.model_verification import ModelVerificationStatus
-from app.games import is_admin_only
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
@@ -37,13 +36,16 @@ from app.routes.web_player_shared import (
     _seat_name,
     _seat_provider_readiness,
 )
-from app.routes.web_support import (
+from app.routes.web_match_loaders import (
     GameScopedMatchPost,
+    _load_match_or_404,
+    raise_for_game_slug_mismatch,
+)
+from app.routes.web_support import (
     _game_theme,
     _is_any_admin,
-    _load_match_or_404,
     _player_count,
-    raise_for_game_slug_mismatch,
+    require_can_view_game,
 )
 from app.templating import templates
 
@@ -173,8 +175,7 @@ async def join_form(
     # here instead: same logic and same 301 target as the dependency form.
     match = await _load_match_or_404(db, match_id)
     raise_for_game_slug_mismatch(match, game, suffix="/join")
-    if is_admin_only(match.game) and not _is_any_admin(user):
-        raise HTTPException(status_code=404, detail="Game not found.")
+    require_can_view_game(user, match.game)
 
     # No setup gate here: the join screen always renders (given sign-in + handle
     # above) with "Play as yourself" as the first, pre-selected choice, so a brand-
@@ -397,8 +398,7 @@ async def join_submit(
     # canonical /join URL (308 keeps the POST method). `user` is listed before
     # `match` in the signature so a handle-less visitor still 303s to /me/handle
     # before the slug check, exactly as the old inline order did.
-    if is_admin_only(match.game) and not is_admin:
-        raise HTTPException(status_code=404, detail="Game not found.")
+    require_can_view_game(user, match.game)
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Match not open for registration.")
 

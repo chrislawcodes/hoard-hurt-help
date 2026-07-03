@@ -38,7 +38,6 @@ from app.deps import DbSession, get_current_user
 from app.engine.connection_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
-from app.games import is_admin_only
 from app.games.base import GameError
 from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection
@@ -60,6 +59,7 @@ from app.routes.web_support import (
     _redirect_to_match,
     _batch_top_standings,
     _upcoming_views,
+    require_can_view_game,
 )
 
 # Re-export the moved public symbols so existing imports from this module keep
@@ -99,8 +99,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     user = await get_current_user(request, db)
     # Hide an admin-only (under-construction) game from non-admins: 404 so its
     # existence isn't even revealed.
-    if is_admin_only(game) and not _is_any_admin(user):
-        raise HTTPException(status_code=404, detail="Game not found.")
+    require_can_view_game(user, game)
     # Self-heal before reading: a game past its start time with too few players
     # should show as cancelled, not linger as "Upcoming" with a live Join button.
     # The background poller normally does this within seconds, but the lobby must
@@ -289,8 +288,7 @@ async def game_upcoming(request: Request, db: DbSession, game: Annotated[str, Pa
         module = get_game_module(game)
     except GameError:
         raise HTTPException(404)
-    if is_admin_only(game) and not _is_any_admin(user):
-        raise HTTPException(404)
+    require_can_view_game(user, game, detail=None)
     try:
         await cancel_overdue_unfilled_games(db)
     except SQLAlchemyError:

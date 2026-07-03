@@ -18,10 +18,13 @@ from app.engine.user_match_start import start_match_for_user, viewer_start_eligi
 from app.games import GameError, get as get_game_module, is_admin_only
 from app.models.match import GameState, Match
 from app.models.user import User, UserRole
-from app.routes.web_support import (
+from app.routes.web_match_loaders import (
     GameScopedMatchOr404,
-    _is_any_admin,
     _load_match_or_404,
+)
+from app.routes.web_support import (
+    _is_any_admin,
+    require_can_view_game,
 )
 from app.templating import templates
 
@@ -51,8 +54,7 @@ def _load_visible_game_module_or_404(game: str, user: User | None):
     """Like `_load_game_module_or_404`, but an admin-only (under-construction)
     game is invisible (404) to non-admins so they can't create matches for it."""
     module = _load_game_module_or_404(game)
-    if is_admin_only(game) and not _is_any_admin(user):
-        raise HTTPException(status_code=404, detail="Game not found.")
+    require_can_view_game(user, game)
     return module
 
 
