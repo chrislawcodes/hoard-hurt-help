@@ -70,6 +70,18 @@ except ImportError:
     _MESSAGE_MAX_LENGTH = _FALLBACK_MESSAGE_MAX_LENGTH
     _THINKING_MAX_LENGTH = _FALLBACK_THINKING_MAX_LENGTH
 
+# In a source checkout, resolve model→provider through the game's authoritative
+# allowlist (app.config.PROVIDER_MODELS) instead of the connector's own prefix
+# heuristic. The two can disagree — a model with a known prefix that is NOT a real
+# model of that provider (e.g. a freeform Hermes/OpenClaw model, or a not-yet-listed
+# name) is mis-attributed by the prefix guess but correctly returns None from the
+# allowlist. A stale prefix mapping caused a real production incident (#569).
+# Standalone operator copies (no `app` package) fall back to the prefix heuristic.
+try:
+    from app.config import provider_for_model as _authoritative_provider_for_model
+except ImportError:
+    _authoritative_provider_for_model = None
+
 DEFAULT_URL = "http://localhost:8000"
 DEFAULT_PROVIDER = "claude"
 _TURN_TIMEOUT = 180  # absolute ceiling for a single model turn
@@ -777,6 +789,12 @@ def _session_key(turn: dict) -> tuple[str, str]:
 
 def _provider_from_model(model: str | None) -> str | None:
     model = (model or "").lower()
+    if _authoritative_provider_for_model is not None:
+        # Source checkout: defer to the game's authoritative allowlist. Returns
+        # None for a model in no allowlist (e.g. freeform Hermes/OpenClaw), which
+        # the caller then resolves from the stored provider instead of guessing.
+        return _authoritative_provider_for_model(model)
+    # Standalone operator copy (no `app` package): prefix heuristic fallback.
     if model.startswith("claude-"):
         return "claude"
     if model.startswith("gpt-"):

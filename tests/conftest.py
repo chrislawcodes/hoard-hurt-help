@@ -16,9 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import json
-import secrets
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
@@ -29,11 +27,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.config import settings
 from app.db import make_engine
 from app.models import Base
-from app.models.agent import Agent, AgentKind
-from app.models.agent_version import AgentVersion
-from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
-from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
-from app.models.user import User
 
 # Re-export the canonical user factory so existing `from tests.conftest import
 # make_user` call sites keep working while `tests.factories` stays the single
@@ -42,9 +35,6 @@ from tests.factories import make_user
 
 __all__ = [
     "make_user",
-    "make_connection",
-    "make_agent",
-    "make_agent_version",
     "session_cookie",
     "signed_in_cookies",
 ]
@@ -202,76 +192,3 @@ def session_cookie(user_id: int) -> str:
 def signed_in_cookies(user_id: int) -> dict[str, str]:
     """Return a cookies dict that authenticates an httpx request as `user_id`."""
     return {"hhh_session": session_cookie(user_id)}
-
-
-async def make_connection(
-    db: AsyncSession,
-    user: User,
-    *,
-    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
-    nickname: str | None = None,
-    status: ConnectionStatus = ConnectionStatus.ACTIVE,
-    key: str | None = None,
-) -> tuple[Connection, str]:
-    """Create a connection plus its plaintext key."""
-    plain_key = key or f"sk_conn_{secrets.token_hex(24)}"
-    connection = Connection(
-        user_id=user.id,
-        nickname=nickname,
-        provider=provider,
-        key_lookup=hashlib.sha256(plain_key.encode("utf-8")).hexdigest(),
-        key_hint=plain_key[-4:],
-        status=status,
-    )
-    db.add(connection)
-    await db.flush()
-    db.add(
-        ConnectionProviderRow(
-            connection_id=connection.id,
-            provider=provider,
-            enabled=True,
-            detected=False,
-        )
-    )
-    await db.flush()
-    return connection, plain_key
-
-
-async def make_agent(
-    db: AsyncSession,
-    user: User,
-    *,
-    connection: Connection | None = None,
-    name: str | None = None,
-    kind: AgentKind = AgentKind.AI,
-) -> Agent:
-    """Create an agent for tests."""
-    agent = Agent(
-        user_id=user.id,
-        provider=connection.provider if connection is not None else None,
-        kind=kind,
-        name=name or f"agent-{user.id}",
-    )
-    db.add(agent)
-    await db.flush()
-    return agent
-
-
-async def make_agent_version(
-    db: AsyncSession,
-    agent: Agent,
-    *,
-    version_no: int = 1,
-    model: str = "claude-haiku-4-5",
-    strategy_text: str = "Default strategy.",
-) -> AgentVersion:
-    """Create an immutable agent version for tests."""
-    agent_version = AgentVersion(
-        agent_id=agent.id,
-        version_no=version_no,
-        model=model,
-        strategy_text=strategy_text,
-    )
-    db.add(agent_version)
-    await db.flush()
-    return agent_version

@@ -19,7 +19,6 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.match_creation import create_match_with_state, player_count_error
@@ -27,15 +26,17 @@ from app.engine.match_deletion import cancel_blocked_reason, cancel_match
 from app.games import GameError, get as get_game_module
 from app.models.match import GameState, Match
 from app.read_models.match_export import build_csv_export, build_json_export
+from app.routes.web_support import load_match_or_404
 from app.schemas.admin import CreateGameRequest, GameRecord
 
-
-async def load_match_or_404(db: AsyncSession, match_id: str) -> Match:
-    """Load a match by id; raise 404 if it does not exist."""
-    g = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
-    if g is None:
-        raise HTTPException(404)
-    return g
+__all__ = [
+    "build_game_record",
+    "cancel_loaded_match",
+    "create_game_record",
+    "export_match_csv",
+    "export_match_json",
+    "load_match_or_404",
+]
 
 
 def build_game_record(match: Match) -> GameRecord:

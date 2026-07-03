@@ -22,7 +22,7 @@ from app.services.admin_user_actions import (
     promote_user,
     reset_handle,
 )
-from tests.conftest import make_user
+from tests.factories import make_user
 
 
 def _signed_in(user_id: int) -> dict[str, str]:

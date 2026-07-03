@@ -17,7 +17,7 @@ from app.models import ConnectionSetup, User
 from app.models.user import UserRole
 from app.routes.auth import sync_google_user
 from app.schemas.auth import GoogleUserInfo
-from tests.conftest import make_connection, make_user
+from tests.factories import make_connection, make_user
 
 
 def _signed_in(user_id: int) -> dict[str, str]:

@@ -219,6 +219,22 @@ async def _build_current_turn(db: AsyncSession, turn: Turn) -> CurrentTurn:
     )
 
 
+async def load_open_turn(db: AsyncSession, match_id: str) -> Turn | None:
+    """Return the latest open (unresolved) turn for a match, or None.
+
+    Orders by round, then turn, then id so a tie on (round, turn) resolves to the
+    most recently created row.
+    """
+    return (
+        await db.execute(
+            select(Turn)
+            .where(Turn.match_id == match_id, Turn.resolved_at.is_(None))
+            .order_by(Turn.round.desc(), Turn.turn.desc(), Turn.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def _load_active_phase_turn(
     db: AsyncSession,
     match_id: str,

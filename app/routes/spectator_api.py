@@ -14,7 +14,7 @@ from app.read_models.matches import (
     load_players,
     load_scoreboard,
 )
-from app.routes.game_admin_actions import load_match_or_404
+from app.routes.web_support import load_match_or_404
 from app.schemas.spectator import (
     SpectatorAction,
     SpectatorAgent,

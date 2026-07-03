@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.config import settings
 from app.models import GameState, Match, Player
 from app.models.user import User, UserRole
-from tests.conftest import make_agent, make_connection, make_user
+from tests.factories import make_agent, make_connection, make_user
 
 
 def _signed_in(user_id: int) -> dict[str, str]:
@@ -128,7 +128,7 @@ async def test_user_detail_shows_counts_and_recent_match(
     async with reset_db() as db:
         target = await make_user(db, 2)
         await make_connection(db, target)
-        agent = await make_agent(db, target)
+        agent, _ = await make_agent(db, target)
         match = Match(
             id="M_ui_1",
             name="Admin UI Match",
