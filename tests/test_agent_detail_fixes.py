@@ -19,12 +19,9 @@ from app.config import settings
 from app.db import make_engine
 from app.engine.agent_onboarding import AgentOnboardingState, compute_agent_onboarding_state
 from app.engine.connection_health import ConnectionHealth
-from app.engine.tokens import bot_key_lookup, generate_connection_key, generate_turn_token
+from app.engine.tokens import generate_turn_token
 from app.models import Base
-from app.models.agent import Agent, AgentKind, AgentStatus
-from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
-from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
@@ -39,6 +36,7 @@ from app.routes.agents_status import router as agents_status_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
 from app.routes.connections_setup import router as connections_setup_router
+from tests.factories import make_agent, make_connection, make_match, make_user, seat_prebuilt_player
 
 NOW = datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc)
 # COLD is used for DB fixtures: well past the health engine's 90s live window regardless
@@ -114,18 +112,6 @@ def _cookies(user_id: int) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def _make_user(db: AsyncSession, *, handle: str = "tester", i: int = 0) -> User:
-    user = User(
-        google_sub=f"sub-{i}",
-        email=f"u{i}@example.com",
-        handle=handle,
-        handle_key=handle,
-    )
-    db.add(user)
-    await db.flush()
-    return user
-
-
 async def _make_connection(
     db: AsyncSession,
     user: User,
@@ -136,71 +122,26 @@ async def _make_connection(
     last_seen_at: datetime | None = None,
     first_connected_at: datetime | None = None,
 ) -> Connection:
-    plain_key = generate_connection_key()
-    conn = Connection(
-        user_id=user.id,
+    """Seed a connection, deriving `mcp_connected_at` the way a real MCP sign-in
+    would: set for the providers that only connect via MCP, left null otherwise.
+    `tests.factories.make_connection` has no opinion on that derivation, so it
+    stays a thin wrapper here rather than a plain re-export."""
+    mcp_connected_at = (
+        (first_connected_at or last_seen_at)
+        if provider in {ConnectionProvider.CLAUDE, ConnectionProvider.OPENAI, ConnectionProvider.GEMINI}
+        else None
+    )
+    connection, _key = await make_connection(
+        db,
+        user,
         provider=provider,
-        key_lookup=bot_key_lookup(plain_key),
-        key_hint=plain_key[-4:],
         status=status,
         max_concurrent_games=max_concurrent_games,
         last_seen_at=last_seen_at,
         first_connected_at=first_connected_at,
-        mcp_connected_at=(
-            first_connected_at
-            or last_seen_at
-            if provider
-            in {
-                ConnectionProvider.CLAUDE,
-                ConnectionProvider.OPENAI,
-                ConnectionProvider.GEMINI,
-            }
-            else None
-        ),
+        mcp_connected_at=mcp_connected_at,
     )
-    db.add(conn)
-    await db.flush()
-    db.add(
-        ConnectionProviderRow(
-            connection_id=conn.id,
-            provider=provider,
-            enabled=True,
-            detected=False,
-        )
-    )
-    await db.flush()
-    return conn
-
-
-async def _make_agent(
-    db: AsyncSession,
-    user: User,
-    *,
-    connection: Connection | None,
-    name: str = "Alpha",
-    status: AgentStatus = AgentStatus.ACTIVE,
-) -> tuple[Agent, AgentVersion]:
-    agent = Agent(
-        user_id=user.id,
-        provider=connection.provider if connection is not None else None,
-        kind=AgentKind.AI,
-        name=name,
-        game="hoard-hurt-help",
-        status=status,
-    )
-    db.add(agent)
-    await db.flush()
-    version = AgentVersion(
-        agent_id=agent.id,
-        version_no=1,
-        model="claude-haiku-4-5",
-        strategy_text="Play to win.",
-    )
-    db.add(version)
-    await db.flush()
-    agent.current_version_id = version.id
-    await db.flush()
-    return agent, version
+    return connection
 
 
 async def _make_match(
@@ -209,45 +150,18 @@ async def _make_match(
     *,
     state: GameState,
 ) -> Match:
-    match = Match(
-        id=match_id,
-        name=f"Match {match_id}",
-        game="hoard-hurt-help",
+    """Seed a match that "already happened" (started an hour before the file's
+    frozen NOW), unlike `tests.factories.make_match`'s default of a not-yet-
+    started REGISTERING match — this file's fixtures are all mid-game/finished."""
+    started = NOW - timedelta(hours=1)
+    return await make_match(
+        db,
+        match_id,
         state=state,
-        scheduled_start=NOW - timedelta(hours=1),
-        started_at=NOW - timedelta(hours=1) if state != GameState.SCHEDULED else None,
+        scheduled_start=started,
+        started_at=started if state != GameState.SCHEDULED else None,
         completed_at=NOW if state == GameState.COMPLETED else None,
-        per_turn_deadline_seconds=60,
     )
-    db.add(match)
-    await db.flush()
-    return match
-
-
-async def _seat_player(
-    db: AsyncSession,
-    *,
-    match: Match,
-    user: User,
-    agent: Agent,
-    version: AgentVersion,
-    seat_name: str,
-    total_score: int = 0,
-    round_score: int = 0,
-) -> Player:
-    player = Player(
-        match_id=match.id,
-        user_id=user.id,
-        agent_id=agent.id,
-        agent_version_id=version.id,
-        seat_name=seat_name,
-        model_self_report=version.model,
-        total_round_score=total_score,
-        current_round_score=round_score,
-    )
-    db.add(player)
-    await db.flush()
-    return player
 
 
 # ---------------------------------------------------------------------------
@@ -259,17 +173,17 @@ async def test_load_agent_matches_returns_active_upcoming_done_ordering(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent0", i=0)
+        user = await make_user(db, i=0, handle="agent0")
         conn = await _make_connection(db, user)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
 
         active_match = await _make_match(db, "M_active", state=GameState.ACTIVE)
         upcoming_match = await _make_match(db, "M_upcoming", state=GameState.SCHEDULED)
         done_match = await _make_match(db, "M_done", state=GameState.COMPLETED)
 
-        await _seat_player(db, match=active_match, user=user, agent=agent, version=version, seat_name="A")
-        await _seat_player(db, match=upcoming_match, user=user, agent=agent, version=version, seat_name="A")
-        await _seat_player(db, match=done_match, user=user, agent=agent, version=version, seat_name="A")
+        await seat_prebuilt_player(db, match=active_match, user=user, agent=agent, version=version, seat_name="A")
+        await seat_prebuilt_player(db, match=upcoming_match, user=user, agent=agent, version=version, seat_name="A")
+        await seat_prebuilt_player(db, match=done_match, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
         entries = await _load_agent_matches(db, agent.id)
@@ -291,13 +205,13 @@ async def test_load_agent_matches_caps_done_at_10(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent1", i=1)
+        user = await make_user(db, i=1, handle="agent1")
         conn = await _make_connection(db, user)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
 
         for i in range(15):
             m = await _make_match(db, f"M_done_{i}", state=GameState.COMPLETED)
-            await _seat_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
+            await seat_prebuilt_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
         entries = await _load_agent_matches(db, agent.id)
@@ -312,11 +226,11 @@ async def test_agent_detail_shows_matches_section(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent2", i=2)
+        user = await make_user(db, i=2, handle="agent2")
         conn = await _make_connection(db, user)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         active_match = await _make_match(db, "M_show", state=GameState.ACTIVE)
-        await _seat_player(db, match=active_match, user=user, agent=agent, version=version, seat_name="A")
+        await seat_prebuilt_player(db, match=active_match, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -334,11 +248,11 @@ async def test_agent_detail_matches_shows_leave_for_pre_game(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent3", i=3)
+        user = await make_user(db, i=3, handle="agent3")
         conn = await _make_connection(db, user)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         pre_match = await _make_match(db, "M_pre", state=GameState.SCHEDULED)
-        await _seat_player(db, match=pre_match, user=user, agent=agent, version=version, seat_name="A")
+        await seat_prebuilt_player(db, match=pre_match, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -353,9 +267,9 @@ async def test_agent_detail_shows_no_matches_empty_state(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent4", i=4)
+        user = await make_user(db, i=4, handle="agent4")
         conn = await _make_connection(db, user)
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -459,9 +373,9 @@ async def test_agent_detail_shows_ready_to_play_card_when_warm(
 ) -> None:
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent5", i=5)
+        user = await make_user(db, i=5, handle="agent5")
         conn = await _make_connection(db, user, last_seen_at=recently)
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -482,11 +396,11 @@ async def test_agent_detail_hides_ready_to_play_when_at_capacity(
     """
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent6", i=6)
+        user = await make_user(db, i=6, handle="agent6")
         conn = await _make_connection(db, user, last_seen_at=recently, max_concurrent_games=1)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         m = await _make_match(db, "M_cap", state=GameState.ACTIVE)
-        await _seat_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
+        await seat_prebuilt_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -502,11 +416,11 @@ async def test_agent_detail_hides_ready_to_play_when_paused(
 ) -> None:
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent7", i=7)
+        user = await make_user(db, i=7, handle="agent7")
         conn = await _make_connection(
             db, user, status=ConnectionStatus.PAUSED, last_seen_at=recently
         )
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -526,9 +440,9 @@ async def test_agent_detail_shows_no_live_connection_when_never_connected(
     """When no live connection covers the provider, the detail page shows
     'No live connection runs <provider>' — the coverage-based message."""
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent8", i=8)
+        user = await make_user(db, i=8, handle="agent8")
         conn = await _make_connection(db, user)  # no last_seen_at → not live
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -543,9 +457,9 @@ async def test_agent_detail_shows_no_live_connection_when_cold(
     """When the only connection is cold (last_seen_at well past the live window),
     the coverage check fails and the detail page shows the 'No live connection' card."""
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent9", i=9)
+        user = await make_user(db, i=9, handle="agent9")
         conn = await _make_connection(db, user, last_seen_at=COLD)
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -560,11 +474,11 @@ async def test_agent_detail_no_reconnect_card_when_live(
     """Live agent should not show reconnect / runner-down warnings."""
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="agentC", i=12)
+        user = await make_user(db, i=12, handle="agentC")
         conn = await _make_connection(db, user, last_seen_at=recently)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         m = await _make_match(db, "M_live2", state=GameState.ACTIVE)
-        await _seat_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
+        await seat_prebuilt_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -615,9 +529,9 @@ async def test_onboarding_state_waiting_never_connected(
 ) -> None:
     """State 1: no first_connected_at and no matches → WAITING."""
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob0", i=13)
+        user = await make_user(db, i=13, handle="ob0")
         conn = await _make_connection(db, user)
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
         status = await compute_agent_onboarding_state(
@@ -636,9 +550,9 @@ async def test_onboarding_state_connected_no_game(
 ) -> None:
     """State 2: connected but no matches → CONNECTED_NO_GAME."""
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob1", i=14)
+        user = await make_user(db, i=14, handle="ob1")
         conn = await _make_connection(db, user, first_connected_at=NOW)
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
         status = await compute_agent_onboarding_state(
@@ -657,11 +571,11 @@ async def test_onboarding_state_connected_pregame(
 ) -> None:
     """State 3: connected, in a pre-game match → CONNECTED_PREGAME."""
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob2", i=15)
+        user = await make_user(db, i=15, handle="ob2")
         conn = await _make_connection(db, user, first_connected_at=NOW)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         match = await _make_match(db, "M_pregame", state=GameState.SCHEDULED)
-        await _seat_player(db, match=match, user=user, agent=agent, version=version, seat_name="A")
+        await seat_prebuilt_player(db, match=match, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
         entries = await _load_agent_matches(db, agent.id)
@@ -682,11 +596,11 @@ async def test_onboarding_state_in_game_no_move(
 ) -> None:
     """State 4: connected, in active match, no real move yet → IN_GAME_NO_MOVE."""
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob3", i=16)
+        user = await make_user(db, i=16, handle="ob3")
         conn = await _make_connection(db, user, first_connected_at=NOW)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         match = await _make_match(db, "M_active_nomove", state=GameState.ACTIVE)
-        player = await _seat_player(
+        player = await seat_prebuilt_player(
             db, match=match, user=user, agent=agent, version=version, seat_name="A"
         )
         # Add a defaulted submission — should NOT count as "has moved"
@@ -710,11 +624,11 @@ async def test_onboarding_state_playing_first_real_move(
 ) -> None:
     """State 5: has a real (non-defaulted) submission → PLAYING with watch link."""
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob4", i=17)
+        user = await make_user(db, i=17, handle="ob4")
         conn = await _make_connection(db, user, first_connected_at=NOW)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         match = await _make_match(db, "M_playing", state=GameState.ACTIVE)
-        player = await _seat_player(
+        player = await seat_prebuilt_player(
             db, match=match, user=user, agent=agent, version=version, seat_name="A"
         )
         await _make_turn_submission(db, match=match, player=player, was_defaulted=False)
@@ -739,12 +653,12 @@ async def test_onboarding_state_playing_even_when_cold(
 ) -> None:
     """State 5: PLAYING resolves correctly even when the runner is currently cold."""
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob5", i=18)
+        user = await make_user(db, i=18, handle="ob5")
         # No first_connected_at — this is a legacy agent that pre-dates first_connected_at
         conn = await _make_connection(db, user)
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         match = await _make_match(db, "M_cold_play", state=GameState.ACTIVE)
-        player = await _seat_player(
+        player = await seat_prebuilt_player(
             db, match=match, user=user, agent=agent, version=version, seat_name="A"
         )
         # Real move exists — has_moved should dominate
@@ -774,11 +688,11 @@ async def test_status_fragment_shows_ready_to_play_for_connected_idle_agent(
     """Connected idle agent: /status fragment shows 'Ready to play' card."""
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob6", i=19)
+        user = await make_user(db, i=19, handle="ob6")
         conn = await _make_connection(
             db, user, last_seen_at=recently, first_connected_at=recently
         )
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}/status", cookies=_cookies(user.id))
@@ -794,13 +708,13 @@ async def test_status_fragment_hides_playing_banner(
     """A played agent no longer renders the old playing banner in /status."""
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob7", i=20)
+        user = await make_user(db, i=20, handle="ob7")
         conn = await _make_connection(
             db, user, last_seen_at=recently, first_connected_at=recently
         )
-        agent, version = await _make_agent(db, user, connection=conn)
+        agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         match = await _make_match(db, "M_frag_play", state=GameState.ACTIVE)
-        player = await _seat_player(
+        player = await seat_prebuilt_player(
             db, match=match, user=user, agent=agent, version=version, seat_name="A"
         )
         await _make_turn_submission(db, match=match, player=player, was_defaulted=False)
@@ -824,14 +738,14 @@ async def test_status_fragment_shows_at_capacity_card(
     """
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob8", i=21)
+        user = await make_user(db, i=21, handle="ob8")
         conn = await _make_connection(
             db, user, last_seen_at=recently, first_connected_at=recently, max_concurrent_games=1
         )
-        agent1, version1 = await _make_agent(db, user, connection=conn, name="Cap1")
-        agent2, _ = await _make_agent(db, user, connection=conn, name="Cap2")
+        agent1, version1 = await make_agent(db, user, connection=conn, name="Cap1")
+        agent2, _ = await make_agent(db, user, connection=conn, name="Cap2")
         match = await _make_match(db, "M_cap2", state=GameState.ACTIVE)
-        await _seat_player(
+        await seat_prebuilt_player(
             db, match=match, user=user, agent=agent1, version=version1, seat_name="A"
         )
         await db.commit()
@@ -851,11 +765,11 @@ async def test_detail_page_shows_onboarding_card_inline(
     """detail.html inlines the onboarding card on first paint (not just htmx-polled)."""
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob9", i=22)
+        user = await make_user(db, i=22, handle="ob9")
         conn = await _make_connection(
             db, user, last_seen_at=recently, first_connected_at=recently
         )
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
@@ -873,11 +787,11 @@ async def test_detail_name_field_autosaves_on_change(
     """The agent rename field submits itself when the value changes."""
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="ob10", i=23)
+        user = await make_user(db, i=23, handle="ob10")
         conn = await _make_connection(
             db, user, last_seen_at=recently, first_connected_at=recently
         )
-        agent, _ = await _make_agent(db, user, connection=conn)
+        agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
     resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))

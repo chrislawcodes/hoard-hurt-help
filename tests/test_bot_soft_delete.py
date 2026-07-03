@@ -20,7 +20,7 @@ from app.config import settings
 from app.engine.bot_presets import bot_presets
 from app.models import Base, Agent, AgentKind, AgentStatus, Connection, Match, GameState, Player, User
 from app.models.agent_version import AgentVersion
-from tests.factories import make_agent, make_connection, make_user
+from tests.factories import make_agent, make_connection, make_match, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -59,14 +59,7 @@ async def _seed_game(
     reset_db: async_sessionmaker, state=GameState.REGISTERING, match_id: str = "G_001"
 ) -> Match:
     async with reset_db() as db:
-        g = Match(
-            id=match_id,
-            name="Test Match",
-            state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-            per_turn_deadline_seconds=60,
-        )
-        db.add(g)
+        g = await make_match(db, match_id, state=state, name="Test Match")
         await db.commit()
         await db.refresh(g)
         return g

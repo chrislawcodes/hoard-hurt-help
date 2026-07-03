@@ -20,8 +20,7 @@ from app.engine.connection_health import ConnectionHealth, compute_connection_he
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.engine.tokens import bot_key_lookup, generate_connection_key, generate_turn_token
 from app.models import Base
-from app.models.agent import Agent, AgentKind, AgentStatus
-from app.models.agent_version import AgentVersion
+from app.models.agent import Agent, AgentStatus
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_setup import ConnectionSetup
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
@@ -33,6 +32,7 @@ from app.routes.agent_next_turn import router as agent_next_turn_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
 from app.routes.connections_setup import router as connections_setup_router
+from tests.factories import make_agent, make_connection, make_match, make_user, seat_prebuilt_player
 
 NOW = datetime(2026, 6, 6, 12, 0, tzinfo=timezone.utc)
 
@@ -89,45 +89,6 @@ def _signed_in_cookies(user_id: int) -> dict[str, str]:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
-async def _make_user(db: AsyncSession, *, handle: str = "agent0", i: int = 0) -> User:
-    user = User(
-        google_sub=f"sub-{i}",
-        email=f"u{i}@t.com",
-        handle=handle,
-        handle_key=handle,
-    )
-    db.add(user)
-    await db.flush()
-    return user
-
-
-async def _make_connection(
-    db: AsyncSession,
-    user: User,
-    *,
-    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
-    status: ConnectionStatus = ConnectionStatus.ACTIVE,
-    key: str | None = None,
-    nickname: str | None = None,
-) -> tuple[Connection, str]:
-    plain_key = key or generate_connection_key()
-    connection = Connection(
-        user_id=user.id,
-        provider=provider,
-        nickname=nickname,
-        key_lookup=bot_key_lookup(plain_key),
-        key_hint=plain_key[-4:],
-        status=status,
-    )
-    db.add(connection)
-    await db.flush()
-    from app.models.connection_provider import ConnectionProvider as _CPRow
-
-    db.add(_CPRow(connection_id=connection.id, provider=provider, enabled=True, detected=False))
-    await db.flush()
-    return connection, plain_key
-
-
 async def _make_connection_setup(
     db: AsyncSession,
     user: User,
@@ -149,80 +110,18 @@ async def _make_connection_setup(
     return setup, plain_key
 
 
-async def _make_agent(
-    db: AsyncSession,
-    user: User,
-    *,
-    connection: Connection | None,
-    name: str,
-    model: str,
-    kind: AgentKind = AgentKind.AI,
-) -> tuple[Agent, AgentVersion | None]:
-    agent_provider = (
-        (connection.provider if connection is not None else ConnectionProvider.CLAUDE)
-        if kind == AgentKind.AI
-        else None
-    )
-    agent = Agent(
-        user_id=user.id,
-        provider=agent_provider,
-        kind=kind,
-        name=name,
-        game="hoard-hurt-help",
-        status=AgentStatus.ACTIVE if connection is not None else AgentStatus.PAUSED,
-    )
-    db.add(agent)
-    await db.flush()
-    version = None
-    if kind == AgentKind.AI:
-        version = AgentVersion(
-            agent_id=agent.id,
-            version_no=1,
-            model=model,
-            strategy_text="Play to win.",
-        )
-        db.add(version)
-        await db.flush()
-        agent.current_version_id = version.id
-        await db.flush()
-    return agent, version
-
-
 async def _make_match(db: AsyncSession, match_id: str, *, state: GameState) -> Match:
-    match = Match(
-        id=match_id,
-        name=f"Match {match_id}",
-        game="hoard-hurt-help",
+    """Seed a match that "already happened" (started an hour before the file's
+    frozen NOW), unlike `tests.factories.make_match`'s default of a not-yet-
+    started REGISTERING match — this file's fixtures are all mid-game/finished."""
+    started = NOW - timedelta(hours=1)
+    return await make_match(
+        db,
+        match_id,
         state=state,
-        scheduled_start=NOW - timedelta(hours=1),
-        started_at=NOW - timedelta(hours=1) if state != GameState.SCHEDULED else None,
-        per_turn_deadline_seconds=60,
+        scheduled_start=started,
+        started_at=started if state != GameState.SCHEDULED else None,
     )
-    db.add(match)
-    await db.flush()
-    return match
-
-
-async def _seat_player(
-    db: AsyncSession,
-    *,
-    match: Match,
-    user: User,
-    agent: Agent,
-    version: AgentVersion,
-    seat_name: str,
-) -> Player:
-    player = Player(
-        match_id=match.id,
-        user_id=user.id,
-        agent_id=agent.id,
-        agent_version_id=version.id,
-        seat_name=seat_name,
-        model_self_report=version.model,
-    )
-    db.add(player)
-    await db.flush()
-    return player
 
 
 async def _make_turn(
@@ -259,7 +158,7 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         await db.commit()
 
     resp = await client.get(
@@ -321,7 +220,7 @@ async def test_save_machine_name_rejects_overlong_nickname(
 ) -> None:
     """nickname is VARCHAR(60); a longer value must 400, not 500 in prod."""
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         await db.commit()
 
     resp = await client.post(
@@ -343,7 +242,7 @@ async def test_connections_list_shows_inline_setup_and_no_provider_picker(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         await db.commit()
 
     resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
@@ -374,7 +273,7 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     setup prompt (the agent wires up its own MCP server) and the pulsing
     'Waiting for your AI to connect…' region."""
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         await db.commit()
 
     client.cookies.update(_signed_in_cookies(user.id))
@@ -452,9 +351,9 @@ async def test_connections_list_returning_state_shows_play_prompt(
     """RETURNING user (connected before, nothing live now): lead with the MCP connection
     play-prompt (the recurring action); the full add-server setup is collapsed."""
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         # A connection that has never checked in → DISCONNECTED, not live now.
-        await _make_connection(db, user, nickname="My Mac")
+        await make_connection(db, user, nickname="My Mac")
         await db.commit()
 
     client.cookies.update(_signed_in_cookies(user.id))
@@ -488,10 +387,10 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
     game call yet (api_call_count == 0): lead with the play-prompt code block and
     do NOT show a 'Join a game' button — pasting the play-prompt is what starts play."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user)
         await _set_live(db, connection)
-        await _make_agent(
+        await make_agent(
             db, user, connection=connection, name="Negotiator", model="claude-haiku-4-5"
         )
         await db.commit()
@@ -527,11 +426,11 @@ async def test_connections_list_playing_state_shows_success(
     0): show the 'Your AI is playing' success box so the user knows the play-prompt
     took — not the play-prompt block and not a Join button."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user)
         await _set_live(db, connection)
         connection.api_call_count = 1  # the AI has called the game tools
-        await _make_agent(
+        await make_agent(
             db, user, connection=connection, name="Negotiator", model="claude-haiku-4-5"
         )
         await db.commit()
@@ -562,8 +461,8 @@ async def test_connections_list_live_state_without_agent_nudges_create(
 ) -> None:
     """ALREADY PLAYING but no agent yet: lead with the Create-an-agent nudge."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user)
         await _set_live(db, connection)
         await db.commit()
 
@@ -585,7 +484,7 @@ async def test_live_status_fragment_not_live_shows_listening(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         await db.commit()
 
     resp = await client.get(
@@ -601,8 +500,8 @@ async def test_live_status_fragment_live_shows_post_connect_block(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user)
         await _set_live(db, connection)
         await db.commit()
 
@@ -624,8 +523,8 @@ async def test_connections_list_renders_existing_connection(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, nickname="My Claude")
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, nickname="My Claude")
         # Connected before, but idle now → the machine reads as "Asleep", not red.
         connection.last_seen_at = datetime.now(timezone.utc) - timedelta(days=2)
         await db.commit()
@@ -650,13 +549,13 @@ async def test_connections_list_groups_mcp_and_machine_with_calm_status(
     """The inventory groups by kind: one MCP card listing the AIs signed in (calm
     'Idle', not red), and a machine card listing the AIs available on it."""
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         # An MCP sign-in for Gemini, idle now.
-        mcp, _ = await _make_connection(db, user, provider=ConnectionProvider.GEMINI)
+        mcp, _ = await make_connection(db, user, provider=ConnectionProvider.GEMINI)
         mcp.mcp_connected_at = datetime.now(timezone.utc) - timedelta(days=1)
         mcp.last_seen_at = datetime.now(timezone.utc) - timedelta(days=1)
         # A machine running the connector with Claude available, asleep now.
-        machine, _ = await _make_connection(
+        machine, _ = await make_connection(
             db, user, provider=ConnectionProvider.CLAUDE, nickname="Home PC"
         )
         machine.last_seen_at = datetime.now(timezone.utc) - timedelta(days=2)
@@ -711,7 +610,7 @@ async def test_naming_machine_autosaves_into_one_setup_and_keeps_a_stable_key(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         await db.commit()
 
     # Set the auth cookie on the client jar (like a browser) so the server's
@@ -769,7 +668,7 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         setup, plain_key = await _make_connection_setup(
             db,
             user,
@@ -851,8 +750,8 @@ async def test_rotate_overlap_keeps_old_key_until_new_key_used(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, old_key = await _make_connection(db, user)
+        user = await make_user(db)
+        connection, old_key = await make_connection(db, user)
         await db.commit()
 
     rotated = await client.post(
@@ -897,11 +796,11 @@ async def test_delete_stops_runner_but_leaves_agents_active(
     ACTIVE — they are no longer pinned to a connection, so they keep playing on
     any other live connection covering their provider (or wait)."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, old_key = await _make_connection(
+        user = await make_user(db)
+        connection, old_key = await make_connection(
             db, user, provider=ConnectionProvider.CLAUDE
         )
-        agent, version = await _make_agent(
+        agent, version = await make_agent(
             db,
             user,
             connection=connection,
@@ -909,7 +808,7 @@ async def test_delete_stops_runner_but_leaves_agents_active(
             model="claude-sonnet-4-6",
         )
         match = await _make_match(db, "M_detach", state=GameState.ACTIVE)
-        player = await _seat_player(
+        player = await seat_prebuilt_player(
             db,
             match=match,
             user=user,
@@ -961,10 +860,10 @@ async def test_toggle_provider_enables_and_strand_guard(
     from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         # An active AI agent depending on claude (the only covering connection).
-        await _make_agent(db, user, connection=connection, name="Solo", model="claude-sonnet-4-6")
+        await make_agent(db, user, connection=connection, name="Solo", model="claude-sonnet-4-6")
         await db.commit()
         conn_id = connection.id
 
@@ -1028,9 +927,9 @@ async def test_detail_renders_provider_toggles_and_install_hint(
     """The detail page shows providers as switches and, when a provider is on
     but its CLI was not detected, prompts the operator to install it."""
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         # _make_connection seeds the claude provider row enabled=True, detected=False.
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
         conn_id = connection.id
 
@@ -1053,8 +952,8 @@ async def test_mcp_connection_detail_shows_read_only_provider_not_machine_toggle
     in with — so its detail page shows that provider read-only, NOT the machine
     multi-provider toggle box with CLI-detection language."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
         conn_id = connection.id
@@ -1079,8 +978,8 @@ async def test_connection_controls_live_in_status_card(
     """Pause/Rotate/Delete moved into the connection status card, so they also
     survive the status fragment's 5s poll instead of sitting in a separate box."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
         conn_id = connection.id
 
@@ -1108,8 +1007,8 @@ async def test_mcp_connection_status_card_hides_rotate_key(
     signs in over OAuth, so the control is hidden and the copy talks reconnect, not
     'rotate the setup message' or 'this machine'."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         connection.mcp_connected_at = datetime.now(timezone.utc)
         await db.commit()
         conn_id = connection.id
@@ -1136,8 +1035,8 @@ async def test_detail_shows_when_connection_last_connected(
     says "last seen" (an honest read of the heartbeat) rather than "connected",
     which would overclaim a live link from a possibly-stale heartbeat."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         connection.last_seen_at = datetime.now(timezone.utc) - timedelta(minutes=12)
         await db.commit()
         conn_id = connection.id
@@ -1157,8 +1056,8 @@ async def test_never_connected_shows_no_last_connected_time(
     """A connection that has never checked in reads 'never connected', not a
     bogus timestamp."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         connection.last_seen_at = None
         connection.first_connected_at = None
         await db.commit()
@@ -1181,8 +1080,8 @@ async def test_ready_status_copy_is_honest_about_staleness(
     'last seen' time and hedges ('should be ready', 'can't confirm') instead of
     the old 'The client is connected and idle, ready for the next turn.'."""
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         await _set_live(db, connection)  # last_seen 5s ago, no active matches → READY
         await db.commit()
         conn_id = connection.id
@@ -1202,7 +1101,7 @@ async def test_ready_status_copy_is_honest_about_staleness(
 
 async def test_pending_connections_gc_after_24h(session_factory: async_sessionmaker[AsyncSession]) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
+        user = await make_user(db)
         stale = ConnectionSetup(
             user_id=user.id,
             provider=ConnectionProvider.CLAUDE,
@@ -1252,16 +1151,16 @@ async def test_connection_health_across_multiple_agents_tracks_the_active_game(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
-        warm_agent, warm_version = await _make_agent(
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        warm_agent, warm_version = await make_agent(
             db,
             user,
             connection=connection,
             name="Warm",
             model="claude-sonnet-4-6",
         )
-        cold_agent, cold_version = await _make_agent(
+        cold_agent, cold_version = await make_agent(
             db,
             user,
             connection=connection,
@@ -1270,7 +1169,7 @@ async def test_connection_health_across_multiple_agents_tracks_the_active_game(
         )
         warm_match = await _make_match(db, "M_live", state=GameState.ACTIVE)
         cold_match = await _make_match(db, "M_stalled", state=GameState.ACTIVE)
-        warm_player = await _seat_player(
+        warm_player = await seat_prebuilt_player(
             db,
             match=warm_match,
             user=user,
@@ -1278,7 +1177,7 @@ async def test_connection_health_across_multiple_agents_tracks_the_active_game(
             version=warm_version,
             seat_name=f"{user.handle}/Warm",
         )
-        cold_player = await _seat_player(
+        cold_player = await seat_prebuilt_player(
             db,
             match=cold_match,
             user=user,

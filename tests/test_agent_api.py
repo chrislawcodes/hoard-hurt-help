@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.main import app
 from app.models import Base, Match, GameState, Player, Turn, TurnSubmission
 from app.engine.tokens import generate_turn_token
-from tests.factories import seat_player
+from tests.factories import make_match, seat_player
 
 
 @pytest.fixture(autouse=True)
@@ -48,16 +48,9 @@ async def _seed_game(
     scheduled_start: datetime | None = None,
 ) -> tuple[str, list[Player]]:
     async with reset_db() as db:
-        g = Match(
-            id="G_001",
-            name="t",
-            state=state,
-            scheduled_start=scheduled_start
-            or datetime.now(timezone.utc) + timedelta(hours=1),
-            per_turn_deadline_seconds=60,
+        g = await make_match(
+            db, "G_001", state=state, name="t", scheduled_start=scheduled_start
         )
-        db.add(g)
-        await db.flush()
         players = []
         for i in range(n_players):
             p = await seat_player(db, g.id, f"AI_{i}", i=i)

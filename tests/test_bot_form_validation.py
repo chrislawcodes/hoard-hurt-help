@@ -21,6 +21,7 @@ from app.config import settings
 from app.main import app
 from app.models import Base, GameState, Match, Player, User
 from app.models.user import UserRole
+from tests.factories import make_match
 
 
 @pytest.fixture(autouse=True)
@@ -77,14 +78,13 @@ async def _seed_game(
     match_id: str = "G_bfv",
 ) -> Match:
     async with reset_db() as db:
-        g = Match(
-            id=match_id,
-            name="Bot Form Validation Test",
+        g = await make_match(
+            db,
+            match_id,
             state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+            name="Bot Form Validation Test",
             max_players=max_players,
         )
-        db.add(g)
         await db.commit()
         await db.refresh(g)
         return g

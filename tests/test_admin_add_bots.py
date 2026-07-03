@@ -2,7 +2,6 @@
 
 import base64
 import json
-from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -14,7 +13,7 @@ from app.engine.bots.seating import BOTS_USER_SUB
 from app.main import app
 from app.models import Base, Agent, AgentKind, Match, GameState, Player, User
 from app.models.user import UserRole
-from tests.factories import make_agent
+from tests.factories import make_agent, make_match
 
 
 @pytest.fixture(autouse=True)
@@ -75,14 +74,9 @@ async def _seed_game(
     match_id: str = "G_001",
 ) -> Match:
     async with reset_db() as db:
-        g = Match(
-            id=match_id,
-            name="Friday Test",
-            state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-            max_players=max_players,
+        g = await make_match(
+            db, match_id, state=state, name="Friday Test", max_players=max_players
         )
-        db.add(g)
         await db.commit()
         await db.refresh(g)
         return g

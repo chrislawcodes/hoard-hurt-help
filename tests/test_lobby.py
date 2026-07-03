@@ -23,7 +23,7 @@ from app.models.connection import ConnectionProvider
 from app.models.match import MatchKind
 from app.models.user import UserRole
 from app.engine.bots import pack_profile_choices
-from tests.factories import make_agent, make_connection, make_user, seat_player
+from tests.factories import make_agent, make_connection, make_match, make_user, seat_player
 
 
 @pytest.fixture(autouse=True)
@@ -66,14 +66,7 @@ async def _seed_user(reset_db: async_sessionmaker) -> User:
 
 async def _seed_game(reset_db: async_sessionmaker, state=GameState.REGISTERING) -> Match:
     async with reset_db() as db:
-        g = Match(
-            id="G_001",
-            name="Test Match",
-            state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-            per_turn_deadline_seconds=60,
-        )
-        db.add(g)
+        g = await make_match(db, "G_001", state=state, name="Test Match")
         await db.commit()
         await db.refresh(g)
         return g

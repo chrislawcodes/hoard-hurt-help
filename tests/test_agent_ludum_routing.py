@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models import GameState, Match, Player
 from app.models.agent import AgentKind
-from tests.factories import make_agent, make_user
+from tests.factories import make_agent, make_match, make_user
 
 
 async def _seed_game(
@@ -21,14 +21,7 @@ async def _seed_game(
     state: GameState = GameState.REGISTERING,
 ) -> Match:
     async with reset_db() as db:
-        g = Match(
-            id=match_id,
-            name=name,
-            state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-            per_turn_deadline_seconds=60,
-        )
-        db.add(g)
+        g = await make_match(db, match_id, state=state, name=name)
         await db.commit()
         await db.refresh(g)
         return g

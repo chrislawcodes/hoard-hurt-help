@@ -15,19 +15,19 @@ from datetime import datetime, timezone
 from app.engine.scheduler_turn_loop import _open_turn
 from app.engine.turn_drivers import SequentialDriver
 from app.models import GameState, Match
+from tests.factories import make_match
 
 
 async def _seed_game(db, *, current_round: int) -> Match:
-    game = Match(
-        id="G_C2",
-        name="C2",
+    game = await make_match(
+        db,
+        "G_C2",
         state=GameState.ACTIVE,
+        name="C2",
         scheduled_start=datetime.now(timezone.utc),
-        per_turn_deadline_seconds=60,
         current_round=current_round,
         current_turn=0,
     )
-    db.add(game)
     await db.commit()
     return game
 
