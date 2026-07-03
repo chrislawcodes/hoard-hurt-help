@@ -35,6 +35,7 @@ from app.engine.agent_play_reads import (
     _group_into_turns,
     _load_public_action_records,
     build_public_scoreboard_dicts,
+    load_open_turn,
     sorted_seat_names,
 )
 from app.engine.model_provider_match import resolve_seat_model
@@ -198,14 +199,7 @@ async def _build_candidate_lookups(
         ctx.agent_by_id[agent.id] = agent
         ctx.version_by_agent_id[agent.id] = version
         if match.id not in ctx.latest_turn_by_match:
-            turn = (
-                await db.execute(
-                    select(Turn)
-                    .where(Turn.match_id == match.id, Turn.resolved_at.is_(None))
-                    .order_by(Turn.round.desc(), Turn.turn.desc(), Turn.id.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
+            turn = await load_open_turn(db, match.id)
             if turn is not None:
                 ctx.latest_turn_by_match[match.id] = turn
     return ctx
@@ -368,17 +362,7 @@ async def agent_identity_for(
         _agent, _player, match, _version = rows[0]
         current_turn = None
         if match.state == GameState.ACTIVE:
-            current_turn = (
-                await db.execute(
-                    select(Turn)
-                    .where(
-                        Turn.match_id == match.id,
-                        Turn.resolved_at.is_(None),
-                    )
-                    .order_by(Turn.round.desc(), Turn.turn.desc(), Turn.id.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
+            current_turn = await load_open_turn(db, match.id)
         if current_turn is not None:
             when = ensure_aware(current_turn.deadline_at)
         elif match.scheduled_start is not None:

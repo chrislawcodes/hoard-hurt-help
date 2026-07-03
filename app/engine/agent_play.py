@@ -53,6 +53,7 @@ from app.engine.agent_play_reads import (
     _parse_cursor,
     _public_scoreboard,
     _public_standings,
+    load_open_turn,
     sorted_seat_names,
 )
 from app.engine.connection_activity import increment_turns_played, mark_first_move
@@ -127,14 +128,7 @@ async def poll_turn(
             current_turn=game.current_turn,
         )
 
-    turn = (
-        await db.execute(
-            select(Turn)
-            .where(Turn.match_id == game.id, Turn.resolved_at.is_(None))
-            .order_by(Turn.round.desc(), Turn.turn.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    turn = await load_open_turn(db, game.id)
     if turn is None:
         return WaitingResponse(
             reason="turn_not_open",
@@ -423,14 +417,7 @@ async def get_agent_state(
     player: Player,
 ) -> AgentStateResponse:
     game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
-    open_turn = (
-        await db.execute(
-            select(Turn)
-            .where(Turn.match_id == game.id, Turn.resolved_at.is_(None))
-            .order_by(Turn.round.desc(), Turn.turn.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    open_turn = await load_open_turn(db, game.id)
     you_submitted = False
     if open_turn is not None:
         submission = (

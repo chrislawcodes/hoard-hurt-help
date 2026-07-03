@@ -215,11 +215,23 @@ def _match_url(match: Match, suffix: str = "") -> str:
     return f"/games/{match.game}/matches/{match.id}{suffix}"
 
 
-async def _load_match_or_404(db: AsyncSession, match_id: str) -> Match:
+async def load_match_or_404(db: AsyncSession, match_id: str) -> Match:
+    """Load a match by id; raise a bare 404 if it does not exist.
+
+    Canonical match-load helper for every route module in this package
+    (game-admin, admin, spectator, and the human-facing ``web_*`` routes).
+    """
     match = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
     if match is None:
         raise HTTPException(404)
     return match
+
+
+# Underscored alias kept for the existing internal call sites in this package
+# (web_join.py, web_play.py, matches_user.py, and this module) that already
+# import/reference the private name; new callers should use the public
+# ``load_match_or_404`` above.
+_load_match_or_404 = load_match_or_404
 
 
 class GameSlugRedirect(Exception):

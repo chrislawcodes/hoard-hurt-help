@@ -113,6 +113,49 @@ def test_play_failure_timeout_on_generic_error(runner) -> None:
     assert outcome == "timeout"
 
 
+# --- _provider_from_model (authoritative allowlist vs. prefix heuristic) -------
+
+
+def test_provider_from_model_agrees_with_authoritative_allowlist(runner) -> None:
+    """In a source checkout the connector defers to app.config.provider_for_model
+    instead of its own prefix heuristic (the two can disagree — #569)."""
+    from app.config import PROVIDER_MODELS, provider_for_model
+
+    assert runner._authoritative_provider_for_model is provider_for_model
+
+    # Every real model resolves to exactly what the allowlist says.
+    for provider, models in PROVIDER_MODELS.items():
+        for model in models:
+            assert runner._provider_from_model(model) == provider_for_model(model) == provider
+
+
+def test_provider_from_model_returns_none_for_prefixed_but_unlisted_model(runner) -> None:
+    """A model with a known prefix that is NOT in the allowlist is the divergence
+    case: the old prefix heuristic would have guessed a provider, but the
+    authoritative mapping (and now the connector) returns None so the caller
+    resolves the provider from the stored agent instead of mis-attributing it."""
+    unlisted = "claude-does-not-exist-99"
+    from app.config import provider_for_model
+
+    assert provider_for_model(unlisted) is None
+    # The connector agrees with the authoritative mapping, not the prefix guess.
+    assert runner._provider_from_model(unlisted) is None
+
+
+def test_provider_from_model_delegates_to_config(runner, monkeypatch) -> None:
+    """The connector consults the authoritative function, not a hardcoded copy:
+    monkeypatching it changes the connector's answer."""
+    calls: list[str] = []
+
+    def fake(model: str) -> str | None:
+        calls.append(model)
+        return "sentinel-provider"
+
+    monkeypatch.setattr(runner, "_authoritative_provider_for_model", fake)
+    assert runner._provider_from_model("gpt-5.4-mini") == "sentinel-provider"
+    assert calls == ["gpt-5.4-mini"]
+
+
 # --- _http (pooled connection client) -----------------------------------------
 
 
