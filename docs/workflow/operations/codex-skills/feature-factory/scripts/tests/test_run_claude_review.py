@@ -16,6 +16,17 @@ import factory_state as FACTORY_STATE  # noqa: E402
 import run_claude_review as RCR  # noqa: E402
 import verify_review_checkpoint as VERIFY  # noqa: E402
 
+# Structured findings contract: every assembled review must carry a valid
+# fenced findings JSON block; a clean review is the affirmative
+# {"reviewed": true, "findings": []}.
+CLEAN_JSON_BLOCK = '```json\n{"reviewed": true, "findings": []}\n```\n'
+FINDINGS_JSON_BLOCK = (
+    "```json\n"
+    '{"reviewed": true, "findings": [{"severity": "HIGH", "title": '
+    '"acceptance criteria not measurable", "detail": "no numeric target"}]}\n'
+    "```\n"
+)
+
 
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
@@ -67,7 +78,8 @@ class RunClaudeReviewTests(unittest.TestCase):
         response = self.slug_dir / "reviews" / "response.md"
         response.write_text(
             "## Findings\n\n- **HIGH**: acceptance criteria are not measurable.\n\n"
-            "## Residual Risks\n\n- Scope may expand during implementation.\n",
+            "## Residual Risks\n\n- Scope may expand during implementation.\n\n"
+            + FINDINGS_JSON_BLOCK,
             encoding="utf-8",
         )
         rc = RCR.main(self._argv("assemble", ["--response-file", str(response)]))
@@ -90,7 +102,9 @@ class RunClaudeReviewTests(unittest.TestCase):
     def test_assemble_records_derived_output_tokens(self) -> None:
         response = self.slug_dir / "reviews" / "response.md"
         response.write_text(
-            "## Findings\n\n- **HIGH**: x.\n\n## Residual Risks\n\n- none\n", encoding="utf-8"
+            "## Findings\n\n- **HIGH**: x.\n\n## Residual Risks\n\n- none\n\n"
+            + FINDINGS_JSON_BLOCK,
+            encoding="utf-8",
         )
         jsonl = self.slug_dir / "reviews" / "agent-test.jsonl"
         usage = {"message": {"usage": {
@@ -132,6 +146,44 @@ class RunClaudeReviewTests(unittest.TestCase):
         response.write_text("   \n", encoding="utf-8")
         rc = RCR.main(self._argv("assemble", ["--response-file", str(response)]))
         self.assertEqual(rc, 5)
+
+    def test_missing_findings_json_block_fails_assemble(self) -> None:
+        # Sections are fine, but the required findings JSON block is absent —
+        # assemble must fail closed so an unparseable review never enters the
+        # checkpoint as if it were clean.
+        response = self.slug_dir / "reviews" / "no-block.md"
+        response.write_text(
+            "## Findings\n\n- **HIGH**: something real.\n\n## Residual Risks\n\n- none\n",
+            encoding="utf-8",
+        )
+        rc = RCR.main(self._argv("assemble", ["--response-file", str(response)]))
+        self.assertEqual(rc, 5)
+        failure = self.output.read_text(encoding="utf-8")
+        self.assertIn("findings contract", failure)
+        self.assertIn('resolution_status: "failed"', failure)
+
+    def test_malformed_findings_json_block_fails_assemble(self) -> None:
+        response = self.slug_dir / "reviews" / "bad-block.md"
+        response.write_text(
+            "## Findings\n\n- **HIGH**: something real.\n\n## Residual Risks\n\n- none\n\n"
+            '```json\n{"reviewed": true, "findings": [broken]}\n```\n',
+            encoding="utf-8",
+        )
+        rc = RCR.main(self._argv("assemble", ["--response-file", str(response)]))
+        self.assertEqual(rc, 5)
+        failure = self.output.read_text(encoding="utf-8")
+        self.assertIn("malformed findings JSON block", failure)
+
+    def test_clean_review_requires_affirmative_clean_block(self) -> None:
+        # A clean review with the affirmative block assembles fine.
+        response = self.slug_dir / "reviews" / "clean.md"
+        response.write_text(
+            "## Findings\n\nNo findings.\n\n## Residual Risks\n\n- none\n\n"
+            + CLEAN_JSON_BLOCK,
+            encoding="utf-8",
+        )
+        rc = RCR.main(self._argv("assemble", ["--response-file", str(response)]))
+        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":

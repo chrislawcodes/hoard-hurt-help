@@ -208,7 +208,8 @@ def main() -> int:
             "Return only markdown with exactly these sections:",
             "## Findings",
             "## Residual Risks",
-            "Do not include any other sections.",
+            "Do not include any other sections. After the Residual Risks section, end "
+            "with the required fenced findings JSON block described above.",
         ]
     )
 

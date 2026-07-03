@@ -43,6 +43,8 @@ from run_gemini_review import (
     write_report,
 )
 
+from review_findings import JSON_BLOCK_VALID, parse_findings_json
+
 FEATURE_FACTORY_SCRIPTS = Path(__file__).resolve().parents[2] / "feature-factory" / "scripts"
 if str(FEATURE_FACTORY_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(FEATURE_FACTORY_SCRIPTS))
@@ -57,7 +59,8 @@ PROMPT_SUFFIX = (
     "Return only markdown with exactly these sections:",
     "## Findings",
     "## Residual Risks",
-    "Do not include any other sections.",
+    "Do not include any other sections. After the Residual Risks section, end "
+    "with the required fenced findings JSON block described above.",
 )
 
 
@@ -264,6 +267,27 @@ def command_assemble(args: argparse.Namespace, ctx: dict) -> int:
             output_path,
             metadata,
             f"Claude subagent output did not match the required review format: {exc}",
+        )
+        return 5
+
+    # Structured findings contract: newly assembled Claude reviews must carry a
+    # valid fenced findings JSON block (a clean review is the affirmative
+    # {"reviewed": true, "findings": []}). Absent or malformed blocks fail the
+    # assemble — the orchestrator re-runs the review subagent — so an
+    # unparseable review can never enter the checkpoint as if it were clean.
+    block = parse_findings_json(response)
+    if block.status != JSON_BLOCK_VALID:
+        reason = (
+            f"malformed findings JSON block: {block.error}"
+            if block.error
+            else "missing the required fenced findings JSON block "
+            '({"reviewed": true, "findings": [...]})'
+        )
+        write_failure(
+            output_path,
+            metadata,
+            f"Claude subagent output violated the findings contract — {reason}. "
+            "Re-run the review subagent with the emitted prompt.",
         )
         return 5
 

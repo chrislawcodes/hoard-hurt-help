@@ -15,6 +15,7 @@ VERIFY = SCRIPT_DIR / "verify_review_checkpoint.py"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from review_findings import classify_review_text
 from workflow_utils import artifact_hash_matches, normalized_artifact_text, resolve_stored_path
 
 REPO_ROOT = SCRIPT_DIR.parents[5]
@@ -61,6 +62,11 @@ def review_is_healthy(spec: dict, artifact_path: Path) -> bool:
     for marker in ("# Review:", "## Findings", "## Residual Risks", "## Resolution"):
         if marker not in body:
             return False
+    # Fail closed on unparseable findings (malformed findings JSON block, or a
+    # non-trivial body nothing can parse): treat the review as unhealthy so
+    # repair re-runs the lens instead of letting it pass as a clean review.
+    if classify_review_text(body).is_unparseable:
+        return False
     if data.get("reviewer") == "gemini":
         raw_output = data.get("raw_output_path", "")
         if not raw_output or not resolve_stored_path(raw_output, REPO_ROOT, data.get("repo_root", "")).exists():

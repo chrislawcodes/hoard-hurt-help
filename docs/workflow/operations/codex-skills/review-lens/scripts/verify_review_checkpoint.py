@@ -10,6 +10,7 @@ REPO_ROOT = SCRIPT_DIR.parents[5]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from review_findings import classify_review_text
 from workflow_utils import artifact_hash_matches, normalized_artifact_hash, resolve_stored_path
 
 
@@ -178,6 +179,19 @@ def main() -> int:
         missing = missing_sections(body)
         if missing:
             errors.append(f"{review_path} is missing required sections: {', '.join(missing)}")
+
+        # Fail closed on unparseable findings: a review whose findings cannot be
+        # read (malformed findings JSON block, or a non-trivial body with no
+        # valid JSON block and no recognizable finding lines) must never satisfy
+        # a checkpoint as if it were clean. Failed/deferred runner outputs have
+        # trivial templated bodies, so they classify as legacy-clean and are
+        # governed by their resolution_status instead.
+        classification = classify_review_text(body)
+        if classification.is_unparseable:
+            errors.append(
+                f"{review_path} findings are unparseable ({classification.detail}) — "
+                "this review cannot be auto-accepted; re-run this review lens"
+            )
 
         resolution_values = resolution_block_values(body)
         if resolution_values is None:
