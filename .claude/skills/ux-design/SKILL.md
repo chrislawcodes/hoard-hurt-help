@@ -41,13 +41,21 @@ Hoard Hurt Help is a turn-based game platform where LLM agents (bots) compete.
 Read `docs/platform/AGENT_LUDUM_DESIGN.md` for the why and `UI.md` for the original text wireframes before
 designing anything substantial — they hold intent you shouldn't silently break.
 
-Three humans use the site. Always know which one you're designing for:
+Four humans use the site. Always know which one you're designing for:
 
 | User | What they're here to do | Cares about |
 |---|---|---|
 | **Spectator** | Watch a live game or replay a finished one | Reading the action as a story; who's winning |
 | **Bot operator** | Register a bot, connect it, set strategy, join games | Getting connected without confusion; trusting it worked |
+| **Human player** | Join a match with one click and play turns *by hand* in the viewer, alongside agents and bots | Never missing a turn (deadlines, alerts, auto-submit); acting fast on a phone |
 | **Admin** | Create and run games | Control and a clear view of state |
+
+The human player is the newest and easiest to forget: they use the *same*
+viewer as the spectator but under time pressure — the play panel
+(`app/templates/fragments/play_panel.html`, routes in `app/routes/web_play.py`)
+lives inside the spectator's screen. A viewer change that's fine for watching
+can break playing (e.g. anything that hides the countdown or crowds the panel
+at phone width).
 
 The product belief (from `UI.md`): the turn-by-turn feed is the load-bearing
 element — it should read as a *narrative*, not a table. Honor that unless you
@@ -120,9 +128,11 @@ Design against what's real, not what you imagine.
 > stick, so the page just returns `NOT_SIGNED_IN`. Do **not** spin up a throwaway
 > pytest to print HTML or attempt a preview screenshot (it wastes cycles every
 > time). Instead verify by an integration test that renders the **real template
-> through the test client** and asserts the rendered HTML, or `curl` the route with
-> a forged cookie (see memory `preview-auth-verification`). The preview browser is
-> fine for **public** pages (home, lobby, game viewer) only.
+> through the test client** and asserts the rendered HTML — `tests/conftest.py`
+> already has the auth helpers: `signed_in_cookies(user_id)` returns the cookies
+> dict that authenticates a request (it signs the `hhh_session` cookie the same
+> way production does). The preview browser is fine for **public** pages (home,
+> lobby, game viewer) only.
 
 **If the screen already exists**, look at it before you opine. Use the preview
 tools, don't guess:
@@ -194,7 +204,10 @@ Then, **on request**, make the real edits and verify them:
 - Pages are Jinja templates in `app/templates/`; the shared shell is `base.html`.
 - Live-updating regions are HTMX fragments in `app/templates/fragments/` — these
   get swapped in over SSE, so design them to make sense both on first paint and
-  on every later swap.
+  on every later swap. The fragment set has grown (play panel, coach panel,
+  move legend, standings, live regions…) — `ls app/templates/fragments/` before
+  assuming where something lives, and prefer extending an existing fragment
+  over adding a parallel one.
 - All styling lives in one file: `app/static/style.css`. Extend the existing
   type scale, spacing, and color variables rather than inventing parallel ones —
   consistency is a feature.
@@ -232,3 +245,17 @@ name which one it's failing.
 - **Don't redesign when a small change wins.** A redesign is the most expensive
   fix and the easiest to over-reach with. Prefer the smallest change that does
   the job, and reserve big moves for when the structure is genuinely wrong.
+
+## Provenance and maintenance
+
+Last verified against the repo 2026-07-03. The facts here that drift fastest,
+and how to re-check each before relying on it:
+
+- The user roster and their surfaces: `ls app/routes/web_*.py` and
+  `ls app/templates/fragments/` — new personas or panels show up here first.
+- The auth helpers for gated-page verification:
+  `grep -n "signed_in_cookies\|session_cookie" tests/conftest.py`.
+- The preview server config and port: `cat .claude/launch.json`.
+- The design-intent docs still exist where cited: `ls UI.md docs/platform/AGENT_LUDUM_DESIGN.md`.
+
+If a check contradicts this file, trust the code and fix this file in the same PR.
