@@ -87,24 +87,77 @@ STAGE_ARTIFACT_HEADINGS = {
     "tasks": "# Tasks",
 }
 
-# Matches [CHECKPOINT] as a marker line. Two accepted shapes:
-#   - markdown heading where the marker leads the title:
+# Matches [CHECKPOINT] as a marker line. Three accepted shapes:
+#   - markdown heading where the marker leads the title (optionally bold-wrapped):
 #       "### [CHECKPOINT] Slice 1 — Foo"   (any level 1-6; trailing title text ok)
-#   - list item ENDING in the marker (unordered, ordered, or checkbox):
+#       "### **[CHECKPOINT] Slice 1 — Foo**"   "### **[CHECKPOINT]** Slice 1"
+#   - list item ENDING in the marker (unordered, ordered, or checkbox; the
+#     marker itself may be bold-wrapped):
 #       "- Task A [CHECKPOINT]"  "* B [CHECKPOINT]"  "1. C [CHECKPOINT]"
-#       "- [ ] D [CHECKPOINT]"   "- [x] E [CHECKPOINT]"
+#       "- [ ] D [CHECKPOINT]"   "- [x] E [CHECKPOINT]"  "- F **[CHECKPOINT]**"
+#   - bold-led line ENDING in the marker (real tasks.md authors write markers on
+#     "**Verify:** …" lines — the user-roles incident):
+#       "**Verify:** tests green [CHECKPOINT]"   "**Verify: tests [CHECKPOINT]**"
 # Headings allow trailing text (the slice title) because the marker leads; list
-# items must end in the marker, so a mid-sentence mention inside a list item — e.g.
-# "- [ ] Explain how [CHECKPOINT] works" — is NOT treated as a slice boundary.
-# A bare "[CHECKPOINT]" in prose (no heading/list prefix) never matches.
+# items and bold-led lines must end in the marker, so a mid-sentence mention —
+# e.g. "- [ ] Explain how [CHECKPOINT] works" — is NOT treated as a slice
+# boundary. A bare "[CHECKPOINT]" in plain prose never matches, and markers
+# inside fenced code blocks are ignored (callers must mask fences first via
+# mask_fenced_code_blocks — parse_checkpoint_markers and factory_parallel do).
+# Whitespace inside the pattern is [^\S\n] (whitespace except newline), never
+# \s: under re.MULTILINE a \s could cross line boundaries — swallowing blank
+# lines into a findall match, or stitching a lone "-" bullet to the next line —
+# which would let the whole-text findall count diverge from the per-line
+# .match() walk in factory_parallel. Every match is strictly one line.
 _CHECKPOINT_MARKER_RE = re.compile(
-    r"^\s*(?:"
-    r"#{1,6}\s+\[CHECKPOINT\].*"  # heading: marker leads the title
+    r"^[^\S\n]*(?:"
+    r"#{1,6}[^\S\n]+(?:\*\*)?\[CHECKPOINT\].*"  # heading: marker leads the title
     r"|"
-    r"(?:[-*]|\d+\.|-\s+\[[ xX]\])\s+.*\[CHECKPOINT\][^\S\n]*"  # list item ending in marker
+    r"(?:[-*]|\d+\.|-[^\S\n]+\[[ xX]\])[^\S\n]+.*\[CHECKPOINT\](?:\*\*)?[^\S\n]*"  # list item ending in marker
+    r"|"
+    r"\*\*[^\n]*\[CHECKPOINT\](?:\*\*)?[^\S\n]*"  # bold-led line ending in marker
     r")$",
     re.MULTILINE,
 )
+
+# Opening or closing line of a fenced code block: ``` or ~~~ (3+, optionally
+# indented). Group 1 is the fence sequence, group 2 the rest of the line.
+_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
+
+
+def mask_fenced_code_blocks(text: str) -> str:
+    """Blank every line inside a fenced code block, preserving line count.
+
+    A ``[CHECKPOINT]`` marker quoted inside a ``` / ~~~ fence (e.g. an example
+    in a verification step) is documentation, not a slice boundary — the
+    dedup-engine-cseries run tripped on exactly this class of mismatch. Fence
+    delimiters and their content become empty lines so callers can run the
+    marker regex (or line-by-line slicing) over the result and stay consistent
+    with each other. Per CommonMark, a closing fence must use the same
+    character, be at least as long as the opener, and carry no info string; an
+    unclosed fence masks through end-of-file.
+    """
+    out_lines: list[str] = []
+    fence_char = ""
+    fence_len = 0
+    for line in text.splitlines():
+        match = _FENCE_RE.match(line)
+        if fence_char:
+            out_lines.append("")
+            if (
+                match
+                and match.group(1)[0] == fence_char
+                and len(match.group(1)) >= fence_len
+                and not match.group(2).strip()
+            ):
+                fence_char, fence_len = "", 0
+            continue
+        if match:
+            fence_char, fence_len = match.group(1)[0], len(match.group(1))
+            out_lines.append("")
+            continue
+        out_lines.append(line)
+    return "\n".join(out_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -124,13 +177,65 @@ def parse_checkpoint_markers(slug: str) -> tuple[int, str]:
     if not tasks_path.exists():
         return 0, ""
     text = tasks_path.read_text(encoding="utf-8")
-    matches = _CHECKPOINT_MARKER_RE.findall(text)
+    matches = _CHECKPOINT_MARKER_RE.findall(mask_fenced_code_blocks(text))
     if not matches:
         return 0, ""
     # Normalise: strip individual lines and join with LF to avoid CRLF drift.
     normalised = "\n".join(line.strip() for line in matches)
     sha = hashlib.sha256(normalised.encode("utf-8")).hexdigest()
     return len(matches), sha
+
+
+# One example per accepted marker form — reused by the unsliced-tasks error so
+# the fix instructions can never drift from what the regex actually accepts.
+CHECKPOINT_MARKER_EXAMPLES: tuple[tuple[str, str], ...] = (
+    ("heading", "### [CHECKPOINT] Slice 1 — short title"),
+    ("bold heading", "### **[CHECKPOINT] Slice 1 — short title**"),
+    ("list item", "- end of slice 1 [CHECKPOINT]"),
+    ("checkbox list item", "- [ ] verify slice 1 tests pass [CHECKPOINT]"),
+    ("bold-wrapped marker", "- end of slice 1 **[CHECKPOINT]**"),
+    ("bold line", "**Verify:** slice 1 tests green [CHECKPOINT]"),
+)
+
+
+def unsliced_tasks_error(slug: str) -> str | None:
+    """Fail-closed gate: tasks.md has real content but zero [CHECKPOINT] markers.
+
+    Building an unsliced tasks.md collapses the whole feature into one giant
+    dispatch and one unreviewable diff (exp 10 shipped a circular test that way;
+    the user-roles run collapsed 5 slices into one dispatch). Returns the error
+    message implement should print, or None when the gate does not apply:
+    missing/stub tasks.md (other gates own that), markers present, or a legacy
+    run with no recorded init SHA — fail open exactly like the reuse-report
+    gate in prerequisite_failure, so pre-gate runs and test fixtures are never
+    blocked retroactively.
+    """
+    tasks_path = workflow_dir(slug) / "tasks.md"
+    if not artifact_has_meaningful_content("tasks", tasks_path):
+        return None
+    marker_count, _sha = parse_checkpoint_markers(slug)
+    if marker_count > 0:
+        return None
+    init_sha = load_workflow_state(slug).get(INIT_HEAD_SHA_KEY, "")
+    if not init_sha:
+        return None  # legacy run predating the gate — can't verify, don't block
+    form_lines = "\n".join(
+        f"  {name + ':':<21} {example}" for name, example in CHECKPOINT_MARKER_EXAMPLES
+    )
+    return (
+        "tasks.md has real content but zero [CHECKPOINT] markers were detected — "
+        "refusing to build. Without slice boundaries the whole feature becomes one "
+        "giant dispatch and one unreviewable diff.\n"
+        "Accepted marker forms (markers inside fenced code blocks are ignored):\n"
+        f"{form_lines}\n"
+        f"Fix: edit {tasks_path} and add one marker line at the end of each slice "
+        "(aim for ~300 changed lines per slice), then re-run implement. Headings "
+        "must start with the marker after the #s; list items and bold lines must "
+        "end with it.\n"
+        "If this feature is genuinely a single slice, re-run implement with "
+        "--allow-unsliced to proceed anyway (records an unsliced_accepted "
+        "annotation in state.json)."
+    )
 
 
 def checkpoint_progress_state(slug: str) -> dict:

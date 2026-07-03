@@ -51,6 +51,11 @@ class RunSerialRetryTests(unittest.TestCase):
             patch.object(IMPL, "revert_protected_files"),
             patch.object(IMPL, "_implementation_round", return_value=0),
             patch.object(IMPL, "_run_codex_command", side_effect=_fake_cmd),
+            # Completion gate seams: these tests exercise the retry wiring only,
+            # so the pre-dispatch HEAD capture and the post-dispatch slice-
+            # completion verification are stubbed out.
+            patch.object(IMPL, "_git_head_sha", return_value="base-sha"),
+            patch.object(IMPL, "_slice_completion_error", return_value=None),
             contextlib.redirect_stderr(io.StringIO()),
         ):
             rc = IMPL._run_serial("slug", ["task"])

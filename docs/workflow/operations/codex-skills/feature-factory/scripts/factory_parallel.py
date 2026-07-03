@@ -69,25 +69,56 @@ def parse_p_annotation(line: str) -> list[str]:
 _PATH_TOKEN_RE = re.compile(r"(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9_]+")
 
 
-def slice_declared_files(slug: str, slice_index: int) -> list[str]:
-    """Return repo-relative file paths declared by the tasks in one slice.
+def _marker_visible_lines(tasks_path: Path) -> list[str]:
+    """tasks.md lines with fenced code blocks blanked out.
+
+    Slicing must agree with :func:`factory_stages.parse_checkpoint_markers`
+    about which lines are markers, or slice indexes drift. Both therefore mask
+    fenced code blocks the same way; a task line or marker quoted inside a
+    fence is an example, not a boundary. Line count is preserved and every
+    line outside a fence is byte-identical to the original.
+    """
+    text = tasks_path.read_text(encoding="utf-8")
+    return _stages.mask_fenced_code_blocks(text).splitlines()
+
+
+def _task_declared_paths(line: str) -> list[str]:
+    """File paths a single task line names: [P:] annotations + path tokens."""
+    declared: list[str] = []
+    seen: set[str] = set()
+    for path in parse_p_annotation(line):
+        if path not in seen:
+            seen.add(path)
+            declared.append(path)
+    for match in _PATH_TOKEN_RE.findall(line):
+        cleaned = match
+        while cleaned.startswith("./"):
+            cleaned = cleaned[2:]
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            declared.append(cleaned)
+    return declared
+
+
+def slice_task_declared_files(slug: str, slice_index: int) -> list[tuple[str, list[str]]]:
+    """Return ``(task_text, declared_paths)`` per task line in one slice.
 
     A "slice" is the block of task list items after the ``slice_index``-th
     ``[CHECKPOINT]`` marker (slice 0 is the block before the first marker).
-    Unlike :func:`parse_parallel_task_groups`, this collects task lines
-    regardless of checkbox state (``[ ]`` or ``[x]``), so a *completed* slice's
-    declared files can be read back. Paths come from ``[P:]`` annotations plus
-    path-like tokens in the task text. Returns a sorted, de-duplicated list.
+    Collects task lines regardless of checkbox state (``[ ]`` or ``[x]``), so a
+    *completed* slice's declared files can be read back. Paths come from
+    ``[P:]`` annotations plus path-like tokens in the task text. Used by the
+    per-task coverage report after a slice dispatch.
     """
     tasks_path = _stages.workflow_dir(slug) / "tasks.md"
     if not tasks_path.exists():
         return []
 
-    declared: set[str] = set()
+    tasks: list[tuple[str, list[str]]] = []
     markers_seen = 0
     collecting = slice_index == 0
 
-    for line in tasks_path.read_text(encoding="utf-8").splitlines():
+    for line in _marker_visible_lines(tasks_path):
         if _stages._CHECKPOINT_MARKER_RE.match(line):
             if collecting:
                 break
@@ -99,15 +130,20 @@ def slice_declared_files(slug: str, slice_index: int) -> list[str]:
             continue
         if not re.match(r"^\s*-\s+\[[ xX]\]\s+", line):
             continue
-        for path in parse_p_annotation(line):
-            declared.add(path)
-        for match in _PATH_TOKEN_RE.findall(line):
-            cleaned = match
-            while cleaned.startswith("./"):
-                cleaned = cleaned[2:]
-            if cleaned:
-                declared.add(cleaned)
+        tasks.append((line.strip(), _task_declared_paths(line)))
 
+    return tasks
+
+
+def slice_declared_files(slug: str, slice_index: int) -> list[str]:
+    """Sorted, de-duplicated file paths declared by all tasks in one slice.
+
+    Aggregate view over :func:`slice_task_declared_files` — see there for the
+    slice/extraction semantics.
+    """
+    declared: set[str] = set()
+    for _task, paths in slice_task_declared_files(slug, slice_index):
+        declared.update(paths)
     return sorted(declared)
 
 
@@ -153,7 +189,7 @@ def parse_parallel_task_groups(slug: str) -> list[dict]:
     markers_seen = 0
     collecting = target_slice == 0  # slice 0 starts immediately
 
-    for line in tasks_path.read_text(encoding="utf-8").splitlines():
+    for line in _marker_visible_lines(tasks_path):
         if _stages._CHECKPOINT_MARKER_RE.match(line):
             if collecting:
                 break  # end of current slice
