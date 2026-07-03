@@ -50,6 +50,7 @@ from factory_review import (  # noqa: E402
 
 from factory_deliver import (  # noqa: E402
     current_pr_payload,
+    ensure_branch_pushed,
     required_check_summary,
     build_delivery_record,
     gather_all_review_paths,
@@ -371,8 +372,10 @@ def command_deliver(args: argparse.Namespace) -> int:
         pr = None
 
     if args.create_pr and not pr:
-        if not upstream:
-            raise SystemExit("deliver requires a published branch with an upstream before creating a PR")
+        # Push-first (postmortems: strategy-first-onboarding, dedup-engine-cseries):
+        # publish the branch instead of failing on a missing upstream. Blocks with
+        # a rebase instruction when HEAD is behind origin/main — never auto-rebases.
+        upstream = ensure_branch_pushed(branch, upstream, dry_run=bool(args.dry_run))
         behind = commits_behind_upstream()
         if behind is not None and behind > 0:
             print(f"warning: branch is {behind} commit{'s' if behind != 1 else ''} behind upstream — consider rebasing before creating PR")

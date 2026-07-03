@@ -9,6 +9,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 
@@ -126,6 +127,13 @@ class FactoryDeliverTests(unittest.TestCase):
             patch.object(DELIVER, "upstream_branch_name", return_value="origin/main"),
             patch.object(DELIVER, "git_output", return_value="head-sha"),
             patch.object(DELIVER, "commits_behind_upstream", return_value=0),
+            # Push-first publishing runs real git; covered by
+            # test_deliver_push_first.py. Neutralize it here.
+            patch.object(
+                DELIVER,
+                "ensure_branch_pushed",
+                side_effect=lambda branch, upstream, dry_run=False: upstream,
+            ),
             patch.object(factory_deliver, "check_implementation_rule", return_value=("ok", "")),
             # The pre-deliver conflict-marker gate runs real git plumbing; it is
             # covered by test_conflict_marker_gate.py. Neutralize it here so these
@@ -140,9 +148,14 @@ class FactoryDeliverTests(unittest.TestCase):
         current_pr_payload: object = _UNSET,
         required_check_summary: object = _UNSET,
         gh_side_effect=None,
+        extra_patches=None,
     ) -> tuple[int, str, str]:
         with contextlib.ExitStack() as stack:
             for patcher in self._base_patches():
+                stack.enter_context(patcher)
+            # Entered after the base patches so a test-specific patch on the
+            # same attribute wins.
+            for patcher in extra_patches or []:
                 stack.enter_context(patcher)
             if current_pr_payload is not _UNSET:
                 if isinstance(current_pr_payload, list):
@@ -256,6 +269,72 @@ class FactoryDeliverTests(unittest.TestCase):
         self.assertEqual(persisted["delivery"]["merge_wait_state"], "merged")
         self.assertEqual(persisted["delivery"]["merged_sha"], "merge-sha")
         self.assertEqual(persisted["delivery"]["merged_at_iso8601"], "2026-04-19T17:00:00Z")
+
+    def test_create_pr_pushes_branch_first_when_no_upstream(self) -> None:
+        """create-pr no longer requires a pre-published upstream; it pushes first."""
+        self._write_state(_make_state({"plan": _make_stage_state()}))
+        push_mock = mock.MagicMock(return_value=None)
+
+        def gh_side_effect(cmd, *args, **kwargs):
+            if cmd[:3] == ["gh", "auth", "status"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if cmd[:3] == ["gh", "pr", "create"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="https://example.test/pr/19\n", stderr="")
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        rc, _, _ = self._run_deliver(
+            _deliver_args(create_pr=True, dry_run=True),
+            current_pr_payload=None,
+            gh_side_effect=gh_side_effect,
+            extra_patches=[
+                patch.object(DELIVER, "upstream_branch_name", return_value=None),
+                patch.object(DELIVER, "ensure_branch_pushed", push_mock),
+            ],
+        )
+
+        self.assertEqual(rc, 0)
+        push_mock.assert_called_once_with("feature/branch", None, dry_run=True)
+
+    def test_create_pr_blocked_branch_behind_origin_main_propagates(self) -> None:
+        """A behind-origin/main block from the push helper aborts deliver."""
+        self._write_state(_make_state({"plan": _make_stage_state()}))
+        blocked = SystemExit(
+            "deliver blocked: branch 'feature/branch' is 2 commits behind origin/main."
+        )
+
+        def gh_side_effect(cmd, *args, **kwargs):
+            if cmd[:3] == ["gh", "auth", "status"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        with self.assertRaises(SystemExit) as ctx:
+            self._run_deliver(
+                _deliver_args(create_pr=True),
+                current_pr_payload=None,
+                gh_side_effect=gh_side_effect,
+                extra_patches=[
+                    patch.object(DELIVER, "ensure_branch_pushed", side_effect=blocked),
+                ],
+            )
+        self.assertIn("behind origin/main", str(ctx.exception))
+
+    def test_explicit_pr_path_skips_push_first(self) -> None:
+        """The no-gh path (--pr-number/--pr-url) must not touch the push helper."""
+        self._write_state(_make_state({"plan": _make_stage_state()}))
+        push_mock = mock.MagicMock()
+
+        rc, stdout, _ = self._run_deliver(
+            _deliver_args(pr_number=21, pr_url="https://example.test/pr/21"),
+            extra_patches=[
+                patch.object(DELIVER, "ensure_branch_pushed", push_mock),
+            ],
+        )
+
+        self.assertEqual(rc, 0)
+        push_mock.assert_not_called()
+        self.assertIn("pr: #21", stdout)
+        persisted = json.loads(FACTORY_STATE.factory_state_path(SLUG).read_text(encoding="utf-8"))
+        self.assertEqual(persisted["delivery"]["pr_number"], 21)
 
     def test_resume_merge_wait_nothing_to_resume(self) -> None:
         state = _make_state({"plan": _make_stage_state()})

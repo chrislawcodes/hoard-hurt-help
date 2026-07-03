@@ -28,8 +28,90 @@ if str(REVIEW_SCRIPTS) not in sys.path:
 
 from workflow_utils import resolve_stored_path  # noqa: E402
 
-from factory_git import current_branch_name, command_path  # noqa: E402
+from factory_git import (  # noqa: E402
+    current_branch_name,
+    command_path,
+    git_output,
+    upstream_branch_name,
+)
 from factory_stages import VERIFY_ON_CLOSEOUT_STAGES  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Push-first branch publishing (postmortems: strategy-first-onboarding,
+# dedup-engine-cseries — `deliver --create-pr` used to fail when the branch
+# had never been pushed).
+# ---------------------------------------------------------------------------
+
+
+def _count_from_rev_list(*rev_list_args: str) -> int | None:
+    """Run ``git rev-list --count <args>`` and return the count, or None."""
+    raw = git_output("rev-list", "--count", *rev_list_args)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def commits_behind_origin_main() -> int | None:
+    """How many commits origin/main has that HEAD lacks. None when unknown."""
+    return _count_from_rev_list("HEAD..origin/main")
+
+
+def commits_ahead_of_upstream() -> int | None:
+    """How many commits HEAD has that its upstream lacks. None when unknown."""
+    return _count_from_rev_list("@{upstream}..HEAD")
+
+
+def ensure_branch_pushed(
+    branch: str, upstream: str | None, *, dry_run: bool = False
+) -> str | None:
+    """Publish the branch before ``gh pr create``; never rebase automatically.
+
+    - Hard-stops (SystemExit) when HEAD is behind origin/main: the operator
+      must rebase first. deliver never auto-rebases.
+    - Runs ``git push -u origin HEAD`` when the branch has no upstream or is
+      ahead of it. A dry-run skips the push (a preview must not mutate the
+      remote) and prints what would happen.
+    - Returns the branch's upstream ref name after any push.
+
+    Unknown counts (no origin/main ref, no upstream) fail open on the
+    behind-check — matching the other advisory git helpers in this module —
+    but a missing upstream always triggers the push.
+    """
+    behind_main = commits_behind_origin_main()
+    if behind_main is not None and behind_main > 0:
+        plural = "s" if behind_main != 1 else ""
+        raise SystemExit(
+            f"deliver blocked: branch '{branch}' is {behind_main} commit{plural} "
+            "behind origin/main. Rebase first — "
+            "`git fetch origin main && git rebase origin/main` — then re-run "
+            "deliver. deliver never rebases automatically."
+        )
+
+    needs_push = not upstream
+    if upstream:
+        ahead = commits_ahead_of_upstream()
+        needs_push = ahead is not None and ahead > 0
+    if not needs_push:
+        return upstream
+    if dry_run:
+        print(f"dry-run: would push branch '{branch}' (git push -u origin HEAD)")
+        return upstream
+
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "push", "-u", "origin", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git push failed").strip()
+        raise SystemExit(f"deliver blocked: could not push branch '{branch}': {detail}")
+    print(f"pushed branch '{branch}' to origin (git push -u origin HEAD)")
+    return upstream_branch_name() or f"origin/{branch}"
 
 
 # ---------------------------------------------------------------------------
