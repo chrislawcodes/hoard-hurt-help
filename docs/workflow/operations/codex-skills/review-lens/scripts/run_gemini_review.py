@@ -18,6 +18,7 @@ FEATURE_FACTORY_SCRIPTS = Path(__file__).resolve().parents[2] / "feature-factory
 if str(FEATURE_FACTORY_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(FEATURE_FACTORY_SCRIPTS))
 
+from review_findings import FINDINGS_JSON_CONTRACT_LINES
 from workflow_utils import normalized_artifact_text, repo_relative_path
 from factory_state import load_workflow_state
 from factory_telemetry import record_ai_call
@@ -627,6 +628,7 @@ def prompt_for(stage: str, lens: str, artifact_label: str, artifact_text: str, e
         "## Findings",
         "## Residual Risks",
         "Keep the response concrete and ordered by severity.",
+        *FINDINGS_JSON_CONTRACT_LINES,
         "",
     ]
 

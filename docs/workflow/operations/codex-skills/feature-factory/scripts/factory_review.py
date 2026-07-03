@@ -52,6 +52,7 @@ from factory_review_specs import (  # noqa: E402,F401
     DEFAULT_CODEX_MODEL,
     SMALL_TASK_SET_THRESHOLD,
     _AUTO_ACCEPT_NOTE,
+    classify_review_findings,
     detect_actionable_findings,
     trim_detail,
     pick_secondary_lens,
@@ -291,7 +292,12 @@ def run_checkpoint_fallback(manifest_path: Path, workspace_root: Path, gemini_ti
             data, _ = parse_review_frontmatter(review_path)
         except Exception:
             data = {}
-        return artifact_hash_matches(checkpoint.get("stage", ""), artifact_path, data)
+        if not artifact_hash_matches(checkpoint.get("stage", ""), artifact_path, data):
+            return False
+        # An unparseable review (malformed findings JSON block, or a non-trivial
+        # body with no readable findings) is not done — re-run it rather than
+        # letting the fallback path carry it forward as if it were clean.
+        return not classify_review_findings(review_path).is_unparseable
 
     def _run_review(spec: dict, no_gemini_lock: bool = False) -> str | None:
         if _already_done(spec):

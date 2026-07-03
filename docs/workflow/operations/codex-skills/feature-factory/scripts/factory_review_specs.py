@@ -1,14 +1,44 @@
 #!/usr/bin/env python3
-"""Review spec definitions, actionable-finding detection, and lens selection.
+"""Review spec definitions, finding detection wrappers, and lens selection.
 
-Pure helpers with no filesystem or workflow-state side effects. Extracted from
+Pure helpers with no workflow-state side effects. Extracted from
 factory_review.py to keep each module under the 400-line source limit.
+
+Finding detection itself lives in review-lens/scripts/review_findings.py — the
+single source of truth for the structured findings JSON contract, the legacy
+prose-shape regex, and the fail-closed classification. This module re-exports
+those names (several callers and tests import them from here) and adds the
+file-level wrappers the engine uses.
 """
 import os
-import re
+import sys
 from pathlib import Path
 
 from factory_io import read_text
+
+# The findings contract is shared with the review-lens scripts (verify/repair/
+# runners import it as a sibling), so it lives there; resolve it relative to
+# this file so the engine stays portable across repos.
+_REVIEW_LENS_SCRIPTS = Path(__file__).resolve().parents[2] / "review-lens" / "scripts"
+if str(_REVIEW_LENS_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_REVIEW_LENS_SCRIPTS))
+
+from review_findings import (  # noqa: E402,F401  (re-exported for engine callers + tests)
+    ACTIONABLE_FINDING_SHAPES,
+    FINDINGS_SOURCE_JSON,
+    FINDINGS_SOURCE_LEGACY,
+    FINDINGS_UNPARSEABLE,
+    NONTRIVIAL_BODY_MIN_CHARS,
+    ReviewFindingsClassification,
+    _ACTIONABLE_FINDING_RE,
+    _SEVERITY_ORDER,
+    _count_findings_by_severity,
+    _findings_scan_text,
+    _strip_non_finding_markdown,
+    classify_review_text,
+    parse_findings_json,
+    unparseable_classification,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -61,125 +91,15 @@ SMALL_TASK_SET_THRESHOLD = 15
 # not exercise — the substantial slices are where such bugs hide. Operators
 # override per-call with `checkpoint --stage diff --diff-review-threshold N`.
 DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES = 50
-_AUTO_ACCEPT_NOTE = "No HIGH/MEDIUM/LOW/CRITICAL findings detected — auto-accepted"
 
-# Every pattern below is matched against text that has already been lowercased
-# by detect_actionable_findings(). All patterns anchor to start-of-line (after
-# optional whitespace) to avoid matching prose mentions of severity words inside
-# sentences. ACTIONABLE_FINDING_SHAPES documents the supported forms; when a
-# reviewer starts using a new shape, update this regex and add a test.
-#
-# Supported shapes (each example drawn from a real review):
-#   1. "- high: ..."                           bullet + severity + colon
-#   2. "- [tag] high: ..."                     bullet + bracket tag + severity
-#   3. "- HIGH [CODE-CONFIRMED]: ..."          bullet + bare severity + bracket tag
-#   4. "- **HIGH**: ..."                       bullet + bold severity + colon
-#   5. "| **HIGH** | ..."                      table cell with bold severity
-#   6. "1. **HIGH**: ..."                      numbered list + bold severity
-#   7. "### HIGH: ..."                         heading with severity word
-#   8. "### 1. Finding title"                  heading with rank prefix (matched via next line)
-#   9. "**HIGH**: ..."                         bold-prefix at paragraph start
-#  10. "**HIGH [CODE-CONFIRMED]**: ..."        bold-prefix with tag
-#  11. "**Severity**: HIGH"                    inline-field form (Gemini style)
-#  12. "Severity: HIGH"                        inline-field without bold
-ACTIONABLE_FINDING_SHAPES = (
-    "bullet-colon",
-    "bullet-bracket-tag-colon",
-    "bullet-bare-plus-bracket-tag",
-    "bullet-bold-severity",
-    "table-bold-severity",
-    "numbered-bold-severity",
-    "heading-severity",
-    "paragraph-bold-prefix",
-    "paragraph-bold-prefix-bracket",
-    "inline-severity-field-bold",
-    "inline-severity-field-plain",
+# Auto-accept is only legitimate when the review PROVED itself clean: either
+# the affirmative structured clean bill ({"reviewed": true, "findings": []}),
+# or a legacy-format file with zero regex-detected findings and a trivial
+# body. An unparseable review must never carry this note — it fails closed.
+_AUTO_ACCEPT_NOTE = (
+    "Clean review confirmed (affirmative empty findings JSON, or trivial legacy "
+    "review with zero detected findings) — auto-accepted"
 )
-
-_SEV = r"(?:critical|high|medium|low)"
-
-_ACTIONABLE_FINDING_RE = re.compile(
-    r"(?:"
-    # 1-2. Bullet + severity + colon: "- high:" or "- [tag] high:"
-    r"^\s*-\s+(?:\[[^\]]+\]\s+)?" + _SEV + r":"
-    r"|"
-    # 3. Bullet + bare severity + bracket tag: "- high [code-confirmed]:"
-    r"^\s*-\s+" + _SEV + r"\s+\[[^\]]+\]\s*:"
-    r"|"
-    # 4. Bullet + bold severity (with optional inner bracket tag):
-    # "- **high**:" or "- **high [code-confirmed]**:" or
-    # "- **HIGH [CODE-CONFIRMED]** rest-of-line" (no colon, as some lenses emit)
-    r"^\s*-\s+\*\*" + _SEV + r"(?:\s*\[[^\]]+\])?\*\*(?:\s*:|\s+)"
-    r"|"
-    # 5. Table cell with bold severity: "| **high** |"
-    r"^\|\s*\*\*" + _SEV + r"\*\*"
-    r"|"
-    # 6a. Numbered list + bold severity: "1. **high**:"
-    r"^\s*\d+\.\s+\*\*" + _SEV + r"\*\*\s*:"
-    r"|"
-    # 6b. Numbered list + plain severity + colon (no bold): "1. high:" or "1. HIGH [tag]:"
-    r"^\s*\d+\.\s+" + _SEV + r"(?:\s+\[[^\]]+\])?\s*:"
-    r"|"
-    # 7. Heading with severity word followed by colon or end-of-line.
-    # Must be `### HIGH:` or `### HIGH` on its own line — NOT `### HIGH availability
-    # target` (false-positive from section titles). Colon is the only delimiter
-    # allowed since `-` or `--` can appear in compound words like `MEDIUM-term`.
-    # Adversarial-review finding: allow non-word chars (emoji, bullet, etc.)
-    # between `#+ ` and the rank prefix / severity — `### 🚨 HIGH:` is common.
-    r"^#+\s+(?:\W+\s*)*(?:\d+\.\s+)?(?:\W+\s*)*" + _SEV + r"\s*(?::|$)"
-    r"|"
-    # 9-10. Paragraph start with bold prefix: "**high**:", "**high [code-confirmed]**:",
-    # or "**high** - something" (adversarial review: dash delimiter after closing **).
-    r"^\s*\*\*" + _SEV + r"(?:\s*\[[^\]]+\])?\*\*\s*(?::|-\s)"
-    r"|"
-    # 10b. Bracket-tag-first bold prefix: "**[HIGH SEVERITY]**:" — the severity
-    # word lives inside the brackets, not before them (adversarial-review find).
-    r"^\s*\*\*\[\s*" + _SEV + r"[^\]]*\]\*\*\s*:"
-    r"|"
-    # 11. Inline Severity field bold: "**severity**: high" or "**severity:** high"
-    r"^\s*\*\*severity(?:\*\*)?:\*?\*?\s*" + _SEV + r"\b"
-    r"|"
-    # 12. Inline Severity field plain: "severity: high"
-    r"^\s*severity:\s*" + _SEV + r"\b"
-    r")",
-    re.MULTILINE,
-)
-
-
-def _strip_non_finding_markdown(text: str) -> str:
-    """Remove common quoted/example Markdown so severity examples do not match."""
-    text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
-    text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
-    text = re.sub(r"`[^`\n]*`", "", text)
-    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
-    text = re.sub(r"\[[^\]]*\]\([^)]*\)", "", text)
-    kept: list[str] = []
-    in_indented = False
-    for line in text.splitlines():
-        stripped = line.lstrip()
-        if line.startswith("    "):
-            in_indented = True
-            continue
-        if in_indented and not stripped:
-            continue
-        in_indented = False
-        if stripped.startswith(">"):
-            continue
-        kept.append(line)
-    return "\n".join(kept)
-
-
-def _findings_scan_text(text: str) -> str:
-    lines = text.splitlines()
-    starts = [
-        idx
-        for idx, line in enumerate(lines)
-        if re.match(r"^##\s+Findings\s*$", line, flags=re.IGNORECASE)
-    ]
-    if not starts:
-        return text
-    first = starts[0] + 1
-    return "\n".join(lines[first:])
 
 
 # ---------------------------------------------------------------------------
@@ -187,41 +107,32 @@ def _findings_scan_text(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def detect_actionable_findings(review_path: Path) -> bool:
-    """Return True if the review contains any HIGH or MEDIUM severity findings.
+def classify_review_findings(review_path: Path) -> ReviewFindingsClassification:
+    """Classify a review file's findings (fail closed on unreadable files).
 
-    Lowercases the full text once so mixed-case headings (High, HIGH, high) all match.
-    Returns False if the file cannot be read, treating unreadable files as non-blocking.
+    See review_findings.classify_review_text for the precedence rules. A file
+    that cannot be read is UNPARSEABLE — an unreadable review must never count
+    as a clean one.
     """
     try:
-        text = _strip_non_finding_markdown(_findings_scan_text(read_text(review_path))).lower()
-    except OSError:
-        return False
-    return bool(_ACTIONABLE_FINDING_RE.search(text))
+        text = read_text(review_path)
+    except OSError as exc:
+        return unparseable_classification(f"review file could not be read: {exc}")
+    return classify_review_text(text)
 
 
-_SEVERITY_EXTRACT_RE = re.compile(r"\b(critical|high|medium|low)\b")
+def detect_actionable_findings(review_path: Path) -> bool:
+    """Return True if the review contains findings — or cannot be proven clean.
 
-_SEVERITY_ORDER = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
-
-
-def _count_findings_by_severity(text: str) -> dict[str, int]:
-    """Count actionable findings by severity in review text.
-
-    Uses _ACTIONABLE_FINDING_RE to find genuine finding lines, then extracts
-    the severity word from each match. Returns a dict with counts for CRITICAL,
-    HIGH, MEDIUM, LOW (uppercase keys). Lines that match the finding shape but
-    contain no severity word are ignored.
-
-    Callers should pass pre-processed text (lowercased, non-finding markdown
-    stripped) to match the contract used by detect_actionable_findings.
+    A valid structured JSON block is the source of truth; legacy prose reviews
+    fall back to the shape regex. UNPARSEABLE reviews (malformed JSON, or a
+    non-trivial body with nothing recognizable) return True: fail closed, so
+    the caller treats the review as needing attention instead of auto-accepting.
     """
-    counts: dict[str, int] = {sev: 0 for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW")}
-    for match in _ACTIONABLE_FINDING_RE.finditer(text):
-        sev_match = _SEVERITY_EXTRACT_RE.search(match.group(0))
-        if sev_match:
-            counts[sev_match.group(0).upper()] += 1
-    return counts
+    classification = classify_review_findings(review_path)
+    if classification.is_unparseable:
+        return True
+    return classification.has_findings
 
 
 def trim_detail(text: str, limit: int = 240) -> str:

@@ -76,11 +76,9 @@ from factory_review import (  # noqa: E402
 )
 
 from factory_review_specs import (  # noqa: E402
-    _count_findings_by_severity,
-    _strip_non_finding_markdown,
-    _findings_scan_text,
     _SEVERITY_ORDER,
     DIFF_REVIEW_DEFAULT_MIN_CHANGED_LINES,
+    classify_review_findings,
     count_changed_diff_lines,
     resolve_reviewer_override,
 )
@@ -174,17 +172,30 @@ def _print_findings_summary(slug: str, stage: str, reviews_ran: list[dict] | Non
         return
 
     files_with_findings: list[tuple[Path, dict[str, int]]] = []
+    unparseable_files: list[tuple[Path, str]] = []
     for review_path in review_files:
-        try:
-            raw = _strip_non_finding_markdown(_findings_scan_text(review_path.read_text(encoding="utf-8"))).lower()
-        except OSError:
-            continue
-        counts = _count_findings_by_severity(raw)
-        if any(v > 0 for v in counts.values()):
-            files_with_findings.append((review_path, counts))
+        # JSON-first classification: a valid structured findings block is the
+        # source of truth; legacy prose falls back to the shape regex; an
+        # unparseable review is reported loudly instead of counting as clean.
+        classification = classify_review_findings(review_path)
+        if classification.is_unparseable:
+            unparseable_files.append((review_path, classification.detail))
+        elif classification.has_findings:
+            files_with_findings.append((review_path, classification.counts))
+
+    # Defensive: verify/repair already fail unparseable reviews before a
+    # checkpoint completes, so this normally never fires — but the summary must
+    # never claim "no findings" for a review it could not actually read.
+    for review_path, detail in unparseable_files:
+        print(
+            f"[ff] UNPARSEABLE review — findings unknown, do NOT treat as clean; "
+            f"re-run this lens: {review_path.name} ({detail})",
+            file=sys.stderr,
+        )
 
     if not files_with_findings:
-        print("[ff] reviews ran, no actionable findings raised", file=sys.stderr)
+        if not unparseable_files:
+            print("[ff] reviews ran, no actionable findings raised", file=sys.stderr)
         return
 
     print("[ff] findings raised:", file=sys.stderr)

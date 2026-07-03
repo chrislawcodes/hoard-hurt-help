@@ -221,7 +221,7 @@ class ActionableFindingRegexNegativeTests(unittest.TestCase):
         self.assertFalse(FRS.detect_actionable_findings(_review(body)))
 
     def test_auto_accept_note_does_not_self_trigger(self) -> None:
-        body = "## Resolution\n- status: accepted\n- note: No HIGH/MEDIUM/LOW/CRITICAL findings detected — auto-accepted\n"
+        body = f"## Resolution\n- status: accepted\n- note: {FRS._AUTO_ACCEPT_NOTE}\n"
         self.assertFalse(FRS.detect_actionable_findings(_review(body)))
 
     def test_duplicate_findings_sections_scan_past_first(self) -> None:
@@ -451,6 +451,89 @@ class CountFindingsBySeverityTests(unittest.TestCase):
         body = "**Severity**: HIGH\nsome detail\n"
         counts = self._scan(body)
         self.assertEqual(counts["HIGH"], 1)
+
+
+_CLEAN_JSON_BLOCK = '```json\n{"reviewed": true, "findings": []}\n```\n'
+_HIGH_JSON_BLOCK = (
+    "```json\n"
+    '{"reviewed": true, "findings": [{"severity": "HIGH", "title": "hidden bug"}]}\n'
+    "```\n"
+)
+_MALFORMED_JSON_BLOCK = '```json\n{"reviewed": true, "findings": [broken]}\n```\n'
+
+# > NONTRIVIAL_BODY_MIN_CHARS of prose with no legacy shape and no severity word.
+_NON_TRIVIAL_PROSE = (
+    "The retry logic in the connector appears to have a subtle flaw where the "
+    "backoff window is computed from the wrong timestamp, which could cause a "
+    "storm of requests after a deploy. Additionally the pagination cursor is "
+    "not persisted between polls, so a restart may replay turns that were "
+    "already acknowledged. Both of these deserve a close look before merge, "
+    "and the second one could corrupt the standings table if two workers race "
+    "on the same match id during the replay window.\n"
+)
+
+
+class StructuredFindingsPrecedenceTests(unittest.TestCase):
+    """JSON block first; legacy regex fallback; UNPARSEABLE fails closed."""
+
+    def test_json_block_with_findings_detected_without_any_regex_shape(self) -> None:
+        # The 13th-shape scenario: prose the regex cannot read, but the JSON
+        # block records a HIGH finding — it must be detected.
+        path = _review("## Findings\n\nOne big problem, loosely worded.\n\n" + _HIGH_JSON_BLOCK)
+        self.assertTrue(FRS.detect_actionable_findings(path))
+        classification = FRS.classify_review_findings(path)
+        self.assertEqual(classification.source, FRS.FINDINGS_SOURCE_JSON)
+        self.assertEqual(classification.counts["HIGH"], 1)
+
+    def test_affirmative_clean_json_is_clean_even_with_long_body(self) -> None:
+        path = _review("## Findings\n\n" + _NON_TRIVIAL_PROSE + "\n" + _CLEAN_JSON_BLOCK)
+        self.assertFalse(FRS.detect_actionable_findings(path))
+        self.assertEqual(
+            FRS.classify_review_findings(path).source, FRS.FINDINGS_SOURCE_JSON
+        )
+
+    def test_malformed_json_block_is_unparseable_and_detected(self) -> None:
+        path = _review("## Findings\n\nprose\n\n" + _MALFORMED_JSON_BLOCK)
+        classification = FRS.classify_review_findings(path)
+        self.assertTrue(classification.is_unparseable)
+        # Fail closed: unparseable counts as "needs attention", never clean.
+        self.assertTrue(FRS.detect_actionable_findings(path))
+
+    def test_malformed_json_never_falls_through_to_regex(self) -> None:
+        path = _review("## Findings\n\n- high: real finding\n\n" + _MALFORMED_JSON_BLOCK)
+        self.assertTrue(FRS.classify_review_findings(path).is_unparseable)
+
+    def test_no_json_falls_back_to_legacy_regex(self) -> None:
+        path = _review("## Findings\n\n- high: missing index\n")
+        classification = FRS.classify_review_findings(path)
+        self.assertEqual(classification.source, FRS.FINDINGS_SOURCE_LEGACY)
+        self.assertEqual(classification.counts["HIGH"], 1)
+
+    def test_no_json_no_regex_non_trivial_body_is_unparseable_not_clean(self) -> None:
+        path = _review("## Findings\n\n" + _NON_TRIVIAL_PROSE)
+        classification = FRS.classify_review_findings(path)
+        self.assertTrue(classification.is_unparseable)
+        self.assertTrue(FRS.detect_actionable_findings(path))
+
+    def test_no_json_trivial_body_keeps_legacy_clean_behavior(self) -> None:
+        path = _review("## Findings\n\nNo findings returned.\n")
+        classification = FRS.classify_review_findings(path)
+        self.assertEqual(classification.source, FRS.FINDINGS_SOURCE_LEGACY)
+        self.assertFalse(classification.has_findings)
+        self.assertFalse(FRS.detect_actionable_findings(path))
+
+    def test_unreadable_review_file_fails_closed(self) -> None:
+        # Behavior change from the old detect_actionable_findings, which
+        # returned False (treated unreadable as non-blocking): an unreadable
+        # review can no longer pass as clean.
+        missing = Path(tempfile.mkdtemp()) / "does-not-exist.review.md"
+        classification = FRS.classify_review_findings(missing)
+        self.assertTrue(classification.is_unparseable)
+        self.assertTrue(FRS.detect_actionable_findings(missing))
+
+    def test_auto_accept_note_describes_the_new_semantics(self) -> None:
+        self.assertIn("affirmative", FRS._AUTO_ACCEPT_NOTE)
+        self.assertIn("auto-accepted", FRS._AUTO_ACCEPT_NOTE)
 
 
 if __name__ == "__main__":
