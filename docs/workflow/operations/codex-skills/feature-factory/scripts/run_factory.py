@@ -360,6 +360,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Discovery checklist: who the feature is for (users/audience)")
     discover_parser.add_argument("--constraints",
         help="Discovery checklist: key constraints, dependencies, or risks")
+    discover_parser.add_argument("--silent-risk", dest="silent_risk", nargs=2,
+        metavar=("YES_NO", "NOTE"),
+        help="Discovery checklist (routing): would a bug here be invisible to tests/CI/"
+             "manual poking — pass green, break in prod? 'yes' or 'no' plus a short note. "
+             "Required for real runs; drives the path recommendation at --complete.")
+    discover_parser.add_argument("--design-settled", dest="design_settled", nargs=2,
+        metavar=("YES_NO", "NOTE"),
+        help="Discovery checklist (routing): is the design already settled up front? "
+             "'yes' or 'no' plus a short note. Required for real runs; drives the path "
+             "recommendation at --complete.")
     discover_parser.add_argument("--clear-non-goals", action="store_true",
         help="Empty discovery.non_goals[] BEFORE any --non-goal appends in the same invocation.")
     discover_parser.add_argument("--clear-acceptance-criteria", action="store_true",

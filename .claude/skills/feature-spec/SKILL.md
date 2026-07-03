@@ -9,7 +9,14 @@ hoard-hurt-help has a **repo-owned Feature Factory engine**. Do **not** author a
 
 ## Should you even use Feature Factory?
 
-Trivial work — copy edits, one-file tweaks, small bug fixes, additions under ~100 lines — should use the **Direct Path**: implement it directly, run the Preflight Gate (`ruff` + `mypy` + `pytest`), open a PR. Skip the engine. Only use Feature Factory when an independent adversarial review would actually catch something: new game logic in `app/engine/`, schema/migration changes, or multi-file / risky features.
+Trivial work — copy edits, one-file tweaks, small bug fixes, additions under ~100 lines — should use the **Direct Path**: implement it directly, run the Preflight Gate (`ruff` + `mypy` + `pytest`), open a PR. Skip the engine.
+
+For anything bigger, ask the two routing questions the experiment log (`experiments.md`) validated — they predict Feature Factory value better than backend-vs-UI:
+
+1. **Silent risk?** Would a bug be invisible to tests, CI, and manual poking — pass green, break in prod? **Yes → full Feature Factory.** Its adversarial reviews have a real catch record on exactly these bugs (wrong-key, data-model/semantics). No → a single self-review catches test-visible risk; the factory's extra rounds are overhead.
+2. **Design settled?** Is the design already decided up front? **Settled + no silent risk → Direct Path** — the planning stages would just re-derive your existing design at ~2× the cost. **Open design + no silent risk → the middle lane**: spec + one adversarial spec review to settle the design, then a direct build + one independent whole-branch review before the PR — no plan/tasks ceremony (operator-driven; see "Middle lane" in the engine guide).
+
+`discover` records both answers (`--silent-risk yes|no "<note>"`, `--design-settled yes|no "<note>"`) and prints this routing when discovery completes.
 
 ## Who orchestrates (set by execution context, not a default)
 

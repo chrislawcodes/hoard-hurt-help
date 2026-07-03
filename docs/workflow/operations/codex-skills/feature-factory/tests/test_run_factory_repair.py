@@ -956,7 +956,15 @@ class RepairDecisionTests(unittest.TestCase):
                             "unresolved": [{"item": "Decide API shape", "deferred": False}],
                             "non_goals": ["out of scope for now"],
                             "acceptance_criteria": ["the feature works"],
-                            "checklist": {"goal": "g", "audience": "a", "constraints": "c"},
+                            "checklist": {
+                                "goal": "g",
+                                "audience": "a",
+                                "constraints": "c",
+                                "silent_risk": "no",
+                                "silent_risk_note": "n",
+                                "design_settled": "yes",
+                                "design_settled_note": "n",
+                            },
                         }
                     }
                 ),
