@@ -1,25 +1,34 @@
 ---
 name: game-art
 description: >-
-  Design and improve the art, animation, and motion of the Hoard Hurt Help game
-  viewer — the look of the robot characters and props, the color and shape
-  language of the three actions (Hoard / Help / Hurt), the visual effects, the
-  composition of the stage, the motion and timing, and the whole visual language
-  that makes a turn readable as a story. Use this whenever the work is about how
-  the game *looks or moves*: the animated replay / robot circle, character or
+  Design and improve the art, animation, and motion of this platform's game
+  viewers — Hoard Hurt Help's robot circle today, Liar's Dice's viewer, and any
+  future game's — the look of the characters and props, the color and shape
+  language of a game's actions (e.g. Hoard / Help / Hurt), the visual effects,
+  the composition of the stage, the motion and timing, and the whole visual
+  language that makes a turn readable as a story. Use this whenever the work is
+  about how a game *looks or moves*: the animated replay / robot circle, character or
   prop art and styling, the visual treatment of an action, color/shape/silhouette
   choices, motion timing and easing, action effects (coins, gifts, bats, strikes,
   score deltas), live-turn animation, or any request about "the art", "the look",
   "the visuals", "the robots", "the animation", "the viewer motion", "make the
   action look/read better", or "how the action looks". Reach for it even when the
   user doesn't say "art" or "animation" — if they're shaping how the action of
-  the game is portrayed visually, still or moving, this skill applies. It does
+  the game is portrayed visually, still or moving, this skill applies — for any
+  game on the platform, including one whose viewer doesn't exist yet. It does
   NOT cover page layout, navigation, onboarding, copy, or information hierarchy
   (that's the ux-design skill), nor bot prompts, MCP wiring, or game-rule /
   payoff design.
 ---
 
-# Game Art & Animation for Hoard Hurt Help
+# Game Art & Animation for the platform's game viewers
+
+This skill is two layers. Everything down to the game-grounding section is
+**platform-level judgment** — it applies to every game viewer on this platform,
+including ones not built yet. The grounding section holds the **per-game
+facts** (today: Hoard Hurt Help, the only richly animated surface). When a new
+game's viewer gets real art, add a grounding block for it there; don't dilute
+the judgment layer with game specifics.
 
 You are acting as the art director *and* animator for a spectator game — the
 person who decides both how the match *looks* and how it *moves*, and makes a
@@ -43,8 +52,9 @@ but looks generic, or looks gorgeous but moves confusingly, both fail.
   like one hand drew everything. New art matches the existing robots' weight,
   corner radius, and line style rather than introducing a second style.
 - **Color is identity and meaning, not decoration.** The per-bot palette gives
-  each robot a stable identity; the action colors (Hoard blue, Help green, Hurt
-  red) carry meaning. A new color has to earn a job — never add one for flavor.
+  each character a stable identity; a game's action colors carry meaning (see
+  the game grounding for the current trio). A new color has to earn a job —
+  never add one for flavor.
 - **Theme-aware by default.** The viewer has light/dark/terminal themes. Art
   pulls from theme variables and reads well in all of them; nothing is hardcoded
   to look right in only one.
@@ -87,24 +97,42 @@ drawing or a running animation. When a request straddles the line (e.g. "rework
 the viewer"), say so and recommend which skill leads — don't silently take the
 whole thing.
 
-## What you're working with (the one real surface today)
+## Game grounding: Hoard Hurt Help (the main animated surface today)
 
-Nearly all the art lives in **one file**: `app/templates/fragments/robot_circle.html`
-(~1,500 lines). It is the "Animated Replay" / robot-circle viewer. Read it fully
-before changing anything — it is dense and self-contained.
+Per-game facts start here. Other games so far: **Liar's Dice** has its own,
+much simpler viewer fragments (`app/templates/fragments/liars_dice_turn.html`,
+`liars_dice_live_region.html`) — the judgment above applies there too, but the
+grounding below does not. A new game's viewer gets its own grounding block in
+this section when it grows real art.
+
+The Hoard Hurt Help art lives in the "Animated Replay" / robot-circle viewer. It used to be one
+~1,500-line fragment; it is now a **thin shell that includes four parts in
+order** (the split was mechanical — same rendered HTML):
+
+- `app/templates/fragments/robot_circle.html` — the shell; read its header
+  comment for the include order and the context variables passed through.
+- `robot_circle/_style.html` — the scoped `<style>` block (all `.rc-*` CSS).
+- `robot_circle/_markup.html` — the stage, controls, and legend markup.
+- `robot_circle/_replay_script.html` — the rc-data JSON, the `PALETTE`, the
+  timing constants, and the replay/animation engine. Most motion work lands here.
+- `robot_circle/_countdown_script.html` — the pre-start countdown.
+
+Read the part you're changing fully before touching it — they're dense.
 
 How it's wired:
 
 - **Included by** `app/templates/game.html` and `app/templates/agent_ludum.html`,
-  both gated on `{% if rc_data %}`.
-- **Fed by** `_build_rc_data(scoreboard, history)` in the PD viewer module
-  `app/games/hoard_hurt_help/viewer.py` (Liar's Dice has its own), which emits the
-  JSON the viewer's inline `<script>` parses. This is the **data contract** — know
+  gated on `{% if rc_data %}` — and the same data also **seeds the
+  homepage/lobby replay**, so stage changes show up there too.
+- **Fed by** `_build_rc_data(scoreboard, history, viewer_seat)` in the PD viewer
+  module `app/games/hoard_hurt_help/viewer.py` (Liar's Dice has its own), which
+  emits the JSON the replay script parses. This is the **data contract** — know
   it before you design motion that needs new information:
 
-  - `agents`: ordered list of agent ids (drives ring position and palette index).
-  - `turns[]`: each has `round`, `turn`, `badge`, `cap`, `spotlight[]`, and
-    `actions[]`.
+  - envelope: `agents` (ordered ids — drives ring position and palette index),
+    plus `labels`, `bots`, `owners`, `providers` maps for the standings rail.
+  - `turns[]`: each has `round`, `turn`, `badge`, `cap`, `spotlight[]`,
+    `actions[]`, and `talk` (the table-talk messages for the talk phase).
   - `actions[]`: `agent`, `action` (`HOARD` / `HELP` / `HURT`), `target`,
     `delta`, `mutual`, `betrayal`, `missed`, `msg`.
 
@@ -113,10 +141,14 @@ How it's wired:
 
 The visual language already established (extend it, don't reinvent it):
 
-- **Hoard** → blue (`--hoard #2f6feb`), squash + a coin dropping into the torso, `+2`.
-- **Help** → green (`--help #1a8f4c`), turn away → grab a gift box → walk it over → `+4`, or **mutual** → meet in the middle, lock ring, `+8` each.
-- **Hurt** → red (`--hurt #c0392b`), grab a bat → walk over → strike + target recoil → `−4`.
-- **Tags**: `betrayal` (red), `mutual` (green), `missed` (💤). Spotlit actors lit; everyone else dimmed.
+- **Hoard** → gold (`--hoard`, currently `#b07e0d`), squash + a coin dropping into the torso, `+2`.
+- **Help** → green (`--help`, currently `#1f8a5b`), turn away → grab a gift box → walk it over → `+4`, or **mutual** → meet in the middle, lock ring. **Mutual help decays**: a pair's first pact pays +8 each, and each repeat with the *same* partner pays less, down to a floor of +2 (`max(2, 8−k)`, `scoring.py`) — the caption shows the real decayed value, so never hardcode "+8".
+- **Hurt** → red (`--hurt`, currently `#c1452f`), grab a bat → walk over → strike + target recoil → `−4`. **Betrayal hits harder**: HURTing someone who helped you that same turn lands for **−8** (the betrayal sting), and the viewer shows the bigger magnitude — a betrayal must read as a heavier blow than a routine hurt.
+- The trio is **always paired with a text label, never color-only** (that's a
+  stated rule in `style.css` — keep it true).
+- **Tags / badges**: `betrayal`, `mutual`, `missed` on actions; turn badges are
+  built server-side (`Betrayal`, `The Pact`, `Strike`, `Help`, `No-show`,
+  `Hoard`). Spotlit actors lit; everyone else dimmed.
 - **Score rail**: rows slide to re-rank; damaged rows flash.
 
 Conventions that keep it from breaking the rest of the site:
@@ -226,15 +258,17 @@ Spell out the buildable detail:
   here, not improvised while coding.
 - **Choreography** — the phases and their order, what each robot does, and the
   timing/easing. Mind the existing schedule (`buildSchedule`) and the phase
-  constants (`DUR`, `TURN_DUR`, `BEND_DUR`, `REACH_DUR`, gaps) — new motion has
-  to slot into that clock, and `totalDuration` drives autoplay pacing.
+  constants (`DUR`, `TURN_DUR`, `BEND_DUR`, `REACH_DUR`, gaps) in
+  `robot_circle/_replay_script.html` — new motion has to slot into that clock,
+  and `totalDuration` drives autoplay pacing.
 - **New classes/keyframes** — named in the `.rc-` namespace.
 - **Data needs** — anything new the art or motion reads from `actions[]`, and the
   matching `_build_rc_data` change.
 
-Then, **on request**, make the edits in `robot_circle.html` (and the PD viewer
-module `app/games/hoard_hurt_help/viewer.py` if the contract changes) and **verify
-them yourself**: re-run the Ground checks — judge
+Then, **on request**, make the edits in the right `robot_circle/` part — style
+in `_style.html`, markup in `_markup.html`, motion in `_replay_script.html` —
+(and the PD viewer module `app/games/hoard_hurt_help/viewer.py` if the contract
+changes) and **verify them yourself**: re-run the Ground checks — judge
 the still frame, watch it play with real data, flip every theme, check phone
 width and reduced motion and a crowded game — and show the result. Don't hand the
 user art you haven't looked at or an animation you haven't watched.
@@ -263,8 +297,9 @@ read-only field, that's outside this skill — surface it and hand off.
 
 *Both:*
 
-- **Distinguish by more than color** — Hoard/Help/Hurt must be told apart by
-  shape, prop, and motion too, for color-blind viewers and tiny robots.
+- **Distinguish by more than color** — a game's actions (e.g. Hoard/Help/Hurt)
+  must be told apart by shape, prop, and motion too, for color-blind viewers
+  and tiny characters.
 - **Performance** — transforms/opacity, `will-change`, no per-frame layout
   thrash; the stage can hold many bots at once.
 - **Accessibility** — honor `prefers-reduced-motion` with a calmer path.
@@ -284,3 +319,22 @@ read-only field, that's outside this skill — surface it and hand off.
 - **Don't redesign when a tweak wins.** A recolor, a radius change, or an easing
   fix is often the whole answer. Reserve a restyle or re-choreograph for when the
   art or motion genuinely misreads.
+
+## Provenance and maintenance
+
+Last verified against the repo 2026-07-03. The facts here that drift fastest,
+and how to re-check each before relying on it:
+
+- File layout of the viewer: `head -30 app/templates/fragments/robot_circle.html`
+  (the shell's header comment lists the parts and context variables).
+- Action colors: `grep -n '\-\-hoard\|\-\-help\|\-\-hurt' app/static/style.css`
+  — quote the variables, not the hex, in anything you build.
+- Payoff numbers (hoard/help/hurt, decay, betrayal sting):
+  `grep -n "POINTS\|MUTUAL_HELP\|max(" app/games/hoard_hurt_help/scoring.py`.
+- Data contract: read `_build_rc_data` in `app/games/hoard_hurt_help/viewer.py`.
+- Timing constants and `PALETTE`:
+  `grep -n "PALETTE\|_DUR\|totalDuration" app/templates/fragments/robot_circle/_replay_script.html`.
+- Which games have viewers (a new one needs a grounding block here):
+  `ls app/templates/fragments/` and `ls app/games/`.
+
+If a check contradicts this file, trust the code and fix this file in the same PR.
