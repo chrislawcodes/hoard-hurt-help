@@ -26,7 +26,11 @@ of eyeballing → `diagnostics-and-tooling`.
    `resume_active_games_on_startup`. Bot decisions are deterministic — a loop
    that crashes on a specific move crashes again on every restart. So:
    restart fixes an *interruption* freeze, never a *deterministic-crash*
-   freeze.
+   freeze. The overdue-turn sweeper (`app/engine/overdue_sweeper.py`, 7th
+   poller subsystem, runs after the watchdog) now force-advances a turn
+   still unresolved >60s past `deadline_at` — so deterministic-crash freezes
+   self-heal too, unless the game is sequential, the crash is inside
+   resolve/award/finalize, or no unresolved turn row exists.
 4. **When you're done, write the incident up** in
    `docs/operations/debugging-history.md` (symptom, diagnosis, root cause,
    fix, prevention — with SHAs, PR numbers, and the query that found it), and
@@ -47,7 +51,7 @@ of eyeballing → `diagnostics-and-tooling`.
 
 | Symptom | Most likely cause | First move |
 |---------|-------------------|-----------|
-| Match frozen: `matches.state='active'`, latest turn `resolved_at IS NULL` long past `deadline_at` | Turn-loop crash (deterministic → permanent) or mid-deploy interruption | `SELECT * FROM request_incidents WHERE match_id='M_xxxx' ORDER BY created_at;` — `method='TASK'` rows are background-loop crashes. Then the frozen-match walkthrough in `debugging-history.md` |
+| Match frozen: `matches.state='active'`, latest turn `resolved_at IS NULL` long past `deadline_at` | Turn-loop crash or mid-deploy interruption — but the overdue-turn sweeper should have healed it within ~60s of the deadline, so a match still frozen past that is itself a signal | Grep `ops_event=overdue_turn_swept` / `overdue_turn_sweep_failed` / `overdue_turn_unhealable` (sequential game — manual recovery) / `overdue_turn_pointer_mismatch`, plus `poller_subsystem_failed` for `sweep_overdue_turns`. Then `SELECT * FROM request_incidents WHERE match_id='M_xxxx' ORDER BY created_at;` — `method='TASK'` rows are background-loop crashes; `stage='overdue_sweep'` rows are failed heals. Then the frozen-match walkthrough in `debugging-history.md` |
 | A seat submits only fallback HOARD every turn | Wrong model/provider reaching the CLI, or the model keeps emitting an invalid move | Check the connector's per-turn log for the CLI command + failure reason; check the seat's provider/model resolution. Two past causes (stale legacy model; codex resume flag order): see #569 in `failure-archaeology` |
 | Agent looks stalled; long gaps between its turns | The client is sleeping on some timestamp instead of polling | Confirm responses carry `next_poll_after_seconds=0` after submit (#541); check the client isn't running its own shell sleep |
 | Talk messages missing, agents act without talking | Talk arrived after the window; historically a `STALE_TURN_TOKEN` rejection | Grep for `STALE_TURN_TOKEN` / `talk_window_closed`. The stable-token invariant (#540) makes late talk a graceful 202 — if you see hard staleness inside one turn, the invariant regressed |
@@ -58,10 +62,11 @@ of eyeballing → `diagnostics-and-tooling`.
 
 ## Discriminating experiments
 
-- **Crash vs interruption freeze:** redeploy (or wait for one). If the match
-  resumes, it was an interruption. If it re-freezes at the same turn, it's a
-  deterministic crash — find it in `request_incidents`, then replay that
-  turn's decision/record path against prod **with deployed code**.
+- **Crash vs interruption freeze:** check the ops events first. An
+  `overdue_turn_swept` line means the sweeper healed a crash or wedge — the
+  root cause is still there, so find it in `request_incidents` and replay
+  that turn's decision/record path against prod **with deployed code**. No
+  sweep event and the match resumed on a redeploy → it was an interruption.
 - **Server vs connector fault for a bad move:** the server logs the rejected
   submission (`request_incidents`, HTTP rows); the connector logs what the CLI
   actually returned. Follow whichever side shows the first error.
@@ -71,8 +76,10 @@ of eyeballing → `diagnostics-and-tooling`.
 
 ## Manual recovery
 
-Last resort only — prefer shipping the fix and letting
-`resume_active_games_on_startup` recover the match. The guarded hand-recovery
+Last resort only — the fallback for what the sweeper can't heal: sequential
+games (Liar's Dice), crashes inside resolve/award/finalize, and freezes with
+no unresolved turn row. Otherwise prefer shipping the fix and letting the
+sweeper or `resume_active_games_on_startup` recover the match. The guarded hand-recovery
 transaction (compute payoffs, resolve the turn, advance `current_turn`, then
 redeploy) is spelled out at the bottom of
 `docs/operations/debugging-history.md`. Don't improvise a variant.

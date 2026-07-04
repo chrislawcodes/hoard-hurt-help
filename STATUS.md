@@ -15,6 +15,8 @@
 
 ## Recently Shipped
 
+- **Self-healing frozen matches (overdue-turn sweeper)** (2026-07-04) — `app/engine/overdue_sweeper.py`, wired as the 7th poller subsystem (`sweep_overdue_turns` in `scheduler.py`'s `_poll_due_loop`, runs after the watchdog). Any ACTIVE match whose current turn is unresolved >60s (`OVERDUE_TURN_GRACE_SECONDS`) past `deadline_at` is force-advanced: stop the task, default the stuck phase (talk → `finalize_talk_phase` + a fresh full act window; act → `module.resolve_turn`, which defaults missing moves per the game module — PD: HOARD), restart the loop (resume skips resolved turns; `rounds_awarded` guards re-awards). Never runs `auto_submit_bot_phase` (the M_0279 poison path); never touches `current_round`/`current_turn`. Greppable ops events: `overdue_turn_swept` / `overdue_turn_sweep_failed` / `overdue_turn_pointer_mismatch` / `overdue_turn_unhealable`. **Still open:** sequential-driver games (Liar's Dice) are logged unhealable, not swept — sequential force-advance is a separate task; crashes inside resolve/award/finalize and freezes with no unresolved turn row also still need manual recovery or a code fix. Unblocked: PD matches no longer freeze permanently on a deterministic turn-loop crash; the public Liar's Dice launch gets safer once sequential force-advance lands.
+
 - **Tier 4 close-out: the refactoring survey is settled** (this branch) — every remaining item from the survey now has a verdict, so the survey is done end-to-end. **Adjudicated no (recorded in failure-archaeology):** merging the turn-loop twins (`_all_submitted`/`_all_messaged` + the two wait loops) — real duplication, but it lives in the code that freezes live games when it breaks and the payoff is ~40 lines. **Deferred (recorded):** splitting `agentludum_connector.py` into a package — blocked on the copy-one-file install model; instead the file got a TOC + 11 section banners (comments-only diff). **Done:** the three long functions became orchestrators with typed module-private helpers — `_game_view_context` 212→88 lines, `_build_human_play_context` 157→76 (viewer), `join_submit` 151→83 and `join_form` 110→75 (join; commit boundary, seating order, and validation strings untouched). **Deleted:** `scripts/_seed_viewer_demo.py` (dead, owner-confirmed). Full Preflight green. Unblocked: nothing — the refactor backlog is empty; future cleanups ride along with feature work.
 
 - **Baseline dataset regenerated on the current strategy pool** — `coin_flip`
@@ -112,6 +114,7 @@
 
 ## Now Unblocked
 
+- PD (simultaneous-driver) matches now self-heal from deterministic turn-loop crashes without a deploy or hand-editing prod. The public Liar's Dice launch is safer once sequential force-advance lands — sequential heal is still open (`overdue_turn_unhealable` → manual recovery for now).
 - The match viewer can start locally again on the current SQLite DB without a 0023 batch-migration crash.
 - The Practice Arena coach box now has a tighter, title-adjacent layout and a prompt window for course correction.
 - Platform admins can narrow the response-time report to a completion-date window when they want a shorter slice of production data.

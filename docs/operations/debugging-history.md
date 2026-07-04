@@ -48,14 +48,26 @@ the prod DB **with the deployed code** — check out `origin/main` in a worktree
 first. A stale local branch will hit phantom schema drift (e.g. a column the
 deployed schema doesn't have) and send you chasing the wrong thing.
 
-**Why a freeze is permanent:** the per-turn deadline can't self-heal a frozen
-turn — only a *live* loop resolves a turn, and there is no separate overdue-turn
-sweeper. Bot decisions are deterministic, so if the loop crashes on a specific
+**Why a freeze happens (and used to be permanent):** the per-turn deadline
+can't self-heal a frozen turn — only a *live* loop resolves a turn. Bot
+decisions are deterministic, so if the loop crashes on a specific
 move it will crash again on every restart/resume. A process restart (every
 deploy — the app is single-instance) re-runs `resume_active_games_on_startup`,
 which restarts the loop from `matches.current_round/current_turn`; that recovers
 a freeze caused by an *interruption*, but not one caused by a *deterministic
 crash*.
+
+**Freezes are no longer permanent by default.** Since 2026-07-04 the
+overdue-turn sweeper (`app/engine/overdue_sweeper.py`, poller subsystem
+`sweep_overdue_turns`, runs every tick after the watchdog) force-advances any
+ACTIVE match whose current turn is unresolved more than 60s past `deadline_at`:
+it stops the task, defaults the stuck phase (talk → defaulted messages + a
+fresh act window; act → `module.resolve_turn` with default moves, PD = HOARD),
+and restarts the loop. Grep `ops_event=overdue_turn_swept` /
+`overdue_turn_sweep_failed` / `overdue_turn_pointer_mismatch` /
+`overdue_turn_unhealable`. Not covered: sequential-driver games (Liar's Dice),
+crashes inside resolve/award/finalize themselves, and freezes with no
+unresolved turn row — those still need manual recovery or a code fix.
 
 ---
 
@@ -167,9 +179,38 @@ proof tests passed only because they mocked the token with a fake distinct
 `client_id`; the mock hid that real tokens carry the shared subject. When a key is
 supposed to be per-client, assert it against a *real* token shape, not a fixture.
 
+### 2026-07-04 — Overdue-turn sweeper shipped (frozen matches self-heal)
+
+Not an incident — a capability note. The freeze class behind M_0279 and G_0012
+now self-heals. `app/engine/overdue_sweeper.py` runs as the 7th poller
+subsystem (`sweep_overdue_turns`), every tick, after the watchdog. A match
+counts as frozen when it is ACTIVE and its current turn is unresolved more than
+60s (`OVERDUE_TURN_GRACE_SECONDS`) past `deadline_at` — a healthy or restarted
+loop resolves an overdue turn in seconds, so grace expiry means restarts aren't
+helping (deterministic crash) or the task is wedged. The heal: stop the match's
+task; talk-stuck → `finalize_talk_phase` (defaulted messages) + a fresh full
+act window; act-stuck → `module.resolve_turn` (defaults missing moves per the
+game module, PD = HOARD); restart the loop, which skips resolved turns and
+honors `rounds_awarded`. It never runs `auto_submit_bot_phase` (the M_0279
+poison path) and never touches `current_round`/`current_turn`. Ops events:
+`overdue_turn_swept` (healed), `overdue_turn_sweep_failed` (heal itself failed;
+incident with `source='scheduler:sweep_overdue_turns'`, `stage='overdue_sweep'`),
+`overdue_turn_pointer_mismatch` (anomaly, not swept), `overdue_turn_unhealable`
+(sequential game — manual recovery). Still not covered: sequential-driver games
+(Liar's Dice), deterministic crashes inside resolve/award/finalize themselves,
+and freezes with no unresolved turn row.
+
 ---
 
 ## Manual recovery (last resort)
+
+Manual recovery is now the fallback for the cases the overdue-turn sweeper does
+not cover: sequential-driver games (Liar's Dice — logged as
+`overdue_turn_unhealable`), a deterministic crash inside
+resolve/award/finalize itself (the heal would hit the same exception), and
+freezes where no unresolved turn row exists (e.g. a crash in `award_round`
+after the last turn resolved). For anything else, the sweeper should already
+have healed the match — if it didn't, diagnose the sweeper first.
 
 If a match is frozen and you can't ship a code fix to self-heal it, recover by
 hand in one guarded transaction: compute the open turn's payoffs from its
