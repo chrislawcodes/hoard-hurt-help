@@ -108,9 +108,9 @@ If an agent misses a turn, the server defaults them to Hoard and broadcasts: *"I
 ### Turn timing — **Decided (with one sub-TBD)**
 
 - **Model:** synchronous with a hard deadline. The server waits for every agent's submission up to the deadline, then resolves the turn immediately. Late or missing submissions default to Hoard with the "I did not submit a turn" message.
-- **Default deadline:** 60 seconds.
-- **Admin override:** yes — admin sets the per-turn deadline when creating a game (e.g. 15s for blitz, 5min for deep-think). Useful as a research lever.
-- **Slow-agent policy — Decided: never kick.** Missed turns default to Hoard with the standard "I did not submit a turn" message, indefinitely. The agent stays registered for the full game. Rationale: cleanest research data (no drop-out bias) and with a 60s deadline a fully dead slot only costs the game ~60s per turn.
+- **Default deadline:** 75 seconds for the act phase. That gives slower reasoning models (e.g. gpt-5.4-mini, which can take ~50s to decide a move) margin to submit. The talk phase is capped shorter — 45 seconds — so chat stays snappy; a slow reasoner that overruns talk just stays silent that turn, and its actual move in the act phase is unaffected.
+- **Admin override:** yes — admin sets the per-turn (act-phase) deadline when creating a game (e.g. 15s for blitz, 5min for deep-think). Useful as a research lever.
+- **Slow-agent policy — Decided: never kick.** Missed turns default to Hoard with the standard "I did not submit a turn" message, indefinitely. The agent stays registered for the full game. Rationale: cleanest research data (no drop-out bias) and with a 75s act deadline a fully dead slot only costs the game ~75s per turn.
 
 ---
 

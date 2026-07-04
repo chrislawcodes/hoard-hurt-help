@@ -26,6 +26,7 @@ from app.games.hoard_hurt_help.rules import (
     HELP_POINTS,
     HOARD_POINTS,
     HURT_POINTS,
+    MUTUAL_HELP_FLOOR,
     make_game_rules_text,
     make_rules_text,
 )
@@ -80,10 +81,10 @@ class HoardHurtHelp(BaseGameModule):
         # HOARD (keep), HELP (cooperate), HURT (attack).
         return ("HOARD", "HELP", "HURT")
 
-    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
+    def rules_text(self, total_rounds: int = 5, turns_per_round: int = 7) -> str:
         return make_rules_text(total_rounds, turns_per_round)
 
-    def semantic_rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
+    def semantic_rules_text(self, total_rounds: int = 5, turns_per_round: int = 7) -> str:
         return make_game_rules_text(total_rounds, turns_per_round)
 
     def strategy_presets(self) -> list[StrategyPreset]:
@@ -97,7 +98,7 @@ class HoardHurtHelp(BaseGameModule):
         *,
         your_agent_id: str,
         all_agent_ids: list[str],
-        total_rounds: int = 7,
+        total_rounds: int = 5,
         turns_per_round: int = 7,
     ) -> str:
         return make_agent_base_prompt(
@@ -225,6 +226,36 @@ class HoardHurtHelp(BaseGameModule):
         # A missed deadline records HOARD (keep, target nobody) — PD's long-standing
         # default move, made explicit now that the base no longer assumes it.
         return {"action": "HOARD", "target_id": None}
+
+    async def private_state_for(
+        self, db: AsyncSession, match: Match, player: Player
+    ) -> dict[str, Any]:
+        # `pact_values`: what a mutual HELP with each other seat would pay EACH
+        # side RIGHT NOW — already decayed by that pair's prior mutual helps this
+        # match. Lets an agent read the current per-pair decay counter `k` off
+        # the payload instead of re-scanning full match history to recount it
+        # (feature `mutual-help-pact-value`; k itself comes from
+        # `scoring.mutual_help_counts`, derived from resolved turns so it's
+        # resume-safe).
+        all_players = (
+            (await db.execute(select(Player).where(Player.match_id == match.id)))
+            .scalars()
+            .all()
+        )
+        other_players = [p for p in all_players if p.id != player.id]
+        if not other_players:
+            return {}
+        values = await scoring.current_pact_values(
+            db, match.id, player.id, (p.id for p in other_players)
+        )
+        return {
+            "pact_values": {p.seat_name: values[p.id] for p in other_players},
+            "pact_values_note": (
+                "What a mutual HELP with this agent would pay EACH side right "
+                "now (decays per repeat mutual-help pair this match; floors at "
+                f"{MUTUAL_HELP_FLOOR})."
+            ),
+        }
 
     def move_effect(self, action: str) -> tuple[int, int | None]:
         a = action.upper()
