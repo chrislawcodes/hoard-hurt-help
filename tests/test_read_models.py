@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-import pytest
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -58,7 +57,6 @@ async def _match(db: AsyncSession, match_id: str = "M_001") -> Match:
     return match
 
 
-@pytest.mark.asyncio
 async def test_load_action_records_prefers_talk_message_over_submission_message(
     db: AsyncSession,
 ) -> None:
@@ -121,7 +119,6 @@ async def test_load_action_records_prefers_talk_message_over_submission_message(
     assert actions[1].message == "legacy bob message"
 
 
-@pytest.mark.asyncio
 async def test_load_match_timeline_resolves_agents_and_falls_back_to_submission_messages(
     db: AsyncSession,
 ) -> None:
@@ -185,7 +182,6 @@ async def test_load_match_timeline_resolves_agents_and_falls_back_to_submission_
     ]
 
 
-@pytest.mark.asyncio
 async def test_player_read_models_make_active_filter_explicit(db: AsyncSession) -> None:
     match = await _match(db)
     active = await seat_player(db, match.id, "Active", i=1)
@@ -226,7 +222,6 @@ async def _seat_bot(db: AsyncSession, match_id: str, seat_name: str, i: int) -> 
     return player
 
 
-@pytest.mark.asyncio
 async def test_count_players_by_match_batches_matches_and_filters(
     db: AsyncSession, engine: AsyncEngine
 ) -> None:
@@ -258,7 +253,6 @@ async def test_count_players_by_match_batches_matches_and_filters(
     assert counter["n"] == 1
 
 
-@pytest.mark.asyncio
 async def test_winner_agent_id_by_player_batches(
     db: AsyncSession, engine: AsyncEngine
 ) -> None:
@@ -276,7 +270,6 @@ async def test_winner_agent_id_by_player_batches(
     assert counter["n"] == 1
 
 
-@pytest.mark.asyncio
 async def test_agent_counts_excludes_bots_and_batches(
     db: AsyncSession, engine: AsyncEngine
 ) -> None:

@@ -25,7 +25,7 @@ from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
 from app.provider_labels import provider_label
 from app.read_models.agent_display import agent_display_name
-from app.read_models.matches import load_match_timeline, load_players
+from app.read_models.matches import load_match_timeline, load_players, rank_standings
 from app.routes.web_support import (
     _game_theme,
     _is_any_admin,
@@ -73,29 +73,37 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
         seat_name: agent.kind for seat_name, agent, _handle in owner_rows
     }
 
-    scoreboard: list[dict[str, Any]] = sorted(
-        (
+    # Rank the core standings (read model owns the sort + rank), then decorate each
+    # ranked row with the public labels and provider badge this page shows.
+    played_provider_by_seat: dict[str, str | None] = {
+        p.seat_name: p.played_provider for p in players
+    }
+    scoreboard: list[dict[str, Any]] = []
+    for row in rank_standings(
+        {
+            "agent_id": p.seat_name,
+            "round_score": p.current_round_score,
+            "round_wins": p.total_round_wins,
+        }
+        for p in players
+    ):
+        seat = row["agent_id"]
+        is_bot = bot_flags.get(seat, False)
+        provider = played_provider_by_seat.get(seat)
+        scoreboard.append(
             {
-                "agent_id": p.seat_name,
-                "display_name": agent_names.get(p.seat_name, p.seat_name),
-                "round_score": p.current_round_score,
-                "round_wins": p.total_round_wins,
-                "owner_handle": owner_handles.get(p.seat_name),
-                "is_bot": bot_flags.get(p.seat_name, False),
+                "agent_id": seat,
+                "display_name": agent_names.get(seat, seat),
+                "round_score": row["round_score"],
+                "round_wins": row["round_wins"],
+                "owner_handle": owner_handles.get(seat),
+                "is_bot": is_bot,
                 # Provider that actually played this seat (Claude/Gemini/…), shown
                 # as a badge. None for bots and seats not yet served.
-                "provider": (
-                    None
-                    if bot_flags.get(p.seat_name, False) or not p.played_provider
-                    else provider_label(p.played_provider)
-                ),
+                "provider": None if is_bot or not provider else provider_label(provider),
+                "rank": row["rank"],
             }
-            for p in players
-        ),
-        key=lambda r: (-r["round_wins"], -r["round_score"]),
-    )
-    for i, row in enumerate(scoreboard, start=1):
-        row["rank"] = i
+        )
 
     # A user can hold two seats in one match since #478 (join as a human AND send
     # an AI agent). Resolve each separately: the human seat you steer drives the

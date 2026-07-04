@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
+from app.models.agent import Agent, AgentKind
+from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.schemas.agent import ScoreboardRow
@@ -105,6 +107,74 @@ async def count_players_by_match(
     return {match_id: int(count) for match_id, count in rows}
 
 
+async def _agent_count(db: AsyncSession, match_id: str) -> int:
+    """Count non-SIM (real agent) players for a match."""
+    result = await db.scalar(
+        select(func.count())
+        .select_from(Player)
+        .join(Agent, Agent.id == Player.agent_id)
+        .where(Player.match_id == match_id, Agent.kind != AgentKind.BOT)
+    )
+    return int(result or 0)
+
+
+async def _agent_counts(db: AsyncSession, match_ids: Sequence[str]) -> dict[str, int]:
+    """Non-SIM (real agent) player counts for many matches in one grouped query.
+
+    Returns a {match_id: count} map; matches with no real agents are absent and
+    should be read as 0. Batched form of _agent_count to avoid an N+1 query when
+    rendering lists of finished matches.
+    """
+    if not match_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(Player.match_id, func.count())
+            .select_from(Player)
+            .join(Agent, Agent.id == Player.agent_id)
+            .where(Player.match_id.in_(match_ids), Agent.kind != AgentKind.BOT)
+            .group_by(Player.match_id)
+        )
+    ).all()
+    return {match_id: int(count) for match_id, count in rows}
+
+
+async def _upcoming_views(db: AsyncSession) -> list[dict]:
+    """Scheduled/registering games as the lobby's 'Upcoming' cards.
+
+    Shared by the lobby page and the polled `/upcoming` fragment so both render
+    the exact same list. Newest scheduled_start first, matching the page order.
+    """
+    games = (
+        (
+            await db.execute(
+                select(Match)
+                .where(Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]))
+                .order_by(Match.scheduled_start.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Active-player counts for every upcoming game in one grouped query (matches
+    # _player_count's active_only filter), instead of a query per game.
+    player_counts = await count_players_by_match(db, [g.id for g in games], active_only=True)
+    views: list[dict] = []
+    for g in games:
+        views.append(
+            {
+                "id": g.id,
+                "game_type": g.game,
+                "name": g.name,
+                "match_kind": g.match_kind,
+                "scheduled_start": g.scheduled_start,
+                "max_players": g.max_players,
+                "player_count": player_counts.get(g.id, 0),
+            }
+        )
+    return views
+
+
 async def winner_agent_id_by_player(
     db: AsyncSession,
     player_ids: Sequence[int],
@@ -153,6 +223,41 @@ async def load_scoreboard(
         )
         for p in await load_players(db, match_id, active_only=active_only)
     ]
+
+
+def rank_standings(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Rank standings rows by round-wins then round-score, numbering from 1.
+
+    Reads only ``round_wins``/``round_score`` for the (stable) sort and copies
+    ``agent_id`` through into a fresh ranked-core row. Callers own the load — and
+    thus the tie-break order among rows with equal wins and score — plus any
+    per-row decoration they layer on top of the returned core.
+    """
+    ranked = sorted(rows, key=lambda r: (-r["round_wins"], -r["round_score"]))
+    if limit is not None:
+        ranked = ranked[:limit]
+    return [
+        {
+            "agent_id": r["agent_id"],
+            "round_score": r["round_score"],
+            "round_wins": r["round_wins"],
+            "rank": i,
+        }
+        for i, r in enumerate(ranked, start=1)
+    ]
+
+
+def rank_standings_by_match(
+    rows_by_match: Mapping[str, Iterable[Mapping[str, Any]]],
+    *,
+    limit: int | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Batched :func:`rank_standings`: rank each match's rows, keeping every key."""
+    return {mid: rank_standings(rows, limit=limit) for mid, rows in rows_by_match.items()}
 
 
 async def load_player_records(

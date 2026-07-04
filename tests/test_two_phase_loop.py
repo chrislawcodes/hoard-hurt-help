@@ -149,7 +149,6 @@ async def _load_messages(db: AsyncSession, turn_id: int) -> list[TurnMessage]:
     )
 
 
-@pytest.mark.asyncio
 async def test_finalize_talk_phase_defaulted_rows_skip_left_players(db):
     game, players = await _make_game_with_players(db, 3)
     a, b, c = players
@@ -178,7 +177,6 @@ async def test_finalize_talk_phase_defaulted_rows_skip_left_players(db):
     assert by_player[b.id].submitted_at is None
 
 
-@pytest.mark.asyncio
 async def test_all_messaged_requires_non_defaulted_messages_for_active_players(db):
     game, players = await _make_game_with_players(db, 3)
     a, b, c = players
@@ -205,7 +203,6 @@ async def test_all_messaged_requires_non_defaulted_messages_for_active_players(d
     assert await scheduler._all_messaged(db, turn) is True
 
 
-@pytest.mark.asyncio
 async def test_two_phase_loop_fresh_turn_defaults_talk_then_resolves_act(
     db, published
 ):
@@ -237,7 +234,6 @@ async def test_two_phase_loop_fresh_turn_defaults_talk_then_resolves_act(
     assert published[2][2]["phase"] == "act"
 
 
-@pytest.mark.asyncio
 async def test_two_phase_loop_resume_after_talk_resolution_skips_defaulting(
     db, published
 ):
@@ -267,7 +263,6 @@ async def test_two_phase_loop_resume_after_talk_resolution_skips_defaulting(
     assert published[0][2]["phase"] == "act"
 
 
-@pytest.mark.asyncio
 async def test_two_phase_loop_skips_already_resolved_turns(db, published):
     game, players = await _make_game_with_players(db, 2)
     a, _ = players

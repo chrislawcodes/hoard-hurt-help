@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -24,7 +23,6 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-@pytest.mark.asyncio
 async def test_match_and_player_state_round_trip_with_inplace_edit() -> None:
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:

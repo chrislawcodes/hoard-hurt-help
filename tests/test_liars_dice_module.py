@@ -89,7 +89,6 @@ async def _seed_match(
     return match, players
 
 
-@pytest.mark.asyncio
 async def test_config_defaults_and_theme() -> None:
     module = LiarsDice()
     cfg = module.config_defaults()
@@ -100,7 +99,6 @@ async def test_config_defaults_and_theme() -> None:
     assert module.theme().key == "liars-dice"
 
 
-@pytest.mark.asyncio
 async def test_validation_snapshot_and_validate_move(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
@@ -195,7 +193,6 @@ async def test_validation_snapshot_and_validate_move(reset_db) -> None:
         assert exc.value.code == "ILLEGAL_RAISE"
 
 
-@pytest.mark.asyncio
 async def test_record_submission_advances_and_challenge_pauses_turn(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
@@ -254,7 +251,6 @@ async def test_record_submission_advances_and_challenge_pauses_turn(reset_db) ->
         assert await module.next_actor(db, match) is None
 
 
-@pytest.mark.asyncio
 async def test_award_round_resolves_showdown_and_is_idempotent(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
@@ -301,7 +297,6 @@ async def _player_dice_count(db, player_id: int) -> int:
     return row.state_json["dice_count"]
 
 
-@pytest.mark.asyncio
 async def test_round_start_falls_back_to_default_config(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
@@ -324,7 +319,6 @@ async def test_round_start_falls_back_to_default_config(reset_db) -> None:
         assert {row.state_json["dice_count"] for row in counts} == {5}
 
 
-@pytest.mark.asyncio
 async def test_private_and_public_state_surfaces(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
@@ -348,7 +342,6 @@ async def test_private_and_public_state_surfaces(reset_db) -> None:
         assert "dice" not in public
 
 
-@pytest.mark.asyncio
 async def test_final_placement_and_match_placement_key(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
@@ -363,7 +356,6 @@ async def test_final_placement_and_match_placement_key(reset_db) -> None:
         assert module.match_placement_key(round_wins=1.5, total_score=3) == (3.0, 1.5)
 
 
-@pytest.mark.asyncio
 async def test_default_move_opening_and_ceiling(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
@@ -381,7 +373,6 @@ async def test_default_move_opening_and_ceiling(reset_db) -> None:
         assert await module.default_move(db, match, players[0]) == {"type": "CHALLENGE"}
 
 
-@pytest.mark.asyncio
 async def test_sc_hd_no_dice_faces_leak_to_spectator_or_mcp(reset_db) -> None:
     """SC-HD: a player's dice FACES must not reach the spectator JSON or the MCP
     `get_game_state` tool before the showdown. Both channels go through the same

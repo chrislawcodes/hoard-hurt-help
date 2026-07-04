@@ -35,7 +35,6 @@ def _cookie(user_id: int) -> str:
     return signer.sign(payload).decode()
 
 
-@pytest.mark.asyncio
 async def test_agent_runner_scripts_are_served() -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -59,7 +58,6 @@ async def test_agent_runner_scripts_are_served() -> None:
         assert bad.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test_retired_provider_setup_scripts_are_not_served() -> None:
     # One connector now drives every provider — the old per-provider shim
     # downloads were removed, so their names must 404 (no resurrection surface).
@@ -75,7 +73,6 @@ async def test_retired_provider_setup_scripts_are_not_served() -> None:
         assert bad.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test_connections_page_shows_inline_setup_instructions(reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -23,7 +22,6 @@ def _pairs(worklist: list[dict[str, str]]) -> set[tuple[str, str]]:
 # --- compute_worklist ---------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_worklist_includes_provider_default_for_null_preferred(
     db: AsyncSession,
 ) -> None:
@@ -36,7 +34,6 @@ async def test_worklist_includes_provider_default_for_null_preferred(
     assert ("claude", "claude-haiku-4-5") in pairs
 
 
-@pytest.mark.asyncio
 async def test_worklist_includes_matching_preferred_and_excludes_other_provider(
     db: AsyncSession,
 ) -> None:
@@ -55,7 +52,6 @@ async def test_worklist_includes_matching_preferred_and_excludes_other_provider(
     assert not any(p == "openai" for p, _ in pairs)
 
 
-@pytest.mark.asyncio
 async def test_worklist_excludes_paused_agents_preferred(db: AsyncSession) -> None:
     # A paused agent's preferred model shouldn't be queued for verification.
     user = await make_user(db, 0)
@@ -68,7 +64,6 @@ async def test_worklist_excludes_paused_agents_preferred(db: AsyncSession) -> No
     assert ("claude", "claude-haiku-4-5") in pairs  # provider default still present
 
 
-@pytest.mark.asyncio
 async def test_worklist_skips_fresh_and_reincludes_stale(db: AsyncSession) -> None:
     user = await make_user(db, 0)
     conn, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
@@ -85,7 +80,6 @@ async def test_worklist_skips_fresh_and_reincludes_stale(db: AsyncSession) -> No
     )
 
 
-@pytest.mark.asyncio
 async def test_worklist_empty_for_empty_allowlist_provider(db: AsyncSession) -> None:
     user = await make_user(db, 0)
     conn, _ = await make_connection(db, user, provider=ConnectionProvider.HERMES)
@@ -96,7 +90,6 @@ async def test_worklist_empty_for_empty_allowlist_provider(db: AsyncSession) -> 
 # --- endpoints ----------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_worklist_endpoint_requires_connection_key(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -104,7 +97,6 @@ async def test_worklist_endpoint_requires_connection_key(
     assert r.status_code in (401, 403)
 
 
-@pytest.mark.asyncio
 async def test_verification_roundtrip(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:

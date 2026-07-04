@@ -28,7 +28,6 @@ async def _seed_match(
         return match
 
 
-@pytest.mark.asyncio
 async def test_lobby_catalog_uses_canonical_games_path(client, reset_db):
     await _seed_match(reset_db)
 
@@ -41,7 +40,6 @@ async def test_lobby_catalog_uses_canonical_games_path(client, reset_db):
     assert legacy.headers["location"] == "/games/hoard-hurt-help"
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "legacy_path, expected_location",
     [

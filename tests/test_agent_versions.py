@@ -16,12 +16,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.db import make_engine
-from app.engine.tokens import bot_key_lookup, generate_connection_key
+from app.engine.tokens import bot_key_lookup
 from app.models import Base
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
-from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
-from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+from app.models.connection import ConnectionProvider
 from app.models.connection_setup import ConnectionSetup
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -33,6 +32,14 @@ from app.routes.connections_credentials import router as connections_credentials
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
 from app.routes.connections_setup import router as connections_setup_router
 from app.routes.web_player import _seat_name
+from tests.factories import (
+    make_agent,
+    make_connection,
+    make_match,
+    make_user,
+    make_version,
+    seat_prebuilt_player,
+)
 
 
 @pytest.fixture
@@ -89,143 +96,30 @@ def _signed_in_cookies(user_id: int) -> dict[str, str]:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
-async def _make_user(db: AsyncSession, *, handle: str, i: int) -> User:
-    user = User(
-        google_sub=f"sub-{i}",
-        email=f"u{i}@example.com",
-        handle=handle,
-        handle_key=handle,
-    )
-    db.add(user)
-    await db.flush()
-    return user
-
-
-async def _make_connection(
-    db: AsyncSession,
-    user: User,
-    *,
-    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
-    nickname: str | None = None,
-    status: ConnectionStatus = ConnectionStatus.ACTIVE,
-    max_concurrent_games: int = 3,
-    key: str | None = None,
-) -> tuple[Connection, str]:
-    plain_key = key or generate_connection_key()
-    connection = Connection(
-        user_id=user.id,
-        nickname=nickname,
-        provider=provider,
-        key_lookup=bot_key_lookup(plain_key),
-        key_hint=plain_key[-4:],
-        status=status,
-        max_concurrent_games=max_concurrent_games,
-    )
-    db.add(connection)
-    await db.flush()
-    db.add(
-        ConnectionProviderRow(
-            connection_id=connection.id,
-            provider=provider,
-            enabled=True,
-            detected=False,
-        )
-    )
-    await db.flush()
-    return connection, plain_key
-
-
-async def _make_agent(
-    db: AsyncSession,
-    user: User,
-    *,
-    connection: Connection | None,
-    name: str,
-    status: AgentStatus = AgentStatus.ACTIVE,
-) -> Agent:
-    agent = Agent(
-        user_id=user.id,
-        provider=connection.provider if connection is not None else None,
-        kind=AgentKind.AI,
-        name=name,
-        game="hoard-hurt-help",
-        status=status,
-    )
-    db.add(agent)
-    await db.flush()
-    return agent
-
-
-async def _make_version(
-    db: AsyncSession,
-    agent: Agent,
-    *,
-    version_no: int = 1,
-    model: str = "claude-haiku-4-5",
-    strategy_text: str = "Play to win.",
-) -> AgentVersion:
-    version = AgentVersion(
-        agent_id=agent.id,
-        version_no=version_no,
-        model=model,
-        strategy_text=strategy_text,
-    )
-    db.add(version)
-    await db.flush()
-    agent.current_version_id = version.id
-    await db.flush()
-    return version
-
-
 async def _make_match(
     db: AsyncSession, match_id: str, *, state: GameState, match_kind: str = "manual"
 ) -> Match:
-    match = Match(
-        id=match_id,
-        name=f"Match {match_id}",
-        game="hoard-hurt-help",
+    """Seed a match that "already happened" (started an hour ago), unlike
+    `tests.factories.make_match`'s default of a not-yet-started REGISTERING
+    match — this file's fixtures are all mid-game or finished."""
+    now = datetime.now(timezone.utc)
+    started = now - timedelta(hours=1)
+    return await make_match(
+        db,
+        match_id,
         state=state,
-        scheduled_start=datetime.now(timezone.utc) - timedelta(hours=1),
-        started_at=datetime.now(timezone.utc) - timedelta(hours=1)
-        if state != GameState.SCHEDULED
-        else None,
-        completed_at=datetime.now(timezone.utc) if state == GameState.COMPLETED else None,
-        per_turn_deadline_seconds=60,
+        scheduled_start=started,
+        started_at=started if state != GameState.SCHEDULED else None,
+        completed_at=now if state == GameState.COMPLETED else None,
         match_kind=match_kind,
     )
-    db.add(match)
-    await db.flush()
-    return match
 
 
-async def _seat_player(
-    db: AsyncSession,
-    *,
-    match: Match,
-    user: User,
-    agent: Agent,
-    version: AgentVersion,
-    seat_name: str,
-) -> Player:
-    player = Player(
-        match_id=match.id,
-        user_id=user.id,
-        agent_id=agent.id,
-        agent_version_id=version.id,
-        seat_name=seat_name,
-        model_self_report=version.model,
-    )
-    db.add(player)
-    await db.flush()
-    return player
-
-
-@pytest.mark.asyncio
 async def test_create_connection_reuses_existing_pending_setup(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent0", i=0)
+        user = await make_user(db, i=0, handle="agent0")
         await db.commit()
 
     client.cookies.update(_signed_in_cookies(user.id))
@@ -263,13 +157,12 @@ async def test_create_connection_reuses_existing_pending_setup(
         assert setup.key_lookup == bot_key_lookup(first_key)
 
 
-@pytest.mark.asyncio
 async def test_new_agent_creates_and_goes_to_lobby(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent1", i=1)
-        connection, _ = await _make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        user = await make_user(db, i=1, handle="agent1")
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
 
     resp = await client.post(
@@ -287,15 +180,16 @@ async def test_new_agent_creates_and_goes_to_lobby(
     assert resp.headers["location"] == "/games/hoard-hurt-help"
 
 
-@pytest.mark.asyncio
 async def test_version_edit_updates_draft_then_forks_after_rated_match(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent2", i=2)
-        connection, _ = await _make_connection(db, user)
-        agent = await _make_agent(db, user, connection=connection, name="Alpha")
-        version = await _make_version(db, agent, model="claude-sonnet-4-6", strategy_text="Draft")
+        user = await make_user(db, i=2, handle="agent2")
+        connection, _ = await make_connection(db, user)
+        agent, _ = await make_agent(
+            db, user, connection=connection, name="Alpha", create_version=False
+        )
+        version = await make_version(db, agent, model="claude-sonnet-4-6", strategy_text="Draft")
         await db.commit()
 
     cookies = _signed_in_cookies(user.id)
@@ -320,7 +214,7 @@ async def test_version_edit_updates_draft_then_forks_after_rated_match(
         agent = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
         old_version = (await db.execute(select(AgentVersion).where(AgentVersion.id == version.id))).scalar_one()
         match = await _make_match(db, "M_1000", state=GameState.COMPLETED)
-        await _seat_player(
+        await seat_prebuilt_player(
             db,
             match=match,
             user=user,
@@ -355,19 +249,22 @@ async def test_version_edit_updates_draft_then_forks_after_rated_match(
         assert stored_player.agent_version_id == versions[0].id
 
 
-@pytest.mark.asyncio
 async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
-        user_a = await _make_user(db, handle="alice", i=3)
-        user_b = await _make_user(db, handle="bob", i=4)
-        connection_a, _ = await _make_connection(db, user_a)
-        connection_b, _ = await _make_connection(db, user_b)
-        agent_a = await _make_agent(db, user_a, connection=connection_a, name="Alpha")
-        agent_b = await _make_agent(db, user_b, connection=connection_b, name="Alpha")
-        version_a = await _make_version(db, agent_a)
-        version_b = await _make_version(db, agent_b)
+        user_a = await make_user(db, i=3, handle="alice")
+        user_b = await make_user(db, i=4, handle="bob")
+        connection_a, _ = await make_connection(db, user_a)
+        connection_b, _ = await make_connection(db, user_b)
+        agent_a, _ = await make_agent(
+            db, user_a, connection=connection_a, name="Alpha", create_version=False
+        )
+        agent_b, _ = await make_agent(
+            db, user_b, connection=connection_b, name="Alpha", create_version=False
+        )
+        version_a = await make_version(db, agent_a)
+        version_b = await make_version(db, agent_b)
         match = await _make_match(db, "M_2000", state=GameState.ACTIVE)
         # Seat names expose the agent name only — never the owner's handle.
         # Two users with the same agent name get a "#2" disambiguator.
@@ -375,7 +272,7 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
         seat_a = _seat_name(agent_a.name, existing)
         existing.add(seat_a)
         seat_b = _seat_name(agent_b.name, existing)
-        await _seat_player(
+        await seat_prebuilt_player(
             db,
             match=match,
             user=user_a,
@@ -383,7 +280,7 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
             version=version_a,
             seat_name=seat_a,
         )
-        await _seat_player(
+        await seat_prebuilt_player(
             db,
             match=match,
             user=user_b,
@@ -402,7 +299,6 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
         assert "bob" not in "".join(seat_names)
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_shows_connection_capacity_when_at_limit(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -416,8 +312,8 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
     """
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent5", i=5)
-        connection, _ = await _make_connection(
+        user = await make_user(db, i=5, handle="agent5")
+        connection, _ = await make_connection(
             db,
             user,
             max_concurrent_games=1,
@@ -428,12 +324,16 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
         connection.first_connected_at = recently
         connection.mcp_connected_at = recently
         await db.flush()
-        agent = await _make_agent(db, user, connection=connection, name="Alpha")
-        version = await _make_version(db, agent)
+        agent, _ = await make_agent(
+            db, user, connection=connection, name="Alpha", create_version=False
+        )
+        version = await make_version(db, agent)
         # A second agent on the same connection — it's idle but the connection is full
-        agent2 = await _make_agent(db, user, connection=connection, name="Beta")
+        agent2, _ = await make_agent(
+            db, user, connection=connection, name="Beta", create_version=False
+        )
         match = await _make_match(db, "M_3000", state=GameState.ACTIVE)
-        await _seat_player(
+        await seat_prebuilt_player(
             db,
             match=match,
             user=user,
@@ -453,26 +353,27 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
     assert "1 / 1 active matches" in resp.text
 
 
-@pytest.mark.asyncio
 async def test_agent_in_active_practice_match_is_locked_against_delete_and_edit(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """An agent seated in ANY active match — including a practice-arena game — must
     not be deletable or editable mid-match (CP2 review findings 1 & 2)."""
     async with session_factory() as db:
-        user = await _make_user(db, handle="agent7", i=7)
-        connection, _ = await _make_connection(
+        user = await make_user(db, i=7, handle="agent7")
+        connection, _ = await make_connection(
             db, user, provider=ConnectionProvider.CLAUDE
         )
-        agent = await _make_agent(db, user, connection=connection, name="Locked")
-        version = await _make_version(db, agent)
+        agent, _ = await make_agent(
+            db, user, connection=connection, name="Locked", create_version=False
+        )
+        version = await make_version(db, agent)
         match = await _make_match(
             db,
             "M_4000",
             state=GameState.ACTIVE,
             match_kind=MatchKind.PRACTICE_ARENA.value,
         )
-        await _seat_player(
+        await seat_prebuilt_player(
             db,
             match=match,
             user=user,

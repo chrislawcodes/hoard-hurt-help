@@ -2,14 +2,12 @@
 
 from datetime import datetime, timezone
 
-import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import make_engine
 from app.models import Base, Match, GameState
 
 
-@pytest.mark.asyncio
 async def test_game_type_defaults_to_pd() -> None:
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:

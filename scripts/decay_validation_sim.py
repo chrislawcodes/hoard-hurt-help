@@ -36,6 +36,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from offline_db import bootstrap_file_db  # noqa: E402 - needs sys.path setup above
 
 STRATEGIES = (
     "coalition_seeker", "pragmatist", "loyal_partner", "grudger", "leader_pressure",
@@ -110,12 +115,12 @@ def make_flat_resolve(scoring):
 async def run_condition(
     mode: str, n_matches: int, seed: int, db_path: str, fatigue_override: int | None = None
 ):
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path}"
-    # Fresh module state per condition so a per-mode patch never leaks across modes.
+    # Fresh module state per condition so a per-mode patch never leaks across
+    # modes. Must happen BEFORE bootstrap_file_db so its (fresh) import of
+    # app.db binds to this condition's DATABASE_URL, not a stale cached one.
     for m in [k for k in list(sys.modules) if k.startswith("app.")]:
         del sys.modules[m]
-    from app.db import SessionLocal, engine
-    from app.models import Base
+    SessionLocal = await bootstrap_file_db(db_path, mkdir=False)
 
     import app.games.hoard_hurt_help.scoring as scoring
     if mode == "baseline":
@@ -131,8 +136,6 @@ async def run_condition(
     elif fatigue_override is not None:
         trust.PARTNER_FATIGUE = fatigue_override
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     from sqlalchemy import func, select
 
     from app.engine.bots.seating import add_bots_to_game

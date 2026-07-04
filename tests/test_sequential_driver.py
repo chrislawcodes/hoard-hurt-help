@@ -13,7 +13,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -121,7 +120,6 @@ class _SeqStub(BaseGameModule):
         await db.commit()
 
 
-@pytest.mark.asyncio
 async def test_sequential_driver_plays_a_hidden_state_match() -> None:
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -184,7 +182,6 @@ async def _seat_bot(db: Any, match_id: str, seat_name: str, i: int) -> Player:
     return player
 
 
-@pytest.mark.asyncio
 async def test_sequential_driver_bots_auto_submit_without_waiting() -> None:
     """Bot actors are submitted on the platform's behalf — no deadline wait.
 

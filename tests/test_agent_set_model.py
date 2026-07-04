@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -27,7 +26,6 @@ async def _preferred(reset_db: async_sessionmaker, agent_id: int) -> str | None:
         ).scalar_one()
 
 
-@pytest.mark.asyncio
 async def test_set_model_sets_and_clears(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
@@ -52,7 +50,6 @@ async def test_set_model_sets_and_clears(
     assert await _preferred(reset_db, agent_id) is None
 
 
-@pytest.mark.asyncio
 async def test_set_model_rejects_unknown_model(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:

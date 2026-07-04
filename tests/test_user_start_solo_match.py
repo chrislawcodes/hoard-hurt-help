@@ -13,7 +13,6 @@ import base64
 import json
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from itsdangerous import TimestampSigner
 from sqlalchemy import func, select
 
@@ -83,7 +82,6 @@ async def _bot_count(db, match_id: str) -> int:
 # --- eligibility ----------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sole_owner_one_seat_fills_table_to_max(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
@@ -96,7 +94,6 @@ async def test_sole_owner_one_seat_fills_table_to_max(reset_db):
         assert elig.bots_to_add == 9  # 1 player + 9 bots = a full 10-seat table
 
 
-@pytest.mark.asyncio
 async def test_sole_owner_with_three_seats_still_fills_to_max(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
@@ -110,7 +107,6 @@ async def test_sole_owner_with_three_seats_still_fills_to_max(reset_db):
         assert elig.bots_to_add == 7  # 3 seats + 7 bots = a full 10-seat table
 
 
-@pytest.mark.asyncio
 async def test_seat_plus_existing_bots_fills_remaining_to_max(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
@@ -124,7 +120,6 @@ async def test_seat_plus_existing_bots_fills_remaining_to_max(reset_db):
         assert elig.bots_to_add == 7  # 3 seated + 7 more bots = a full table
 
 
-@pytest.mark.asyncio
 async def test_another_user_with_a_seat_blocks_start(reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)
@@ -138,7 +133,6 @@ async def test_another_user_with_a_seat_blocks_start(reset_db):
         assert (await viewer_start_eligibility(db, match, other)).can_start is False
 
 
-@pytest.mark.asyncio
 async def test_viewer_without_a_seat_cannot_start(reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)
@@ -151,7 +145,6 @@ async def test_viewer_without_a_seat_cannot_start(reset_db):
         assert (await viewer_start_eligibility(db, match, None)).can_start is False
 
 
-@pytest.mark.asyncio
 async def test_active_match_cannot_be_started(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
@@ -162,7 +155,6 @@ async def test_active_match_cannot_be_started(reset_db):
         assert (await viewer_start_eligibility(db, match, user)).can_start is False
 
 
-@pytest.mark.asyncio
 async def test_auto_match_is_user_startable_when_solo(reset_db):
     # The reported gap: a solo player in an auto-scheduled match saw no button.
     # Match kind must not matter — only "am I the only one here".
@@ -177,7 +169,6 @@ async def test_auto_match_is_user_startable_when_solo(reset_db):
         assert elig.bots_to_add == 9  # match kind aside, fill to the 10-seat max
 
 
-@pytest.mark.asyncio
 async def test_only_a_held_seat_cannot_start(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
@@ -192,7 +183,6 @@ async def test_only_a_held_seat_cannot_start(reset_db):
 # --- the route ------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_start_route_fills_bots_and_activates(client, reset_db, monkeypatch):
     from app.engine import scheduler
 
@@ -222,7 +212,6 @@ async def test_start_route_fills_bots_and_activates(client, reset_db, monkeypatc
         assert await _bot_count(db, "M_GO") == 9
 
 
-@pytest.mark.asyncio
 async def test_human_can_start_auto_match_end_to_end(client, reset_db, monkeypatch):
     # The exact reported scenario: join an auto-match as a human, then start it.
     from app.engine import scheduler
@@ -255,7 +244,6 @@ async def test_human_can_start_auto_match_end_to_end(client, reset_db, monkeypat
         assert await _confirmed_player_count(db, "M_AUTOH") == 10  # human + 9 bots
 
 
-@pytest.mark.asyncio
 async def test_start_route_rejects_a_stranger(client, reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)
@@ -277,7 +265,6 @@ async def test_start_route_rejects_a_stranger(client, reset_db):
         assert (await db.get(Match, "M_NO")).state == GameState.REGISTERING
 
 
-@pytest.mark.asyncio
 async def test_start_route_rejects_when_another_user_is_in(client, reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)
@@ -299,7 +286,6 @@ async def test_start_route_rejects_when_another_user_is_in(client, reset_db):
 # --- the button -----------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_viewer_page_shows_start_button_for_sole_owner(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
@@ -321,7 +307,6 @@ async def test_viewer_page_shows_start_button_for_sole_owner(client, reset_db):
     assert form_idx > ring_idx
 
 
-@pytest.mark.asyncio
 async def test_viewer_page_hides_start_button_from_stranger(client, reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)

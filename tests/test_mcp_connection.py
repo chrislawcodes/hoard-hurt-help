@@ -38,7 +38,6 @@ async def _make_user(db: AsyncSession, *, suffix: str = "0") -> User:
     return user
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "status, deleted_at, expected_status_code, expected_code",
     [
@@ -74,7 +73,6 @@ async def test_assert_connection_usable_raises_expected_errors(
         assert exc.value.detail["error"]["code"] == expected_code
 
 
-@pytest.mark.asyncio
 async def test_assert_connection_usable_rejects_disabled_account(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -97,7 +95,6 @@ async def test_assert_connection_usable_rejects_disabled_account(
         assert exc.value.detail["error"]["code"] == "ACCOUNT_DISABLED"
 
 
-@pytest.mark.asyncio
 async def test_mcp_connection_for_concurrent_calls_create_one_row(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -156,7 +153,6 @@ async def test_mcp_connection_for_concurrent_calls_create_one_row(
         assert provider_rows[0].enabled is True
 
 
-@pytest.mark.asyncio
 async def test_mcp_connection_enables_only_the_connecting_provider(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -178,7 +174,6 @@ async def test_mcp_connection_enables_only_the_connecting_provider(
         }
 
 
-@pytest.mark.asyncio
 async def test_mcp_connection_without_provider_creates_nothing(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -199,7 +194,6 @@ async def test_mcp_connection_without_provider_creates_nothing(
         assert rows == []
 
 
-@pytest.mark.asyncio
 async def test_mcp_connection_without_provider_reuses_single_existing(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -214,7 +208,6 @@ async def test_mcp_connection_without_provider_reuses_single_existing(
         assert resolved.id == made.id
 
 
-@pytest.mark.asyncio
 async def test_mcp_connection_without_provider_is_none_when_ambiguous(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -227,7 +220,6 @@ async def test_mcp_connection_without_provider_is_none_when_ambiguous(
         assert await mcp_connection_for(db, user) is None
 
 
-@pytest.mark.asyncio
 async def test_mcp_connection_one_per_provider(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -264,7 +256,6 @@ async def test_mcp_connection_one_per_provider(
         assert len(live) == 2
 
 
-@pytest.mark.asyncio
 async def test_mcp_connection_for_resurrects_soft_deleted_row(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

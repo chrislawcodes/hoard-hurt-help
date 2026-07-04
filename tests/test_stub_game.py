@@ -169,7 +169,6 @@ def _register_stub_game() -> Iterator[None]:
         registry.unregister("stub")
 
 
-@pytest.mark.asyncio
 async def test_stub_registers_without_touching_pd() -> None:
     assert "stub" in registry.known_types()
     assert "hoard-hurt-help" in registry.known_types()  # PD still registered
@@ -178,7 +177,6 @@ async def test_stub_registers_without_touching_pd() -> None:
     assert module.config_defaults().turns_per_round == 2
 
 
-@pytest.mark.asyncio
 async def test_stub_rejects_illegal_move() -> None:
     module = registry.get("stub")
     with pytest.raises(GameError):
@@ -213,7 +211,6 @@ def test_catalog_and_leaderboard_read_display_from_module() -> None:
     assert leaderboard_display_name("ancient-game") == "Ancient Game"
 
 
-@pytest.mark.asyncio
 async def test_stub_game_plays_resolves_and_scores() -> None:
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:

@@ -2,7 +2,6 @@
 
 from datetime import datetime, timezone
 
-import pytest
 
 from app.engine.tokens import generate_turn_token
 from app.models import Match, GameState, Player, Turn, TurnSubmission, User
@@ -63,7 +62,6 @@ async def _seed_game_with_history(reset_db) -> None:
         await db.commit()
 
 
-@pytest.mark.asyncio
 async def test_season_page_renders(client, reset_db):
     await _seed_game_with_history(reset_db)
     r = await client.get("/games/hoard-hurt-help/matches/G_001/analysis")
@@ -74,7 +72,6 @@ async def test_season_page_renders(client, reset_db):
     assert "LIVE" in r.text          # game is active → live peek
 
 
-@pytest.mark.asyncio
 async def test_round_drill_in_renders(client, reset_db):
     await _seed_game_with_history(reset_db)
     r = await client.get("/games/hoard-hurt-help/matches/G_001/analysis/rounds/1")
@@ -84,14 +81,12 @@ async def test_round_drill_in_renders(client, reset_db):
     assert "Betrayal" in r.text       # AI_0 helped AI_1 then hurt it
 
 
-@pytest.mark.asyncio
 async def test_unknown_round_404(client, reset_db):
     await _seed_game_with_history(reset_db)
     r = await client.get("/games/hoard-hurt-help/matches/G_001/analysis/rounds/9")
     assert r.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test_unknown_game_404(client, reset_db):
     r = await client.get("/games/G_999/analysis")
     assert r.status_code == 404

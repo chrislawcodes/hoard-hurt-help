@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from app.engine.turn_routing import (
     ConnectionRouteState,
@@ -120,7 +119,6 @@ def test_zero_coverage_returns_no_candidate() -> None:
     assert choose_connection_id_for_provider(connections, "claude", now=NOW) is None
 
 
-@pytest.mark.asyncio
 async def test_two_simultaneous_claims_only_allow_one_winner() -> None:
     store = TurnPinClaimStore(
         [

@@ -16,12 +16,21 @@ Run from the repo root, with the server already running:
 
 import argparse
 import asyncio
-import os
 import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-# Make `app` importable when run as `python scripts/new_test_game.py`.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from offline_db import ensure_repo_root_on_path  # noqa: E402
+
+# Make `app` importable when run as `python scripts/new_test_game.py`. Note:
+# unlike the other three scripts here, this one does NOT set DATABASE_URL or
+# create the schema — it targets the already-running server's real dev DB
+# (see module docstring), so it only needs the sys.path half of the bootstrap.
+ensure_repo_root_on_path()
 
 
 async def _create_match(

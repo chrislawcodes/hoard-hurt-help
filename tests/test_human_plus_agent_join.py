@@ -90,7 +90,6 @@ async def _agents_by_id(db) -> dict[int, Agent]:
     return {a.id: a for a in rows}
 
 
-@pytest.mark.asyncio
 async def test_human_and_agent_in_one_submit(reset_db, client):
     """play_as=human + an agent + a live AI seats BOTH: a human seat and an AI seat."""
     async with reset_db() as db:
@@ -125,7 +124,6 @@ async def test_human_and_agent_in_one_submit(reset_db, client):
     assert all(p.seat_reserved_until is None for p in players)  # both active
 
 
-@pytest.mark.asyncio
 async def test_human_only_still_one_seat(reset_db, client):
     """Regression: play_as=human with no agent seats exactly one human player."""
     async with reset_db() as db:
@@ -147,7 +145,6 @@ async def test_human_only_still_one_seat(reset_db, client):
     assert _human_and_ai(players, agents) == (1, 0)
 
 
-@pytest.mark.asyncio
 async def test_agent_only_unchanged(reset_db, client):
     """Regression: an agent with no play_as seats exactly one AI player, no human."""
     async with reset_db() as db:
@@ -170,7 +167,6 @@ async def test_agent_only_unchanged(reset_db, client):
     assert _human_and_ai(players, agents) == (0, 1)
 
 
-@pytest.mark.asyncio
 async def test_neither_selected_is_400(reset_db, client):
     """Posting with no human and no agent is a friendly error, creating no seat."""
     async with reset_db() as db:
@@ -190,7 +186,6 @@ async def test_neither_selected_is_400(reset_db, client):
     assert count == 0
 
 
-@pytest.mark.asyncio
 async def test_both_but_only_one_slot_is_409_and_creates_nothing(reset_db, client):
     """If a human + an agent would overflow max_players, neither seat is created."""
     async with reset_db() as db:
@@ -211,7 +206,6 @@ async def test_both_but_only_one_slot_is_409_and_creates_nothing(reset_db, clien
     assert count == 0  # all-or-nothing: the agent seat rolled back with the human
 
 
-@pytest.mark.asyncio
 async def test_both_with_unconnected_ai_holds_agent_human_active(reset_db, client):
     """When the chosen AI isn't live, its seat is held and the user is routed to
     connect it — but the human seat is created active right away."""
@@ -240,7 +234,6 @@ async def test_both_with_unconnected_ai_holds_agent_human_active(reset_db, clien
     assert by_kind[AgentKind.AI].seat_reserved_until is not None  # AI seat held
 
 
-@pytest.mark.asyncio
 async def test_practice_arena_does_not_autostart_when_agent_held(reset_db, client):
     """A practice arena starts on join only when every seat is live. A held AI seat
     (alongside the human) must NOT auto-start the game."""
@@ -264,7 +257,6 @@ async def test_practice_arena_does_not_autostart_when_agent_held(reset_db, clien
     assert match.state == GameState.REGISTERING  # not auto-started
 
 
-@pytest.mark.asyncio
 async def test_human_seat_is_idempotent_alongside_agent(reset_db, client):
     """Joining human+agent when the user already holds a human seat does not add a
     second human seat — it just adds the agent seat."""
@@ -299,7 +291,6 @@ async def test_human_seat_is_idempotent_alongside_agent(reset_db, client):
     assert _human_and_ai(players, agents) == (1, 1)
 
 
-@pytest.mark.asyncio
 async def test_join_screen_shows_both_independent_choices(reset_db, client):
     """The join screen offers 'Play as yourself' and 'Also send an AI agent' as two
     independently selectable boxes (keeping the per-agent AI picker cards)."""

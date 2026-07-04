@@ -26,7 +26,7 @@ from app.engine.match_deletion import cancel_blocked_reason, cancel_match
 from app.games import GameError, get as get_game_module
 from app.models.match import GameState, Match
 from app.read_models.match_export import build_csv_export, build_json_export
-from app.routes.web_support import load_match_or_404
+from app.routes.web_match_loaders import load_match_or_404
 from app.schemas.admin import CreateGameRequest, GameRecord
 
 __all__ = [

@@ -13,7 +13,6 @@ import base64
 import json
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
@@ -47,14 +46,12 @@ async def _user_with_handle(reset_db, *, i: int = 0) -> User:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_play_signed_out_redirects_to_login(client, reset_db):
     r = await client.get("/play", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"].startswith("/auth/google/login")
 
 
-@pytest.mark.asyncio
 async def test_play_no_handle_goes_to_lobby(client, reset_db):
     # /play is dumb now: a signed-in user lands on the lobby even with no handle.
     # The handle gate moved to the join flow.
@@ -69,7 +66,6 @@ async def test_play_no_handle_goes_to_lobby(client, reset_db):
     assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_play_no_agent_goes_to_lobby(client, reset_db):
     # Signed in with a handle but no agent → still the lobby (no smart funnel).
     user = await _user_with_handle(reset_db)
@@ -78,7 +74,6 @@ async def test_play_no_agent_goes_to_lobby(client, reset_db):
     assert r.headers["location"] == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_play_with_live_agent_redirects_to_lobby(client, reset_db):
     # Signed in with handle + agent + live provider → lobby anchor.
     user = await _user_with_handle(reset_db)
@@ -101,7 +96,6 @@ async def test_play_with_live_agent_redirects_to_lobby(client, reset_db):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_play_agent_but_no_mcp_connection_goes_to_lobby(client, reset_db):
     """User has handle + agent but NO MCP connection → still the lobby.
 
@@ -123,7 +117,6 @@ async def test_play_agent_but_no_mcp_connection_goes_to_lobby(client, reset_db):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_play_seen_not_polling_user_gets_lobby_not_cycle(client, reset_db):
     """A user whose connection is seen recently but has a stale last_polled_at
     (SEEN_NOT_POLLING readiness) is NOT stuck in a redirect cycle.
@@ -156,7 +149,6 @@ async def test_play_seen_not_polling_user_gets_lobby_not_cycle(client, reset_db)
     assert "/me/handle" not in loc
 
 
-@pytest.mark.asyncio
 async def test_ready_user_never_redirected_to_setup_url(client, reset_db):
     """READY user invariant: /play must never send a fully-set-up user to a setup gate."""
     user = await _user_with_handle(reset_db)
@@ -182,7 +174,6 @@ async def test_ready_user_never_redirected_to_setup_url(client, reset_db):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_create_agent_no_next_no_connection_goes_to_lobby(client, reset_db):
     """POST /me/agents/new with no ?next and no connection → the game lobby.
 
@@ -199,7 +190,6 @@ async def test_create_agent_no_next_no_connection_goes_to_lobby(client, reset_db
     assert r.headers["location"] == "/games/hoard-hurt-help"
 
 
-@pytest.mark.asyncio
 async def test_create_agent_with_next_returns_to_next(client, reset_db):
     """The ?next destination wins after create (e.g. back to the join the user
     came from), regardless of connection state — no /me/connections detour."""
@@ -218,7 +208,6 @@ async def test_create_agent_with_next_returns_to_next(client, reset_db):
     assert "evil" not in loc
 
 
-@pytest.mark.asyncio
 async def test_create_agent_with_connection_and_next_returns_to_next(client, reset_db):
     """Even with a live connection, ?next still wins (no agent-detail/lobby detour)."""
     user = await _user_with_handle(reset_db)
@@ -237,7 +226,6 @@ async def test_create_agent_with_connection_and_next_returns_to_next(client, res
     assert r.headers["location"] == "/me/matches"
 
 
-@pytest.mark.asyncio
 async def test_create_agent_with_connection_no_next_goes_to_lobby(client, reset_db):
     """With a connection but no ?next, create lands on the lobby (not the agent page)."""
     user = await _user_with_handle(reset_db)

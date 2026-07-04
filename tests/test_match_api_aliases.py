@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models import GameState, Match
@@ -28,7 +27,6 @@ async def _seed_match_with_player(
         return "M_001", key
 
 
-@pytest.mark.asyncio
 async def test_agent_state_accepts_canonical_and_legacy_prefixes(client, reset_db):
     match_id, agent_key = await _seed_match_with_player(reset_db)
     headers = {"X-Connection-Key": agent_key}
@@ -43,7 +41,6 @@ async def test_agent_state_accepts_canonical_and_legacy_prefixes(client, reset_d
     assert canonical.json()["game_id"] == match_id
 
 
-@pytest.mark.asyncio
 async def test_spectator_state_accepts_canonical_and_legacy_prefixes(client, reset_db):
     match_id, _ = await _seed_match_with_player(reset_db)
 

@@ -53,6 +53,7 @@ from app.engine.agent_play_reads import (
     _parse_cursor,
     _public_scoreboard,
     _public_standings,
+    load_match_players,
     load_open_turn,
     sorted_seat_names,
 )
@@ -62,7 +63,7 @@ from app.games.base import GameError
 from app.identity import word_filter
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection
-from app.models.match import Match, GameState
+from app.models.match import GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
 from app.ops_events import log_ops_event
@@ -112,7 +113,7 @@ async def poll_turn(
 ) -> WaitingResponse | YourTurnResponse:
     _check_poll_rate_limit(rate_state, player.agent_id)
 
-    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+    game = await _game_for(match_id, db)
 
     if game.state in (GameState.SCHEDULED, GameState.REGISTERING):
         return WaitingResponse(
@@ -155,9 +156,7 @@ async def poll_turn(
             next_poll_after_seconds=_POLL_WHEN_ACTIVE,
         )
 
-    all_players = (
-        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
-    )
+    all_players = await load_match_players(db, game.id)
     seat_name_by_agent_id = _seat_name_map(all_players)
     current_version = None
     if player.agent_version_id is not None:
@@ -330,9 +329,7 @@ async def submit_action(
         )
 
     module = get_game_module(game.game)
-    all_players = (
-        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
-    )
+    all_players = await load_match_players(db, game.id)
     seat_name_by_agent_id = _seat_name_map(all_players)
     all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
     # Resolve the target to a real seat_name up front, tolerating case and
@@ -416,7 +413,7 @@ async def get_agent_state(
     match_id: str,
     player: Player,
 ) -> AgentStateResponse:
-    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+    game = await _game_for(match_id, db)
     open_turn = await load_open_turn(db, game.id)
     you_submitted = False
     if open_turn is not None:
@@ -430,9 +427,7 @@ async def get_agent_state(
         ).scalar_one_or_none()
         you_submitted = submission is not None and not submission.was_defaulted
 
-    all_players = (
-        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
-    )
+    all_players = await load_match_players(db, game.id)
     return AgentStateResponse(
         match_id=game.id,
         game_state=game.state.value,
@@ -457,7 +452,7 @@ async def leave_match(
         match_id=match_id,
         agent_id=player.agent_id,
     )
-    game = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+    game = await _game_for(match_id, db)
     if game.state == GameState.ACTIVE:
         raise _err(
             "GAME_ALREADY_STARTED",
@@ -478,7 +473,7 @@ async def opponent_history(
     rate_state: PullRateState,
 ) -> OpponentHistoryResponse:
     _check_pull_rate_limit(rate_state, player.agent_id, "opponent_history")
-    game = await _game_for(player, match_id, db)
+    game = await _game_for(match_id, db)
     opponent = (
         await db.execute(
             select(Player).where(Player.match_id == game.id, Player.seat_name == opponent_id)
@@ -491,9 +486,7 @@ async def opponent_history(
             status.HTTP_400_BAD_REQUEST,
             details={"reason": "unknown_agent"},
         )
-    all_players = (
-        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
-    )
+    all_players = await load_match_players(db, game.id)
     you = player.seat_name
     public_actions = await _load_public_action_records(db, game.id, all_players)
     actions = [
@@ -517,11 +510,9 @@ async def chat_transcript(
     since: str | None = None,
 ) -> ChatTranscriptResponse:
     _check_pull_rate_limit(rate_state, player.agent_id, "chat")
-    game = await _game_for(player, match_id, db)
+    game = await _game_for(match_id, db)
     cursor = _parse_cursor(since)
-    all_players = (
-        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
-    )
+    all_players = await load_match_players(db, game.id)
     lines: list[ChatLine] = []
     for action in sorted(
         await _load_public_action_records(db, game.id, all_players),
@@ -554,7 +545,7 @@ async def turn_detail(
     rate_state: PullRateState,
 ) -> TurnDetailResponse:
     _check_pull_rate_limit(rate_state, player.agent_id, "turn_detail")
-    game = await _game_for(player, match_id, db)
+    game = await _game_for(match_id, db)
     turn_row = (
         await db.execute(
             select(Turn).where(
@@ -567,9 +558,7 @@ async def turn_detail(
     ).scalar_one_or_none()
     if turn_row is None:
         raise _err("NOT_FOUND", "No such resolved turn.", status.HTTP_404_NOT_FOUND)
-    all_players = (
-        (await db.execute(select(Player).where(Player.match_id == game.id))).scalars().all()
-    )
+    all_players = await load_match_players(db, game.id)
     these = [
         action
         for action in await _load_public_action_records(db, game.id, all_players)
@@ -588,15 +577,7 @@ async def standings(
     rate_state: PullRateState,
 ) -> FullStandingsResponse:
     _check_pull_rate_limit(rate_state, player.agent_id, "standings")
-    game = await _game_for(player, match_id, db)
-    all_players = (
-        (
-            await db.execute(
-                select(Player).where(Player.match_id == game.id, Player.left_at.is_(None))
-            )
-        )
-        .scalars()
-        .all()
-    )
+    game = await _game_for(match_id, db)
+    all_players = await load_match_players(db, game.id, exclude_left=True)
     rows = _public_standings(all_players)
     return FullStandingsResponse(rows=rows, total_players=len(rows))

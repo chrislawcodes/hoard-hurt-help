@@ -41,7 +41,6 @@ async def _preferred_model_of(db: AsyncSession, agent_id: int) -> str | None:
     return row[0]
 
 
-@pytest.mark.asyncio
 async def test_preferred_model_defaults_to_null(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     agent, _ = await make_agent(db_session, user, name="default-agent")
@@ -49,7 +48,6 @@ async def test_preferred_model_defaults_to_null(db_session: AsyncSession) -> Non
     assert await _preferred_model_of(db_session, agent.id) is None
 
 
-@pytest.mark.asyncio
 async def test_preferred_model_persists_when_set(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     agent, _ = await make_agent(db_session, user, name="opus-agent")

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.main import app
 from app.models import Base, Match, GameState, Player, Turn, TurnSubmission
 from app.engine.tokens import generate_turn_token
-from tests.factories import seat_player
+from tests.factories import make_match, seat_player
 
 
 @pytest.fixture(autouse=True)
@@ -48,16 +48,9 @@ async def _seed_game(
     scheduled_start: datetime | None = None,
 ) -> tuple[str, list[Player]]:
     async with reset_db() as db:
-        g = Match(
-            id="G_001",
-            name="t",
-            state=state,
-            scheduled_start=scheduled_start
-            or datetime.now(timezone.utc) + timedelta(hours=1),
-            per_turn_deadline_seconds=60,
+        g = await make_match(
+            db, "G_001", state=state, name="t", scheduled_start=scheduled_start
         )
-        db.add(g)
-        await db.flush()
         players = []
         for i in range(n_players):
             p = await seat_player(db, g.id, f"AI_{i}", i=i)
@@ -70,7 +63,6 @@ async def _seed_game(
 # tests/test_lobby.py. The agent API is play-only, so the old API /join tests are gone.
 
 
-@pytest.mark.asyncio
 async def test_poll_invalid_key(client, reset_db):
     await _seed_game(reset_db, state=GameState.ACTIVE)
     r = await client.get(
@@ -81,7 +73,6 @@ async def test_poll_invalid_key(client, reset_db):
     assert r.json()["detail"]["error"]["code"] == "INVALID_KEY"
 
 
-@pytest.mark.asyncio
 async def test_poll_game_not_started(client, reset_db):
     # Scheduled an hour out → far from start → slow poll cadence.
     _, players = await _seed_game(reset_db, state=GameState.REGISTERING, n_players=1)
@@ -96,7 +87,6 @@ async def test_poll_game_not_started(client, reset_db):
     assert body["next_poll_after_seconds"] == 30
 
 
-@pytest.mark.asyncio
 async def test_poll_not_started_near_start_polls_faster(client, reset_db):
     # Within 3 minutes of start → tighten the poll cadence.
     soon = datetime.now(timezone.utc) + timedelta(seconds=90)
@@ -113,7 +103,6 @@ async def test_poll_not_started_near_start_polls_faster(client, reset_db):
     assert body["next_poll_after_seconds"] == 5
 
 
-@pytest.mark.asyncio
 async def test_poll_active_no_open_turn_cadence(client, reset_db):
     # Live game with no open turn → "active" waiting cadence.
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=1)
@@ -128,7 +117,6 @@ async def test_poll_active_no_open_turn_cadence(client, reset_db):
     assert body["next_poll_after_seconds"] == 5
 
 
-@pytest.mark.asyncio
 async def test_poll_your_turn_then_submit(client, reset_db):
     """Open a turn manually, poll → your_turn → submit → 202."""
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
@@ -190,7 +178,6 @@ async def test_poll_your_turn_then_submit(client, reset_db):
     assert r3.status_code == 202
 
 
-@pytest.mark.asyncio
 async def test_submit_invalid_target(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
     p0 = players[0]
@@ -269,7 +256,6 @@ async def _submit_help(client, key, turn_token, agent_id, target_id):
     )
 
 
-@pytest.mark.asyncio
 async def test_submit_target_case_insensitive(client, reset_db):
     """A HELP that names a real player with different casing still resolves (202)."""
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
@@ -279,7 +265,6 @@ async def test_submit_target_case_insensitive(client, reset_db):
     assert r.status_code == 202, r.text
 
 
-@pytest.mark.asyncio
 async def test_submit_target_whitespace_trimmed(client, reset_db):
     """A HELP target with stray surrounding whitespace still resolves (202)."""
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
@@ -289,7 +274,6 @@ async def test_submit_target_whitespace_trimmed(client, reset_db):
     assert r.status_code == 202, r.text
 
 
-@pytest.mark.asyncio
 async def test_submit_unknown_target_still_rejected(client, reset_db):
     """A target that matches no player is still a 400 — the guard isn't loosened."""
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
@@ -300,7 +284,6 @@ async def test_submit_unknown_target_still_rejected(client, reset_db):
     assert r.json()["detail"]["error"]["code"] == "INVALID_TARGET"
 
 
-@pytest.mark.asyncio
 async def test_submit_self_target_case_variant_still_rejected(client, reset_db):
     """A case-variant self-target resolves to self and is still rejected (400)."""
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
@@ -311,7 +294,6 @@ async def test_submit_self_target_case_variant_still_rejected(client, reset_db):
     assert r.json()["detail"]["error"]["code"] == "INVALID_TARGET"
 
 
-@pytest.mark.asyncio
 async def test_rate_limit(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=1)
     key = players[0]._test_key
@@ -362,7 +344,6 @@ async def _seed_resolved_turn(reset_db, match_id, rnd, turn, subs):
         await db.commit()
 
 
-@pytest.mark.asyncio
 async def test_pull_opponent_history(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=3)
     p0, p1, p2 = players
@@ -389,7 +370,6 @@ async def test_pull_opponent_history(client, reset_db):
     assert actors == {p0.seat_name, p1.seat_name}  # AI_2's hoard is not part of this pair
 
 
-@pytest.mark.asyncio
 async def test_pull_opponent_history_unknown(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
     r = await client.get(
@@ -399,7 +379,6 @@ async def test_pull_opponent_history_unknown(client, reset_db):
     assert r.json()["detail"]["error"]["code"] == "INVALID_TARGET"
 
 
-@pytest.mark.asyncio
 async def test_pull_chat_since_cursor(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, p1 = players
@@ -414,7 +393,6 @@ async def test_pull_chat_since_cursor(client, reset_db):
     assert r.json()["next_cursor"] == "1.2"
 
 
-@pytest.mark.asyncio
 async def test_pull_turn_detail(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, p1 = players
@@ -432,7 +410,6 @@ async def test_pull_turn_detail(client, reset_db):
     assert len(body["actions"]) == 2
 
 
-@pytest.mark.asyncio
 async def test_pull_turn_detail_missing(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
     r = await client.get("/api/games/G_001/turns/9/9", headers={"X-Connection-Key": players[0]._test_key})
@@ -440,7 +417,6 @@ async def test_pull_turn_detail_missing(client, reset_db):
     assert r.json()["detail"]["error"]["code"] == "NOT_FOUND"
 
 
-@pytest.mark.asyncio
 async def test_pull_standings(client, reset_db):
     from sqlalchemy import select
 
@@ -457,7 +433,6 @@ async def test_pull_standings(client, reset_db):
     assert body["total_players"] == 3
 
 
-@pytest.mark.asyncio
 async def test_pull_rate_limited(client, reset_db):
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
     key = players[0]._test_key
@@ -468,7 +443,6 @@ async def test_pull_rate_limited(client, reset_db):
     assert r2.json()["detail"]["error"]["code"] == "RATE_LIMITED"
 
 
-@pytest.mark.asyncio
 async def test_directed_message_appears_next_turn(client, reset_db):
     """A move + message from last turn shows up in the raw history the bot reads."""
     from sqlalchemy import select
@@ -517,7 +491,6 @@ async def test_directed_message_appears_next_turn(client, reset_db):
     assert any(s["agent_id"] == "AI_0" for s in body["scoreboard"])
 
 
-@pytest.mark.asyncio
 async def test_load_public_action_records_windows_to_recent_turns(reset_db):
     """The read helper loads only the last N resolved turns when windowed, and the
     whole transcript when not — the single knob the lean poll payload turns on."""
@@ -547,7 +520,6 @@ async def test_load_public_action_records_windows_to_recent_turns(reset_db):
     assert [(r.round, r.turn) for r in full] == [(1, 1), (1, 2), (1, 3), (1, 4)]
 
 
-@pytest.mark.asyncio
 async def test_poll_payload_history_is_windowed_chat_is_full(client, reset_db):
     """The per-poll payload carries only the recent-turns window (so it stays small
     and a client's tool buffer never overflows), while the on-demand chat still

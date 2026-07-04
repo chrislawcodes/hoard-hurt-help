@@ -15,7 +15,7 @@ from app.routes.game_admin_actions import (
     export_match_csv,
     export_match_json,
 )
-from app.routes.web_support import load_match_or_404
+from app.routes.web_match_loaders import load_match_or_404
 from app.schemas.admin import CancelResponse, CreateGameRequest, GameRecord
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])

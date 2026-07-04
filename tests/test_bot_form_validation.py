@@ -21,6 +21,7 @@ from app.config import settings
 from app.main import app
 from app.models import Base, GameState, Match, Player, User
 from app.models.user import UserRole
+from tests.factories import make_match
 
 
 @pytest.fixture(autouse=True)
@@ -77,14 +78,13 @@ async def _seed_game(
     match_id: str = "G_bfv",
 ) -> Match:
     async with reset_db() as db:
-        g = Match(
-            id=match_id,
-            name="Bot Form Validation Test",
+        g = await make_match(
+            db,
+            match_id,
             state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+            name="Bot Form Validation Test",
             max_players=max_players,
         )
-        db.add(g)
         await db.commit()
         await db.refresh(g)
         return g
@@ -103,7 +103,6 @@ def _roster(*pairs: tuple[str, str]) -> dict[str, list[str]]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_invalid_strategy_rejected_with_form_error(client, reset_db) -> None:
     """Submitting an unknown strategy returns 400 with a legible error message."""
     admin = await _seed_admin(reset_db)
@@ -129,7 +128,6 @@ async def test_invalid_strategy_rejected_with_form_error(client, reset_db) -> No
     assert count == 0
 
 
-@pytest.mark.asyncio
 async def test_invalid_strategy_in_mixed_roster_rejected(client, reset_db) -> None:
     """A single invalid strategy in a multi-bot roster still rejects the whole form."""
     admin = await _seed_admin(reset_db)
@@ -159,7 +157,6 @@ async def test_invalid_strategy_in_mixed_roster_rejected(client, reset_db) -> No
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_valid_strategy_accepted_and_bots_seated(client, reset_db) -> None:
     """Submitting a valid strategy creates the bots and redirects."""
     admin = await _seed_admin(reset_db)
@@ -184,7 +181,6 @@ async def test_valid_strategy_accepted_and_bots_seated(client, reset_db) -> None
     assert sorted(p.seat_name for p in players) == ["Augustus", "Caesar"]
 
 
-@pytest.mark.asyncio
 async def test_all_valid_strategies_accepted(client, reset_db) -> None:
     """Every known personality ID passes route-level validation."""
     from app.engine.bot_presets import BOT_PRESETS
@@ -221,7 +217,6 @@ async def test_all_valid_strategies_accepted(client, reset_db) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_ai_agent_creation_is_unaffected(client, reset_db) -> None:
     """The /me/agents/new route for AI agents is not gated by bot validation."""
     from app.models.connection import Connection, ConnectionProvider, ConnectionStatus

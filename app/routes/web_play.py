@@ -30,7 +30,6 @@ from app.deps import DbSession, require_user, require_user_with_handle
 from app.engine.human_player import get_or_create_human_agent
 from app.engine.player_move import record_player_action
 from app.games import get as get_game_module
-from app.games import is_admin_only
 from app.games.base import GameError
 from app.identity import word_filter
 from app.models.agent import Agent, AgentKind
@@ -39,11 +38,13 @@ from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
 from app.read_models.matches import count_players
+from app.routes.web_match_loaders import (
+    GameScopedMatchOr404,
+    _load_match_or_404,
+)
 from app.routes.web_support import (
     SEAT_NAME_MAX,
-    GameScopedMatchOr404,
-    _is_any_admin,
-    _load_match_or_404,
+    require_can_view_game,
     unique_seat_name,
 )
 
@@ -338,8 +339,7 @@ async def play_join(
     body the old inline check returned); ``user`` is listed first so a handle-less
     visitor 303s to /me/handle before that check, as before.
     """
-    if is_admin_only(match.game) and not _is_any_admin(user):
-        raise HTTPException(status_code=404, detail="Game not found.")
+    require_can_view_game(user, match.game)
     if match.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(status_code=409, detail="This match isn't open to join.")
 

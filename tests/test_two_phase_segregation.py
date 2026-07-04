@@ -186,7 +186,6 @@ def _assert_no_thinking(body: object, secrets: list[str]) -> None:
         assert secret not in body_text
 
 
-@pytest.mark.asyncio
 async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
     client, reset_db
 ):
@@ -259,7 +258,6 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
     ]
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "request_path, method_name, body_factory, expected_code",
     [
@@ -338,7 +336,6 @@ async def test_error_envelopes_do_not_echo_thinking(
     assert secret not in response.text
 
 
-@pytest.mark.asyncio
 async def test_late_talk_returns_window_closed_without_echoing_thinking(client, reset_db):
     """A talk message that lands after the talk window closed gets a calm
     "talk_window_closed" answer (not an error), records no message, and never
@@ -379,7 +376,6 @@ async def test_late_talk_returns_window_closed_without_echoing_thinking(client, 
     assert "too late to talk" not in texts
 
 
-@pytest.mark.asyncio
 async def test_left_player_between_phases_skips_talk_defaulting_and_act_resolves(
     reset_db,
 ):
@@ -456,7 +452,6 @@ async def test_left_player_between_phases_skips_talk_defaulting_and_act_resolves
     assert sum(p.current_round_score for p in refreshed_players) == 4
 
 
-@pytest.mark.asyncio
 async def test_begin_act_phase_keeps_turn_token_stable(reset_db):
     """The talk->act handoff switches phase and resets the deadline but keeps the
     SAME turn_token. Re-minting it here used to drop a slow player's late talk

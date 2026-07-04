@@ -2,7 +2,6 @@
 
 from datetime import datetime, timezone
 
-import pytest
 from sqlalchemy import select
 
 from app.models import (
@@ -102,7 +101,6 @@ async def _seed_two_phase_turn(
         await db.commit()
 
 
-@pytest.mark.asyncio
 async def test_viewer_renders_active(client, reset_db):
     await _seed(reset_db, GameState.ACTIVE)
     r = await client.get("/games/hoard-hurt-help/matches/G_001")
@@ -110,7 +108,6 @@ async def test_viewer_renders_active(client, reset_db):
     assert "Test" in r.text
 
 
-@pytest.mark.asyncio
 async def test_viewer_does_not_leak_strategy(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     r = await client.get("/games/hoard-hurt-help/matches/G_001")
@@ -118,7 +115,6 @@ async def test_viewer_does_not_leak_strategy(client, reset_db):
     assert "SECRET STRATEGY" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     await _seed_two_phase_turn(reset_db)
@@ -134,7 +130,6 @@ async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
     assert 'class="thought"' in r.text
 
 
-@pytest.mark.asyncio
 async def test_legacy_viewer_falls_back_to_submission_message(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     await _seed_two_phase_turn(reset_db, include_turn_messages=False)
@@ -143,7 +138,6 @@ async def test_legacy_viewer_falls_back_to_submission_message(client, reset_db):
     assert "legacy public chat" in r.text
 
 
-@pytest.mark.asyncio
 async def test_live_fragment_carries_replay_data(client, reset_db):
     """The SSE-refreshed live fragment must embed fresh replay JSON.
 
@@ -165,7 +159,6 @@ async def test_live_fragment_carries_replay_data(client, reset_db):
     assert [(t["round"], t["turn"]) for t in data["turns"]] == [(1, 1)]
 
 
-@pytest.mark.asyncio
 async def test_spectator_state_no_prompts(client, reset_db):
     await _seed(reset_db, GameState.ACTIVE)
     r = await client.get("/api/spectator/games/G_001/state")
@@ -176,7 +169,6 @@ async def test_spectator_state_no_prompts(client, reset_db):
     assert body["name"] == "Test"
 
 
-@pytest.mark.asyncio
 async def test_spectator_state_two_phase_shape_without_thinking(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     await _seed_two_phase_turn(reset_db)
@@ -210,7 +202,6 @@ async def test_spectator_state_two_phase_shape_without_thinking(client, reset_db
     ]
 
 
-@pytest.mark.asyncio
 async def test_completed_viewer_has_round_nav(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     # A completed game needs at least one resolved turn for the round nav to show.
@@ -251,7 +242,6 @@ async def test_completed_viewer_has_round_nav(client, reset_db):
     assert "if(true && !_reduced)" in r.text
 
 
-@pytest.mark.asyncio
 async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
     """A HURT row must show the loss on the TARGET, not just the actor's +0."""
     await _seed(reset_db, GameState.COMPLETED)
@@ -311,20 +301,17 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
     assert "+0" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_guide_serves_doc(client, reset_db):
     r = await client.get("/guide/setup-mcp")
     assert r.status_code == 200
     assert "claude mcp add" in r.text
 
 
-@pytest.mark.asyncio
 async def test_guide_rejects_unknown_and_traversal(client, reset_db):
     assert (await client.get("/guide/nonexistent")).status_code == 404
     assert (await client.get("/guide/..%2f..%2fetc%2fpasswd")).status_code == 404
 
 
-@pytest.mark.asyncio
 async def test_list_games_public(client, reset_db):
     """GET /api/games returns a JSON list of all games."""
     await _seed(reset_db, GameState.ACTIVE)
@@ -339,7 +326,6 @@ async def test_list_games_public(client, reset_db):
     assert "strategy_prompt" not in r.text  # no leak
 
 
-@pytest.mark.asyncio
 async def test_list_games_public_filter_by_state(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     r = await client.get("/api/games?state=active")
@@ -349,7 +335,6 @@ async def test_list_games_public_filter_by_state(client, reset_db):
     assert len(r2.json()) == 1
 
 
-@pytest.mark.asyncio
 async def test_scheduled_viewer_shows_start_countdown(client, reset_db):
     """A waiting match shows a start-countdown band below the robot stage."""
     start = datetime(2099, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
@@ -361,7 +346,6 @@ async def test_scheduled_viewer_shows_start_countdown(client, reset_db):
     assert 'data-start="2099-01-02T03:04:05' in r.text
 
 
-@pytest.mark.asyncio
 async def test_registering_viewer_shows_start_countdown(client, reset_db):
     await _seed(reset_db, GameState.REGISTERING)
     r = await client.get("/games/hoard-hurt-help/matches/G_001")
@@ -369,7 +353,6 @@ async def test_registering_viewer_shows_start_countdown(client, reset_db):
     assert 'id="rc-countdown"' in r.text
 
 
-@pytest.mark.asyncio
 async def test_active_viewer_has_no_start_countdown(client, reset_db):
     await _seed(reset_db, GameState.ACTIVE)
     r = await client.get("/games/hoard-hurt-help/matches/G_001")
@@ -377,7 +360,6 @@ async def test_active_viewer_has_no_start_countdown(client, reset_db):
     assert 'id="rc-countdown"' not in r.text
 
 
-@pytest.mark.asyncio
 async def test_completed_viewer_has_no_start_countdown(client, reset_db):
     await _seed(reset_db, GameState.COMPLETED)
     r = await client.get("/games/hoard-hurt-help/matches/G_001")
@@ -385,7 +367,6 @@ async def test_completed_viewer_has_no_start_countdown(client, reset_db):
     assert 'id="rc-countdown"' not in r.text
 
 
-@pytest.mark.asyncio
 async def test_practice_arena_has_no_start_countdown(client, reset_db):
     """A practice arena starts on join (no fixed time), so it gets no clock."""
     await _seed(reset_db, GameState.SCHEDULED, match_kind="practice_arena")
@@ -394,7 +375,6 @@ async def test_practice_arena_has_no_start_countdown(client, reset_db):
     assert 'id="rc-countdown"' not in r.text
 
 
-@pytest.mark.asyncio
 async def test_replay_history_carries_per_turn_score_that_resets_each_round():
     """The feed must show each turn's OWN in-round score, not one live score.
 

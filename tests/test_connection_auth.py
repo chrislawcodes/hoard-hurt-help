@@ -134,7 +134,6 @@ async def make_connection_setup(
     return setup, plain_key
 
 
-@pytest.mark.asyncio
 async def test_valid_key_resolves_connection_and_marks_seen(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -168,7 +167,6 @@ async def test_valid_key_resolves_connection_and_marks_seen(
         assert stored.api_call_count == 2
 
 
-@pytest.mark.asyncio
 async def test_first_key_use_creates_connection_from_setup(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -201,7 +199,6 @@ async def test_first_key_use_creates_connection_from_setup(
         assert connection.status is ConnectionStatus.ACTIVE
 
 
-@pytest.mark.asyncio
 async def test_missing_and_invalid_key_reject(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -219,7 +216,6 @@ async def test_missing_and_invalid_key_reject(
     assert invalid.json()["detail"]["error"]["code"] == "INVALID_KEY"
 
 
-@pytest.mark.asyncio
 async def test_paused_connection_rejected(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -230,7 +226,6 @@ async def test_paused_connection_rejected(
     assert r.json()["detail"]["error"]["code"] == "CONNECTION_PAUSED"
 
 
-@pytest.mark.asyncio
 async def test_deleted_connection_returns_gone(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -248,7 +243,6 @@ async def test_deleted_connection_returns_gone(
     assert r.json()["detail"]["error"]["code"] == "CONNECTION_DELETED"
 
 
-@pytest.mark.asyncio
 async def test_graceful_rotation_overlap_is_retired_on_new_key_use(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

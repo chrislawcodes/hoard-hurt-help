@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from app.config import provider_for_model
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
 from app.models.agent import Agent, AgentKind, AgentStatus
@@ -13,16 +15,19 @@ from app.models.player import Player
 from app.models.user import User
 
 
-async def make_user(db, i: int = 0) -> User:
+async def make_user(db, i: int = 0, *, handle: str | None = None) -> User:
     # A normal user has a public handle (required to own an agent). Derived from
     # `i`, which already keys the unique google_sub/email, so handles stay unique
     # without new collisions. Tests that exercise the handle gate set/clear it
-    # explicitly instead of relying on this default.
+    # explicitly instead of relying on this default. `handle` overrides the
+    # derived default for tests that assert on a specific handle (e.g. seat
+    # names built from it).
+    resolved_handle = handle or f"agent{i}"
     user = User(
         google_sub=f"sub-{i}",
         email=f"u{i}@t.com",
-        handle=f"agent{i}",
-        handle_key=f"agent{i}",
+        handle=resolved_handle,
+        handle_key=resolved_handle,
     )
     db.add(user)
     await db.flush()
@@ -39,6 +44,9 @@ async def make_connection(
     nickname: str | None = None,
     max_concurrent_games: int = 3,
     stall_threshold: int = 3,
+    last_seen_at: datetime | None = None,
+    first_connected_at: datetime | None = None,
+    mcp_connected_at: datetime | None = None,
 ) -> tuple[Connection, str]:
     plain_key = key or generate_connection_key()
     connection = Connection(
@@ -50,6 +58,9 @@ async def make_connection(
         status=status,
         max_concurrent_games=max_concurrent_games,
         stall_threshold=stall_threshold,
+        last_seen_at=last_seen_at,
+        first_connected_at=first_connected_at,
+        mcp_connected_at=mcp_connected_at,
     )
     db.add(connection)
     await db.flush()
@@ -85,6 +96,7 @@ async def make_agent(
     bot_seed: int | None = None,
     bot_version: str | None = None,
     bot_fixture_pack: str | None = None,
+    create_version: bool = True,
 ) -> tuple[Agent, AgentVersion | None]:
     # AI agents carry a stored provider (CHECK: non-archived AI ⇒ provider set);
     # bots never route by provider, so theirs stays None. Mirror prod: take the
@@ -119,7 +131,7 @@ async def make_agent(
     await db.flush()
 
     version: AgentVersion | None = None
-    if kind == AgentKind.AI:
+    if kind == AgentKind.AI and create_version:
         version = AgentVersion(
             agent_id=agent.id,
             version_no=1,
@@ -159,14 +171,51 @@ async def make_match(
     match_id: str,
     *,
     state: GameState,
+    name: str | None = None,
+    scheduled_start: datetime | None = None,
+    max_players: int | None = None,
+    per_turn_deadline_seconds: int = 60,
+    started_at: datetime | None = None,
+    completed_at: datetime | None = None,
+    total_rounds: int | None = None,
+    turns_per_round: int | None = None,
+    current_round: int | None = None,
+    current_turn: int | None = None,
+    match_kind: str | None = None,
 ) -> Match:
+    """Create + flush a Match row.
+
+    `scheduled_start` defaults to one hour from now — a REGISTERING match that
+    hasn't started, the shape most callers want. Pass an explicit value (e.g.
+    `datetime.now(timezone.utc)`, or a time in the past) for an already-active
+    or already-finished match. Every other optional field is only set on the
+    row when given explicitly, so callers that don't care about it get the
+    model's own default (e.g. `max_players=10`, `total_rounds=7`).
+    """
     match = Match(
         id=match_id,
-        name=f"Match {match_id}",
+        name=name or f"Match {match_id}",
         game="hoard-hurt-help",
         state=state,
-        per_turn_deadline_seconds=60,
+        scheduled_start=scheduled_start or (datetime.now(timezone.utc) + timedelta(hours=1)),
+        per_turn_deadline_seconds=per_turn_deadline_seconds,
     )
+    if max_players is not None:
+        match.max_players = max_players
+    if started_at is not None:
+        match.started_at = started_at
+    if completed_at is not None:
+        match.completed_at = completed_at
+    if total_rounds is not None:
+        match.total_rounds = total_rounds
+    if turns_per_round is not None:
+        match.turns_per_round = turns_per_round
+    if current_round is not None:
+        match.current_round = current_round
+    if current_turn is not None:
+        match.current_turn = current_turn
+    if match_kind is not None:
+        match.match_kind = match_kind
     db.add(match)
     await db.flush()
     return match
@@ -210,6 +259,38 @@ async def seat_player(
     await db.flush()
     setattr(player, "_test_key", key)
     setattr(player, "_test_connection", connection)
+    return player
+
+
+async def seat_prebuilt_player(
+    db,
+    *,
+    match: Match,
+    user: User,
+    agent: Agent,
+    version: AgentVersion,
+    seat_name: str,
+    total_round_score: int = 0,
+    current_round_score: int = 0,
+) -> Player:
+    """Seat an already-built user/agent/version as a Player in `match`.
+
+    Unlike `seat_player` (which builds the user/connection/agent/version chain
+    itself), this is for tests that already have all four objects on hand and
+    just need the join row — the shape several files hand-rolled identically.
+    """
+    player = Player(
+        match_id=match.id,
+        user_id=user.id,
+        agent_id=agent.id,
+        agent_version_id=version.id,
+        seat_name=seat_name,
+        model_self_report=version.model,
+        total_round_score=total_round_score,
+        current_round_score=current_round_score,
+    )
+    db.add(player)
+    await db.flush()
     return player
 
 

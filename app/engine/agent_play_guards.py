@@ -98,5 +98,5 @@ def _validate_agent_match_binding(
         )
 
 
-async def _game_for(player: Player, match_id: str, db: AsyncSession) -> Match:
+async def _game_for(match_id: str, db: AsyncSession) -> Match:
     return (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()

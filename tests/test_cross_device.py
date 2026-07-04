@@ -6,7 +6,6 @@ Two browser sessions with the same Google identity see the same games.
 import base64
 import json
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 
@@ -23,7 +22,6 @@ def _cookies(user_id: int) -> dict:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
-@pytest.mark.asyncio
 async def test_two_sessions_same_user_see_same_games(reset_db):
     """Sign-in on device A and device B (same Google sub) both see /me/matches content."""
     async with reset_db() as db:

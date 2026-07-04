@@ -20,7 +20,7 @@ from app.config import settings
 from app.engine.bot_presets import bot_presets
 from app.models import Base, Agent, AgentKind, AgentStatus, Connection, Match, GameState, Player, User
 from app.models.agent_version import AgentVersion
-from tests.factories import make_agent, make_connection, make_user
+from tests.factories import make_agent, make_connection, make_match, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -59,14 +59,7 @@ async def _seed_game(
     reset_db: async_sessionmaker, state=GameState.REGISTERING, match_id: str = "G_001"
 ) -> Match:
     async with reset_db() as db:
-        g = Match(
-            id=match_id,
-            name="Test Match",
-            state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-            per_turn_deadline_seconds=60,
-        )
-        db.add(g)
+        g = await make_match(db, match_id, state=state, name="Test Match")
         await db.commit()
         await db.refresh(g)
         return g
@@ -107,7 +100,6 @@ async def _get_agent(reset_db: async_sessionmaker, agent_id: int) -> Agent | Non
         ).scalar_one_or_none()
 
 
-@pytest.mark.asyncio
 async def test_delete_without_history_hard_deletes(client, reset_db):
     """An agent that never played is removed entirely."""
     user = await _seed_user(reset_db)
@@ -123,7 +115,6 @@ async def test_delete_without_history_hard_deletes(client, reset_db):
     assert await _get_agent(reset_db, agent.id) is None
 
 
-@pytest.mark.asyncio
 async def test_hard_delete_with_foreign_keys_enforced(client, monkeypatch):
     """Reproduce production: an AI agent's version row FKs back to agents.id.
 
@@ -174,7 +165,6 @@ async def test_hard_delete_with_foreign_keys_enforced(client, monkeypatch):
         await test_engine.dispose()
 
 
-@pytest.mark.asyncio
 async def test_delete_with_history_archives_instead(client, reset_db):
     """An agent with game history is archived + paused, not removed."""
     user = await _seed_user(reset_db)
@@ -195,7 +185,6 @@ async def test_delete_with_history_archives_instead(client, reset_db):
     assert connection.id is not None
 
 
-@pytest.mark.asyncio
 async def test_archived_bot_hidden_from_my_bots(client, reset_db):
     """An archived agent no longer appears in the owner's agent list."""
     user = await _seed_user(reset_db)
@@ -210,7 +199,6 @@ async def test_archived_bot_hidden_from_my_bots(client, reset_db):
     assert "Ghost" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_archived_bot_key_stops_authenticating(client, reset_db):
     """Once archived, the agent's key is rejected like an unknown key."""
     user = await _seed_user(reset_db)
@@ -230,7 +218,6 @@ async def test_archived_bot_key_stops_authenticating(client, reset_db):
     assert r.json()["detail"]["error"]["code"] == "NOT_IN_GAME"
 
 
-@pytest.mark.asyncio
 async def test_archived_bot_cannot_join_new_game(client, reset_db):
     """A crafted join POST naming an archived bot is rejected."""
     user = await _seed_user(reset_db)
@@ -250,7 +237,6 @@ async def test_archived_bot_cannot_join_new_game(client, reset_db):
     assert r.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test_archived_agent_keeps_its_name_and_can_be_replaced(client, reset_db):
     """Archived agents keep their stored name, and a new distinct agent can still be created."""
     user = await _seed_user(reset_db)
@@ -272,7 +258,6 @@ async def test_archived_agent_keeps_its_name_and_can_be_replaced(client, reset_d
     assert agent2.name == "Atlas 2"
 
 
-@pytest.mark.asyncio
 async def test_archived_name_fits_120_char_column(client, reset_db):
     """A max-length (120-char) name still fits after archive."""
     user = await _seed_user(reset_db)
@@ -289,7 +274,6 @@ async def test_archived_name_fits_120_char_column(client, reset_db):
     assert archived.name == long_name
 
 
-@pytest.mark.asyncio
 async def test_archived_agent_keeps_profile_metadata(client, reset_db):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)

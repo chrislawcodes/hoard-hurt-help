@@ -55,7 +55,6 @@ def _cold() -> datetime:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_loop_running_true_when_recently_polled(
     db_session: AsyncSession,
 ) -> None:
@@ -67,7 +66,6 @@ async def test_loop_running_true_when_recently_polled(
     assert await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
 
 
-@pytest.mark.asyncio
 async def test_loop_running_false_when_seen_but_never_polled(
     db_session: AsyncSession,
 ) -> None:
@@ -84,7 +82,6 @@ async def test_loop_running_false_when_seen_but_never_polled(
     assert not await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
 
 
-@pytest.mark.asyncio
 async def test_loop_running_false_when_poll_is_stale(
     db_session: AsyncSession,
 ) -> None:
@@ -96,7 +93,6 @@ async def test_loop_running_false_when_poll_is_stale(
     assert not await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
 
 
-@pytest.mark.asyncio
 async def test_loop_running_false_when_paused(
     db_session: AsyncSession,
 ) -> None:
@@ -180,7 +176,6 @@ def test_is_join_blocked_true_when_capacity_is_zero() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_provider_is_covered_true_when_live_connection_exists(
     db_session: AsyncSession,
 ) -> None:
@@ -198,7 +193,6 @@ async def test_provider_is_covered_true_when_live_connection_exists(
     assert result is True
 
 
-@pytest.mark.asyncio
 async def test_provider_is_covered_false_when_no_connection(
     db_session: AsyncSession,
 ) -> None:
@@ -207,7 +201,6 @@ async def test_provider_is_covered_false_when_no_connection(
     assert result is False
 
 
-@pytest.mark.asyncio
 async def test_provider_is_covered_false_when_connection_cold(
     db_session: AsyncSession,
 ) -> None:
@@ -226,7 +219,6 @@ async def test_provider_is_covered_false_when_connection_cold(
     assert result is False
 
 
-@pytest.mark.asyncio
 async def test_provider_is_covered_false_when_connection_paused(
     db_session: AsyncSession,
 ) -> None:
@@ -244,7 +236,6 @@ async def test_provider_is_covered_false_when_connection_paused(
     assert result is False
 
 
-@pytest.mark.asyncio
 async def test_provider_is_covered_false_when_provider_not_enabled(
     db_session: AsyncSession,
 ) -> None:
@@ -280,7 +271,6 @@ async def test_provider_is_covered_false_when_provider_not_enabled(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_detached_covered_agent_is_ready(db_session: AsyncSession) -> None:
     """An agent with a live connection covering its provider must resolve as
     covered — not 'needs connection'.
@@ -307,7 +297,6 @@ async def test_detached_covered_agent_is_ready(db_session: AsyncSession) -> None
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_active_matches_for_provider_counts_correctly(
     db_session: AsyncSession,
 ) -> None:
@@ -330,7 +319,6 @@ async def test_active_matches_for_provider_counts_correctly(
     assert count == 1
 
 
-@pytest.mark.asyncio
 async def test_active_matches_for_provider_zero_when_no_active_matches(
     db_session: AsyncSession,
 ) -> None:
@@ -342,7 +330,6 @@ async def test_active_matches_for_provider_zero_when_no_active_matches(
     assert count == 0
 
 
-@pytest.mark.asyncio
 async def test_live_provider_capacity_zero_when_no_live_connections(
     db_session: AsyncSession,
 ) -> None:
@@ -359,7 +346,6 @@ async def test_live_provider_capacity_zero_when_no_live_connections(
     assert cap == 0
 
 
-@pytest.mark.asyncio
 async def test_live_provider_capacity_one_live_connection(
     db_session: AsyncSession,
 ) -> None:
@@ -375,7 +361,6 @@ async def test_live_provider_capacity_one_live_connection(
     assert cap == 4
 
 
-@pytest.mark.asyncio
 async def test_live_provider_capacity_two_live_connections_sums(
     db_session: AsyncSession,
 ) -> None:
@@ -402,7 +387,6 @@ async def test_live_provider_capacity_two_live_connections_sums(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_join_gate_blocked_when_zero_live_connections(
     db_session: AsyncSession,
 ) -> None:
@@ -413,7 +397,6 @@ async def test_join_gate_blocked_when_zero_live_connections(
     assert is_join_blocked(active, cap) is True
 
 
-@pytest.mark.asyncio
 async def test_join_gate_allowed_under_capacity_one_connection(
     db_session: AsyncSession,
 ) -> None:
@@ -433,7 +416,6 @@ async def test_join_gate_allowed_under_capacity_one_connection(
     assert is_join_blocked(active, cap) is False
 
 
-@pytest.mark.asyncio
 async def test_join_gate_blocked_at_capacity_one_connection(
     db_session: AsyncSession,
 ) -> None:
@@ -468,7 +450,6 @@ async def test_join_gate_blocked_at_capacity_one_connection(
     assert is_join_blocked(active, cap) is True
 
 
-@pytest.mark.asyncio
 async def test_join_gate_scales_with_two_live_connections(
     db_session: AsyncSession,
 ) -> None:
@@ -529,7 +510,6 @@ async def test_join_gate_scales_with_two_live_connections(
     assert is_join_blocked(active2, cap) is True   # 4 >= 4 → blocked
 
 
-@pytest.mark.asyncio
 async def test_join_gate_blocked_no_live_connection_covers_provider(
     db_session: AsyncSession,
 ) -> None:

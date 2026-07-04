@@ -122,7 +122,6 @@ async def _run_bots_match(*, match_id: str, wild_ones: bool) -> str:
     return result
 
 
-@pytest.mark.asyncio
 async def test_sequential_driver_completes_and_is_deterministic() -> None:
     for wild_ones in (True, False):
         first = await _run_bots_match(
@@ -136,7 +135,6 @@ async def test_sequential_driver_completes_and_is_deterministic() -> None:
         assert first == second
 
 
-@pytest.mark.asyncio
 async def test_hidden_info_stays_private_before_showdown_and_reveals_after() -> None:
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -207,7 +205,6 @@ async def test_hidden_info_stays_private_before_showdown_and_reveals_after() -> 
     await engine.dispose()
 
 
-@pytest.mark.asyncio
 async def test_bot_move_drives_actor_via_module_bot_move() -> None:
     """The sequential driver must call `module.bot_move` for a bot actor."""
     engine = make_engine("sqlite+aiosqlite:///:memory:")

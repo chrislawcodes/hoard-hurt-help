@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
 
 from app.models import GameState, Match, MatchState, PlayerState
 from tests.factories import seat_player
@@ -70,7 +69,6 @@ async def _seed(reset_db) -> None:
         await db.commit()
 
 
-@pytest.mark.asyncio
 async def test_ld_viewer_page_renders_ld_feed(client, reset_db):
     """Full viewer page serves 200 and includes the LD-specific feed section."""
     await _seed(reset_db)
@@ -82,7 +80,6 @@ async def test_ld_viewer_page_renders_ld_feed(client, reset_db):
     assert "Wild ones" in r.text
 
 
-@pytest.mark.asyncio
 async def test_ld_live_fragment_renders_ld_feed(client, reset_db):
     """Live fragment endpoint serves 200 and includes the LD-specific feed."""
     await _seed(reset_db)
@@ -92,7 +89,6 @@ async def test_ld_live_fragment_renders_ld_feed(client, reset_db):
     assert "Wild ones" in r.text
 
 
-@pytest.mark.asyncio
 async def test_ld_viewer_has_no_robot_circle_stage(client, reset_db):
     """The PD robot-circle stage must be absent for Liar's Dice matches."""
     await _seed(reset_db)

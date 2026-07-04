@@ -108,14 +108,12 @@ async def _mcp_agent(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_no_user_is_not_signed_in(db_session: AsyncSession) -> None:
     state = await resolve_play_setup_state(db_session, None)
     assert state.stage is PlaySetupStage.NOT_SIGNED_IN
     assert state.next_url == "/auth/google/login"
 
 
-@pytest.mark.asyncio
 async def test_user_without_handle_needs_handle(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     user.handle = None
@@ -125,7 +123,6 @@ async def test_user_without_handle_needs_handle(db_session: AsyncSession) -> Non
     assert state.next_url == "/me/handle"
 
 
-@pytest.mark.asyncio
 async def test_handle_no_agent_needs_agent(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 1)
     state = await resolve_play_setup_state(db_session, user)
@@ -133,7 +130,6 @@ async def test_handle_no_agent_needs_agent(db_session: AsyncSession) -> None:
     assert state.next_url == "/me/agents/new"
 
 
-@pytest.mark.asyncio
 async def test_machine_connection_clears_mcp_gate(
     db_session: AsyncSession,
 ) -> None:
@@ -156,7 +152,6 @@ async def test_machine_connection_clears_mcp_gate(
     assert state.next_url == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_connected_not_live_with_nav_require_is_ready(
     db_session: AsyncSession,
 ) -> None:
@@ -176,7 +171,6 @@ async def test_connected_not_live_with_nav_require_is_ready(
     assert state.next_url == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_connected_not_live_with_require_ready_is_needs_live(
     db_session: AsyncSession,
 ) -> None:
@@ -195,7 +189,6 @@ async def test_connected_not_live_with_require_ready_is_needs_live(
     assert state.stage is PlaySetupStage.NEEDS_LIVE
 
 
-@pytest.mark.asyncio
 async def test_live_agent_is_ready_at_any_require(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 5)
     await _mcp_agent(
@@ -216,7 +209,6 @@ async def test_live_agent_is_ready_at_any_require(db_session: AsyncSession) -> N
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_multi_agent_most_ready_wins(db_session: AsyncSession) -> None:
     # One NO_MCP_CONNECTION agent (claude) + one CONNECTED_NOT_LIVE agent (gemini).
     # With nav require, the connected provider clears the bar → READY.
@@ -242,7 +234,6 @@ async def test_multi_agent_most_ready_wins(db_session: AsyncSession) -> None:
     assert state.stage is PlaySetupStage.READY
 
 
-@pytest.mark.asyncio
 async def test_multi_agent_reports_nearest_gate_when_none_ready(
     db_session: AsyncSession,
 ) -> None:
@@ -275,7 +266,6 @@ async def test_multi_agent_reports_nearest_gate_when_none_ready(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_bot_agent_is_excluded(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 8)
     await make_agent(db_session, user, name="house-bot", kind=AgentKind.BOT, connection=None)
@@ -283,7 +273,6 @@ async def test_bot_agent_is_excluded(db_session: AsyncSession) -> None:
     assert state.stage is PlaySetupStage.NEEDS_AGENT
 
 
-@pytest.mark.asyncio
 async def test_archived_agent_is_excluded(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 9)
     agent, _ = await _mcp_agent(
@@ -295,7 +284,6 @@ async def test_archived_agent_is_excluded(db_session: AsyncSession) -> None:
     assert state.stage is PlaySetupStage.NEEDS_AGENT
 
 
-@pytest.mark.asyncio
 async def test_provider_null_agent_is_now_seatable(db_session: AsyncSession) -> None:
     # Agents are decoupled from a provider — a provider-NULL AI agent is the new
     # normal and counts as a real agent. With no connection, the gate is
@@ -314,7 +302,6 @@ async def test_provider_null_agent_is_now_seatable(db_session: AsyncSession) -> 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_next_url_threads_join_for_setup_gate(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 11)
     # A truly unconnected agent (no connection at all) is the NEEDS_MCP_CONNECTION
@@ -334,7 +321,6 @@ async def test_next_url_threads_join_for_setup_gate(db_session: AsyncSession) ->
     )
 
 
-@pytest.mark.asyncio
 async def test_next_url_threads_join_for_needs_agent(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 12)
     match = await _make_registering_match(db_session, "m-join-2")
@@ -346,7 +332,6 @@ async def test_next_url_threads_join_for_needs_agent(db_session: AsyncSession) -
     )
 
 
-@pytest.mark.asyncio
 async def test_next_url_ready_with_target_match_is_match_url(
     db_session: AsyncSession,
 ) -> None:
@@ -371,7 +356,6 @@ async def test_next_url_ready_with_target_match_is_match_url(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_target_agent_uses_overall_connection_readiness(
     db_session: AsyncSession,
 ) -> None:
@@ -403,7 +387,6 @@ async def test_target_agent_uses_overall_connection_readiness(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_single_provider_ready_query_bound(
     engine: AsyncEngine, db_session: AsyncSession
 ) -> None:
@@ -456,7 +439,6 @@ async def test_single_provider_ready_query_bound(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_nav_cta_stale_mcp_is_still_play_now(db_session: AsyncSession) -> None:
     # 100-day-old mcp_connected_at is past the 90-day window (no current setup),
     # but the nav no longer reads setup state — it still shows "Play now".
@@ -473,7 +455,6 @@ async def test_nav_cta_stale_mcp_is_still_play_now(db_session: AsyncSession) -> 
     assert cta.href == "/games/hoard-hurt-help#lobby-upcoming"
 
 
-@pytest.mark.asyncio
 async def test_nav_cta_current_setup_is_play_now(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 17)
     await _mcp_agent(

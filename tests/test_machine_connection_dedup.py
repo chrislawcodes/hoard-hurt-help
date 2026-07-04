@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import select
 
 from app.engine.machine_connection_dedup import (
@@ -55,7 +54,6 @@ async def _reload(db, connection: Connection) -> Connection:
     ).scalar_one()
 
 
-@pytest.mark.asyncio
 async def test_keeps_freshest_of_same_named_machines(db):
     user = await make_user(db)
     stale = await _machine(db, user, nickname="macbook", last_seen=NOW - timedelta(hours=2))
@@ -72,7 +70,6 @@ async def test_keeps_freshest_of_same_named_machines(db):
     assert older.runner_pid is None
 
 
-@pytest.mark.asyncio
 async def test_hostname_grouping_ignores_case_and_whitespace(db):
     user = await make_user(db)
     a = await _machine(db, user, nickname="MacBook ", last_seen=NOW - timedelta(hours=3))
@@ -85,7 +82,6 @@ async def test_hostname_grouping_ignores_case_and_whitespace(db):
     assert (await _reload(db, a)).deleted_at is not None
 
 
-@pytest.mark.asyncio
 async def test_retires_abandoned_nameless_machine(db):
     user = await make_user(db)
     abandoned = await _machine(db, user, nickname=None, last_seen=NOW - timedelta(days=40))
@@ -98,7 +94,6 @@ async def test_retires_abandoned_nameless_machine(db):
     assert row.paused_reason == RETIRE_REASON_STALE
 
 
-@pytest.mark.asyncio
 async def test_keeps_recently_seen_nameless_machine(db):
     user = await make_user(db)
     recent = await _machine(db, user, nickname=None, last_seen=NOW - timedelta(days=1))
@@ -109,7 +104,6 @@ async def test_keeps_recently_seen_nameless_machine(db):
     assert (await _reload(db, recent)).deleted_at is None
 
 
-@pytest.mark.asyncio
 async def test_keeps_brand_new_never_used_machine(db):
     user = await make_user(db)
     # Created moments ago, never made a call yet — mid-setup, must not be retired.
@@ -123,7 +117,6 @@ async def test_keeps_brand_new_never_used_machine(db):
     assert (await _reload(db, fresh)).deleted_at is None
 
 
-@pytest.mark.asyncio
 async def test_retires_old_never_used_machine(db):
     user = await make_user(db)
     stale = await _machine(
@@ -136,7 +129,6 @@ async def test_retires_old_never_used_machine(db):
     assert (await _reload(db, stale)).paused_reason == RETIRE_REASON_STALE
 
 
-@pytest.mark.asyncio
 async def test_never_touches_mcp_connections(db):
     user = await make_user(db)
     # An MCP sign-in connection, long idle — never a candidate for retiring here.
@@ -150,7 +142,6 @@ async def test_never_touches_mcp_connections(db):
     assert (await _reload(db, mcp)).deleted_at is None
 
 
-@pytest.mark.asyncio
 async def test_isolated_per_user(db):
     owner = await make_user(db, 1)
     other = await make_user(db, 2)
@@ -169,7 +160,6 @@ async def test_isolated_per_user(db):
     assert (await _reload(db, other_new)).deleted_at is None
 
 
-@pytest.mark.asyncio
 async def test_idempotent(db):
     user = await make_user(db)
     await _machine(db, user, nickname="macbook", last_seen=NOW - timedelta(hours=2))
@@ -182,7 +172,6 @@ async def test_idempotent(db):
     assert second == 0
 
 
-@pytest.mark.asyncio
 async def test_detaches_pending_setup_from_retired_row(db):
     user = await make_user(db)
     old = await _machine(db, user, nickname="macbook", last_seen=NOW - timedelta(hours=2))

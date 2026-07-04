@@ -23,7 +23,7 @@ from app.models.connection import ConnectionProvider
 from app.models.match import MatchKind
 from app.models.user import UserRole
 from app.engine.bots import pack_profile_choices
-from tests.factories import make_agent, make_connection, make_user, seat_player
+from tests.factories import make_agent, make_connection, make_match, make_user, seat_player
 
 
 @pytest.fixture(autouse=True)
@@ -66,14 +66,7 @@ async def _seed_user(reset_db: async_sessionmaker) -> User:
 
 async def _seed_game(reset_db: async_sessionmaker, state=GameState.REGISTERING) -> Match:
     async with reset_db() as db:
-        g = Match(
-            id="G_001",
-            name="Test Match",
-            state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-            per_turn_deadline_seconds=60,
-        )
-        db.add(g)
+        g = await make_match(db, "G_001", state=state, name="Test Match")
         await db.commit()
         await db.refresh(g)
         return g
@@ -174,7 +167,6 @@ async def _seed_completed_showcase(reset_db: async_sessionmaker) -> None:
         await db.commit()
 
 
-@pytest.mark.asyncio
 async def test_lobby_shows_robot_replay_of_latest_game(client, reset_db):
     # With no live game, the lobby replays the latest finished showcase game
     # using the same robot-circle animation the front page uses.
@@ -198,7 +190,6 @@ def test_sample_replay_data_is_valid_rc_json() -> None:
     assert "owners" in data  # rail byline map present (may be empty)
 
 
-@pytest.mark.asyncio
 async def test_homepage_falls_back_to_sample_replay(client, reset_db):
     # With no showcase game in the DB, the agent-ludum homepage still shows the
     # animated replay (seeded from the bundled sample) — not a dead placeholder.
@@ -209,7 +200,6 @@ async def test_homepage_falls_back_to_sample_replay(client, reset_db):
     assert "al-rc-ph" not in r.text  # the static placeholder is NOT shown
 
 
-@pytest.mark.asyncio
 async def test_homepage_renders_with_live_and_finished_games(client, reset_db):
     # Regression guard for the homepage's per-game data. It now gathers player
     # counts, agent counts, and winners in three bulk queries instead of an N+1
@@ -257,7 +247,6 @@ async def _seed_extra_completed(reset_db: async_sessionmaker, n: int) -> None:
         await db.commit()
 
 
-@pytest.mark.asyncio
 async def test_lobby_query_count_flat_as_finished_games_grow(client, reset_db):
     # The lobby used to run a query per game for EVERY finished and cancelled
     # match. Now it reads them in one grouped query (via cache). Proof: the number
@@ -281,7 +270,6 @@ async def test_lobby_query_count_flat_as_finished_games_grow(client, reset_db):
     assert second["n"] <= baseline
 
 
-@pytest.mark.asyncio
 async def test_quiet_lobby_falls_back_to_sample_replay(client, reset_db):
     # No live and no finished showcase game: the quiet lobby plays the sample
     # replay instead of the "No game running" empty state.
@@ -292,7 +280,6 @@ async def test_quiet_lobby_falls_back_to_sample_replay(client, reset_db):
     assert "No game running right now" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_lobby_recent_games_use_agent_names(client, reset_db):
     base = datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc)
     async with reset_db() as db:
@@ -333,7 +320,6 @@ async def test_lobby_recent_games_use_agent_names(client, reset_db):
     assert f"{match.id}:Atlas" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
     base = datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc)
     async with reset_db() as db:
@@ -433,7 +419,6 @@ async def test_lobby_splits_recent_games_and_hides_delete(client, reset_db):
     assert "Show fewer" in expanded.text
 
 
-@pytest.mark.asyncio
 async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
     # A game past its start time with too few players must not linger as
     # "Upcoming" with a live Join button. Viewing the lobby reconciles it to
@@ -461,7 +446,6 @@ async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
     assert g.cancelled_at is not None
 
 
-@pytest.mark.asyncio
 async def test_lobby_polls_upcoming_every_minute(client, reset_db):
     # The lobby wires a 60s poller at the upcoming fragment endpoint so an open
     # page self-updates without a manual reload.
@@ -472,7 +456,6 @@ async def test_lobby_polls_upcoming_every_minute(client, reset_db):
     assert "every 60s" in r.text
 
 
-@pytest.mark.asyncio
 async def test_upcoming_fragment_reconciles_and_lists(client, reset_db):
     # The polled fragment lists upcoming games and, on each fetch, cancels a game
     # that is past its start time with too few players.
@@ -509,7 +492,6 @@ async def test_upcoming_fragment_reconciles_and_lists(client, reset_db):
     assert soon.state == GameState.REGISTERING
 
 
-@pytest.mark.asyncio
 async def test_join_requires_sign_in(client, reset_db):
     await _seed_game(reset_db)
     r = await client.get("/games/hoard-hurt-help/matches/G_001/join", follow_redirects=False)
@@ -517,7 +499,6 @@ async def test_join_requires_sign_in(client, reset_db):
     assert "/auth/google/login" in r.headers["location"]
 
 
-@pytest.mark.asyncio
 async def test_create_agent_setup_shows_key_once(client, reset_db):
     user = await _seed_user(reset_db)
     # The connections page mints one pending machine setup and shows its key inline.
@@ -543,7 +524,6 @@ async def test_create_agent_setup_shows_key_once(client, reset_db):
     assert len(agents) == 0
 
 
-@pytest.mark.asyncio
 async def test_preset_bots_auto_provision_and_show_separately(client, reset_db):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
@@ -590,7 +570,6 @@ async def test_preset_bots_auto_provision_and_show_separately(client, reset_db):
     assert all(bot.name not in r.text for bot in bots)
 
 
-@pytest.mark.asyncio
 async def test_practice_arena_join_copy_mentions_join_start(client, reset_db):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
@@ -605,7 +584,6 @@ async def test_practice_arena_join_copy_mentions_join_start(client, reset_db):
     assert "registered" in r.text
 
 
-@pytest.mark.asyncio
 async def test_practice_arena_upcoming_copy_mentions_join_start(client, reset_db):
     await _seed_practice_arena(reset_db)
 
@@ -615,7 +593,6 @@ async def test_practice_arena_upcoming_copy_mentions_join_start(client, reset_db
     assert "registered" in r.text
 
 
-@pytest.mark.asyncio
 async def test_practice_arena_match_page_copy_mentions_join_start(client, reset_db):
     await _seed_practice_arena(reset_db)
 
@@ -625,7 +602,6 @@ async def test_practice_arena_match_page_copy_mentions_join_start(client, reset_
     assert "Starts <time" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_practice_arena_starts_when_player_joins(client, reset_db, monkeypatch):
     user = await _seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
@@ -647,7 +623,6 @@ async def test_practice_arena_starts_when_player_joins(client, reset_db, monkeyp
     assert g.started_at is not None
 
 
-@pytest.mark.asyncio
 async def test_create_bot_shows_bot_profile(client, reset_db):
     user = await _seed_user(reset_db)
     choice = next(
@@ -679,7 +654,6 @@ async def test_create_bot_shows_bot_profile(client, reset_db):
         assert agent.bot_version == "v1"
 
 
-@pytest.mark.asyncio
 async def test_bot_detail_does_not_rotate_key(client, reset_db):
     """Regression: visiting the connection page must not change the key."""
     user = await _seed_user(reset_db)
@@ -698,7 +672,6 @@ async def test_bot_detail_does_not_rotate_key(client, reset_db):
     assert agent.id is not None
 
 
-@pytest.mark.asyncio
 async def test_rotate_invalidates_old_key_anytime(client, reset_db):
     """Rotate is the deliberate path that changes the key — allowed any time."""
     user = await _seed_user(reset_db)
@@ -730,7 +703,6 @@ async def test_rotate_invalidates_old_key_anytime(client, reset_db):
     assert connection.key_lookup != bot_key_lookup(key)  # old key no longer resolves
 
 
-@pytest.mark.asyncio
 async def test_enter_bot_into_game(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
@@ -753,7 +725,6 @@ async def test_enter_bot_into_game(client, reset_db):
     assert user.handle not in p.seat_name
 
 
-@pytest.mark.asyncio
 async def test_join_ignores_bad_display_name(client, reset_db):
     """The posted display name no longer controls the public seat name."""
     user = await _seed_user(reset_db)
@@ -773,7 +744,6 @@ async def test_join_ignores_bad_display_name(client, reset_db):
     assert player.seat_name == agent.name
 
 
-@pytest.mark.asyncio
 async def test_duplicate_bot_entry_blocked(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
@@ -795,7 +765,6 @@ async def test_duplicate_bot_entry_blocked(client, reset_db):
     assert "already in this game" in r.text
 
 
-@pytest.mark.asyncio
 async def test_two_bots_one_game(client, reset_db):
     """A user fields multiple agents in one game by giving each a different AI
     (one AI plays one seat at a time)."""
@@ -823,7 +792,6 @@ async def test_two_bots_one_game(client, reset_db):
     assert {p.seat_name for p in players} == {"One", "Two"}
 
 
-@pytest.mark.asyncio
 async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monkeypatch):
     """An admin can tick several of their own agents and seat them in one POST."""
     monkeypatch.setattr(settings, "platform_admin_emails", "u0@t.com")
@@ -856,7 +824,6 @@ async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monk
     assert {p.seat_name for p in players} == {"One", "Two"}
 
 
-@pytest.mark.asyncio
 async def test_join_form_shows_already_seated_agents(client, reset_db):
     """Re-entering the join form keeps every agent visible and marks seated ones."""
     user = await _seed_user(reset_db)
@@ -878,7 +845,6 @@ async def test_join_form_shows_already_seated_agents(client, reset_db):
     assert f'value="{a2.id}"' in form.text
 
 
-@pytest.mark.asyncio
 async def test_match_page_shows_add_agent_affordance(client, reset_db):
     """The match page links back to the join form while registration is open."""
     user = await _seed_user(reset_db)
@@ -900,7 +866,6 @@ async def test_match_page_shows_add_agent_affordance(client, reset_db):
     assert "/games/hoard-hurt-help/matches/G_001/join" in page2.text
 
 
-@pytest.mark.asyncio
 async def test_non_admin_stacks_agents_with_distinct_ais(client, reset_db):
     """A regular user may send several agents in one submit — each on a different AI."""
     user = await _seed_user(reset_db)  # not in the admin allowlist
@@ -932,7 +897,6 @@ async def test_non_admin_stacks_agents_with_distinct_ais(client, reset_db):
     }
 
 
-@pytest.mark.asyncio
 async def test_non_admin_cannot_reuse_one_ai_across_agents(client, reset_db):
     """The same AI can't play two of a regular user's agents in one game — and nobody
     is seated when that's attempted, whether posted as a duplicate or as the legacy
@@ -1008,7 +972,6 @@ async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
         return agent.id
 
 
-@pytest.mark.asyncio
 async def test_admin_can_seat_agent_already_busy_at_capacity(client, reset_db, monkeypatch):
     """An admin can add an agent that is already in another match, past the cap."""
     monkeypatch.setattr(settings, "platform_admin_emails", "u0@t.com")
@@ -1028,7 +991,6 @@ async def test_admin_can_seat_agent_already_busy_at_capacity(client, reset_db, m
     assert [p.agent_id for p in seated] == [agent_id]
 
 
-@pytest.mark.asyncio
 async def test_non_admin_still_blocked_by_busy_ai(client, reset_db):
     """A regular user can't reuse an AI already in a game — the bypass is admin-only."""
     user = await _seed_user(reset_db)  # not an admin
@@ -1048,7 +1010,6 @@ async def test_non_admin_still_blocked_by_busy_ai(client, reset_db):
     assert seated == []
 
 
-@pytest.mark.asyncio
 async def test_duplicate_display_name_does_not_block_join(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
@@ -1079,7 +1040,6 @@ async def test_duplicate_display_name_does_not_block_join(client, reset_db):
     assert {p.seat_name for p in players} == {"One", "Two"}
 
 
-@pytest.mark.asyncio
 async def test_rename_bot(client, reset_db):
     user = await _seed_user(reset_db)
     agent, _returned_key, _connection_id = await _seed_agent(reset_db, user, name="OldName")
@@ -1095,7 +1055,6 @@ async def test_rename_bot(client, reset_db):
     assert agent_row.name == "NewName"
 
 
-@pytest.mark.asyncio
 async def test_rename_duplicate_blocked(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_agent(reset_db, user, name="Taken")
@@ -1109,7 +1068,6 @@ async def test_rename_duplicate_blocked(client, reset_db):
     assert r.status_code == 409
 
 
-@pytest.mark.asyncio
 async def test_my_games_lists_user_games(client, reset_db):
     user = await _seed_user(reset_db)
     await _seed_game(reset_db)
@@ -1130,7 +1088,6 @@ async def test_my_games_lists_user_games(client, reset_db):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_db_error_building_replay_falls_back_to_sample(
     client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1155,7 +1112,6 @@ async def test_db_error_building_replay_falls_back_to_sample(
     assert '"sample": true' in r.text
 
 
-@pytest.mark.asyncio
 async def test_programming_error_building_replay_propagates(
     client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1178,7 +1134,6 @@ async def test_programming_error_building_replay_propagates(
     assert r.status_code == 500
 
 
-@pytest.mark.asyncio
 async def test_db_error_during_reconciliation_still_renders_lobby(
     client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1199,7 +1154,6 @@ async def test_db_error_during_reconciliation_still_renders_lobby(
     assert "Test Match" in r.text  # DB state still rendered despite reconcile failure
 
 
-@pytest.mark.asyncio
 async def test_programming_error_during_reconciliation_propagates(
     client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1219,7 +1173,6 @@ async def test_programming_error_during_reconciliation_propagates(
     assert r.status_code == 500
 
 
-@pytest.mark.asyncio
 async def test_db_error_during_upcoming_reconciliation_still_renders(
     client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1240,7 +1193,6 @@ async def test_db_error_during_upcoming_reconciliation_still_renders(
     assert "Test Match" in r.text
 
 
-@pytest.mark.asyncio
 async def test_programming_error_during_upcoming_reconciliation_propagates(
     client: AsyncClient, reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1260,7 +1212,6 @@ async def test_programming_error_during_upcoming_reconciliation_propagates(
     assert r.status_code == 500
 
 
-@pytest.mark.asyncio
 async def test_upcoming_fragment_survives_null_scheduled_start(client, reset_db, monkeypatch):
     """A legacy row with scheduled_start=NULL must not 500 the upcoming fragment.
 
@@ -1289,7 +1240,6 @@ async def test_upcoming_fragment_survives_null_scheduled_start(client, reset_db,
     assert "Legacy Broken" in r.text
 
 
-@pytest.mark.asyncio
 async def test_upcoming_fragment_renders_raw_datetime(client, reset_db):
     """The upcoming fragment must render a raw datetime object via the localdt filter.
 
@@ -1303,7 +1253,6 @@ async def test_upcoming_fragment_renders_raw_datetime(client, reset_db):
     assert 'class="localtime"' in r.text
 
 
-@pytest.mark.asyncio
 async def test_join_form_marks_busy_ai_in_another_game(client, reset_db):
     """An AI already in a different not-finished game shows as busy (and isn't
     pickable) on the join form for another game."""

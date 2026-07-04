@@ -45,7 +45,6 @@ def test_schema_parses_given_and_family() -> None:
     assert bare.family_name is None
 
 
-@pytest.mark.asyncio
 async def test_creates_user_with_names(session) -> None:
     user = await sync_google_user(session, _info())
     await session.commit()
@@ -53,7 +52,6 @@ async def test_creates_user_with_names(session) -> None:
     assert user.family_name == "Lovelace"
 
 
-@pytest.mark.asyncio
 async def test_seeds_role_from_allowlist_and_preserves_existing_admin_on_next_login(
     session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -69,7 +67,6 @@ async def test_seeds_role_from_allowlist_and_preserves_existing_admin_on_next_lo
     assert user.role == UserRole.ADMIN
 
 
-@pytest.mark.asyncio
 async def test_refreshes_email_before_role_seeding(
     session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -84,7 +81,6 @@ async def test_refreshes_email_before_role_seeding(
     assert user.role == UserRole.ADMIN
 
 
-@pytest.mark.asyncio
 async def test_email_refresh_skips_on_unique_collision(
     session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -104,7 +100,6 @@ async def test_email_refresh_skips_on_unique_collision(
     assert user.role == UserRole.ADMIN  # role still seeded from the live email
 
 
-@pytest.mark.asyncio
 async def test_fills_missing_names_on_existing_user(session) -> None:
     # A row created before we captured names (e.g. pre-migration).
     session.add(User(google_sub="g-1", email="a@example.com", name="Ada Lovelace"))
@@ -121,7 +116,6 @@ async def test_fills_missing_names_on_existing_user(session) -> None:
     assert len(rows) == 1
 
 
-@pytest.mark.asyncio
 async def test_does_not_overwrite_existing_names(session) -> None:
     session.add(
         User(

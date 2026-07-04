@@ -78,7 +78,6 @@ async def _user_agent(reset_db, *, live: bool):
         return user.id, agent.id
 
 
-@pytest.mark.asyncio
 async def test_join_no_agent_no_connection_lands_on_join_form_as_human(client, reset_db):
     # No agent, no connection: the join form still renders, leading with the human
     # "Play as yourself" option. The AI path links out to create an agent.
@@ -102,7 +101,6 @@ async def _user_with_handle(reset_db):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_join_live_agent_confirms_and_goes_to_match(client, reset_db):
     await _seed_match(reset_db)
     user_id, agent_id = await _user_agent(reset_db, live=True)
@@ -121,7 +119,6 @@ async def test_join_live_agent_confirms_and_goes_to_match(client, reset_db):
         assert player.seat_reserved_until is None  # confirmed
 
 
-@pytest.mark.asyncio
 async def test_join_signed_in_but_not_looping_holds_not_confirms(client, reset_db):
     """The fix: a connection SEEN recently (a fresh sign-in handshake bumps
     last_seen) but with NO play loop running (last_polled_at is NULL) must HOLD the
@@ -152,7 +149,6 @@ async def test_join_signed_in_but_not_looping_holds_not_confirms(client, reset_d
         assert player.seat_reserved_until is not None  # HELD, not confirmed
 
 
-@pytest.mark.asyncio
 async def test_join_offline_agent_holds_and_goes_to_countdown(client, reset_db):
     await _seed_match(reset_db)
     user_id, agent_id = await _user_agent(reset_db, live=False)
@@ -213,7 +209,6 @@ async def _held_seat_for_state(
         return user.id, player.id
 
 
-@pytest.mark.asyncio
 async def test_seat_connect_shows_mcp_play_prompt_seen_not_polling(client, reset_db):
     """A live-but-not-polling provider (SEEN_NOT_POLLING) gets the MCP play
     prompt wait page, not a raw HTTP self-setup key — the AI is online, it just
@@ -233,7 +228,6 @@ async def test_seat_connect_shows_mcp_play_prompt_seen_not_polling(client, reset
     assert "/api/agent/next-turn" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_seat_connect_redirects_connected_not_live_provider_to_mcp_setup(
     client, reset_db
 ):
@@ -256,7 +250,6 @@ async def test_seat_connect_redirects_connected_not_live_provider_to_mcp_setup(
     assert r.headers["location"] == f"/me/connections?next={next_url}"
 
 
-@pytest.mark.asyncio
 async def test_seat_connect_redirects_never_configured_provider_to_mcp_setup(client, reset_db):
     """A never-set-up provider goes to the provider-specific MCP connect page,
     carrying next back to the held seat."""
@@ -272,7 +265,6 @@ async def test_seat_connect_redirects_never_configured_provider_to_mcp_setup(cli
     assert r.headers["location"] == f"/me/connections?next={next_url}"
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("provider,model", MCP_PROVIDER_MODELS)
 async def test_join_never_configured_mcp_provider_redirects_to_mcp_setup(
     client, reset_db, provider, model
@@ -302,7 +294,6 @@ async def test_join_never_configured_mcp_provider_redirects_to_mcp_setup(
     assert r.headers["location"] == f"/me/connections?provider={provider.value}&next={next_url}"
 
 
-@pytest.mark.asyncio
 async def test_join_live_machine_connection_confirms_claude_seat(
     client, reset_db
 ):
@@ -335,7 +326,6 @@ async def test_join_live_machine_connection_confirms_claude_seat(
         assert player.seat_reserved_until is None  # confirmed, not held
 
 
-@pytest.mark.asyncio
 async def test_seat_connect_expired_mcp_connection_redirects_to_mcp_setup(
     client, reset_db
 ):
@@ -380,7 +370,6 @@ async def test_seat_connect_expired_mcp_connection_redirects_to_mcp_setup(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_held_seat_not_counted_as_active_player(reset_db):
     await _seed_match(reset_db)
     async with reset_db() as db:
@@ -428,7 +417,6 @@ async def _held_player(reset_db, *, live: bool, deadline: datetime):
         return player.id
 
 
-@pytest.mark.asyncio
 async def test_sweep_confirms_seat_when_provider_live(reset_db):
     await _seed_match(reset_db)
     future = datetime.now(timezone.utc) + timedelta(seconds=60)
@@ -439,7 +427,6 @@ async def test_sweep_confirms_seat_when_provider_live(reset_db):
         assert player.seat_reserved_until is None  # confirmed
 
 
-@pytest.mark.asyncio
 async def test_sweep_releases_expired_unconnected_seat(reset_db):
     await _seed_match(reset_db)
     past = datetime.now(timezone.utc) - timedelta(seconds=1)
@@ -450,7 +437,6 @@ async def test_sweep_releases_expired_unconnected_seat(reset_db):
         assert gone is None  # released
 
 
-@pytest.mark.asyncio
 async def test_sweep_keeps_unexpired_unconnected_seat(reset_db):
     await _seed_match(reset_db)
     future = datetime.now(timezone.utc) + timedelta(seconds=60)
@@ -466,7 +452,6 @@ async def test_sweep_keeps_unexpired_unconnected_seat(reset_db):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_status_waiting_when_not_live(client, reset_db):
     await _seed_match(reset_db)
     future = datetime.now(timezone.utc) + timedelta(seconds=60)
@@ -493,7 +478,6 @@ async def test_status_waiting_when_not_live(client, reset_db):
     assert "Waiting" in r.text
 
 
-@pytest.mark.asyncio
 async def test_status_hx_redirects_when_live(client, reset_db):
     await _seed_match(reset_db)
     future = datetime.now(timezone.utc) + timedelta(seconds=60)
@@ -512,7 +496,6 @@ async def test_status_hx_redirects_when_live(client, reset_db):
         assert player.seat_reserved_until is None
 
 
-@pytest.mark.asyncio
 async def test_status_released_when_expired(client, reset_db):
     await _seed_match(reset_db)
     past = datetime.now(timezone.utc) - timedelta(seconds=1)
@@ -564,7 +547,6 @@ async def _held_configured_offline_player(reset_db, *, seconds_waited: int) -> t
         return user.id, player.id
 
 
-@pytest.mark.asyncio
 async def test_status_escalates_to_reconnect_after_grace_window(client, reset_db):
     """A set-up provider that never comes online → the poll detects the stall and
     surfaces a reconnect CTA instead of waiting forever."""
@@ -582,7 +564,6 @@ async def test_status_escalates_to_reconnect_after_grace_window(client, reset_db
     assert "provider=" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_status_waits_within_grace_window_before_escalating(client, reset_db):
     """Inside the grace window, a configured provider still just shows 'Waiting' —
     we give the wake prompt a chance before crying 'reconnect'."""

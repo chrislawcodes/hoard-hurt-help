@@ -91,7 +91,6 @@ async def _status_of(db: AsyncSession, conn_id: int, model: str) -> ModelVerific
     ).scalar_one()
 
 
-@pytest.mark.asyncio
 async def test_record_verified_and_failed(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
@@ -116,7 +115,6 @@ async def test_record_verified_and_failed(db_session: AsyncSession) -> None:
     assert bad.error_text == "model not available on your plan"
 
 
-@pytest.mark.asyncio
 async def test_timeout_escalates_to_failed_at_threshold(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
@@ -132,7 +130,6 @@ async def test_timeout_escalates_to_failed_at_threshold(db_session: AsyncSession
     assert row.status is ModelVerificationStatus.FAILED and row.consecutive_timeouts == 3
 
 
-@pytest.mark.asyncio
 async def test_verified_resets_timeout_streak(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
@@ -147,7 +144,6 @@ async def test_verified_resets_timeout_streak(db_session: AsyncSession) -> None:
 # --- model_status_for ---------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_status_for_verified_wins_over_failed(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     c1, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
@@ -163,7 +159,6 @@ async def test_status_for_verified_wins_over_failed(db_session: AsyncSession) ->
     assert await model_status_for(db_session, user.id, "claude", m) is ModelVerificationStatus.VERIFIED
 
 
-@pytest.mark.asyncio
 async def test_status_for_failed_everywhere(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
@@ -174,7 +169,6 @@ async def test_status_for_failed_everywhere(db_session: AsyncSession) -> None:
     assert await model_status_for(db_session, user.id, "claude", m) is ModelVerificationStatus.FAILED
 
 
-@pytest.mark.asyncio
 async def test_status_for_unknown_when_never_checked(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)

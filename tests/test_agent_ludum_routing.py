@@ -7,12 +7,11 @@ at `/games/hoard-hurt-help`; the per-match viewer now uses
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models import GameState, Match, Player
 from app.models.agent import AgentKind
-from tests.factories import make_agent, make_user
+from tests.factories import make_agent, make_match, make_user
 
 
 async def _seed_game(
@@ -22,14 +21,7 @@ async def _seed_game(
     state: GameState = GameState.REGISTERING,
 ) -> Match:
     async with reset_db() as db:
-        g = Match(
-            id=match_id,
-            name=name,
-            state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-            per_turn_deadline_seconds=60,
-        )
-        db.add(g)
+        g = await make_match(db, match_id, state=state, name=name)
         await db.commit()
         await db.refresh(g)
         return g
@@ -102,7 +94,6 @@ async def _seed_leaderboard_data(reset_db: async_sessionmaker) -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test_root_serves_agent_ludum_marketing(client, reset_db):
     """`/` is the Agent Ludum platform page with a CTA into the HHH lobby."""
     r = await client.get("/")
@@ -117,7 +108,6 @@ async def test_root_serves_agent_ludum_marketing(client, reset_db):
     assert 'al-nav-leaderboard' in r.text
 
 
-@pytest.mark.asyncio
 async def test_lobby_served_at_game_path(client, reset_db):
     """The HHH lobby (upcoming games etc.) now lives at /games/hoard-hurt-help."""
     await _seed_game(reset_db)
@@ -128,7 +118,6 @@ async def test_lobby_served_at_game_path(client, reset_db):
     assert 'al-nav-leaderboard' in r.text
 
 
-@pytest.mark.asyncio
 async def test_global_leaderboard_renders_rankings(client, reset_db):
     """The global leaderboard shows real rows and the top-level filters."""
     await _seed_leaderboard_data(reset_db)
@@ -147,7 +136,6 @@ async def test_global_leaderboard_renders_rankings(client, reset_db):
     assert "Hide bot games" in r.text
 
 
-@pytest.mark.asyncio
 async def test_global_leaderboard_can_include_bots_and_hide_bot_games(client, reset_db):
     """The bot filter should show bots when enabled and hide bot sections when requested."""
     await _seed_leaderboard_data(reset_db)
@@ -163,7 +151,6 @@ async def test_global_leaderboard_can_include_bots_and_hide_bot_games(client, re
     assert "Random Bot" not in hidden.text
 
 
-@pytest.mark.asyncio
 async def test_games_catalog_omits_explanatory_box(client, reset_db):
     """The games catalog should stay focused on the lobby CTA, not a rationale box."""
     r = await client.get("/games")
@@ -172,7 +159,6 @@ async def test_games_catalog_omits_explanatory_box(client, reset_db):
     assert "Game = the title. Match = one play of that title." not in r.text
 
 
-@pytest.mark.asyncio
 async def test_game_viewer_unchanged(client, reset_db):
     """The per-match viewer now uses /games/{game}/matches/{match_id}."""
     await _seed_game(reset_db, match_id="G_view", state=GameState.ACTIVE)
@@ -180,7 +166,6 @@ async def test_game_viewer_unchanged(client, reset_db):
     assert r.status_code == 200
 
 
-@pytest.mark.asyncio
 async def test_active_game_viewer_wires_live_sse(client, reset_db):
     """An active game exposes the SSE stream + live-fragment URLs the page's
     plain-JS EventSource needs, and must NOT carry the old htmx sse-extension
@@ -199,7 +184,6 @@ async def test_active_game_viewer_wires_live_sse(client, reset_db):
     assert 'hx-trigger="sse:' not in r.text
 
 
-@pytest.mark.asyncio
 async def test_finished_game_viewer_has_no_live_stream(client, reset_db):
     """A non-active game opens no stream: the live-update attributes are absent
     so the page never tries to connect to a stream that will deliver nothing."""
@@ -210,7 +194,6 @@ async def test_finished_game_viewer_has_no_live_stream(client, reset_db):
     assert "data-live-url=" not in r.text
 
 
-@pytest.mark.asyncio
 async def test_repointed_lobby_links_resolve(client, reset_db):
     """Every internal "go to the lobby" link now targets /games/hoard-hurt-help;
     that target must resolve (no 404) so none of the repointed links break."""

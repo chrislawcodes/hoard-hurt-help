@@ -46,7 +46,6 @@ def _signed_in_cookies(user_id: int) -> dict[str, str]:
     return {"hhh_session": signer.sign(payload).decode()}
 
 
-@pytest.mark.asyncio
 async def test_create_agent_without_connections_goes_to_lobby(
     client, reset_db
 ) -> None:
@@ -86,7 +85,6 @@ async def test_create_agent_without_connections_goes_to_lobby(
     assert version.strategy_text == "Play to win."
 
 
-@pytest.mark.asyncio
 async def test_new_agent_form_renders_without_connections(client, reset_db) -> None:
     async with reset_db() as db:
         user = await make_user(db)
@@ -102,7 +100,6 @@ async def test_new_agent_form_renders_without_connections(client, reset_db) -> N
     assert 'name="strategy_text"' in resp.text
 
 
-@pytest.mark.asyncio
 async def test_create_agent_without_connections_returns_to_next(
     client, reset_db
 ) -> None:
@@ -128,7 +125,6 @@ async def test_create_agent_without_connections_returns_to_next(
     assert resp.headers["location"] == next_url
 
 
-@pytest.mark.asyncio
 async def test_connections_page_with_provider_hint_keeps_other_live_connections_from_redirecting(
     client, reset_db
 ) -> None:
@@ -179,7 +175,6 @@ def test_readiness_state_marks_paused_connections_as_needs_connecting() -> None:
     assert _readiness_state({"health": disconnected_health, "join_blocked": False}) == "needs_connecting"
 
 
-@pytest.mark.asyncio
 async def test_agent_list_marks_paused_only_provider_as_needs_connecting(
     client, reset_db
 ) -> None:
@@ -199,7 +194,6 @@ async def test_agent_list_marks_paused_only_provider_as_needs_connecting(
     assert 'href="/me/connections"' in resp.text
 
 
-@pytest.mark.asyncio
 async def test_agent_detail_marks_paused_only_provider_as_needs_connecting(
     client, reset_db
 ) -> None:
@@ -221,7 +215,6 @@ async def test_agent_detail_marks_paused_only_provider_as_needs_connecting(
     assert 'href="/me/connections"' in resp.text
 
 
-@pytest.mark.asyncio
 async def test_new_agent_form_offers_existing_strategies(client, reset_db) -> None:
     """The create form exposes the user's existing agents' strategies so they can
     start a new agent from one instead of retyping it (PR 1: reuse picker)."""
@@ -245,7 +238,6 @@ async def test_new_agent_form_offers_existing_strategies(client, reset_db) -> No
     assert "Cooperate first, then mirror." in resp.text
 
 
-@pytest.mark.asyncio
 async def test_new_agent_form_hides_reuse_picker_without_existing_agents(
     client, reset_db
 ) -> None:
