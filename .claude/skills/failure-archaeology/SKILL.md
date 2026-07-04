@@ -45,12 +45,14 @@ That file is the source of truth for prod incidents. Index only:
 | Flat mutual help caused tie stalemates | Decaying mutual help (`max(2, 8-k)` per pair) + decay-aware partner rotation. Tie-rate 0.53 → 0.27 → 0.19 (baseline → decay → aware), consistent across 5 seeds × 40 matches. | #553, #556; oracle: `scripts/decay_validation_sim.py`; run recorded in `docs/workflow/feature-runs/mutual-help-decay/closeout.md` |
 | Win-probability display | Removed from the UI (#566). The trained models remain in `data/` for offline analysis only. Don't re-add the display without a new decision. | #566 |
 
-## Refactors adjudicated "not a true duplicate" — do not re-attempt
+## Refactors adjudicated "do not re-attempt"
 
 | Candidate | Why rejected | Evidence |
 |-----------|--------------|----------|
 | C2: unify the two turn-row openers | One is get-or-create (resume-safe), the other a blind INSERT — behaviorally different on purpose (the G_0012 lesson). | dedup run `docs/workflow/feature-runs/dedup-engine-cseries/`, PR #559 |
 | D5: extract a `pick_by_trust` helper from 6 seeded trust-tiebreak selectors | Per-site seed args / access patterns / signs differ; a shared helper adds determinism risk with no real dedup. Sites pinned by a determinism regression test. | dedup run `docs/workflow/feature-runs/dedup-bots/`, PR #563 |
+| Turn-loop twins: merge `_all_submitted`/`_all_messaged` + the two wait loops (`scheduler_turn_loop.py`) | Real duplication, adjudicated leave-as-is: this is the code that freezes live games when it breaks (G_0012, M_0279) and the payoff is ~40 lines. Boring, separate functions are the safety feature. Owner call, 2026-07-04. | Tier 4 close-out of the refactoring survey (see STATUS.md entry + its PR) |
+| Split `scripts/agentludum_connector.py` into a package | Deferred, not refused: operators install by copying the one file, so a split first requires a distribution change (e.g. zipapp) and a one-time re-install for everyone. Section banners added instead. Revisit only if the install story changes. | Tier 4 close-out of the refactoring survey (see STATUS.md entry + its PR) |
 
 ## Testing battles
 

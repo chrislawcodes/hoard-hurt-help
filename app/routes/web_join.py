@@ -147,6 +147,52 @@ async def _default_entry_choice(
     return default_human, default_agent
 
 
+async def _build_agent_rows(
+    db: DbSession, user: User, match: Match
+) -> list[dict[str, object]]:
+    """The user's AI agents for the join picker, each flagged if it's already
+    seated in this match or if its preferred model is verified-failing.
+
+    FR-014: warn (not block) when the agent's preferred model is verified-failing
+    on every live machine connection for its provider. A not-yet-checked model
+    doesn't warn. No Player is seated here — this is a read-only picker.
+    """
+    agents = await _load_user_agents(db, user.id)
+    # Agents already seated in this match stay visible, but they can't join
+    # again. The admin multi-seat flow still uses the same list.
+    seated_agent_ids = set(
+        (
+            await db.execute(
+                select(Player.agent_id).where(
+                    Player.match_id == match.id, Player.left_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    agent_rows: list[dict[str, object]] = []
+    for agent, version in agents:
+        if agent.kind != AgentKind.AI or version is None:
+            continue
+        preferred_failing = False
+        if agent.preferred_model:
+            prov = provider_for_model(agent.preferred_model)
+            if prov:
+                preferred_failing = (
+                    await model_status_for(db, user.id, prov, agent.preferred_model)
+                ) is ModelVerificationStatus.FAILED
+        agent_rows.append(
+            {
+                "agent": agent,
+                "version": version,
+                "seated": agent.id in seated_agent_ids,
+                "preferred_model_failing": preferred_failing,
+            }
+        )
+    return agent_rows
+
+
 @router.get("/games/{game}/matches/{match_id}/join", response_class=HTMLResponse)
 async def join_form(
     game: Annotated[str, Path()],
@@ -183,42 +229,7 @@ async def join_form(
     # below is the opt-in path; picking an agent whose provider is offline routes
     # to the held-seat connect flow on submit. No Player is seated on GET.
     join_url = f"/games/{game}/matches/{match_id}/join"
-    agents = await _load_user_agents(db, user.id)
-    # Agents already seated in this match stay visible, but they can't join
-    # again. The admin multi-seat flow still uses the same list.
-    seated_agent_ids = set(
-        (
-            await db.execute(
-                select(Player.agent_id).where(
-                    Player.match_id == match.id, Player.left_at.is_(None)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    agent_rows = []
-    for agent, version in agents:
-        if agent.kind != AgentKind.AI or version is None:
-            continue
-        # FR-014: warn (not block) if the agent's preferred model is verified-
-        # failing on every live machine connection for its provider. A not-yet-
-        # checked model doesn't warn.
-        preferred_failing = False
-        if agent.preferred_model:
-            prov = provider_for_model(agent.preferred_model)
-            if prov:
-                preferred_failing = (
-                    await model_status_for(db, user.id, prov, agent.preferred_model)
-                ) is ModelVerificationStatus.FAILED
-        agent_rows.append(
-            {
-                "agent": agent,
-                "version": version,
-                "seated": agent.id in seated_agent_ids,
-                "preferred_model_failing": preferred_failing,
-            }
-        )
+    agent_rows = await _build_agent_rows(db, user, match)
     # The "which AI plays it?" picker: each supported AI with its state
     # (ready / connected-not-playing / not-connected / busy-in-a-game). One AI
     # plays one seat at a time, so an AI already in any unfinished game is busy.
@@ -350,6 +361,111 @@ async def _seat_user_agent(
     )
 
 
+def _pair_agents_with_providers(
+    selected_ids: list[int],
+    chosen_provider: list[str] | None,
+    *,
+    is_admin: bool,
+) -> list[tuple[int, str]]:
+    """Pair each chosen agent with the AI that will play it (pure validation).
+
+    The screen posts one provider per chosen agent, in card order, so the lists
+    line up by position. A single provider for several agents is the legacy admin
+    "same AI for all" shorthand. One AI plays one of your seats per game: a regular
+    user must give a different AI per agent; admins may overcommit. Raises
+    HTTPException on any mismatch. Does not touch the database.
+    """
+    providers = chosen_provider or []
+    if not providers:
+        raise HTTPException(status_code=400, detail="Pick an AI to play your agent.")
+    if len(providers) == len(selected_ids):
+        pairs = list(zip(selected_ids, providers))
+    elif len(providers) == 1:
+        pairs = [(aid, providers[0]) for aid in selected_ids]
+    else:
+        raise HTTPException(status_code=400, detail="Each agent needs exactly one AI.")
+    if not is_admin:
+        picked = [provider for _, provider in pairs]
+        if len(set(picked)) != len(picked):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Pick a different AI for each agent — one AI can only play "
+                    "one of your agents per game."
+                ),
+            )
+    return pairs
+
+
+async def _seat_agent_players(
+    db: DbSession,
+    user: User,
+    match: Match,
+    pairs: list[tuple[int, str]],
+    *,
+    is_admin: bool,
+) -> list[Player]:
+    """Build and stage the AI-agent Player rows for *pairs* (no commit).
+
+    Reads existing seat names, runs each agent through ``_seat_user_agent`` (which
+    validates ownership/capacity and derives a unique seat name), and adds the rows
+    to the session. The caller owns the transaction: staging here so the human seat
+    seated afterward counts these rows via autoflush is deliberate — do not commit.
+    """
+    existing_seats = set(
+        (
+            await db.execute(
+                select(Player.seat_name).where(Player.match_id == match.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    players = [
+        await _seat_user_agent(
+            db, user, match, aid, existing_seats,
+            chosen_provider=provider, bypass_capacity=is_admin,
+        )
+        for aid, provider in pairs
+    ]
+    db.add_all(players)
+    return players
+
+
+async def _post_join_redirect(
+    db: DbSession, user: User, match: Match, held: list[Player]
+) -> RedirectResponse:
+    """Where to send the user after seats are committed (read-only routing).
+
+    With no held seat, land on the match page. With a held seat waiting on its
+    chosen AI, send the user to the connect countdown for the first held seat —
+    or, if that AI isn't connected yet, to the connection setup scoped to the pick.
+    """
+    if held:
+        held_player = held[0]
+        held_connect_url = f"/games/{match.game}/matches/{match.id}/connect/{held_player.id}"
+        if (
+            await _seat_provider_readiness(db, user.id, held_player)
+            == ProviderReadiness.NO_MCP_CONNECTION
+        ):
+            # That AI isn't connected yet — set it up first (scoped to the pick).
+            next_q = quote(held_connect_url, safe="")
+            provider_q = (
+                f"provider={held_player.chosen_provider}&" if held_player.chosen_provider else ""
+            )
+            return RedirectResponse(
+                url=f"/me/connections?{provider_q}next={next_q}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+        return RedirectResponse(
+            url=held_connect_url,
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        url=f"/games/{match.game}/matches/{match.id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
 @router.post("/games/{game}/matches/{match_id}/join")
 async def join_submit(
     match_id: Annotated[str, Path()],
@@ -414,51 +530,10 @@ async def join_submit(
     # agent that together overflow `max_players` fail as one — nothing commits.
     players: list[Player] = []
     if want_agent:
-        providers = chosen_provider or []
-        if not providers:
-            raise HTTPException(
-                status_code=400, detail="Pick an AI to play your agent."
-            )
-        # Pair each agent with its AI. The screen posts one provider per chosen
-        # agent, in card order, so the lists line up by position. A single provider
-        # for several agents is the legacy admin "same AI for all" shorthand.
-        if len(providers) == len(selected_ids):
-            pairs = list(zip(selected_ids, providers))
-        elif len(providers) == 1:
-            pairs = [(aid, providers[0]) for aid in selected_ids]
-        else:
-            raise HTTPException(
-                status_code=400, detail="Each agent needs exactly one AI."
-            )
-        # One AI plays one of your seats per game: a regular user may field several
-        # agents at once, but each must use a different AI. Admins may overcommit.
-        if not is_admin:
-            picked = [provider for _, provider in pairs]
-            if len(set(picked)) != len(picked):
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "Pick a different AI for each agent — one AI can only play "
-                        "one of your agents per game."
-                    ),
-                )
-        existing_seats = set(
-            (
-                await db.execute(
-                    select(Player.seat_name).where(Player.match_id == match.id)
-                )
-            )
-            .scalars()
-            .all()
+        pairs = _pair_agents_with_providers(
+            selected_ids, chosen_provider, is_admin=is_admin
         )
-        players = [
-            await _seat_user_agent(
-                db, user, match, aid, existing_seats,
-                chosen_provider=provider, bypass_capacity=is_admin,
-            )
-            for aid, provider in pairs
-        ]
-        db.add_all(players)
+        players = await _seat_agent_players(db, user, match, pairs, is_admin=is_admin)
 
     # A one-click human seat: no agent, no connection. Idempotent (a no-op if the
     # user already holds an active human seat here) and active immediately.
@@ -474,29 +549,4 @@ async def join_submit(
     if match.match_kind == MatchKind.PRACTICE_ARENA.value and not held:
         await start_game(db, match)
 
-    if held:
-        # At least one seat is waiting on its chosen AI. Send the user to the
-        # connect countdown for the first held seat so they can bring it online.
-        held_player = held[0]
-        held_connect_url = f"/games/{match.game}/matches/{match.id}/connect/{held_player.id}"
-        if (
-            await _seat_provider_readiness(db, user.id, held_player)
-            == ProviderReadiness.NO_MCP_CONNECTION
-        ):
-            # That AI isn't connected yet — set it up first (scoped to the pick).
-            next_q = quote(held_connect_url, safe="")
-            provider_q = (
-                f"provider={held_player.chosen_provider}&" if held_player.chosen_provider else ""
-            )
-            return RedirectResponse(
-                url=f"/me/connections?{provider_q}next={next_q}",
-                status_code=status.HTTP_303_SEE_OTHER,
-            )
-        return RedirectResponse(
-            url=held_connect_url,
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-
-    return RedirectResponse(
-        url=f"/games/{match.game}/matches/{match.id}", status_code=status.HTTP_303_SEE_OTHER
-    )
+    return await _post_join_redirect(db, user, match, held)

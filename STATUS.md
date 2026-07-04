@@ -15,6 +15,8 @@
 
 ## Recently Shipped
 
+- **Tier 4 close-out: the refactoring survey is settled** (this branch) — every remaining item from the survey now has a verdict, so the survey is done end-to-end. **Adjudicated no (recorded in failure-archaeology):** merging the turn-loop twins (`_all_submitted`/`_all_messaged` + the two wait loops) — real duplication, but it lives in the code that freezes live games when it breaks and the payoff is ~40 lines. **Deferred (recorded):** splitting `agentludum_connector.py` into a package — blocked on the copy-one-file install model; instead the file got a TOC + 11 section banners (comments-only diff). **Done:** the three long functions became orchestrators with typed module-private helpers — `_game_view_context` 212→88 lines, `_build_human_play_context` 157→76 (viewer), `join_submit` 151→83 and `join_form` 110→75 (join; commit boundary, seating order, and validation strings untouched). **Deleted:** `scripts/_seed_viewer_demo.py` (dead, owner-confirmed). Full Preflight green. Unblocked: nothing — the refactor backlog is empty; future cleanups ride along with feature work.
+
 - **Baseline dataset regenerated on the current strategy pool** — `coin_flip`
   is gone from the pool, so `data/baseline.csv`, `baseline_features.csv`, and
   both win-prob models were retrained from a fresh 100-match tournament

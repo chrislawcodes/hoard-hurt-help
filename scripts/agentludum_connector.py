@@ -27,6 +27,23 @@ The per-provider mechanics live in small adapters near the bottom; everything el
 (the poll loop, the prompts, the move parsing, the fallback) is shared.
 """
 
+# ------------------------------------------------------------------------
+# TABLE OF CONTENTS — search for "SECTION:" to jump between them
+#   1. Module setup — compatibility shims and shared tunables
+#   2. Turn helpers — move parsing, prompt/history building, and the
+#      subprocess runner
+#   3. Provider CLI adapters
+#   4. Usage & metadata parsing for each CLI's raw output
+#   5. Provider/model resolution & CLI detection
+#   6. Readiness verification — proactive model health checks
+#   7. Decision logic — resolve provider/model, get a move, build the
+#      submit request
+#   8. OS service install — one command per platform
+#   9. Singleton lock — one connector per connection key per machine
+#  10. Turn execution — decide, submit, and report one turn
+#  11. Poll loop & entry point
+# ------------------------------------------------------------------------
+
 from __future__ import annotations
 
 import argparse
@@ -50,6 +67,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+
+# ==============================================================================
+# SECTION: Module setup — compatibility shims and shared tunables
+# Optional reuse of the game server's canonical protocol/model-allowlist
+# constants when run from a source checkout (embedded fallbacks otherwise);
+# every timing/concurrency knob for the poll loop; the shared HTTP client
+# (`_http()`); the chat protocol text; and the per-session/per-process
+# token-usage state (`_GameSession`).
+# ==============================================================================
 
 # Standalone fallback values for the enforced move-text caps — used when app/ is not
 # importable (the real situation on operator machines, where this script is copied and
@@ -188,9 +214,13 @@ class _GameSession:
     tokens: dict[str, int] = field(default_factory=lambda: {k: 0 for k in _TOKEN_KEYS})
 
 
-# --------------------------------------------------------------------------
-# Shared helpers (identical across every provider)
-# --------------------------------------------------------------------------
+# ==============================================================================
+# SECTION: Turn helpers — move parsing, prompt/history building, and the
+# subprocess runner
+# Validates and normalizes the model's move; builds the system-prompt framing
+# and the first-turn vs. delta-turn message bodies sent to every adapter; and
+# runs each provider CLI in a neutral workspace dir.
+# ==============================================================================
 
 
 def _parse_move(text: str) -> dict:
@@ -452,9 +482,12 @@ def _run(argv: list[str], *, stdin_input: str | None = None) -> subprocess.Compl
     )
 
 
-# --------------------------------------------------------------------------
-# Provider adapters — the only per-provider code
-# --------------------------------------------------------------------------
+# ==============================================================================
+# SECTION: Provider CLI adapters
+# One class per CLI (claude / codex / gemini / hermes / openclaw); each turns
+# a turn payload into a subprocess call and parses the reply. Changed most
+# often: adapter arg lists when a CLI's flags change.
+# ==============================================================================
 
 
 class _ClaudeAdapter:
@@ -677,6 +710,14 @@ _ADAPTERS: dict[
 }
 
 
+# ==============================================================================
+# SECTION: Usage & metadata parsing for each CLI's raw output
+# Pulls the thread/session id and token-usage numbers out of each CLI's
+# stdout (Claude's JSON, Codex's JSONL, Gemini's stats block), and tallies
+# them into the running per-session and per-process totals.
+# ==============================================================================
+
+
 def _thread_id_from_jsonl(stdout: str) -> str | None:
     """Pull `thread_id` from the first `thread.started` event in Codex's JSONL."""
     for line in stdout.splitlines():
@@ -770,9 +811,12 @@ def _record_usage(game_id: str, cur: dict, usage: dict[str, int], sess: _GameSes
     )
 
 
-# --------------------------------------------------------------------------
-# Provider resolution + the decision
-# --------------------------------------------------------------------------
+# ==============================================================================
+# SECTION: Provider/model resolution & CLI detection
+# Keys a turn to its (agent_id, match_id) session; maps a model name to its
+# provider; and reports which provider CLIs are installed on this machine
+# (informational only — never flips the operator's enabled toggle).
+# ==============================================================================
 
 
 def _turn_match_id(turn: dict) -> str:
@@ -846,6 +890,13 @@ def _report_pid(base: str, headers: dict[str, str], pid: int) -> None:
             file=sys.stderr,
         )
 
+
+# ==============================================================================
+# SECTION: Readiness verification — proactive model health checks
+# Runs a cheap test call per configured model while the connector is idle
+# (never during a live turn) and reports verified/failed/timeout up to the
+# server, so a broken login or missing model shows up before it costs a turn.
+# ==============================================================================
 
 # Stderr markers that mean "this login genuinely can't run this model" → sticky
 # FAILED. Anything else (timeout, CLI missing, network, odd output) is retryable
@@ -1020,6 +1071,15 @@ def _verify_tick(base: str, headers: dict[str, str]) -> None:
         items = [item for item in worklist if isinstance(item, dict)]
         if items:
             _run_verifications(base, headers, items)
+
+
+# ==============================================================================
+# SECTION: Decision logic — resolve provider/model, get a move, build the
+# submit request
+# Picks the provider+model for a turn (`_resolve`), drives the adapter to get
+# a move and salvages a missing HELP/HURT target with one re-ask (`_decide`),
+# and shapes the move into the POST the server expects (`_move_request`).
+# ==============================================================================
 
 
 def _resolve(turn: dict, args: argparse.Namespace) -> tuple[str, str]:
@@ -1263,10 +1323,12 @@ def _move_request(
     )
 
 
-# --------------------------------------------------------------------------
-# Service install — one command sets up the persistent background service, so
-# the AI assistant never has to hand-roll launchd / systemd / Task Scheduler.
-# --------------------------------------------------------------------------
+# ==============================================================================
+# SECTION: OS service install — one command per platform
+# Builds a login-persistent background service (macOS launchd plist, Linux
+# systemd user unit, or a Windows scheduled task) so the operator (or their AI
+# assistant) never has to hand-roll the OS-specific daemonizing.
+# ==============================================================================
 
 _SERVICE_LABEL = "com.agentludum.connector"
 _LINUX_UNIT_NAME = "agentludum-connector.service"
@@ -1478,6 +1540,13 @@ def _install_service(key: str, url: str) -> int:
     return 0
 
 
+# ==============================================================================
+# SECTION: Singleton lock — one connector per connection key per machine
+# A POSIX flock keyed by the connection key, so a stray second copy (e.g. a
+# foreground run plus the installed service) can't double-poll and double-play.
+# ==============================================================================
+
+
 def _acquire_singleton_lock(key: str):
     """Stop a second connector with the SAME key from running on this machine.
 
@@ -1508,6 +1577,14 @@ def _acquire_singleton_lock(key: str):
 def _ts() -> str:
     """Short wall-clock stamp for diagnostic timing logs."""
     return datetime.now(timezone.utc).strftime("%H:%M:%S")
+
+
+# ==============================================================================
+# SECTION: Turn execution — decide, submit, and report one turn
+# Runs in its own worker thread per (agent_id, match_id) session: primes or
+# deltas the session, calls `_decide`, POSTs the move, and logs timing. A
+# crash here can't wedge the poll loop — see `_make_release_cb`.
+# ==============================================================================
 
 
 def _handle_turn(
@@ -1609,6 +1686,14 @@ def _make_release_cb(
             )
 
     return _release
+
+
+# ==============================================================================
+# SECTION: Poll loop & entry point
+# `main()` parses args, optionally installs the service, takes the singleton
+# lock, then loops forever: poll for servable turns, fan them out to worker
+# threads (one per session), and run readiness verification while idle.
+# ==============================================================================
 
 
 def main() -> None:
