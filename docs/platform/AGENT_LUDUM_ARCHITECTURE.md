@@ -59,7 +59,8 @@ One Python process, started from `app/main.py`:
 - **Lifespan startup**: run Alembic migrations to head → resume any `ACTIVE`
   games' turn loops → start the background **due‑game poller**.
 - **Scheduler** (`app/engine/scheduler.py`): one fire‑and‑forget asyncio task per
-  active game, plus one poller task that starts games when their time comes.
+  active game, plus one poller task whose subsystems start games when their time
+  comes, watchdog dead tasks, and sweep frozen turns (`overdue_sweeper.py`).
 - **Pub/sub** (`app/broadcast.py`): in‑process fan‑out. The scheduler `publish`es
   turn events; SSE endpoints `subscribe` and stream them to browsers.
 - **Database**: SQLAlchemy async. SQLite locally, Postgres in prod — only the
@@ -130,8 +131,9 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 
 | Module | Lines | Responsibility |
 |---|---:|---|
-| `scheduler.py` | 428 | **Registry + due‑game poller.** Tracks the running asyncio task per active game; auto‑starts and cancels due games; resumes task loops after a process restart. The per‑match turn‑loop logic lives in `scheduler_turn_loop.py` and is re‑exported here so callers and tests keep the same import path. |
+| `scheduler.py` | 428 | **Registry + due‑game poller.** Tracks the running asyncio task per active game; auto‑starts and cancels due games; resumes task loops after a process restart. The poller runs seven subsystems per tick (arena fill/create, held‑seat sweep, start‑due, the watchdog, then the overdue‑turn sweeper); each is failure‑isolated and escalates to CRITICAL after repeated failures. The per‑match turn‑loop logic lives in `scheduler_turn_loop.py` and is re‑exported here so callers and tests keep the same import path. |
 | `scheduler_turn_loop.py` | 401 | **Per‑match turn loop.** Owns `_run_game`, `_open_turn`, and the `_wait_for_*` helpers — split from `scheduler.py` to isolate the freeze‑prone resume path. Re‑exported through `scheduler.py`; the dependency is one‑directional (scheduler imports turn loop, never the reverse). |
+| `overdue_sweeper.py` | 278 | **Self‑heal for frozen matches** — the 7th poller subsystem (`sweep_overdue_turns`, runs after the watchdog). An ACTIVE match whose current turn is unresolved >60s (`OVERDUE_TURN_GRACE_SECONDS`) past `deadline_at` is force‑advanced: stop the task, default the stuck phase (talk → `finalize_talk_phase` + a fresh act window; act → `module.resolve_turn`, PD defaults to HOARD), restart the loop. Never runs `auto_submit_bot_phase`; never touches `current_round`/`current_turn`. Simultaneous drivers only — a sequential game (Liar's Dice) is logged `overdue_turn_unhealable` instead. Ops events: `overdue_turn_swept` / `overdue_turn_sweep_failed` / `overdue_turn_pointer_mismatch` / `overdue_turn_unhealable`. |
 | `agent_play.py` + `agent_play_next_turn.py` / `agent_play_reads.py` / `agent_play_guards.py` | ~1,690 (split) | **The shared play‑service layer** every agent action runs through — called by **both** the HTTP routes and the MCP tools (thin adapters; auth differs, logic is shared). Split by job: `agent_play.py` (the per‑match verbs — poll/submit‑talk/submit‑action/state/leave/opponent/chat/turn/standings — and re‑exports the rest so callers keep importing from `app.engine.agent_play`), `agent_play_next_turn.py` (the connection‑level next‑turn fan‑out + sticky‑pin claim), `agent_play_reads.py` (DB→payload projections), `agent_play_guards.py` (rate‑limit / binding / error primitives). Deps run one‑way (guards ← reads ← {next_turn, verbs}), no cycle. **Game‑agnostic**: every game‑specific bit goes through the `GameModule` contract, so this layer already serves PD *and* Liar's Dice; the move dict is opaque to it (one small exception: `_LD_VALIDATION_SNAPSHOT_KEYS` names Liar's‑Dice snapshot keys to strip). |
 | `game_insights.py` | ~300 | Spectator-insight **shapes + game-agnostic skeleton** (round-win standings, round results, leaderboard-from-0, score-derived surging) + the `BaseGameModule` defaults. The PD-specific enrichment (grudges, alliances, cooperation mood, betrayals, pile-ons) lives in the PD module (`app/games/hoard_hurt_help/insights.py`); the platform reaches all insights through `GameModule.season_overview()` / `round_detail()` / `board_signals()`. |
 | `opponent_stats.py` | 183 | Per‑opponent, action‑derived stats and a bounded short‑list. |
@@ -590,6 +592,7 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change an agent's strategy (its only editable content — no model) | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
 | Change the create‑agent form (name + strategy, no model/provider) | `app/routes/agents_create.py` + `app/templates/agents/new.html` — strategy seeded from the game's `strategy_presets()` plus the "start from an existing agent" reuse picker (`_load_existing_strategies`). |
 | Touch the turn lifecycle | `app/engine/scheduler_turn_loop.py` (the loop itself: `_run_game`, `_open_turn`, wait helpers) + `app/engine/scheduler.py` (registry + poller). |
+| Match frozen / change how stuck turns self‑heal | `app/engine/overdue_sweeper.py` (`sweep_overdue_turns`, `OVERDUE_TURN_GRACE_SECONDS`) — the poller subsystem that force‑advances a turn unresolved >60s past `deadline_at`; wired in `scheduler.py` `_poll_due_loop`, after the watchdog. Triage: the `debugging-playbook` skill + `docs/operations/debugging-history.md`. |
 | Change what an agent sees/submits (both paths) | The shared play‑service layer — `app/engine/agent_play.py` (verbs) + `agent_play_next_turn.py` (next‑turn fan‑out / `_build_turn_payload`) + `agent_play_reads.py` (payload projections) + `agent_play_guards.py` (rate‑limit/binding) — that both the HTTP routes and MCP tools call, + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
 | Change what the MCP path sends per turn (lean payload) | Two leanness seams. (a) The **history window** is in the shared read — `RECENT_HISTORY_TURNS` + `_load_public_action_records(recent_turns=...)` in `app/engine/agent_play_reads.py`, applied by `_build_turn_payload` and `poll_turn`, so **both** paths get it. (b) The duplicated **static prompt text** (`base_prompt`/`rules`/`strategy`) is stripped MCP-only in the wrappers in `mcp_server/server.py` (`get_next_turn`/`get_next_turns`) — do **not** strip those in the shared builder (the connector needs them to prime its session). |
 | Change the MCP static "how to play" text | `mcp_server/server.py` `get_instructions` tool (`_format_instruction_sections`) — four sections: rules (the game module's `semantic_rules_text`), identity/targets, strategy (`AgentVersion.strategy_text`), and the loop protocol (`_mcp_how_to_play_block` — the `## How to play` block, including the `coach_note` line). |
@@ -682,7 +685,11 @@ push HTML fragments into the live viewer — no client‑side state.
   without a corresponding `BaseGameModule` default (or a deliberate loud raise).
 - **Two‑process‑free by design.** The scheduler runs in the web process as asyncio
   tasks, not a separate worker. Simple to run; the trade‑off is that turn
-  progress is tied to the process being up (hence resume‑on‑startup).
+  progress is tied to the process being up. Three layers compensate:
+  resume‑on‑startup (deploys/restarts), the poller watchdog (restarts dead
+  tasks), and the overdue‑turn sweeper (`app/engine/overdue_sweeper.py` —
+  force‑advances a turn still unresolved >60s past its deadline, the case
+  restarts can't fix: a deterministic crash or a wedged‑alive task).
 - **Thin adapters over a shared play core (feat `mcp-oauth`).** Play logic lives in
   one place — the shared play‑service layer (`app/engine/agent_play.py`). The agent
   HTTP API and the MCP tools are two thin adapters over it that differ only in

@@ -241,6 +241,7 @@ class SchedulerRegistry:
             ensure_practice_arena,
             fill_and_start_auto_matches,
         )
+        from app.engine.overdue_sweeper import sweep_overdue_turns
         from app.engine.seat_hold import sweep_held_seats
 
         factory = session_factory or SessionLocal
@@ -287,6 +288,15 @@ class SchedulerRegistry:
             #   b) Restart ACTIVE games whose scheduler task has died (crashed tasks
             #      stay dead until the next server restart without this).
             await self._run_subsystem("watchdog", lambda: self._watchdog(factory))
+
+            # 7th: overdue-turn sweeper — force-advance matches the watchdog's
+            # restarts cannot heal (deterministic crashes re-crash on every
+            # resume; a wedged-alive task never resolves its turn). Runs AFTER
+            # the watchdog: a turn still frozen a full grace period past its
+            # deadline has already survived ~30 restart attempts.
+            await self._run_subsystem(
+                "sweep_overdue_turns", lambda: sweep_overdue_turns(session_factory)
+            )
 
             await asyncio.sleep(_START_POLL_SECONDS)
 
