@@ -15,7 +15,27 @@
 
 ## Recently Shipped
 
+- **Baseline dataset regenerated on the current strategy pool** — `coin_flip`
+  is gone from the pool, so `data/baseline.csv`, `baseline_features.csv`, and
+  both win-prob models were retrained from a fresh 100-match tournament
+  (4 batches, seed 99, the 9 current strategies). The old artifacts described
+  a game that no longer exists.
+
 - **Tier 1+2 refactor: drift-prone duplicates + stale docs** ([PR #596](https://github.com/chrislawcodes/hoard-hurt-help/pull/596)) — the top tiers of a fresh whole-repo refactoring survey (five parallel subagents on disjoint file sets). **Tier 1** (duplications where two copies could silently disagree): shared `load_open_turn()` in `agent_play_reads.py` replaces 4 inline open-turn queries and fixes the missing `Turn.id.desc()` tiebreak in `poll_turn`/`get_agent_state` (regression test seeds a (round, turn) tie); the connector's `_provider_from_model` now defers to the authoritative `app.config.provider_for_model` allowlist in source checkouts (prefix heuristic kept only for standalone operator copies — the #569 failure mode); the competing `make_connection`/`make_agent`/`make_agent_version` factories were deleted from `tests/conftest.py` (`tests/factories.py` is the single home); and the #560 follow-up landed (`web_support.load_match_or_404` is canonical, `game_admin_actions`' byte-identical copy removed). **Tier 2** (stale load-bearing docs): STATUS's Liar's Dice entry corrected (Phase C is fully wired, gated `admin_only=True`) and the architecture route table updated (`web_support.py`'s real size/responsibilities; the `web_viewer.py` → `web_viewer_context.py` split recorded). Full Preflight green: ruff + mypy (193 files) + **1428 tests** (4 new). Unblocked: the survey's Tier 3 batches (routes read-model moves, engine read helpers + history N+1 fix, test-factory consolidation, script dedup) are ready to pick up as themed Direct Path PRs.
+- **Skills library: delivery + knowledge packs + design-skill re-grounding**
+  ([PR #590](https://github.com/chrislawcodes/hoard-hurt-help/pull/590) merged `b7353bb`,
+  [PR #592](https://github.com/chrislawcodes/hoard-hurt-help/pull/592) merged `8f7b046`) —
+  seven skills added or upgraded under `.claude/skills/`. New: `/ship` (the
+  sanctioned rebase→preflight→CI→squash-merge→prune pipeline), `/preflight`
+  (lane-aware gate), and three knowledge packs (`failure-archaeology`,
+  `debugging-playbook`, `diagnostics-and-tooling`) that inject settled verdicts,
+  prod triage, and measurement judgment into future sessions. Upgraded:
+  `game-art` (re-grounded post-#571 split, corrected colors/payoffs, lifted to
+  platform level with a per-game grounding section) and `ux-design` (human-player
+  persona added, dangling memory ref replaced with `tests/conftest.py` helpers).
+  `tests/test_skill_references.py` now fails CI when a skill cites a moved or
+  deleted path, so the library can't rot silently. Unblocks: `/ship` for all
+  future merges; knowledge packs as the template for any future skill.
 
 - **Bots D-series duplication cleanup** ([PR #563](https://github.com/chrislawcodes/hoard-hurt-help/pull/563), open) — the final actionable duplication-inventory item, a Claude-only Feature Factory run. **D3 unified** (`_entry_to_profile` in `presets.py`; `resolve_profile_choice` + `expand_pack` delegate). **D5** (6 seeded trust-tiebreak selectors) was adjudicated **not-a-true-duplicate** across all 6 sites — both plan-review lenses judged a `pick_by_trust` helper to be over-abstraction (per-site seed args / `[]`-vs-`.get` access / sign differ, so caller closures add determinism risk with no real dedup); sites left byte-unchanged and pinned by a new determinism regression test. D4 was already unified (#551); D2 stays separate (different seeds). Full Preflight green: ruff + mypy (183 files) + **1338 tests** (1331 + 7 new). Run artifacts: `docs/workflow/feature-runs/dedup-bots/`. **The actionable duplication inventory is now closed** (remaining items — D2, F1 SWR caches, C7 dict/schema pair, E2 — are intentional; one tiny `load_match_or_404`/`_load_match_or_404` follow-up noted in #560).
 
@@ -35,7 +55,8 @@
 - **Disabled-account enforcement** — disabled users are now blocked from protected endpoints through both auth paths (web session and connection key), the app has a dedicated `/disabled` page, the nav reflects the disabled state, and Google login no longer demotes an existing in-app admin role on relogin.
 - **Admin and regular user roles** ([PR #318](https://github.com/chrislawcodes/hoard-hurt-help/pull/318), open) — the platform now has two roles. Regular signed-in users can create matches from a slim flow (name + start time) and delete/cancel their own; admins can delete/cancel any match. Matches gain an owner (`created_by_user_id`); the admin role lives on `users.role`, seeded from `PLATFORM_ADMIN_EMAILS` at login (migration 0028 backfills existing admins). A per-user active-match cap (`USER_ACTIVE_MATCH_LIMIT`, default 3) bounds open match creation; admins are exempt. Creation, deletion, and cancel logic are consolidated into shared `app/engine/match_creation.py` + `match_deletion.py` helpers (the five old `max+1` id allocators and three cancel sites converged).
 - **Baseline bot tournament** (#320) — added the `coin_flip` bot personality
-  (random legal move, random table talk) as the control group, plus
+  (random legal move, random table talk) as the control group *(since removed —
+  the pool is the 9 strategies in `scripts/baseline_tournament.py`)*, plus
   `scripts/baseline_tournament.py` (headless batches of 25 matches, 10 bots per
   table sampled with replacement from the 9 strategies, dedicated SQLite DB) and
   `scripts/export_baseline_dataset.py` (one CSV row per player-turn). Unblocks:
