@@ -50,6 +50,49 @@ def mutual_help_counts(
     return counts
 
 
+async def current_pact_values(
+    db: AsyncSession,
+    match_id: str,
+    player_id: int,
+    other_player_ids: Iterable[int],
+) -> dict[int, int]:
+    """Current mutual-help pact value between `player_id` and each other player.
+
+    The value is the per-side total (`max(MUTUAL_HELP_FLOOR, HELP_POINTS +
+    MUTUAL_HELP_BONUS - k)`) a mutual HELP between that pair would pay EACH side
+    right now. `k` — this match's decay counter for the pair — is derived from
+    this match's *resolved* turn history via `mutual_help_counts`, the single
+    source of that count; this function does not re-scan or re-derive it any
+    other way. A pair with no prior mutual help this match (k not in the counts
+    map) gets the fresh HELP_POINTS + MUTUAL_HELP_BONUS value. Only resolved
+    turns are read, so — like `resolve_turn` — this is resume-safe: it has no
+    in-memory-only state.
+    """
+    subs: list[TurnSubmission] = list(
+        (
+            await db.execute(
+                select(TurnSubmission)
+                .join(Turn, Turn.id == TurnSubmission.turn_id)
+                .where(Turn.match_id == match_id, Turn.resolved_at.is_not(None))
+                .order_by(TurnSubmission.turn_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_turn: dict[int, list[TurnSubmission]] = {}
+    for s in subs:
+        by_turn.setdefault(s.turn_id, []).append(s)
+    counts = mutual_help_counts(by_turn.values())
+    return {
+        other_id: max(
+            MUTUAL_HELP_FLOOR,
+            HELP_POINTS + MUTUAL_HELP_BONUS - counts.get(frozenset({player_id, other_id}), 0),
+        )
+        for other_id in other_player_ids
+    }
+
+
 async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     """Resolve one turn: materialize submissions, apply payoffs, persist deltas.
 

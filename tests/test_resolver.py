@@ -516,3 +516,67 @@ async def test_prior_hoard_turn_does_not_count_toward_k(db):
     await resolve_turn(db, t2)
     await db.refresh(a)
     assert a.current_round_score == 2 + 8  # k=0 → fresh +8
+
+
+# --- current_pact_values (feature mutual-help-pact-value) ---
+
+
+async def test_current_pact_values_fresh_pair_shows_8(db):
+    """A pair with no resolved turns yet shows the un-decayed +8 value."""
+    from app.games.hoard_hurt_help.scoring import current_pact_values
+
+    game, [a, b] = await _make_game_with_players(db, 2)
+    values = await current_pact_values(db, game.id, a.id, [b.id])
+    assert values == {b.id: 8}
+
+
+async def test_current_pact_values_after_one_mutual_help_shows_7(db):
+    """After one resolved mutual help (k=1), the pair's live value drops to 7."""
+    from app.games.hoard_hurt_help.scoring import current_pact_values
+
+    game, [a, b] = await _make_game_with_players(db, 2)
+    t1 = await _open_turn(db, game, round_num=1, turn_num=1)
+    await _submit(db, t1, a, "HELP", target=b)
+    await _submit(db, t1, b, "HELP", target=a)
+    await resolve_turn(db, t1)
+
+    values = await current_pact_values(db, game.id, a.id, [b.id])
+    assert values == {b.id: 7}
+    # Symmetric: B's live value with A is the same.
+    assert await current_pact_values(db, game.id, b.id, [a.id]) == {a.id: 7}
+
+
+async def test_current_pact_values_floors_at_2(db):
+    """After enough repeats the pair's live value floors at MUTUAL_HELP_FLOOR (2)."""
+    from app.games.hoard_hurt_help.scoring import current_pact_values
+
+    game, [a, b] = await _make_game_with_players(db, 2)
+    for i in range(8):  # k will reach 8, well past the floor
+        turn = await _open_turn(db, game, round_num=1, turn_num=i + 1)
+        await _submit(db, turn, a, "HELP", target=b)
+        await _submit(db, turn, b, "HELP", target=a)
+        await resolve_turn(db, turn)
+
+    assert await current_pact_values(db, game.id, a.id, [b.id]) == {b.id: 2}
+
+
+async def test_current_pact_values_unaffected_pair_stays_8(db):
+    """A↔B farms their pact; C↔D's fresh pair still shows the un-decayed 8."""
+    from app.games.hoard_hurt_help.scoring import current_pact_values
+
+    game, [a, b, c, d] = await _make_game_with_players(db, 4)
+    t1 = await _open_turn(db, game, round_num=1, turn_num=1)
+    await _submit(db, t1, a, "HELP", target=b)
+    await _submit(db, t1, b, "HELP", target=a)
+    await _submit(db, t1, c, "HOARD")
+    await _submit(db, t1, d, "HOARD")
+    await resolve_turn(db, t1)
+
+    assert await current_pact_values(db, game.id, a.id, [b.id]) == {b.id: 7}
+    assert await current_pact_values(db, game.id, c.id, [d.id]) == {d.id: 8}
+    # One call can look up several other players' values at once.
+    assert await current_pact_values(db, game.id, a.id, [b.id, c.id, d.id]) == {
+        b.id: 7,
+        c.id: 8,
+        d.id: 8,
+    }

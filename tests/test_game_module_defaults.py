@@ -1,9 +1,11 @@
 """The BaseGameModule defaults reproduce PD's behavior.
 
 These hooks (added so a sequential/hidden game can override them) must, by
-default, behave exactly as PD always has: no private state, no extra public
-state, HOARD as the missed-turn move, fixed-grid match end, and the
-round-wins-then-score finish order. PD inherits these unchanged.
+default, behave exactly as PD always has: no extra public state, HOARD as the
+missed-turn move, fixed-grid match end, and the round-wins-then-score finish
+order. PD inherits all of these unchanged, EXCEPT `private_state_for`: PD
+overrides it to surface each pair's current mutual-help pact value (feature
+`mutual-help-pact-value`) instead of the base `{}`.
 """
 
 from __future__ import annotations
@@ -59,7 +61,15 @@ async def test_pd_inherits_default_hooks() -> None:
         await db.commit()
 
         assert await module.default_move(db, match, p1) == {"action": "HOARD", "target_id": None}
-        assert await module.private_state_for(db, match, p1) == {}
+        # PD overrides private_state_for (pact values); a fresh pair with no
+        # resolved turns shows the un-decayed HELP_POINTS + MUTUAL_HELP_BONUS value.
+        assert await module.private_state_for(db, match, p1) == {
+            "pact_values": {p2.seat_name: 8},
+            "pact_values_note": (
+                "What a mutual HELP with this agent would pay EACH side right "
+                "now (decays per repeat mutual-help pair this match; floors at 2)."
+            ),
+        }
         assert await module.public_state_for(db, match, p1) == {}
 
         assert await module.is_match_over(db, match) is False  # 3 < 7

@@ -41,10 +41,10 @@ Round scores are clipped at 0. HURTing a player already at 0 still costs the att
 
 ## Round and game structure
 
-- A game has **7 rounds**, each with **7 turns** (49 turns total).
+- A game has **5 rounds**, each with **7 turns** (35 turns total).
 - In-round score resets to 0 at the start of every round.
 - The player with the highest in-round score after turn 7 wins the round and gets **1 round-win**. Ties split the round-win equally (1/N each).
-- The player with the most round-wins after all 7 rounds wins the game.
+- The player with the most round-wins after all 5 rounds wins the game.
 - **Tiebreaker:** highest total in-round score summed across all rounds.
 
 ## Turn structure: talk, then act
@@ -64,21 +64,21 @@ RULES_TEXT = f"""{GAME_RULES_TEXT}
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
 
 
-def make_game_rules_text(total_rounds: int = 7, turns_per_round: int = 7) -> str:
+def make_game_rules_text(total_rounds: int = 5, turns_per_round: int = 7) -> str:
     """Return semantic game rules with the actual round/turn counts."""
-    if total_rounds == 7 and turns_per_round == 7:
+    if total_rounds == 5 and turns_per_round == 7:
         return GAME_RULES_TEXT
     return (
         GAME_RULES_TEXT
-        .replace("**7 rounds**", f"**{total_rounds} rounds**")
+        .replace("**5 rounds**", f"**{total_rounds} rounds**")
         .replace("**7 turns**", f"**{turns_per_round} turns**")
-        .replace("(49 turns total)", f"({total_rounds * turns_per_round} turns total)")
+        .replace("(35 turns total)", f"({total_rounds * turns_per_round} turns total)")
         .replace("after turn 7", f"after turn {turns_per_round}")
-        .replace("after all 7 rounds", f"after all {total_rounds} rounds")
+        .replace("after all 5 rounds", f"after all {total_rounds} rounds")
     )
 
 
-def make_rules_text(total_rounds: int = 7, turns_per_round: int = 7) -> str:
+def make_rules_text(total_rounds: int = 5, turns_per_round: int = 7) -> str:
     """Return official rules plus the canonical response contract."""
     return (
         f"{make_game_rules_text(total_rounds, turns_per_round)}"

@@ -1372,3 +1372,138 @@ async def test_next_turn_history_is_windowed_to_recent_turns(
     assert body["status"] == "your_turn"
     # Only the last two resolved turns ride along — (1,1) is dropped from the poll.
     assert [(t["round"], t["turn"]) for t in body["history"]] == [(1, 2), (1, 3)]
+
+
+async def test_next_turn_payload_includes_current_pact_values(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """`your_private_state.pact_values` carries what a mutual HELP with each
+    other seat would pay each side RIGHT NOW: decayed for a partner the agent
+    already farmed once this match, fresh for one it never mutually helped.
+    Shared by both the next-turn fan-out (this test) and the per-match poll
+    (`agent_play.poll_turn`), since both route through the same
+    `module.private_state_for` hook."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        now = datetime.now(timezone.utc)
+        match = Match(
+            id="M_PACT",
+            name="match-M_PACT",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=2,
+        )
+        db.add(match)
+        await db.flush()
+        agent_a, _version_a, player_a = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        _agent_b, _version_b, player_b = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Beta",
+            agent_name="Beta",
+            model="claude-haiku-4-5",
+            strategy_text="s",
+        )
+        _agent_c, _version_c, player_c = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Gamma",
+            agent_name="Gamma",
+            model="claude-opus-4-1",
+            strategy_text="s",
+        )
+        # Round 1, turn 1 (resolved): Alpha <-> Beta mutually helped once, so
+        # their pair's k is now 1; Gamma stayed out of it (fresh pair with Alpha).
+        resolved = Turn(
+            match_id=match.id,
+            round=1,
+            turn=1,
+            turn_token=generate_turn_token(),
+            opened_at=now,
+            deadline_at=now,
+            resolved_at=now,
+            phase="act",
+        )
+        db.add(resolved)
+        await db.flush()
+        db.add_all(
+            [
+                TurnSubmission(
+                    turn_id=resolved.id,
+                    player_id=player_a.id,
+                    action="HELP",
+                    target_player_id=player_b.id,
+                    was_defaulted=False,
+                ),
+                TurnSubmission(
+                    turn_id=resolved.id,
+                    player_id=player_b.id,
+                    action="HELP",
+                    target_player_id=player_a.id,
+                    was_defaulted=False,
+                ),
+                TurnSubmission(
+                    turn_id=resolved.id,
+                    player_id=player_c.id,
+                    action="HOARD",
+                    target_player_id=None,
+                    was_defaulted=False,
+                ),
+            ]
+        )
+        # Round 1, turn 2: the open turn served next.
+        db.add(
+            Turn(
+                match_id=match.id,
+                round=1,
+                turn=2,
+                turn_token=generate_turn_token(),
+                opened_at=now,
+                deadline_at=now + timedelta(seconds=60),
+                phase="act",
+            )
+        )
+        await db.commit()
+
+    # Next-turn fan-out path.
+    r = await client.get(
+        "/api/agent/next-turn",
+        params={"agent_id": agent_a.id},
+        headers={"X-Connection-Key": key},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "your_turn"
+    pact_values = body["your_private_state"]["pact_values"]
+    assert pact_values[player_b.seat_name] == 7  # farmed once already: 8 decays to 7
+    assert pact_values[player_c.seat_name] == 8  # never mutually helped: fresh value
+    assert "pact_values_note" in body["your_private_state"]
+
+    # Per-match poll path (`agent_play.poll_turn`) shares the same hook.
+    poll = await client.get(
+        f"/api/matches/{match.id}/turn",
+        params={"agent_id": agent_a.id},
+        headers={"X-Connection-Key": key},
+    )
+    assert poll.status_code == 200, poll.text
+    poll_body = poll.json()
+    poll_pact_values = poll_body["your_private_state"]["pact_values"]
+    assert poll_pact_values[player_b.seat_name] == 7
+    assert poll_pact_values[player_c.seat_name] == 8
