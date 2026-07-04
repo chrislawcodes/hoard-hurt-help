@@ -23,14 +23,14 @@ from pydantic import (
 from app.agent_prompt import MESSAGE_MAX_LENGTH, THINKING_MAX_LENGTH
 
 
-def _drop_empty_game_state(data: dict) -> dict:
-    """Omit the optional per-game state keys when a game supplies none.
+def _drop_none_keys(data: dict, keys: tuple[str, ...]) -> dict:
+    """Omit the named keys when their value is None.
 
-    PD provides neither private nor public game-state, so its payload must not
-    carry these keys at all (byte-identical to before they existed). Games that
-    return state (e.g. Liar's Dice) serialize them normally.
+    The one helper behind every "this key must be absent, not null" wrap
+    serializer in this module, keeping payloads byte-identical to before the
+    optional fields existed.
     """
-    for key in ("your_private_state", "public_state"):
+    for key in keys:
         if data.get(key) is None:
             data.pop(key, None)
     return data
@@ -111,6 +111,20 @@ class TurnStatic(MatchIdEnvelope):
     your_agent_id: str
     all_agent_ids: list[str]
     your_strategy: str | None = None
+    # Fields the per-match poll gained when its static block was unified with the
+    # next-turn fan-out's (see build_turn_static_dict): the game type, and the
+    # sideline coach's one-round note (Player.coach_note, gated to the round it
+    # targets). Both serialize only when set, mirroring the fan-out dict — which
+    # includes coach_note conditionally — so the two paths emit the same shape.
+    # Any future optional field must join this tuple, or the poll path will emit
+    # `"field": null` where the fan-out omits the key (the drift-guard test in
+    # test_agent_next_turn_fanout catches the divergence).
+    game: str | None = None
+    coach_note: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_additions(self, handler: SerializerFunctionWrapHandler) -> dict:
+        return _drop_none_keys(handler(self), ("game", "coach_note"))
 
 
 # --- Free summary (the bounded push payload) ---
@@ -261,14 +275,16 @@ class YourTurnResponse(BaseModel):
     history: list[HistoryTurn]
     scoreboard: list[ScoreboardRow]
     current: CurrentTurn
-    # Per-game state (omitted for games that supply none, e.g. PD). Kept last so
-    # they don't disturb the cache-friendly prefix.
+    # Per-game state (omitted for games that supply none, e.g. PD — the payload
+    # must stay byte-identical to before these keys existed; games that return
+    # state, e.g. Liar's Dice, serialize them normally). Kept last so they don't
+    # disturb the cache-friendly prefix.
     your_private_state: dict | None = None
     public_state: dict | None = None
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict:
-        return _drop_empty_game_state(handler(self))
+        return _drop_none_keys(handler(self), ("your_private_state", "public_state"))
 
 
 class GameCompletedResponse(BaseModel):

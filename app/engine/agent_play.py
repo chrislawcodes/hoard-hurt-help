@@ -45,6 +45,7 @@ from app.engine.agent_play_next_turn import (
 from app.engine.agent_play_reads import (
     RECENT_HISTORY_TURNS,
     _build_current_turn,
+    build_turn_static_dict,
     _existing_message_for_player,
     _existing_submission_for_player,
     _group_into_turns,
@@ -167,21 +168,15 @@ async def poll_turn(
         ).scalar_one_or_none()
     module = get_game_module(game.game)
     all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
-    static = TurnStatic(
-        match_id=game.id,
-        rules_version=game.rules_version,
-        rules=module.rules_text(game.total_rounds, game.turns_per_round),
-        base_prompt=module.agent_base_prompt(
-            your_agent_id=player.seat_name,
+    # One shared builder with the next-turn fan-out, so the two paths can't
+    # drift apart (coach_note once existed only on the fan-out).
+    static = TurnStatic.model_validate(
+        build_turn_static_dict(
+            game,
+            player,
             all_agent_ids=all_agent_ids,
-            total_rounds=game.total_rounds,
-            turns_per_round=game.turns_per_round,
-        ),
-        total_rounds=game.total_rounds,
-        turns_per_round=game.turns_per_round,
-        your_agent_id=player.seat_name,
-        all_agent_ids=all_agent_ids,
-        your_strategy=current_version.strategy_text if current_version else None,
+            your_strategy=current_version.strategy_text if current_version else None,
+        )
     )
     # Same rolling window as the next-turn fan-out: this per-match poll is served
     # every loop, so it carries only the recent turns and leaves the whole
