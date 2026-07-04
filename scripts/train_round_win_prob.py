@@ -36,39 +36,20 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+# The vocabulary import sits with the other top-of-file imports: `app` is an
+# installed package (run these scripts via the project venv), so it needs no
+# path bootstrap. Only the sibling `winprob_training` module does.
+from app.engine.win_prob_features import ROUND_FEATURE_NAMES
+
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-from winprob_training import run_training_cli  # noqa: E402
+from winprob_training import feature_value_from_row, run_training_cli  # noqa: E402
 
-FEATURE_NAMES: list[str] = [
-    # within-round state
-    "turn_frac",
-    "score_before",
-    "score_rank",
-    "score_gap_to_leader",
-    "score_mean",
-    "score_std",
-    "n_players",
-    # behavioral history
-    "help_count",
-    "hurt_count",
-    "hoard_count",
-    "times_targeted",
-    # turn-level social
-    "table_help_count",
-    "table_hurt_count",
-    "table_hoard_count",
-    "was_piled_on",
-    "pile_on_max",
-    "got_mutual_help",
-    # momentum
-    "last_points_delta",
-    # table dynamics
-    "match_help_rate",
-    "match_hurt_rate",
-]
+# Feature definition — single-sourced from app/engine/win_prob_features.py,
+# the same vocabulary app/engine/win_probability.py builds vectors from.
+FEATURE_NAMES: list[str] = list(ROUND_FEATURE_NAMES)
 
 
 # ---------------------------------------------------------------------------
@@ -116,35 +97,14 @@ def load_dataset(
         for row in csv.DictReader(fh):
             mid = row["match_id"]
             rnd = int(row["round"])
-            turn = int(row["turn"])
             pid = int(row["player_id"])
-            turns_per_round = max(int(row["turns_per_round"]) - 1, 1)
 
             label = round_won.get((mid, rnd, pid))
             if label is None:
                 continue
 
             features = [
-                (turn - 1) / turns_per_round,
-                float(row["score_before"]),
-                float(row["score_rank"]),
-                float(row["score_gap_to_leader"]),
-                float(row["score_mean"]),
-                float(row["score_std"]),
-                float(row["n_players"]),
-                float(row["help_count"]),
-                float(row["hurt_count"]),
-                float(row["hoard_count"]),
-                float(row["times_targeted"]),
-                float(row["table_help_count"]),
-                float(row["table_hurt_count"]),
-                float(row["table_hoard_count"]),
-                float(row["was_piled_on"]),
-                float(row["pile_on_max"]),
-                float(row["got_mutual_help"]),
-                float(row["last_points_delta"]),
-                float(row["match_help_rate"]),
-                float(row["match_hurt_rate"]),
+                feature_value_from_row(name, row) for name in ROUND_FEATURE_NAMES
             ]
             match_ids.append(mid)
             X.append(features)

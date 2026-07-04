@@ -45,6 +45,24 @@ LoadDatasetFn = Callable[[str], Dataset]
 DescribeLoadedFn = Callable[[list[str], list[list[float]], list[int]], str]
 
 
+def feature_value_from_row(name: str, row: dict[str, str]) -> float:
+    """Resolve one named feature from a baseline-CSV row.
+
+    The one resolver both trainers share: round_frac / turn_frac are derived
+    from the raw positional columns (the same `max(total - 1, 1)` denominators
+    app/engine/win_probability.py uses live); every other feature is a direct
+    float read of the same-named CSV column. round_frac simply never comes up
+    for the round model's vocabulary.
+    """
+    if name == "round_frac":
+        total_rounds = max(int(row["total_rounds"]) - 1, 1)
+        return (int(row["round"]) - 1) / total_rounds
+    if name == "turn_frac":
+        turns_per_round = max(int(row["turns_per_round"]) - 1, 1)
+        return (int(row["turn"]) - 1) / turns_per_round
+    return float(row[name])
+
+
 # ---------------------------------------------------------------------------
 # Split
 # ---------------------------------------------------------------------------

@@ -35,96 +35,30 @@ import csv
 import sys
 from pathlib import Path
 
+# The vocabulary import sits with the other top-of-file imports: `app` is an
+# installed package (run these scripts via the project venv), so it needs no
+# path bootstrap. Only the sibling `winprob_training` module does.
+from app.engine.win_prob_features import MATCH_FEATURE_NAMES
+
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-from winprob_training import run_training_cli  # noqa: E402
+from winprob_training import feature_value_from_row, run_training_cli  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Feature definition (must stay in sync with app/engine/win_probability.py
-# when that module is added).
+# Feature definition — single-sourced from app/engine/win_prob_features.py,
+# the same vocabulary app/engine/win_probability.py builds vectors from.
 # ---------------------------------------------------------------------------
 
-FEATURE_NAMES: list[str] = [
-    # positional
-    "round_frac",
-    "turn_frac",
-    # focal player state
-    "score_before",
-    "round_wins_before",
-    # scoreboard context
-    "score_rank",
-    "score_gap_to_leader",
-    "score_mean",
-    "score_std",
-    "round_wins_rank",
-    "round_wins_leader",
-    "round_wins_mean",
-    "n_players",
-    # behavioral history
-    "help_count",
-    "hurt_count",
-    "hoard_count",
-    "times_targeted",
-    # turn-level social
-    "table_help_count",
-    "table_hurt_count",
-    "table_hoard_count",
-    "was_piled_on",
-    "pile_on_max",
-    "got_mutual_help",
-    # momentum
-    "consecutive_round_wins",
-    "last_points_delta",
-    # table dynamics
-    "match_help_rate",
-    "match_hurt_rate",
-    # end-game pressure
-    "self_can_clinch",
-    "leader_can_clinch",
-    # leader stability
-    "rounds_same_leader",
-]
+FEATURE_NAMES: list[str] = list(MATCH_FEATURE_NAMES)
 
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
 def _row_to_features(row: dict[str, str]) -> list[float]:
-    total_rounds = max(int(row["total_rounds"]) - 1, 1)
-    turns_per_round = max(int(row["turns_per_round"]) - 1, 1)
-    return [
-        (int(row["round"]) - 1) / total_rounds,
-        (int(row["turn"]) - 1) / turns_per_round,
-        float(row["score_before"]),
-        float(row["round_wins_before"]),
-        float(row["score_rank"]),
-        float(row["score_gap_to_leader"]),
-        float(row["score_mean"]),
-        float(row["score_std"]),
-        float(row["round_wins_rank"]),
-        float(row["round_wins_leader"]),
-        float(row["round_wins_mean"]),
-        float(row["n_players"]),
-        float(row["help_count"]),
-        float(row["hurt_count"]),
-        float(row["hoard_count"]),
-        float(row["times_targeted"]),
-        float(row["table_help_count"]),
-        float(row["table_hurt_count"]),
-        float(row["table_hoard_count"]),
-        float(row["was_piled_on"]),
-        float(row["pile_on_max"]),
-        float(row["got_mutual_help"]),
-        float(row["consecutive_round_wins"]),
-        float(row["last_points_delta"]),
-        float(row["match_help_rate"]),
-        float(row["match_hurt_rate"]),
-        float(row["self_can_clinch"]),
-        float(row["leader_can_clinch"]),
-        float(row["rounds_same_leader"]),
-    ]
+    return [feature_value_from_row(name, row) for name in MATCH_FEATURE_NAMES]
 
 
 def load_dataset(
