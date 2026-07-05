@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
@@ -65,6 +65,41 @@ class TimelineTurn:
     turn: int
     messages: list[TimelineMessage]
     actions: list[TimelineAction]
+
+
+async def _seat_in_active_match(
+    db: AsyncSession,
+    seat_filter: ColumnElement[bool],
+) -> bool:
+    """True if any seat matching *seat_filter* sits in an ACTIVE match.
+
+    The one active-match predicate: seat not left (``left_at IS NULL``), match
+    ACTIVE (rated OR practice), existence-checked with ``LIMIT 1``. Callers pick
+    which seat column to filter on.
+    """
+    row = (
+        await db.execute(
+            select(Player.id)
+            .join(Match, Match.id == Player.match_id)
+            .where(
+                seat_filter,
+                Player.left_at.is_(None),
+                Match.state == GameState.ACTIVE,
+            )
+            .limit(1)
+        )
+    ).first()
+    return row is not None
+
+
+async def agent_has_active_match(db: AsyncSession, agent_id: int) -> bool:
+    """True if any seat of this agent is in an active match (rated OR practice)."""
+    return await _seat_in_active_match(db, Player.agent_id == agent_id)
+
+
+async def version_has_active_match(db: AsyncSession, version_id: int) -> bool:
+    """True if this version is seated in any active match (rated OR practice)."""
+    return await _seat_in_active_match(db, Player.agent_version_id == version_id)
 
 
 async def count_players(

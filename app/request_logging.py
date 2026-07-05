@@ -58,6 +58,60 @@ def _int_path_param(request: Request, name: str) -> int | None:
     return None
 
 
+def _incident_payload(
+    *,
+    request_id: str,
+    method: str,
+    path: str,
+    exc: BaseException,
+    query_string: str | None,
+    user_id: int | None,
+    match_id: Any,
+    bot_id: int | None,
+    player_id: int | None,
+    stage: Any,
+    context_json: str | None,
+) -> dict[str, Any]:
+    """The common 12-key ``RequestIncident`` row, shared by the HTTP and
+    background capture paths so the row shape can't drift between them."""
+    stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return {
+        "request_id": request_id,
+        "method": method,
+        "path": path,
+        "query_string": query_string,
+        "user_id": user_id,
+        "match_id": match_id,
+        "bot_id": bot_id,
+        "player_id": player_id,
+        "stage": stage,
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+        "stacktrace": stack,
+        "context_json": context_json,
+    }
+
+
+async def _persist_incident(
+    payload: dict[str, Any],
+    *,
+    failure_message: str,
+    failure_args: tuple[Any, ...],
+) -> None:
+    """Write one incident row; on DB failure, log with the caller's message."""
+    from app import db as app_db
+
+    try:
+        async with app_db.SessionLocal() as db:
+            db.add(RequestIncident(**payload))
+            await db.commit()
+    except SQLAlchemyError:
+        # fail-open: advisory only — an incident row is best effort; failing to
+        # write it must never crash the caller (the request already failed, and
+        # the scheduler/poller must keep running). Log and move on.
+        logger.exception(failure_message, *failure_args)
+
+
 async def _record_incident(
     request: Request,
     *,
@@ -65,28 +119,20 @@ async def _record_incident(
     exc: Exception,
     status_code: int,
 ) -> None:
-    from app import db as app_db
-
     ctx = _trace_context(request)
     path_params = _path_params(request)
-    stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    match_id = ctx.get("match_id") or path_params.get("match_id")
-    bot_id = ctx.get("bot_id") or _int_path_param(request, "bot_id")
-    player_id = ctx.get("player_id") or _int_path_param(request, "player_id")
-    payload = {
-        "request_id": request_id,
-        "method": request.method,
-        "path": request.url.path,
-        "query_string": str(request.query_params) or None,
-        "user_id": _session_user_id(request),
-        "match_id": match_id,
-        "bot_id": bot_id,
-        "player_id": player_id,
-        "stage": ctx.get("stage"),
-        "error_type": type(exc).__name__,
-        "error_message": str(exc),
-        "stacktrace": stack,
-        "context_json": (
+    payload = _incident_payload(
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        exc=exc,
+        query_string=str(request.query_params) or None,
+        user_id=_session_user_id(request),
+        match_id=ctx.get("match_id") or path_params.get("match_id"),
+        bot_id=ctx.get("bot_id") or _int_path_param(request, "bot_id"),
+        player_id=ctx.get("player_id") or _int_path_param(request, "player_id"),
+        stage=ctx.get("stage"),
+        context_json=(
             json.dumps(
                 {
                     **ctx,
@@ -98,20 +144,14 @@ async def _record_incident(
             if (ctx or path_params)
             else None
         ),
-    }
-    try:
-        async with app_db.SessionLocal() as db:
-            db.add(RequestIncident(**payload))
-            await db.commit()
-    except SQLAlchemyError:
-        # fail-open: advisory only — persisting an incident must never crash the
-        # request that already failed; log and move on.
-        logger.exception(
-            "Failed to persist request incident request_id=%s path=%s status=%s",
-            request_id,
-            request.url.path,
-            status_code,
-        )
+    )
+    await _persist_incident(
+        payload,
+        failure_message=(
+            "Failed to persist request incident request_id=%s path=%s status=%s"
+        ),
+        failure_args=(request_id, request.url.path, status_code),
+    )
 
 
 async def record_background_incident(
@@ -131,38 +171,26 @@ async def record_background_incident(
     a ``SELECT ... WHERE match_id=`` surfaces background crashes alongside
     request failures.
     """
-    from app import db as app_db
-
-    stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    payload = {
-        "request_id": uuid4().hex[:8],
-        "method": "TASK",
-        "path": source[:255],
-        "query_string": None,
-        "user_id": None,
-        "match_id": match_id,
-        "bot_id": None,
-        "player_id": None,
-        "stage": stage,
-        "error_type": type(exc).__name__,
-        "error_message": str(exc),
-        "stacktrace": stack,
-        "context_json": (
+    payload = _incident_payload(
+        request_id=uuid4().hex[:8],
+        method="TASK",
+        path=source[:255],
+        exc=exc,
+        query_string=None,
+        user_id=None,
+        match_id=match_id,
+        bot_id=None,
+        player_id=None,
+        stage=stage,
+        context_json=(
             json.dumps(context, sort_keys=True, default=str) if context else None
         ),
-    }
-    try:
-        async with app_db.SessionLocal() as db:
-            db.add(RequestIncident(**payload))
-            await db.commit()
-    except SQLAlchemyError:
-        # fail-open: advisory only — a background task's incident row is best
-        # effort; failing to write it must not crash the scheduler/poller.
-        logger.exception(
-            "Failed to persist background incident source=%s match_id=%s",
-            source,
-            match_id,
-        )
+    )
+    await _persist_incident(
+        payload,
+        failure_message="Failed to persist background incident source=%s match_id=%s",
+        failure_args=(source, match_id),
+    )
 
 
 def install_request_logging(app: FastAPI) -> None:

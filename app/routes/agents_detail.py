@@ -32,6 +32,7 @@ from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
+from app.read_models.matches import agent_has_active_match
 from app.routes.agents_health_presenter import (
     MatchEntry,
     VersionRow,
@@ -187,18 +188,7 @@ async def _build_agent_detail_context(
     ).scalar_one_or_none()
     versions = await _version_rows(db, agent.id)
 
-    active_matches = (
-        await db.execute(
-            select(Match.id)
-            .join(Player, Player.match_id == Match.id)
-            .where(
-                Player.agent_id == agent.id,
-                Player.left_at.is_(None),
-                Match.state == GameState.ACTIVE,
-            )
-            .limit(1)
-        )
-    ).first() is not None
+    active_matches = await agent_has_active_match(db, agent.id)
 
     # SUM-based join-gate: the user's active matches vs. their total live capacity.
     active_match_count = await active_matches_for_user(db, user.id)

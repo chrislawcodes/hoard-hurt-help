@@ -401,6 +401,88 @@ async def test_finalize_game_with_tiebreaker(db):
     assert game.winner_player_id == b.id
 
 
+# --- One shared finish-order key (finalize_game winner == final_placement) ---
+
+
+class _Standing:
+    """A minimal stand-in with the two fields the finish-order sorts read."""
+
+    def __init__(self, pid: int, wins: float, score: int) -> None:
+        self.id = pid
+        self.total_round_wins = wins
+        self.total_round_score = score
+
+    def __repr__(self) -> str:  # readable assertion diffs
+        return f"P{self.id}(w={self.total_round_wins}, s={self.total_round_score})"
+
+
+def test_finish_order_key_matches_both_old_sorts() -> None:
+    """The shared key reproduces BOTH old encodings — winner pick and placement.
+
+    Old finalize_game winner sort: ascending on (-wins, -score) — stable, so
+    full ties keep input order. Old final_placement sort: (wins, score) with
+    reverse=True — Python's reverse sort is also stable, so full ties keep
+    input order too. The shared key must reproduce both orderings exactly,
+    including tie order, for every input permutation.
+    """
+    from itertools import permutations
+
+    from app.engine.resolver import finish_order_sort_key
+
+    cases: list[list[_Standing]] = [
+        # Equal round wins; score breaks the tie.
+        [_Standing(1, 5.0, 120), _Standing(2, 5.0, 130), _Standing(3, 5.0, 120)],
+        # Equal round wins AND equal score — a full tie (input order decides).
+        [_Standing(1, 2.0, 40), _Standing(2, 2.0, 40), _Standing(3, 2.0, 40)],
+        # Mixed: distinct wins, partial score ties, fractional wins.
+        [
+            _Standing(1, 1.5, 30),
+            _Standing(2, 3.0, 10),
+            _Standing(3, 1.5, 30),
+            _Standing(4, 0.0, 99),
+        ],
+    ]
+    for case in cases:
+        for players in permutations(case):
+            seeded = list(players)
+            old_winner_order = sorted(
+                seeded, key=lambda p: (-p.total_round_wins, -p.total_round_score)
+            )
+            old_placement_order = sorted(
+                seeded,
+                key=lambda p: (p.total_round_wins, p.total_round_score),
+                reverse=True,
+            )
+            shared_order = sorted(seeded, key=finish_order_sort_key)
+            assert [p.id for p in shared_order] == [p.id for p in old_winner_order]
+            assert [p.id for p in shared_order] == [p.id for p in old_placement_order]
+
+
+async def test_finalize_game_winner_matches_final_placement_on_full_tie(db):
+    """Equal round wins AND equal score: winner == final_placement[0].
+
+    Both paths query players the same way and sort with the same stable key, so
+    on a full tie both must pick the same (first-seeded) player.
+    """
+    from app.games.hoard_hurt_help.game import HoardHurtHelp
+
+    game, [a, b] = await _make_game_with_players(db, 2)
+    a.total_round_wins = 3
+    a.total_round_score = 50
+    b.total_round_wins = 3
+    b.total_round_score = 50
+    await db.commit()
+
+    placement = await HoardHurtHelp().final_placement(db, game)
+    await finalize_game(db, game)
+    await db.refresh(game)
+    assert game.state == GameState.COMPLETED
+    # Full tie: the stable sorts keep seed order, so the first-seeded player
+    # wins — and the winner is exactly the head of final_placement.
+    assert game.winner_player_id == a.id
+    assert game.winner_player_id == placement[0]
+
+
 # --- Mutual-help decay (feature mutual-help-decay, Slice 1) ---
 
 

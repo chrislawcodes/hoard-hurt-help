@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, stat
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 
+from app.api_errors import api_error
 from app.aware_datetime import ensure_aware
 from app.config import settings
 from app.deps import DbSession, require_platform_admin, require_user
@@ -201,15 +202,10 @@ async def start_match_submit(
     """
     eligibility = await viewer_start_eligibility(db, match, user)
     if not eligibility.can_start:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": {
-                    "code": "CANNOT_START",
-                    "message": "You can't start this match yet.",
-                    "details": {},
-                }
-            },
+            code="CANNOT_START",
+            message="You can't start this match yet.",
         )
     await start_match_for_user(db, match)
     return RedirectResponse(
@@ -226,29 +222,19 @@ async def delete_match_submit(
 ):
     match = await _load_match_or_404(db, match_id)
     if user.role != UserRole.ADMIN and match.created_by_user_id != user.id:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "NOT_MATCH_OWNER",
-                    "message": "You can only delete matches you created.",
-                    "details": {},
-                }
-            },
+            code="NOT_MATCH_OWNER",
+            message="You can only delete matches you created.",
         )
     if user.role != UserRole.ADMIN and match.state not in (
         GameState.SCHEDULED,
         GameState.REGISTERING,
     ):
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": {
-                    "code": "MATCH_ALREADY_STARTED",
-                    "message": "Match already started.",
-                    "details": {},
-                }
-            },
+            code="MATCH_ALREADY_STARTED",
+            message="Match already started.",
         )
     await delete_match(db, match.id)
     return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)
@@ -266,15 +252,10 @@ async def cancel_match_submit(
     # (including ACTIVE); only already-ended matches are rejected.
     match = await _load_match_or_404(db, match_id)
     if match.state in (GameState.COMPLETED, GameState.CANCELLED):
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": {
-                    "code": "MATCH_ALREADY_ENDED",
-                    "message": "Match already ended.",
-                    "details": {},
-                }
-            },
+            code="MATCH_ALREADY_ENDED",
+            message="Match already ended.",
         )
     await cancel_match(db, match)
     return RedirectResponse(url="/admin/matches", status_code=status.HTTP_303_SEE_OTHER)

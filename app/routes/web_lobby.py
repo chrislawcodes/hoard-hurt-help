@@ -31,21 +31,18 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.deps import DbSession, get_current_user
-from app.engine.connection_activity import compute_bot_health
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
 from app.games.base import GameError
-from app.models.agent import Agent, AgentKind
-from app.models.connection import Connection
 from app.models.match import Match, GameState
-from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.read_models.matches import count_players_by_match
 from app.read_models.lobby_cache import load_lobby_recent_views_cached
+from app.read_models.lobby_onboarding import user_has_warm_agent_without_match
 from app.routes import (
     web_account_notice,
     web_front_page,
@@ -182,46 +179,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
     # after redirect from the connections page (session flag set when AI goes PLAYING).
     show_onboarding_banner = bool(request.session.pop("agent_connected", False))
     if user is not None and not show_onboarding_banner:
-        # Agents are no longer attached to a connection: the user has a "warm
-        # agent" when they own an AI agent and have a live/ready connection to
-        # serve it. compute_bot_health already reflects provider coverage.
-        owns_ai_agent = bool(
-            await db.scalar(
-                select(func.count())
-                .select_from(Agent)
-                .where(
-                    Agent.user_id == user.id,
-                    Agent.archived_at.is_(None),
-                    Agent.kind == AgentKind.AI,
-                )
-            )
-        )
-        user_connections = (
-            await db.execute(
-                select(Connection).where(
-                    Connection.user_id == user.id,
-                    Connection.deleted_at.is_(None),
-                )
-            )
-        ).scalars().all()
-        has_warm_agent = False
-        if owns_ai_agent:
-            for connection in user_connections:
-                health = await compute_bot_health(db, connection)
-                if health.state.value in ("live", "ready"):
-                    has_warm_agent = True
-                    break
-        if has_warm_agent:
-            active_entry_count = await db.scalar(
-                select(func.count()).select_from(Player)
-                .join(Match, Player.match_id == Match.id)
-                .where(
-                    Player.user_id == user.id,
-                    Player.left_at.is_(None),
-                    Match.state.in_([GameState.ACTIVE, GameState.SCHEDULED, GameState.REGISTERING]),
-                )
-            ) or 0
-            show_onboarding_banner = active_entry_count == 0
+        show_onboarding_banner = await user_has_warm_agent_without_match(db, user.id)
     cancelled_games = finished_views["cancelled"]
 
     def _toggle_url(section: str, key: str, show_all: bool) -> str:
