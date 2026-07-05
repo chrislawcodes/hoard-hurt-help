@@ -428,6 +428,8 @@ async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
     assert body_a["status"] == "your_turn"
     assert body_a["agent_id"] == agent_a.id
     assert body_a["seat_name"] == player_a.seat_name
+    # The static block's own identity field is projected from the served seat.
+    assert body_a["static"]["your_agent_id"] == player_a.seat_name
 
     only_b = await client.get(
         "/api/agent/next-turn",

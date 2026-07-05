@@ -208,7 +208,12 @@ async def test_hidden_info_stays_private_before_showdown_and_reveals_after(
             pre = await _serve(client, key_a)
             assert pre["your_private_state"] == {"dice": [5, 5, 1], "dice_count": 3}
             assert pre["public_state"]["dice_counts"] == {"A": 3, "B": 3, "C": 3}
-            assert "[2,2,4]" not in json.dumps(pre, default=str)
+            # No opponent's hidden dice leak anywhere in the payload. Serialize
+            # compactly so a leaked list (e.g. [2,2,4]) matches the search string
+            # (json.dumps' default separators would insert spaces and never hit).
+            pre_json = json.dumps(pre, separators=(",", ":"), default=str)
+            assert "[2,2,4]" not in pre_json  # B's dice
+            assert "[3,4,6]" not in pre_json  # C's dice
 
             state.state_json["standing_bid"] = {"by": "A", "quantity": 2, "face": 5}
             state.state_json["challenge_pending"] = True
