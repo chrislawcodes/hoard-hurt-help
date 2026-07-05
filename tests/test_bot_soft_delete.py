@@ -195,15 +195,16 @@ async def test_archived_bot_key_stops_authenticating(client, reset_db):
     agent, key, _connection = await _seed_agent(reset_db, user)
     await _give_history(reset_db, user, agent.id)  # seats the agent in G_001
 
-    # Sanity: the key works before deletion.
-    ok = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
+    # Sanity: the key works before deletion (a per-match agent endpoint that
+    # resolves the seat via require_agent_player, same as submit/message).
+    ok = await client.get("/api/games/G_001/state", headers={"X-Connection-Key": key})
     assert ok.status_code != 401
 
     await client.post(
         f"/me/agents/{agent.id}/delete", cookies=_signed_in_cookies(user.id)
     )
 
-    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
+    r = await client.get("/api/games/G_001/state", headers={"X-Connection-Key": key})
     assert r.status_code == 404
     assert r.json()["detail"]["error"]["code"] == "NOT_IN_GAME"
 

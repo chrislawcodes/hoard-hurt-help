@@ -357,7 +357,6 @@ async def reset_db(monkeypatch):
     test_factory = _factory(test_engine, expire_on_commit=False)
     monkeypatch.setattr("app.db.SessionLocal", test_factory)
     monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_poll", {})
     monkeypatch.setattr("app.routes.agent_api._last_pull", {})
 
     yield test_factory

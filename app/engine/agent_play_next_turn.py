@@ -544,8 +544,8 @@ async def _build_turn_payload(
     )
     scoreboard = build_public_scoreboard_dicts(all_players)
     module = get_game_module(match.game)
-    # Shared with the per-match poll (agent_play.poll_turn): one builder emits the
-    # static block for both paths, key order and conditional coach_note unchanged.
+    # The static (rules + identity) block, key order and conditional coach_note
+    # wire-frozen for the connector (see build_turn_static_dict).
     static = build_turn_static_dict(
         match,
         player,

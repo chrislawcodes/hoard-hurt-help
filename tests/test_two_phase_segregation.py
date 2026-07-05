@@ -32,7 +32,6 @@ async def reset_db(monkeypatch):
     test_factory = _factory(test_engine, expire_on_commit=False)
     monkeypatch.setattr("app.db.SessionLocal", test_factory)
     monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_poll", {})
     monkeypatch.setattr("app.routes.agent_api._last_pull", {})
 
     yield test_factory
@@ -202,10 +201,6 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
     # The MCP tools proxy these same HTTP endpoints, so this matrix covers them transitively.
     endpoints = [
         (
-            f"/api/games/{game.id}/turn",
-            {"headers": {"X-Connection-Key": players[0]._test_key}},
-        ),
-        (
             "/api/agent/next-turn",
             {"headers": {"X-Connection-Key": players[0]._test_key}},
         ),
@@ -240,7 +235,7 @@ async def test_programmatic_channels_do_not_expose_thinking_and_viewer_does(
         if isinstance(payload, dict):
             assert "thinking" not in payload
         _assert_no_thinking(payload, secrets)
-        if path == f"/api/games/{game.id}/turn":
+        if path == "/api/agent/next-turn":
             turn_payload = payload
 
     viewer = await client.get(f"/games/hoard-hurt-help/matches/{game.id}")

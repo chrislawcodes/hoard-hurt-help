@@ -202,20 +202,17 @@ def build_turn_static_dict(
     all_agent_ids: list[str],
     your_strategy: str | None,
 ) -> dict[str, object]:
-    """The one "static" (rules + identity) block of the your-turn payload.
+    """The "static" (rules + identity) block of the your-turn payload.
 
-    Both turn-serving paths emit this exact dict: the connection fan-out
-    (``agent_play_next_turn._build_turn_payload``) embeds it as-is — its key
-    order and conditional ``coach_note`` are wire-frozen for the operator
-    connector — and the per-match poll (``agent_play.poll_turn``) validates it
-    into ``TurnStatic``. One builder keeps the two payloads from drifting apart
-    (a past drift silently dropped coach notes from the per-match poll).
+    The connection fan-out (``agent_play_next_turn._build_turn_payload``) embeds
+    this dict as-is on the wire — its key order and conditional ``coach_note``
+    are wire-frozen for the operator connector. It is a standalone builder so the
+    projection stays testable apart from the fan-out's claim/pin machinery.
 
-    ``your_strategy`` stays a parameter because the two callers source it
-    differently today: the poll reads the seat-pinned ``Player.agent_version_id``
-    while the fan-out reads ``Agent.current_version_id``. They only diverge if a
-    version changes mid-match (e.g. restore-version, which has no active-match
-    guard) — a known open question, not a decision this builder should hide.
+    (Until the per-match poll was retired this builder fed both turn-serving
+    paths, which is why it exists as a shared helper; the fan-out is now the only
+    turn-payload path, so ``your_strategy`` is simply the caller's resolved
+    strategy text.)
     """
     module = get_game_module(match.game)
     static: dict[str, object] = {

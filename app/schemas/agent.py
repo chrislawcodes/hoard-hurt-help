@@ -65,34 +65,7 @@ class MatchIdEnvelope(BaseModel):
         return self
 
 
-# --- Join ---
-
-
-class JoinRequest(BaseModel):
-    display_name: str = Field(min_length=1, max_length=32, pattern=r"^[a-zA-Z0-9_]+$")
-    strategy_prompt: str = Field(min_length=1, max_length=2000)
-    model_self_report: str | None = Field(default=None, max_length=200)
-
-
-class JoinResponse(MatchIdEnvelope):
-    agent_id: str
-    agent_key: str
-    poll_url: str
-    submit_url: str
-    scheduled_start: datetime
-    per_turn_deadline_seconds: int
-
-
 # --- Poll response shapes ---
-
-
-class WaitingResponse(BaseModel):
-    status: Literal["waiting"] = "waiting"
-    reason: Literal["turn_not_open", "already_submitted", "game_not_started", "game_over"]
-    game_state: str
-    current_round: int = 0
-    current_turn: int = 0
-    next_poll_after_seconds: int = 2
 
 
 class ScoreboardRow(BaseModel):

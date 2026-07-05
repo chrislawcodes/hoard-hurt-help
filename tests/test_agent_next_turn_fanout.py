@@ -52,7 +52,6 @@ async def app(
 ) -> FastAPI:
     monkeypatch.setattr("app.db.SessionLocal", session_factory)
     monkeypatch.setattr("app.db.engine", engine)
-    monkeypatch.setattr("app.routes.agent_api._last_poll", {})
     monkeypatch.setattr("app.routes.agent_api._last_pull", {})
     test_app = FastAPI()
     test_app.include_router(agent_api_router, prefix="/api/matches/{match_id}")
@@ -313,7 +312,7 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
         user = await make_user(db)
         connection, key = await make_connection(db, user)
         match, turn = await _create_match_with_turn(db, "M_0200", deadline_seconds=60)
-        agent_a, _version_a, player_a = await _seat_agent(
+        agent_a, _version_a, _player_a = await _seat_agent(
             db,
             user=user,
             connection=connection,
@@ -323,7 +322,7 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
             model="claude-sonnet-4-6",
             strategy_text="alpha strategy",
         )
-        agent_b, _version_b, player_b = await _seat_agent(
+        agent_b, _version_b, _player_b = await _seat_agent(
             db,
             user=user,
             connection=connection,
@@ -335,26 +334,9 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
         )
         await db.commit()
 
-    poll_a = await client.get(
-        f"/api/matches/{match.id}/turn",
-        params={"agent_id": agent_a.id},
-        headers={"X-Connection-Key": key},
-    )
-    assert poll_a.status_code == 200, poll_a.text
-    body_a = poll_a.json()
-    assert body_a["status"] == "your_turn"
-    assert body_a["static"]["your_agent_id"] == player_a.seat_name
-
-    poll_b = await client.get(
-        f"/api/matches/{match.id}/turn",
-        params={"agent_id": agent_b.id},
-        headers={"X-Connection-Key": key},
-    )
-    assert poll_b.status_code == 200, poll_b.text
-    body_b = poll_b.json()
-    assert body_b["status"] == "your_turn"
-    assert body_b["static"]["your_agent_id"] == player_b.seat_name
-
+    # Each agent fetching only its own turn is covered by the agent_id-filter
+    # test; here the surviving contract is that a submit under the WRONG agent_id
+    # for a claimed turn token is rejected without recording anything.
     next_turn = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert next_turn.status_code == 200, next_turn.text
     next_body = next_turn.json()
@@ -1380,10 +1362,8 @@ async def test_next_turn_payload_includes_current_pact_values(
 ) -> None:
     """`your_private_state.pact_values` carries what a mutual HELP with each
     other seat would pay each side RIGHT NOW: decayed for a partner the agent
-    already farmed once this match, fresh for one it never mutually helped.
-    Shared by both the next-turn fan-out (this test) and the per-match poll
-    (`agent_play.poll_turn`), since both route through the same
-    `module.private_state_for` hook."""
+    already farmed once this match, fresh for one it never mutually helped
+    (routed through `module.private_state_for`)."""
     async with session_factory() as db:
         user = await make_user(db)
         connection, key = await make_connection(db, user)
@@ -1497,26 +1477,12 @@ async def test_next_turn_payload_includes_current_pact_values(
     assert pact_values[player_c.seat_name] == 8  # never mutually helped: fresh value
     assert "pact_values_note" in body["your_private_state"]
 
-    # Per-match poll path (`agent_play.poll_turn`) shares the same hook.
-    poll = await client.get(
-        f"/api/matches/{match.id}/turn",
-        params={"agent_id": agent_a.id},
-        headers={"X-Connection-Key": key},
-    )
-    assert poll.status_code == 200, poll.text
-    poll_body = poll.json()
-    poll_pact_values = poll_body["your_private_state"]["pact_values"]
-    assert poll_pact_values[player_b.seat_name] == 7
-    assert poll_pact_values[player_c.seat_name] == 8
 
-
-async def test_coach_note_served_on_both_turn_paths(
+async def test_coach_note_served_on_turn_payload(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """Regression: a coach note armed for the CURRENT round rides on the
-    per-match poll — it used to reach only the next-turn fan-out, so agents
-    polled per-match never saw their coach's notes — and (still) on the
-    fan-out, gated to that round on both paths."""
+    """A coach note armed for the CURRENT round rides on the turn payload,
+    gated to that round."""
     async with session_factory() as db:
         user = await make_user(db)
         connection, key = await make_connection(db, user)
@@ -1535,16 +1501,6 @@ async def test_coach_note_served_on_both_turn_paths(
         player.coach_note_round = match.current_round  # active NOW
         await db.commit()
 
-    poll = await client.get(
-        f"/api/matches/{match.id}/turn",
-        params={"agent_id": agent.id},
-        headers={"X-Connection-Key": key},
-    )
-    assert poll.status_code == 200, poll.text
-    poll_body = poll.json()
-    assert poll_body["status"] == "your_turn"
-    assert poll_body["static"]["coach_note"] == "Be cooperative this round"
-
     fanout = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert fanout.status_code == 200, fanout.text
     fanout_body = fanout.json()
@@ -1552,11 +1508,11 @@ async def test_coach_note_served_on_both_turn_paths(
     assert fanout_body["static"]["coach_note"] == "Be cooperative this round"
 
 
-async def test_coach_note_for_a_future_round_is_absent_on_both_turn_paths(
+async def test_coach_note_for_a_future_round_is_absent_from_turn_payload(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """The round gating holds on both paths: a note armed for a LATER round does
-    not appear in either payload's static block."""
+    """The round gating holds: a note armed for a LATER round does not appear in
+    the payload's static block."""
     async with session_factory() as db:
         user = await make_user(db)
         connection, key = await make_connection(db, user)
@@ -1575,26 +1531,17 @@ async def test_coach_note_for_a_future_round_is_absent_on_both_turn_paths(
         player.coach_note_round = match.current_round + 1
         await db.commit()
 
-    poll = await client.get(
-        f"/api/matches/{match.id}/turn",
-        params={"agent_id": agent.id},
-        headers={"X-Connection-Key": key},
-    )
-    assert poll.status_code == 200, poll.text
-    assert "coach_note" not in poll.json()["static"]
-
     fanout = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert fanout.status_code == 200, fanout.text
     assert "coach_note" not in fanout.json()["static"]
 
 
-async def test_turn_static_block_identical_on_both_turn_paths(
+async def test_turn_static_block_carries_unified_fields(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """Drift guard: the per-match poll and the next-turn fan-out build their
-    static block through one shared builder (build_turn_static_dict), so the
-    emitted blocks must agree field for field — including the conditional
-    coach_note — and can't silently diverge again."""
+    """The next-turn static block carries the full identity/rules field set built
+    by build_turn_static_dict — including the conditional coach_note — not an
+    empty shell."""
     async with session_factory() as db:
         user = await make_user(db)
         connection, key = await make_connection(db, user)
@@ -1613,22 +1560,12 @@ async def test_turn_static_block_identical_on_both_turn_paths(
         player.coach_note_round = match.current_round
         await db.commit()
 
-    poll = await client.get(
-        f"/api/matches/{match.id}/turn",
-        params={"agent_id": agent.id},
-        headers={"X-Connection-Key": key},
-    )
-    assert poll.status_code == 200, poll.text
     fanout = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert fanout.status_code == 200, fanout.text
 
-    poll_static = poll.json()["static"]
-    fanout_static = fanout.json()["static"]
-    # Exact same key set and values (dict equality ignores key order).
-    assert poll_static == fanout_static
-    # And the block really carries the unified fields, not two empty shells.
+    static = fanout.json()["static"]
     for field in ("match_id", "game_id", "game", "rules", "base_prompt", "coach_note"):
-        assert field in poll_static
+        assert field in static
 
 
 async def test_filter_to_candidates_batches_mixed_phase_seats(

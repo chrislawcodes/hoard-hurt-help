@@ -29,7 +29,6 @@ async def reset_db(monkeypatch):
     test_factory = _factory(test_engine, expire_on_commit=False)
     monkeypatch.setattr("app.db.SessionLocal", test_factory)
     monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_poll", {})
     monkeypatch.setattr("app.routes.agent_api._last_pull", {})
 
     yield test_factory
@@ -255,7 +254,9 @@ async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db
     key = players[0]._test_key
 
     talk_turn = await _open_turn(reset_db, game.id, phase="talk")
-    r1 = await client.get(f"/api/games/{game.id}/turn", headers={"X-Connection-Key": key})
+    # Talk-phase view, read before any message is recorded so the talk turn is
+    # still owed and served.
+    r1 = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r1.status_code == 200, r1.text
     body1 = r1.json()
     assert body1["status"] == "your_turn"
@@ -296,7 +297,7 @@ async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db
         await db.commit()
 
     r2 = await client.get(
-        f"/api/games/{game.id}/turn", headers={"X-Connection-Key": players[1]._test_key}
+        "/api/agent/next-turn", headers={"X-Connection-Key": players[1]._test_key}
     )
     assert r2.status_code == 200, r2.text
     body2 = r2.json()
@@ -460,7 +461,6 @@ async def test_agent_endpoints_do_not_leak_thinking(client, reset_db):
         await db.commit()
 
     endpoints = [
-        (f"/api/games/{game.id}/turn", "GET", {"headers": {"X-Connection-Key": key}}),
         (
             "/api/agent/next-turn",
             "GET",

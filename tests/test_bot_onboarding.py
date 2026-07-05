@@ -40,8 +40,9 @@ async def reset_db(monkeypatch):
     test_factory = _factory(test_engine, expire_on_commit=False)
     monkeypatch.setattr("app.db.SessionLocal", test_factory)
     monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_poll", {})
     monkeypatch.setattr("app.routes.agent_api._last_pull", {})
+    # Don't wait out a real long-poll hold when probing the next-turn endpoint.
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0)
 
     yield test_factory
     await test_engine.dispose()
@@ -251,7 +252,7 @@ async def test_agent_call_records_connection_once(client, reset_db, events):
         await db.commit()
         connection_id, key = p._test_connection.id, p._test_key
 
-    r = await client.get("/api/games/G_1/turn", headers={"X-Connection-Key": key})
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200
 
     async with reset_db() as db:
@@ -259,7 +260,7 @@ async def test_agent_call_records_connection_once(client, reset_db, events):
         assert connection.first_connected_at is not None
 
     # A second call must not re-publish (idempotent).
-    await client.get("/api/games/G_1/turn", headers={"X-Connection-Key": key})
+    await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     connected = [e for e in events if e[1] == "connected"]
     assert connected == [(bot_channel(connection_id), "connected", {})]
 

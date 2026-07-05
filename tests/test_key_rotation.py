@@ -15,16 +15,8 @@ from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_
 from app.main import app
 from app.models import Base, Match, GameState, Player
 from app.models.connection import Connection
-from app.routes import agent_api
 from tests.factories import make_agent, make_connection, make_user
 from tests.conftest import signed_in_cookies as _signed_in_cookies
-
-
-def _clear_poll_throttle() -> None:
-    """The /turn endpoint rejects rapid polls (429). Clear that between the
-    back-to-back auth calls this suite makes so we're testing auth, not cadence."""
-    agent_api._last_poll.clear()
-    agent_api._last_pull.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -40,8 +32,10 @@ async def reset_db(monkeypatch):
     test_factory = _factory(test_engine, expire_on_commit=False)
     monkeypatch.setattr("app.db.SessionLocal", test_factory)
     monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_poll", {})
     monkeypatch.setattr("app.routes.agent_api._last_pull", {})
+    # next-turn long-polls in an active game with no open turn; return at once so
+    # these back-to-back auth probes don't wait out a real hold.
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0)
     yield test_factory
     await test_engine.dispose()
 
@@ -86,15 +80,13 @@ async def test_graceful_overlap_old_key_works_until_new_used(client, reset_db):
         await db.commit()
 
     # Old key still authenticates (grace window).
-    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key_a})
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key_a})
     assert r.status_code == 200
-    _clear_poll_throttle()
     # New key authenticates — and retires the old one as a side effect.
-    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key_b})
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key_b})
     assert r.status_code == 200
-    _clear_poll_throttle()
     # Old key is now dead.
-    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key_a})
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key_a})
     assert r.status_code == 401
     assert r.json()["detail"]["error"]["code"] == "INVALID_KEY"
 

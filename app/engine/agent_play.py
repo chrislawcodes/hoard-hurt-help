@@ -25,14 +25,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.agent_play_guards import (
-    _POLL_WHEN_ACTIVE,
-    PollRateState,
     PullRateState,
-    _check_poll_rate_limit,
     _check_pull_rate_limit,
     _err,
     _game_for,
-    _next_poll_before_start,
     _seat_name_map,
     _validate_agent_match_binding,
     _validate_agent_turn_binding,
@@ -43,9 +39,6 @@ from app.engine.agent_play_next_turn import (
     get_next_turns,
 )
 from app.engine.agent_play_reads import (
-    RECENT_HISTORY_TURNS,
-    _build_current_turn,
-    build_turn_static_dict,
     _existing_message_for_player,
     _existing_submission_for_player,
     _group_into_turns,
@@ -62,7 +55,6 @@ from app.engine.connection_activity import increment_turns_played, mark_first_mo
 from app.games import get as get_game_module
 from app.games.base import GameError
 from app.identity import word_filter
-from app.models.agent_version import AgentVersion
 from app.models.connection import Connection
 from app.models.match import GameState
 from app.models.player import Player
@@ -79,15 +71,11 @@ from app.schemas.agent import (
     SubmitResponse,
     TalkWindowClosedResponse,
     TurnDetailResponse,
-    TurnStatic,
-    WaitingResponse,
-    YourTurnResponse,
 )
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "PollRateState",
     "PullRateState",
     "chat_transcript",
     "get_agent_state",
@@ -96,104 +84,12 @@ __all__ = [
     "agent_identity_for",
     "leave_match",
     "opponent_history",
-    "poll_turn",
     "standings",
     "submit_action",
     "submit_talk",
     "turn_detail",
     "_pack_move",
 ]
-
-
-async def poll_turn(
-    db: AsyncSession,
-    *,
-    match_id: str,
-    player: Player,
-    rate_state: PollRateState,
-) -> WaitingResponse | YourTurnResponse:
-    _check_poll_rate_limit(rate_state, player.agent_id)
-
-    game = await _game_for(match_id, db)
-
-    if game.state in (GameState.SCHEDULED, GameState.REGISTERING):
-        return WaitingResponse(
-            reason="game_not_started",
-            game_state=game.state.value,
-            next_poll_after_seconds=_next_poll_before_start(game),
-        )
-    if game.state in (GameState.COMPLETED, GameState.CANCELLED):
-        return WaitingResponse(
-            reason="game_over",
-            game_state=game.state.value,
-            current_round=game.current_round,
-            current_turn=game.current_turn,
-        )
-
-    turn = await load_open_turn(db, game.id)
-    if turn is None:
-        return WaitingResponse(
-            reason="turn_not_open",
-            game_state=game.state.value,
-            current_round=game.current_round,
-            current_turn=game.current_turn,
-            next_poll_after_seconds=_POLL_WHEN_ACTIVE,
-        )
-
-    existing_sub = (
-        await db.execute(
-            select(TurnSubmission).where(
-                TurnSubmission.turn_id == turn.id,
-                TurnSubmission.player_id == player.id,
-            )
-        )
-    ).scalar_one_or_none()
-    if existing_sub is not None and not existing_sub.was_defaulted:
-        return WaitingResponse(
-            reason="already_submitted",
-            game_state=game.state.value,
-            current_round=turn.round,
-            current_turn=turn.turn,
-            next_poll_after_seconds=_POLL_WHEN_ACTIVE,
-        )
-
-    all_players = await load_match_players(db, game.id)
-    seat_name_by_agent_id = _seat_name_map(all_players)
-    current_version = None
-    if player.agent_version_id is not None:
-        current_version = (
-            await db.execute(
-                select(AgentVersion).where(AgentVersion.id == player.agent_version_id)
-            )
-        ).scalar_one_or_none()
-    module = get_game_module(game.game)
-    all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
-    # One shared builder with the next-turn fan-out, so the two paths can't
-    # drift apart (coach_note once existed only on the fan-out).
-    static = TurnStatic.model_validate(
-        build_turn_static_dict(
-            game,
-            player,
-            all_agent_ids=all_agent_ids,
-            your_strategy=current_version.strategy_text if current_version else None,
-        )
-    )
-    # Same rolling window as the next-turn fan-out: this per-match poll is served
-    # every loop, so it carries only the recent turns and leaves the whole
-    # transcript to the on-demand reads (opponent_history / chat / turn_detail).
-    history = _group_into_turns(
-        await _load_public_action_records(
-            db, game.id, all_players, recent_turns=RECENT_HISTORY_TURNS
-        )
-    )
-    return YourTurnResponse(
-        static=static,
-        history=history,
-        scoreboard=_public_scoreboard(all_players),
-        current=await _build_current_turn(db, turn),
-        your_private_state=(await module.private_state_for(db, game, player)) or None,
-        public_state=(await module.public_state_for(db, game, player)) or None,
-    )
 
 
 async def submit_talk(
