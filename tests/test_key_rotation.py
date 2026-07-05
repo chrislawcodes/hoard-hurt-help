@@ -5,22 +5,19 @@ one is first used, then it's retired — so reconnecting never knocks a running
 agent offline.
 """
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
-from app.config import settings
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
 from app.main import app
 from app.models import Base, Match, GameState, Player
 from app.models.connection import Connection
 from app.routes import agent_api
 from tests.factories import make_agent, make_connection, make_user
+from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
 def _clear_poll_throttle() -> None:
@@ -54,13 +51,6 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
-
-def _signed_in_cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _bot_in_active_game(reset_db, key: str) -> int:

@@ -1,21 +1,18 @@
 """Per-game strategy at entry (preset or free text); the profile library is gone."""
 
-import base64
-import json
 from datetime import datetime, timezone
 
 import pytest
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import settings
 from app.games import get as get_game_module
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
 from app.models.agent import AgentStatus
 from tests.factories import make_connection, make_user
+from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
 @pytest.fixture(autouse=True)
@@ -31,13 +28,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.db.engine", test_engine)
     yield test_factory
     await test_engine.dispose()
-
-
-def _signed_in_cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _seed_game_user_agent(

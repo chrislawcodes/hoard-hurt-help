@@ -1,16 +1,13 @@
 """The agent setup screen leads with setup instructions, and the setup file is served."""
 
-import base64
-import json
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from itsdangerous import TimestampSigner
 
-from app.config import settings
 from app.main import app
 from app.models import Base
 from tests.factories import make_user
+from tests.conftest import session_cookie as _cookie
 
 
 @pytest.fixture(autouse=True)
@@ -26,13 +23,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.db.engine", test_engine)
     yield test_factory
     await test_engine.dispose()
-
-
-def _cookie(user_id: int) -> str:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return signer.sign(payload).decode()
 
 
 async def test_agent_runner_scripts_are_served() -> None:

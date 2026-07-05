@@ -16,8 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import importlib.util
 import json
+import sys
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
+from types import ModuleType
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -34,6 +38,7 @@ from app.models import Base
 from tests.factories import make_user
 
 __all__ = [
+    "load_script_module",
     "make_user",
     "session_cookie",
     "signed_in_cookies",
@@ -174,6 +179,27 @@ async def client() -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+
+
+def load_script_module(name: str, script: str | None = None) -> ModuleType:
+    """Load ``scripts/<script or name>.py`` as a module registered under `name`.
+
+    ``scripts/`` is not a package, so tests import those files by path. The
+    module is registered in ``sys.modules`` *before* exec so the script's
+    ``@dataclass`` field resolution can find its own module during class
+    creation (required on Python 3.14), and so tests can monkeypatch it via
+    ``sys.modules[name]``. Pass a distinct `name` (e.g. per test file) to get
+    an isolated copy of the same script; `script` defaults to `name`.
+    """
+    spec = importlib.util.spec_from_file_location(name, _SCRIPTS_DIR / f"{script or name}.py")
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def session_cookie(user_id: int) -> str:

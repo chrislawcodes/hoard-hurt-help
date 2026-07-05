@@ -9,28 +9,18 @@ Covers:
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
-from app.config import settings
 from app.models import User
 from tests.factories import make_agent, make_connection, make_user
+from tests.conftest import signed_in_cookies as _cookies
 
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _user_with_handle(reset_db, *, i: int = 0) -> User:

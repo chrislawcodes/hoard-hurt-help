@@ -9,26 +9,17 @@ the POST `/start` route, and the button's presence on the viewer page.
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 
-from itsdangerous import TimestampSigner
 from sqlalchemy import func, select
 
-from app.config import settings
 from app.engine.arena import fill_match_with_bots
 from app.engine.user_match_start import viewer_start_eligibility
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
-from tests.factories import make_user, seat_player
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
+from tests.factories import make_match, make_user, seat_player
+from tests.conftest import signed_in_cookies as _cookies
 
 
 async def _make_match(
@@ -39,19 +30,15 @@ async def _make_match(
     kind: MatchKind = MatchKind.MANUAL,
     max_players: int = 10,
 ) -> Match:
-    match = Match(
-        id=match_id,
-        name=match_id,
-        game="hoard-hurt-help",
+    # name=match_id (no "Match " prefix) — tests assert on the bare id.
+    return await make_match(
+        db,
+        match_id,
         state=state,
-        scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-        per_turn_deadline_seconds=60,
+        name=match_id,
         max_players=max_players,
         match_kind=kind.value,
     )
-    db.add(match)
-    await db.flush()
-    return match
 
 
 async def _confirmed_player_count(db, match_id: str) -> int:

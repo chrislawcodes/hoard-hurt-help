@@ -19,26 +19,18 @@ record real behavior, not the refactor's intent.
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 
-from itsdangerous import TimestampSigner
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.models import GameState, Match
 from tests.factories import make_user
+from tests.conftest import signed_in_cookies as _cookies
 
 REAL_GAME = "hoard-hurt-help"
 WRONG_GAME = "liars-dice"
 MATCH_ID = "M_SLUG_1"
-
-
-def _cookies(user_id: int) -> dict[str, str]:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _seed_match(

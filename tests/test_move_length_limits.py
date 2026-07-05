@@ -21,9 +21,6 @@ Any of these diverging from the source of truth fails this test.
 from __future__ import annotations
 
 import builtins
-import importlib.util
-import sys
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -36,21 +33,13 @@ from app.agent_prompt import (
     THINKING_MAX_LENGTH,
 )
 from app.schemas.agent import MessageRequest, SubmitRequest
-
-_CONNECTOR = Path(__file__).resolve().parents[1] / "scripts" / "agentludum_connector.py"
+from tests.conftest import load_script_module
 
 
 def _load_connector(module_name: str) -> ModuleType:
-    """Load the standalone connector script as a module (same pattern as
-    tests/test_connector_fallback.py)."""
-    spec = importlib.util.spec_from_file_location(module_name, _CONNECTOR)
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    # Register before exec so the connector's @dataclass field resolution can find
-    # its own module via sys.modules (required on Python 3.14).
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    """Load the connector script under `module_name` (called twice, with a
+    distinct name each time, so the import-blocking test gets a clean copy)."""
+    return load_script_module(module_name, "agentludum_connector")
 
 
 @pytest.fixture(scope="module")

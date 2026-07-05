@@ -4,16 +4,12 @@ Covers both the pure resolver (`compute_nav_cta`) and the rendered nav, plus the
 `/play` smart redirect used by the "Get started" and "Play now" states.
 """
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import settings
 from app.engine.connection_health import LIVE_WINDOW_SECONDS
 from app.models import Base
 from app.models.agent import AgentKind
@@ -23,6 +19,7 @@ from app.routes.nav_context import (
     user_live_connection_count,
 )
 from tests.factories import make_agent, make_bot, make_connection, make_user
+from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
 @pytest.fixture(autouse=True)
@@ -40,13 +37,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-def _signed_in_cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 def _desktop_nav_html(page: str) -> str:

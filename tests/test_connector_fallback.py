@@ -11,13 +11,10 @@ Covers:
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
-import sys
 import threading
 from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -25,23 +22,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.tokens import generate_turn_token
 from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSubmission
+from tests.conftest import load_script_module
 from tests.factories import seat_player
-
-# ---------------------------------------------------------------------------
-# Load the connector script as a module (same approach as test_runner_payload)
-# ---------------------------------------------------------------------------
-
-_CONNECTOR = Path(__file__).resolve().parents[1] / "scripts" / "agentludum_connector.py"
 
 
 @pytest.fixture(scope="module")
 def connector() -> object:
-    spec = importlib.util.spec_from_file_location("agentludum_connector_fb", _CONNECTOR)
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    return load_script_module("agentludum_connector_fb", "agentludum_connector")
 
 
 # ---------------------------------------------------------------------------

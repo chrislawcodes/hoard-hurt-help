@@ -6,26 +6,16 @@ agent label's rules so a future tweak to the in-game validator can't quietly
 tighten them.
 """
 
-import base64
-import json
 from datetime import datetime, timezone
 
 from httpx import ASGITransport, AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
-from app.config import settings
 from app.main import app
 from app.models import Agent
 from app.models.connection import ConnectionProvider
 from tests.factories import make_connection, make_user
-
-
-def _cookie(user_id: int) -> str:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return signer.sign(payload).decode()
+from tests.conftest import session_cookie as _cookie
 
 
 def _authed_client(user_id: int, *, follow_redirects: bool = True) -> AsyncClient:

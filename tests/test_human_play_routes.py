@@ -8,16 +8,12 @@ Hoard at resolution.
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import settings
 from app.engine.bots.service import auto_submit_bot_phase
 from app.engine.human_player import get_or_create_human_agent
 from app.engine.tokens import generate_turn_token
@@ -25,6 +21,7 @@ from app.games import get as get_game_module
 from app.models import Base, GameState, Match, Player, User
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from tests.factories import make_user, seat_player
+from tests.conftest import signed_in_cookies as _cookies
 
 GAME = "hoard-hurt-help"
 
@@ -56,12 +53,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.db.engine", engine)
     yield factory
     await engine.dispose()
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _open_turn(db, match_id: str, phase: str, *, deadline_offset: int = 60) -> Turn:

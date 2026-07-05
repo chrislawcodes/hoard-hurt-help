@@ -31,7 +31,7 @@ from app.models.connection import ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
-from tests.factories import make_agent, make_connection, make_user
+from tests.factories import make_agent, make_connection, make_match, make_user
 
 LIVE_WINDOW = 90  # seconds — must match LIVE_WINDOW_SECONDS in connection_health.py
 
@@ -111,20 +111,15 @@ def _now() -> datetime:
 
 
 async def _make_match(db: AsyncSession, match_id: str, *, state: GameState) -> Match:
-    """Create a match with a valid scheduled_start (required by schema)."""
-    now = _now()
-    m = Match(
-        id=match_id,
-        name=f"Match {match_id}",
-        game="hoard-hurt-help",
+    """Create an already-started match (a valid scheduled_start is required by schema)."""
+    started = _now() - timedelta(hours=1)
+    return await make_match(
+        db,
+        match_id,
         state=state,
-        scheduled_start=now - timedelta(hours=1),
-        started_at=now - timedelta(hours=1) if state != GameState.SCHEDULED else None,
-        per_turn_deadline_seconds=60,
+        scheduled_start=started,
+        started_at=started if state != GameState.SCHEDULED else None,
     )
-    db.add(m)
-    await db.flush()
-    return m
 
 
 # ---------------------------------------------------------------------------

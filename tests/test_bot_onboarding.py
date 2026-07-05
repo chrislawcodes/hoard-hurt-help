@@ -5,16 +5,12 @@ auth choke point), first-move detection, owner-scoping of the new routes, and
 correct first paint.
 """
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
-from app.config import settings
 from app.engine.connection_health import ConnectionHealth, compute_connection_health
 from app.engine.connection_activity import (
     bot_channel,
@@ -27,6 +23,7 @@ from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, Use
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from tests.factories import make_agent, make_connection, make_user, seat_player
+from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 NOW = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -67,13 +64,6 @@ def events(monkeypatch):
 
     monkeypatch.setattr("app.broadcast.publish", fake_publish)
     return captured
-
-
-def _signed_in_cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _game(db, gid: str, state: GameState) -> Match:

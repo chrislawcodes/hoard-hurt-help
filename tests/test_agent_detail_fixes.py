@@ -3,15 +3,12 @@ stall/last-connected diagnostics, and onboarding status narration."""
 
 from __future__ import annotations
 
-import base64
-import json
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -19,12 +16,11 @@ from app.config import settings
 from app.db import make_engine
 from app.engine.agent_onboarding import AgentOnboardingState, compute_agent_onboarding_state
 from app.engine.connection_health import ConnectionHealth
-from app.engine.tokens import generate_turn_token
 from app.models import Base
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.match import GameState, Match
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
+from app.models.turn import TurnSubmission
 from app.models.user import User
 from app.routes.agents_lifecycle import router as agents_lifecycle_router
 from app.routes.agents_setup import (
@@ -36,7 +32,16 @@ from app.routes.agents_status import router as agents_status_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
 from app.routes.connections_setup import router as connections_setup_router
-from tests.factories import make_agent, make_connection, make_match, make_user, seat_prebuilt_player
+from tests.factories import (
+    add_submission,
+    make_agent,
+    make_connection,
+    make_match,
+    make_turn,
+    make_user,
+    seat_prebuilt_player,
+)
+from tests.conftest import signed_in_cookies as _cookies
 
 NOW = datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc)
 # COLD is used for DB fixtures: well past the health engine's 90s live window regardless
@@ -97,14 +102,6 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
-
-def _cookies(user_id: int) -> dict[str, str]:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(
-        json.dumps({"user_id": user_id, "next_after_login": None}).encode()
-    ).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 # ---------------------------------------------------------------------------
@@ -502,26 +499,17 @@ async def _make_turn_submission(
     was_defaulted: bool = False,
 ) -> TurnSubmission:
     """Create a turn and a submission for it."""
-    turn = Turn(
-        match_id=match.id,
-        round=1,
+    turn = await make_turn(
+        db,
+        match.id,
         turn=turn_no,
-        turn_token=generate_turn_token(),
+        phase="talk",
+        resolved=False,
         opened_at=NOW,
-        deadline_at=NOW + timedelta(minutes=1),
     )
-    db.add(turn)
-    await db.flush()
-    sub = TurnSubmission(
-        turn_id=turn.id,
-        player_id=player.id,
-        action="HOARD",
-        was_defaulted=was_defaulted,
-        submitted_at=NOW,
+    return await add_submission(
+        db, turn, player, action="HOARD", was_defaulted=was_defaulted, submitted_at=NOW
     )
-    db.add(sub)
-    await db.flush()
-    return sub
 
 
 async def test_onboarding_state_waiting_never_connected(

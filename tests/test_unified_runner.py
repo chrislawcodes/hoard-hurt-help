@@ -9,27 +9,19 @@ path and exercise its pure resolution logic (no real CLI calls).
 """
 
 import argparse
-import importlib.util
 import sys
 from pathlib import Path
 
 import pytest
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "agentludum_connector.py"
+from tests.conftest import load_script_module
 
 
 @pytest.fixture(scope="module")
 def runner():
     # Load under the module's real name so the adapters resolve `_run` from the
     # same object the tests patch via sys.modules["agentludum_connector"].
-    spec = importlib.util.spec_from_file_location("agentludum_connector", _SCRIPT)
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    # Register before exec so the @dataclass decorator can resolve the module
-    # (Python 3.14 looks it up in sys.modules during class creation).
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    return load_script_module("agentludum_connector")
 
 
 def _args(provider=None, model=None):

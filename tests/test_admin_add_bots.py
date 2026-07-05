@@ -1,11 +1,8 @@
 """Admin "Add bots" flow — the form, seating, validation, and labelling."""
 
-import base64
-import json
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
 from app.config import settings
@@ -14,6 +11,7 @@ from app.main import app
 from app.models import Base, Agent, AgentKind, Match, GameState, Player, User
 from app.models.user import UserRole
 from tests.factories import make_agent, make_match
+from tests.conftest import signed_in_cookies as _cookies
 
 
 @pytest.fixture(autouse=True)
@@ -40,12 +38,6 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _seed_user(reset_db, email: str) -> User:

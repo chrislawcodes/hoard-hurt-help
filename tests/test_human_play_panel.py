@@ -2,28 +2,19 @@
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 
-from itsdangerous import TimestampSigner
 
-from app.config import settings
 from app.engine.human_player import get_or_create_human_agent
 from app.engine.tokens import generate_turn_token
 from app.models import GameState, Match, Player, User
 from app.models.turn import Turn
 from tests.factories import make_user, seat_player
+from tests.conftest import signed_in_cookies as _cookies
 
 GAME = "hoard-hurt-help"
 VIEWER = f"/games/{GAME}/matches/M_0001"
 LIVE = f"{VIEWER}/live"
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _match(db, *, state: GameState) -> Match:

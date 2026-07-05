@@ -14,11 +14,8 @@ Tests cover:
 
 from __future__ import annotations
 
-import importlib.util
 import pickle
-import sys
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -37,6 +34,7 @@ from app.engine.win_probability import (
     score_match_win,
     score_round_win,
 )
+from tests.conftest import load_script_module
 
 MATCH_FEATURE_COUNT = len(MATCH_FEATURE_NAMES)
 ROUND_FEATURE_COUNT = len(ROUND_FEATURE_NAMES)
@@ -220,23 +218,13 @@ def test_feature_vector_rejects_vocabulary_mismatch() -> None:
         feature_vector({"a": 1.0, "c": 2.0}, ("a", "b"))
 
 
-def _load_script(name: str) -> ModuleType:
-    """Import a scripts/ module by path (scripts/ is not a package)."""
-    spec = importlib.util.spec_from_file_location(name, _SCRIPTS_DIR / f"{name}.py")
-    assert spec is not None and spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
 def test_trainers_and_feature_pipeline_share_engine_vocabulary() -> None:
     # Import smoke: the three pipeline scripts load cleanly outside a package
     # context and expose the shared vocabulary (their lists are built from the
     # engine tuples, so equality here mostly guards against a re-pasted literal).
-    train_match = _load_script("train_win_prob")
-    train_round = _load_script("train_round_win_prob")
-    compute_features = _load_script("compute_features")
+    train_match = load_script_module("train_win_prob")
+    train_round = load_script_module("train_round_win_prob")
+    compute_features = load_script_module("compute_features")
 
     assert train_match.FEATURE_NAMES == list(MATCH_FEATURE_NAMES)
     assert train_round.FEATURE_NAMES == list(ROUND_FEATURE_NAMES)
@@ -257,7 +245,7 @@ def test_shipped_models_were_trained_on_shared_vocabulary() -> None:
 
 def test_trainer_row_reader_matches_engine_order() -> None:
     """_row_to_features reads CSV columns in the exact shared-name order."""
-    train_match = _load_script("train_win_prob")
+    train_match = load_script_module("train_win_prob")
     row = {name: str(float(i + 1)) for i, name in enumerate(MATCH_FEATURE_NAMES)}
     # round_frac / turn_frac are derived from raw positional columns.
     row.update({
