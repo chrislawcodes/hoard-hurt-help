@@ -28,7 +28,7 @@ def _now() -> datetime:
 
 def test_action_names_contract() -> None:
     # The read-side insight engines bucket the action log by these names in this
-    # exact order (HOARD, HELP, HURT); the StyleMix/aggregate fields depend on it.
+    # exact order (HOARD, HELP, HURT); the insight/aggregate buckets depend on it.
     assert HoardHurtHelp().action_names() == ("HOARD", "HELP", "HURT")
     assert pd_action_names() == ("HOARD", "HELP", "HURT")
     # Each game owns its own vocabulary; Liar's Dice is not PD's trio.

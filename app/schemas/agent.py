@@ -2,10 +2,9 @@
 
 These shapes are documented in SPEC.md §1.1 and contracts/api.yaml.
 
-Feature 002 (bot-state-summary): the next-turn payload now returns a bounded
-`summary` (TurnSummary) instead of the full per-turn history. The heavy detail
-moved behind the pull endpoints, whose response shapes live at the bottom of
-this file.
+The next-turn payload ships the raw `history` (plus scoreboard and current-turn
+block); opt-in detail lives behind the pull endpoints, whose response shapes
+are at the bottom of this file.
 """
 
 from datetime import datetime
@@ -127,69 +126,13 @@ class TurnStatic(MatchIdEnvelope):
         return _drop_none_keys(handler(self), ("game", "coach_note"))
 
 
-# --- Free summary (the bounded push payload) ---
-
-
-class YourSituation(BaseModel):
-    round_score: int
-    total_score: int
-    round_wins: float
-    rank: int
-    current_round: int
-    current_turn: int
-    deadline: datetime
-    turn_token: str
+# --- Standings + board-signal shapes (standings pulls, game-module signals) ---
 
 
 class StandingRow(BaseModel):
     agent_id: str
     round_score: int
     rank: int
-
-
-class StandingsView(BaseModel):
-    leaders: list[StandingRow]
-    your_rank: int
-    neighbors: list[StandingRow]
-    total_players: int
-
-
-class DeltaAction(BaseModel):
-    actor_id: str
-    action: Action
-    target_id: str | None
-    points_delta: int
-
-
-class TurnDelta(BaseModel):
-    round: int
-    turn: int
-    involving_you: list[DeltaAction]
-    others_summary: str
-
-
-class StyleMix(BaseModel):
-    hoard_pct: int
-    help_pct: int
-    hurt_pct: int
-
-
-class OpponentStat(BaseModel):
-    agent_id: str
-    round_score: int
-    helped_you: int
-    hurt_you: int
-    returned_help: bool
-    returned_hurt: bool
-    style: StyleMix
-    reason: Literal["interacted", "threat", "neighbor", "flagged"]
-
-
-class OpponentsAggregate(BaseModel):
-    count: int
-    hoard: int
-    help: int
-    hurt: int
 
 
 class Alliance(BaseModel):
@@ -202,31 +145,6 @@ class BoardSignals(BaseModel):
     cooperation_temperature: float
     temperature_label: Literal["hostile", "mixed", "cooperative"]
     surging: list[str]
-
-
-class SummaryFlags(BaseModel):
-    pattern_breaks: list[str]
-    new_alliance: bool
-    messages_for_you_count: int
-
-
-class DirectedMessage(BaseModel):
-    from_agent_id: str
-    message: str
-    on_action: str | None
-    public: bool
-
-
-class TurnSummary(BaseModel):
-    your_situation: YourSituation
-    standings_view: StandingsView
-    # None only on the very first turn of the game (no prior resolved turn).
-    turn_delta: TurnDelta | None
-    opponents: list[OpponentStat]
-    opponents_aggregate: OpponentsAggregate | None
-    board_signals: BoardSignals
-    flags: SummaryFlags
-    messages_for_you: list[DirectedMessage]
 
 
 # --- Shared history shapes (used by the bot payload, spectator view, and pulls) ---

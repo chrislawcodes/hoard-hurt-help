@@ -101,11 +101,6 @@ class Settings(BaseSettings):
         return v
 
     @property
-    def admin_emails_set(self) -> set[str]:
-        """Normalized lowercased set of admin emails (legacy; prefer platform_admin_emails_set)."""
-        return _parse_email_set(self.admin_emails)
-
-    @property
     def platform_admin_emails_set(self) -> set[str]:
         """Platform admins. Falls back to admin_emails during compat window."""
         raw = self.platform_admin_emails or self.admin_emails

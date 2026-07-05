@@ -39,7 +39,6 @@ from mcp_server.oauth_auth import (
 )
 from mcp_server.connection_identity import (
     _bootstrap_signin_connection,
-    _client_provider_from_context,
     _client_provider_from_initialize,
     _connection_from_token,
     _dcr_client_id_from_request,
@@ -115,7 +114,6 @@ __all__ = [
     "_userinfo_from_claims",
     # Connection / player identity (mcp_server.connection_identity)
     "_bootstrap_signin_connection",
-    "_client_provider_from_context",
     "_client_provider_from_initialize",
     "_connection_from_token",
     "_dcr_client_id_from_request",

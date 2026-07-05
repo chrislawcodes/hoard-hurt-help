@@ -32,7 +32,6 @@ from app.read_models.matches import (
     _upcoming_views,
     count_players,
     count_players_by_match,
-    rank_standings,
     rank_standings_by_match,
 )
 from app.routes.web_match_loaders import (
@@ -266,28 +265,6 @@ def _is_showcase(view: dict) -> bool:
         and view.get("agent_count", 0) >= 1
         and not is_smoke_test_match_name(view["name"])
     )
-
-
-async def _top_standings(db, match_id: str, limit: int = 3) -> list[dict]:
-    """Top-N active players by round-wins then round-score, ranked from 1."""
-    players = (
-        (
-            await db.execute(
-                select(Player).where(Player.match_id == match_id, Player.left_at.is_(None))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    rows = [
-        {
-            "agent_id": p.seat_name,
-            "round_score": p.current_round_score,
-            "round_wins": p.total_round_wins,
-        }
-        for p in players
-    ]
-    return rank_standings(rows, limit=limit)
 
 
 async def _batch_top_standings(

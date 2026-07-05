@@ -8,7 +8,7 @@ superlatives ("biggest turn", "tightest pact", …) that only appear when there 
 real signal to show.
 
 Kept free of the database — a pure function over plain data — so it is trivially
-unit-testable, matching the style of `opponent_stats` and `turn_summary`.
+unit-testable, matching the style of `board_signals` and `insights`.
 """
 
 from __future__ import annotations
