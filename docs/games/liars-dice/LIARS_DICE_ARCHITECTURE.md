@@ -160,10 +160,11 @@ safe to add:
 
 1. **Turn loop** — `scheduler.py` hard-codes simultaneous + fixed grid + two-phase
    talk/act → split into the `TurnDriver`s above.
-2. **Agent payload** — `turn_summary.py` / `board_signals.py` / `opponent_stats.py`
-   are PD-shaped but built by the *shared* agent play service (`app/engine/agent_play.py`,
-   functions `poll_turn` and `_build_turn_payload`) → move payload-building behind
-   `private_state_for` / `public_state_for`.
+2. **Agent payload** — `board_signals.py` is PD-shaped but built by the *shared*
+   agent play service (`app/engine/agent_play.py`, functions `poll_turn` and
+   `_build_turn_payload`) → move payload-building behind `private_state_for` /
+   `public_state_for`. (The never-wired `turn_summary.py` / `opponent_stats.py`
+   builders were deleted as dead code in the survey-2 refactor.)
 3. **Storage** — PD-shaped `turn_submissions` columns → generic `match_state` /
    `player_state` (see Data structures).
 4. **Placement** — `app/read_models/leaderboard.py` (`load_leaderboard_sections`)

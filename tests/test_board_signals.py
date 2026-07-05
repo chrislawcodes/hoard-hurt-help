@@ -5,10 +5,8 @@ from __future__ import annotations
 from app.engine.game_insights import detect_surging
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.games.hoard_hurt_help.board_signals import (
-    alliance_formed_this_turn,
     compute_board_signals,
     detect_alliances,
-    detect_pattern_breaks,
 )
 
 
@@ -123,33 +121,3 @@ def test_surging_empty_when_one_turn() -> None:
     assert detect_surging(players, actions) == []
 
 
-# --- pattern breaks ---
-
-
-def test_pattern_break_flagged() -> None:
-    actions = [
-        act(1, 1, "A", "HOARD"),
-        act(1, 2, "A", "HOARD"),
-        act(1, 3, "A", "HOARD"),
-        act(1, 4, "A", "HURT", "B"),  # broke the hoarding pattern
-    ]
-    assert detect_pattern_breaks(actions) == ["A"]
-
-
-def test_no_pattern_break_when_consistent() -> None:
-    actions = [act(1, 1, "A", "HOARD"), act(1, 2, "A", "HOARD"), act(1, 3, "A", "HOARD")]
-    assert detect_pattern_breaks(actions) == []
-
-
-# --- new alliance flag ---
-
-
-def test_alliance_formed_flag() -> None:
-    # Mutual help completes on turn 2 → alliance signature changes vs turn 1.
-    actions = [
-        act(1, 1, "A", "HELP", "B"),
-        act(1, 1, "B", "HELP", "A"),
-        act(1, 2, "A", "HELP", "B"),
-        act(1, 2, "B", "HELP", "A"),
-    ]
-    assert alliance_formed_this_turn(actions, 1) is True

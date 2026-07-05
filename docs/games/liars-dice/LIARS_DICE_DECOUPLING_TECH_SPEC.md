@@ -69,9 +69,9 @@ inline so the platform can ask the module instead of assuming PD.
   `_build_turn_payload` builds the next-turn loop payload. The route handlers in
   `app/routes/agent_api.py` and `app/routes/agent_next_turn.py` are already thin
   adapters that delegate to `agent_play`; they share that service with the MCP
-  server. The builders `turn_summary.py`, `board_signals.py`, and
-  `opponent_stats.py` are called from within `agent_play`, not from the routes
-  directly.
+  server. The `board_signals.py` builder is called from within `agent_play`, not from
+  the routes directly. (`turn_summary.py` / `opponent_stats.py` were never
+  wired in and have since been deleted as dead code.)
 - Route this through `module.public_state_for` (+ `private_state_for`). PD's
   implementation **calls the same builders inside `agent_play`**, so the bytes
   are identical; the agent API stops hard-coding PD shapes.
@@ -102,8 +102,8 @@ inline so the platform can ask the module instead of assuming PD.
 
 ### Deferred (tracked, not done here)
 
-- **Relocating PD's engine** (`resolver.py`, `rules.py`, `turn_summary.py`,
-  `board_signals.py`, `opponent_stats.py`, `game_insights.py`) out of the shared
+- **Relocating PD's engine** (`resolver.py`, `rules.py`, `board_signals.py`,
+  `game_insights.py`) out of the shared
   `app/engine/` namespace into `app/games/hoard_hurt_help/`. This is the "pure"
   finish of the platform/game split. It is a large, behavior-neutral move that the
   game framework (feature 004) intentionally deferred, and we keep deferring it:

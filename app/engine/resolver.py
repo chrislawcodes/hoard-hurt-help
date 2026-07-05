@@ -90,11 +90,17 @@ async def award_round_winners(db: AsyncSession, game: Match, round_num: int) -> 
 def finish_order_sort_key(player: Player) -> tuple[float, float]:
     """Sort key for the finish order: most round-wins, then highest total score.
 
-    The single encoding of that ordering — ``finalize_game`` (winner pick) and
-    ``GameModule.final_placement`` (Elo/leaderboard placement) both sort with it
-    so the two can't diverge. Ascending sort on the negated fields ranks winner
-    first and, being stable, keeps input order for full ties — exactly the
-    behavior of the two inline sorts this key replaced.
+    ``finalize_game`` (winner pick) and ``BaseGameModule.final_placement``
+    (default finish order) both sort with it so the two can't diverge.
+    Ascending sort on the negated fields ranks winner first and, being stable,
+    keeps input order for full ties — exactly the behavior of the two inline
+    sorts this key replaced.
+
+    NOT the only encoding: leaderboard/Elo tiers rank via the per-game
+    ``GameModule.match_placement_key`` protocol method (PD's returns
+    ``(round_wins, total_score)`` — the same ordering, different signature).
+    A PD tiebreak change must update both, or the match page's winner and the
+    rating tiers will disagree.
     """
     return (-player.total_round_wins, -player.total_round_score)
 

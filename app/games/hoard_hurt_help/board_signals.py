@@ -29,8 +29,6 @@ _HELP, _HURT = "HELP", "HURT"
 # Tunable thresholds (module-level for tuning at scale).
 ALLY_MIN_HELPS = 2
 MAX_ALLIANCES = 5
-DOMINANT_STYLE_SHARE = 0.6
-MIN_PRIOR_ACTIONS = 2
 
 _HOSTILE_BELOW = 0.33
 _COOPERATIVE_ABOVE = 0.66
@@ -119,45 +117,3 @@ def detect_alliances(round_actions: Sequence[ActionRecord]) -> list[Alliance]:
     return alliances[:MAX_ALLIANCES]
 
 
-def detect_pattern_breaks(actions: Sequence[ActionRecord]) -> list[str]:
-    """Actors whose last-turn action broke a previously dominant style."""
-    keys = sorted({(a.round, a.turn) for a in actions})
-    if len(keys) < 2:
-        return []
-    last_rt = keys[-1]
-    prior_styles: dict[str, Counter[str]] = defaultdict(Counter)
-    last_action: dict[str, str] = {}
-    for a in actions:
-        if (a.round, a.turn) == last_rt:
-            last_action[a.actor_id] = a.action
-        else:
-            prior_styles[a.actor_id][a.action] += 1
-
-    broken: list[str] = []
-    for actor_id, this_action in last_action.items():
-        counts = prior_styles.get(actor_id)
-        if counts is None:
-            continue
-        total = sum(counts.values())
-        if total < MIN_PRIOR_ACTIONS:
-            continue
-        dominant, dom_count = counts.most_common(1)[0]
-        if dom_count / total >= DOMINANT_STYLE_SHARE and this_action != dominant:
-            broken.append(actor_id)
-    return sorted(broken)
-
-
-def alliance_formed_this_turn(actions: Sequence[ActionRecord], current_round: int) -> bool:
-    """True if the alliance set changed between the last two resolved turns."""
-    round_actions = [a for a in actions if a.round == current_round]
-    keys = sorted({a.turn for a in round_actions})
-    if len(keys) < 2:
-        return bool(detect_alliances(round_actions))
-    last_turn, prev_turn = keys[-1], keys[-2]
-    now = _alliance_signature([a for a in round_actions if a.turn <= last_turn])
-    before = _alliance_signature([a for a in round_actions if a.turn <= prev_turn])
-    return now != before
-
-
-def _alliance_signature(round_actions: Sequence[ActionRecord]) -> set[frozenset[str]]:
-    return {frozenset(al.members) for al in detect_alliances(round_actions)}
