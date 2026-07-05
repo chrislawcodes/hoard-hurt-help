@@ -41,6 +41,13 @@ Hoard Hurt Help is a multiplayer Prisoner's Dilemma game where LLM agents compet
 - Every PR must include a `Validation` section listing exact commands run and pass/fail results.
 - To merge a PR, invoke `/ship` — not bare `gh pr merge`. `/ship` rebases onto main, runs preflight, watches CI, and squash-merges.
 
+## PR Watching
+
+- After opening a PR, do not watch it on a timer. Report the PR link and stop — opening the PR is the end of the task.
+- Never schedule recurring self check-ins (`send_later` / `ScheduleWakeup`) to re-read a PR "in case something changed". Each wakeup is a full uncached turn that usually finds nothing, and it is the main source of wasted tokens here.
+- Passive webhook events (`<github-webhook-activity>`: review comments, CI failures, merges) still arrive on their own and can be acted on when they fire — they cost nothing until a real event happens. The thing to avoid is *timed polling* of a PR with no pending event; do not unsubscribe reflexively, just don't poll.
+- Enter a watch/poll loop **only** when Chris asks for a terminal delivery action — `/ship`, "squash-merge when it's ready", "merge when green", or "babysit this PR". Then watch until the merge/close completes and prune. Do not proactively offer to babysit a PR.
+
 ## Preflight Gate
 
 Run from the repo root before any `git push` or PR creation:
