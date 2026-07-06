@@ -395,58 +395,6 @@ tr:last-child td { border-bottom: none; }
 /* One full-width feed (the standings rail lives in the hero row above). */
 .feed-col-full { min-width: 0; }
 
-/* Narration dock: the single story source while the replay plays. Shows the
-   locator, headline, and key moves (as point-delta chips) of the turn the
-   animation is currently on, so a watcher follows the match here without the
-   feed. A reserved min-height keeps a longer headline or a busy move row from
-   reflowing the page mid-play. */
-.now-strip {
-    display: flex; flex-direction: column; gap: 0.35rem;
-    margin: 0 0 1.25rem; padding: 0.7rem 0.9rem;
-    min-height: 4.6rem;  /* reserve ~2-line headline + a chip row, so play never reflows */
-    background: var(--surface-2); border: 1px solid var(--line);
-    border-left: 3px solid var(--accent); border-radius: 0 var(--radius) var(--radius) 0;
-}
-.now-strip[hidden] { display: none; }
-.now-strip .now-strip-main { display: flex; align-items: baseline; gap: 0.6rem; }
-.now-strip .now-strip-play { color: var(--accent); font-weight: 800; flex: none; }
-.now-strip .now-strip-turn {
-    flex: none; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.04em; color: var(--ink-soft); white-space: nowrap;
-}
-.now-strip .now-strip-headline { font-size: 1.02rem; line-height: 1.4; color: var(--ink); }
-/* Live game: the ▶ becomes a pulsing red dot. */
-.now-strip.is-live .now-strip-play { color: transparent; position: relative; width: 0.7rem; }
-.now-strip.is-live .now-strip-play::before {
-    content: ""; position: absolute; top: 0.15rem; left: 0; width: 0.6rem; height: 0.6rem;
-    border-radius: 50%; background: var(--hurt); animation: now-live-pulse 1.6s infinite;
-}
-@keyframes now-live-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(193, 69, 47, 0.5); }
-    70% { box-shadow: 0 0 0 7px rgba(193, 69, 47, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(193, 69, 47, 0); }
-}
-
-/* Move chips — the turn's plays, self-sufficient so the feed is never needed to
-   follow along. Color carries the move trio but each chip also names the move
-   via its delta sign and the betrayal label, so it reads without color too. */
-.now-strip-moves {
-    display: flex; flex-wrap: wrap; gap: 0.35rem; min-height: 1.5rem; align-items: center;
-}
-.dock-chip {
-    display: inline-flex; align-items: center; gap: 0.3rem;
-    font-size: 0.78rem; line-height: 1; padding: 0.2rem 0.45rem;
-    border-radius: 999px; border: 1px solid var(--line);
-    background: var(--surface); color: var(--ink); white-space: nowrap;
-}
-.dock-chip-label { font-weight: 600; }
-.dock-chip-delta { font-weight: 800; font-variant-numeric: tabular-nums; }
-.dock-chip-hurt, .dock-chip-betray { border-color: var(--hurt); color: var(--hurt); }
-.dock-chip-help { border-color: var(--help); color: var(--help); }
-.dock-chip-pact { border-color: var(--help); color: var(--help); }
-.dock-chip-hoard { border-color: var(--hoard); color: var(--hoard); }
-.dock-chip-more { color: var(--ink-soft); }
-
 /* The feed block for the turn the animation is currently playing. */
 .turn-block.is-current {
     border-color: var(--accent);
