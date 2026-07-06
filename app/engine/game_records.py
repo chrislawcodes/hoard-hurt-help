@@ -1,8 +1,8 @@
 """Plain, DB-free input records the summary engine consumes.
 
 The agent route maps DB rows (Player, Turn, TurnSubmission) into these records,
-then hands them to the pure functions in `opponent_stats`, `board_signals`, and
-`turn_summary`. Keeping the engine free of the database makes every function a
+then hands them to pure functions such as `board_signals` and the game insight
+builders. Keeping the engine free of the database makes every function a
 pure function over data — trivially unit-testable without a live DB.
 """
 

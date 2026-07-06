@@ -5,13 +5,19 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from app.config import provider_for_model
-from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
+from app.engine.tokens import (
+    bot_key_hint,
+    bot_key_lookup,
+    generate_connection_key,
+    generate_turn_token,
+)
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import Match, GameState
 from app.models.player import Player
+from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
 
 
@@ -219,6 +225,86 @@ async def make_match(
     db.add(match)
     await db.flush()
     return match
+
+
+async def make_turn(
+    db,
+    match_id: str,
+    *,
+    round: int = 1,
+    turn: int = 1,
+    phase: str = "act",
+    resolved: bool = True,
+    turn_token: str | None = None,
+    opened_at: datetime | None = None,
+    deadline_at: datetime | None = None,
+    resolved_at: datetime | None = None,
+    talk_resolved_at: datetime | None = None,
+) -> Turn:
+    """Create + flush a Turn row.
+
+    Defaults to a resolved act turn (the shape read-model tests seed).
+    `resolved=True` stamps `resolved_at` (at `opened_at` unless given
+    explicitly); `resolved=False` leaves the turn open. `deadline_at` defaults
+    to one minute after `opened_at`, which itself defaults to now.
+    """
+    opened = opened_at or datetime.now(timezone.utc)
+    row = Turn(
+        match_id=match_id,
+        round=round,
+        turn=turn,
+        turn_token=turn_token or generate_turn_token(),
+        opened_at=opened,
+        deadline_at=deadline_at or (opened + timedelta(minutes=1)),
+        phase=phase,
+    )
+    if resolved:
+        row.resolved_at = resolved_at or opened
+    elif resolved_at is not None:
+        row.resolved_at = resolved_at
+    if talk_resolved_at is not None:
+        row.talk_resolved_at = talk_resolved_at
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def add_submission(
+    db,
+    turn: Turn,
+    player: Player,
+    *,
+    action: str = "HOARD",
+    target_player_id: int | None = None,
+    message: str = "",
+    thinking: str = "",
+    points_delta: int | None = None,
+    round_score_after: int | None = None,
+    was_defaulted: bool = False,
+    submitted_at: datetime | None = None,
+) -> TurnSubmission:
+    """Create + flush a TurnSubmission for `player` on `turn`.
+
+    `points_delta` / `round_score_after` are set only when given, so callers
+    that don't care get the model defaults (0) — same as a hand-built row.
+    """
+    sub = TurnSubmission(
+        turn_id=turn.id,
+        player_id=player.id,
+        action=action,
+        target_player_id=target_player_id,
+        message=message,
+        thinking=thinking,
+        was_defaulted=was_defaulted,
+        submitted_at=submitted_at,
+    )
+    if points_delta is not None:
+        sub.points_delta = points_delta
+    if round_score_after is not None:
+        sub.round_score_after = round_score_after
+    db.add(sub)
+    await db.flush()
+    return sub
 
 
 async def seat_player(

@@ -28,6 +28,11 @@ from typing import Any
 
 from app.engine.action_vocab import action_counts, pd_action_names
 from app.engine.game_records import ActionRecord, PlayerRecord
+from app.engine.win_prob_features import (
+    MATCH_FEATURE_NAMES,
+    ROUND_FEATURE_NAMES,
+    feature_vector,
+)
 
 _MODEL_DIR = Path(__file__).resolve().parents[2] / "data"
 _MATCH_MODEL_PATH = _MODEL_DIR / "win_prob_model.pkl"
@@ -254,8 +259,8 @@ class _Ctx:
 
     # --- public feature builders ---
 
-    def match_features(self, agent_id: str) -> list[float]:
-        """29-element feature vector matching train_win_prob.FEATURE_NAMES."""
+    def match_features_named(self, agent_id: str) -> dict[str, float]:
+        """Named match-win features; order-free — MATCH_FEATURE_NAMES owns the order."""
         p = next(pl for pl in self.players if pl.agent_id == agent_id)
 
         scores = [float(pl.round_score) for pl in self.players]
@@ -283,40 +288,44 @@ class _Ctx:
         total_r = max(self.total_rounds - 1, 1)
         total_t = max(self.turns_per_round - 1, 1)
 
-        return [
-            (self.rnd - 1) / total_r,
-            (self.turn - 1) / total_t,
-            sb,
-            rw,
-            float(score_rank),
-            score_leader - sb,
-            _mean(scores),
-            _std(scores),
-            float(rw_rank),
-            rw_leader,
-            _mean(rw_vals),
-            float(self.n),
-            float(hc),
-            float(htc),
-            float(hdc),
-            float(tgt),
-            float(tbl_h),
-            float(tbl_ht),
-            float(tbl_hd),
-            float(piled),
-            float(pmax),
-            float(mut),
-            float(consec),
-            last_pts,
-            mhr,
-            mhrt,
-            float(self_clinch),
-            float(leader_clinch),
-            float(rsl),
-        ]
+        return {
+            "round_frac": (self.rnd - 1) / total_r,
+            "turn_frac": (self.turn - 1) / total_t,
+            "score_before": sb,
+            "round_wins_before": rw,
+            "score_rank": float(score_rank),
+            "score_gap_to_leader": score_leader - sb,
+            "score_mean": _mean(scores),
+            "score_std": _std(scores),
+            "round_wins_rank": float(rw_rank),
+            "round_wins_leader": rw_leader,
+            "round_wins_mean": _mean(rw_vals),
+            "n_players": float(self.n),
+            "help_count": float(hc),
+            "hurt_count": float(htc),
+            "hoard_count": float(hdc),
+            "times_targeted": float(tgt),
+            "table_help_count": float(tbl_h),
+            "table_hurt_count": float(tbl_ht),
+            "table_hoard_count": float(tbl_hd),
+            "was_piled_on": float(piled),
+            "pile_on_max": float(pmax),
+            "got_mutual_help": float(mut),
+            "consecutive_round_wins": float(consec),
+            "last_points_delta": last_pts,
+            "match_help_rate": mhr,
+            "match_hurt_rate": mhrt,
+            "self_can_clinch": float(self_clinch),
+            "leader_can_clinch": float(leader_clinch),
+            "rounds_same_leader": float(rsl),
+        }
 
-    def round_features(self, agent_id: str) -> list[float]:
-        """20-element feature vector matching train_round_win_prob.FEATURE_NAMES."""
+    def match_features(self, agent_id: str) -> list[float]:
+        """Feature vector in MATCH_FEATURE_NAMES order (data/win_prob_model.pkl input)."""
+        return feature_vector(self.match_features_named(agent_id), MATCH_FEATURE_NAMES)
+
+    def round_features_named(self, agent_id: str) -> dict[str, float]:
+        """Named round-win features; order-free — ROUND_FEATURE_NAMES owns the order."""
         scores = [float(pl.round_score) for pl in self.players]
         sb = _score_before(agent_id, self.prior + self.cur, self.rnd, self.turn)
         score_leader = max(scores)
@@ -330,28 +339,32 @@ class _Ctx:
 
         total_t = max(self.turns_per_round - 1, 1)
 
-        return [
-            (self.turn - 1) / total_t,
-            sb,
-            float(score_rank),
-            score_leader - sb,
-            _mean(scores),
-            _std(scores),
-            float(self.n),
-            float(hc),
-            float(htc),
-            float(hdc),
-            float(tgt),
-            float(tbl_h),
-            float(tbl_ht),
-            float(tbl_hd),
-            float(piled),
-            float(pmax),
-            float(mut),
-            last_pts,
-            mhr,
-            mhrt,
-        ]
+        return {
+            "turn_frac": (self.turn - 1) / total_t,
+            "score_before": sb,
+            "score_rank": float(score_rank),
+            "score_gap_to_leader": score_leader - sb,
+            "score_mean": _mean(scores),
+            "score_std": _std(scores),
+            "n_players": float(self.n),
+            "help_count": float(hc),
+            "hurt_count": float(htc),
+            "hoard_count": float(hdc),
+            "times_targeted": float(tgt),
+            "table_help_count": float(tbl_h),
+            "table_hurt_count": float(tbl_ht),
+            "table_hoard_count": float(tbl_hd),
+            "was_piled_on": float(piled),
+            "pile_on_max": float(pmax),
+            "got_mutual_help": float(mut),
+            "last_points_delta": last_pts,
+            "match_help_rate": mhr,
+            "match_hurt_rate": mhrt,
+        }
+
+    def round_features(self, agent_id: str) -> list[float]:
+        """Feature vector in ROUND_FEATURE_NAMES order (data/round_win_prob_model.pkl input)."""
+        return feature_vector(self.round_features_named(agent_id), ROUND_FEATURE_NAMES)
 
 
 # ---------------------------------------------------------------------------

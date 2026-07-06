@@ -24,7 +24,7 @@ from app.models.connection import Connection, ConnectionProvider, ConnectionStat
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
+from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
 from app.routes.agent_api import router as agent_api_router
 from app.routes.agent_next_turn import router as agent_next_turn_router
@@ -52,7 +52,6 @@ async def app(
 ) -> FastAPI:
     monkeypatch.setattr("app.db.SessionLocal", session_factory)
     monkeypatch.setattr("app.db.engine", engine)
-    monkeypatch.setattr("app.routes.agent_api._last_poll", {})
     monkeypatch.setattr("app.routes.agent_api._last_pull", {})
     test_app = FastAPI()
     test_app.include_router(agent_api_router, prefix="/api/matches/{match_id}")
@@ -160,6 +159,7 @@ async def _create_match_with_turn(
     match_id: str,
     *,
     deadline_seconds: int,
+    phase: str = "act",
 ) -> tuple[Match, Turn]:
     now = datetime.now(timezone.utc)
     match = Match(
@@ -181,7 +181,7 @@ async def _create_match_with_turn(
         turn_token=generate_turn_token(),
         opened_at=now,
         deadline_at=now + timedelta(seconds=deadline_seconds),
-        phase="act",
+        phase=phase,
     )
     db.add(turn)
     await db.flush()
@@ -312,7 +312,7 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
         user = await make_user(db)
         connection, key = await make_connection(db, user)
         match, turn = await _create_match_with_turn(db, "M_0200", deadline_seconds=60)
-        agent_a, _version_a, player_a = await _seat_agent(
+        agent_a, _version_a, _player_a = await _seat_agent(
             db,
             user=user,
             connection=connection,
@@ -322,7 +322,7 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
             model="claude-sonnet-4-6",
             strategy_text="alpha strategy",
         )
-        agent_b, _version_b, player_b = await _seat_agent(
+        agent_b, _version_b, _player_b = await _seat_agent(
             db,
             user=user,
             connection=connection,
@@ -334,26 +334,9 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
         )
         await db.commit()
 
-    poll_a = await client.get(
-        f"/api/matches/{match.id}/turn",
-        params={"agent_id": agent_a.id},
-        headers={"X-Connection-Key": key},
-    )
-    assert poll_a.status_code == 200, poll_a.text
-    body_a = poll_a.json()
-    assert body_a["status"] == "your_turn"
-    assert body_a["static"]["your_agent_id"] == player_a.seat_name
-
-    poll_b = await client.get(
-        f"/api/matches/{match.id}/turn",
-        params={"agent_id": agent_b.id},
-        headers={"X-Connection-Key": key},
-    )
-    assert poll_b.status_code == 200, poll_b.text
-    body_b = poll_b.json()
-    assert body_b["status"] == "your_turn"
-    assert body_b["static"]["your_agent_id"] == player_b.seat_name
-
+    # Each agent fetching only its own turn is covered by the agent_id-filter
+    # test; here the surviving contract is that a submit under the WRONG agent_id
+    # for a claimed turn token is rejected without recording anything.
     next_turn = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert next_turn.status_code == 200, next_turn.text
     next_body = next_turn.json()
@@ -445,6 +428,8 @@ async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
     assert body_a["status"] == "your_turn"
     assert body_a["agent_id"] == agent_a.id
     assert body_a["seat_name"] == player_a.seat_name
+    # The static block's own identity field is projected from the served seat.
+    assert body_a["static"]["your_agent_id"] == player_a.seat_name
 
     only_b = await client.get(
         "/api/agent/next-turn",
@@ -1379,10 +1364,8 @@ async def test_next_turn_payload_includes_current_pact_values(
 ) -> None:
     """`your_private_state.pact_values` carries what a mutual HELP with each
     other seat would pay each side RIGHT NOW: decayed for a partner the agent
-    already farmed once this match, fresh for one it never mutually helped.
-    Shared by both the next-turn fan-out (this test) and the per-match poll
-    (`agent_play.poll_turn`), since both route through the same
-    `module.private_state_for` hook."""
+    already farmed once this match, fresh for one it never mutually helped
+    (routed through `module.private_state_for`)."""
     async with session_factory() as db:
         user = await make_user(db)
         connection, key = await make_connection(db, user)
@@ -1496,14 +1479,185 @@ async def test_next_turn_payload_includes_current_pact_values(
     assert pact_values[player_c.seat_name] == 8  # never mutually helped: fresh value
     assert "pact_values_note" in body["your_private_state"]
 
-    # Per-match poll path (`agent_play.poll_turn`) shares the same hook.
-    poll = await client.get(
-        f"/api/matches/{match.id}/turn",
-        params={"agent_id": agent_a.id},
-        headers={"X-Connection-Key": key},
-    )
-    assert poll.status_code == 200, poll.text
-    poll_body = poll.json()
-    poll_pact_values = poll_body["your_private_state"]["pact_values"]
-    assert poll_pact_values[player_b.seat_name] == 7
-    assert poll_pact_values[player_c.seat_name] == 8
+
+async def test_coach_note_served_on_turn_payload(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A coach note armed for the CURRENT round rides on the turn payload,
+    gated to that round."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        match, _turn = await _create_match_with_turn(db, "M_COACH", deadline_seconds=60)
+        agent, _version, player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="alpha strategy",
+        )
+        player.coach_note = "Be cooperative this round"
+        player.coach_note_round = match.current_round  # active NOW
+        await db.commit()
+
+    fanout = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert fanout.status_code == 200, fanout.text
+    fanout_body = fanout.json()
+    assert fanout_body["status"] == "your_turn"
+    assert fanout_body["static"]["coach_note"] == "Be cooperative this round"
+
+
+async def test_coach_note_for_a_future_round_is_absent_from_turn_payload(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The round gating holds: a note armed for a LATER round does not appear in
+    the payload's static block."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        match, _turn = await _create_match_with_turn(db, "M_COACH2", deadline_seconds=60)
+        agent, _version, player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="alpha strategy",
+        )
+        player.coach_note = "Armed for a later round"
+        player.coach_note_round = match.current_round + 1
+        await db.commit()
+
+    fanout = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert fanout.status_code == 200, fanout.text
+    assert "coach_note" not in fanout.json()["static"]
+
+
+async def test_turn_static_block_carries_unified_fields(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The next-turn static block carries the full identity/rules field set built
+    by build_turn_static_dict — including the conditional coach_note — not an
+    empty shell."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        match, _turn = await _create_match_with_turn(db, "M_DRIFT", deadline_seconds=60)
+        agent, _version, player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="alpha strategy",
+        )
+        player.coach_note = "Watch the leader"
+        player.coach_note_round = match.current_round
+        await db.commit()
+
+    fanout = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert fanout.status_code == 200, fanout.text
+
+    static = fanout.json()["static"]
+    for field in ("match_id", "game_id", "game", "rules", "base_prompt", "coach_note"):
+        assert field in static
+
+
+async def test_filter_to_candidates_batches_mixed_phase_seats(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The batched owes-a-move filter behaves per seat exactly like the old
+    per-seat queries across a mixed board: an act turn already submitted is
+    skipped, a talk turn already messaged is skipped, a talk turn not yet
+    messaged is served, a seat whose only submission was defaulted is served,
+    and a seat with no open turn at all serves nothing."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        # A: act phase, real submission -> skipped.
+        match_a, turn_a = await _create_match_with_turn(db, "M_FA", deadline_seconds=60)
+        # B: talk phase, real talk message -> skipped.
+        match_b, turn_b = await _create_match_with_turn(
+            db, "M_FB", deadline_seconds=60, phase="talk"
+        )
+        # C: talk phase, no message yet -> served.
+        match_c, _turn_c = await _create_match_with_turn(
+            db, "M_FC", deadline_seconds=60, phase="talk"
+        )
+        # D: act phase, only a DEFAULTED submission -> still owed, served.
+        match_d, turn_d = await _create_match_with_turn(db, "M_FD", deadline_seconds=60)
+        # E: active match with NO open turn -> nothing to serve.
+        now = datetime.now(timezone.utc)
+        match_e = Match(
+            id="M_FE",
+            name="match-M_FE",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=1,
+        )
+        db.add(match_e)
+        await db.flush()
+
+        players = {}
+        for label, match in (
+            ("A", match_a),
+            ("B", match_b),
+            ("C", match_c),
+            ("D", match_d),
+            ("E", match_e),
+        ):
+            _agent, _version, player = await _seat_agent(
+                db,
+                user=user,
+                connection=connection,
+                match=match,
+                seat_name=f"{user.handle}/{label}",
+                agent_name=label,
+                model="claude-sonnet-4-6",
+                strategy_text="s",
+            )
+            players[label] = player
+        db.add(
+            TurnSubmission(
+                turn_id=turn_a.id,
+                player_id=players["A"].id,
+                action="HOARD",
+                target_player_id=None,
+                was_defaulted=False,
+            )
+        )
+        db.add(
+            TurnMessage(
+                turn_id=turn_b.id,
+                player_id=players["B"].id,
+                text="already talked",
+                was_defaulted=False,
+                submitted_at=now,
+            )
+        )
+        db.add(
+            TurnSubmission(
+                turn_id=turn_d.id,
+                player_id=players["D"].id,
+                action="HOARD",
+                target_player_id=None,
+                was_defaulted=True,
+            )
+        )
+        await db.commit()
+
+    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    assert batch.status_code == 200, batch.text
+    body = batch.json()
+    assert body["status"] == "your_turn"
+    assert sorted(t["match_id"] for t in body["turns"]) == ["M_FC", "M_FD"]

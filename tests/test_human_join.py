@@ -2,41 +2,29 @@
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timezone
 
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
-from app.config import settings
 from app.engine.human_player import get_or_create_human_agent
 from app.models import GameState, Match, Player
 from app.models.agent import Agent, AgentKind
-from tests.factories import make_agent, make_user
+from tests.factories import make_agent, make_match, make_user
+from tests.conftest import signed_in_cookies as _cookies
 
 GAME = "hoard-hurt-help"
 
 
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
-
-
 async def _make_match(db, match_id: str, *, state: GameState, max_players: int = 20) -> Match:
-    match = Match(
-        id=match_id,
-        name=f"Match {match_id}",
-        game=GAME,
+    # scheduled_start is "now" (joinable immediately), not the factory's
+    # not-yet-started default of an hour out.
+    return await make_match(
+        db,
+        match_id,
         state=state,
         scheduled_start=datetime.now(timezone.utc),
-        per_turn_deadline_seconds=60,
         max_players=max_players,
     )
-    db.add(match)
-    await db.flush()
-    return match
 
 
 async def test_join_creates_active_human_seat(reset_db, client) -> None:

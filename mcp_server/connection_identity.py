@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import HTTPException, status
-from fastmcp.server.dependencies import AccessToken, get_context, get_http_request
+from fastmcp.server.dependencies import AccessToken, get_http_request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
@@ -48,26 +48,6 @@ def _google_userinfo_from_token(token: AccessToken) -> GoogleUserInfo:
     return _userinfo_from_claims(
         token.claims or {}, subject=token.subject or token.client_id
     )
-
-
-def _client_provider_from_context() -> ConnectionProvider | None:
-    """Which AI provider does the live MCP client speak for? Best-effort.
-
-    Reads the client's self-reported ``clientInfo.name`` from the active MCP
-    session and maps it to a provider (one MCP client == one provider). Used on
-    tool calls, where the session's ``client_params`` is already populated.
-
-    fail-open: advisory only — any problem returns ``None`` and the caller
-    enables no provider rather than guessing one.
-    """
-    try:
-        ctx = get_context()
-        params = getattr(ctx.session, "client_params", None)
-        client_info = getattr(params, "clientInfo", None)
-        name = getattr(client_info, "name", None)
-    except Exception:
-        return None
-    return provider_from_client_name(name)
 
 
 def _client_provider_from_initialize(message: object) -> ConnectionProvider | None:

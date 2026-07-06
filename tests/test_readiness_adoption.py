@@ -16,15 +16,12 @@ Covers:
 
 from __future__ import annotations
 
-import base64
-import json
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -46,7 +43,8 @@ from app.models.user import User
 from app.routes.agents_detail import _build_agent_detail_context
 from app.routes.connections_setup import router as connections_setup_router
 from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
-from tests.factories import make_connection, make_user
+from tests.factories import make_connection, make_match, make_user
+from tests.conftest import signed_in_cookies as _cookies
 
 
 # ---------------------------------------------------------------------------
@@ -129,15 +127,6 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
         yield c
 
 
-def _cookies(user_id: int) -> dict[str, str]:
-    """Build a signed session cookie that authenticates as user_id."""
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(
-        json.dumps({"user_id": user_id, "next_after_login": None}).encode()
-    ).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
-
-
 # ---------------------------------------------------------------------------
 # DB factory helpers (local to this module)
 # ---------------------------------------------------------------------------
@@ -188,19 +177,14 @@ async def _make_match(
     *,
     state: GameState,
 ) -> Match:
-    now = datetime.now(timezone.utc)
-    m = Match(
-        id=match_id,
-        name=f"Match {match_id}",
-        game="hoard-hurt-help",
+    started = datetime.now(timezone.utc) - timedelta(hours=1)
+    return await make_match(
+        db,
+        match_id,
         state=state,
-        scheduled_start=now - timedelta(hours=1),
-        started_at=now - timedelta(hours=1) if state != GameState.SCHEDULED else None,
-        per_turn_deadline_seconds=60,
+        scheduled_start=started,
+        started_at=started if state != GameState.SCHEDULED else None,
     )
-    db.add(m)
-    await db.flush()
-    return m
 
 
 async def _make_agent_for_provider(

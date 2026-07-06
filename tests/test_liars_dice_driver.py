@@ -1,27 +1,30 @@
 """End-to-end Liar's Dice turn-loop tests.
 
 This file covers the GAME-LOGIC half of Liar's Dice (the bot-driven match loop,
-determinism, and the agent-API hidden-info contract via `poll_turn`). The
-spectator-JSON and MCP `get_game_state` leak sweep lives with the other
+determinism, and the agent-API hidden-info contract via the next-turn payload).
+The spectator-JSON and MCP `get_game_state` leak sweep lives with the other
 (schemas/viewer) half — those surfaces only expose Liar's Dice `public_state`
 once `SpectatorState` gains a `public_state` field, which is owned by that half.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import make_engine
-from app.engine.agent_play import poll_turn
 from app.engine.tokens import generate_turn_token
 from app.engine.turn_drivers import SequentialDriver
 from app.games.liars_dice.game import LiarsDice
 from app.models import Base, GameState, Match, MatchState, Player, PlayerState, Turn
 from app.models.agent import AgentKind
+from app.routes.agent_next_turn import router as agent_next_turn_router
 from tests.factories import make_bot, make_user, seat_player
 
 
@@ -135,12 +138,28 @@ async def test_sequential_driver_completes_and_is_deterministic() -> None:
         assert first == second
 
 
-async def test_hidden_info_stays_private_before_showdown_and_reveals_after() -> None:
+async def test_hidden_info_stays_private_before_showdown_and_reveals_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     module = LiarsDice()
+    # The next-turn endpoint resolves the DB through the imported SessionLocal.
+    monkeypatch.setattr("app.db.SessionLocal", factory)
+    monkeypatch.setattr("app.db.engine", engine)
+
+    test_app = FastAPI()
+    test_app.include_router(agent_next_turn_router)
+    transport = ASGITransport(app=test_app)
+
+    async def _serve(client: AsyncClient, key: str) -> dict:
+        r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+        assert r.status_code == 200, r.text
+        payload = r.json()
+        assert payload["status"] == "your_turn", payload
+        return payload
 
     async with factory() as db:
         match, players = await _seed_match(
@@ -150,6 +169,7 @@ async def test_hidden_info_stays_private_before_showdown_and_reveals_after() -> 
             dice_per_player=5,
             bot=False,
         )
+        key_a = players[0]._test_key
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
         ).scalar_one()
@@ -182,25 +202,30 @@ async def test_hidden_info_stays_private_before_showdown_and_reveals_after() -> 
         db.add(turn)
         await db.commit()
 
-        # Agent API: the active player sees only its own dice; nobody else's dice
-        # leak through the turn payload before the showdown.
-        pre = await poll_turn(db, match_id=match.id, player=players[0], rate_state={})
-        assert pre.status == "your_turn"
-        assert pre.your_private_state == {"dice": [5, 5, 1], "dice_count": 3}
-        assert pre.public_state["dice_counts"] == {"A": 3, "B": 3, "C": 3}
-        assert "[2,2,4]" not in pre.model_dump_json()
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # Agent API: the active player sees only its own dice; nobody else's
+            # dice leak through the turn payload before the showdown.
+            pre = await _serve(client, key_a)
+            assert pre["your_private_state"] == {"dice": [5, 5, 1], "dice_count": 3}
+            assert pre["public_state"]["dice_counts"] == {"A": 3, "B": 3, "C": 3}
+            # No opponent's hidden dice leak anywhere in the payload. Serialize
+            # compactly so a leaked list (e.g. [2,2,4]) matches the search string
+            # (json.dumps' default separators would insert spaces and never hit).
+            pre_json = json.dumps(pre, separators=(",", ":"), default=str)
+            assert "[2,2,4]" not in pre_json  # B's dice
+            assert "[3,4,6]" not in pre_json  # C's dice
 
-        state.state_json["standing_bid"] = {"by": "A", "quantity": 2, "face": 5}
-        state.state_json["challenge_pending"] = True
-        state.state_json["challenger"] = "B"
-        await db.commit()
+            state.state_json["standing_bid"] = {"by": "A", "quantity": 2, "face": 5}
+            state.state_json["challenge_pending"] = True
+            state.state_json["challenger"] = "B"
+            await db.commit()
 
-        await module.award_round(db, match, 1)
+            await module.award_round(db, match, 1)
 
-        # After the showdown all hands are revealed in public_state.
-        post = await poll_turn(db, match_id=match.id, player=players[0], rate_state={})
-        assert post.public_state["last_showdown"]["revealed"]["A"] == [5, 5, 1]
-        assert post.public_state["last_showdown"]["revealed"]["B"] == [2, 2, 4]
+            # After the showdown all hands are revealed in public_state.
+            post = await _serve(client, key_a)
+            assert post["public_state"]["last_showdown"]["revealed"]["A"] == [5, 5, 1]
+            assert post["public_state"]["last_showdown"]["revealed"]["B"] == [2, 2, 4]
 
     await engine.dispose()
 

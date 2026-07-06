@@ -487,20 +487,6 @@ async def test_pull_tools_use_shared_oauth_resolution(
 # ---------------------------------------------------------------------------
 
 
-def test_client_provider_from_context_returns_none_without_active_session() -> None:
-    """_client_provider_from_context() fails open (returns None) outside a live request.
-
-    In stateless_http mode every tool-call request arrives with no persistent
-    session, so session.client_params is None. The function catches this and returns
-    None — expected behavior. Tool calls instead key on the DCR client_id read from
-    the raw bearer JWT (see _dcr_client_id_from_request / _resolve_oauth_connection).
-    """
-    from mcp_server.server import _client_provider_from_context
-
-    provider = _client_provider_from_context()
-    assert provider is None
-
-
 def test_dcr_client_id_from_request_decodes_bearer_jwt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -6,24 +6,16 @@ be correct (and that CI can guard without a live server)."""
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "agentludum_connector.py"
+from tests.conftest import load_script_module
 
 
 @pytest.fixture(scope="module")
 def runner():
-    spec = importlib.util.spec_from_file_location("agentludum_connector_verify", _SCRIPT)
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    return load_script_module("agentludum_connector_verify", "agentludum_connector")
 
 
 # --- _should_verify (cadence) -------------------------------------------------

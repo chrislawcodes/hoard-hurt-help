@@ -1,12 +1,9 @@
 """Admin auth + game creation + export tests."""
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from starlette.requests import Request
 
@@ -19,6 +16,7 @@ from app.routes import admin_web
 from app.routes import game_admin_web
 from app.routes import web_support
 from tests.factories import make_agent
+from tests.conftest import signed_in_cookies as _cookies
 
 
 @pytest.fixture(autouse=True)
@@ -37,12 +35,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _seed_user(reset_db, email: str) -> User:

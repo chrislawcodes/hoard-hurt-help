@@ -37,7 +37,7 @@ Four stages, each feeding the next; artifacts land in `data/`:
 ```bash
 python scripts/baseline_tournament.py --batches 4 --seed 99   # → data/baseline.sqlite
 python scripts/export_baseline_dataset.py                     # → data/baseline.csv (one row per player-turn)
-python scripts/compute_features.py                            # → data/baseline_features.csv (+16 derived columns)
+python scripts/compute_features.py                            # → data/baseline_features.csv (+17 derived columns)
 python scripts/train_win_prob.py                              # → data/win_prob_model.pkl
 python scripts/train_round_win_prob.py                        # → data/round_win_prob_model.pkl
 ```

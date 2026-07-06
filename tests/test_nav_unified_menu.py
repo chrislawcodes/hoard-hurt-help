@@ -11,16 +11,13 @@ so renaming a class or reshuffling the nav structure won't break them while the
 nav still works.
 """
 
-import base64
-import json
 import re
 
 import pytest
-from itsdangerous import TimestampSigner
 
-from app.config import settings
 from app.models import Base
 from tests.factories import make_user
+from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
 @pytest.fixture(autouse=True)
@@ -38,13 +35,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-def _signed_in_cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 # --- Reading the nav the way a visitor does (text + destinations) -----------

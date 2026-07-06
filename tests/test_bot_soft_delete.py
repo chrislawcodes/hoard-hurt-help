@@ -7,20 +7,17 @@ archived agent is hidden from the owner's lists, rejected from new games, and
 its key stops working.
 """
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import settings
 from app.engine.bot_presets import bot_presets
 from app.models import Base, Agent, AgentKind, AgentStatus, Connection, Match, GameState, Player, User
 from app.models.agent_version import AgentVersion
 from tests.factories import make_agent, make_connection, make_match, make_user
+from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
 @pytest.fixture(autouse=True)
@@ -38,13 +35,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-def _signed_in_cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _seed_user(reset_db: async_sessionmaker) -> User:
@@ -205,15 +195,16 @@ async def test_archived_bot_key_stops_authenticating(client, reset_db):
     agent, key, _connection = await _seed_agent(reset_db, user)
     await _give_history(reset_db, user, agent.id)  # seats the agent in G_001
 
-    # Sanity: the key works before deletion.
-    ok = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
+    # Sanity: the key works before deletion (a per-match agent endpoint that
+    # resolves the seat via require_agent_player, same as submit/message).
+    ok = await client.get("/api/games/G_001/state", headers={"X-Connection-Key": key})
     assert ok.status_code != 401
 
     await client.post(
         f"/me/agents/{agent.id}/delete", cookies=_signed_in_cookies(user.id)
     )
 
-    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
+    r = await client.get("/api/games/G_001/state", headers={"X-Connection-Key": key})
     assert r.status_code == 404
     assert r.json()["detail"]["error"]["code"] == "NOT_IN_GAME"
 

@@ -2,10 +2,9 @@
 
 These shapes are documented in SPEC.md §1.1 and contracts/api.yaml.
 
-Feature 002 (bot-state-summary): the next-turn payload now returns a bounded
-`summary` (TurnSummary) instead of the full per-turn history. The heavy detail
-moved behind the pull endpoints, whose response shapes live at the bottom of
-this file.
+The next-turn payload ships the raw `history` (plus scoreboard and current-turn
+block); opt-in detail lives behind the pull endpoints, whose response shapes
+are at the bottom of this file.
 """
 
 from datetime import datetime
@@ -23,14 +22,14 @@ from pydantic import (
 from app.agent_prompt import MESSAGE_MAX_LENGTH, THINKING_MAX_LENGTH
 
 
-def _drop_empty_game_state(data: dict) -> dict:
-    """Omit the optional per-game state keys when a game supplies none.
+def _drop_none_keys(data: dict, keys: tuple[str, ...]) -> dict:
+    """Omit the named keys when their value is None.
 
-    PD provides neither private nor public game-state, so its payload must not
-    carry these keys at all (byte-identical to before they existed). Games that
-    return state (e.g. Liar's Dice) serialize them normally.
+    The one helper behind every "this key must be absent, not null" wrap
+    serializer in this module, keeping payloads byte-identical to before the
+    optional fields existed.
     """
-    for key in ("your_private_state", "public_state"):
+    for key in keys:
         if data.get(key) is None:
             data.pop(key, None)
     return data
@@ -66,34 +65,7 @@ class MatchIdEnvelope(BaseModel):
         return self
 
 
-# --- Join ---
-
-
-class JoinRequest(BaseModel):
-    display_name: str = Field(min_length=1, max_length=32, pattern=r"^[a-zA-Z0-9_]+$")
-    strategy_prompt: str = Field(min_length=1, max_length=2000)
-    model_self_report: str | None = Field(default=None, max_length=200)
-
-
-class JoinResponse(MatchIdEnvelope):
-    agent_id: str
-    agent_key: str
-    poll_url: str
-    submit_url: str
-    scheduled_start: datetime
-    per_turn_deadline_seconds: int
-
-
 # --- Poll response shapes ---
-
-
-class WaitingResponse(BaseModel):
-    status: Literal["waiting"] = "waiting"
-    reason: Literal["turn_not_open", "already_submitted", "game_not_started", "game_over"]
-    game_state: str
-    current_round: int = 0
-    current_turn: int = 0
-    next_poll_after_seconds: int = 2
 
 
 class ScoreboardRow(BaseModel):
@@ -111,71 +83,29 @@ class TurnStatic(MatchIdEnvelope):
     your_agent_id: str
     all_agent_ids: list[str]
     your_strategy: str | None = None
+    # Fields the per-match poll gained when its static block was unified with the
+    # next-turn fan-out's (see build_turn_static_dict): the game type, and the
+    # sideline coach's one-round note (Player.coach_note, gated to the round it
+    # targets). Both serialize only when set, mirroring the fan-out dict — which
+    # includes coach_note conditionally — so the two paths emit the same shape.
+    # Any future optional field must join this tuple, or the poll path will emit
+    # `"field": null` where the fan-out omits the key (the drift-guard test in
+    # test_agent_next_turn_fanout catches the divergence).
+    game: str | None = None
+    coach_note: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_additions(self, handler: SerializerFunctionWrapHandler) -> dict:
+        return _drop_none_keys(handler(self), ("game", "coach_note"))
 
 
-# --- Free summary (the bounded push payload) ---
-
-
-class YourSituation(BaseModel):
-    round_score: int
-    total_score: int
-    round_wins: float
-    rank: int
-    current_round: int
-    current_turn: int
-    deadline: datetime
-    turn_token: str
+# --- Standings + board-signal shapes (standings pulls, game-module signals) ---
 
 
 class StandingRow(BaseModel):
     agent_id: str
     round_score: int
     rank: int
-
-
-class StandingsView(BaseModel):
-    leaders: list[StandingRow]
-    your_rank: int
-    neighbors: list[StandingRow]
-    total_players: int
-
-
-class DeltaAction(BaseModel):
-    actor_id: str
-    action: Action
-    target_id: str | None
-    points_delta: int
-
-
-class TurnDelta(BaseModel):
-    round: int
-    turn: int
-    involving_you: list[DeltaAction]
-    others_summary: str
-
-
-class StyleMix(BaseModel):
-    hoard_pct: int
-    help_pct: int
-    hurt_pct: int
-
-
-class OpponentStat(BaseModel):
-    agent_id: str
-    round_score: int
-    helped_you: int
-    hurt_you: int
-    returned_help: bool
-    returned_hurt: bool
-    style: StyleMix
-    reason: Literal["interacted", "threat", "neighbor", "flagged"]
-
-
-class OpponentsAggregate(BaseModel):
-    count: int
-    hoard: int
-    help: int
-    hurt: int
 
 
 class Alliance(BaseModel):
@@ -188,31 +118,6 @@ class BoardSignals(BaseModel):
     cooperation_temperature: float
     temperature_label: Literal["hostile", "mixed", "cooperative"]
     surging: list[str]
-
-
-class SummaryFlags(BaseModel):
-    pattern_breaks: list[str]
-    new_alliance: bool
-    messages_for_you_count: int
-
-
-class DirectedMessage(BaseModel):
-    from_agent_id: str
-    message: str
-    on_action: str | None
-    public: bool
-
-
-class TurnSummary(BaseModel):
-    your_situation: YourSituation
-    standings_view: StandingsView
-    # None only on the very first turn of the game (no prior resolved turn).
-    turn_delta: TurnDelta | None
-    opponents: list[OpponentStat]
-    opponents_aggregate: OpponentsAggregate | None
-    board_signals: BoardSignals
-    flags: SummaryFlags
-    messages_for_you: list[DirectedMessage]
 
 
 # --- Shared history shapes (used by the bot payload, spectator view, and pulls) ---
@@ -261,14 +166,16 @@ class YourTurnResponse(BaseModel):
     history: list[HistoryTurn]
     scoreboard: list[ScoreboardRow]
     current: CurrentTurn
-    # Per-game state (omitted for games that supply none, e.g. PD). Kept last so
-    # they don't disturb the cache-friendly prefix.
+    # Per-game state (omitted for games that supply none, e.g. PD — the payload
+    # must stay byte-identical to before these keys existed; games that return
+    # state, e.g. Liar's Dice, serialize them normally). Kept last so they don't
+    # disturb the cache-friendly prefix.
     your_private_state: dict | None = None
     public_state: dict | None = None
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict:
-        return _drop_empty_game_state(handler(self))
+        return _drop_none_keys(handler(self), ("your_private_state", "public_state"))
 
 
 class GameCompletedResponse(BaseModel):

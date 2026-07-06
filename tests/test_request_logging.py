@@ -12,6 +12,7 @@ from app.main import app
 from app.models import Base, RequestIncident, User
 from app.models.user import UserRole
 from app.request_logging import install_request_logging, set_request_trace_context
+from tests.conftest import signed_in_cookies as _cookies
 
 
 @pytest.fixture(autouse=True)
@@ -37,16 +38,6 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
-
-def _cookies(user_id: int) -> dict[str, str]:
-    from itsdangerous import TimestampSigner
-    import base64
-    import json
-
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def test_request_logging_persists_incident_and_request_id(reset_db):

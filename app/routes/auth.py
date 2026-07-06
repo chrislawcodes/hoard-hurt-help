@@ -2,11 +2,12 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api_errors import api_error
 from app.auth.google import oauth
 from app.auth.session import clear_session, set_session_user
 from app.config import settings
@@ -93,15 +94,10 @@ async def google_callback(request: Request, db: DbSession):
     try:
         token = await oauth.google.authorize_access_token(request)
     except Exception as exc:
-        raise HTTPException(
+        raise api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": {
-                    "code": "GOOGLE_AUTH_FAILED",
-                    "message": str(exc),
-                    "details": {},
-                }
-            },
+            code="GOOGLE_AUTH_FAILED",
+            message=str(exc),
         ) from exc
 
     userinfo_raw = token.get("userinfo") or await oauth.google.userinfo(token=token)

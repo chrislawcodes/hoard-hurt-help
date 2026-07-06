@@ -35,6 +35,7 @@ from app.engine.agent_play_reads import (
     _group_into_turns,
     _load_public_action_records,
     build_public_scoreboard_dicts,
+    build_turn_static_dict,
     load_match_players,
     load_open_turns,
     sorted_seat_names,
@@ -211,6 +212,28 @@ async def _build_candidate_lookups(
     return ctx
 
 
+async def _undefaulted_pairs(
+    db: AsyncSession,
+    model: type[TurnSubmission] | type[TurnMessage],
+    turn_ids: set[int],
+    player_ids: set[int],
+) -> set[tuple[int, int]]:
+    """(turn_id, player_id) pairs with a real (non-defaulted) row for the model.
+
+    One helper for both the act check (TurnSubmission) and the talk check
+    (TurnMessage) so the two batched reads can't drift apart in their
+    predicates.
+    """
+    rows = await db.execute(
+        select(model.turn_id, model.player_id).where(
+            model.turn_id.in_(turn_ids),
+            model.player_id.in_(player_ids),
+            model.was_defaulted.is_(False),
+        )
+    )
+    return {(row.turn_id, row.player_id) for row in rows.all()}
+
+
 async def _filter_to_candidates(
     db: AsyncSession, ctx: CandidateContext
 ) -> list[TurnCandidate]:
@@ -220,22 +243,33 @@ async def _filter_to_candidates(
     the player already broadcast a message for, since there is nothing left to do
     until the act phase opens.
     """
-    candidates: list[TurnCandidate] = []
-    for agent_id, match_id in ctx.player_by_key:
-        player = ctx.player_by_key[(agent_id, match_id)]
+    seats: list[tuple[int, str, Player, Turn]] = []
+    for (agent_id, match_id), player in ctx.player_by_key.items():
         turn = ctx.latest_turn_by_match.get(match_id)
         if turn is None:
             continue
-        existing = (
-            await db.execute(
-                select(TurnSubmission.id).where(
-                    TurnSubmission.turn_id == turn.id,
-                    TurnSubmission.player_id == player.id,
-                    TurnSubmission.was_defaulted.is_(False),
-                )
-            )
-        ).first()
-        if existing is not None:
+        seats.append((agent_id, match_id, player, turn))
+    if not seats:
+        return []
+
+    # Two batched existence reads — mirroring _load_public_action_records —
+    # instead of one round trip per seat. The predicates are the per-seat
+    # originals verbatim (non-defaulted rows only), scoped to this connection's
+    # own players so a big table doesn't inflate the fetch; per-seat membership
+    # is then tested in memory on (turn_id, player_id).
+    player_ids = {player.id for _agent_id, _match_id, player, _turn in seats}
+    turn_ids = {turn.id for _agent_id, _match_id, _player, turn in seats}
+    submitted = await _undefaulted_pairs(db, TurnSubmission, turn_ids, player_ids)
+    talk_turn_ids = {
+        turn.id for _agent_id, _match_id, _player, turn in seats if turn.phase == "talk"
+    }
+    messaged: set[tuple[int, int]] = set()
+    if talk_turn_ids:
+        messaged = await _undefaulted_pairs(db, TurnMessage, talk_turn_ids, player_ids)
+
+    candidates: list[TurnCandidate] = []
+    for agent_id, match_id, player, turn in seats:
+        if (turn.id, player.id) in submitted:
             continue
         # Talk-phase symmetry with the act check above: a player who has already
         # broadcast their talk message has nothing left to do until the act phase
@@ -243,18 +277,8 @@ async def _filter_to_candidates(
         # same full turn payload (entire history included), which bloats the AI's
         # context and trips client-side loop detectors. Skip it so the loop
         # long-polls and serves the act phase once, when it actually opens.
-        if turn.phase == "talk":
-            existing_message = (
-                await db.execute(
-                    select(TurnMessage.id).where(
-                        TurnMessage.turn_id == turn.id,
-                        TurnMessage.player_id == player.id,
-                        TurnMessage.was_defaulted.is_(False),
-                    )
-                )
-            ).first()
-            if existing_message is not None:
-                continue
+        if turn.phase == "talk" and (turn.id, player.id) in messaged:
+            continue
         candidates.append(
             TurnCandidate(
                 match_id=match_id,
@@ -520,28 +544,14 @@ async def _build_turn_payload(
     )
     scoreboard = build_public_scoreboard_dicts(all_players)
     module = get_game_module(match.game)
-    your_agent_id = seat_name_by_agent_id[player.agent_id]
-    all_agent_ids = sorted_seat_names(seat_name_by_agent_id)
-    static = {
-        "match_id": match.id,
-        "game_id": match.id,
-        "game": match.game,
-        "rules_version": match.rules_version,
-        "rules": module.rules_text(match.total_rounds, match.turns_per_round),
-        "base_prompt": module.agent_base_prompt(
-            your_agent_id=your_agent_id,
-            all_agent_ids=all_agent_ids,
-            total_rounds=match.total_rounds,
-            turns_per_round=match.turns_per_round,
-        ),
-        "total_rounds": match.total_rounds,
-        "turns_per_round": match.turns_per_round,
-        "your_agent_id": your_agent_id,
-        "all_agent_ids": all_agent_ids,
-        "your_strategy": version.strategy_text,
-    }
-    if player.coach_note and player.coach_note_round == match.current_round:
-        static["coach_note"] = player.coach_note
+    # The static (rules + identity) block, key order and conditional coach_note
+    # wire-frozen for the connector (see build_turn_static_dict).
+    static = build_turn_static_dict(
+        match,
+        player,
+        all_agent_ids=sorted_seat_names(seat_name_by_agent_id),
+        your_strategy=version.strategy_text,
+    )
     current = await _build_current_turn(db, turn)
     payload: dict[str, object] = {
         "status": "your_turn",

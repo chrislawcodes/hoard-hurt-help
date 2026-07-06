@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timezone
 
 import pytest
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -16,6 +13,7 @@ from app.identity import word_filter
 from app.models import Base, GameState, Match, Player, User
 from app.models.user import UserRole
 from tests.factories import make_agent, make_user
+from tests.conftest import signed_in_cookies as _cookies
 
 
 @pytest.fixture(autouse=True)
@@ -33,12 +31,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 # --- agent-name screening ----------------------------------------------------

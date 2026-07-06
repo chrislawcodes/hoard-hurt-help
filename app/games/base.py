@@ -474,9 +474,12 @@ class BaseGameModule:
         return await self.default_move(db, match, player)
 
     async def final_placement(self, db: AsyncSession, match: Match) -> list[int]:
-        # PD's existing order: most round-wins, then highest total in-round score.
+        # PD's existing order: most round-wins, then highest total in-round
+        # score — the same shared key finalize_game picks the winner with, so
+        # placement and winner can't diverge.
         from sqlalchemy import select
 
+        from app.engine.resolver import finish_order_sort_key
         from app.models.player import Player as PlayerModel
 
         players = list(
@@ -488,11 +491,7 @@ class BaseGameModule:
             .scalars()
             .all()
         )
-        ranked = sorted(
-            players,
-            key=lambda p: (p.total_round_wins, p.total_round_score),
-            reverse=True,
-        )
+        ranked = sorted(players, key=finish_order_sort_key)
         return [p.id for p in ranked]
 
     def match_placement_key(

@@ -1,24 +1,15 @@
 """Tests for the user-facing match creation and ownership flow."""
 
 from datetime import datetime, timedelta, timezone
-import base64
-import json
 
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import settings
 from app.engine.match_creation import create_match
 from app.models import GameState, Match, User
 from app.models.user import UserRole
 from tests.factories import make_user, seat_player
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
+from tests.conftest import signed_in_cookies as _cookies
 
 
 async def _seed_user(

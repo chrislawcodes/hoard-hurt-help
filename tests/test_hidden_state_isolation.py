@@ -1,28 +1,33 @@
 """Hidden per-player state never leaks across players' channels.
 
 A sequential, hidden-information game exposes per-player secret state via the
-`private_state_for` hook and shared state via `public_state_for`. The platform's
-turn payload (poll_turn) must return ONLY the requesting player's private state
-— a player must never see another player's secret. This is the Liar's Dice "your
-dice are yours alone" guarantee, enforced at the platform layer.
+`private_state_for` hook and shared state via `public_state_for`. The turn
+payload (the connection-scoped next-turn fan-out) must return ONLY the
+requesting player's private state — a player must never see another player's
+secret. This is the Liar's Dice "your dice are yours alone" guarantee, enforced
+at the platform layer. Each seat is served through its OWN connection, so the
+per-connection ownership itself is part of what keeps the secrets apart.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import app.games as registry
 from app.db import make_engine
-from app.engine.agent_play import poll_turn
 from app.engine.tokens import generate_turn_token
 from app.games.base import BaseGameModule, GameConfig, GameTheme
 from app.models import Base, Match, GameState, PlayerState, Player
 from app.models.turn import Turn
-from app.schemas.agent import YourTurnResponse
+from app.routes.agent_next_turn import router as agent_next_turn_router
 from tests.factories import seat_player
 
 
@@ -79,19 +84,26 @@ class _HiddenStub(BaseGameModule):
         return {"shared": "everyone sees this"}
 
 
-async def _poll_for(db: Any, match: Match, player: Player) -> YourTurnResponse:
-    resp = await poll_turn(db, match_id=match.id, player=player, rate_state={})
-    assert isinstance(resp, YourTurnResponse)
-    return resp
+async def _serve_turn(client: AsyncClient, key: str) -> dict[str, Any]:
+    """Serve the seat owning `key` its open turn over the next-turn endpoint."""
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    payload = r.json()
+    assert payload["status"] == "your_turn", payload
+    return payload
 
 
-async def test_private_state_never_leaks_across_players() -> None:
+async def test_private_state_never_leaks_across_players(monkeypatch: pytest.MonkeyPatch) -> None:
     registry.register(_HiddenStub())
 
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
+    # The next-turn endpoint (and its long-poll hold) resolves the DB through the
+    # imported SessionLocal/engine symbols, so bind them to the test engine.
+    monkeypatch.setattr("app.db.SessionLocal", factory)
+    monkeypatch.setattr("app.db.engine", engine)
 
     async with factory() as db:
         match = Match(
@@ -103,30 +115,34 @@ async def test_private_state_never_leaks_across_players() -> None:
         await db.flush()
         a = await seat_player(db, match.id, "Alice", i=0)
         b = await seat_player(db, match.id, "Bob", i=1)
+        alice_key, bob_key = a._test_key, b._test_key
         db.add(PlayerState(match_id=match.id, player_id=a.id, state_json={"secret": "ALICE_DICE_55613"}))
         db.add(PlayerState(match_id=match.id, player_id=b.id, state_json={"secret": "BOB_DICE_22244"}))
-        # An open, unresolved act-phase turn so poll returns "your_turn".
+        # An open, unresolved act-phase turn so the fan-out serves "your_turn".
         db.add(Turn(
             match_id=match.id, round=1, turn=1, turn_token=generate_turn_token(),
             opened_at=_now(), deadline_at=_now() + timedelta(seconds=30), phase="act",
         ))
         await db.commit()
 
-        alice_payload = await _poll_for(db, match, a)
-        bob_payload = await _poll_for(db, match, b)
+    test_app = FastAPI()
+    test_app.include_router(agent_next_turn_router)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Each seat is served through its OWN connection key.
+        alice_payload = await _serve_turn(client, alice_key)
+        bob_payload = await _serve_turn(client, bob_key)
 
-        # Each player sees ONLY their own secret.
-        assert alice_payload.your_private_state == {"secret": "ALICE_DICE_55613"}
-        assert bob_payload.your_private_state == {"secret": "BOB_DICE_22244"}
+    # Each player sees ONLY their own secret.
+    assert alice_payload["your_private_state"] == {"secret": "ALICE_DICE_55613"}
+    assert bob_payload["your_private_state"] == {"secret": "BOB_DICE_22244"}
 
-        # Public state is shared and identical.
-        assert alice_payload.public_state == {"shared": "everyone sees this"}
-        assert bob_payload.public_state == {"shared": "everyone sees this"}
+    # Public state is shared and identical.
+    assert alice_payload["public_state"] == {"shared": "everyone sees this"}
+    assert bob_payload["public_state"] == {"shared": "everyone sees this"}
 
-        # The other player's secret appears NOWHERE in the serialized payload.
-        alice_json = alice_payload.model_dump_json()
-        assert "BOB_DICE_22244" not in alice_json
-        bob_json = bob_payload.model_dump_json()
-        assert "ALICE_DICE_55613" not in bob_json
+    # The other player's secret appears NOWHERE in the serialized payload.
+    assert "BOB_DICE_22244" not in json.dumps(alice_payload, default=str)
+    assert "ALICE_DICE_55613" not in json.dumps(bob_payload, default=str)
 
     await engine.dispose()

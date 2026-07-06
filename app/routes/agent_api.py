@@ -12,7 +12,6 @@ from app.engine.agent_play import (
     get_agent_state,
     leave_match,
     opponent_history,
-    poll_turn,
     standings,
     submit_action,
     submit_talk,
@@ -32,25 +31,14 @@ from app.schemas.agent import (
     SubmitResponse,
     TalkWindowClosedResponse,
     TurnDetailResponse,
-    WaitingResponse,
-    YourTurnResponse,
 )
 
 router = APIRouter(tags=["agent"])
 
-# Per-bot rate-limit state. Tests monkeypatch these dicts directly, so keep them
-# at module scope and pass them into the shared service.
-_last_poll: dict[int, float] = {}
+# Per-bot pull rate-limit state (chat/history/standings/message). Tests
+# monkeypatch this dict directly, so keep it at module scope and pass it into
+# the shared service.
 _last_pull: dict[tuple[int, str], float] = {}
-
-
-@router.get("/turn")
-async def agent_poll(
-    match_id: Annotated[str, Path()],
-    player: Annotated[Player, Depends(require_agent_player)],
-    db: DbSession,
-) -> WaitingResponse | YourTurnResponse:
-    return await poll_turn(db, match_id=match_id, player=player, rate_state=_last_poll)
 
 
 @router.post(

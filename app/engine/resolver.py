@@ -87,6 +87,24 @@ async def award_round_winners(db: AsyncSession, game: Match, round_num: int) -> 
     await db.commit()
 
 
+def finish_order_sort_key(player: Player) -> tuple[float, float]:
+    """Sort key for the finish order: most round-wins, then highest total score.
+
+    ``finalize_game`` (winner pick) and ``BaseGameModule.final_placement``
+    (default finish order) both sort with it so the two can't diverge.
+    Ascending sort on the negated fields ranks winner first and, being stable,
+    keeps input order for full ties — exactly the behavior of the two inline
+    sorts this key replaced.
+
+    NOT the only encoding: leaderboard/Elo tiers rank via the per-game
+    ``GameModule.match_placement_key`` protocol method (PD's returns
+    ``(round_wins, total_score)`` — the same ordering, different signature).
+    A PD tiebreak change must update both, or the match page's winner and the
+    rating tiers will disagree.
+    """
+    return (-player.total_round_wins, -player.total_round_score)
+
+
 async def finalize_game(db: AsyncSession, game: Match) -> None:
     """End-of-game: pick winner, transition state, set completed_at."""
     players: list[Player] = list(
@@ -97,10 +115,7 @@ async def finalize_game(db: AsyncSession, game: Match) -> None:
     if not players:
         winner = None
     else:
-        ranked = sorted(
-            players,
-            key=lambda p: (-p.total_round_wins, -p.total_round_score),
-        )
+        ranked = sorted(players, key=finish_order_sort_key)
         winner = ranked[0]
 
     assert_transition(game.state, GameState.COMPLETED)

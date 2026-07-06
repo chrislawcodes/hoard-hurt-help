@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
 from app.engine.agent_play_guards import _err, _seat_name_map
+from app.games import get as get_game_module
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
@@ -192,6 +193,51 @@ def sorted_seat_names(seat_name_by_agent_id: dict[int, str]) -> list[str]:
     that the per-match poll, submit, identity, and next-turn paths all repeat.
     """
     return sorted(seat_name_by_agent_id.values())
+
+
+def build_turn_static_dict(
+    match: Match,
+    player: Player,
+    *,
+    all_agent_ids: list[str],
+    your_strategy: str | None,
+) -> dict[str, object]:
+    """The "static" (rules + identity) block of the your-turn payload.
+
+    The connection fan-out (``agent_play_next_turn._build_turn_payload``) embeds
+    this dict as-is on the wire — its key order and conditional ``coach_note``
+    are wire-frozen for the operator connector. It is a standalone builder so the
+    projection stays testable apart from the fan-out's claim/pin machinery.
+
+    (Until the per-match poll was retired this builder fed both turn-serving
+    paths, which is why it exists as a shared helper; the fan-out is now the only
+    turn-payload path, so ``your_strategy`` is simply the caller's resolved
+    strategy text.)
+    """
+    module = get_game_module(match.game)
+    static: dict[str, object] = {
+        "match_id": match.id,
+        "game_id": match.id,
+        "game": match.game,
+        "rules_version": match.rules_version,
+        "rules": module.rules_text(match.total_rounds, match.turns_per_round),
+        "base_prompt": module.agent_base_prompt(
+            your_agent_id=player.seat_name,
+            all_agent_ids=all_agent_ids,
+            total_rounds=match.total_rounds,
+            turns_per_round=match.turns_per_round,
+        ),
+        "total_rounds": match.total_rounds,
+        "turns_per_round": match.turns_per_round,
+        "your_agent_id": player.seat_name,
+        "all_agent_ids": all_agent_ids,
+        "your_strategy": your_strategy,
+    }
+    # Sideline coaching (written by the web viewer): the note rides along only
+    # for the round it targets, then falls out of the payload.
+    if player.coach_note and player.coach_note_round == match.current_round:
+        static["coach_note"] = player.coach_note
+    return static
 
 
 def _public_standings(players: Sequence[Player]) -> list[StandingRow]:

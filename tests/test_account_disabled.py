@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timezone
 
 import pytest
 from httpx import AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
@@ -18,13 +15,7 @@ from app.models.user import UserRole
 from app.routes.auth import sync_google_user
 from app.schemas.auth import GoogleUserInfo
 from tests.factories import make_connection, make_user
-
-
-def _signed_in(user_id: int) -> dict[str, str]:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
+from tests.conftest import signed_in_cookies as _signed_in
 
 
 async def _seed_disabled_user(reset_db: async_sessionmaker) -> User:

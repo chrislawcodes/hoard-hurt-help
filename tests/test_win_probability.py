@@ -1,7 +1,11 @@
 """Unit tests for app/engine/win_probability.py.
 
 Tests cover:
+- Golden feature vectors pinning the exact values (and order) the trained
+  pickles in data/ expect — captured from the pre-refactor positional builders
 - Feature vector lengths and spot values (no model file needed)
+- Feature-order alignment: engine named dicts, the shared vocabulary in
+  app/engine/win_prob_features.py, and the trainers' FEATURE_NAMES all agree
 - Behavioral history counts (help/hurt/hoard, times_targeted)
 - Round-winner derivation and consecutive-wins streak
 - Table social features (pile-on, mutual help)
@@ -10,21 +14,32 @@ Tests cover:
 
 from __future__ import annotations
 
+import pickle
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
+from app.engine.win_prob_features import (
+    DERIVED_FEATURE_COLUMNS,
+    MATCH_FEATURE_NAMES,
+    ROUND_FEATURE_NAMES,
+    feature_vector,
+)
 from app.engine.win_probability import (
     _Ctx,
     _score_before,
     score_match_win,
     score_round_win,
 )
+from tests.conftest import load_script_module
 
-MATCH_FEATURE_COUNT = 29
-ROUND_FEATURE_COUNT = 20
+MATCH_FEATURE_COUNT = len(MATCH_FEATURE_NAMES)
+ROUND_FEATURE_COUNT = len(ROUND_FEATURE_NAMES)
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +148,118 @@ def test_all_players_same_feature_length() -> None:
     for p in PLAYERS:
         assert len(ctx.match_features(p.agent_id)) == MATCH_FEATURE_COUNT
         assert len(ctx.round_features(p.agent_id)) == ROUND_FEATURE_COUNT
+
+
+# ---------------------------------------------------------------------------
+# Golden vectors — exact values captured from the pre-refactor positional
+# builders on the fixtures above (round 2, turn 3, 2 rounds x 3 turns).
+# These pin both the values AND the order the trained pickles in data/ expect.
+# Any diff here means inference inputs changed: retrain or revert.
+# ---------------------------------------------------------------------------
+
+GOLDEN_MATCH_FEATURES: dict[str, list[float]] = {
+    "A": [1.0, 1.0, 0.0, 1.0, 4.0, 4.0, 2.6666666666666665, 0.9428090415820634,
+          1.0, 1.0, 0.3333333333333333, 3.0, 2.0, 2.0, 1.0, 3.0, 1.0, 1.0, 1.0,
+          0.0, 1.0, 0.0, 0.0, 0.0, 0.13333333333333333, 0.4, 1.0, 0.0, 0.0],
+    "B": [1.0, 1.0, 0.0, 0.0, 4.0, 4.0, 2.6666666666666665, 0.9428090415820634,
+          2.0, 1.0, 0.3333333333333333, 3.0, 0.0, 2.0, 3.0, 2.0, 1.0, 1.0, 1.0,
+          0.0, 1.0, 0.0, 1.0, 0.0, 0.13333333333333333, 0.4, 0.0, 1.0, 0.0],
+    "C": [1.0, 1.0, 2.0, 0.0, 2.0, 2.0, 2.6666666666666665, 0.9428090415820634,
+          2.0, 1.0, 0.3333333333333333, 3.0, 0.0, 2.0, 3.0, 1.0, 1.0, 1.0, 1.0,
+          0.0, 1.0, 0.0, 0.0, 0.0, 0.13333333333333333, 0.4, 0.0, 1.0, 0.0],
+}
+
+GOLDEN_ROUND_FEATURES: dict[str, list[float]] = {
+    "A": [1.0, 0.0, 4.0, 4.0, 2.6666666666666665, 0.9428090415820634, 3.0,
+          2.0, 2.0, 1.0, 3.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0,
+          0.13333333333333333, 0.4],
+    "B": [1.0, 0.0, 4.0, 4.0, 2.6666666666666665, 0.9428090415820634, 3.0,
+          0.0, 2.0, 3.0, 2.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0,
+          0.13333333333333333, 0.4],
+    "C": [1.0, 2.0, 2.0, 2.0, 2.6666666666666665, 0.9428090415820634, 3.0,
+          0.0, 2.0, 3.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0,
+          0.13333333333333333, 0.4],
+}
+
+
+def test_golden_match_features_unchanged() -> None:
+    ctx = _Ctx(PLAYERS, ACTIONS, current_round=2, current_turn=3, total_rounds=2, turns_per_round=3)
+    for agent_id, expected in GOLDEN_MATCH_FEATURES.items():
+        assert ctx.match_features(agent_id) == expected
+
+
+def test_golden_round_features_unchanged() -> None:
+    ctx = _Ctx(PLAYERS, ACTIONS, current_round=2, current_turn=3, total_rounds=2, turns_per_round=3)
+    for agent_id, expected in GOLDEN_ROUND_FEATURES.items():
+        assert ctx.round_features(agent_id) == expected
+
+
+# ---------------------------------------------------------------------------
+# Feature-order alignment — engine, shared vocabulary, and trainers
+# ---------------------------------------------------------------------------
+
+
+def test_match_named_features_follow_shared_order() -> None:
+    ctx = _Ctx(PLAYERS, ACTIONS, current_round=2, current_turn=3, total_rounds=2, turns_per_round=3)
+    named = ctx.match_features_named("A")
+    assert tuple(named.keys()) == MATCH_FEATURE_NAMES
+    assert ctx.match_features("A") == [named[n] for n in MATCH_FEATURE_NAMES]
+
+
+def test_round_named_features_follow_shared_order() -> None:
+    ctx = _Ctx(PLAYERS, ACTIONS, current_round=2, current_turn=3, total_rounds=2, turns_per_round=3)
+    named = ctx.round_features_named("A")
+    assert tuple(named.keys()) == ROUND_FEATURE_NAMES
+    assert ctx.round_features("A") == [named[n] for n in ROUND_FEATURE_NAMES]
+
+
+def test_feature_vector_rejects_vocabulary_mismatch() -> None:
+    with pytest.raises(ValueError, match="missing=\\['b'\\], extra=\\['c'\\]"):
+        feature_vector({"a": 1.0, "c": 2.0}, ("a", "b"))
+
+
+def test_trainers_and_feature_pipeline_share_engine_vocabulary() -> None:
+    # Import smoke: the three pipeline scripts load cleanly outside a package
+    # context and expose the shared vocabulary (their lists are built from the
+    # engine tuples, so equality here mostly guards against a re-pasted literal).
+    train_match = load_script_module("train_win_prob")
+    train_round = load_script_module("train_round_win_prob")
+    compute_features = load_script_module("compute_features")
+
+    assert train_match.FEATURE_NAMES == list(MATCH_FEATURE_NAMES)
+    assert train_round.FEATURE_NAMES == list(ROUND_FEATURE_NAMES)
+    assert compute_features.NEW_COLUMNS == list(DERIVED_FEATURE_COLUMNS)
+
+
+def test_shipped_models_were_trained_on_shared_vocabulary() -> None:
+    """The real drift guard: the pickled models' baked-in feature order must
+    equal the live vocabulary, or inference feeds them mis-aligned vectors."""
+    for pkl_name, names in (
+        ("win_prob_model.pkl", MATCH_FEATURE_NAMES),
+        ("round_win_prob_model.pkl", ROUND_FEATURE_NAMES),
+    ):
+        with open(_SCRIPTS_DIR.parent / "data" / pkl_name, "rb") as fh:
+            payload = pickle.load(fh)
+        assert payload["feature_names"] == list(names), pkl_name
+
+
+def test_trainer_row_reader_matches_engine_order() -> None:
+    """_row_to_features reads CSV columns in the exact shared-name order."""
+    train_match = load_script_module("train_win_prob")
+    row = {name: str(float(i + 1)) for i, name in enumerate(MATCH_FEATURE_NAMES)}
+    # round_frac / turn_frac are derived from raw positional columns.
+    row.update({
+        "round": "2", "total_rounds": "3",
+        "turn": "3", "turns_per_round": "5",
+    })
+    feats = train_match._row_to_features(row)
+    assert len(feats) == MATCH_FEATURE_COUNT
+    assert feats[0] == pytest.approx((2 - 1) / (3 - 1))  # round_frac
+    assert feats[1] == pytest.approx((3 - 1) / (5 - 1))  # turn_frac
+    for i, name in enumerate(MATCH_FEATURE_NAMES):
+        if name in ("round_frac", "turn_frac"):
+            continue
+        assert feats[i] == float(row[name])
 
 
 # ---------------------------------------------------------------------------

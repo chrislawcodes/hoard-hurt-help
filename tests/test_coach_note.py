@@ -10,25 +10,15 @@ Covers:
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timezone
 
 from httpx import AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import settings
 from app.models import Match, GameState, Player
 from tests.factories import make_user, seat_player
-
-
-def _signed_in(user_id: int) -> dict[str, str]:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
+from tests.conftest import signed_in_cookies as _signed_in
 
 
 async def _make_active_match(db_factory: async_sessionmaker) -> tuple[str, Player, int]:

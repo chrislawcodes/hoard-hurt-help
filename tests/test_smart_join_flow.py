@@ -20,20 +20,17 @@ that ?next is validated as an internal path (no open redirect).
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import pytest
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import settings
 from app.models import Base, GameState, Match, Player, User
 from app.routes.web_support import safe_internal_next
 from tests.factories import make_agent, make_connection, make_user
+from tests.conftest import signed_in_cookies as _cookies
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
 JOIN_NEXT = quote(JOIN_URL, safe="")
@@ -53,13 +50,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _seed_match(reset_db, state: GameState = GameState.REGISTERING) -> None:

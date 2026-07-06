@@ -25,6 +25,7 @@ from sqlalchemy import select
 from app.templating import templates
 
 from app.agent_prompt import MESSAGE_MAX_LENGTH
+from app.api_errors import api_error
 from app.aware_datetime import ensure_aware
 from app.deps import DbSession, require_user, require_user_with_handle
 from app.engine.human_player import get_or_create_human_agent
@@ -65,10 +66,7 @@ def _unique_human_seat_name(base: str, existing: set[str]) -> str:
 
 
 def _play_error(code: str, message: str, http: int) -> HTTPException:
-    return HTTPException(
-        status_code=http,
-        detail={"error": {"code": code, "message": message, "details": {}}},
-    )
+    return api_error(status_code=http, code=code, message=message)
 
 
 async def _active_human_seat(db: DbSession, match_id: str, user_id: int) -> Player | None:

@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timezone
 
 import pytest
 from httpx import AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -23,13 +20,7 @@ from app.services.admin_user_actions import (
     reset_handle,
 )
 from tests.factories import make_user
-
-
-def _signed_in(user_id: int) -> dict[str, str]:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
+from tests.conftest import signed_in_cookies as _signed_in
 
 
 async def test_disable_writes_audit_row(reset_db: async_sessionmaker) -> None:

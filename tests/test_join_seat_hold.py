@@ -9,20 +9,17 @@ deadline passes. A held seat never counts as a real player.
 
 from __future__ import annotations
 
-import base64
-import json
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import pytest
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
-from app.config import settings
 from app.engine.scheduler import _active_player_count
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, sweep_held_seats
 from app.models import ConnectionProvider, GameState, Match, Player, User
 from tests.factories import make_agent, make_connection, make_user
+from tests.conftest import signed_in_cookies as _cookies
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
 MCP_PROVIDER_MODELS = [
@@ -30,13 +27,6 @@ MCP_PROVIDER_MODELS = [
     (ConnectionProvider.OPENAI, "gpt-5.4-mini"),
     (ConnectionProvider.GEMINI, "gemini-3.1-flash-lite"),
 ]
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    data = {"user_id": user_id, "next_after_login": None}
-    payload = base64.b64encode(json.dumps(data).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _seed_match(reset_db, state: GameState = GameState.REGISTERING) -> None:

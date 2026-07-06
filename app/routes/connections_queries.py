@@ -9,6 +9,7 @@ drift between the full page and its poll fragments.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -21,6 +22,7 @@ from app.engine.agent_idle import GameTiming, game_timing_for_user
 from app.engine.connection_health import (
     LIVE_WINDOW_SECONDS,
     ConnectionHealth,
+    calm_connection_status,
     compute_connection_health,
     provider_uses_mcp_connection,
 )
@@ -31,7 +33,7 @@ from app.models.connection_provider import ConnectionProvider as ConnectionProvi
 from app.models.user import User
 from app.provider_labels import provider_label
 from app.routes.agents_queries import user_agents_select
-from app.routes.connections_connect_guide import _play_prompt
+from app.routes.connections_connect_guide import _play_prompt, _provider_label
 
 
 @dataclass(frozen=True)
@@ -71,15 +73,7 @@ async def _load_user_agents(db: DbSession, user_id: int) -> list[AgentRow]:
 async def _load_attached_agents(db: DbSession, connection: Connection) -> list[AgentRow]:
     """Agents this machine COVERS: all the user's active AI agents. Any connection
     can serve any agent now, so a connection covers everything its owner has."""
-    rows = (
-        (
-            await db.execute(
-                user_agents_select(connection.user_id, ai_only=True).order_by(Agent.name)
-            )
-        )
-        .all()
-    )
-    return [AgentRow(agent=agent, version=version) for agent, version in rows]
+    return await _load_user_agents(db, connection.user_id)
 
 
 async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
@@ -115,6 +109,55 @@ async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
         .all()
     )
     return [AgentRow(agent=agent, version=version) for agent, version in rows]
+
+
+async def _mcp_provider_cards(
+    db: DbSession, connections: Sequence[Connection]
+) -> list[dict[str, object]]:
+    """Card rows for the list page's single "MCP connection" card: one row per
+    signed-in provider, with its calm status and health."""
+    cards: list[dict[str, object]] = []
+    for connection in connections:
+        health = await compute_connection_health(db, connection)
+        cards.append(
+            {
+                "connection_id": connection.id,
+                "label": _connection_display_name(connection),
+                "status": calm_connection_status(
+                    health.state, is_mcp=True, never_connected=health.never_connected
+                ),
+                "health": health,
+            }
+        )
+    return cards
+
+
+async def _machine_connection_cards(
+    db: DbSession, connections: Sequence[Connection]
+) -> list[dict[str, object]]:
+    """Card rows for the list page's machine connections: one card per machine,
+    listing the AIs available on it (its enabled providers)."""
+    cards: list[dict[str, object]] = []
+    for connection in connections:
+        health = await compute_connection_health(db, connection)
+        provider_rows = await _load_connection_providers(db, connection.id)
+        available_ais = [
+            _provider_label(p)
+            for p in ConnectionProvider
+            if p.value in provider_rows and provider_rows[p.value].enabled
+        ]
+        cards.append(
+            {
+                "connection_id": connection.id,
+                "display_name": _connection_display_name(connection),
+                "available_ais": available_ais,
+                "status": calm_connection_status(
+                    health.state, is_mcp=False, never_connected=health.never_connected
+                ),
+                "health": health,
+            }
+        )
+    return cards
 
 
 async def _load_connection_providers(

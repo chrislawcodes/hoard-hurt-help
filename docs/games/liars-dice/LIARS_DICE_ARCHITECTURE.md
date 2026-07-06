@@ -61,7 +61,7 @@ Touched platform files. Each change is guarded so PD's path is unchanged.
 |---|---|---|
 | Turn loop | `app/engine/scheduler.py` | Add a **sequential mode**: when `GameConfig.simultaneous` is false, drive the hand by `next_actor` (open a single-actor turn) → resolve on that one submission → repeat until `next_actor` returns `None` (hand over) → `award_round` → `on_round_start`; end the match on `is_match_over`. Simultaneous mode = today's fixed grid. |
 | Contract | `app/games/base.py` | Add the new loop hooks (`next_actor`, `is_round_over`, `is_match_over`, `on_round_start`), the payload hooks (`private_state_for`, `public_state_for`), `final_placement`, and `match_placement_key` — all with **default impls** that reproduce PD behavior. The existing contract already includes `agent_base_prompt`, `record_message`, `move_effect`, and `theme`; these are not new. |
-| Agent payload | `app/engine/agent_play.py` (`poll_turn` builds `YourTurnResponse`; `submit_action` builds the move dict and calls `validate_move` + `record_submission`; `_build_turn_payload` for the next-turn loop), `app/schemas/agent.py` | "Your turn" only when you are the active actor; add `your_private_state` + a game-supplied `public_state` block; everyone else gets `waiting (not your turn)` carrying public state. **`app/routes/agent_api.py` and `app/routes/agent_next_turn.py` are thin HTTP adapters** that delegate all business logic to `app/engine/agent_play.py`; the MCP tools share the same service. |
+| Agent payload | `app/engine/agent_play.py` (`_build_turn_payload` in `agent_play_next_turn.py` builds the next-turn payload; `submit_action` builds the move dict and calls `validate_move` + `record_submission`), `app/schemas/agent.py` | "Your turn" only when you are the active actor; add `your_private_state` + a game-supplied `public_state` block; a non-active actor gets a `waiting` payload carrying public state. **`app/routes/agent_api.py` (per-match action verbs) and `app/routes/agent_next_turn.py` (the turn-serving fan-out) are thin HTTP adapters** that delegate all business logic to `app/engine/agent_play.py`; the MCP tools share the same service. |
 | Wire format | `app/schemas/agent.py` (`SubmitRequest`) | Add optional free-form `move: dict`; keep PD's `action`/`target_id` for back-compat. Platform passes `move` through untouched (it already packs a `move` dict). |
 | State storage | `app/models/` + a migration | Generic per-title state (see Data Structures): a `match_state` row and per-player private `player_state` rows, plus `quantity`/`face` columns on `turn_submissions` (D-3 rec). |
 | Finish order | `app/read_models/leaderboard.py` (groups participants by `(round_wins, total_score)` inside `load_leaderboard_sections`), `app/routes/web_viewer.py` | Read placement from `module.final_placement(...)` instead of assuming PD round-wins (design D-4). Note: `app/engine/game_records.py` contains only pure DB-free dataclasses (`PlayerRecord`, `ActionRecord`) and does not contain placement or Elo logic. |
@@ -160,10 +160,11 @@ safe to add:
 
 1. **Turn loop** — `scheduler.py` hard-codes simultaneous + fixed grid + two-phase
    talk/act → split into the `TurnDriver`s above.
-2. **Agent payload** — `turn_summary.py` / `board_signals.py` / `opponent_stats.py`
-   are PD-shaped but built by the *shared* agent play service (`app/engine/agent_play.py`,
-   functions `poll_turn` and `_build_turn_payload`) → move payload-building behind
-   `private_state_for` / `public_state_for`.
+2. **Agent payload** — `board_signals.py` is PD-shaped but built by the *shared*
+   agent play service (`agent_play_next_turn._build_turn_payload`, the turn-
+   serving fan-out) → move payload-building behind `private_state_for` /
+   `public_state_for`. (The never-wired `turn_summary.py` / `opponent_stats.py`
+   builders were deleted as dead code in the survey-2 refactor.)
 3. **Storage** — PD-shaped `turn_submissions` columns → generic `match_state` /
    `player_state` (see Data structures).
 4. **Placement** — `app/read_models/leaderboard.py` (`load_leaderboard_sections`)
@@ -290,8 +291,8 @@ Core pure functions (names provisional):
     "showdowns": [ {"hand":5,"actual_count":4,"loser":"P4","revealed":{...}} ]
   } }
 ```
-Non-active players get `WaitingResponse(reason="not_your_turn")` carrying the same
-`public_state` so their AI can plan ahead.
+A non-active actor gets a `waiting` payload carrying the same `public_state` so
+its AI can plan ahead.
 
 ---
 
@@ -304,9 +305,9 @@ scheduler                         module                     agent
    │ next_actor(match) ──────────▶ "P3"
    │ _open_turn (single-actor, token, 30s deadline)
    │ broadcast turn_opened ─────────────────────────────────▶ (SSE viewer)
-   │                                            poll /turn ◀── P3
-   │                agent_play.poll_turn /  ─────────────────▶ your_turn + your_private_state
-   │                _build_turn_payload                        (others: waiting/not_your_turn)
+   │                                        get_next_turn ◀── P3
+   │                agent_play_next_turn.  ─────────────────▶ your_turn + your_private_state
+   │                _build_turn_payload                        (others: waiting)
    │                (routes are thin adapters to agent_play.py; MCP tools share same service)
    │                                            submit move ◀─ {BID 5x5, message,...}
    │ agent_play.submit_action → validate_move(move) ──────▶ legal? (strictly-higher + ace rules)
@@ -356,7 +357,7 @@ player's channels until the showdown reveals them.
 
 ```
 player_state.dice
-   ├─▶ your own /turn payload (your_private_state)      ✅ only you
+   ├─▶ your own next-turn payload (your_private_state)  ✅ only you
    ├─▶ agent API / next-turn for other players          ❌ scrubbed (counts only)
    ├─▶ MCP tools                                         ❌ scrubbed
    ├─▶ spectator JSON API                                ❌ scrubbed (counts only)
@@ -388,7 +389,7 @@ Only the active Bot acts per turn (contrast PD, where every Bot acts each turn).
 |---|---|
 | Change a Liar's Dice rule (raise/ace/showdown) | `app/games/liars_dice/engine.py` (pure) |
 | Change the move shape / validation | `engine.py` + `game.py:validate_move` + `SubmitRequest` |
-| Change what an actor sees | `game.py:private_state_for` / `public_state_for` + `app/engine/agent_play.py` (`poll_turn` / `_build_turn_payload`) |
+| Change what an actor sees | `game.py:private_state_for` / `public_state_for` + `app/engine/agent_play_next_turn.py` (`_build_turn_payload`) |
 | Touch the sequential loop | `app/engine/scheduler.py` (sequential mode) + the loop hooks in `base.py` |
 | Add/adjust a Liar's Dice Bot | `app/games/liars_dice/sims.py` (or `app/engine/sims/`) |
 | Change the dice/bid storage | `match_state` / `player_state` models + migration |

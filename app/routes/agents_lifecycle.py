@@ -14,9 +14,10 @@ from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
 from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.match import GameState, Match, MatchKind
+from app.models.match import Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
+from app.read_models.matches import agent_has_active_match, version_has_active_match
 from app.routes.agents_queries import load_owned_agent
 from app.routes.agents_setup import clean_agent_name
 from app.templating import templates
@@ -33,40 +34,6 @@ async def _load_current_version(db: DbSession, agent: Agent) -> AgentVersion:
     if version is None:
         raise HTTPException(status_code=400, detail="Agent has no current version.")
     return version
-
-
-async def _version_has_active_match(db: DbSession, version_id: int) -> bool:
-    """True if this version is seated in any active match (rated OR practice)."""
-    row = (
-        await db.execute(
-            select(Player.id)
-            .join(Match, Match.id == Player.match_id)
-            .where(
-                Player.agent_version_id == version_id,
-                Player.left_at.is_(None),
-                Match.state == GameState.ACTIVE,
-            )
-            .limit(1)
-        )
-    ).first()
-    return row is not None
-
-
-async def _agent_has_active_match(db: DbSession, agent_id: int) -> bool:
-    """True if any seat of this agent is in an active match (rated OR practice)."""
-    row = (
-        await db.execute(
-            select(Player.id)
-            .join(Match, Match.id == Player.match_id)
-            .where(
-                Player.agent_id == agent_id,
-                Player.left_at.is_(None),
-                Match.state == GameState.ACTIVE,
-            )
-            .limit(1)
-        )
-    ).first()
-    return row is not None
 
 
 async def _version_has_rated_history(db: DbSession, version_id: int) -> bool:
@@ -120,7 +87,7 @@ async def _apply_version_edit(
     or has rated history. Agents are just name + strategy now — there is no model
     to edit."""
     current = await _load_current_version(db, agent)
-    if await _version_has_active_match(db, current.id):
+    if await version_has_active_match(db, current.id):
         raise HTTPException(status_code=409, detail="That version is mid-match and locked.")
     current_has_rated_history = await _version_has_rated_history(db, current.id)
     if not current_has_rated_history and current.frozen_at is None:
@@ -191,7 +158,7 @@ async def delete_agent(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> RedirectResponse:
     agent = await load_owned_agent(db, user, agent_id)
-    if await _agent_has_active_match(db, agent.id):
+    if await agent_has_active_match(db, agent.id):
         raise HTTPException(
             status_code=409,
             detail="That agent is in an active match — wait for it to finish before deleting.",
@@ -224,16 +191,10 @@ async def set_strategy(
     user: Annotated[User, Depends(require_user_with_handle)],
     strategy_text: Annotated[str, Form()],
 ) -> RedirectResponse:
-    agent = await load_owned_agent(db, user, agent_id)
-    clean_strategy = strategy_text.strip()
-    if not clean_strategy:
-        raise HTTPException(status_code=400, detail="Strategy text is required.")
-    current = await _load_current_version(db, agent)
-    if clean_strategy == current.strategy_text.strip():
-        return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-    await _apply_version_edit(db, agent=agent, strategy_text=clean_strategy)
-    await db.commit()
-    return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+    """Alias for ``save-version`` — same handler body, kept so the POST surface
+    doesn't change. The live edit form posts to ``save-version``; this delegates
+    so the two routes can't drift."""
+    return await save_version(agent_id=agent_id, db=db, user=user, strategy_text=strategy_text)
 
 
 # Every model the picker may set — the union of the provider allowlists. An empty

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import json
 import re
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -9,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
@@ -40,6 +37,7 @@ from tests.factories import (
     make_version,
     seat_prebuilt_player,
 )
+from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
 @pytest.fixture
@@ -86,14 +84,6 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
-
-def _signed_in_cookies(user_id: int) -> dict[str, str]:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(
-        json.dumps({"user_id": user_id, "next_after_login": None}).encode()
-    ).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _make_match(

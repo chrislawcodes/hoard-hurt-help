@@ -49,11 +49,3 @@ def raise_account_disabled(request: Request) -> None:
         code="ACCOUNT_DISABLED",
         message="This account has been disabled.",
     )
-
-
-def raise_not_signed_in() -> None:
-    raise api_error(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        code="NOT_SIGNED_IN",
-        message="Sign in with Google to continue.",
-    )

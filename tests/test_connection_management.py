@@ -18,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.db import make_engine
 from app.engine.connection_health import ConnectionHealth, compute_connection_health
 from app.engine.pending_connection_gc import gc_pending_connections
-from app.engine.tokens import bot_key_lookup, generate_connection_key, generate_turn_token
+from app.engine.tokens import bot_key_lookup, generate_connection_key
 from app.models import Base
 from app.models.agent import Agent, AgentStatus
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
@@ -26,13 +26,20 @@ from app.models.connection_setup import ConnectionSetup
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.match import GameState, Match
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
 from app.routes.agent_next_turn import router as agent_next_turn_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
 from app.routes.connections_setup import router as connections_setup_router
-from tests.factories import make_agent, make_connection, make_match, make_user, seat_prebuilt_player
+from tests.factories import (
+    add_submission,
+    make_agent,
+    make_connection,
+    make_match,
+    make_turn,
+    make_user,
+    seat_prebuilt_player,
+)
 
 NOW = datetime(2026, 6, 6, 12, 0, tzinfo=timezone.utc)
 
@@ -132,26 +139,17 @@ async def _make_turn(
     turn_no: int,
     defaulted: bool = False,
 ) -> None:
-    turn = Turn(
-        match_id=match.id,
-        round=1,
+    turn = await make_turn(
+        db,
+        match.id,
         turn=turn_no,
-        turn_token=generate_turn_token(),
+        phase="talk",
+        resolved=False,
         opened_at=NOW,
-        deadline_at=NOW + timedelta(minutes=1),
     )
-    db.add(turn)
-    await db.flush()
-    db.add(
-        TurnSubmission(
-            turn_id=turn.id,
-            player_id=player.id,
-            action="HOARD",
-            was_defaulted=defaulted,
-            submitted_at=NOW,
-        )
+    await add_submission(
+        db, turn, player, action="HOARD", was_defaulted=defaulted, submitted_at=NOW
     )
-    await db.flush()
 
 
 async def test_create_machine_connection_shows_setup_page_before_connect(

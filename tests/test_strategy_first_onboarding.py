@@ -6,21 +6,18 @@ and keeps the design form visible even when the user has no connections.
 
 from __future__ import annotations
 
-import base64
-import json
 import re
 from datetime import datetime, timezone
 
 import pytest
-from itsdangerous import TimestampSigner
 from sqlalchemy import select
 
-from app.config import settings
 from app.models import Base, Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionStatus
 from app.routes.agents_health_presenter import _readiness_state
 from tests.factories import make_agent, make_connection, make_user
+from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
 @pytest.fixture(autouse=True)
@@ -36,14 +33,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.db.engine", test_engine)
     yield test_factory
     await test_engine.dispose()
-
-
-def _signed_in_cookies(user_id: int) -> dict[str, str]:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(
-        json.dumps({"user_id": user_id, "next_after_login": None}).encode()
-    ).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def test_create_agent_without_connections_goes_to_lobby(

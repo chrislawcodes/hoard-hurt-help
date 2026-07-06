@@ -3,23 +3,14 @@
 Two browser sessions with the same Google identity see the same games.
 """
 
-import base64
-import json
 
 from httpx import ASGITransport, AsyncClient
-from itsdangerous import TimestampSigner
 
-from app.config import settings
 from app.main import app
 from app.models import Match, GameState, Player, User
 from tests.factories import make_agent
 from datetime import datetime, timedelta, timezone
-
-
-def _cookies(user_id: int) -> dict:
-    signer = TimestampSigner(settings.session_secret)
-    payload = base64.b64encode(json.dumps({"user_id": user_id}).encode()).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
+from tests.conftest import signed_in_cookies as _cookies
 
 
 async def test_two_sessions_same_user_see_same_games(reset_db):

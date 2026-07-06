@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.models import GameState, Match, Turn, TurnMessage, TurnSubmission
+from app.models import GameState, Match, TurnMessage
 from app.models.agent import AgentKind
 from app.models.player import Player
 from app.read_models.matches import (
@@ -22,7 +22,7 @@ from app.read_models.matches import (
     winner_agent_id_by_player,
 )
 from app.routes.web_support import _agent_counts
-from tests.factories import make_agent, make_user, seat_player
+from tests.factories import add_submission, make_agent, make_turn, make_user, seat_player
 
 
 @contextmanager
@@ -63,18 +63,7 @@ async def test_load_action_records_prefers_talk_message_over_submission_message(
     match = await _match(db)
     alice = await seat_player(db, match.id, "Alice", i=1)
     bob = await seat_player(db, match.id, "Bob", i=2)
-    turn = Turn(
-        match_id=match.id,
-        round=1,
-        turn=1,
-        turn_token="tk",
-        opened_at=datetime.now(timezone.utc),
-        deadline_at=datetime.now(timezone.utc),
-        phase="act",
-        resolved_at=datetime.now(timezone.utc),
-    )
-    db.add(turn)
-    await db.flush()
+    turn = await make_turn(db, match.id, turn_token="tk")
     db.add(
         TurnMessage(
             turn_id=turn.id,
@@ -85,27 +74,24 @@ async def test_load_action_records_prefers_talk_message_over_submission_message(
             submitted_at=datetime.now(timezone.utc),
         )
     )
-    db.add_all(
-        [
-            TurnSubmission(
-                turn_id=turn.id,
-                player_id=alice.id,
-                action="HELP",
-                target_player_id=bob.id,
-                message="legacy alice message",
-                points_delta=0,
-                round_score_after=0,
-            ),
-            TurnSubmission(
-                turn_id=turn.id,
-                player_id=bob.id,
-                action="HOARD",
-                target_player_id=None,
-                message="legacy bob message",
-                points_delta=2,
-                round_score_after=2,
-            ),
-        ]
+    await add_submission(
+        db,
+        turn,
+        alice,
+        action="HELP",
+        target_player_id=bob.id,
+        message="legacy alice message",
+        points_delta=0,
+        round_score_after=0,
+    )
+    await add_submission(
+        db,
+        turn,
+        bob,
+        action="HOARD",
+        message="legacy bob message",
+        points_delta=2,
+        round_score_after=2,
     )
     await db.commit()
 
@@ -125,44 +111,29 @@ async def test_load_match_timeline_resolves_agents_and_falls_back_to_submission_
     match = await _match(db)
     alice = await seat_player(db, match.id, "Alice", i=1)
     bob = await seat_player(db, match.id, "Bob", i=2)
-    turn = Turn(
-        match_id=match.id,
-        round=1,
-        turn=1,
-        turn_token="tk",
-        opened_at=datetime.now(timezone.utc),
-        deadline_at=datetime.now(timezone.utc),
-        phase="act",
-        resolved_at=datetime.now(timezone.utc),
-    )
-    db.add(turn)
-    await db.flush()
+    turn = await make_turn(db, match.id, turn_token="tk")
     submitted_at = datetime.now(timezone.utc)
-    db.add_all(
-        [
-            TurnSubmission(
-                turn_id=turn.id,
-                player_id=alice.id,
-                action="HELP",
-                target_player_id=bob.id,
-                message="fallback public message",
-                thinking="private act thinking",
-                points_delta=0,
-                round_score_after=0,
-                was_defaulted=False,
-                submitted_at=submitted_at,
-            ),
-            TurnSubmission(
-                turn_id=turn.id,
-                player_id=bob.id,
-                action="HOARD",
-                target_player_id=None,
-                message="bob banks",
-                points_delta=2,
-                round_score_after=2,
-                submitted_at=submitted_at,
-            ),
-        ]
+    await add_submission(
+        db,
+        turn,
+        alice,
+        action="HELP",
+        target_player_id=bob.id,
+        message="fallback public message",
+        thinking="private act thinking",
+        points_delta=0,
+        round_score_after=0,
+        submitted_at=submitted_at,
+    )
+    await add_submission(
+        db,
+        turn,
+        bob,
+        action="HOARD",
+        message="bob banks",
+        points_delta=2,
+        round_score_after=2,
+        submitted_at=submitted_at,
     )
     await db.commit()
 

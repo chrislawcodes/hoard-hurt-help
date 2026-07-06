@@ -26,7 +26,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.db.SessionLocal", test_factory)
     monkeypatch.setattr("app.db.engine", test_engine)
     # The deps.get_db reads via the imported SessionLocal symbol, which we just patched.
-    monkeypatch.setattr("app.routes.agent_api._last_poll", {})
     monkeypatch.setattr("app.routes.agent_api._last_pull", {})
 
     yield test_factory
@@ -63,65 +62,21 @@ async def _seed_game(
 # tests/test_lobby.py. The agent API is play-only, so the old API /join tests are gone.
 
 
-async def test_poll_invalid_key(client, reset_db):
+async def test_next_turn_invalid_key(client, reset_db):
     await _seed_game(reset_db, state=GameState.ACTIVE)
     r = await client.get(
-        "/api/games/G_001/turn",
+        "/api/agent/next-turn",
         headers={"X-Connection-Key": "sk_game_bogus"},
     )
     assert r.status_code == 401
     assert r.json()["detail"]["error"]["code"] == "INVALID_KEY"
 
 
-async def test_poll_game_not_started(client, reset_db):
-    # Scheduled an hour out → far from start → slow poll cadence.
-    _, players = await _seed_game(reset_db, state=GameState.REGISTERING, n_players=1)
-    r = await client.get(
-        "/api/games/G_001/turn",
-        headers={"X-Connection-Key": players[0]._test_key},
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["status"] == "waiting"
-    assert body["reason"] == "game_not_started"
-    assert body["next_poll_after_seconds"] == 30
-
-
-async def test_poll_not_started_near_start_polls_faster(client, reset_db):
-    # Within 3 minutes of start → tighten the poll cadence.
-    soon = datetime.now(timezone.utc) + timedelta(seconds=90)
-    _, players = await _seed_game(
-        reset_db, state=GameState.REGISTERING, n_players=1, scheduled_start=soon
-    )
-    r = await client.get(
-        "/api/games/G_001/turn",
-        headers={"X-Connection-Key": players[0]._test_key},
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["reason"] == "game_not_started"
-    assert body["next_poll_after_seconds"] == 5
-
-
-async def test_poll_active_no_open_turn_cadence(client, reset_db):
-    # Live game with no open turn → "active" waiting cadence.
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=1)
-    r = await client.get(
-        "/api/games/G_001/turn",
-        headers={"X-Connection-Key": players[0]._test_key},
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["status"] == "waiting"
-    assert body["reason"] == "turn_not_open"
-    assert body["next_poll_after_seconds"] == 5
-
-
-async def test_poll_your_turn_then_submit(client, reset_db):
-    """Open a turn manually, poll → your_turn → submit → 202."""
+async def test_next_turn_your_turn_then_submit(client, reset_db):
+    """Poll the next-turn loop → your_turn → submit → 202, and an idempotent
+    re-submit → 202 again."""
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
-    p0 = players[0]
-    key = p0._test_key
+    key = players[0]._test_key
 
     # Open a turn in the DB.
     async with reset_db() as db:
@@ -142,22 +97,20 @@ async def test_poll_your_turn_then_submit(client, reset_db):
         )
         db.add(t)
         await db.commit()
-        await db.refresh(t)
-        turn_token = t.turn_token
 
-    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "your_turn"
-    # Raw payload: static + full append-only history + scoreboard + current.
+    # Raw payload: static + append-only history + scoreboard + current.
     # No pre-digested `summary`.
     assert "summary" not in body
-    assert body["current"]["turn_token"] == turn_token
     assert isinstance(body["history"], list)
     assert isinstance(body["scoreboard"], list)
     assert "rules" in body["static"]
     turn_token = body["current"]["turn_token"]
-    agent_turn_token = f"{turn_token}:{p0.agent_id}:G_001"
+    # The loop hands back the (agent, match)-bound submit token directly.
+    agent_turn_token = body["agent_turn_token"]
 
     # Submit Hoard.
     r2 = await client.post(
@@ -292,18 +245,6 @@ async def test_submit_self_target_case_variant_still_rejected(client, reset_db):
     r = await _submit_help(client, p0._test_key, turn_token, p0.agent_id, p0.seat_name.lower())
     assert r.status_code == 400
     assert r.json()["detail"]["error"]["code"] == "INVALID_TARGET"
-
-
-async def test_rate_limit(client, reset_db):
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=1)
-    key = players[0]._test_key
-    # First poll OK.
-    r1 = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
-    assert r1.status_code == 200
-    # Immediate second poll → 429.
-    r2 = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": key})
-    assert r2.status_code == 429
-    assert r2.json()["detail"]["error"]["code"] == "RATE_LIMITED"
 
 
 # --- Pull-on-demand detail endpoints (feature 002, US3) ---
@@ -477,7 +418,7 @@ async def test_directed_message_appears_next_turn(client, reset_db):
         )
         await db.commit()
 
-    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": p0._test_key})
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": p0._test_key})
     assert r.status_code == 200, r.text
     body = r.json()
     # Turn 1 is in the raw history the bot reads itself — AI_1's hurt-with-message
@@ -520,44 +461,18 @@ async def test_load_public_action_records_windows_to_recent_turns(reset_db):
     assert [(r.round, r.turn) for r in full] == [(1, 1), (1, 2), (1, 3), (1, 4)]
 
 
-async def test_poll_payload_history_is_windowed_chat_is_full(client, reset_db):
-    """The per-poll payload carries only the recent-turns window (so it stays small
-    and a client's tool buffer never overflows), while the on-demand chat still
-    returns the whole transcript — the catch-up channel."""
-    from sqlalchemy import select
-
+async def test_chat_returns_whole_unwindowed_transcript(client, reset_db):
+    """The turn payload's history is windowed to recent turns (covered on the
+    next-turn path and by test_load_public_action_records_windows_to_recent_turns);
+    the on-demand chat is the catch-up channel that returns the WHOLE transcript."""
     _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, _p1 = players
     for t in range(1, 5):  # resolved turns (1,1)..(1,4)
         await _seed_resolved_turn(
             reset_db, "G_001", 1, t, [(p0.id, "HOARD", None, f"m{t}", 2, 2 * t)]
         )
-    # Open a later turn so the poll returns 'your_turn' with the recent window.
-    async with reset_db() as db:
-        game = (await db.execute(select(Match).where(Match.id == "G_001"))).scalar_one()
-        game.current_round, game.current_turn = 1, 5
-        now = datetime.now(timezone.utc)
-        db.add(
-            Turn(
-                match_id="G_001",
-                round=1,
-                turn=5,
-                turn_token=generate_turn_token(),
-                opened_at=now,
-                deadline_at=now + timedelta(seconds=60),
-                phase="act",
-            )
-        )
-        await db.commit()
 
-    r = await client.get("/api/games/G_001/turn", headers={"X-Connection-Key": p0._test_key})
-    assert r.status_code == 200, r.text
-    body = r.json()
-    # Poll payload: only the last two resolved turns ride along.
-    assert [(t["round"], t["turn"]) for t in body["history"]] == [(1, 3), (1, 4)]
-    assert body["scoreboard"]  # scoreboard is always full, never windowed
-
-    # Catch-up channel: chat returns the WHOLE transcript, unwindowed.
+    # Catch-up channel: chat returns every turn's message, unwindowed (no cursor).
     chat = await client.get("/api/games/G_001/chat", headers={"X-Connection-Key": p0._test_key})
     assert chat.status_code == 200, chat.text
     assert [m["message"] for m in chat.json()["messages"]] == ["m1", "m2", "m3", "m4"]

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -63,37 +61,6 @@ async def _seed_turn(
             "turn_token": turn.turn_token,
             "agent_turn_token": f"{turn.turn_token}:{player.agent_id}:{match.id}",
         }
-
-
-async def test_poll_turn_service_rate_limits(reset_db):
-    seed = await _seed_turn(reset_db, match_id="M_SERVICE_1")
-
-    async with reset_db() as db:
-        player = (
-            await db.execute(select(Player).where(Player.id == seed["player_id"]))
-        ).scalar_one()
-        match = (
-            await db.execute(select(Match).where(Match.id == seed["match_id"]))
-        ).scalar_one()
-        rate_state: dict[int, float] = {}
-
-        first = await agent_play.poll_turn(
-            db,
-            match_id=match.id,
-            player=player,
-            rate_state=rate_state,
-        )
-        assert first.status == "your_turn"
-
-        with pytest.raises(HTTPException) as exc:
-            await agent_play.poll_turn(
-                db,
-                match_id=match.id,
-                player=player,
-                rate_state=rate_state,
-            )
-        assert exc.value.status_code == 429
-        assert exc.value.detail["error"]["code"] == "RATE_LIMITED"
 
 
 async def test_submit_action_service_updates_turn_count_and_first_move(

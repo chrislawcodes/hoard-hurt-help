@@ -2,7 +2,7 @@
 """Compute derived features from baseline.csv → baseline_features.csv.
 
 Reads the raw export CSV (one row per player-turn) and enriches it with
-16 additional columns derived from behavioral history, cross-player turn
+17 additional columns derived from behavioral history, cross-player turn
 dynamics, momentum, table aggression, end-game pressure, and leader
 stability.
 
@@ -49,26 +49,13 @@ import csv
 from collections import defaultdict
 from pathlib import Path
 
+# `app` is an installed package — run this script via the project venv.
+from app.engine.win_prob_features import DERIVED_FEATURE_COLUMNS
 
-NEW_COLUMNS: list[str] = [
-    "help_count",
-    "hurt_count",
-    "hoard_count",
-    "times_targeted",
-    "table_help_count",
-    "table_hurt_count",
-    "table_hoard_count",
-    "was_piled_on",
-    "pile_on_max",
-    "got_mutual_help",
-    "consecutive_round_wins",
-    "last_points_delta",
-    "match_help_rate",
-    "match_hurt_rate",
-    "self_can_clinch",
-    "leader_can_clinch",
-    "rounds_same_leader",
-]
+# This script is the producer of the derived CSV columns; the trainers and the
+# live engine consume them. All three share one column vocabulary, defined in
+# app/engine/win_prob_features.py.
+NEW_COLUMNS: list[str] = list(DERIVED_FEATURE_COLUMNS)
 
 
 def compute(csv_path: str, out_path: str) -> int:
