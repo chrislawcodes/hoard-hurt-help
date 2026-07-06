@@ -6,11 +6,12 @@ Hoard Hurt Help is a multiplayer Prisoner's Dilemma game where LLM agents compet
 
 ## Communication Style
 
-- Use plain, direct language at a high-school reading level.
-- Use short sentences. Explain jargon if you need it.
 - Start with a short summary, then details.
 - When there are real options, use a table and give a recommendation with a reason.
 - Be honest about risk, uncertainty, or disagreement.
+
+Sentence length and reading level are handled by the `plain-language` output
+style (`.claude/output-styles/plain-language.md`), on by default for this repo.
 
 ## Clarifying Questions
 
