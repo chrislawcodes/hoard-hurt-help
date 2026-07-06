@@ -491,7 +491,7 @@
   function renderTurn(i){
     var t=TURNS[i];
     if(!t) return;  // nothing resolved yet (live match opened before turn 1) — stay on the waiting caption
-    // Broadcast the playhead so the feed + now-strip follow. The seq is 1-based
+    // Broadcast the playhead so the feed follows. The seq is 1-based
     // (rc_data.turns are 1:1 with the server's history, whose seq starts at 1).
     // State lives on #live-region (persistent) so it survives SSE feed swaps.
     var _region=document.getElementById('live-region');

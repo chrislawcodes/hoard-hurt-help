@@ -168,104 +168,29 @@
     region.addEventListener('htmx:afterSwap', pushTurns);
 })();
 
-// Broadcast booth coordinator. The robot-circle animation is the single
+// Broadcast follow coordinator. The robot-circle animation is the single
 // playhead; it writes data-rc-seq on #live-region and dispatches `rc:turn`.
-// The narration dock (#now-strip) is the story source that follows that
-// playhead: locator + headline + the key moves as chips with point deltas, so a
-// watcher never needs the feed to keep up. We deliberately do NOT move the page
-// while it plays — the feed below stays a still transcript:
-//   * every turn is rendered up front (no reveal-ahead height pumping),
-//   * we never scroll the feed into view (the dock carries the story),
-//   * we never touch the round-filter chips (a reader tool — the dock shows the
-//     round itself).
+// While a game plays, the feed streams: turns beyond the playhead stay hidden
+// and the live turn sits at the top of the transcript, growing downward, with
+// no window scroll. A finished match opens in reader mode showing the full
+// record, then streams once the viewer hits play (rc-play sets follow='1').
 // The current turn still gets a quiet .is-current left-bar so a glance down
-// finds the playhead, but the viewport never jumps. Re-applies after SSE swaps
-// via the seq persisted on #live-region.
+// finds the playhead. Re-applies after SSE swaps via the seq persisted on
+// #live-region.
 (function () {
     const region = document.getElementById('live-region');
     if (!region) return;
-    const strip = document.getElementById('now-strip');
-    const stripTurn = document.getElementById('now-strip-turn');
-    const stripHeadline = document.getElementById('now-strip-headline');
-    const stripMoves = document.getElementById('now-strip-moves');
     const isActive = region.dataset.state === 'active';
-    if (strip) strip.classList.toggle('is-live', isActive);
-    // Stream the transcript (reveal up to the playhead, newest on top) while a
-    // game plays; a finished match opens in reader mode showing the full record,
-    // then streams once the viewer hits play (rc-play sets follow='1').
     if (!region.dataset.follow) region.dataset.follow = isActive ? '1' : '0';
-
-    const MAX_CHIPS = 5;  // beyond this the dock would crowd; collapse the tail
-
-    // Build the move chips for one turn from its (always-rendered) feed block.
-    // The Compact grouping (.moves-grouped) already dedupes pacts and states one
-    // delta per move type, so it maps straight onto chips — and reading it from
-    // the DOM keeps the dock correct across SSE swaps without a second data path.
-    function fillMoves(block) {
-        if (!stripMoves) return;
-        stripMoves.textContent = '';
-        const groups = block.querySelectorAll('.moves-grouped .cgroup');
-        let shown = 0, hidden = 0;
-        groups.forEach(function (g) {
-            const kind = (g.className.match(/cgroup-(\w+)/) || [])[1] || '';
-            const delta = (g.querySelector('.cgdelta') || {}).textContent || '';
-            const pairs = g.querySelectorAll('.citems .cpair');
-            if (kind === 'hoard') {
-                // Hoards are the quiet background — collapse to a single count chip.
-                const n = g.querySelectorAll('.citems .cwho').length;
-                if (n) addChip(kind, n + ' hoard', delta, false);
-                return;
-            }
-            pairs.forEach(function (p) {
-                if (shown >= MAX_CHIPS) { hidden++; return; }
-                const who = p.querySelectorAll('.cwho');
-                const a = who[0] ? who[0].textContent : '';
-                const b = who[1] ? who[1].textContent : '';
-                const sep = kind === 'pact' ? ' ↔ ' : ' → ';
-                const betrayal = !!p.querySelector('.cbetray');
-                addChip(betrayal ? 'betray' : kind, a + sep + b, delta, betrayal);
-                shown++;
-            });
-        });
-        if (hidden > 0) {
-            const more = document.createElement('span');
-            more.className = 'dock-chip dock-chip-more';
-            more.textContent = '+' + hidden + ' more';
-            stripMoves.appendChild(more);
-        }
-    }
-
-    function addChip(kind, label, delta, betrayal) {
-        const chip = document.createElement('span');
-        chip.className = 'dock-chip dock-chip-' + kind;
-        const lab = document.createElement('span');
-        lab.className = 'dock-chip-label';
-        lab.textContent = label + (betrayal ? ' · betrayal' : '');
-        chip.appendChild(lab);
-        if (delta) {
-            const d = document.createElement('span');
-            d.className = 'dock-chip-delta';
-            d.textContent = delta;
-            chip.appendChild(d);
-        }
-        stripMoves.appendChild(chip);
-    }
 
     function sync(seq) {
         if (seq == null) seq = parseInt(region.dataset.rcSeq || '0', 10);
         if (!seq) return;
         const follow = region.dataset.follow !== '0';
-        let cur = null;
         region.querySelectorAll('#feed .turn-block').forEach(function (b) {
             const s = parseInt(b.dataset.seq, 10);
-            const on = s === seq;
-            b.classList.toggle('is-current', on);
-            // Stream mode: reveal the match up to the playhead so the live turn
-            // sits at the TOP of the transcript and played turns stack below it —
-            // the feed grows downward while the stage + dock above stay put (no
-            // window scroll). Reader mode leaves every turn shown.
+            b.classList.toggle('is-current', s === seq);
             if (follow) b.hidden = s > seq;
-            if (on) cur = b;
         });
         if (follow) {
             // Don't print a round heading before that round has started.
@@ -274,16 +199,6 @@
                 sec.querySelectorAll('.turn-block').forEach(function (b) { if (!b.hidden) any = true; });
                 sec.hidden = !any;
             });
-        }
-        if (strip && cur) {
-            const hl = cur.querySelector('.commentary-text');
-            const lbl = cur.querySelector('.turn-head-label');
-            const loc = lbl ? lbl.textContent : ('Turn ' + seq);
-            // Live game: name the state in the locator (the red dot pulses alongside).
-            stripTurn.textContent = isActive ? ('LIVE · ' + loc) : loc;
-            stripHeadline.textContent = hl ? hl.textContent : '';
-            fillMoves(cur);
-            strip.hidden = false;
         }
     }
 
