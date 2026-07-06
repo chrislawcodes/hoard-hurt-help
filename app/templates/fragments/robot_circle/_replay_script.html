@@ -496,7 +496,12 @@
     // State lives on #live-region (persistent) so it survives SSE feed swaps.
     var _region=document.getElementById('live-region');
     if(_region){
+      // Persist BOTH seq and round here (not only in the feed's rc:turn listener):
+      // renderTurn's very first call fires before _round_nav.html attaches its
+      // listener, so the feed's initial apply() must be able to read the round
+      // directly — otherwise it defaults to the last round and paints empty.
       _region.dataset.rcSeq=String(i+1);
+      _region.dataset.rcRound=String(t.round);
       _region.dispatchEvent(new CustomEvent('rc:turn',{bubbles:true,detail:{seq:i+1,round:t.round,turn:t.turn}}));
     }
     var snap=scoreAt[i]||{};
@@ -920,6 +925,13 @@
     renderTurn(idx);
     scheduleNext();
   };
+
+  // Click-to-jump: the transcript (or anything) can seek the replay to a turn by
+  // dispatching `rc:goto` with a 0-based turn index. Pause first so it holds there.
+  document.addEventListener('rc:goto', function(ev){
+    if(!ev.detail || typeof ev.detail.index !== 'number' || !TURNS.length) return;
+    reachedEnd=false; stop(); go(ev.detail.index);
+  });
 
   // Live growth: the SSE swap fetches fresh replay data and fires `rc:extend`.
   // Append any turns we don't already have, rebuild the score snapshots, and —

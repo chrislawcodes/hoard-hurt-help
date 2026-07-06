@@ -2646,3 +2646,134 @@ button.danger:hover,
 /* The replay sits below the finale; offset its scroll anchor so the sticky site
    nav doesn't cover it when "Watch replay" jumps down. */
 #replay { scroll-margin-top: 70px; }
+
+/* ===================================================================
+   Desktop transcript rail — the spectator "watch + read" layout.
+
+   At >=1141px the standings rail, the animated viewer, and the feed
+   (transcript) sit in one grid: deep-tan side rails flank a bright, lifted
+   viewer (the "bright middle"). Below the breakpoint .replay-shell-3 is inert,
+   so phone and player-cockpit layouts stack exactly as before. The feed stays
+   inside #live-region, so its SSE live-updates are untouched — this is layout
+   and paint only. `display:contents` promotes the standings rail and the viewer
+   out of .rc-layout so all three areas share one grid row.
+   =================================================================== */
+/* The "Transcript" label only shows in the desktop 3-column view (rules below);
+   everywhere else the live game status shows in the header instead. */
+.transcript-label { display: none; }
+@media (min-width: 1141px) {
+  .replay-shell-3 {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr) 340px;
+    gap: 1.1rem;
+    align-items: start;
+    /* Break out of the ~1040px content column so the three panels get room:
+       centered in the viewport, up to 1280px. No transform, so the sticky
+       standings rail keeps working. */
+    position: relative;
+    left: 50%;
+    width: min(1280px, calc(100vw - 3rem));
+    margin-left: calc(min(1280px, 100vw - 3rem) / -2);
+    margin-bottom: 2rem;
+  }
+  .replay-shell-3 > .rc-layout { display: contents; }
+
+  /* Side rails: deep-tan panels that recede. */
+  .replay-shell-3 .rc-scorepanel,
+  .replay-shell-3 #live-region {
+    background: #dbc79a;
+    border-radius: 14px;
+    padding: 0.8rem 0.85rem;
+  }
+  /* Standings sticks so it stays in view while you scroll the transcript. The
+     70px offset clears the sticky site nav so its top isn't tucked behind it. */
+  .replay-shell-3 .rc-scorepanel { position: sticky; top: calc(70px + 1rem); }
+
+  /* Bright, lifted viewer — the star of the screen. Sticks (like the standings)
+     so you keep watching while you scroll the transcript beside it. */
+  .replay-shell-3 .replay-viewer {
+    background: #fffdf8;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 0.85rem 1rem;
+    box-shadow: 0 3px 16px rgba(70, 45, 12, 0.10);
+    position: sticky;
+    top: calc(70px + 1rem);
+    align-self: start;
+  }
+  /* Inside its own column the viewer drops the 920px cap and centering. */
+  .replay-shell-3 .replay-viewer .rc-wrap { max-width: none; margin: 0; }
+
+  /* One shared header line across all three columns. The viewer card's own
+     header (.rc-head, ~41px) is the anchor; the two side columns get a header
+     band of the same height and hairline, so all three underlines land on one
+     line and the bodies begin together. */
+  .replay-shell-3 .rc-scorepanel,
+  .replay-shell-3 #live-region { padding-top: 0.85rem; }
+  .replay-shell-3 .rc-scorepanel .rc-rail-title,
+  .replay-shell-3 #live-region .game-head {
+    height: 41px;
+    margin: 0 0 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .replay-shell-3 #live-region .game-head { text-overflow: ellipsis; }
+  .replay-shell-3 .replay-viewer .rc-head {
+    height: 41px;
+    border-bottom-color: var(--line);
+  }
+
+  /* Slim round strip in the narrow transcript column: plain number chips (no
+     pill borders) and a compact view switch, so "Round 1 2 3 …" reads as one
+     light line instead of a heavy two-row block. */
+  .replay-shell-3 .round-nav {
+    gap: 0.15rem 0.25rem;
+    margin-bottom: 0.6rem;
+    padding-bottom: 0.5rem;
+    background: #dbc79a;
+    top: calc(70px + 0.85rem);  /* the round strip is sticky; clear the site nav */
+  }
+  .replay-shell-3 .round-nav-label { margin-right: 0.1rem; }
+  .replay-shell-3 .round-chip {
+    border: none;
+    background: transparent;
+    padding: 0.08rem 0.4rem;
+    font-size: 0.82rem;
+    border-radius: 6px;
+  }
+  .replay-shell-3 .round-chip:hover { background: rgba(0, 0, 0, 0.06); }
+  .replay-shell-3 .round-chip.is-active {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  .replay-shell-3 .view-btn { font-size: 0.7rem; padding: 0.15rem 0.45rem; }
+
+  /* Header reads "Transcript"; the game-status line (Final winner / Live round)
+     is dropped here — the standings rail already tells you who's winning. */
+  .replay-shell-3 #live-region .game-head .transcript-label {
+    display: inline;
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    font-weight: 700;
+  }
+  .replay-shell-3 #live-region .game-head .badge,
+  .replay-shell-3 #live-region .game-head .meta { display: none; }
+
+  /* One round at a time: the highlighted round chip carries the round, so the
+     in-feed "Round N" dividers are hidden. */
+  .replay-shell-3 #live-region .round-heading { display: none; }
+
+  /* Turn cards seek the replay on click or Enter/Space (see _round_nav.html) —
+     show it's interactive and give keyboard focus a clear ring. */
+  .replay-shell-3 #feed .turn-block { cursor: pointer; }
+  .replay-shell-3 #feed .turn-block:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}

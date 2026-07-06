@@ -6,20 +6,20 @@
 (function () {
     const region = document.getElementById('live-region');
     if (!region) return;
-    const isActive = region.dataset.state === 'active';
 
-    // null  = follow the latest round (auto-advances as a live game progresses)
-    // <num> = pinned to that round
-    // 'all' = show the whole log
-    // 'all' is the reader baseline (the whole match, newest first). During
-    // playback the booth coordinator streams turns up to the playhead instead
-    // (see region.dataset.follow); clicking a round chip drops back to reader.
-    let selected = 'all';
+    // follow = '1' → the feed tracks the replay's playhead: it shows the round the
+    // animation is on, the turns up to the current turn, and marks the current
+    // turn. follow = '0' → the reader pinned a round (dataset.pinnedRound) and sees
+    // all of it. Clicking the round the replay is on resumes follow. (The cockpit —
+    // a human playing, no animation — always shows the whole feed, unfiltered.)
+    if (!region.dataset.follow) region.dataset.follow = '1';
     // Feed view: 'story' (one-line play-by-play), 'cards' (full messages), or
     // 'compact' (one line per move). Lives in this closure so it survives the
     // SSE swaps that replace the feed's innerHTML. Cards is the default.
     let view = 'cards';
 
+    function playRound() { return parseInt(region.dataset.rcRound || '0', 10); }
+    function playSeq() { return parseInt(region.dataset.rcSeq || '0', 10); }
     function maxRound() {
         let m = 0;
         region.querySelectorAll('#feed .round-section').forEach(function (s) {
@@ -40,21 +40,43 @@
 
         const max = maxRound();
         if (max === 0) return;  // nothing resolved yet
-        let target;
-        if (selected === 'all') target = 'all';
-        else if (selected === null) target = max;        // follow live
-        else target = Math.min(selected, max);           // pinned
 
+        // Cockpit (human playing, no animation): show the whole feed, unfiltered.
+        if (region.classList.contains('cockpit')) {
+            region.querySelectorAll('#feed .round-section').forEach(function (s) { s.hidden = false; });
+            return;
+        }
+
+        const following = region.dataset.follow !== '0';
+        const seq = playSeq();
+        // Which round to show: the replay's round while following, else the pinned one.
+        const target = following
+            ? (playRound() || max)
+            : Math.min(parseInt(region.dataset.pinnedRound || String(max), 10), max);
+
+        // Show only the target round.
         region.querySelectorAll('#feed .round-section').forEach(function (s) {
-            const r = parseInt(s.dataset.round, 10);
-            s.hidden = (target !== 'all' && r !== target);
+            s.hidden = parseInt(s.dataset.round, 10) !== target;
         });
+        // Mark the turn the replay is on; while following, hide the turns after it
+        // so the current turn leads the feed (which is newest-first).
+        region.querySelectorAll('#feed .turn-block').forEach(function (b) {
+            const s = parseInt(b.dataset.seq, 10);
+            b.classList.toggle('is-current', seq > 0 && s === seq);
+            b.hidden = following && seq > 0 && s > seq;
+        });
+        // Highlight the active round chip.
         region.querySelectorAll('.round-chip').forEach(function (c) {
-            const v = c.dataset.round;
-            const match = (target === 'all') ? (v === 'all') : (v === String(target));
-            c.classList.toggle('is-active', match);
+            c.classList.toggle('is-active', c.dataset.round === String(target));
         });
     }
+
+    // The replay's playhead drives the feed: round + turn come from rc:turn.
+    region.addEventListener('rc:turn', function (e) {
+        if (e.detail && e.detail.round != null) region.dataset.rcRound = String(e.detail.round);
+        if (e.detail && e.detail.seq != null) region.dataset.rcSeq = String(e.detail.seq);
+        apply();
+    });
 
     region.addEventListener('click', function (e) {
         // Reveal/hide a bot's private "thinking" note. Delegated so it survives swaps.
@@ -75,31 +97,56 @@
             apply();
             return;
         }
+        // Round chip: clicking the round the replay is on resumes follow; any
+        // other round pins the feed to that round for reading.
         const chip = e.target.closest('.round-chip');
-        if (!chip || chip.disabled) return;
-        const v = chip.dataset.round;
-        let resumeLive = false;
-        if (v === 'all') {
-            selected = 'all';
-        } else {
-            const n = parseInt(v, 10);
-            // In a live game, clicking the current/latest round resumes auto-follow.
-            resumeLive = isActive && n === maxRound();
-            selected = resumeLive ? null : n;
+        if (chip && !chip.disabled) {
+            const n = parseInt(chip.dataset.round, 10);
+            if (n === playRound()) {
+                region.dataset.follow = '1';
+            } else {
+                region.dataset.follow = '0';
+                region.dataset.pinnedRound = String(n);
+            }
+            apply();
+            return;
         }
-        // Picking a round is a reader action: stop the auto-follow stream and show
-        // that round in full. Clicking the live round (live game) resumes follow.
-        region.dataset.follow = resumeLive ? '1' : '0';
-        if (!resumeLive) {
-            region.querySelectorAll('#feed .turn-block').forEach(function (b) { b.hidden = false; });
+        // Click a turn card → seek the replay to that turn (spectator only; needs
+        // the animation stage present). Ignore clicks on inner controls/links.
+        const turn = e.target.closest('.turn-block');
+        if (turn && document.getElementById('rc-stage') &&
+            !e.target.closest('a, button, [data-target-name]')) {
+            const s = parseInt(turn.dataset.seq, 10);
+            if (s) document.dispatchEvent(new CustomEvent('rc:goto', { detail: { index: s - 1 } }));
         }
-        apply();
+    });
+
+    // Keyboard access for click-to-seek: make the turn cards focusable and
+    // operable with Enter/Space (mouse already works via the click handler
+    // above). Only when a replay exists to seek; re-applied after each SSE swap.
+    function markSeekable() {
+        if (!document.getElementById('rc-stage')) return;
+        region.querySelectorAll('#feed .turn-block').forEach(function (b) {
+            b.setAttribute('tabindex', '0');
+            const lbl = b.querySelector('.turn-head-label');
+            b.setAttribute('aria-label', 'Jump the replay to ' + (lbl ? lbl.textContent.trim() : 'this turn'));
+        });
+    }
+    region.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+        const turn = e.target.closest ? e.target.closest('.turn-block') : null;
+        // Only the card's own focus seeks — inner controls keep their own keys.
+        if (!turn || e.target !== turn || !document.getElementById('rc-stage')) return;
+        e.preventDefault();
+        const s = parseInt(turn.dataset.seq, 10);
+        if (s) document.dispatchEvent(new CustomEvent('rc:goto', { detail: { index: s - 1 } }));
     });
 
     // Re-apply after each SSE-driven swap of the live region.
-    region.addEventListener('htmx:afterSwap', apply);
+    region.addEventListener('htmx:afterSwap', function () { apply(); markSeekable(); });
 
     apply();
+    markSeekable();
 })();
 
 // Live updates via Server-Sent Events. Plain EventSource — not htmx's sse
@@ -166,44 +213,5 @@
         document.dispatchEvent(new CustomEvent('rc:extend', { detail: { turns: data.turns } }));
     }
     region.addEventListener('htmx:afterSwap', pushTurns);
-})();
-
-// Broadcast follow coordinator. The robot-circle animation is the single
-// playhead; it writes data-rc-seq on #live-region and dispatches `rc:turn`.
-// While a game plays, the feed streams: turns beyond the playhead stay hidden
-// and the live turn sits at the top of the transcript, growing downward, with
-// no window scroll. A finished match opens in reader mode showing the full
-// record, then streams once the viewer hits play (rc-play sets follow='1').
-// The current turn still gets a quiet .is-current left-bar so a glance down
-// finds the playhead. Re-applies after SSE swaps via the seq persisted on
-// #live-region.
-(function () {
-    const region = document.getElementById('live-region');
-    if (!region) return;
-    const isActive = region.dataset.state === 'active';
-    if (!region.dataset.follow) region.dataset.follow = isActive ? '1' : '0';
-
-    function sync(seq) {
-        if (seq == null) seq = parseInt(region.dataset.rcSeq || '0', 10);
-        if (!seq) return;
-        const follow = region.dataset.follow !== '0';
-        region.querySelectorAll('#feed .turn-block').forEach(function (b) {
-            const s = parseInt(b.dataset.seq, 10);
-            b.classList.toggle('is-current', s === seq);
-            if (follow) b.hidden = s > seq;
-        });
-        if (follow) {
-            // Don't print a round heading before that round has started.
-            region.querySelectorAll('#feed .round-section').forEach(function (sec) {
-                let any = false;
-                sec.querySelectorAll('.turn-block').forEach(function (b) { if (!b.hidden) any = true; });
-                sec.hidden = !any;
-            });
-        }
-    }
-
-    region.addEventListener('rc:turn', function (e) { sync(e.detail.seq); });
-    // The feed is replaced on each SSE swap — re-apply from the persisted seq.
-    region.addEventListener('htmx:afterSwap', function () { sync(null); });
 })();
 </script>

@@ -353,7 +353,7 @@ async def test_talk_phase_shows_last_result_in_feed_not_dock(reset_db, client) -
     html = r.text
     assert "Stay quiet" in html  # it's the talk phase
     assert "What just happened" not in html  # no dock recap (spec 019)
-    assert "Round 1 · Turn 1" in html  # the just-resolved turn shows in the feed
+    assert "Turn 1" in html  # the just-resolved turn shows in the feed (cards read "Turn N")
 
 
 async def test_first_talk_turn_has_no_recap(reset_db, client) -> None:
