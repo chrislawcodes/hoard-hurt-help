@@ -500,8 +500,11 @@
       _region.dispatchEvent(new CustomEvent('rc:turn',{bubbles:true,detail:{seq:i+1,round:t.round,turn:t.turn}}));
     }
     var snap=scoreAt[i]||{};
-    // The last turn finishes the final round, so show the fully-credited wins.
-    var wsnap=(i===TURNS.length-1)?finalWins:(winsAt[i]||{});
+    // Always start from the wins credited as of the START of this turn/round —
+    // never jump to the fully-credited total before the round has actually
+    // played out. For the match's last turn, the final round's win credit is
+    // applied below once its actions finish animating, not here at the start.
+    var wsnap=winsAt[i]||{};
     AGENTS.forEach(function(id){ rScore[id]=snap[id]||0; rWins[id]=wsnap[id]||0; });
     updateRail();
     updateProgress(i);
@@ -549,6 +552,16 @@
         }, talkDur+slot.delay));
       });
     });});
+
+    // This turn finishes the match's final round. Credit its win only once
+    // these actions have actually finished animating — not at the start of
+    // the round, or the number would jump ahead of what's still playing out.
+    if(i===TURNS.length-1){
+      phaseTimers.push(setTimeout(function(){
+        AGENTS.forEach(function(id){ rWins[id]=finalWins[id]||0; });
+        updateRail();
+      }, talkDur+sched.totalDuration));
+    }
   }
 
   function showDelta(el, val){
