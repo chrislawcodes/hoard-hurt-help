@@ -12,6 +12,10 @@
     {% include "fragments/play_panel.html" %}
 {% else %}
 <div class="game-head">
+    {# In the desktop 3-column layout this reads "Transcript" (CSS swaps it in and
+       hides the game status — the standings tell you who's winning). Elsewhere the
+       live status shows as before. #}
+    <span class="transcript-label">Transcript</span>
     {% include "fragments/game_status.html" %}
 </div>
 

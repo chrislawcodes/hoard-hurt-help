@@ -94,4 +94,6 @@ async def test_ld_viewer_has_no_robot_circle_stage(client, reset_db):
     await _seed(reset_db)
     r = await client.get(f"/games/liars-dice/matches/{MATCH_ID}")
     assert r.status_code == 200
-    assert "rc-stage" not in r.text
+    # No actual robot-circle stage element. (The shared feed script mentions the
+    # id in a click-to-jump guard, so check for the element, not the substring.)
+    assert 'id="rc-stage"' not in r.text

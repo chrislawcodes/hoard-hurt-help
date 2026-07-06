@@ -7,9 +7,8 @@
     {% if rounds %}
     <nav class="round-nav" aria-label="Jump to round">
         <span class="round-nav-label">Round</span>
-        <button type="button" class="round-chip" data-round="all">All</button>
         {% for r in range(1, max_played_round + 1) %}
-        <button type="button" class="round-chip" data-round="{{ r }}">R{{ r }}{% if game.state.value == "active" and r == game.current_round %} <span class="live-dot" aria-hidden="true"></span>{% endif %}</button>
+        <button type="button" class="round-chip" data-round="{{ r }}">{{ r }}{% if game.state.value == "active" and r == game.current_round %} <span class="live-dot" aria-hidden="true"></span>{% endif %}</button>
         {% endfor %}
         <span class="round-nav-spacer"></span>
         <span class="view-switch" id="view-switch" role="group" aria-label="Feed view">
@@ -26,7 +25,6 @@
        phase, so spectators and the talk phase render nothing here. #}
     {% include "fragments/play_reveal.html" %}
     {% if rounds %}
-            <p class="feed-legend">Newest turns first. Switch views: <strong>Story</strong> (one-line play-by-play), <strong>Cards</strong> (full messages), or <strong>Compact</strong> (one line per move).</p>
             {% for rnd in rounds | reverse %}
             <section class="round-section" data-round="{{ rnd.round }}">
                 <h3 class="round-heading">Round {{ rnd.round }}</h3>

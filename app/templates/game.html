@@ -44,10 +44,15 @@
 {% include "fragments/coach_panel.html" %}
 {% endif %}
 
+{# Desktop transcript rail (spectator only): standings | viewer | transcript sit
+   in one grid at >=1141px. Below that, and in the player cockpit, this is a plain
+   wrapper and everything stacks exactly as before. The feed stays inside
+   #live-region so its SSE live-updates are untouched. #}
+<div class="replay-shell{% if show_replay_stage and rc_data and not player_mode %} replay-shell-3{% endif %}">
 {% if show_replay_stage and rc_data %}
 <div class="rc-layout" id="replay">
     {% include "fragments/robot_circle_standings.html" %}
-    <div>{% with rc_autoplay = true, rc_countdown_iso = countdown_start_iso, rc_can_start = viewer_can_start, rc_start_bots = viewer_start_bots, rc_start_game = game.game, rc_start_match = game.id %}{% include "fragments/robot_circle.html" %}{% endwith %}</div>
+    <div class="replay-viewer">{% with rc_autoplay = true, rc_countdown_iso = countdown_start_iso, rc_can_start = viewer_can_start, rc_start_bots = viewer_start_bots, rc_start_game = game.game, rc_start_match = game.id %}{% include "fragments/robot_circle.html" %}{% endwith %}</div>
 </div>
 {% endif %}
 
@@ -61,6 +66,7 @@
      {% if game.state.value == "active" %}data-stream-url="/games/{{ game.game }}/matches/{{ game.id }}/stream"
      data-live-url="/games/{{ game.game }}/matches/{{ game.id }}/live"{% endif %}>
     {% include "fragments/live_region.html" %}
+</div>
 </div>
 
 {% include "fragments/game/_round_nav.html" %}
