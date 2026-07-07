@@ -2664,16 +2664,17 @@ button.danger:hover,
 @media (min-width: 1141px) {
   .replay-shell-3 {
     display: grid;
-    grid-template-columns: 236px minmax(0, 1fr) 340px;
+    grid-template-columns: 220px minmax(0, 1fr) 400px;
     gap: 1.1rem;
     align-items: start;
     /* Break out of the ~1040px content column so the three panels get room:
-       centered in the viewport, up to 1280px. No transform, so the sticky
-       standings rail keeps working. */
+       centered in the viewport, up to 1240px. No transform, so the sticky
+       standings rail keeps working. The viewer is the flexible middle; the
+       transcript gets a wide fixed rail so its point values don't wrap. */
     position: relative;
     left: 50%;
-    width: min(1280px, calc(100vw - 3rem));
-    margin-left: calc(min(1280px, 100vw - 3rem) / -2);
+    width: min(1240px, calc(100vw - 3rem));
+    margin-left: calc(min(1240px, 100vw - 3rem) / -2);
     margin-bottom: 2rem;
   }
   .replay-shell-3 > .rc-layout { display: contents; }
@@ -2768,6 +2769,10 @@ button.danger:hover,
   /* One round at a time: the highlighted round chip carries the round, so the
      in-feed "Round N" dividers are hidden. */
   .replay-shell-3 #live-region .round-heading { display: none; }
+
+  /* Transcript text sits a smidge below the body size so a move line (name,
+     action, target, point value) stays on one line in the rail. */
+  .replay-shell-3 #feed { font-size: 0.92rem; }
 
   /* Turn cards seek the replay on click or Enter/Space (see _round_nav.html) —
      show it's interactive and give keyboard focus a clear ring. */
