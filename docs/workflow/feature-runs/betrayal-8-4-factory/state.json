@@ -181,6 +181,26 @@
       "artifact_sha_at_time": null,
       "cache_read_tokens": 2120890,
       "total_tokens": 133937
+    },
+    {
+      "stage": "diff",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "regression-adversarial",
+      "prompt_chars": 39093,
+      "prompt_cap": 250000,
+      "input_tokens": 330753,
+      "output_tokens": 5487,
+      "cost_usd_estimate": 1.79094,
+      "timestamp": "2026-07-07T07:08:23.199407Z",
+      "started_at": "2026-07-07T07:08:23.199407Z",
+      "ended_at": "2026-07-07T07:08:23.199407Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 1198367,
+      "total_tokens": 128557
     }
   ],
   "command_telemetry": [
@@ -326,6 +346,18 @@
       "files_read": 21,
       "files_written": 5,
       "subprocess_invocations": 36,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-07-07T07:08:23Z",
+      "wall_seconds": 0.125,
+      "input_bytes_read": 47940,
+      "output_bytes_written": 27808,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 16,
       "ttl_crossed": false
     }
   ],
