@@ -306,6 +306,46 @@ async def test_betrayal_victim_floored_at_zero(db):
     assert b.current_round_score == 0  # 3 - 4 clipped at 0
 
 
+async def test_betrayer_bonus_is_inside_summed_floor_no_floor(db):
+    """The betrayer's +4 bonus is a real, summed-in gain (no floor hit here).
+
+    A starts 6. B HELPs A (+4). A HURTs B (betrayal → A +4 bonus). C HURTs A (-4).
+    A's summed delta = 6 + 4 + 4 - 4 = 10. An implementation that DROPPED the bonus
+    would give 6; ending at 10 proves the bonus exists and is summed in.
+    """
+    game, [a, b, c] = await _make_game_with_players(db, 3)
+    a.current_round_score = 6
+    await db.commit()
+    turn = await _open_turn(db, game)
+    await _submit(db, turn, b, "HELP", target=a)
+    await _submit(db, turn, a, "HURT", target=b)
+    await _submit(db, turn, c, "HURT", target=a)
+    await resolve_turn(db, turn)
+    await db.refresh(a)
+    assert a.current_round_score == 10  # 6 + 4 help + 4 bonus - 4 (C), NOT 6
+
+
+async def test_betrayer_floors_on_summed_delta(db):
+    """The betrayer's bonus is inside the SUMMED-delta floor, not a per-hurt floor.
+
+    A starts 0. B HELPs A (+4). A HURTs B (betrayal → A +4 bonus). C and D each
+    HURT A (-4 each). Summed: 0 + 4 + 4 - 4 - 4 = 0 → floored stays 0. A per-hurt
+    floor would clip A to 0 mid-way then re-add the +4 → a positive number; ending
+    at exactly 0 proves the floor is applied to the final summed delta.
+    """
+    game, [a, b, c, d] = await _make_game_with_players(db, 4)
+    a.current_round_score = 0
+    await db.commit()
+    turn = await _open_turn(db, game)
+    await _submit(db, turn, b, "HELP", target=a)
+    await _submit(db, turn, a, "HURT", target=b)
+    await _submit(db, turn, c, "HURT", target=a)
+    await _submit(db, turn, d, "HURT", target=a)
+    await resolve_turn(db, turn)
+    await db.refresh(a)
+    assert a.current_round_score == 0  # 0 + 4 + 4 - 4 - 4 = 0 (summed floor)
+
+
 async def test_missed_turn_defaults_to_hoard(db):
     """A player with no submission gets defaulted to Hoard with canonical message."""
     game, [a, b] = await _make_game_with_players(db, 2)
