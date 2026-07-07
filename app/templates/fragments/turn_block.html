@@ -38,7 +38,8 @@
             <div class="said no-message">No public message submitted.</div>
             {% endif %}
 
-            {% if a.message_thinking or a.thinking %}
+            {# Bots' "thinking" is canned strategy text, so it's hidden; only real agents' reasoning shows. #}
+            {% if (a.message_thinking or a.thinking) and not a.is_bot %}
             <div class="thought-wrap">
                 <button type="button" class="thinking-toggle" aria-expanded="false">💭 thinking</button>
                 <div class="thought" hidden>

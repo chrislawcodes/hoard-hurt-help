@@ -246,15 +246,18 @@ def _format_talk_messages(cur: dict) -> str:
 def _phase_suffix(cur: dict) -> str:
     clock = _time_left_note(cur)
     if _phase(cur) == "talk":
-        return f"TALK PHASE — JSON only.{clock}"
-    # A short per-turn nudge of the ACT rule — NOT the full agent list, which is
-    # already in this turn's scoreboard/messages. In a chained session the
-    # "HELP/HURT need a target" rule fades from the first turn's system prompt and
-    # the model intermittently drops target_id (→ server 400). This one line keeps
-    # most moves valid; a rare miss is caught by the re-ask in `_decide`.
+        return f"TALK PHASE — JSON only: message + a one-sentence `thinking`.{clock}"
+    # A short per-turn nudge of the ACT rules — NOT the full agent list, which is
+    # already in this turn's scoreboard/messages. In a chained session the rules in
+    # the first turn's system prompt fade, and the model starts dropping fields:
+    # target_id (→ server 400) and `thinking` (→ the replay shows no reasoning for
+    # this agent). Re-stating both every turn keeps most moves valid and keeps the
+    # private reasoning flowing; a rare target miss is caught by the re-ask in
+    # `_decide`. The few extra tokens are worth a working "thinking" note.
     return (
         f"ACT PHASE — this turn's messages: {_format_talk_messages(cur)}. "
-        f"Decide your action, JSON only; HELP/HURT need a target_id (HOARD: null).{clock}"
+        f"Decide your action, JSON only; HELP/HURT need a target_id (HOARD: null); "
+        f"add a one-sentence `thinking`.{clock}"
     )
 
 

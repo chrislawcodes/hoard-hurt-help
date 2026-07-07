@@ -285,6 +285,11 @@ async def build_pd_replay_view(
     g = match
     history: list[dict[str, Any]] = []
 
+    # Which seats are bots (scripted opponents). The feed uses this to hide bots'
+    # auto-generated "thinking" notes — canned strategy text, not a model's real
+    # reasoning. Real agents' thinking (when they submit any) still shows.
+    bot_ids = {r["agent_id"] for r in scoreboard if r.get("is_bot")}
+
     # Per-turn pact/betrayal signals for the replay. A "pact" is a mutual HELP in
     # the same turn; a "betrayal" is a HURT aimed at last turn's pact partner.
     prev_mutual: set[frozenset[str]] = set()
@@ -304,6 +309,9 @@ async def build_pd_replay_view(
             actions.append(
                 {
                     "agent_id": action.agent_id,
+                    # Bots' "thinking" is canned strategy text, so the feed hides
+                    # it (turn_block.html) — real agents' reasoning still shows.
+                    "is_bot": action.agent_id in bot_ids,
                     "action": action.action,
                     "target_id": action.target_id,
                     "quantity": action.quantity,

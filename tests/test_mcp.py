@@ -83,6 +83,7 @@ async def test_mcp_tool_schema_fields_are_frozen() -> None:
             "match_id",
             "message",
             "target_id",
+            "thinking",
             "turn_token",
         ],
         "submit_talk": [
@@ -130,6 +131,53 @@ async def test_authed_tools_hide_token_and_db_from_schema() -> None:
     ):
         assert "token" not in schemas[name]
         assert "db" not in schemas[name]
+
+
+async def test_submit_action_forwards_agent_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The act tool carries the agent's private `thinking` to the play layer.
+
+    It used to hardcode thinking="" so an MCP agent could never record the
+    reasoning behind its move — the replay showed thinking for scripted bots but
+    never for real agents. This pins that submit_action now forwards whatever
+    reasoning the agent sends.
+    """
+    from mcp_server import connection_identity, mcp_tools, server
+
+    captured: dict[str, object] = {}
+
+    async def fake_resolve(
+        db: object, token: object, *, match_id: str, agent_turn_token: str
+    ) -> tuple[object, object, object, object]:
+        return (
+            object(),
+            object(),
+            SimpleNamespace(id=7),
+            SimpleNamespace(id=99, seat_name="AI-17"),
+        )
+
+    async def fake_play_submit_action(db: object, **kwargs: object) -> dict[str, str]:
+        captured.update(kwargs)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(connection_identity, "_resolve_oauth_player", fake_resolve)
+    monkeypatch.setattr(mcp_tools, "play_submit_action", fake_play_submit_action)
+
+    await server.submit_action(
+        match_id="M_001",
+        action="HURT",
+        target_id="AI-2",
+        message="watch out",
+        thinking="they are pulling ahead, so I strike the leader",
+        turn_token="tt",
+        agent_turn_token="att",
+        token=_token(),
+        db=object(),
+    )
+
+    assert captured["message"] == "watch out"
+    assert captured["thinking"] == "they are pulling ahead, so I strike the leader"
 
 
 async def test_mcp_discovery_requires_bearer_token() -> None:
