@@ -1014,29 +1014,32 @@
   var skipEl=document.getElementById('rc-skiptalk');
   if(skipEl) skipEl.onchange=function(){ skipTalk=skipEl.checked; };
 
-  // --- Standings display toggle (temporary A/B: rail column vs podium crowns) ---
-  // Only meaningful where a standings column exists; self-hides otherwise. The
-  // mode class rides on .replay-shell so it can both hide the column and reveal
-  // the crowns (see style.css). Flipping changes the viewer width, so re-lay-out
-  // the ring and repaint the current turn after the switch.
+  // --- Standings column on/off toggle ---
+  // Crowns + points on the robots are always shown; this only hides/shows the
+  // side standings column (via .rc-standings-off on .replay-shell, see style.css).
+  // Self-hides where there is no column (home/lobby replay). Hiding the column
+  // changes the viewer width, so re-lay-out the ring + repaint after a flip.
+  // Default: Off (column hidden) — the crowns + points carry the standings; turn
+  // On for the detailed column. The column starts hidden server-side (game.html
+  // adds rc-standings-off), so the default never flashes; this only re-shows it
+  // when the saved choice is On, and wires the buttons.
   (function(){
     var shell=stage.closest('.replay-shell');
     var stgl=document.getElementById('rc-standings-toggle');
     if(!stgl || !shell || !shell.querySelector('.rc-scorepanel')) return;
     stgl.hidden=false;
     var btns=stgl.querySelectorAll('.rc-stgl-btn');
-    function applyMode(mode, isInit){
-      shell.classList.toggle('rc-mode-crowns', mode==='crowns');
-      Array.prototype.forEach.call(btns, function(b){ b.classList.toggle('is-active', b.dataset.standings===mode); });
-      try{ localStorage.setItem('rc-standings-mode', mode); }catch(e){}  // fail-open: persistence is optional
-      updateBotStandings();
+    function applyStandings(on, isInit){
+      shell.classList.toggle('rc-standings-off', !on);
+      Array.prototype.forEach.call(btns, function(b){ b.classList.toggle('is-active', (b.dataset.standings==='on')===on); });
+      try{ localStorage.setItem('rc-standings-column', on?'on':'off'); }catch(e){}  // fail-open: persistence is optional
       // Skip on init: the layout() call at the end of setup already measures the
-      // correct (possibly column-less) width. Only user flips need a re-layout.
+      // correct width. Only user flips need a re-layout.
       if(!isInit) setTimeout(function(){ layout(); renderTurn(idx); }, 30);
     }
-    Array.prototype.forEach.call(btns, function(b){ b.onclick=function(){ applyMode(b.dataset.standings, false); }; });
-    var saved=null; try{ saved=localStorage.getItem('rc-standings-mode'); }catch(e){}  // fail-open: optional
-    applyMode(saved==='crowns'?'crowns':'rail', true);
+    Array.prototype.forEach.call(btns, function(b){ b.onclick=function(){ applyStandings(b.dataset.standings==='on', false); }; });
+    var saved=null; try{ saved=localStorage.getItem('rc-standings-column'); }catch(e){}  // fail-open: optional
+    applyStandings(saved==='on', true);   // default Off unless the user turned it on
   })();
 
   window.addEventListener('resize',function(){layout();renderTurn(idx);});
