@@ -8,13 +8,13 @@ HOARD_POINTS = 2  # HOARD: actor gains this, no target
 HELP_POINTS = 4  # HELP: target gains this, actor gains 0
 HURT_POINTS = 4  # HURT: target loses this, actor gains 0
 MUTUAL_HELP_BONUS = 4  # extra to each side on a pair's FIRST mutual HELP this match
-BETRAYAL_HURT_POINTS = 8  # HURT lands this hard when the target is HELPing you this turn
+BETRAYAL_BONUS = 4  # extra to the ATTACKER when they HURT a player HELPing them this turn
 # Mutual help decays -1 each time the SAME pair repeats it within a match, flooring
 # the pair's per-side total at MUTUAL_HELP_FLOOR (= HOARD_POINTS, so a farmed pact is
 # no better than hoarding): total = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k).
 MUTUAL_HELP_FLOOR = 2
 
-GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v4)
+GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v5)
 
 The goal is to win more rounds than any other agent over the course of the game.
 
@@ -32,7 +32,7 @@ In the act phase, choose exactly one action. You cannot target yourself.
 - **HURT stacks.** Multiple players HURTing the same target each contribute -{HURT_POINTS}.
 - **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each the first time a pair does it.
 - **Mutual-help decays.** Each time the *same pair* repeats a mutual help in a match, the bonus drops by 1. So that pair's net falls +{HELP_POINTS + MUTUAL_HELP_BONUS}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 1}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 2}, … down to a floor of +{MUTUAL_HELP_FLOOR} each (no better than HOARD). The count is match-wide, not per round. Helping a *fresh* partner resets to +{HELP_POINTS + MUTUAL_HELP_BONUS} — farming one ally pays less over time than spreading pacts around.
-- **Betraying a helper.** If you HURT a player who is HELPing *you* on the same turn, your HURT lands for -{BETRAYAL_HURT_POINTS} instead of -{HURT_POINTS}. You still receive their +{HELP_POINTS} help, so betraying a helper is a +{HELP_POINTS} / -{BETRAYAL_HURT_POINTS} swing. (Moves resolve simultaneously, so this is a read on whether your target will help you.)
+- **Betraying a helper.** If you HURT a player who is HELPing *you* on the same turn, you gain an extra +{BETRAYAL_BONUS} bonus on top of the +{HELP_POINTS} help you still receive — so you net +{HELP_POINTS + BETRAYAL_BONUS} that turn. The player you HURT takes the normal -{HURT_POINTS}. Net swing: attacker +{HELP_POINTS + BETRAYAL_BONUS} / victim -{HURT_POINTS}. (Moves resolve simultaneously, so this is a read on whether your target will help you.)
 - HELP and HURT against the same target both resolve; the target's score moves by the net.
 
 ## Score floor

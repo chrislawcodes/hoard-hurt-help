@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.games.hoard_hurt_help.match_summary import build_final_summary
 from app.games.hoard_hurt_help.rules import (
-    BETRAYAL_HURT_POINTS,
+    BETRAYAL_BONUS,
     HELP_POINTS,
     MUTUAL_HELP_BONUS,
     MUTUAL_HELP_FLOOR,
@@ -192,6 +192,11 @@ def _build_rc_data(
                     "delta": a["display_delta"],
                     "mutual": a["mutual"],
                     "betrayal": a["betrayal"],
+                    # Same-turn betrayal (HURT a helper): the attacker's bonus so
+                    # the animation can show +BETRAYAL_BONUS on the attacker.
+                    # Distinct from `betrayal` (the cross-turn pact-partner signal).
+                    "betrayed_helper": a.get("betrayed_helper", False),
+                    "betrayal_bonus": a.get("betrayal_bonus", 0),
                     "missed": a["was_defaulted"],
                     "msg": (a.get("message") or "").strip(),
                 }
@@ -328,8 +333,10 @@ async def build_pd_replay_view(
                     "was_defaulted": action.was_defaulted,
                     "mutual": False,
                     "betrayal": False,
-                    # HURT against a player who is HELPing you this same turn — lands for -8.
+                    # HURT against a player who is HELPing you this same turn: the
+                    # attacker gains BETRAYAL_BONUS (the victim takes the normal -4).
                     "betrayed_helper": False,
+                    "betrayal_bonus": 0,
                 }
             )
 
@@ -350,9 +357,11 @@ async def build_pd_replay_view(
                 a["mutual"] = True
                 this_mutual.add(pair)
             elif a["action"] == "HURT":
-                # Betraying a helper: HURT a player who is HELPing you this turn → -8.
+                # Betraying a helper: HURT a player who is HELPing you this turn.
+                # The attacker gains BETRAYAL_BONUS (victim takes the normal -4).
                 if helps.get(tgt) == a["agent_id"]:
                     a["betrayed_helper"] = True
+                    a["betrayal_bonus"] = BETRAYAL_BONUS
                 # Cross-turn betrayal: HURT last turn's pact partner.
                 if pair in prev_mutual:
                     a["betrayal"] = True
@@ -392,9 +401,11 @@ async def build_pd_replay_view(
                     a["display_delta"] = a["target_delta"]
             else:
                 a["display_action"] = "HURT"
-                a["display_delta"] = (
-                    -BETRAYAL_HURT_POINTS if a["betrayed_helper"] else a["target_delta"]
-                )
+                # The HURT chip's delta is always the victim's loss (-4). The
+                # attacker's betrayal gain rides the separate `betrayal_bonus` key
+                # (rendered as its own +4 chip), so `display_delta` stays negative
+                # and match_summary's positive-delta "biggest gift" scan is unaffected.
+                a["display_delta"] = a["target_delta"]
 
         # Running in-round score (resets each round) → who leads, for the
         # play-by-play "lead change" beat.

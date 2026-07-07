@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.games.hoard_hurt_help.rules import (
-    BETRAYAL_HURT_POINTS,
+    BETRAYAL_BONUS,
     DEFAULT_MISSED_MESSAGE,
     HELP_POINTS,
     HOARD_POINTS,
@@ -174,12 +174,15 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         elif s.action == "HELP" and s.target_player_id in delta:
             delta[s.target_player_id] += HELP_POINTS
         elif s.action == "HURT" and s.target_player_id in delta:
-            # Betraying a helper: HURTing a player who is HELPing you this same
-            # turn lands for BETRAYAL_HURT_POINTS instead of the base HURT_POINTS.
+            # The victim always takes the normal HURT_POINTS.
+            delta[s.target_player_id] -= HURT_POINTS
+            # Betraying a helper: if the target is HELPing the attacker this same
+            # turn, the ATTACKER gains a BETRAYAL_BONUS on top of the +HELP_POINTS
+            # they already receive — attacker +HELP_POINTS+BETRAYAL_BONUS, victim
+            # -HURT_POINTS. (The victim's loss is unchanged from a normal HURT.)
             betrayed_helper = help_targets.get(s.target_player_id) == s.player_id
-            delta[s.target_player_id] -= (
-                BETRAYAL_HURT_POINTS if betrayed_helper else HURT_POINTS
-            )
+            if betrayed_helper:
+                delta[s.player_id] += BETRAYAL_BONUS
 
     # Mutual-help bonus, DECAYED per pair: for each HELP pair where both helped
     # each other, add the bonus to each side once. The bonus shrinks by 1 for each
@@ -219,15 +222,16 @@ def apply_inround_turn(
 ) -> dict[str, int]:
     """Return a new in-round score map after applying one turn's actions.
 
-    This is the *viewer's* running-score view — used for lead tracking and the
-    win-probability features. It floors each HURT individually and credits a
-    mutual-help actor the decayed per-side total (`mutual_value` on the action,
-    falling back to the fresh-pact HELP_POINTS + MUTUAL_HELP_BONUS if absent). A
-    HURT against a player who HELPs the attacker this same turn lands for
-    BETRAYAL_HURT_POINTS, mirroring `resolve_turn`. It is a display approximation
-    and is deliberately distinct from `resolve_turn`, which is authoritative and
-    floors the summed per-player delta. Keep them separate; do not route
-    resolution through this helper.
+    This is the *viewer's* running-score view — used for lead tracking. It floors
+    each HURT individually and credits a mutual-help actor the decayed per-side
+    total (`mutual_value` on the action, falling back to the fresh-pact
+    HELP_POINTS + MUTUAL_HELP_BONUS if absent). When a player HURTs someone who is
+    HELPing them this same turn (betraying a helper), the victim takes the normal
+    HURT_POINTS and the ATTACKER gains a BETRAYAL_BONUS on top of the +HELP_POINTS
+    they receive — mirroring `resolve_turn`. It is a display approximation and is
+    deliberately distinct from `resolve_turn`, which is authoritative and floors
+    the summed per-player delta. Keep them separate; do not route resolution
+    through this helper.
 
     Action dicts use keys: "action", "agent_id", optional "target_id",
     optional "mutual", optional "mutual_value" (the decayed per-side total — the
@@ -251,8 +255,10 @@ def apply_inround_turn(
         elif action == "HELP" and target:
             new_inround[target] = new_inround.get(target, 0) + HELP_POINTS
         elif action == "HURT" and target:
-            damage = (
-                BETRAYAL_HURT_POINTS if help_targets.get(target) == actor else HURT_POINTS
-            )
-            new_inround[target] = max(0, new_inround.get(target, 0) - damage)
+            # The victim always takes the normal HURT_POINTS (floored per-hurt).
+            new_inround[target] = max(0, new_inround.get(target, 0) - HURT_POINTS)
+            # Betraying a helper: the attacker gains a BETRAYAL_BONUS (a gain — not
+            # floored) on top of the +HELP_POINTS the victim's HELP already credits.
+            if help_targets.get(target) == actor:
+                new_inround[actor] = new_inround.get(actor, 0) + BETRAYAL_BONUS
     return new_inround

@@ -10,42 +10,31 @@ Preflight (worktree root): `.venv/bin/ruff check . && .venv/bin/mypy app/ mcp_se
 
 ## Slice 1 — All Python + its unit tests (atomic, preflight-green) — est. ~150 lines
 
-- [ ] T1.1 `rules.py`: rename `BETRAYAL_HURT_POINTS = 8` → `BETRAYAL_BONUS = 4`
-  (comment: attacker's extra gain when betraying a same-turn helper).
-- [ ] T1.2 `rules.py`: rewrite the "Betraying a helper" bullet in `GAME_RULES_TEXT`
-  to state **attacker +4 bonus (on top of the +4 help = +8) / victim −4 (normal)**;
-  bump header `(v4)` → `(v5)`.
-- [ ] T1.3 `scoring.py → resolve_turn`: in the HURT branch, on a betrayal
-  (`help_targets.get(target) == player_id`): victim `-= HURT_POINTS` (was
-  `BETRAYAL_HURT_POINTS`), attacker `delta[player_id] += BETRAYAL_BONUS`. Update
-  the import + the docstring.
-- [ ] T1.4 `scoring.py → apply_inround_turn`: (a) victim `damage` becomes always
-  `HURT_POINTS` (remove the `BETRAYAL_HURT_POINTS` ternary branch); (b) ADD
-  `new_inround[actor] = new_inround.get(actor, 0) + BETRAYAL_BONUS` on a betraying
-  HURT (not floored). Update the docstring (drops the `BETRAYAL_HURT_POINTS` mention).
-- [ ] T1.5 `viewer.py`: switch the import to `BETRAYAL_BONUS`; **drop** the
-  `-BETRAYAL_HURT_POINTS` override on the HURT `display_delta` (victim shows −4 via
-  `target_delta`); set `a["betrayal_bonus"] = BETRAYAL_BONUS` on the attacker's
-  action when `betrayed_helper`; add `betrayed_helper` + `betrayal_bonus` to
-  `_build_rc_data`'s `rc_actions` dict; fix the two stale `-8` inline comments
-  (~331, ~353). `game.py` untouched.
-- [ ] T1.6 `test_resolver.py`: rewrite `test_betraying_a_helper_hurts_for_eight`
-  → attacker +8 / victim −4 (rename it); `test_hurt_non_helper_stays_four` stays;
-  `test_betrayal_only_for_the_helped_attacker` → victim `20−4−4=12`; add a
-  betrayal+floor case (victim seeded low → 0).
-- [ ] T1.7 `test_inround_mirror.py`: rewrite `test_mirror_betraying_a_helper_is_eight`
-  to assert the explicit dict `{"A":8,"B":6}` from `{"A":0,"B":10}` (rename it);
-  add a floored mirror betrayal case (victim seeded low, e.g. 5 → 1); add a test
-  asserting `_build_rc_data`'s JSON carries `betrayed_helper`/`betrayal_bonus` for
-  a betrayal turn; refresh the module docstring.
-- [ ] T1.8 `test_rules_text.py`: replace the `f"-{BETRAYAL_HURT_POINTS}"` and
-  `BETRAYAL_HURT_POINTS != HURT_POINTS` assertions with the new +4/−4 wording;
+- [x] T1.1 `rules.py`: renamed `BETRAYAL_HURT_POINTS = 8` → `BETRAYAL_BONUS = 4`.
+- [x] T1.2 `rules.py`: rewrote the "Betraying a helper" bullet → attacker nets +8
+  (+4 help + +4 bonus) / victim −4; bumped header `(v4)` → `(v5)`.
+- [x] T1.3 `scoring.py → resolve_turn`: victim `-= HURT_POINTS`; attacker
+  `+= BETRAYAL_BONUS` on a betrayal. Import + comment updated.
+- [x] T1.4 `scoring.py → apply_inround_turn`: victim always `HURT_POINTS` (ternary
+  removed); ADD `new_inround[actor] += BETRAYAL_BONUS` on a betrayal (not floored).
+  Docstring updated.
+- [x] T1.5 `viewer.py`: import → `BETRAYAL_BONUS`; dropped the `-BETRAYAL_HURT_POINTS`
+  `display_delta` override (HURT shows victim −4); set `betrayal_bonus` on the
+  attacker action when `betrayed_helper`; added `betrayed_helper` + `betrayal_bonus`
+  to `_build_rc_data` (via `.get()` for tolerance); fixed the two stale `-8`
+  comments. `game.py` untouched.
+- [x] T1.6 `test_resolver.py`: rewrote the three betrayal tests to attacker +8 /
+  victim −4 (and every HURT −4); added `test_betrayal_victim_floored_at_zero`.
+- [x] T1.7 `test_inround_mirror.py`: rewrote the mirror betrayal test to the
+  explicit dict `{"A":8,"B":6}`; added a floored mirror case (5 → 1); added
+  `test_rc_data_threads_betrayed_helper_and_bonus`; refreshed the docstring.
+- [x] T1.8 `test_rules_text.py`: replaced the old assertions with the +8/−4 wording;
   `(v4)` → `(v5)`.
-- [ ] T1.9 `test_viewer.py`: add/extend a betrayal case asserting the rendered feed
-  HTML shows the attacker's `+4` (and `betrayal_bonus == 4` on the payload).
-  `test_game_registry.py`: verify `move_effect("HURT") == (0, -4)` still holds — no
-  edit expected.
-- [ ] T1.10 Run full preflight; fix root causes; must be green. **[CHECKPOINT]**
+- [x] T1.9 `test_game_registry.py`: `move_effect("HURT") == (0, -4)` still holds —
+  no edit needed (verified). The **rendered-HTML** feed +4 assertion moves to Slice 2
+  (T2.5) since it needs the `turn_block.html` edit; the Slice-1 payload guard is
+  `test_rc_data_threads_betrayed_helper_and_bonus`.
+- [x] T1.10 Full preflight GREEN: ruff clean, mypy clean (195 files), 1438 passed. **[CHECKPOINT]**
 
 ## Slice 2 — Templates + animation (JS/HTML, no Python) — est. ~40 lines
 
@@ -59,8 +48,11 @@ Preflight (worktree root): `.venv/bin/ruff check . && .venv/bin/mypy app/ mcp_se
   in BOTH loops — `playAction` (`rScore[a.agent]+=4; showDelta(el,4)`) and
   `computeScores` (`sim[a.agent]+=4`). Leave the mutual-HELP `+8` line untouched.
 - [ ] T2.4 Human diff-review checklist (R-A): confirm BOTH JS loops credit +4 and a
-  betrayal turn's rail total + round-win end at attacker +8. Run preflight (stays
-  green — no Python). **[CHECKPOINT]**
+  betrayal turn's rail total + round-win end at attacker +8.
+- [ ] T2.5 `test_viewer.py`: add a betrayal case asserting the **rendered feed HTML**
+  shows the attacker's `+4` (R4 guard — present-in-payload-but-invisible). This test
+  lands with the `turn_block.html` edit so it can assert the real rendered chip. Run
+  preflight (green). **[CHECKPOINT]**
 
 ## Slice 3 — Docs — est. ~60 lines
 
