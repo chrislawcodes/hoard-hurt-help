@@ -214,6 +214,26 @@
 .rc-tag.mutual{background:#e0f3e8;color:#1a8f4c;border:1px solid #b6e0c6}
 .rc-tag.missed{background:#eef1f5;color:var(--ink-soft,#5b6470);border:1px solid var(--line,#e2e6ea)}
 
+/* ---- Podium medals (top-3 rank crowns) ----
+   A gold / silver / bronze crown with a 1·2·3 number chip, riding above the
+   robot's head. Built on every .rc-bot but hidden by default; updateCrowns()
+   tags the top-three with .is-medal, and the standings toggle only reveals them
+   in "crowns" mode (.replay-shell.rc-mode-crowns, in style.css). The number chip
+   carries the rank, so it reads without relying on the metal colour alone. */
+.rc-crown{position:absolute;top:-27px;left:50%;transform:translateX(-50%);display:none;
+  flex-direction:column;align-items:center;z-index:10;pointer-events:none}
+.rc-crown-ico{width:18px;height:14px;display:block}
+.rc-crown-ico path{fill:var(--medal,#c8961a);stroke:var(--surface,#fff);stroke-width:1.3;stroke-linejoin:round}
+.rc-crown-n{margin-top:-3px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;
+  background:var(--medal-ink,#a9791a);color:#fff;font-size:10px;font-weight:800;line-height:14px;
+  text-align:center;border:1.5px solid var(--surface,#fff);font-variant-numeric:tabular-nums}
+.rc-crown.rc-gold{--medal:#d9a520;--medal-ink:#a9791a}
+.rc-crown.rc-silver{--medal:#aab3bd;--medal-ink:#6b7480}
+.rc-crown.rc-bronze{--medal:#c67f45;--medal-ink:#9a5b2c}
+.rc-crown.is-medal.rc-pop{animation:rc-crownpop .4s cubic-bezier(.2,.9,.3,1.2)}
+@keyframes rc-crownpop{0%{opacity:0;transform:translateX(-50%) scale(.5)}60%{transform:translateX(-50%) scale(1.12)}100%{opacity:1;transform:translateX(-50%) scale(1)}}
+@media (prefers-reduced-motion:reduce){.rc-crown.is-medal.rc-pop{animation:none}}
+
 /* ---- Speaking animation (talk phase) ---- */
 .rc-bot.speaking .rc-body{animation:rc-speakpulse 1.4s ease-in-out infinite}
 @keyframes rc-speakpulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.06)}}
@@ -266,6 +286,13 @@
 .rc-speed-btn:hover{color:var(--accent,#2f6feb)}
 .rc-speed-btn.is-active{background:var(--accent,#2f6feb);color:#fff}
 .rc-skiptalk{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-soft,#5b6470);cursor:pointer}
+/* Standings display toggle — segmented Column / Crowns switch (see _markup.html).
+   Matches the speed control's look; pushed to the right end of the controls row. */
+.rc-standings-toggle{display:inline-flex;margin-left:auto;border:1px solid var(--line,#e2e6ea);border-radius:20px;overflow:hidden}
+.rc-stgl-btn{background:transparent;border:0;border-left:1px solid var(--line,#e2e6ea);cursor:pointer;font-weight:700;font-size:12px;padding:5px 10px;color:var(--ink-soft,#5b6470)}
+.rc-stgl-btn:first-child{border-left:0}
+.rc-stgl-btn:hover{color:var(--accent,#2f6feb)}
+.rc-stgl-btn.is-active{background:var(--accent,#2f6feb);color:#fff}
 .rc-legend{display:flex;gap:14px;font-size:12px;color:var(--ink-soft,#5b6470);margin-top:10px;flex-wrap:wrap}
 .rc-sw{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
 

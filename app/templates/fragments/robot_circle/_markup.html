@@ -47,6 +47,13 @@
           <button type="button" class="rc-speed-btn" data-speed="3">3×</button>
         </span>
         <label class="rc-skiptalk"><input type="checkbox" id="rc-skiptalk"> Skip talk</label>
+        {# Standings display toggle (temporary A/B): flip between the standings
+           column and gold/silver/bronze podium crowns on the top-three robots.
+           The viewer script un-hides this only when a standings column exists. #}
+        <span class="rc-standings-toggle" id="rc-standings-toggle" role="group" aria-label="Standings display" hidden>
+          <button type="button" class="rc-stgl-btn is-active" data-standings="rail">Column</button>
+          <button type="button" class="rc-stgl-btn" data-standings="crowns">Crowns</button>
+        </span>
       </div>
 
       <div class="rc-legend">

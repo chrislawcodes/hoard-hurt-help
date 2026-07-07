@@ -2661,6 +2661,21 @@ button.danger:hover,
 /* The "Transcript" label only shows in the desktop 3-column view (rules below);
    everywhere else the live game status shows in the header instead. */
 .transcript-label { display: none; }
+
+/* Standings display toggle (temporary A/B scaffolding — remove once we pick one).
+   "Column" is the default standings rail. "Crowns" hides the rail and shows
+   gold/silver/bronze podium medals on the top-three robots instead, letting the
+   viewer take the freed space. The .rc-mode-crowns class is set on .replay-shell
+   by the viewer's toggle button (robot_circle/_replay_script.html). */
+.replay-shell.rc-mode-crowns .rc-crown.is-medal { display: flex; }
+.replay-shell.rc-mode-crowns .rc-scorepanel { display: none; }
+.replay-shell.rc-mode-crowns .rc-layout { grid-template-columns: 1fr; }
+@media (min-width: 1141px) {
+  /* In the 3-column desktop grid the rail is the first track; drop it so the
+     viewer + transcript fill the row when crowns are on. */
+  .replay-shell-3.rc-mode-crowns { grid-template-columns: minmax(0, 1fr) 400px; }
+}
+
 @media (min-width: 1141px) {
   .replay-shell-3 {
     display: grid;

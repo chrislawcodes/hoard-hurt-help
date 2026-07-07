@@ -171,15 +171,44 @@
     railEl.style.height=(AGENTS.length*RAIL_ROW_H)+'px';
   }
 
+  // Shared ranking: live in-round points, ties broken by rounds won, then seat
+  // order — used by BOTH the standings rail and the podium crowns so they never
+  // disagree about who is 1st / 2nd / 3rd.
+  function orderedAgents(){
+    return AGENTS.slice().sort(function(a,b){
+      return (rScore[b]-rScore[a]) || (rWins[b]-rWins[a]) || (AGENTS.indexOf(a)-AGENTS.indexOf(b));
+    });
+  }
+  // Gold / silver / bronze medals on the top-three robots. A bot must actually
+  // have scored (points or a round won) to wear one, so nobody gets gold at 0-0.
+  // Runs on every rail update regardless of the display mode, so flipping the
+  // standings toggle to "crowns" shows current medals instantly.
+  var MEDAL_CLASS=['rc-gold','rc-silver','rc-bronze'];
+  function updateCrowns(){
+    if(!botEls) return;  // robots not built yet (very first updateRail call)
+    var order=orderedAgents();
+    order.forEach(function(id,i){
+      var el=botEls[id]; if(!el) return;
+      var cr=el.querySelector('.rc-crown'); if(!cr) return;
+      var scored=(rScore[id]||0)>0 || (rWins[id]||0)>0;
+      var want=(i<3 && scored) ? MEDAL_CLASS[i] : '';
+      if(want===(cr.dataset.medal||'')) return;      // no change → leave it be
+      cr.dataset.medal=want;
+      cr.className='rc-crown'+(want?(' is-medal '+want):'');
+      cr.querySelector('.rc-crown-n').textContent=want?(i+1):'';
+      // Re-trigger the little pop whenever a medal appears or changes hands.
+      if(want){ cr.classList.remove('rc-pop'); void cr.offsetWidth; cr.classList.add('rc-pop'); }
+    });
+  }
+
   function updateRail(){
+    updateCrowns();
     if(!railEl) return;  // no standings component present
     // Rank by live in-round points; break ties by rounds won so season
     // standing still separates players sitting on the same score.
     var maxw=0, maxS=0;
     AGENTS.forEach(function(id){ if(rWins[id]>maxw) maxw=rWins[id]; if((rScore[id]||0)>maxS) maxS=rScore[id]; });
-    var order=AGENTS.slice().sort(function(a,b){
-      return (rScore[b]-rScore[a]) || (rWins[b]-rWins[a]) || (AGENTS.indexOf(a)-AGENTS.indexOf(b));
-    });
+    var order=orderedAgents();
     order.forEach(function(id,i){
       var row=railRowEl[id];
       row.style.transform='translateY('+(i*RAIL_ROW_H)+'px)';
@@ -233,6 +262,7 @@
     var label = labelOf(id);
     el.innerHTML='<div class="rc-mover">'
       +'<div class="rc-delta"></div><div class="rc-tag"></div>'
+      +'<div class="rc-crown"><svg class="rc-crown-ico" viewBox="0 0 28 22" aria-hidden="true"><path d="M3 5 L10 13 L14 3 L18 13 L25 5 L23 19 L5 19 Z"/></svg><span class="rc-crown-n"></span></div>'
       +'<div class="rc-carry-wrap">'
       +'<div class="rc-carry-gift"><div class="rc-giftbox"><div class="rc-giftlid"></div></div></div>'
       +'<div class="rc-carry-bat"><div class="rc-batbox"><div class="rc-bat-barrel"></div><div class="rc-bat-handle"></div></div></div>'
@@ -979,6 +1009,32 @@
   });
   var skipEl=document.getElementById('rc-skiptalk');
   if(skipEl) skipEl.onchange=function(){ skipTalk=skipEl.checked; };
+
+  // --- Standings display toggle (temporary A/B: rail column vs podium crowns) ---
+  // Only meaningful where a standings column exists; self-hides otherwise. The
+  // mode class rides on .replay-shell so it can both hide the column and reveal
+  // the crowns (see style.css). Flipping changes the viewer width, so re-lay-out
+  // the ring and repaint the current turn after the switch.
+  (function(){
+    var shell=stage.closest('.replay-shell');
+    var stgl=document.getElementById('rc-standings-toggle');
+    if(!stgl || !shell || !shell.querySelector('.rc-scorepanel')) return;
+    stgl.hidden=false;
+    var btns=stgl.querySelectorAll('.rc-stgl-btn');
+    function applyMode(mode, isInit){
+      shell.classList.toggle('rc-mode-crowns', mode==='crowns');
+      Array.prototype.forEach.call(btns, function(b){ b.classList.toggle('is-active', b.dataset.standings===mode); });
+      try{ localStorage.setItem('rc-standings-mode', mode); }catch(e){}  // fail-open: persistence is optional
+      updateCrowns();
+      // Skip on init: the layout() call at the end of setup already measures the
+      // correct (possibly column-less) width. Only user flips need a re-layout.
+      if(!isInit) setTimeout(function(){ layout(); renderTurn(idx); }, 30);
+    }
+    Array.prototype.forEach.call(btns, function(b){ b.onclick=function(){ applyMode(b.dataset.standings, false); }; });
+    var saved=null; try{ saved=localStorage.getItem('rc-standings-mode'); }catch(e){}  // fail-open: optional
+    applyMode(saved==='crowns'?'crowns':'rail', true);
+  })();
+
   window.addEventListener('resize',function(){layout();renderTurn(idx);});
   layout();
   // The rail follows the playhead (animation is the clock). With reduced motion
