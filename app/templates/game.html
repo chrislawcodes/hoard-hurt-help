@@ -48,7 +48,11 @@
    in one grid at >=1141px. Below that, and in the player cockpit, this is a plain
    wrapper and everything stacks exactly as before. The feed stays inside
    #live-region so its SSE live-updates are untouched. #}
-<div class="replay-shell{% if show_replay_stage and rc_data and not player_mode %} replay-shell-3{% endif %}">
+{# The standings column defaults to hidden (rc-standings-off) — the viewer's
+   crowns + points carry the standings. The Standings toggle re-shows it, and the
+   viewer script strips this class on load when the saved choice is On, so the
+   default never flashes. #}
+<div class="replay-shell{% if show_replay_stage and rc_data %} rc-standings-off{% endif %}{% if show_replay_stage and rc_data and not player_mode %} replay-shell-3{% endif %}">
 {% if show_replay_stage and rc_data %}
 <div class="rc-layout" id="replay">
     {% include "fragments/robot_circle_standings.html" %}

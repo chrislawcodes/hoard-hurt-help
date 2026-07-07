@@ -216,12 +216,13 @@
 
 /* ---- Podium medals (top-3 rank crowns) ----
    A gold / silver / bronze crown with a 1·2·3 number chip, riding above the
-   robot's head. Built on every .rc-bot but hidden by default; updateCrowns()
-   tags the top-three with .is-medal, and the standings toggle only reveals them
-   in "crowns" mode (.replay-shell.rc-mode-crowns, in style.css). The number chip
-   carries the rank, so it reads without relying on the metal colour alone. */
+   robot's head. Built on every .rc-bot; updateBotStandings() adds .is-medal to
+   the top three to reveal their crown. Always shown — a permanent part of the
+   viewer. The number chip carries the rank, so it reads without relying on the
+   metal colour alone. */
 .rc-crown{position:absolute;top:-27px;left:50%;transform:translateX(-50%);display:none;
   flex-direction:column;align-items:center;z-index:10;pointer-events:none}
+.rc-crown.is-medal{display:flex}
 .rc-crown-ico{width:18px;height:14px;display:block}
 .rc-crown-ico path{fill:var(--medal,#c8961a);stroke:var(--surface,#fff);stroke-width:1.3;stroke-linejoin:round}
 .rc-crown-n{margin-top:-3px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;
@@ -233,10 +234,10 @@
 .rc-crown.is-medal.rc-pop{animation:rc-crownpop .4s cubic-bezier(.2,.9,.3,1.2)}
 @keyframes rc-crownpop{0%{opacity:0;transform:translateX(-50%) scale(.5)}60%{transform:translateX(-50%) scale(1.12)}100%{opacity:1;transform:translateX(-50%) scale(1)}}
 @media (prefers-reduced-motion:reduce){.rc-crown.is-medal.rc-pop{animation:none}}
-/* Points on every robot — the live in-round score under the name. Hidden by
-   default; shown only in crowns mode (.replay-shell.rc-mode-crowns, style.css),
-   where it stands in for the standings column's point values. */
-.rc-score{display:none;margin-top:1px;font-size:11px;font-weight:800;line-height:1.1;color:var(--ink,#1a1d21);font-variant-numeric:tabular-nums}
+/* Points on every robot — the live in-round score under the name. Always shown,
+   a permanent part of the viewer; the Standings toggle only affects the side
+   column, not these. */
+.rc-score{margin-top:1px;font-size:11px;font-weight:800;line-height:1.1;color:var(--ink,#1a1d21);font-variant-numeric:tabular-nums}
 
 /* ---- Speaking animation (talk phase) ---- */
 .rc-bot.speaking .rc-body{animation:rc-speakpulse 1.4s ease-in-out infinite}
@@ -290,9 +291,12 @@
 .rc-speed-btn:hover{color:var(--accent,#2f6feb)}
 .rc-speed-btn.is-active{background:var(--accent,#2f6feb);color:#fff}
 .rc-skiptalk{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-soft,#5b6470);cursor:pointer}
-/* Standings display toggle — segmented Column / Crowns switch (see _markup.html).
-   Matches the speed control's look; pushed to the right end of the controls row. */
-.rc-standings-toggle{display:inline-flex;margin-left:auto;border:1px solid var(--line,#e2e6ea);border-radius:20px;overflow:hidden}
+/* Standings on/off control — a "Standings" label + a segmented On/Off switch
+   that shows/hides the side standings column (see _markup.html). Right-aligned
+   in the controls row; matches the speed control's look. */
+.rc-standings-ctl{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+.rc-stgl-label{font-size:12px;font-weight:700;color:var(--ink-soft,#5b6470)}
+.rc-standings-seg{display:inline-flex;border:1px solid var(--line,#e2e6ea);border-radius:20px;overflow:hidden}
 .rc-stgl-btn{background:transparent;border:0;border-left:1px solid var(--line,#e2e6ea);cursor:pointer;font-weight:700;font-size:12px;padding:5px 10px;color:var(--ink-soft,#5b6470)}
 .rc-stgl-btn:first-child{border-left:0}
 .rc-stgl-btn:hover{color:var(--accent,#2f6feb)}
