@@ -194,6 +194,19 @@ def test_phase_suffix_act_states_target_rule_without_listing_agents(connector) -
     assert "HELP/HURT need a target_id" in suffix
 
 
+def test_phase_suffix_reminds_thinking_each_turn(connector) -> None:
+    # The full move format (which asks for `thinking`) is only sent on the first
+    # turn; a chained session then relies on this per-turn nudge. If the nudge omits
+    # `thinking`, the model stops sending it and the replay shows no reasoning for
+    # real agents — so both phases must re-state it every turn.
+    talk = connector._phase_suffix({"phase": "talk"})
+    act = connector._phase_suffix(
+        {"phase": "act", "talk_messages": [{"agent_id": "seat-other", "message": "hi"}]}
+    )
+    assert "thinking" in talk
+    assert "thinking" in act
+
+
 def test_target_is_valid_tolerates_case_and_space(connector) -> None:
     valid = ["seat-other"]
     assert connector._target_is_valid("seat-other", valid)

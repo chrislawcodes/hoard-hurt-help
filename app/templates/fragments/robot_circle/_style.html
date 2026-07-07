@@ -252,7 +252,11 @@
   .rc-saybubble,.rc-saybubble.show{transform:translate(-50%,-50%)}
 }
 
-.rc-caption{padding:12px 14px;border-top:1px solid var(--line,#e2e6ea);font-size:14px;height:60px;overflow:hidden;display:flex;align-items:center;gap:8px}
+/* The on-stage caption bar (badge + "X strikes Y" line) is hidden. The same
+   badge/cap text still ships in rc_data and the replay script still writes to
+   #rc-caption, so the story cards keep their narration — only the live bar under
+   the ring is off. Flip display back to flex to show it again. */
+.rc-caption{padding:12px 14px;border-top:1px solid var(--line,#e2e6ea);font-size:14px;height:60px;overflow:hidden;display:none;align-items:center;gap:8px}
 .rc-badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:#eef1f5;color:var(--ink-soft,#5b6470);flex:none}
 
 .rc-controls{display:flex;align-items:center;gap:8px;margin:14px 0 0;flex-wrap:wrap}
