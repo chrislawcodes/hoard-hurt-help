@@ -2668,6 +2668,7 @@ button.danger:hover,
    viewer take the freed space. The .rc-mode-crowns class is set on .replay-shell
    by the viewer's toggle button (robot_circle/_replay_script.html). */
 .replay-shell.rc-mode-crowns .rc-crown.is-medal { display: flex; }
+.replay-shell.rc-mode-crowns .rc-score { display: block; }
 .replay-shell.rc-mode-crowns .rc-scorepanel { display: none; }
 .replay-shell.rc-mode-crowns .rc-layout { grid-template-columns: 1fr; }
 @media (min-width: 1141px) {

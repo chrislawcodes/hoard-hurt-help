@@ -179,16 +179,19 @@
       return (rScore[b]-rScore[a]) || (rWins[b]-rWins[a]) || (AGENTS.indexOf(a)-AGENTS.indexOf(b));
     });
   }
-  // Gold / silver / bronze medals on the top-three robots. A bot must actually
-  // have scored (points or a round won) to wear one, so nobody gets gold at 0-0.
-  // Runs on every rail update regardless of the display mode, so flipping the
-  // standings toggle to "crowns" shows current medals instantly.
+  // Podium medals + a points label on every robot — the crowns-mode stand-in for
+  // the standings column. Medals: gold/silver/bronze on the top three, but only
+  // for bots that have actually scored (no gold at 0-0). Points: each bot's live
+  // in-round score, under its name. Runs on every rail update regardless of the
+  // display mode, so flipping the toggle to "crowns" shows current values at once.
   var MEDAL_CLASS=['rc-gold','rc-silver','rc-bronze'];
-  function updateCrowns(){
+  function updateBotStandings(){
     if(!botEls) return;  // robots not built yet (very first updateRail call)
     var order=orderedAgents();
     order.forEach(function(id,i){
       var el=botEls[id]; if(!el) return;
+      var sc=el.querySelector('.rc-score');
+      if(sc){ var pts=String(rScore[id]||0); if(sc.textContent!==pts) sc.textContent=pts; }
       var cr=el.querySelector('.rc-crown'); if(!cr) return;
       var scored=(rScore[id]||0)>0 || (rWins[id]||0)>0;
       var want=(i<3 && scored) ? MEDAL_CLASS[i] : '';
@@ -202,7 +205,7 @@
   }
 
   function updateRail(){
-    updateCrowns();
+    updateBotStandings();
     if(!railEl) return;  // no standings component present
     // Rank by live in-round points; break ties by rounds won so season
     // standing still separates players sitting on the same score.
@@ -282,6 +285,7 @@
       +'</div>'
       +'</div>'
       +'<div class="rc-name" title="'+esc(label)+'"><span class="rc-name-text">'+esc(label)+'</span></div>'
+      +'<div class="rc-score"></div>'
       +'</div>';
     stage.appendChild(el); botEls[id]=el;
   });
@@ -1025,7 +1029,7 @@
       shell.classList.toggle('rc-mode-crowns', mode==='crowns');
       Array.prototype.forEach.call(btns, function(b){ b.classList.toggle('is-active', b.dataset.standings===mode); });
       try{ localStorage.setItem('rc-standings-mode', mode); }catch(e){}  // fail-open: persistence is optional
-      updateCrowns();
+      updateBotStandings();
       // Skip on init: the layout() call at the end of setup already measures the
       // correct (possibly column-less) width. Only user flips need a re-layout.
       if(!isInit) setTimeout(function(){ layout(); renderTurn(idx); }, 30);
