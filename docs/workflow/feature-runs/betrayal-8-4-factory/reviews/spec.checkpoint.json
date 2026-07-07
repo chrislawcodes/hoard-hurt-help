@@ -1,0 +1,50 @@
+{
+  "feature_slug": "betrayal-8-4-factory",
+  "stage": "spec",
+  "artifact_path": "docs/workflow/feature-runs/betrayal-8-4-factory/spec.md",
+  "git_base_ref": "",
+  "allowed_dirty_paths": [],
+  "required_reviews": [
+    {
+      "reviewer": "claude",
+      "lens": "feasibility-adversarial",
+      "stage": "spec",
+      "path": "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/spec.claude.feasibility-adversarial.review.md",
+      "context_paths": [
+        "app/games/hoard_hurt_help/rules.py",
+        "app/games/hoard_hurt_help/scoring.py",
+        "app/games/hoard_hurt_help/viewer.py",
+        "app/games/hoard_hurt_help/game.py",
+        "tests/test_resolver.py",
+        "tests/test_inround_mirror.py",
+        "tests/test_viewer.py",
+        "tests/test_game_registry.py",
+        "tests/test_rules_text.py",
+        "docs/games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md"
+      ],
+      "model": "claude-opus-4-8"
+    },
+    {
+      "reviewer": "claude",
+      "lens": "requirements-adversarial",
+      "stage": "spec",
+      "path": "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/spec.claude.requirements-adversarial.review.md",
+      "context_paths": [
+        "app/games/hoard_hurt_help/rules.py",
+        "app/games/hoard_hurt_help/scoring.py",
+        "app/games/hoard_hurt_help/viewer.py",
+        "app/games/hoard_hurt_help/game.py",
+        "tests/test_resolver.py",
+        "tests/test_inround_mirror.py",
+        "tests/test_viewer.py",
+        "tests/test_game_registry.py",
+        "tests/test_rules_text.py",
+        "docs/games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md"
+      ],
+      "model": "claude-opus-4-8"
+    }
+  ],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

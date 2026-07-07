@@ -23,7 +23,7 @@ review_rounds | findings_raised | findings_accepted | artifact_revised
 |---|---|---|---|---|---|---|---|---|---|
 | init | state.json | 2026-07-07T06:24Z | 2026-07-07T06:25Z | 6799bb01 | 6799bb01 | n/a | n/a | n/a | n/a |
 | discover | state.json | 2026-07-07T06:25Z | 2026-07-07T06:26Z | 6799bb01 | 6799bb01 | n/a | n/a | n/a | n/a — engine routed to FULL FEATURE FACTORY |
-| spec | spec.md | 2026-07-07T06:26Z | | 6799bb01 | | | | | |
+| spec | spec.md | 2026-07-07T06:26Z | (round 1 done) | 6a69b7b6 | (pending r2) | 1 (so far) | 13 (2 HIGH, 6 MED, 5 LOW) | 13 | YES — heavy revision |
 | design (reuse+docs) | reuse-report.md + docs | | | | | | | | |
 | plan | plan.md | | | | | | | | |
 | tasks | tasks.md | | | | | | | | |
@@ -35,7 +35,7 @@ review_rounds | findings_raised | findings_accepted | artifact_revised
 
 One bullet per engine breakage / workaround / babysitting event. First-class metric — log EVERYTHING.
 
-- (none yet)
+- **Spec review subagents paused the orchestrator before emitting their final review block.** The two parallel Claude review subagents (feasibility + requirements) did substantial adversarial investigation (11-12 tool rounds each, reading the real code + the impact-review doc) but the harness paused the orchestrator when they had no live children left, BEFORE they wrote out their final `## Findings` / JSON block. Their transcripts ended mid-investigation ("let me verify next…"). Workaround: resumed each via SendMessage(agentId) asking it to emit ONLY the final review markdown, then extracted the last assistant text block from the subagent JSONL to the `.response.md` file. Not an engine bug per se — it is the Claude-only review path (spec 020) interacting with async-subagent turn limits; the `prepare-claude-reviews` → subagent → assemble dance assumes the subagent returns its review as its final message in one shot.
 
 ---
 
