@@ -38,8 +38,8 @@ Base values per action:
 Combo bonus:
 - If A Helps B **and** B Helps A → each gets a **+4 mutual-help bonus** on top of the +4 base, for a total of +8 each.
 
-Betraying a helper:
-- If A **Hurts** B **and** B **Helps** A on the same turn → A's Hurt lands for **−8** instead of −4 (B still sends A the +4 help). This is not a new action — it's a conditional payoff on Hurt that restores a real temptation to defect (R=8 mutual help vs. an even bigger swing for betraying a helper). See the analysis in `betray-helper-impact-review.md`.
+Betraying a helper (the "8/4" split):
+- If A **Hurts** B **and** B **Helps** A on the same turn → A gains a **+4 bonus** on top of the +4 help B still sends (so A nets **+8** that turn), and B takes the **normal −4** (not −8). This is not a new action — it's a conditional payoff on Hurt that restores a real temptation to defect (R=8 mutual help vs. a +8 for betraying a helper). The 12-point relative swing is unchanged from the earlier design; it is re-split so the **attacker rises** (+4 bonus) instead of the victim cratering (−8). See the analysis in `betray-helper-impact-review.md` (superseded by this implementation).
 
 Mutual help decays (feature `mutual-help-decay`):
 - A given **pair's** mutual-help payoff is worth less each time *that same pair* repeats it within a match. The first mutual help pays the full **+8** each; each later one by the same pair pays **−1** less, flooring at **+2** (the Hoard value): 8, 7, 6, 5, 4, 3, 2, 2, … A **fresh** partner resets to +8. The counter is **per pair, per match** — it does **not** reset each round. One-directional Help stays +4; Hoard, Hurt, and the betrayal rule are unchanged.
@@ -52,7 +52,7 @@ Mutual help decays (feature `mutual-help-decay`):
 |---|---|---|
 | Mutual Help (the Pact): A→B, B→A | +8 | +8 |
 | Hoard-betrayal: A Helps B, B Hoards | 0 | +6 (+2 hoard, +4 from A's help) |
-| Betray a helper: A Hurts B, B Helps A | +4 (from B's help) | −8 (the betrayal) |
+| Betray a helper: A Hurts B, B Helps A | +8 (+4 from B's help, +4 betrayal bonus) | −4 (the normal Hurt) |
 | Baseline: both Hoard | +2 | +2 |
 | Team Attack: A and B both Hurt C | 0 | 0 (C takes −8) |
 
@@ -63,7 +63,7 @@ Mutual help decays (feature `mutual-help-decay`):
 - **Hurt stacks fully.** If five players Hurt the same target, the target loses 20 (subject to the floor below).
 - **Scores floor at zero.** Damage that would push a player below 0 is clipped at 0. Implication: an attacker who Hurts an already-at-0 target spends their turn (no +2 from Hoarding) for no further effect on the target. That is intentional — strategic, not a bug.
 - **Independent resolution.** Help and Hurt against the same player both resolve. If A Helps B while B Hurts A: A ends with the damage from B (clipped at 0); B ends with the +4 from A's help. Hoarders Hoard, helpers help, hurters hurt — all in parallel.
-- **Betraying a helper.** Hurting a player who is Helping *you* this same turn deals −8 instead of −4. Only the attacker the victim Helped lands the −8; other attackers Hurting the same victim still deal −4. The score floor applies to the summed delta as usual.
+- **Betraying a helper.** Hurting a player who is Helping *you* this same turn earns the attacker a **+4 bonus** on top of the +4 help they receive (attacker nets +8); the victim takes the **normal −4**. Only the attacker the victim Helped gets the bonus; other attackers Hurting the same victim deal the ordinary −4 and get no bonus. The score floor applies to the summed delta as usual (the victim's −4 can floor; the attacker's +4 gain never does).
 - **Mutual-help bonus is per pair, at most one per turn.** Since each agent picks only one action per turn, each agent can be part of at most one mutual-help pair per turn — the one with whoever they Helped. Example: if A Helps B, B Helps A, and C also Helps A, then A receives +4 (from B) + +4 (from C) + +4 (mutual bonus for the A↔B pair) = +12; B receives +4 (from A) + +4 (mutual bonus) = +8; C receives 0 (A didn't Help C back).
 - **Mutual help decays per pair, per match** (feature `mutual-help-decay`). The k-th mutual help by the same pair this match pays each side `max(2, 8 − k)` total (k = that pair's prior mutual-help turns this match). Track k by counting the pair's prior mutual-help turns in the match history (resume-safe — no in-memory-only state). Resets only at match end. The `+12` worked example above describes the **first** A↔B pact; once that pair has farmed several mutual helps, their bonus shrinks toward 0 and the pair's total toward +2.
 

@@ -54,15 +54,15 @@ Preflight (worktree root): `.venv/bin/ruff check . && .venv/bin/mypy app/ mcp_se
 
 ## Slice 3 — Docs — est. ~60 lines
 
-- [ ] T3.1 `HOARD_HURT_HELP_DESIGN.md`: change the three betrayal −8 sites (payoff
-  bullet line ~42, worked-scenarios table row ~55, edge-case bullet ~66) → 8/4
-  (attacker +8 / victim −4). **Keep** the Team-Attack `−8` (line ~57) + its
-  edge-case bullet, and the mutual-help `+8`/`8−k` lines.
-- [ ] T3.2 `HOARD_HURT_HELP_ARCHITECTURE.md`: verify the rules.py row (already
-  refreshed to `BETRAYAL_BONUS` in the Design stage).
-- [ ] T3.3 `betray-helper-impact-review.md`: mark superseded/implemented AND update
-  its body `BETRAYAL_HURT_POINTS = 8` references (~39, ~43) so
-  `grep BETRAYAL_HURT_POINTS docs/games/` is clean (R-D).
-- [ ] T3.4 Grep sweep: `grep -rn "BETRAYAL_HURT_POINTS" app/ docs/` returns nothing;
-  no stale betrayal `-8` in `app/games/hoard_hurt_help/` or `app/templates/`. Run
-  full preflight. **[CHECKPOINT]**
+- [x] T3.1 `HOARD_HURT_HELP_DESIGN.md`: changed the three betrayal −8 sites (payoff
+  bullet, worked-scenarios row, edge-case bullet) → 8/4 (attacker +8 / victim −4).
+  **Kept** the Team-Attack `−8` (line 57) and the mutual-help `+8`/`8−k` lines.
+- [x] T3.2 `HOARD_HURT_HELP_ARCHITECTURE.md`: verified — rules.py row already
+  refreshed to `BETRAYAL_BONUS` in the Design stage.
+- [x] T3.3 `betray-helper-impact-review.md`: added a SUPERSEDED/IMPLEMENTED banner
+  (8/4 shipped; move_effect resolved to the betrayal_bonus key) and neutralized the
+  body `BETRAYAL_HURT_POINTS` references so `grep BETRAYAL_HURT_POINTS docs/games/`
+  is clean (R-D).
+- [x] T3.4 Grep sweep: no `BETRAYAL_HURT_POINTS` in `app/` or `docs/games/`; the
+  only betrayal-context `−8` left in DESIGN.md are explanatory ("not −8") — the
+  Team-Attack −8 is intentionally kept. Full preflight GREEN (ruff/mypy/1439 tests). **[CHECKPOINT]**
