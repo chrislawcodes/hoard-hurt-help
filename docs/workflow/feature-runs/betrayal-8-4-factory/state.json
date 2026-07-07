@@ -1,0 +1,450 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": [],
+    "reviewer": "claude"
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [],
+    "summary": "Design fully settled by the feature brief: exact constants (BETRAYAL_HURT_POINTS=8 -> BETRAYAL_BONUS=4), the resolver + mirror branches, the viewer chip, the version bump v4->v5, and every doc/test touchpoint are specified. No clarifying questions needed. Carrying two reality-check assumptions into the spec: (1) viewer_win_probs.py no longer exists (deleted with the win-prob overlay) so the only running-score mirror is apply_inround_turn in scoring.py; (2) boardgame-design-patterns.md does not exist in this checkout, so that doc touchpoint has no file to edit.",
+    "updated_at": 1783405546,
+    "answers": {},
+    "non_goals": [
+      "Do NOT change the 12-point relative swing magnitude.",
+      "Do NOT change the Team Attack case (two players HURT one victim = -8 total from two independent -4s; that -8 is not a betrayal and must stay).",
+      "Do NOT retrain the win-probability models or add an exploiter bot.",
+      "Do NOT widen move_effect's contract across other games (liars_dice) unless strictly needed."
+    ],
+    "acceptance_criteria": [
+      "Betraying a helper: attacker turn delta = +8 (=+4 help +4 bonus), victim = -4, proven by a resolver test.",
+      "Non-betrayal HURT unchanged: victim -4, attacker +0.",
+      "Score floor still applied to the FINAL per-player delta, not per-hurt.",
+      "Agent-facing GAME_RULES_TEXT states attacker +4 / victim -4, header bumped v4 -> v5.",
+      "Viewer shows the betrayal honestly (victim -4, attacker +4); no stale -8 anywhere in the UI.",
+      "No stale BETRAYAL_HURT_POINTS references remain anywhere.",
+      "Preflight green: .venv/bin/ruff check . && .venv/bin/mypy app/ mcp_server/ && .venv/bin/pytest -q."
+    ],
+    "checklist": {
+      "goal": "Re-split the betray-a-helper payoff so the attacker gains +4 (BETRAYAL_BONUS) on top of the +4 HELP they receive, while the victim now takes the NORMAL -4 (HURT_POINTS) instead of -8. Net that turn becomes attacker +8 / victim -4; the 12-point relative swing is unchanged, just re-attributed so the attacker rises instead of the victim cratering.",
+      "audience": "LLM agents competing in Hoard-Hurt-Help (the agent-facing GAME_RULES_TEXT ships to every agent verbatim) and human spectators watching the replay viewer.",
+      "constraints": "Silent-risk: a scoring change passes all tests but can be wrong in prod, and the viewer's running-score mirror (apply_inround_turn) can silently diverge from the authoritative resolver. Score floor must apply to the FINAL per-player delta, not per-hurt. move_effect(action) only receives the action string with no turn context, so the per-move chip cannot by itself tell a HURT is a betrayal. NOTE: prompt referenced viewer_win_probs.py but that file was deleted in the win-prob-overlay removal; the only running-score mirror is apply_inround_turn in scoring.py. NOTE: .claude/skills/game-design/references/boardgame-design-patterns.md does not exist in this checkout.",
+      "silent_risk": "yes",
+      "silent_risk_note": "scoring change can pass tests but be wrong in prod; viewer running-score mirror can silently diverge from resolver",
+      "design_settled": "yes",
+      "design_settled_note": "exact numbers and touchpoints are fully specified"
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "app/engine/bots",
+      "app/games/hoard_hurt_help",
+      "app/templates",
+      "docs/games/hoard-hurt-help",
+      "docs/workflow/feature-runs/betrayal-8-4-factory",
+      "tests"
+    ],
+    "used": true,
+    "updated_at": 1783408131
+  },
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": true,
+    "found": false,
+    "note": "No safe parallelism: all three slices touch the same PD subsystem and the same source-of-truth constant (BETRAYAL_BONUS). Slice 1 (Python) is the foundation Slice 2 (templates) consumes; Slice 3 (docs) describes 1+2. Strictly sequential.",
+    "updated_at": 1783407036
+  },
+  "init_head_sha": "6799bb0123823cc75bde3ce9fd06255ea931dcb9",
+  "experiment": {
+    "name": "thin-vs-factory"
+  },
+  "token_usage": [
+    {
+      "stage": "spec",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 9746,
+      "prompt_cap": 250000,
+      "input_tokens": 232866,
+      "output_tokens": 10300,
+      "cost_usd_estimate": 1.42183,
+      "timestamp": "2026-07-07T06:32:10.062842Z",
+      "started_at": "2026-07-07T06:32:10.062842Z",
+      "ended_at": "2026-07-07T06:32:10.062842Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 2176346,
+      "total_tokens": 116693
+    },
+    {
+      "stage": "spec",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 9747,
+      "prompt_cap": 250000,
+      "input_tokens": 257988,
+      "output_tokens": 2950,
+      "cost_usd_estimate": 1.36369,
+      "timestamp": "2026-07-07T06:32:10.169509Z",
+      "started_at": "2026-07-07T06:32:10.169509Z",
+      "ended_at": "2026-07-07T06:32:10.169509Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 2960538,
+      "total_tokens": 115247
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "feasibility-adversarial",
+      "prompt_chars": 19456,
+      "prompt_cap": 250000,
+      "input_tokens": 244808,
+      "output_tokens": 7529,
+      "cost_usd_estimate": 1.412265,
+      "timestamp": "2026-07-07T06:39:50.394893Z",
+      "started_at": "2026-07-07T06:39:50.394893Z",
+      "ended_at": "2026-07-07T06:39:50.394893Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "1d2f4fb351c7cddea26fe0a4fd9b7f4ce1323637ad772165d9bd12cdd278aa85",
+      "cache_read_tokens": 2136849,
+      "total_tokens": 110988
+    },
+    {
+      "stage": "spec",
+      "round": 1,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 19457,
+      "prompt_cap": 250000,
+      "input_tokens": 295349,
+      "output_tokens": 8356,
+      "cost_usd_estimate": 1.685645,
+      "timestamp": "2026-07-07T06:39:50.494001Z",
+      "started_at": "2026-07-07T06:39:50.494001Z",
+      "ended_at": "2026-07-07T06:39:50.494001Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "1d2f4fb351c7cddea26fe0a4fd9b7f4ce1323637ad772165d9bd12cdd278aa85",
+      "cache_read_tokens": 3159701,
+      "total_tokens": 120651
+    },
+    {
+      "stage": "plan",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "implementation-adversarial",
+      "prompt_chars": 14242,
+      "prompt_cap": 250000,
+      "input_tokens": 353353,
+      "output_tokens": 15185,
+      "cost_usd_estimate": 2.14639,
+      "timestamp": "2026-07-07T06:48:57.648820Z",
+      "started_at": "2026-07-07T06:48:57.648820Z",
+      "ended_at": "2026-07-07T06:48:57.648820Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 4438857,
+      "total_tokens": 140539
+    },
+    {
+      "stage": "plan",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "testability-adversarial",
+      "prompt_chars": 14239,
+      "prompt_cap": 250000,
+      "input_tokens": 404057,
+      "output_tokens": 10766,
+      "cost_usd_estimate": 2.289435,
+      "timestamp": "2026-07-07T06:48:57.751486Z",
+      "started_at": "2026-07-07T06:48:57.751486Z",
+      "ended_at": "2026-07-07T06:48:57.751486Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 2120890,
+      "total_tokens": 133937
+    },
+    {
+      "stage": "diff",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "regression-adversarial",
+      "prompt_chars": 39093,
+      "prompt_cap": 250000,
+      "input_tokens": 330753,
+      "output_tokens": 5487,
+      "cost_usd_estimate": 1.79094,
+      "timestamp": "2026-07-07T07:08:23.199407Z",
+      "started_at": "2026-07-07T07:08:23.199407Z",
+      "ended_at": "2026-07-07T07:08:23.199407Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": null,
+      "cache_read_tokens": 1198367,
+      "total_tokens": 128557
+    }
+  ],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-07-07T06:32:15Z",
+      "wall_seconds": 0.293,
+      "input_bytes_read": 91505,
+      "output_bytes_written": 24450,
+      "files_read": 18,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T06:34:51Z",
+      "wall_seconds": 0.044,
+      "input_bytes_read": 0,
+      "output_bytes_written": 0,
+      "files_read": 0,
+      "files_written": 0,
+      "subprocess_invocations": 6,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T06:34:52Z",
+      "wall_seconds": 0.048,
+      "input_bytes_read": 0,
+      "output_bytes_written": 0,
+      "files_read": 0,
+      "files_written": 0,
+      "subprocess_invocations": 6,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T06:35:15Z",
+      "wall_seconds": 0.201,
+      "input_bytes_read": 25557,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T06:35:23Z",
+      "wall_seconds": 0.196,
+      "input_bytes_read": 26416,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-07-07T06:39:50Z",
+      "wall_seconds": 0.272,
+      "input_bytes_read": 139668,
+      "output_bytes_written": 37318,
+      "files_read": 18,
+      "files_written": 5,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T06:40:06Z",
+      "wall_seconds": 0.226,
+      "input_bytes_read": 30399,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 22,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T06:40:06Z",
+      "wall_seconds": 0.224,
+      "input_bytes_read": 30649,
+      "output_bytes_written": 0,
+      "files_read": 5,
+      "files_written": 0,
+      "subprocess_invocations": 22,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "plan",
+      "ts": "2026-07-07T06:48:58Z",
+      "wall_seconds": 0.427,
+      "input_bytes_read": 205780,
+      "output_bytes_written": 46057,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 28,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T06:49:16Z",
+      "wall_seconds": 0.29,
+      "input_bytes_read": 47624,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T06:49:16Z",
+      "wall_seconds": 0.265,
+      "input_bytes_read": 48552,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 26,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-07-07T06:50:37Z",
+      "wall_seconds": 0.764,
+      "input_bytes_read": 193204,
+      "output_bytes_written": 51443,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-07-07T07:08:23Z",
+      "wall_seconds": 0.125,
+      "input_bytes_read": 47940,
+      "output_bytes_written": 27808,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 16,
+      "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-07-07T07:08:51Z",
+      "wall_seconds": 0.216,
+      "input_bytes_read": 107300,
+      "output_bytes_written": 73782,
+      "files_read": 12,
+      "files_written": 7,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T07:09:08Z",
+      "wall_seconds": 0.32,
+      "input_bytes_read": 57928,
+      "output_bytes_written": 0,
+      "files_read": 8,
+      "files_written": 0,
+      "subprocess_invocations": 34,
+      "ttl_crossed": false
+    }
+  ],
+  "stages": {
+    "spec": {
+      "adversarial_rounds": 2,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "1d2f4fb351c7cddea26fe0a4fd9b7f4ce1323637ad772165d9bd12cdd278aa85",
+        "018d727e1c81019cea9309c9a9bcb83605892267650541c7672b6ad1ba64cc0a"
+      ],
+      "initial_sha": "1d2f4fb351c7cddea26fe0a4fd9b7f4ce1323637ad772165d9bd12cdd278aa85"
+    },
+    "plan": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "8235772ecfb7e364da150bfa2d396f0d77638da60c293e9e382330e89fb71dd4"
+      ],
+      "initial_sha": "8235772ecfb7e364da150bfa2d396f0d77638da60c293e9e382330e89fb71dd4"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "f1c1be1dc0f4d0a874f6103371e187f171d6800cd437f81304d85dbb7c19a2e8"
+      ],
+      "initial_sha": "f1c1be1dc0f4d0a874f6103371e187f171d6800cd437f81304d85dbb7c19a2e8"
+    },
+    "diff": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "1cbcced568b3f2d694903a65b18902bf2c2774be0291d9a2f1fc96f6e7dcd9fd"
+      ],
+      "initial_sha": "1cbcced568b3f2d694903a65b18902bf2c2774be0291d9a2f1fc96f6e7dcd9fd"
+    }
+  },
+  "invariant_warnings": [],
+  "schema_version": 2,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  },
+  "spec_adversarial_rounds": 2,
+  "last_action_result": {
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
+    "blockers": []
+  },
+  "plan_adversarial_rounds": 1,
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 0
+}

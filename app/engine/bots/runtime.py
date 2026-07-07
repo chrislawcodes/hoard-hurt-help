@@ -268,7 +268,8 @@ def _choose_truth_mode(profile: BotProfile, context: BotContext, intent: str, ph
     """Honest or lying. Truthfulness (0-100) is simply how often the bot tells
     the truth: a 90 bot is honest 90% of the time and bluffs the other 10%."""
     # A buzzer betrayal always wears a friendly mask: a false-mode HURT line reads
-    # as cooperative, so the target still HELPs and eats the full -8.
+    # as cooperative, so the target still HELPs and eats the betrayal (they take -4
+    # while the attacker nets +8).
     if intent == "betray_helper":
         return "false"
     roll = _seed_int(profile, context, intent, phase) % 100

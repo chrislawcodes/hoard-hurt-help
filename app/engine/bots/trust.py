@@ -29,11 +29,13 @@ class _TrustModel:
     forgive_rounds: int
 
 
-# A betrayal (HURTing a helper) is just a much worse hurt, so its sting is a
-# multiple of how much this personality already hates being hit (`hurt_last`):
-# the full multiple when it is done to you, a smaller one when you only witness
-# it against someone else. So a model that reacts hard to hits (bitter, twitchy)
-# also reacts hard to betrayal, with no separate numbers to keep in sync.
+# A betrayal (HURTing a helper) hits for the same -4 as any HURT, but it breaks
+# trust — so emotionally it stings far more. That sting is a multiple of how much
+# this personality already hates being hit (`hurt_last`): the full multiple when
+# it is done to you, a smaller one when you only witness it against someone else.
+# So a model that reacts hard to hits (bitter, twitchy) also reacts hard to
+# betrayal, with no separate numbers to keep in sync. (These dials scale the
+# reaction, not the payoff — the attacker's actual gain is the +4 betrayal bonus.)
 BETRAYAL_SELF_FACTOR = 6
 BETRAYAL_OTHER_FACTOR = 3
 
@@ -232,7 +234,8 @@ def _mutual_help_partners(history: Sequence[ActionRecord], your_agent_id: str) -
 
 def _betrayals(history: Sequence[ActionRecord]) -> list[tuple[str, str, int]]:
     """Every (attacker, victim, round) where the attacker HURT a player who was
-    HELPing them that same turn — i.e. the attacker triggered the -8 betrayal.
+    HELPing them that same turn — i.e. the attacker triggered the betrayal bonus
+    (attacker +4 on top of the help; the victim takes the normal -4).
     The round lets callers fade the memory over time.
     """
     by_turn: dict[tuple[int, int], list[ActionRecord]] = defaultdict(list)

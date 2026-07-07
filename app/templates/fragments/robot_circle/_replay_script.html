@@ -99,7 +99,11 @@
         if(a.action==='HOARD')                        { sim[a.agent]=(sim[a.agent]||0)+2; }
         else if(a.action==='HELP'&&a.mutual)          { sim[a.agent]=(sim[a.agent]||0)+8; }
         else if(a.action==='HELP'&&!a.mutual&&a.target){ sim[a.target]=(sim[a.target]||0)+4; }
-        else if(a.action==='HURT'&&a.target)          { sim[a.target]=Math.max(0,(sim[a.target]||0)-4); }
+        else if(a.action==='HURT'&&a.target)          { sim[a.target]=Math.max(0,(sim[a.target]||0)-4);
+          // Betraying a helper: the attacker also gains +4 (the victim's HELP is
+          // already credited above). Keeps this snapshot in step with the resolver
+          // and with playAction, which renderTurn reseeds rScore from.
+          if(a.betrayed_helper){ sim[a.agent]=(sim[a.agent]||0)+4; } }
       });
       // Round just ended → award the round win (split evenly on a tie).
       if(lastIdxOfRound[t.round]===i){
@@ -914,6 +918,10 @@
           eyes(a.target,'wide',800);
           showDelta(T, -4);
           rScore[a.target]=Math.max(0,(rScore[a.target]||0)-4);
+          // Betraying a helper: the attacker gains +4 (on top of the +4 the
+          // victim's HELP already gave them). Shown on the attacker + credited to
+          // the live rScore, matching the resolver and the computeScores snapshot.
+          if(a.betrayed_helper){ showDelta(el, 4); rScore[a.agent]=(rScore[a.agent]||0)+4; }
           dmgRail(a.target);
           updateRail();
           T.classList.add('recoil','hit');

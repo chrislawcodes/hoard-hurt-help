@@ -1,0 +1,62 @@
+---
+reviewer: "claude"
+lens: "requirements-adversarial"
+stage: "spec"
+artifact_path: "docs/workflow/feature-runs/betrayal-8-4-factory/spec.md"
+artifact_sha256: "018d727e1c81019cea9309c9a9bcb83605892267650541c7672b6ad1ba64cc0a"
+repo_root: "."
+git_head_sha: "99fdf29cb7cb6f56c024031342c02c910a690383"
+git_base_ref: "origin/main"
+git_base_sha: "6799bb0123823cc75bde3ce9fd06255ea931dcb9"
+generation_method: "claude-subagent"
+resolution_status: "accepted"
+resolution_note: "Round 2: MED F1 (turn_block.html out of scope but AC5 needs it) -> FIXED in final revision: turn_block.html added to scope with an explicit +betrayal_bonus chip render, §3.4 + AC5 updated. LOW F2 (no feed-render test) -> §8 now asserts the +4 reaches rendered HTML. LOW F3 (stale 'decays each round' legend text) -> explicit decision: leave it (pre-existing, out of scope), edit only the Hurt clause."
+raw_output_path: "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/spec.claude.requirements-adversarial.review.md.raw.txt"
+narrowed_artifact_path: ""
+narrowed_artifact_sha256: ""
+coverage_status: "full"
+coverage_note: ""
+---
+
+# Review: spec requirements-adversarial
+
+## Findings
+
+### F1 — AC5 requires the attacker's +4 on the feed chip, but the feed template is out of scope and reads no `betrayal_bonus` key [CODE-CONFIRMED] — MEDIUM
+
+AC5 (§5) states the viewer must show the betrayal honestly on "the feed chip (victim −4 via `display_delta`; **attacker +4 via the new `betrayal_bonus` key**)". §3.4 and the Scope list define `betrayal_bonus` as a new key on the attacker's action dict and deliberately keep the attacker's HURT `display_delta` at −4 (never positive).
+
+The problem: the feed is rendered by `app/templates/fragments/turn_block.html` (included from `pd_live_region.html:32`, the PD viewer fragment `viewer_fragment()` returns). That template renders the per-action chip using **`display_delta` only** (`turn_block.html:28-29`) and contains **zero** references to `betrayal_bonus`. The Scope section (§4 "In scope → UI templates") lists exactly three template files — `move_legend.html`, `robot_circle/_markup.html`, `robot_circle/_replay_script.html` — and **`turn_block.html` is not among them**. A repo-wide grep confirms no existing consumer of `betrayal_bonus`.
+
+Consequence: a builder who follows the Scope literally adds `betrayal_bonus` to the payload (satisfying §3.4/D1) but never edits `turn_block.html`, so the attacker's own HURT chip in the feed shows a plain **−4** — visually identical to a normal HURT — with the +4 gain **invisible**. This satisfies the letter of AC5 ("attacker +4 via the new `betrayal_bonus` key" — the key exists) while missing its stated intent ("the feed chip … shows the betrayal honestly"). Note this is also a regression in feed visibility: under the old −8 scheme the attacker's HURT chip displayed a large −8; under 8/4 as scoped the attacker's feed chip becomes indistinguishable from an ordinary strike.
+
+This is the one NEW gap the revision introduced: the revision correctly enumerated the three static/animation templates but did not add the one dynamic feed template that AC5's "feed chip … attacker +4" clause actually depends on. Severity is MEDIUM, not HIGH: the attacker's +8 turn *total* still surfaces via the per-turn score chips (`score_after` / `round_score_after`), and the scoring itself is unaffected — this is a display-completeness contradiction, not a correctness or scoring-divergence bug. Fix: either add `turn_block.html` to Scope with an explicit render of `betrayal_bonus` on the attacker's action (e.g. a `+4` bonus tag), or amend AC5 to drop the "feed chip → attacker +4" claim and state the attacker's gain is surfaced only in the animation (and via the per-turn total).
+
+### F2 — Feed-chip validation gap: no test asserts the attacker's +4 renders in the feed [CODE-CONFIRMED] — LOW
+
+The §8 validation plan for the viewer (`test_viewer.py`, `test_game_registry.py`) asserts only that "a betrayal exposes the attacker's `betrayal_bonus == 4`" (i.e. the *payload key* is set) and that the victim's −4 shows on the target chip. No acceptance criterion or test asserts the attacker's +4 is actually **rendered in the feed HTML**. Because `test_viewer_shows_per_move_effect_on_target` (bundled, lines ~2232-2288) already asserts `"+0" not in r.text` and only checks the target's −4, the test suite can go fully green with the attacker's +4 nowhere in the feed — the exact hole F1 describes. This is the acceptance-criteria side of F1: even if F1's intent were kept, the ACs as written give a builder no failing test to reveal the missing render. LOW because it compounds F1 rather than standing alone.
+
+### F3 — Legend rewrite touches the stale "bonus decays each round" text but the spec does not say whether to correct it [UNVERIFIED as a defect / CODE-CONFIRMED the text exists] — LOW
+
+Both legends the spec rewrites (`move_legend.html:6`, `robot_circle/_markup.html:62`) carry the clause `mutual +8 each, bonus decays each round`. Per the rules text and `HOARD_HURT_HELP_DESIGN.md`, the decay counter is **per pair, per match** and explicitly does **not** reset each round — so "each round" is already wrong. This is pre-existing and unrelated to the betrayal change, so it is legitimately out of this feature's stated goal. But the spec instructs a rewrite of these exact lines and gives replacement text only for the *Hurt* clause, leaving the adjacent stale *Help* clause unaddressed. Ambiguity: a builder may (a) leave "each round" untouched (letter-correct, ships a known-wrong legend it was editing) or (b) "helpfully" fix it (scope creep the spec never sanctioned). The spec should say which. LOW / advisory — not a blocker for the betrayal payoff itself.
+
+## Residual Risks
+
+- **Compact grouped view never shows the attacker's +4 — by omission, not contradiction.** AC5 names "groups" only as a place where no stale −8 may *appear*; the compact `_turn_groups` "hurt" row is hardcoded `delta: "-4"` (already correct) and lists members as `a → b` with no per-attacker delta. So the +4 is structurally absent from the compact view. This is consistent with the compact view's low-detail intent and is not a spec contradiction, but it means the attacker's +4 has zero surfaces in the *feed* (expanded or compact) under the current Scope — reinforcing F1.
+- **`display_delta` reuse is correctly reasoned and the "match_summary UNAFFECTED" claim holds.** Verified: `match_summary._superlatives` (line 84-85) treats only `display_delta > 0` as a gift candidate, and the spec keeps a betraying HURT's `display_delta` at −4 (negative), so the finale is genuinely unaffected. The round-1 F3 resolution (dedicated key, not overloading `display_delta`) is sound and correctly closed. Not re-litigated.
+- **The `viewer_headline.py` "accepted, minor" note is accurate.** Verified line 108/135 weight betrayal/swing beats by `abs(display_delta)`; moving a betrayal from −8 to −4 does shift headline priority slightly, exactly as §3.4 states. Genuinely cosmetic.
+- **The two stale `-8` inline comments (viewer.py lines 331, 353) and the mutual-HELP `+8` deferral (R4) are precisely located.** Spec line references match the code exactly (331, 353, and `_replay_script.html:100/102`). The rename fan-out (§4) and AC6 grep-scoping resolve the round-1 findings correctly. No issue.
+- **AC6's "no literal −8 describing a betrayal" is hard to mechanically verify but the risk is contained.** The bundled legends and animation are the only UI −8 sites, and the design-doc Team-Attack −8 rows are explicitly preserved (R3). The distinction rests on human review of each `-8`, which the spec flags — acceptable, but the builder must not blanket-replace.
+
+```json
+{"reviewed": true, "findings": [{"severity": "MEDIUM", "title": "AC5 requires attacker +4 on the feed chip, but turn_block.html is out of scope and reads no betrayal_bonus key", "detail": "The feed template (fragments/turn_block.html, included via pd_live_region.html) renders chips from display_delta only and never reads betrayal_bonus, yet Scope lists only three other templates — so a spec-faithful build satisfies AC5's letter (key exists) while the attacker's +4 stays invisible in the feed, a regression from the old visible -8."}, {"severity": "LOW", "title": "No acceptance criterion/test asserts the attacker's +4 actually renders in the feed HTML", "detail": "§8 only checks betrayal_bonus == 4 on the payload and the victim's -4 on the target chip, so the suite can go green with the attacker's +4 absent from the feed — the AC side of the same gap."}, {"severity": "LOW", "title": "Legend rewrite touches stale 'bonus decays each round' text without saying whether to correct it", "detail": "Both legends the spec rewrites carry a pre-existing wrong 'decays each round' Help clause (decay is per-pair, per-match), and the spec gives replacement text only for the Hurt clause — leaving it ambiguous whether the builder should fix the adjacent stale text or leave it."}]}
+```
+
+## Runner Stats
+- total_input=0
+- total_output=0
+- total_tokens=0
+
+## Resolution
+- status: accepted
+- note: Round 2: MED F1 (turn_block.html out of scope but AC5 needs it) -> FIXED in final revision: turn_block.html added to scope with an explicit +betrayal_bonus chip render, §3.4 + AC5 updated. LOW F2 (no feed-render test) -> §8 now asserts the +4 reaches rendered HTML. LOW F3 (stale 'decays each round' legend text) -> explicit decision: leave it (pre-existing, out of scope), edit only the Hurt clause.

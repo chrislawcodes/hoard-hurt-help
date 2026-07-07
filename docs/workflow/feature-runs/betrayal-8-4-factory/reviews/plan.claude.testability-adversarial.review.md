@@ -1,0 +1,77 @@
+---
+reviewer: "claude"
+lens: "testability-adversarial"
+stage: "plan"
+artifact_path: "docs/workflow/feature-runs/betrayal-8-4-factory/plan.md"
+artifact_sha256: "8235772ecfb7e364da150bfa2d396f0d77638da60c293e9e382330e89fb71dd4"
+repo_root: "."
+git_head_sha: "d9014e52f47c87530b05f830e5c1dcdfde91339f"
+git_base_ref: "origin/main"
+git_base_sha: "6799bb0123823cc75bde3ce9fd06255ea931dcb9"
+generation_method: "claude-subagent"
+resolution_status: "accepted"
+resolution_note: "MED F1 (two JS loops) -> D2.3/D2.4 both loops. MED F2 (rc-JSON threading untested but Python-testable) -> D5 adds a Python test asserting rc_data carries betrayed_helper for a betrayal turn. MED F3 (mirror parity must be explicit dict) -> D5 pins {'A':8,'B':6} from {'A':0,'B':10}. LOW F4 (mirror floored betrayal untested) -> D5 adds a floored mirror case (victim 5->1). LOW F5 (R5 line-brittle) -> R5 anchors on code text not line number. LOW F6 (Slice-1-green needs enumerated rules-text rewrites) -> D5/Slice 1 enumerate them."
+raw_output_path: "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/plan.claude.testability-adversarial.review.md.raw.txt"
+narrowed_artifact_path: ""
+narrowed_artifact_sha256: ""
+coverage_status: "full"
+coverage_note: ""
+---
+
+# Review: plan testability-adversarial
+
+## Findings
+
+### F1 — [CODE-CONFIRMED] MEDIUM: The plan treats the JS client sim as one site, but there are two independent JS computations — and Slice 2 only patches one of them
+
+The plan's D2.3 and R1 describe "the JS client sim" as a single place and name exactly one edit: `rScore[a.agent]+=4` / `showDelta(el,4)` in the animation. But `_replay_script.html` computes the running score in **two independent loops**:
+
+- `playAction` (lines 823–924): the live per-action animation. Victim `showDelta(T,-4)` + `rScore[a.target]-=4` (lines 915–916). This is the one the plan names.
+- `computeScores` (lines 86–115): a **separate** snapshot simulator that rebuilds `scoreAt[]` for every turn. Its HURT line is `sim[a.target]=Math.max(0,(sim[a.target]||0)-4)` (line 102), with **no attacker credit and no betrayal awareness at all**.
+
+`renderTurn` seeds `rScore` from these snapshots at the start of every turn (`rScore[id]=snap[id]||0`, line 547). So if Slice 2 adds the attacker +4 only in `playAction` and leaves `computeScores` (line 102) alone, the animated running total will gain +4 during the turn but be **reset without it** at the next turn's start — an internal divergence inside the same file, on top of the resolver/mirror divergence R1 already worries about. The plan's "add the attacker +4 to the JS sim" instruction, read literally, misses line 102. Neither JS site has any test, so this cannot be caught automatically — it lands entirely on the human R1 verification, which is scoped to "the JS sim's +4" and does not mention the two-loop split.
+
+### F2 — [CODE-CONFIRMED] MEDIUM: A wrong `_build_rc_data` can pass every proposed test while the animation stays silent — the field-threading into the rc JSON is Python and is left untested
+
+For the animation to show the attacker's +4 "gated on the new `betrayed_helper` field" (plan D2.3), `_build_rc_data` must actually put that field into the per-action rc JSON. Today it does not: the `rc_actions` dict (viewer.py:186–198) emits `agent/action/target/delta/mutual/betrayal/missed/msg` — **no `betrayed_helper`, no `betrayal_bonus`**. So "thread `betrayed_helper` into `_build_rc_data`" (plan Slice 2) is a load-bearing Python step. Yet the plan's only guard for the attacker-side JS payload is R1's human check. Every *automated* test in D5/§8 (`test_inround_mirror`, resolver, rules-text, and the `test_viewer` chip assertion which reads `turn_block.html`, not the rc JSON) would stay green if the implementer forgets to add `betrayed_helper`/`betrayal_bonus` to the `rc_actions` dict — the feed chip would show +4 while the robot-circle animation shows nothing. This is testable in Python (assert the `rc_data` JSON for a betrayal turn carries the field) and the plan does not propose it. The existing `test_rc_caption_shows_decayed_value_not_stale_eight` (test_inround_mirror.py:131) proves `_build_rc_data`'s JSON is already unit-testable, so this gap is closable, not inherent.
+
+### F3 — [CODE-CONFIRMED] MEDIUM: The mirror-parity test as specified does not pin the victim-side value change (8→4); it must overwrite the existing test, and the plan should say the old assertion is deleted, not merely "updated"
+
+The mirror's betrayal victim damage is `BETRAYAL_HURT_POINTS` (=8) *today* (scoring.py:255). The whole point of this feature is to drop it to `HURT_POINTS` (=4) and move the swing to the attacker. The existing test `test_mirror_betraying_a_helper_is_eight` (test_inround_mirror.py:50–59) currently **asserts the old victim −8**: `assert out == {"A": 4, "B": 2}`. If the implementer changes production code but forgets to rewrite this test, the suite goes **red on the old expectation** — which is fine — but the plan's D5 says only "Mirror test asserts the **full** +8 / −4," and Slice 1's scope lists `test_inround_mirror.py` under "update." The spec (§8, line 273) is explicit that this test is "rewritten … currently `{"A":4,"B":2}`"; the plan loses that specificity. More importantly: the plan's D2.2 states the new victim value as `-HURT_POINTS`, but D5's parity assertion ("+8 / −4") only pins the *attacker turn total* (+8) and the *raw victim damage* (−4). A buggy implementation that left the mirror victim at −8 **and** added the +4 attacker credit would make the attacker +8 but the victim −8 — and the parity test as worded ("asserts the full +8 / −4") only catches this if the concrete assertion literally checks the victim seat lands at start−4. The plan should state the exact expected dict (e.g. victim 10→6, attacker 0→8) so the test cannot be written to pass on a victim −8.
+
+### F4 — [CODE-CONFIRMED] LOW: No test pins the mirror's *floored* betrayal victim; only the resolver's floor is tested, and the two floors differ
+
+AC3/§3.3 correctly note the mirror floors **per-hurt** while the resolver floors the **summed** delta — a deliberate divergence. The plan's resolver validation includes "betrayal + floor (victim seeded low → ends 0)" (§8), but the mirror validation only asserts the no-floor `+8/−4` case (seeded high). Because this feature *changes* the mirror's betrayal victim damage from 8 to 4, the floor boundary moves: a victim at 3 who is betrayed now floors at `max(0, 3−4)=0` instead of `max(0, 3−8)=0` — same result here, but a victim at 5 goes 5→1 (new) vs 5→0 (old). No mirror test exercises a betrayed-and-floored victim, so a regression in the mirror's floor arithmetic on the betrayal path would be invisible. Low severity because the per-hurt floor line itself is unchanged, but the plan claims "testing pins the invariant at every mirror" (D5) and the mirror's floor+betrayal interaction is not pinned.
+
+### F5 — [CODE-CONFIRMED] LOW: The R5 grep verification targets a line number that will have shifted, and guards the wrong risk relative to F1
+
+R5's verification is "a diff check confirms line ~100 (`HELP && mutual → +8`) is untouched." The mutual-HELP `+8` is indeed at line 100 (`computeScores`), confirmed. But (a) line numbers shift once Slice 2 edits the same file, so a fixed "line ~100" check is brittle; and (b) R5 guards the pre-existing mutual-decay staleness while **saying nothing about the more relevant risk F1** — that the betrayal edit must also land in `computeScores` (line 102), immediately below the line R5 tells the reviewer to confirm is untouched. The verification as written could pass (line 100 untouched) while line 102 was wrongly left un-patched. Anchor the check on the code text, not the line number, and extend it to assert line 102 *did* change.
+
+### F6 — [UNVERIFIED] LOW: "Preflight-green on its own" for Slice 1 is asserted but the rules-text tests that must change are not enumerated, so a red intermediate checkpoint is possible
+
+The plan says Slice 1 is "self-contained and preflight-green on its own." `test_rules_text.py` currently asserts the old `-{BETRAYAL_HURT_POINTS}` wording and `(v4)` (per spec §8). Slice 1 changes `GAME_RULES_TEXT` and the constant, so those assertions must be rewritten *in the same slice* for it to be green — the plan lists `test_rules_text.py` in Slice 1, which is correct, but does not name which assertions (version string, the `+4/−4` bullet, the removed `!= HURT_POINTS` check). I could not read `test_rules_text.py` in the bundle, so I cannot confirm it contains nothing else that Slice 2 (viewer) would break. If any rules-text or registry test also asserts a viewer/chip fact, Slice 1 could not be green alone. Treated as low/unverified.
+
+## Residual Risks
+
+- **RR1 (from F1/F2) — The attacker-side JS payload and both JS running-score loops are outside all automated coverage.** The plan is honest that "no JS harness exists" (R1), but it under-states the surface: two JS sim loops plus the rc-JSON field threading, of which only the last is Python-testable and none is currently tested. Concrete pre-merge step the plan should add: (1) a Python assertion that the `rc_data` JSON for a betrayal turn carries `betrayed_helper`/`betrayal_bonus`; (2) a manual, written checklist entry that *both* `computeScores` (line 102) and `playAction` (lines 915–916) were inspected and the snapshot vs live totals agree for a betrayal turn. Without (2), F1's divergence can ship.
+
+- **RR2 (from F3) — Mirror parity is only as strong as the concrete assertion.** "Asserts the full +8 / −4" must be written as an explicit end-state dict that pins the victim at start−4 (e.g. `{"A": 8, "B": 6}` from `{"A":0,"B":10}`), or a victim-still-−8 bug slips through. The plan should quote the exact expected dict, as the spec does.
+
+- **RR3 (from F4) — Mirror floor on the betrayal path is unverified.** Add one mirror test with a betrayed victim seeded low (e.g. victim at 5, betrayed → 1) so the changed damage value is exercised against the per-hurt floor.
+
+- **RR4 (multi-attacker, adequately covered) — no gap.** The "only the helped attacker gets the bonus; a third HURTer stays −4" case is specified for the resolver (§8) and already has a passing resolver test (`test_betrayal_only_for_the_helped_attacker`, test_resolver.py:265). Under the new scheme that test's expectation changes (victim damage 8→4 for the betrayer), which the plan's "multi-attacker cases" (D5) covers. No mirror-side multi-attacker test is planned, but the mirror's multi-attacker behavior is unchanged in structure; low concern.
+
+- **RR5 (rendered-HTML chip, adequately covered) — no gap.** F2's HIGH-value concern is the animation, not the chip. The chip is genuinely guarded: `turn_block.html` renders `display_delta` and gains a `+{{ a.betrayal_bonus }}` chip, and R4/AC5 require a `test_viewer.py` assertion that the rendered feed HTML contains the attacker's `+4` (not just `betrayal_bonus == 4` on the payload). This closes the "present in payload, invisible on screen" hole for the feed. It does **not** extend to the animation (that's F2/RR1).
+
+```json
+{"reviewed": true, "findings": [{"severity": "MEDIUM", "title": "JS sim is two loops; plan patches only playAction, not computeScores line 102", "detail": "_replay_script.html computes running score in both playAction (lines 915-916) and a separate computeScores snapshot loop (line 102); the plan's 'add attacker +4 to the JS sim' names only playAction, so the snapshot that renderTurn reseeds rScore from could stay un-patched, and neither loop has any test."}, {"severity": "MEDIUM", "title": "Untested rc-JSON field threading lets a silent animation pass every proposed test", "detail": "_build_rc_data (viewer.py:186-198) does not emit betrayed_helper/betrayal_bonus today; the animation gates the attacker +4 on that field, but no automated test asserts the rc_data JSON carries it, so forgetting the thread leaves the feed chip at +4 while the animation shows nothing and the suite stays green."}, {"severity": "MEDIUM", "title": "Mirror-parity assertion does not pin the victim 8->4 change unless written as an explicit end-state", "detail": "The existing mirror test asserts the OLD victim -8 ({'A':4,'B':2}); D5's 'full +8 / -4' wording pins the attacker turn total but a victim-still-(-8) plus new-attacker-(+4) bug also yields attacker +8, so the plan must quote the exact expected dict (victim start-4) as the spec does."}, {"severity": "LOW", "title": "Mirror's floored betrayal victim is untested though the feature moves the floor boundary", "detail": "The plan tests the resolver's summed-delta floor on betrayal but only the no-floor mirror case; the mirror floors per-hurt and its betrayal damage drops 8->4, so a low-seeded betrayed victim in the mirror (e.g. 5->1) is unpinned despite D5's 'pins the invariant at every mirror' claim."}, {"severity": "LOW", "title": "R5 grep verification is line-number-brittle and guards the wrong adjacent risk", "detail": "R5 checks 'line ~100 (mutual +8) untouched' but line numbers shift after Slice 2 edits the file, and it says nothing about line 102 (computeScores HURT) which F1 shows MUST change — the check could pass while the betrayal edit is missing one line below."}, {"severity": "LOW", "title": "Slice 1 'preflight-green alone' relies on unenumerated rules-text test rewrites", "detail": "test_rules_text.py asserts the old -{BETRAYAL_HURT_POINTS} wording and (v4); the plan lists the file in Slice 1 but does not name the assertions to rewrite and I could not read the file to confirm it holds nothing a later slice would break."}]}
+```
+
+## Runner Stats
+- total_input=0
+- total_output=0
+- total_tokens=0
+
+## Resolution
+- status: accepted
+- note: MED F1 (two JS loops) -> D2.3/D2.4 both loops. MED F2 (rc-JSON threading untested but Python-testable) -> D5 adds a Python test asserting rc_data carries betrayed_helper for a betrayal turn. MED F3 (mirror parity must be explicit dict) -> D5 pins {'A':8,'B':6} from {'A':0,'B':10}. LOW F4 (mirror floored betrayal untested) -> D5 adds a floored mirror case (victim 5->1). LOW F5 (R5 line-brittle) -> R5 anchors on code text not line number. LOW F6 (Slice-1-green needs enumerated rules-text rewrites) -> D5/Slice 1 enumerate them.

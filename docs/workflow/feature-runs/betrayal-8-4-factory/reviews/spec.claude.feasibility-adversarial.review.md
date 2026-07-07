@@ -1,0 +1,66 @@
+---
+reviewer: "claude"
+lens: "feasibility-adversarial"
+stage: "spec"
+artifact_path: "docs/workflow/feature-runs/betrayal-8-4-factory/spec.md"
+artifact_sha256: "018d727e1c81019cea9309c9a9bcb83605892267650541c7672b6ad1ba64cc0a"
+repo_root: "."
+git_head_sha: "99fdf29cb7cb6f56c024031342c02c910a690383"
+git_base_ref: "origin/main"
+git_base_sha: "6799bb0123823cc75bde3ce9fd06255ea931dcb9"
+generation_method: "claude-subagent"
+resolution_status: "accepted"
+resolution_note: "Round 2: no HIGH/MED feasibility defects — reviewer CODE-CONFIRMED all round-1 resolutions are sound. 2 LOW: ARCHITECTURE.md has no BETRAYAL_HURT_POINTS token (redundant listing, harmless — keep for prose refresh); betrayal_bonus needs a feed-chip consumer -> already fixed by adding turn_block.html to scope + AC5 in the final revision."
+raw_output_path: "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/spec.claude.feasibility-adversarial.review.md.raw.txt"
+narrowed_artifact_path: ""
+narrowed_artifact_sha256: ""
+coverage_status: "full"
+coverage_note: ""
+---
+
+# Review: spec feasibility-adversarial
+
+## Findings
+
+The revised spec is feasible and internally consistent. I verified every load-bearing claim against the bundled code and the working tree. The round-1 resolutions all hold up:
+
+- **Dedicated `betrayal_bonus` key (not overloading `display_delta`)** — sound. `match_summary.py:85` does gate gift-detection on `if delta > 0` reading `display_delta` ([CODE-CONFIRMED]), and `viewer_headline.py:108,135,138` weight beats by `abs(display_delta)` ([CODE-CONFIRMED]). Keeping `display_delta` at the victim's −4 and putting the attacker's +4 in a separate key genuinely avoids the gift-mislabel (F3) and preserves `test_viewer_shows_per_move_effect_on_target`'s "no `+0`/positive on a HURT row" assumption. The resolution is correct, not just plausible.
+
+- **ADDED attacker-credit line in `apply_inround_turn`** — correct and necessary. The mirror's HURT branch (`scoring.py`, bundled lines 364-368) today touches **only the target**; there is no attacker statement to swap ([CODE-CONFIRMED]). In a betrayal the victim's HELP is non-mutual, so it flows through `elif action == "HELP" and target:` and credits the attacker +4; the spec's added `new_inround[actor] += BETRAYAL_BONUS` brings the attacker to +8. The §3.3 warning against a naive symbol-swap is accurate and important.
+
+- **`move_effect`/`game.py` left untouched** — feasible. `move_effect` receives only the action string with no turn context (`game.py:1096-1104`), so it cannot detect a betrayal; leaving it nominal `HURT → (0, -4)` keeps `test_game_registry` (`move_effect("HURT") == (0, -4)`) green ([CODE-CONFIRMED]). Consistent.
+
+- **Threading `betrayed_helper` into the rc payload + animation** — feasible. The rc action JSON (`viewer.py` bundled lines 559-570) threads `betrayal` but **not** `betrayed_helper`/`betrayal_bonus`, so these are genuinely new fields ([CODE-CONFIRMED]). The animation's HURT block (`_replay_script.html:896-923`) credits only `showDelta(T,-4)` / `rScore[a.target]-=4` with no attacker credit ([CODE-CONFIRMED]); adding `showDelta(el,4)` + `rScore[a.agent]+=4` gated on the new field is a clean insertion with no collision against the existing cross-turn `a.betrayal` styling on line 903.
+
+- **Stale-text targets all exist exactly as described** ([CODE-CONFIRMED]): `move_legend.html:5` and `robot_circle/_markup.html:61` both literally read `-4 to another, -8 if betraying`; `viewer.py` inline `-8` comments sit at lines 331 and 353 (spec said "~331/~353"); `viewer.py:396` is the `-BETRAYAL_HURT_POINTS` `display_delta` override to drop.
+
+- **DESIGN.md `−8` split is exactly right** ([CODE-CONFIRMED]): betrayal sites at lines 42, 55, 66 change; the Team-Attack site at line 57 (`C takes −8`) stays. The spec's F5 "three distinct betrayal −8 sites" count matches.
+
+- **Rename fan-out is complete** ([CODE-CONFIRMED]): `grep BETRAYAL_HURT_POINTS` over `app/` + `docs/games/` returns exactly the files the spec lists (rules.py, scoring.py ×5, viewer.py ×2, betray-helper-impact-review.md) — no unlisted call site is missed. `BETRAYAL_BONUS` does not yet exist, so no name collision.
+
+No CRITICAL, HIGH, or MEDIUM feasibility defects found. The two items below are LOW and do not block the build.
+
+- **LOW — AC6's "no stale `BETRAYAL_HURT_POINTS` in docs" is trivially met for ARCHITECTURE.md, so listing it for edits is slightly redundant.** [CODE-CONFIRMED] `ARCHITECTURE.md` contains no `BETRAYAL_HURT_POINTS` token and no betrayal `−8`; it only has prose ("betrayal-sting", line 27). The spec puts `HOARD_HURT_HELP_ARCHITECTURE.md` in the docs scope, but there is no hard token or number there to change — at most an optional prose refresh. Not a defect; just means one listed doc touchpoint has nothing AC6-load-bearing to edit.
+
+- **LOW — the new `betrayal_bonus` key is added to the payload but the spec names no template/JS consumer that renders it, so on its own it changes nothing a human sees.** [UNVERIFIED for the feed chip template] The spec routes the attacker's visible +4 through the **animation** (`_replay_script.html` `showDelta(el,4)`) and the two static **legends**, and AC5 lists those surfaces — but the feed-chip template (`turn_block.html`, not bundled) is never shown to read `betrayal_bonus`. If the intent is for the feed chip (not just the animation) to display the attacker's +4, an implementer following the spec literally could add the key to the dict and the parity test without ever wiring a chip renderer, leaving the attacker's gain invisible in the static feed. This is a spec-completeness gap, not an infeasibility: the key is real and the animation path is fully specified; the feed-chip rendering is simply unspecified. Worth one clarifying line ("the feed chip renders `betrayal_bonus` as `+4`" or "no feed-chip change; animation + legends carry it").
+
+## Residual Risks
+
+- **JS client-sim parity is unprovable in the automated gate.** [CODE-CONFIRMED] The resolver and the Python mirror both get unit tests (AC1/§8), but the attacker `+4` in `_replay_script.html` is untested JavaScript — no test in scope executes it. R1's "the JS sim mirrors the resolver" rests on manual reading. This is inherent to the codebase (the JS sim has never had a harness) and the spec acknowledges it; flagging only so the reviewer knows the +8/−4 parity claim for the animation is human-verified, not machine-verified.
+
+- **The animation styles betrayal on the cross-turn `a.betrayal` flag while the payoff credit will key off the new same-turn `betrayed_helper` flag.** [CODE-CONFIRMED] These are two different signals that can co-occur or occur alone. The spec is aware (it notes the cross-turn flag is "left as-is"), and there is no logic collision — but an implementer must not accidentally gate the new attacker `+4` on the existing `a.betrayal` (which would credit +4 on the wrong turns, i.e. a HURT of last turn's pact partner who is *not* helping this turn). The spec says the right thing; the risk is purely implementation discipline.
+
+- **AC6's second clause — "no stale literal `-8`/`−8` describing a betrayal" — depends on grep judgment.** [CODE-CONFIRMED] The legitimate Team-Attack `−8` (DESIGN.md:57) and the client-sim's deferred mutual-HELP `+8` (`_replay_script.html:100`) are correct survivors; the acceptance check must distinguish them from betrayal `−8`s by context, which is not mechanically enforceable. The spec calls this out (R2/R3), so it is a known, accepted manual step rather than a hidden hazard.
+
+```json
+{"reviewed": true, "findings": [{"severity": "LOW", "title": "ARCHITECTURE.md has no BETRAYAL_HURT_POINTS token, so AC6-listing it is redundant", "detail": "HOARD_HURT_HELP_ARCHITECTURE.md contains only prose ('betrayal-sting') with no constant or betrayal -8, so the listed doc touchpoint has nothing AC6-load-bearing to change."}, {"severity": "LOW", "title": "New betrayal_bonus key has no named feed-chip consumer", "detail": "The attacker's visible +4 is routed only through the animation and static legends; no bundled/named template is specified to render betrayal_bonus on the static feed chip, so a literal implementation could leave the attacker's gain invisible in the feed."}]}
+```
+
+## Runner Stats
+- total_input=0
+- total_output=0
+- total_tokens=0
+
+## Resolution
+- status: accepted
+- note: Round 2: no HIGH/MED feasibility defects — reviewer CODE-CONFIRMED all round-1 resolutions are sound. 2 LOW: ARCHITECTURE.md has no BETRAYAL_HURT_POINTS token (redundant listing, harmless — keep for prose refresh); betrayal_bonus needs a feed-chip consumer -> already fixed by adding turn_block.html to scope + AC5 in the final revision.

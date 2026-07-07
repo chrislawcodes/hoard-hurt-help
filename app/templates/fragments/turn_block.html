@@ -28,6 +28,11 @@
                 {% if a.display_delta is not none %}
                 <span class="delta {{ 'pos' if a.display_delta > 0 else ('neg' if a.display_delta < 0 else 'zero') }}">{{ "%+d" | format(a.display_delta) }}</span>
                 {% endif %}
+                {# Betraying a helper: the attacker's own +BETRAYAL_BONUS gain, shown
+                   as a distinct positive chip so it isn't buried behind the -4 the
+                   HURT does to the victim. Gated on betrayed_helper (the same-turn
+                   signal), not the cross-turn `betrayal` flag below. #}
+                {% if a.betrayed_helper %}<span class="delta pos betrayal-bonus" title="Betrayal bonus for HURTing a helper">{{ "%+d" | format(a.betrayal_bonus) }} betrayal</span>{% endif %}
                 {% if a.betrayal %}<span class="tag tag-betrayal">betrayal</span>{% endif %}
                 {% if a.was_defaulted %}<span class="missed">missed turn</span>{% endif %}
             </div>

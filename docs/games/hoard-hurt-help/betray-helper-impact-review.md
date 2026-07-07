@@ -1,9 +1,23 @@
 # Betraying A Helper — Impact Review (for Chris)
 
-**Proposed rule:** If you **HURT** a player who is **HELPing you in the same turn**,
-that player takes **−8** instead of the normal −4. Mutual help stays **+8 each**.
-The attacker gets no bonus (they still pocket the +4 from the victim's help).
-Net effect on the betrayal turn: **attacker +4, victim −8 → a 12-point swing.**
+> **SUPERSEDED / IMPLEMENTED (2026-07-07).** This review evaluated an *earlier*
+> shape of the rule (victim −8, attacker no bonus). The rule that actually shipped
+> is the **"8/4" re-split**: the victim takes the **normal −4** and the **attacker
+> gains a +4 bonus** (`BETRAYAL_BONUS`) on top of the +4 help — net **attacker +8 /
+> victim −4**. The 12-point relative swing is unchanged; it was re-split so the
+> attacker rises instead of the victim cratering. The (a)/(b) `move_effect` decision
+> below was resolved to a third option — a dedicated `betrayal_bonus` key on the
+> viewer action (`move_effect` stays nominal). See
+> `docs/workflow/feature-runs/betrayal-8-4-factory/` for the shipped design, plan,
+> and tests. Everything below is kept for historical context only — its −8 numbers
+> and its references to the old betrayal-hurt constant describe the pre-8/4
+> proposal, not the current code (the shipped constant is `BETRAYAL_BONUS`).
+
+**Original proposal (pre-8/4, historical):** If you **HURT** a player who is
+**HELPing you in the same turn**, that player takes **−8** instead of the normal −4.
+Mutual help stays **+8 each**. The attacker gets no bonus (they still pocket the +4
+from the victim's help). Net effect on the betrayal turn: **attacker +4, victim −8 →
+a 12-point swing.** *(Shipped instead as 8/4 — see the banner above.)*
 
 Reduced payoff (A vs B, "cooperate" = HELP partner):
 - Both HELP (pact): **+8 / +8**
@@ -35,12 +49,15 @@ Tick the box once you've eyeballed it.
       elif s.action == "HURT" ...: delta[s.target_id]   -= HURT_POINTS   # always 4
   # then mutual-help bonus, then floor
   ```
-  Change: build the HELP map first, then in the HURT branch subtract
-  `BETRAYAL_HURT_POINTS` (8) when `help_targets.get(victim) == attacker`, else
-  `HURT_POINTS` (4). Floor + mutual-bonus logic stay as-is.
+  Change *(pre-8/4 proposal — NOT what shipped)*: build the HELP map first, then in
+  the HURT branch subtract the old betrayal-hurt value (8) when
+  `help_targets.get(victim) == attacker`, else `HURT_POINTS` (4). Floor +
+  mutual-bonus logic stay as-is. *(Shipped instead: victim always `HURT_POINTS`;
+  the attacker gains `BETRAYAL_BONUS` — see the banner.)*
 
-- [ ] **`app/games/hoard_hurt_help/rules.py`, lines 7–10**
-  Add `BETRAYAL_HURT_POINTS = 8` next to the other constants.
+- [ ] **`app/games/hoard_hurt_help/rules.py`, lines 7–10** *(pre-8/4 proposal)*
+  Add the old betrayal-hurt constant (= 8) next to the other constants. *(Shipped
+  instead: `BETRAYAL_BONUS = 4` — the attacker's bonus, not the victim's damage.)*
 
 ---
 

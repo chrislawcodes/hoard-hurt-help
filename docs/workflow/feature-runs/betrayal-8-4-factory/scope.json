@@ -1,0 +1,17 @@
+{
+  "paths": [
+    "app/engine/bots",
+    "app/games/hoard_hurt_help",
+    "app/templates",
+    "docs/games/hoard-hurt-help",
+    "tests"
+  ],
+  "allowed_dirty_paths": [
+    "app/engine/bots",
+    "app/games/hoard_hurt_help",
+    "app/templates",
+    "docs/games/hoard-hurt-help",
+    "docs/workflow/feature-runs/betrayal-8-4-factory",
+    "tests"
+  ]
+}

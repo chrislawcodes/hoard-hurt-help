@@ -301,6 +301,75 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
     assert "+0" not in r.text
 
 
+async def test_viewer_shows_attacker_bonus_on_betrayal(client, reset_db):
+    """Betraying a helper must render the attacker's +4 in the feed, not just the
+    victim's -4 (R4 guard — the +4 must reach the screen, not sit in the payload).
+
+    A HURTs B while B HELPs A (same turn) → A betrays the helper: the feed shows
+    the attacker's `+4 betrayal` chip. Under 8/4 the victim's chip is -4 (never -8).
+    """
+    await _seed(reset_db, GameState.COMPLETED)
+    async with reset_db() as db:
+        import sqlalchemy
+
+        from app.models import Player, Turn, TurnSubmission, User
+
+        attacker = (await db.execute(sqlalchemy.select(Player))).scalars().first()
+        u2 = User(google_sub="u2", email="u2@t.com")
+        db.add(u2)
+        await db.flush()
+        bot2, version2 = await make_agent(db, u2, name="AI_1")
+        victim = Player(
+            match_id="G_001",
+            user_id=u2.id,
+            agent_id=bot2.id,
+            seat_name="AI_1",
+            agent_version_id=version2.id if version2 is not None else None,
+            model_self_report=version2.model if version2 is not None else None,
+        )
+        db.add(victim)
+        await db.flush()
+        t = Turn(
+            match_id="G_001",
+            round=1,
+            turn=1,
+            turn_token="tk1",
+            opened_at=datetime.now(timezone.utc),
+            deadline_at=datetime.now(timezone.utc),
+            resolved_at=datetime.now(timezone.utc),
+        )
+        db.add(t)
+        await db.flush()
+        # Attacker HURTs the victim; the victim HELPs the attacker the same turn.
+        db.add(
+            TurnSubmission(
+                turn_id=t.id, player_id=attacker.id, action="HURT",
+                target_player_id=victim.id, message="thanks for the help",
+                points_delta=8, round_score_after=8,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        db.add(
+            TurnSubmission(
+                turn_id=t.id, player_id=victim.id, action="HELP",
+                target_player_id=attacker.id, message="here you go",
+                points_delta=0, round_score_after=0,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/games/hoard-hurt-help/matches/G_001")
+    assert r.status_code == 200
+    # The attacker's +4 betrayal bonus is rendered (not buried) ...
+    assert "+4 betrayal" in r.text
+    # ... and the victim's delta chip is the normal -4, never a stale -8. Match the
+    # rendered delta span content specifically (a bare "-8" substring false-matches
+    # "utf-8" in the page <head>).
+    assert ">-8<" not in r.text
+    assert ">-4<" in r.text
+
+
 async def test_guide_serves_doc(client, reset_db):
     r = await client.get("/guide/setup-mcp")
     assert r.status_code == 200
