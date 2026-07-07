@@ -96,6 +96,14 @@ Resolves open decision **D1** → **option (a′)**: surface the attacker's +4 i
   positive +4 in `display_delta` would (i) corrupt the −4-on-target signal
   `test_viewer_shows_per_move_effect_on_target` relies on and (ii) mislabel a
   betrayal as a gift in the finale. A separate `betrayal_bonus` key avoids both.
+- **The feed-chip template must render it** (spec-review round-2 requirements
+  finding, CODE-CONFIRMED). `app/templates/fragments/turn_block.html` renders the
+  HURT row's delta from `a.display_delta` **only** (line ~29) — it has no
+  `betrayal_bonus` reference, so without editing it the attacker's +4 would sit
+  in the payload but never reach the screen. Add a small positive bonus chip on
+  the attacker's HURT row that shows `+{{ a.betrayal_bonus }}` when
+  `a.betrayal_bonus` is set. This is the surface AC5 means by "the feed chip …
+  attacker +4 via the new `betrayal_bonus` key."
 - `move_effect(action)` only receives the action *string* and has no turn
   context, so it cannot itself know a HURT is a betrayal. It stays **nominal**
   (`HURT → (0, -4)`), so `test_game_registry` and `test_viewer_shows_per_move_
@@ -134,7 +142,11 @@ Resolves open decision **D1** → **option (a′)**: surface the attacker's +4 i
   (spec-review F4 — AC6's constant-grep won't catch prose `-8`).
 - `app/games/hoard_hurt_help/game.py` — **not modified.** `move_effect` stays
   nominal (see §3.4). Listed only to state explicitly it is untouched.
-- **UI templates (spec-review req-HIGH-1, req-HIGH-2):**
+- **UI templates (spec-review req-HIGH-1, req-HIGH-2, round-2 req):**
+  - `app/templates/fragments/turn_block.html` — the feed chip. Renders the HURT
+    row delta from `a.display_delta` only; add a `+{{ a.betrayal_bonus }}` chip on
+    the attacker's row so the +4 actually shows (gated on `a.betrayal_bonus`, NOT
+    on the cross-turn `a.betrayal` flag).
   - `app/templates/fragments/move_legend.html` — the Hurt chip text literally
     says `-4 to another, -8 if betraying`; the `-8 if betraying` clause is now
     false (victim takes −4). Rewrite to reflect 8/4 (victim −4; attacker gains a
@@ -144,6 +156,8 @@ Resolves open decision **D1** → **option (a′)**: surface the attacker's +4 i
   - `app/templates/fragments/robot_circle/_replay_script.html` — the HURT
     animation (`showDelta(T, -4)`, `rScore[...] -4`) never shows the attacker's
     gain; add the attacker `+4` on a betraying HURT and credit the client sim.
+    Gate on the `betrayed_helper`/`betrayal_bonus` signal threaded into the rc
+    JSON — not the existing cross-turn `betrayal` visual class.
 - Tests: `tests/test_resolver.py`, `tests/test_inround_mirror.py`,
   `tests/test_viewer.py`, `tests/test_game_registry.py`,
   `tests/test_rules_text.py`.
@@ -182,6 +196,14 @@ also names the constant (cosmetic; update).
   a flat +8, ignoring mutual-help decay). This is a **pre-existing** bug
   unrelated to the betrayal change and is **deferred** — this feature only fixes
   the HURT/betrayal path in that file, not the mutual-help decay path.
+- **The legends' stale "bonus decays each round" clause** (spec-review round-2
+  LOW). `move_legend.html` and `robot_circle/_markup.html` both say `mutual +8
+  each, bonus decays each round`; the decay is actually per-pair, per-**match**,
+  not per round. This is **pre-existing** and unrelated to the betrayal payoff.
+  **Decision: leave it** — the legend edit for this feature touches only the
+  Hurt clause (the betrayal text); do NOT also rewrite the Help clause here, to
+  keep the diff scoped to the betrayal change. (A separate cleanup can fix the
+  "each round" wording.)
 
 ### Reality-check assumptions carried in (from discovery)
 
@@ -255,7 +277,10 @@ templates/animation, then tests, then docs. No external deps.
   assertions are replaced.
 - Unit (`test_viewer.py`, `test_game_registry.py`): the per-move chip shows the
   victim's −4 on the target; `move_effect("HURT") == (0, -4)` still holds; a
-  betrayal exposes the attacker's `betrayal_bonus == 4`.
+  betrayal exposes the attacker's `betrayal_bonus == 4` on the payload **and**
+  the rendered feed HTML shows the attacker's `+4` (spec-review round-2 LOW F2 —
+  assert the +4 actually reaches the screen, so the suite can't go green with the
+  bonus present in the payload but invisible in the feed).
 - Full Preflight Gate from the worktree root using `.venv/bin/`.
 
 ## 9. Risks

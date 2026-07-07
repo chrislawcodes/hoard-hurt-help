@@ -23,9 +23,9 @@ review_rounds | findings_raised | findings_accepted | artifact_revised
 |---|---|---|---|---|---|---|---|---|---|
 | init | state.json | 2026-07-07T06:24Z | 2026-07-07T06:25Z | 6799bb01 | 6799bb01 | n/a | n/a | n/a | n/a |
 | discover | state.json | 2026-07-07T06:25Z | 2026-07-07T06:26Z | 6799bb01 | 6799bb01 | n/a | n/a | n/a | n/a — engine routed to FULL FEATURE FACTORY |
-| spec | spec.md | 2026-07-07T06:26Z | (round 1 done) | 6a69b7b6 | (pending r2) | 1 (so far) | 13 (2 HIGH, 6 MED, 5 LOW) | 13 | YES — heavy revision |
-| design (reuse+docs) | reuse-report.md + docs | | | | | | | | |
-| plan | plan.md | | | | | | | | |
+| spec | spec.md | 2026-07-07T06:26Z | 2026-07-07T06:55Z | 6a69b7b6 | (final) | 2 | 18 (r1: 2 HIGH/6 MED/5 LOW; r2: 1 MED/4 LOW) | 18 | YES — heavy r1 revision (new UI/template touchpoints; D1 resolved to a separate betrayal_bonus field); r2 fixed the turn_block.html feed-chip gap |
+| design (reuse+docs) | reuse-report.md + arch/design docs | 2026-07-07T06:50Z | | 99fdf29c | | n/a (reviewed at plan checkpoint) | n/a | n/a | reuse-report.md authored — all reuse/extend, 0 justified-new |
+| plan | plan.md | 2026-07-07T06:56Z | | (pending) | | | | | |
 | tasks | tasks.md | | | | | | | | |
 | implement (slices) | code+tests+docs | | | | | | | | |
 
