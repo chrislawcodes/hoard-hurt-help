@@ -52,10 +52,10 @@
   "dirty_overrides": {},
   "checkpoint_fallback": {},
   "parallel_analysis": {
-    "reviewed": false,
+    "reviewed": true,
     "found": false,
-    "note": "",
-    "updated_at": 0
+    "note": "No safe parallelism: all three slices touch the same PD subsystem and the same source-of-truth constant (BETRAYAL_BONUS). Slice 1 (Python) is the foundation Slice 2 (templates) consumes; Slice 3 (docs) describes 1+2. Strictly sequential.",
+    "updated_at": 1783407036
   },
   "init_head_sha": "6799bb0123823cc75bde3ce9fd06255ea931dcb9",
   "experiment": {
@@ -315,6 +315,18 @@
       "files_written": 0,
       "subprocess_invocations": 26,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "tasks",
+      "ts": "2026-07-07T06:50:37Z",
+      "wall_seconds": 0.764,
+      "input_bytes_read": 193204,
+      "output_bytes_written": 51443,
+      "files_read": 21,
+      "files_written": 5,
+      "subprocess_invocations": 36,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -334,6 +346,14 @@
         "8235772ecfb7e364da150bfa2d396f0d77638da60c293e9e382330e89fb71dd4"
       ],
       "initial_sha": "8235772ecfb7e364da150bfa2d396f0d77638da60c293e9e382330e89fb71dd4"
+    },
+    "tasks": {
+      "adversarial_rounds": 1,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "f1c1be1dc0f4d0a874f6103371e187f171d6800cd437f81304d85dbb7c19a2e8"
+      ],
+      "initial_sha": "f1c1be1dc0f4d0a874f6103371e187f171d6800cd437f81304d85dbb7c19a2e8"
     }
   },
   "invariant_warnings": [],
@@ -345,9 +365,10 @@
   },
   "spec_adversarial_rounds": 2,
   "last_action_result": {
-    "next": "author_tasks",
-    "reason": "plan checkpoint completed",
+    "next": "dispatch_next_slice_to_codex",
+    "reason": "tasks checkpoint completed",
     "blockers": []
   },
-  "plan_adversarial_rounds": 1
+  "plan_adversarial_rounds": 1,
+  "tasks_adversarial_rounds": 1
 }

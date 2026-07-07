@@ -26,8 +26,8 @@ review_rounds | findings_raised | findings_accepted | artifact_revised
 | spec | spec.md | 2026-07-07T06:26Z | 2026-07-07T06:55Z | 6a69b7b6 | (final) | 2 | 18 (r1: 2 HIGH/6 MED/5 LOW; r2: 1 MED/4 LOW) | 18 | YES — heavy r1 revision (new UI/template touchpoints; D1 resolved to a separate betrayal_bonus field); r2 fixed the turn_block.html feed-chip gap |
 | design (reuse+docs) | reuse-report.md + arch/design docs | 2026-07-07T06:50Z | 2026-07-07T06:56Z | 99fdf29c | d9014e52 | n/a (reviewed at plan checkpoint) | n/a | n/a | reuse-report.md authored — all reuse/extend, 0 justified-new; ARCHITECTURE.md rules.py row refreshed to BETRAYAL_BONUS |
 | plan | plan.md | 2026-07-07T06:56Z | 2026-07-07T07:20Z | d9014e52 | (final) | 1 | 10 (1 HIGH, 4 MED, 5 LOW) | 10 | YES — biggest catch of the run: HIGH slice-boundary bug (Slice 1 not preflight-green — viewer.py + test import the renamed constant); MED two-JS-loop gap (computeScores snapshot loop missed); restructured slices + added rc-JSON threading test + explicit mirror-parity dict |
-| tasks | tasks.md | 2026-07-07T07:20Z | | (pending) | | | | | |
-| implement (slices) | code+tests+docs | | | | | | | | |
+| tasks | tasks.md | 2026-07-07T07:20Z | 2026-07-07T07:24Z | 0c1664d8 | (this commit) | 0 (no default reviews for tasks) | n/a | n/a | 3 [CHECKPOINT]-bounded slices; no parallelism |
+| implement (slices) | code+tests+docs | 2026-07-07T07:24Z | | (this commit) | | | | | |
 
 ---
 
