@@ -27,7 +27,10 @@ review_rounds | findings_raised | findings_accepted | artifact_revised
 | design (reuse+docs) | reuse-report.md + arch/design docs | 2026-07-07T06:50Z | 2026-07-07T06:56Z | 99fdf29c | d9014e52 | n/a (reviewed at plan checkpoint) | n/a | n/a | reuse-report.md authored — all reuse/extend, 0 justified-new; ARCHITECTURE.md rules.py row refreshed to BETRAYAL_BONUS |
 | plan | plan.md | 2026-07-07T06:56Z | 2026-07-07T07:20Z | d9014e52 | (final) | 1 | 10 (1 HIGH, 4 MED, 5 LOW) | 10 | YES — biggest catch of the run: HIGH slice-boundary bug (Slice 1 not preflight-green — viewer.py + test import the renamed constant); MED two-JS-loop gap (computeScores snapshot loop missed); restructured slices + added rc-JSON threading test + explicit mirror-parity dict |
 | tasks | tasks.md | 2026-07-07T07:20Z | 2026-07-07T07:24Z | 0c1664d8 | (this commit) | 0 (no default reviews for tasks) | n/a | n/a | 3 [CHECKPOINT]-bounded slices; no parallelism |
-| implement (slices) | code+tests+docs | 2026-07-07T07:24Z | | (this commit) | | | | | |
+| implement Slice 1 (Python core) | rules/scoring/viewer + tests | 2026-07-07T07:24Z | 2026-07-07T07:40Z | 225b575d | 901eee7c | n/a (diff review deferred to end) | n/a | n/a | atomic green (plan-HIGH fix): ruff/mypy/1438 tests |
+| implement Slice 2 (templates/JS) | chip + legends + both JS loops + HTML test | 2026-07-07T07:40Z | 2026-07-07T07:52Z | 901eee7c | 2a1c416b | n/a | n/a | n/a | ruff/mypy/1439 tests; +4 chip proven in rendered HTML |
+| implement Slice 3 (docs) | DESIGN + impact-review + arch | 2026-07-07T07:52Z | 2026-07-07T08:00Z | 2a1c416b | 8c975101 | n/a | n/a | n/a | grep-clean; Team-Attack -8 kept |
+| diff review (final) | full-branch diff | 2026-07-07T08:00Z | (pending) | 8c975101 | | 1 (in flight) | | | |
 
 ---
 
@@ -44,7 +47,22 @@ One bullet per engine breakage / workaround / babysitting event. First-class met
 
 ## 3. Did review findings change artifacts?
 
-Tracked per stage in the table via `artifact_revised`. Running count of
-artifact-changing findings will be summarized here at the end.
+**Every review round that ran changed its artifact — `sha_before != sha_after`
+at all three reviewed stages.** This is the core measurement: the adversarial
+reviews were not overhead; each one materially reshaped the artifact.
 
-- (pending)
+| Stage | Rounds | Findings | Artifact changed by findings? | The load-bearing catches |
+|---|---|---|---|---|
+| spec | 2 | 18 (2 HIGH, 7 MED, 9 LOW) | **YES** | HIGH: two UI legends + the robot-circle animation hardcoded the now-false "-8 if betraying" and never showed the attacker's +4 — both missing from the first spec's scope. MED: resolved the `move_effect` (a)/(b) question to a dedicated `betrayal_bonus` key (avoids the `match_summary` gift-mislabel). Round-2 MED: the feed template `turn_block.html` was out of scope but AC5 needed it. |
+| plan | 1 | 10 (1 HIGH, 4 MED, 5 LOW) | **YES** | **The single biggest catch of the run.** HIGH: the first slice boundary was NOT preflight-green — Slice 1 renamed the constant but deferred `viewer.py`'s import of it, and a test imports `viewer` at module top, so Slice 1's own `pytest` collection + `mypy` would have failed at the checkpoint. MED (both reviewers, independently): `_replay_script.html` has TWO score loops (`computeScores` + `playAction`); the first plan named only one, so the standings rail would have under-counted a betrayer by +4. |
+| diff | 1 | (see below) | (recorded at close) | Final independent regression review of the shipped diff. |
+
+**Net:** 28+ findings across spec+plan, ~all accepted, and they changed real
+scope (3 new UI touchpoints the brief/first-draft missed), the core design
+decision (separate field vs `display_delta`), the slice structure (atomic
+green), and the test coverage (explicit mirror-parity dict + rc-JSON threading
+test + floored mirror case). A no-op review would have left a shippable-but-wrong
+feature: a green Slice-1 checkpoint that actually breaks on import, a standings
+rail that under-counts betrayers, and stale "-8 if betraying" text on the home
+page. The factory earned its keep here specifically because of the **silent-risk**
+class (the routing question that put this on the full-factory path).

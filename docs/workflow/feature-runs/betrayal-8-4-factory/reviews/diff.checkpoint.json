@@ -1,0 +1,20 @@
+{
+  "feature_slug": "betrayal-8-4-factory",
+  "stage": "diff",
+  "artifact_path": "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/implementation.diff.patch",
+  "git_base_ref": "225b575df6bc43bb0f49e079f4d8333b073cf6fd",
+  "allowed_dirty_paths": [],
+  "required_reviews": [
+    {
+      "reviewer": "claude",
+      "lens": "regression-adversarial",
+      "stage": "diff",
+      "path": "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/diff.claude.regression-adversarial.review.md",
+      "context_paths": [],
+      "model": "claude-opus-4-8"
+    }
+  ],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}
