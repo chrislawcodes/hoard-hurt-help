@@ -1,0 +1,81 @@
+---
+reviewer: "claude"
+lens: "implementation-adversarial"
+stage: "plan"
+artifact_path: "docs/workflow/feature-runs/betrayal-8-4-factory/plan.md"
+artifact_sha256: "8235772ecfb7e364da150bfa2d396f0d77638da60c293e9e382330e89fb71dd4"
+repo_root: "."
+git_head_sha: "d9014e52f47c87530b05f830e5c1dcdfde91339f"
+git_base_ref: "origin/main"
+git_base_sha: "6799bb0123823cc75bde3ce9fd06255ea931dcb9"
+generation_method: "claude-subagent"
+resolution_status: "accepted"
+resolution_note: "HIGH (Slice 1 not preflight-green: viewer.py imports BETRAYAL_HURT_POINTS + test_inround_mirror.py imports viewer at module top -> Slice-1 pytest collection + mypy fail after rename) -> FIXED: restructured slices so the constant rename + ALL Python importers (rules+scoring+viewer+all Python tests) are ONE atomic green slice; alias shim rejected (AC6). MED (computeScores second JS loop under-counts betrayer +4) -> D2 now enumerates BOTH JS loops (playAction + computeScores); R-A human checklist. LOW (enumerate the -8 test flips; test_game_registry needs no edit) -> D5 + Slice 1 now name each flip and mark registry a no-op. R-B/R-C/R-D captured (superlatives sign-off; chip placement; impact-review doc body grep-clean)."
+raw_output_path: "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/plan.claude.implementation-adversarial.review.md.raw.txt"
+narrowed_artifact_path: ""
+narrowed_artifact_sha256: ""
+coverage_status: "full"
+coverage_note: ""
+---
+
+# Review: plan implementation-adversarial
+
+## Findings
+
+### HIGH — Slice 1 cannot end preflight-green: it renames `BETRAYAL_HURT_POINTS` but leaves `viewer.py`'s import of it in Slice 2 [CODE-CONFIRMED]
+
+The plan's most load-bearing claim — "This slice is self-contained and preflight-green on its own" (§2, Slice 1) and "Each slice ends preflight-green so a diff checkpoint is meaningful" (§3) — is false as sequenced.
+
+Slice 1 renames the constant in `rules.py` (`BETRAYAL_HURT_POINTS` → `BETRAYAL_BONUS`) and fixes `scoring.py`, but explicitly defers `viewer.py` to Slice 2. However:
+
+- `app/games/hoard_hurt_help/viewer.py:23` does `from app.games.hoard_hurt_help.rules import (BETRAYAL_HURT_POINTS, …)` and uses it at line 396. After a Slice-1 rename, that name no longer exists in `rules.py`.
+- `tests/test_inround_mirror.py:20` — a file **in Slice 1's own scope** — does `from app.games.hoard_hurt_help.viewer import _build_rc_data, _turn_groups` at module top. So `pytest` collection of Slice 1's own suite triggers `import …viewer`, which raises `ImportError: cannot import name 'BETRAYAL_HURT_POINTS'`. Slice 1's `.venv/bin/pytest -q` checkpoint (§4) therefore errors at collection.
+- Independently, `mypy app/` (Preflight Gate) will report that `viewer.py` imports a name `rules` no longer defines.
+
+`game.py` imports `viewer` lazily (line 279, inside `build_replay_view`), so `import app.games` / the registry still load — the blast radius is not total — but it does not save Slice 1: the direct top-level import in `test_inround_mirror.py` plus mypy over `viewer.py` both fail at the Slice-1 boundary. Fix: move the `viewer.py` edit (drop the `-BETRAYAL_HURT_POINTS` override + switch its import) into Slice 1, or reorder so the constant rename and every importer of it land in the same checkpoint. Note an alias shim is not an option here — spec AC6 forbids any residual `BETRAYAL_HURT_POINTS` reference.
+
+### MEDIUM — D2.3 omits the second JS computation (`computeScores` sim), so the standings rail under-counts a betrayer by +4 [CODE-CONFIRMED]
+
+The plan (D2 item 3, R5) treats `_replay_script.html` as having one HURT site, but there are two independent score computations in that file:
+
+- `playAction()` (lines 896–924): the animated per-action delta — `showDelta(T,-4)` / `rScore[a.target]-=4`, no attacker line. D2.3's concrete tokens (`rScore[a.agent]+=4`, `showDelta(el,4)`) target exactly this path.
+- `computeScores()` (lines 99–102): a **separate** `sim[]` accumulator that builds `scoreAt`/`finalScore` and the round-win credit (lines 105–113). Its HURT line 102 is `sim[target] = max(0, sim[target]-4)` with **no betrayal awareness and no attacker credit**. In a betrayal the victim's (non-mutual) HELP already credits `sim[attacker] += 4` via line 101, but the **+4 betrayal bonus is added nowhere** in `computeScores`.
+
+The plan references line ~100 of this block only to say the mutual-HELP `+8` stays untouched (R5); it never calls for adding the attacker's `+4` to `computeScores`' HURT branch. Left as-specified, the replay's standings rail and its round-win attribution would be wrong (attacker short by 4) for any match containing a betrayal. This is JS-only (no JS test harness, per R1), so it won't fail preflight — but it is a real, visible correctness gap in the plan's edit list. Also note the field the plan gates on, `betrayed_helper`, is **not** currently emitted by `_build_rc_data` (viewer.py lines 187–198 emit `betrayal` but not `betrayed_helper`); Slice 2 does plan to thread it, so both JS sites can gate on it — but both must, and only one is enumerated.
+
+### LOW — Existing betrayal tests that Slice 1/2 must rewrite are not called out as currently-failing-after-change; risk of a partial edit [CODE-CONFIRMED]
+
+Three existing tests hard-code the old −8 victim semantics and will fail the moment the resolver/mirror/rules change, so they are mandatory edits (the plan lists their files but not the specific assertions to flip):
+
+- `tests/test_resolver.py:229` `test_betraying_a_helper_hurts_for_eight` — asserts victim `b == 2` (10 − 8) and function name says "for_eight"; new scheme is victim −4 (`b == 6`) and attacker +8. Also `test_betrayal_only_for_the_helped_attacker` (line 265, `b == 8` from `20 − 8 − 4`) changes to `20 − 4 − 4 = 12`.
+- `tests/test_inround_mirror.py:50` `test_mirror_betraying_a_helper_is_eight` — asserts `{"A": 4, "B": 2}`; new scheme is `{"A": 8, "B": 6}`. Its module docstring (line 5) also states "lands for BETRAYAL_HURT_POINTS" (a stale name AC6 flags).
+- `tests/test_rules_text.py:8,19,20,23` — imports `BETRAYAL_HURT_POINTS`, asserts `f"-{BETRAYAL_HURT_POINTS}"` in the text, `BETRAYAL_HURT_POINTS != HURT_POINTS`, and `"(v4)"`. All four break under the rename + `(v5)` bump.
+
+These all sit inside Slice 1's declared file set, so scope is correct — the LOW is only that the plan's per-slice text says "update the betrayal expectations" without enumerating these name-and-value flips, leaving room for a partial edit (e.g. renaming the constant import but forgetting the `!=` assertion, or leaving the `_is_eight` test name). D5 does specify the new resolver/mirror assertions, which mitigates this.
+
+### LOW — Slice 2 lists `test_game_registry.py` as an update, but it needs none [CODE-REFUTED as an edit, noted for accuracy]
+
+`tests/test_game_registry.py::test_pd_rules_and_move_effect` (lines 24–29) asserts `module.move_effect("HURT") == (0, -4)` and only checks that `rules_text()` contains "Hoard-Hurt-Help" — it does not reference betrayal, the `-8`, or the version string. Since the plan keeps `move_effect` nominal (−4) and `game.py` untouched (D3), this file passes unchanged. Listing it in Slice 2 is harmless (a no-op inclusion, not a missed edit), but the plan's implication that it carries a betrayal-related change is inaccurate. `test_viewer.py::test_viewer_shows_per_move_effect_on_target` (line 300–301, asserts `"-4" in text`, `"+0" not in text`) uses a **non-betrayal** HURT, so it also stays green — D3's claim that it is preserved is confirmed.
+
+## Residual Risks
+
+- **R-A (the plan's own R1, sharpened): the two JS sims can silently diverge from the resolver.** The plan's R1 verification ("mirror unit test asserts the identical +8/−4; grep confirms three sites use the constants") covers the Python mirror and the resolver, but the JS has **two** sites and no test harness. The Finding-2 `computeScores` gap would pass every listed R1 check (it's JS, greppable only as a literal `4`, and untested) yet still ship wrong standings. Verification the plan should add: a manual trace of a betrayal turn through **both** `computeScores` and `playAction`, confirming attacker ends +8 in the rail and the round-win credit.
+
+- **R-B: attacker's +4 is invisible to the finale superlatives by design — confirm this is intended.** `match_summary._superlatives` (lines 84–86) scans `display_delta > 0`; since the attacker's +4 rides `betrayal_bonus` (D3), a betrayal's +8 net swing can never surface as the "biggest turn/gift." The reuse-report calls this a feature (avoids mislabeling a betrayal as a gift) and the code confirms `_superlatives` is untouched and unaffected — but it means the single most aggressive positive swing in the game is structurally excluded from the finale highlights. Worth an explicit sign-off, not a code change.
+
+- **R-C: the static feed chip for `betrayal_bonus` has no rendering spec beyond "a `+4` chip."** `turn_block.html` (lines 28–29) renders exactly one `display_delta` chip per row; the plan says `betrayal_bonus` is "rendered by `turn_block.html` as a `+4` chip" but does not specify placement (alongside the −4? on the attacker's own row, which is a HURT row whose `display_delta` is now −4?). The attacker and victim are different rows; the attacker's row is the HURT with `display_delta = -4`, so a naive implementation could show the attacker as "−4" and bury the +4, defeating the whole re-split's visibility goal (this is precisely the spec-review's second LOW). R4's HTML assertion guards presence but not correct placement.
+
+- **R-D: `docs/games/hoard-hurt-help/betray-helper-impact-review.md` still contains `BETRAYAL_HURT_POINTS = 8` (lines 39, 43).** Slice 3 plans to "mark superseded/implemented," which satisfies AC6's "shipping code + rules text" scope, but if AC6 is read to include this doc's literal token, a "mark superseded" banner that leaves the `= 8` body text intact would still trip a strict `grep BETRAYAL_HURT_POINTS docs/games/`. The `HOARD_HURT_HELP_ARCHITECTURE.md` touchpoint is already pre-refreshed to `BETRAYAL_BONUS` (confirmed), so Slice 3's "verify" there is genuinely a no-op.
+
+```json
+{"reviewed": true, "findings": [{"severity": "HIGH", "title": "Slice 1 is not preflight-green: renames BETRAYAL_HURT_POINTS but leaves viewer.py's import of it in Slice 2", "detail": "viewer.py:23 imports BETRAYAL_HURT_POINTS and test_inround_mirror.py:20 (in Slice 1's scope) imports viewer at module top, so Slice 1's own pytest collection and mypy over viewer.py both fail after the rename."}, {"severity": "MEDIUM", "title": "D2.3 omits the computeScores JS sim, so the replay standings rail under-counts a betrayer by +4", "detail": "_replay_script.html has two score computations; the plan's attacker-+4 edit (rScore/showDelta) covers only playAction (line 915), leaving computeScores' HURT branch (line 102) with no betrayal bonus, so the rail and round-win credit disagree with the resolver on any betrayal."}, {"severity": "LOW", "title": "Existing -8 betrayal tests are mandatory rewrites but their specific assertions are not enumerated", "detail": "test_resolver.py:229/265, test_inround_mirror.py:50 (and its docstring), and test_rules_text.py:19-24 all hard-code the old -8 victim / (v4) and break on change; they are in-scope but the plan text risks a partial edit."}, {"severity": "LOW", "title": "Slice 2 lists test_game_registry.py as an update, but it needs no change", "detail": "test_pd_rules_and_move_effect asserts move_effect('HURT')==(0,-4) with no betrayal/version reference, so with move_effect kept nominal and game.py untouched it passes unchanged; the listing is a harmless no-op, not a missed edit."}]}
+```
+
+## Runner Stats
+- total_input=0
+- total_output=0
+- total_tokens=0
+
+## Resolution
+- status: accepted
+- note: HIGH (Slice 1 not preflight-green: viewer.py imports BETRAYAL_HURT_POINTS + test_inround_mirror.py imports viewer at module top -> Slice-1 pytest collection + mypy fail after rename) -> FIXED: restructured slices so the constant rename + ALL Python importers (rules+scoring+viewer+all Python tests) are ONE atomic green slice; alias shim rejected (AC6). MED (computeScores second JS loop under-counts betrayer +4) -> D2 now enumerates BOTH JS loops (playAction + computeScores); R-A human checklist. LOW (enumerate the -8 test flips; test_game_registry needs no edit) -> D5 + Slice 1 now name each flip and mark registry a no-op. R-B/R-C/R-D captured (superlatives sign-off; chip placement; impact-review doc body grep-clean).
