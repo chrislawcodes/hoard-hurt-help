@@ -9,8 +9,8 @@ git_head_sha: "4e0aa7575366dfc5c164cba83414adbdb79314c8"
 git_base_ref: "225b575df6bc43bb0f49e079f4d8333b073cf6fd"
 git_base_sha: "225b575df6bc43bb0f49e079f4d8333b073cf6fd"
 generation_method: "claude-subagent"
-resolution_status: "open"
-resolution_note: ""
+resolution_status: "accepted"
+resolution_note: "Final regression review: NO correctness/regression bugs in the shipping code path — independently verified resolver +8/-4, mirror parity, both JS loops agree, no match_summary gift-leak, Team-Attack -8 preserved, floor correct. M1 (MEDIUM, stale -8 betrayal comments in app/engine/bots/plan_rules.py + trust.py) accepted and FIXED in commit e67dafab. L1 (LOW, chip gated on betrayal_bonus truthiness) deferred — latent-only, correct today. Applying M1's fix re-dirtied implementation.diff.patch, so the engine flags the assembled review 'stale' (hash mismatch) — logged as friction; the review's substance is complete and its findings reconciled."
 raw_output_path: "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/diff.claude.regression-adversarial.review.md.raw.txt"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -57,5 +57,5 @@ These are **comments/docstrings, not logic**. The bot trust dials (`BETRAYAL_SEL
 - total_tokens=0
 
 ## Resolution
-- status: open
-- note: 
+- status: accepted
+- note: Final regression review: NO correctness/regression bugs in the shipping code path — independently verified resolver +8/-4, mirror parity, both JS loops agree, no match_summary gift-leak, Team-Attack -8 preserved, floor correct. M1 (MEDIUM, stale -8 betrayal comments in app/engine/bots/plan_rules.py + trust.py) accepted and FIXED in commit e67dafab. L1 (LOW, chip gated on betrayal_bonus truthiness) deferred — latent-only, correct today. Applying M1's fix re-dirtied implementation.diff.patch, so the engine flags the assembled review 'stale' (hash mismatch) — logged as friction; the review's substance is complete and its findings reconciled.

@@ -1,3 +1,54 @@
+diff --git a/app/engine/bots/plan_rules.py b/app/engine/bots/plan_rules.py
+index c3e31eb1..ac183cf5 100644
+--- a/app/engine/bots/plan_rules.py
++++ b/app/engine/bots/plan_rules.py
+@@ -175,9 +175,10 @@ def _coalition_seeker(i: PlanInputs) -> list[BotPlan | None]:
+ def _pragmatist(i: PlanInputs) -> list[BotPlan | None]:
+     # Plays Coalition Seeker all round, then betrays at the buzzer: on the
+     # final turn it HURTs the partner it expects to still HELP it. Because the
+-    # target is helping, the HURT lands for the full betrayal damage (-8) while
+-    # it still pockets their +4 — a swing big enough to steal the round-win. It
+-    # keeps talking cooperatively that turn (a false-mode bluff) so the partner
++    # target is helping, the attacker earns the +4 betrayal bonus on top of the
++    # +4 help it still pockets (netting +8), while the partner takes only the
++    # normal -4 — a swing big enough to steal the round-win. It keeps talking
++    # cooperatively that turn (a false-mode bluff) so the partner
+     # doesn't see it coming. Falls back to hoarding if it has no likely helper.
+     if i.context.turn >= BUZZER_TURN:
+         betray_target = i.strong_partner or i.partner or i.helper
+diff --git a/app/engine/bots/trust.py b/app/engine/bots/trust.py
+index 6ba05f08..5984956a 100644
+--- a/app/engine/bots/trust.py
++++ b/app/engine/bots/trust.py
+@@ -29,11 +29,13 @@ class _TrustModel:
+     forgive_rounds: int
+ 
+ 
+-# A betrayal (HURTing a helper) is just a much worse hurt, so its sting is a
+-# multiple of how much this personality already hates being hit (`hurt_last`):
+-# the full multiple when it is done to you, a smaller one when you only witness
+-# it against someone else. So a model that reacts hard to hits (bitter, twitchy)
+-# also reacts hard to betrayal, with no separate numbers to keep in sync.
++# A betrayal (HURTing a helper) hits for the same -4 as any HURT, but it breaks
++# trust — so emotionally it stings far more. That sting is a multiple of how much
++# this personality already hates being hit (`hurt_last`): the full multiple when
++# it is done to you, a smaller one when you only witness it against someone else.
++# So a model that reacts hard to hits (bitter, twitchy) also reacts hard to
++# betrayal, with no separate numbers to keep in sync. (These dials scale the
++# reaction, not the payoff — the attacker's actual gain is the +4 betrayal bonus.)
+ BETRAYAL_SELF_FACTOR = 6
+ BETRAYAL_OTHER_FACTOR = 3
+ 
+@@ -232,7 +234,8 @@ def _mutual_help_partners(history: Sequence[ActionRecord], your_agent_id: str) -
+ 
+ def _betrayals(history: Sequence[ActionRecord]) -> list[tuple[str, str, int]]:
+     """Every (attacker, victim, round) where the attacker HURT a player who was
+-    HELPing them that same turn — i.e. the attacker triggered the -8 betrayal.
++    HELPing them that same turn — i.e. the attacker triggered the betrayal bonus
++    (attacker +4 on top of the help; the victim takes the normal -4).
+     The round lets callers fade the memory over time.
+     """
+     by_turn: dict[tuple[int, int], list[ActionRecord]] = defaultdict(list)
 diff --git a/app/games/hoard_hurt_help/rules.py b/app/games/hoard_hurt_help/rules.py
 index a081ce6a..d049e628 100644
 --- a/app/games/hoard_hurt_help/rules.py

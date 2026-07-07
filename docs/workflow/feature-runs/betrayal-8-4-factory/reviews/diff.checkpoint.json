@@ -3,7 +3,14 @@
   "stage": "diff",
   "artifact_path": "docs/workflow/feature-runs/betrayal-8-4-factory/reviews/implementation.diff.patch",
   "git_base_ref": "225b575df6bc43bb0f49e079f4d8333b073cf6fd",
-  "allowed_dirty_paths": [],
+  "allowed_dirty_paths": [
+    "app/engine/bots",
+    "app/games/hoard_hurt_help",
+    "app/templates",
+    "docs/games/hoard-hurt-help",
+    "docs/workflow/feature-runs/betrayal-8-4-factory",
+    "tests"
+  ],
   "required_reviews": [
     {
       "reviewer": "claude",

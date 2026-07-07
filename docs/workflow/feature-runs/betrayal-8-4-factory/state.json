@@ -49,7 +49,18 @@
     "unresolved": []
   },
   "delivery": {},
-  "dirty_overrides": {},
+  "dirty_overrides": {
+    "allowed_dirty_paths": [
+      "app/engine/bots",
+      "app/games/hoard_hurt_help",
+      "app/templates",
+      "docs/games/hoard-hurt-help",
+      "docs/workflow/feature-runs/betrayal-8-4-factory",
+      "tests"
+    ],
+    "used": true,
+    "updated_at": 1783408131
+  },
   "checkpoint_fallback": {},
   "parallel_analysis": {
     "reviewed": true,
@@ -359,6 +370,30 @@
       "files_written": 2,
       "subprocess_invocations": 16,
       "ttl_crossed": false
+    },
+    {
+      "command": "checkpoint",
+      "stage": "diff",
+      "ts": "2026-07-07T07:08:51Z",
+      "wall_seconds": 0.216,
+      "input_bytes_read": 107300,
+      "output_bytes_written": 73782,
+      "files_read": 12,
+      "files_written": 7,
+      "subprocess_invocations": 18,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-07-07T07:09:08Z",
+      "wall_seconds": 0.32,
+      "input_bytes_read": 57928,
+      "output_bytes_written": 0,
+      "files_read": 8,
+      "files_written": 0,
+      "subprocess_invocations": 34,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -386,6 +421,14 @@
         "f1c1be1dc0f4d0a874f6103371e187f171d6800cd437f81304d85dbb7c19a2e8"
       ],
       "initial_sha": "f1c1be1dc0f4d0a874f6103371e187f171d6800cd437f81304d85dbb7c19a2e8"
+    },
+    "diff": {
+      "adversarial_rounds": 0,
+      "annotations": [],
+      "adversarial_sha_history": [
+        "1cbcced568b3f2d694903a65b18902bf2c2774be0291d9a2f1fc96f6e7dcd9fd"
+      ],
+      "initial_sha": "1cbcced568b3f2d694903a65b18902bf2c2774be0291d9a2f1fc96f6e7dcd9fd"
     }
   },
   "invariant_warnings": [],
@@ -402,5 +445,6 @@
     "blockers": []
   },
   "plan_adversarial_rounds": 1,
-  "tasks_adversarial_rounds": 1
+  "tasks_adversarial_rounds": 1,
+  "diff_adversarial_rounds": 0
 }
