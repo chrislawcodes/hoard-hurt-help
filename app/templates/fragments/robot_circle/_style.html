@@ -213,6 +213,11 @@
 .rc-tag.betrayal{background:#fbe3df;color:#c0392b;border:1px solid #f0b8af}
 .rc-tag.mutual{background:#e0f3e8;color:#1a8f4c;border:1px solid #b6e0c6}
 .rc-tag.missed{background:#eef1f5;color:var(--ink-soft,#5b6470);border:1px solid var(--line,#e2e6ea)}
+/* Lift the action tag clear of the podium crown: on a top-3 (crowned) robot the
+   tag and the crown both sit above the head and would overlap, so while the tag
+   is showing it rises to sit just above the crown. Non-crowned robots keep the
+   default position. */
+.rc-mover:has(.rc-crown.is-medal) .rc-tag{top:-43px}
 
 /* ---- Podium medals (top-3 rank crowns) ----
    A gold / silver / bronze crown with a 1·2·3 number chip, riding above the
