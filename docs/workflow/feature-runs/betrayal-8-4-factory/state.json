@@ -1,0 +1,73 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": true,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [],
+    "summary": "Design fully settled by the feature brief: exact constants (BETRAYAL_HURT_POINTS=8 -> BETRAYAL_BONUS=4), the resolver + mirror branches, the viewer chip, the version bump v4->v5, and every doc/test touchpoint are specified. No clarifying questions needed. Carrying two reality-check assumptions into the spec: (1) viewer_win_probs.py no longer exists (deleted with the win-prob overlay) so the only running-score mirror is apply_inround_turn in scoring.py; (2) boardgame-design-patterns.md does not exist in this checkout, so that doc touchpoint has no file to edit.",
+    "updated_at": 1783405546,
+    "answers": {},
+    "non_goals": [
+      "Do NOT change the 12-point relative swing magnitude.",
+      "Do NOT change the Team Attack case (two players HURT one victim = -8 total from two independent -4s; that -8 is not a betrayal and must stay).",
+      "Do NOT retrain the win-probability models or add an exploiter bot.",
+      "Do NOT widen move_effect's contract across other games (liars_dice) unless strictly needed."
+    ],
+    "acceptance_criteria": [
+      "Betraying a helper: attacker turn delta = +8 (=+4 help +4 bonus), victim = -4, proven by a resolver test.",
+      "Non-betrayal HURT unchanged: victim -4, attacker +0.",
+      "Score floor still applied to the FINAL per-player delta, not per-hurt.",
+      "Agent-facing GAME_RULES_TEXT states attacker +4 / victim -4, header bumped v4 -> v5.",
+      "Viewer shows the betrayal honestly (victim -4, attacker +4); no stale -8 anywhere in the UI.",
+      "No stale BETRAYAL_HURT_POINTS references remain anywhere.",
+      "Preflight green: .venv/bin/ruff check . && .venv/bin/mypy app/ mcp_server/ && .venv/bin/pytest -q."
+    ],
+    "checklist": {
+      "goal": "Re-split the betray-a-helper payoff so the attacker gains +4 (BETRAYAL_BONUS) on top of the +4 HELP they receive, while the victim now takes the NORMAL -4 (HURT_POINTS) instead of -8. Net that turn becomes attacker +8 / victim -4; the 12-point relative swing is unchanged, just re-attributed so the attacker rises instead of the victim cratering.",
+      "audience": "LLM agents competing in Hoard-Hurt-Help (the agent-facing GAME_RULES_TEXT ships to every agent verbatim) and human spectators watching the replay viewer.",
+      "constraints": "Silent-risk: a scoring change passes all tests but can be wrong in prod, and the viewer's running-score mirror (apply_inround_turn) can silently diverge from the authoritative resolver. Score floor must apply to the FINAL per-player delta, not per-hurt. move_effect(action) only receives the action string with no turn context, so the per-move chip cannot by itself tell a HURT is a betrayal. NOTE: prompt referenced viewer_win_probs.py but that file was deleted in the win-prob-overlay removal; the only running-score mirror is apply_inround_turn in scoring.py. NOTE: .claude/skills/game-design/references/boardgame-design-patterns.md does not exist in this checkout.",
+      "silent_risk": "yes",
+      "silent_risk_note": "scoring change can pass tests but be wrong in prod; viewer running-score mirror can silently diverge from resolver",
+      "design_settled": "yes",
+      "design_settled_note": "exact numbers and touchpoints are fully specified"
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "6799bb0123823cc75bde3ce9fd06255ea931dcb9",
+  "experiment": {
+    "name": "thin-vs-factory"
+  },
+  "token_usage": [],
+  "command_telemetry": [],
+  "stages": {},
+  "invariant_warnings": [],
+  "schema_version": 1,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  }
+}
