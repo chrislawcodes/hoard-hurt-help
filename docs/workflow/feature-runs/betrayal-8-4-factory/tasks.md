@@ -38,21 +38,19 @@ Preflight (worktree root): `.venv/bin/ruff check . && .venv/bin/mypy app/ mcp_se
 
 ## Slice 2 — Templates + animation (JS/HTML, no Python) — est. ~40 lines
 
-- [ ] T2.1 `turn_block.html`: render a distinct positive `+{{ a.betrayal_bonus }}`
-  element on the attacker's HURT row (gated on `a.betrayal_bonus`, NOT the
-  cross-turn `a.betrayal`), visually separate from the −4-on-target chip (D4/R-C).
-- [ ] T2.2 `move_legend.html` + `robot_circle/_markup.html`: rewrite the Hurt
-  clause `-4 to another, -8 if betraying` → 8/4 wording (victim −4; +4 to the
-  attacker when betraying a helper). Leave the Help clause untouched.
-- [ ] T2.3 `_replay_script.html`: add the attacker `+4` on a `betrayed_helper` HURT
-  in BOTH loops — `playAction` (`rScore[a.agent]+=4; showDelta(el,4)`) and
-  `computeScores` (`sim[a.agent]+=4`). Leave the mutual-HELP `+8` line untouched.
-- [ ] T2.4 Human diff-review checklist (R-A): confirm BOTH JS loops credit +4 and a
-  betrayal turn's rail total + round-win end at attacker +8.
-- [ ] T2.5 `test_viewer.py`: add a betrayal case asserting the **rendered feed HTML**
-  shows the attacker's `+4` (R4 guard — present-in-payload-but-invisible). This test
-  lands with the `turn_block.html` edit so it can assert the real rendered chip. Run
-  preflight (green). **[CHECKPOINT]**
+- [x] T2.1 `turn_block.html`: added a distinct positive `+4 betrayal` chip on the
+  attacker's HURT row, gated on `a.betrayal_bonus` (NOT the cross-turn `a.betrayal`),
+  visually separate from the −4-on-target chip (D4/R-C).
+- [x] T2.2 `move_legend.html` + `robot_circle/_markup.html`: Hurt clause →
+  `-4 to another; +4 to you if betraying a helper`. Help clause left untouched.
+- [x] T2.3 `_replay_script.html`: added the attacker `+4` on a `betrayed_helper`
+  HURT in BOTH loops — `computeScores` (line 106, `sim[a.agent]+=4`) and `playAction`
+  (line 924, `showDelta(el,4); rScore[a.agent]+=4`). Mutual-HELP `+8` line untouched.
+- [x] T2.4 R-A checklist: verified both JS loops credit the attacker +4 (lines 106
+  + 924), both leave the victim at −4, and the mutual-HELP `+8` line is unchanged.
+- [x] T2.5 `test_viewer.py`: added `test_viewer_shows_attacker_bonus_on_betrayal`
+  asserting the rendered feed HTML shows `+4 betrayal` and the victim chip is `>-4<`,
+  never `>-8<`. Full preflight GREEN: ruff clean, mypy clean, 1439 passed. **[CHECKPOINT]**
 
 ## Slice 3 — Docs — est. ~60 lines
 
