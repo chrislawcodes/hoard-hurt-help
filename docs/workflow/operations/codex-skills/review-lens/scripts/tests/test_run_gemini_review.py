@@ -185,5 +185,57 @@ class PromptForFailLoudTests(unittest.TestCase):
             self.assertNotIn(self._NEEDLE, prompt)
 
 
+class PromptForFindingsFirstTests(unittest.TestCase):
+    """betrayal-8-4 Change 1: reviewers must reach the required findings format
+    before writing extended analysis, so a response cut off mid-turn still
+    contains parseable findings instead of dying mid-prose.
+    """
+
+    _NEEDLE = "Emit the required structured output first"
+
+    def test_instruction_present_for_code_stage(self) -> None:
+        prompt = prompt_for("diff", "correctness-adversarial", "diff", "some code", [])
+        self.assertIn(self._NEEDLE, prompt)
+
+    def test_instruction_present_for_artifact_stage(self) -> None:
+        prompt = prompt_for("spec", "requirements-adversarial", "spec.md", "text", [])
+        self.assertIn(self._NEEDLE, prompt)
+
+    def test_instruction_precedes_the_format_contract(self) -> None:
+        # Must land before "Return markdown using exactly these sections" —
+        # it has to shape how the reviewer approaches the whole response, not
+        # read as an afterthought once the sections are already spelled out.
+        prompt = prompt_for("plan", "feasibility-adversarial", "plan.md", "text", [])
+        self.assertLess(
+            prompt.index(self._NEEDLE),
+            prompt.index("Return markdown using exactly these sections:"),
+        )
+
+
+class PromptForCompletenessLensTests(unittest.TestCase):
+    """betrayal-8-4 Change 2: completeness-adversarial is a named lens with its
+    own tracing instruction; lenses without an entry stay pure interpolation.
+    """
+
+    _NEEDLE = "Trace every consumer and render path"
+
+    def test_completeness_adversarial_gets_the_tracing_instruction(self) -> None:
+        prompt = prompt_for("diff", "completeness-adversarial", "diff", "some code", [])
+        self.assertIn(self._NEEDLE, prompt)
+        self.assertIn("a value changed in one place and stale in another", prompt)
+
+    def test_unrelated_lens_does_not_get_the_completeness_instruction(self) -> None:
+        prompt = prompt_for("diff", "correctness-adversarial", "diff", "some code", [])
+        self.assertNotIn(self._NEEDLE, prompt)
+
+    def test_unmapped_lens_name_still_interpolates_cleanly(self) -> None:
+        # Lenses with no LENS_INSTRUCTIONS entry are still pure free-form
+        # interpolation into "using a {lens} lens" — the fallback every other
+        # lens name relies on.
+        prompt = prompt_for("spec", "some-freeform-lens", "spec.md", "text", [])
+        self.assertIn("using a some-freeform-lens lens", prompt)
+        self.assertNotIn(self._NEEDLE, prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

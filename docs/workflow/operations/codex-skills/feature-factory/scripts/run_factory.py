@@ -393,6 +393,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Discovery checklist (routing): is the design already settled up front? "
              "'yes' or 'no' plus a short note. Required for real runs; drives the path "
              "recommendation at --complete.")
+    discover_parser.add_argument("--completeness-risk", dest="completeness_risk", nargs=2,
+        metavar=("YES_NO", "NOTE"),
+        help="Discovery checklist (review depth): does one changed value thread through "
+             "multiple consumers or render paths? 'yes' or 'no' plus a short note. "
+             "Optional — does not gate --complete; 'yes' recommends the "
+             "completeness-adversarial lens at the plan and diff checkpoints.")
     discover_parser.add_argument("--clear-non-goals", action="store_true",
         help="Empty discovery.non_goals[] BEFORE any --non-goal appends in the same invocation.")
     discover_parser.add_argument("--clear-acceptance-criteria", action="store_true",

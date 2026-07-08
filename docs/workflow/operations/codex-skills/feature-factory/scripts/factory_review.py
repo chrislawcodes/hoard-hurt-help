@@ -30,7 +30,7 @@ from factory_state import (  # noqa: E402
     load_checkpoint_manifest,
     parse_review_frontmatter,
 )
-from factory_io import read_text  # noqa: E402
+from factory_io import atomic_write_text, read_text  # noqa: E402
 
 REVIEW_SCRIPTS = REPO_ROOT / "docs" / "workflow" / "operations" / "codex-skills" / "review-lens" / "scripts"
 if str(REVIEW_SCRIPTS) not in sys.path:
@@ -397,3 +397,107 @@ def _advance_checkpoint_progress(
         slug,
         lambda s: s.__setitem__(CHECKPOINT_PROGRESS_KEY, new_progress),
     )
+
+
+# ---------------------------------------------------------------------------
+# Reconcile-driven artifact hash refresh
+# ---------------------------------------------------------------------------
+
+# State key + cap for the annotation trail written when reconcile re-records a
+# stale artifact hash. Rides the setdefault-on-write / get-with-default-on-read
+# convention (see factory_state.default_checklist_state), so _default_workflow_state
+# stays untouched and old state files load unchanged.
+RECONCILE_REFRESHED_KEY = "reconcile_refreshed"
+_RECONCILE_REFRESHED_CAP = 100
+
+
+def _rewrite_review_artifact_sha(review_path: Path, new_sha: str) -> None:
+    """Rewrite only the ``artifact_sha256`` frontmatter field of a review file.
+
+    Mirrors update_review_resolution.py's frontmatter handling: split on the
+    ``---`` fences, replace the single matching line, and re-join so every other
+    frontmatter line — and the whole body — is preserved byte-for-byte. Written
+    atomically. Raises when the file has no frontmatter or no artifact_sha256
+    field so a malformed review surfaces loudly instead of being left stale.
+    """
+    text = read_text(review_path)
+    if not text.startswith("---\n"):
+        raise ValueError(f"{review_path} is missing frontmatter")
+    fm_block, body = text.split("\n---\n", 1)
+    fm_lines = fm_block.splitlines()[1:]  # drop the opening '---'
+    rewritten: list[str] = []
+    replaced = False
+    for line in fm_lines:
+        if line.startswith("artifact_sha256:"):
+            rewritten.append(f'artifact_sha256: "{new_sha}"')
+            replaced = True
+        else:
+            rewritten.append(line)
+    if not replaced:
+        raise ValueError(f"{review_path} frontmatter has no artifact_sha256 field")
+    atomic_write_text(review_path, "---\n" + "\n".join(rewritten) + "\n---\n" + body)
+
+
+def refresh_reconciled_artifact_hashes(slug: str, review_paths: list[Path]) -> list[dict[str, str]]:
+    """Re-record the artifact hash for reviews whose findings were just reconciled.
+
+    Running ``reconcile`` is the sanctioned signal that a review's accepted
+    findings have been applied to the artifact. Applying them changes the
+    artifact's content hash, which would otherwise leave the checkpoint reading
+    ``repairable`` — verify_review_checkpoint flags every review as stale for the
+    edited artifact (the post-reconcile stale-artifact friction observed at spec,
+    plan, and diff). For each reconciled review whose recorded ``artifact_sha256``
+    no longer matches its artifact, re-record the current hash, append a
+    ``reconcile_refreshed`` entry to state (old→new sha + timestamp), and return
+    the entries.
+
+    This does NOT weaken the out-of-band-edit gate. The refresh happens only as
+    part of an explicit reconcile of that review, so an artifact edited with no
+    reconcile since the last checkpoint keeps its stale recorded hash and still
+    fails closed. Reviews with a missing artifact, no recorded hash, or an
+    already-matching hash are left untouched so genuinely broken checkpoints are
+    never masked.
+    """
+    refreshed: list[dict[str, str]] = []
+    for review_path in review_paths:
+        if not review_path.exists():
+            continue
+        try:
+            data, _ = parse_review_frontmatter(review_path)
+        except (ValueError, OSError):
+            # Malformed review — let verify report it; do not mask by refreshing.
+            continue
+        stage = data.get("stage", "")
+        recorded_sha = data.get("artifact_sha256", "")
+        if not stage or not recorded_sha:
+            continue
+        artifact_path = resolve_stored_path(
+            data.get("artifact_path", ""), REPO_ROOT, data.get("repo_root", "")
+        )
+        if not artifact_path.exists():
+            continue
+        if artifact_hash_matches(stage, artifact_path, data):
+            continue  # artifact unchanged since review — nothing to refresh
+        new_sha = normalized_artifact_hash(stage, artifact_path)
+        if new_sha == recorded_sha:
+            continue  # defensive: hashes already agree despite the mismatch probe
+        _rewrite_review_artifact_sha(review_path, new_sha)
+        refreshed.append(
+            {
+                "stage": stage,
+                "review": repo_relative_path(review_path, REPO_ROOT),
+                "old_sha": recorded_sha,
+                "new_sha": new_sha,
+                "ts": time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
+            }
+        )
+
+    if refreshed:
+        def _record(state: dict) -> None:
+            trail = list(state.get(RECONCILE_REFRESHED_KEY, []))
+            trail.extend(refreshed)
+            state[RECONCILE_REFRESHED_KEY] = trail[-_RECONCILE_REFRESHED_CAP:]
+
+        update_workflow_state(slug, _record)
+
+    return refreshed

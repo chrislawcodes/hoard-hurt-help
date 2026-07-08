@@ -1,13 +1,22 @@
-"""Routing answers (silent-risk / design-settled) in discovery.
+"""Routing answers (silent-risk / design-settled / completeness-risk) in discovery.
 
-For real (required) runs, `discover --complete` is gated on the two routing
-answers; legacy runs (required flag never set — the same fail-open convention
-the rest of the checklist gate uses) are not gated. The answers persist in the
-discovery checklist blob, and a successful completion prints a path
-recommendation derived from them (evidence: experiments.md Running Tally).
+For real (required) runs, `discover --complete` is gated on the two REQUIRED
+routing answers (silent-risk, design-settled); legacy runs (required flag
+never set — the same fail-open convention the rest of the checklist gate
+uses) are not gated. The answers persist in the discovery checklist blob, and
+a successful completion prints a path recommendation derived from them
+(evidence: experiments.md Running Tally).
+
+completeness-risk (betrayal-8-4 follow-up) is a third, OPTIONAL routing
+answer: it never gates `discover --complete` and, unanswered, changes
+nothing. Answered "yes", it adds a recommendation to the same printed block
+to add the completeness-adversarial review lens — see
+CompletenessRiskRecommendationHelperTests and
+CompletenessRiskDiscoverCommandTests below.
 """
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import os
@@ -85,6 +94,56 @@ class RoutingRecommendationHelperTests(unittest.TestCase):
         joined = "\n".join(lines)
         self.assertIn("MIDDLE LANE", joined)
         self.assertIn("whole-branch review", joined)
+
+
+class CompletenessRiskRecommendationHelperTests(unittest.TestCase):
+    """completeness_risk (betrayal-8-4 follow-up) is a third, OPTIONAL routing
+    answer: unlike silent_risk/design_settled it never gates the
+    recommendation and, unanswered, changes nothing about the output.
+    """
+
+    def test_absent_completeness_risk_changes_nothing(self) -> None:
+        with_field = FCD._routing_recommendation(
+            {"silent_risk": "yes", "design_settled": "yes"}
+        )
+        without_field = FCD._routing_recommendation(
+            {"silent_risk": "yes", "design_settled": "yes", "completeness_risk": ""}
+        )
+        self.assertEqual(with_field, without_field)
+
+    def test_missing_silent_or_design_answer_still_returns_none(self) -> None:
+        # completeness_risk never overrides the existing required-answers gate.
+        self.assertIsNone(
+            FCD._routing_recommendation(
+                {"design_settled": "yes", "completeness_risk": "yes"}
+            )
+        )
+
+    def test_completeness_risk_yes_recommends_the_lens(self) -> None:
+        lines = FCD._routing_recommendation(
+            {
+                "silent_risk": "no",
+                "design_settled": "yes",
+                "completeness_risk": "yes",
+                "completeness_risk_note": "one price threads through 3 templates",
+            }
+        )
+        assert lines is not None
+        joined = "\n".join(lines)
+        self.assertIn("completeness-adversarial", joined)
+        self.assertIn("--extra-gemini-lens completeness-adversarial", joined)
+        self.assertIn("completeness-risk: yes", joined)
+        self.assertIn("one price threads through 3 templates", joined)
+        self.assertIn("prepare-claude-reviews", joined)
+
+    def test_completeness_risk_no_echoes_but_recommends_nothing(self) -> None:
+        lines = FCD._routing_recommendation(
+            {"silent_risk": "no", "design_settled": "yes", "completeness_risk": "no"}
+        )
+        assert lines is not None
+        joined = "\n".join(lines)
+        self.assertIn("completeness-risk: no", joined)
+        self.assertNotIn("completeness-adversarial", joined)
 
 
 class RoutingGateSubprocessTests(unittest.TestCase):
@@ -274,6 +333,165 @@ class RoutingStateInProcessTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         for marker in ("FULL FEATURE FACTORY", "MIDDLE LANE", "DIRECT PATH"):
             self.assertNotIn(marker, out)
+
+
+class CompletenessRiskDiscoverCommandTests(unittest.TestCase):
+    """In-process command_discover coverage for --completeness-risk.
+
+    run_factory.py's CLI parser is out of scope for this change (it owns
+    wiring --completeness-risk onto the `discover` subcommand, mirroring how
+    --silent-risk / --design-settled are registered there), so this builds the
+    argparse.Namespace by hand instead of going through
+    RUN_FACTORY.build_parser(). That proves factory_cmd_discover's own
+    handling of the flag — parsing, persistence, and the routing
+    recommendation — independently of that CLI wiring landing.
+    """
+
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.mkdtemp()
+        self.tmp_root = Path(self.tmpdir)
+        self.slug = "completeness-risk-test"
+        self._factory_runs_patch = patch.object(
+            FACTORY_STATE, "FACTORY_RUNS_ROOT", self.tmp_root
+        )
+        self._factory_runs_patch.start()
+        self.addCleanup(self._factory_runs_patch.stop)
+        FACTORY_STATE.workflow_dir(self.slug).mkdir(parents=True, exist_ok=True)
+        state = FACTORY_STATE._default_workflow_state()
+        FACTORY_STATE.atomic_json_write(FACTORY_STATE.factory_state_path(self.slug), state)
+        self._sync_patch = patch.object(FCD, "ensure_sync", lambda: None)
+        self._sync_patch.start()
+        self.addCleanup(self._sync_patch.stop)
+
+    def _args(self, **overrides: object) -> argparse.Namespace:
+        base: dict = {
+            "slug": self.slug,
+            "required": False,
+            "count": None,
+            "question": None,
+            "recommendation": None,
+            "rationale": None,
+            "assumption": [],
+            "summary": None,
+            "complete": False,
+            "clear": False,
+            "force_complete": False,
+            "unresolved": None,
+            "resolve": None,
+            "defer": None,
+            "non_goal": None,
+            "acceptance_criteria": None,
+            "clear_non_goals": False,
+            "clear_acceptance_criteria": False,
+            "answer": None,
+            "goal": None,
+            "audience": None,
+            "constraints": None,
+            "silent_risk": None,
+            "design_settled": None,
+            "completeness_risk": None,
+            "force_path": "auto",
+        }
+        base.update(overrides)
+        return argparse.Namespace(**base)
+
+    def _run(self, args: argparse.Namespace) -> tuple[int, str]:
+        """Run command_discover; on success returns (0, stdout).
+
+        On a validation SystemExit, returns (1, message) instead — the
+        message is what the real CLI surfaces (argparse prints it to stderr),
+        so validation-failure tests assert on it directly rather than on
+        stdout, which a raised SystemExit never reaches.
+        """
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            try:
+                rc = FCD.command_discover(args) or 0
+            except SystemExit as exc:
+                return 1, str(exc.code)
+        return rc, buf.getvalue()
+
+    def _load_discovery(self) -> dict:
+        state = json.loads(
+            FACTORY_STATE.factory_state_path(self.slug).read_text(encoding="utf-8")
+        )
+        return state.get("discovery", {})
+
+    def test_completeness_risk_persists_in_checklist_blob(self) -> None:
+        rc, _ = self._run(
+            self._args(completeness_risk=("yes", "price threads through 3 templates"))
+        )
+        self.assertEqual(rc, 0)
+        checklist = self._load_discovery()["checklist"]
+        self.assertEqual(checklist["completeness_risk"], "yes")
+        self.assertEqual(
+            checklist["completeness_risk_note"], "price threads through 3 templates"
+        )
+
+    def test_answer_is_normalized_to_lowercase(self) -> None:
+        rc, _ = self._run(self._args(completeness_risk=("YES", "note")))
+        self.assertEqual(rc, 0)
+        self.assertEqual(self._load_discovery()["checklist"]["completeness_risk"], "yes")
+
+    def test_invalid_answer_value_rejected(self) -> None:
+        rc, out = self._run(self._args(completeness_risk=("maybe", "note")))
+        self.assertNotEqual(rc, 0)
+        self.assertIn("'yes' or 'no'", out)
+
+    def test_whitespace_note_rejected(self) -> None:
+        rc, out = self._run(self._args(completeness_risk=("yes", "   ")))
+        self.assertNotEqual(rc, 0)
+        self.assertIn("non-empty note", out)
+
+    def test_flag_alone_is_a_valid_update(self) -> None:
+        # Bare --completeness-risk (nothing else in the call) must not trip
+        # the "discover requires at least one update" guard.
+        rc, _ = self._run(self._args(completeness_risk=("no", "note")))
+        self.assertEqual(rc, 0)
+
+    def test_absent_flag_leaves_no_annotation(self) -> None:
+        rc, _ = self._run(self._args(goal="g"))
+        self.assertEqual(rc, 0)
+        checklist = self._load_discovery().get("checklist", {})
+        self.assertNotIn("completeness_risk", checklist)
+
+    def test_complete_gate_ignores_completeness_risk(self) -> None:
+        # A full required checklist minus completeness-risk still completes —
+        # the new flag is optional and never gates completion.
+        rc, _ = self._run(
+            self._args(
+                goal="g",
+                audience="a",
+                constraints="c",
+                acceptance_criteria=["sc"],
+                non_goal=["ng"],
+                silent_risk=("yes", "n"),
+                design_settled=("no", "n"),
+            )
+        )
+        self.assertEqual(rc, 0)
+        rc, out = self._run(self._args(complete=True))
+        self.assertEqual(rc, 0)
+        self.assertIn("complete: yes", out)
+
+    def test_complete_recommends_completeness_lens_when_yes(self) -> None:
+        rc, _ = self._run(
+            self._args(
+                goal="g",
+                audience="a",
+                constraints="c",
+                acceptance_criteria=["sc"],
+                non_goal=["ng"],
+                silent_risk=("no", "n"),
+                design_settled=("yes", "n"),
+                completeness_risk=("yes", "shared price field"),
+            )
+        )
+        self.assertEqual(rc, 0)
+        rc, out = self._run(self._args(complete=True))
+        self.assertEqual(rc, 0)
+        self.assertIn("completeness-adversarial", out)
+        self.assertIn("shared price field", out)
 
 
 if __name__ == "__main__":

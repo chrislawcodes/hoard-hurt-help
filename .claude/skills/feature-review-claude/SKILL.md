@@ -71,7 +71,12 @@ stage has no default reviews — skip straight to `checkpoint`.
 
 For each entry in the plan, spawn a **fresh** subagent (send them in a single
 message so they run concurrently — this is the speed win over the old serialized
-Gemini path). Give each subagent:
+Gemini path). **Spawn them in the foreground (synchronously) and collect every
+reply in the same flow — do not run them in the background: background reviewers
+repeatedly stalled factory runs waiting for completion notifications (the
+`betrayal-8-4` run needed multiple manual nudges). Batching foreground subagents
+into one message keeps them parallel while still returning their results in this
+turn.** Give each subagent:
 
 - **Only** the contents of its `prompt_path` (the artifact + the adversarial lens
   instruction). Fresh context — do not paste your own reasoning; the reviewer must

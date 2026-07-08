@@ -30,6 +30,8 @@ The repo's own experiment log (`experiments.md`, Running Tally) shows the best p
 
 The recommendation is advisory, not a gate — the trivial "SKIP FF ENTIRELY" detection and the `--force-path` overrides above are unchanged.
 
+`discover` also records a third question that doesn't change the path recommendation above but does change review depth: `--completeness-risk yes|no "<note>"` — does one changed value thread through multiple consumers or render paths (server code, templates, client scripts, payloads, docs)? When `--completeness-risk yes`, add the `completeness-adversarial` lens at the plan checkpoint and at the diff checkpoint (on a one-shot run, its single diff checkpoint), via `--extra-gemini-lens completeness-adversarial` or the `prepare-claude-reviews` equivalent — see "Size-gated diff review" below.
+
 ### Middle lane
 
 The middle lane sits between the Direct Path and the full factory: **spec authoring + one adversarial spec review** (to settle the design), then **direct implementation**, then **one independent whole-branch review** before the PR. No plan/tasks ceremony, no per-slice diff checkpoints.
@@ -120,7 +122,7 @@ Do not duplicate checkpoint manifest logic, review file validation, diff writing
 | Design · Update the scoped design/architecture docs | **Sub-agent** edits the scoped architecture doc (modules/flows this feature adds or changes) and the scoped design doc (only if a game/design decision changes) to the **target state**, consistent with the reuse decisions — this is the design, authored before the build plan. Edits ship on the feature branch with the code. See "Architecture awareness" below. | Claude (spawns a sub-agent) | Codex (`codex exec` workspace-write sub-session) |
 | Write plan | Author `plan.md` with architecture decisions, wave breakdown, and risk callouts, incorporating the reuse-audit decisions. Each residual risk MUST have a `verification:` sentence naming a concrete pre-merge check (e.g., "run circumplexAnalysis against a production model ID", "inspect a failing fixture", "grep the migration output for N rows"). Unverified residual risks block plan approval — see "Residual risks must be verifiable" below. | Claude | Codex |
 | Plan checkpoint | Adversarial attack on the plan **plus the scoped design/architecture doc edits and `reuse-report.md`**, architecture review, reconcile findings into plan. Pass the docs and report into the review so Codex reviews them too: `--context docs/platform/AGENT_LUDUM_ARCHITECTURE.md --context docs/games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md --context docs/workflow/feature-runs/<slug>/reuse-report.md`. | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Claude (reconciles) | Codex (1 adversarial review: `implementation`) · Gemini (1 adversarial review: `testability`) · Codex (reconciles, escalates blockers to human) |
-| Write tasks | Author `tasks.md` with executable slices, checkpoint boundaries (`[CHECKPOINT]`), estimated diff size per slice, dependencies, and verification steps. No slice should exceed ~300 lines changed. | Claude | Codex |
+| Write tasks | Decide the slice count first — **one-shot (a single trailing `[CHECKPOINT]`) is the default**; slice only for ordered steps, >~300 changed lines, or data-critical gates (see "Keep Diffs Scoped"). Then author `tasks.md` with executable slices, `[CHECKPOINT]` boundaries, estimated diff size per slice, dependencies, and verification steps. Every slice must be green alone and cut vertically; no slice over ~300 lines changed. | Claude | Codex |
 | Record parallel analysis | Look for safe parallel implementation opportunities in tasks.md. Annotate parallel tasks with `[P: file1, file2]`. Run `parallel --slug <slug> --note "..." [--found]`. If opportunities exist, add `[P:]` annotations first — the command validates they are conflict-free. | Claude | Codex |
 | Tasks checkpoint | Adversarial attack on tasks, execution-order review, reconcile findings into tasks | No default reviews | No default reviews |
 | Implementation slice | Implement one `[CHECKPOINT]`-bounded slice from `tasks.md`, run build and tests, commit | Codex | Codex |
@@ -298,11 +300,15 @@ All reviews are adversarial — each one is looking for ways the artifact is wro
 
 Review rounds are tracked per stage and surfaced by `analyze-reviews` (it flags stages that needed 3+ rounds). The runner enforces a hard cap of **`MAX_ADVERSARIAL_ROUNDS = 3`** per stage. If a stage hits the cap and still has open findings, the checkpoint blocks and tells you to rerun with `--accept-cap "one-sentence reason"`. That reason is recorded in `state.json` as a `cap_accepted` annotation so it's visible in audit and PR history. Use `--accept-cap` only when the remaining findings are minor enough that shipping without another round is a conscious, documented choice.
 
+**Spec-review rounds under a settled design.** When `discover` recorded `--design-settled yes`, run one spec-review round by default — reconcile the round-1 findings to a terminal status and proceed to Design/Plan. Open a second round only if a High/Critical-severity finding is still open afterward; a design that was already settled going in doesn't need a second pass to re-litigate what round 1 already confirmed. The `betrayal-8-4` run spent two spec rounds re-reviewing a design both arms already had fully settled up front — pure cost (`docs/workflow/experiments-thin-vs-factory.md`, Run 2). This is orchestrator judgment, not a new engine flag: `MAX_ADVERSARIAL_ROUNDS` and `--accept-cap` above still apply as the hard ceiling.
+
 The checkpoint runner selects the specific lenses by stage. Bundle 2 keeps the default Codex+Gemini lenses on `spec` and `plan`, and leaves `tasks` and `closeout` empty unless the operator explicitly opts in. The `diff` stage gets **one independent Gemini review, but only for substantial slices** — see "Size-gated diff review" below. Keep the Codex and Gemini lenses independent from each other when they are present.
 
 ### Size-gated diff review
 
 A diff slice that changes **≥ 50 lines** (added + removed) gets one default `gemini regression-adversarial` review at its diff checkpoint; smaller slices get none and rely on the Preflight Gate + CI. The reviewer is Gemini, not Codex, because **Codex always implements the slice** — a Codex diff lens would be reviewing its own code. This closes the gap where a real logic bug could reach `main`: CI here is only `ruff`/`mypy`/`pytest`, which cannot catch logic the tests do not exercise. Override the threshold per checkpoint with `checkpoint --slug <slug> --stage diff --diff-review-threshold <N>` (lower to review smaller slices, raise to review only the largest). Like spec/plan reviews, a diff-stage finding must be reconciled to a terminal status before the run advances.
+
+On a **one-shot** run (see "Keep Diffs Scoped") the single diff checkpoint covers the whole feature — it is the run's main defense, and a whole-feature diff exceeds the threshold in practice, so the review always fires. Widen it rather than splitting the build: when discovery recorded `--completeness-risk yes` (see "Routing: two questions decide the path" above), add the `completeness-adversarial` lens via the checkpoint's extra-lens option (`--extra-gemini-lens completeness-adversarial`) or an extra Claude lens through `prepare-claude-reviews`. The focused-review value that slicing was buying comes from this review fan instead, not from slice boundaries: `completeness-adversarial` is the class of review that caught the `betrayal-8-4` run's decisive gap — a changed value missing from two render paths — at the plan checkpoint.
 
 ### Reviewer independence
 
@@ -383,10 +389,40 @@ When a runner subcommand supports `--json`, treat the JSON payload as the struct
 
 Design for small diffs at tasks authoring time, not at diff checkpoint time.
 
-When writing `tasks.md`:
+**Decide whether to slice at all before deciding where to cut — one-shot is the
+default.** A one-shot run is a `tasks.md` with a single slice and one trailing
+`[CHECKPOINT]` marker. Slice into multiple checkpoints only when at least one of
+these holds, and record the decision with its reason at the top of `tasks.md`
+(e.g. `Slicing: one-shot — single coherent change, ~200 lines` or
+`Slicing: 3 slices — migration must land and verify before the backfill`):
+
+1. **Ordered steps** — one step must land and be verified before the next is
+   safe (migration → backfill → UI).
+2. **Size** — the whole feature would clearly exceed ~300 changed lines, more
+   than one focused review can hold.
+3. **Data-critical gates** — a step needs its own verified checkpoint before
+   the next may proceed (the migration/backfill rules in `CLAUDE.md`).
+
+A tightly-coupled change forced into slices produces boundaries that cannot
+pass their own gate: the `betrayal-8-4` run's first slice renamed a payoff
+constant while other files still imported the old name, so that slice could
+never be green alone — its own plan review had to catch the planning bug.
+
+When you DO slice:
 - estimate the approximate diff size for each slice
 - place a `[CHECKPOINT]` boundary whenever a slice would exceed ~300 lines changed
-- if a natural slice boundary does not exist at that point, split the tasks at a stable interface boundary (e.g. after a type is defined but before callers are updated)
+- **every slice must be green alone** — it passes the full Preflight Gate with
+  no help from later slices. If green at slice N depends on slice N+1, they are
+  one slice. This is the boundary test — not "a stable interface".
+- **cut vertically, never horizontally** — each slice is a thin, complete,
+  working piece of the feature end to end, never a layer. "Define the type now,
+  update the callers later" is the proven anti-pattern: a layer is never green
+  alone.
+
+A one-shot run does not lose review focus — it moves the focus from the build
+to the review. Its single diff checkpoint covers the whole feature diff, so run
+it at full strength and widen it with focused lenses (see "Size-gated diff
+review") instead of splitting the build.
 
 At diff checkpoint time:
 - the diff should cover only the current `[CHECKPOINT]`-bounded slice, not the full branch

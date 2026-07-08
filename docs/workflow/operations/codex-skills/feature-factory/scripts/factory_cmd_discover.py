@@ -37,14 +37,24 @@ CHECKLIST_ITEMS = (
     "design-settled",
 )
 
-# Routing answers: each takes "yes"/"no" plus a short free-text note. They are
-# part of the required checklist and drive the path recommendation printed at
-# `discover --complete`. Evidence: experiments.md Running Tally — silent vs
-# test-visible risk and settled vs open design predict whether Feature Factory
-# ceremony pays off, not backend-vs-UI.
+# Routing answers: each takes "yes"/"no" plus a short free-text note.
+#
+# silent_risk / design_settled are part of the REQUIRED checklist and gate
+# `discover --complete` for real runs (see _missing_checklist_items). Evidence:
+# experiments.md Running Tally — silent vs test-visible risk and settled vs
+# open design predict whether Feature Factory ceremony pays off, not
+# backend-vs-UI.
+#
+# completeness_risk is OPTIONAL and never gates completion (deliberately left
+# out of _missing_checklist_items). It answers "does one changed value thread
+# through multiple consumers or render paths?" — the betrayal-8-4 run's
+# decisive catch came from tracing exactly that. Left unanswered, nothing
+# changes; answered "yes", `_routing_recommendation` recommends adding the
+# completeness-adversarial review lens.
 ROUTING_FIELDS = (
     ("silent_risk", "--silent-risk"),
     ("design_settled", "--design-settled"),
+    ("completeness_risk", "--completeness-risk"),
 )
 _ROUTING_ANSWERS = ("yes", "no")
 
@@ -79,14 +89,21 @@ def _missing_checklist_items(discovery: dict) -> list[str]:
 def _routing_recommendation(checklist: dict) -> list[str] | None:
     """Derive the routing block printed when `discover --complete` succeeds.
 
-    Returns the block as printable lines, or None when either routing answer is
-    missing (legacy runs and --force-complete runs are not gated on the
-    answers, so they get no recommendation). The mapping encodes the repo's own
-    experiment data (experiments.md, Running Tally): silent risk is where the
-    adversarial reviews have a real catch record; on settled designs the
-    planning ceremony just re-derives a plan you already have at ~2x cost.
-    This is a recommendation, not a gate — the trivial skip-FF detection and
+    Returns the block as printable lines, or None when either the silent-risk
+    or design-settled routing answer is missing (legacy runs and
+    --force-complete runs are not gated on the answers, so they get no
+    recommendation). The mapping encodes the repo's own experiment data
+    (experiments.md, Running Tally): silent risk is where the adversarial
+    reviews have a real catch record; on settled designs the planning
+    ceremony just re-derives a plan you already have at ~2x cost. This is a
+    recommendation, not a gate — the trivial skip-FF detection and
     --force-path overrides are unchanged.
+
+    completeness_risk is a third, OPTIONAL answer (betrayal-8-4 follow-up):
+    it never affects whether this function returns None — only silent_risk /
+    design_settled do that — and when unanswered it adds no lines at all.
+    Answered "yes", it appends a recommendation to add the
+    completeness-adversarial review lens at the plan and diff checkpoints.
     """
     if not isinstance(checklist, dict):
         return None
@@ -96,11 +113,18 @@ def _routing_recommendation(checklist: dict) -> list[str] | None:
         return None
     silent_note = trim_detail(str(checklist.get("silent_risk_note", "")).strip())
     settled_note = trim_detail(str(checklist.get("design_settled_note", "")).strip())
+    completeness_risk = _routing_answer(checklist, "completeness_risk")
+    completeness_note = trim_detail(str(checklist.get("completeness_risk_note", "")).strip())
     lines = [
         "[ff] Routing (from the recorded answers; evidence: experiments.md Running Tally):",
         f"[ff]   silent-risk: {silent_risk}" + (f" — {silent_note}" if silent_note else ""),
         f"[ff]   design-settled: {design_settled}" + (f" — {settled_note}" if settled_note else ""),
     ]
+    if completeness_risk:
+        lines.append(
+            f"[ff]   completeness-risk: {completeness_risk}"
+            + (f" — {completeness_note}" if completeness_note else "")
+        )
     if silent_risk == "yes":
         lines += [
             "[ff] → Recommended: FULL FEATURE FACTORY (spec → plan → tasks → implement",
@@ -124,6 +148,15 @@ def _routing_recommendation(checklist: dict) -> list[str] | None:
             "[ff]   whole-branch review before the PR. No plan/tasks ceremony, no per-slice",
             "[ff]   diff checkpoints. Operator-driven — no dedicated runner command yet;",
             "[ff]   see 'Middle lane' in the engine SKILL.md.",
+        ]
+    if completeness_risk == "yes":
+        lines += [
+            "[ff] → completeness-risk is yes: add the completeness-adversarial lens — it",
+            "[ff]   traces every consumer of a changed value so a stale copy doesn't slip",
+            "[ff]   through. Add it at the plan checkpoint and at the (one-shot) diff",
+            "[ff]   checkpoint via `--extra-gemini-lens completeness-adversarial` (or the",
+            "[ff]   prepare-claude-reviews equivalent — it reads the same",
+            "[ff]   review_policy.extra_gemini_lenses list).",
         ]
     lines.append(
         "[ff] (Recommendation only — the trivial skip-FF detection and --force-path"
@@ -161,6 +194,7 @@ def command_discover(args: argparse.Namespace) -> int:
             getattr(args, "constraints", None) is not None,
             getattr(args, "silent_risk", None) is not None,
             getattr(args, "design_settled", None) is not None,
+            getattr(args, "completeness_risk", None) is not None,
         ]
     ):
         raise SystemExit("discover --clear cannot be combined with other discovery updates")
@@ -192,6 +226,7 @@ def command_discover(args: argparse.Namespace) -> int:
             getattr(args, "constraints", None) is not None,
             getattr(args, "silent_risk", None) is not None,
             getattr(args, "design_settled", None) is not None,
+            getattr(args, "completeness_risk", None) is not None,
         ]
     ):
         raise SystemExit("discover requires at least one update, or use --clear to reset discovery state")
@@ -399,6 +434,7 @@ def command_discover(args: argparse.Namespace) -> int:
             or getattr(args, "constraints", None) is not None
             or getattr(args, "silent_risk", None) is not None
             or getattr(args, "design_settled", None) is not None
+            or getattr(args, "completeness_risk", None) is not None
         ):
             discovery["complete"] = False
         if force_complete:

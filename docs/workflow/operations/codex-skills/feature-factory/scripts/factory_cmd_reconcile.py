@@ -17,7 +17,7 @@ from factory_mutating import mutates_state  # noqa: E402
 from factory_state import REPO_ROOT, update_workflow_state, workflow_dir  # noqa: E402
 from factory_state import load_workflow_state  # noqa: E402
 from factory_reconcile import reconcile_review_full  # noqa: E402
-from factory_review import APPEND_RECONCILIATION, UPDATE_REVIEW  # noqa: E402
+from factory_review import APPEND_RECONCILIATION, UPDATE_REVIEW, refresh_reconciled_artifact_hashes  # noqa: E402
 from factory_emit import _emit_next_action  # noqa: E402
 from factory_stages import VERIFY_RECONCILIATION  # noqa: E402
 
@@ -144,6 +144,14 @@ def command_reconcile(args: argparse.Namespace) -> int:
             for path in changed_paths
         ):
             _update_diff_review_budget(args.slug, head_at_end)
+
+    # Applying accepted findings edits the artifact, changing its content hash and
+    # otherwise stranding the stage as `repairable`. Reconcile is the sanctioned
+    # path, so re-record the hash for the reviews we just reconciled; out-of-band
+    # edits (no reconcile) keep their stale hash and still fail closed.
+    refresh_reconciled_artifact_hashes(
+        args.slug, [Path(review).resolve() for review in args.review]
+    )
 
     _emit_next_action(args.slug, f"reconcile ({args.status})")
     return 0
