@@ -1,6 +1,6 @@
 ---
 name: experiment-thin-vs-factory
-description: Run a repeatable A/B that pits the Claude-only Feature Factory engine (run_factory.py) against the Thin path (Claude Code + GitHub Spec Kit stages + a plain adversarial-subagent review, no engine) on the SAME feature, to decide build-vs-switch with real data. Use when you want to test whether the ~40-module factory engine catches enough more than the engine-free thin path to justify maintaining it. Logs results to docs/workflow/experiments-thin-vs-factory.md so signal accumulates across features.
+description: Run a repeatable A/B that pits the Claude-only Feature Factory engine (run_factory.py) against the Thin path (Claude Code authoring artifacts directly + the feature-thin skill's foreground adversarial reviews, no engine) on the SAME feature, to decide build-vs-switch with real data. Use when you want to test whether the ~40-module factory engine catches enough more than the engine-free thin path to justify maintaining it. Logs results to docs/workflow/experiments-thin-vs-factory.md so signal accumulates across features.
 argument-hint: <feature-description>  [scope: path/glob ...]
 ---
 
@@ -39,7 +39,7 @@ Each arm keeps notes in its `experiment.md` with this table (SHA rule: read arti
 
 Also keep, in each arm's `experiment.md`:
 - `Session JSONL: <absolute path>` — for token counting in Stage C.
-- A **Friction log**: one bullet per breakage/workaround/babysitting event (e.g. "engine crashed in factory_telemetry", "had to rebase to reach done", "Spec Kit command missing"). This is a first-class metric — the engine's brittleness vs the thin path's simplicity is half the decision.
+- A **Friction log**: one bullet per breakage/workaround/babysitting event (e.g. "engine crashed in factory_telemetry", "had to rebase to reach done", "review subagent stalled in the background"). This is a first-class metric — the engine's brittleness vs the thin path's simplicity is half the decision.
 
 ---
 
@@ -51,16 +51,16 @@ Report a brief status every 5 min: `**[5 min]** Factory: <stage> | Thin: <stage>
 
 > You are running the **Feature Factory** arm in `/tmp/wt-<slug>-factory` on `exp-factory/<slug>`.
 > Build the feature with the repo's Claude-only Feature Factory: `run_factory.py` for init→discover→spec→plan→tasks→implement, using the `feature-review-claude` skill for the adversarial review at each checkpoint and `feature-implement-claude` for the build. Use `FF_REVIEWER=claude`.
-> Use the same review lenses the engine selects per stage. Run preflight via `.venv/bin/...`.
+> Use the same review lenses the engine selects per stage. **Run every review subagent in the foreground (synchronously, batched in one message so they still run in parallel) — never in the background: background reviewers stalled these runs ~7 times waiting for completion notifications.** Run preflight via `.venv/bin/...`.
 > Fill `docs/workflow/feature-runs/<slug>-factory/experiment.md` (table + Session JSONL + Friction log). Log EVERY engine breakage/workaround in the Friction log.
 > Do not open a PR unless the human asks; otherwise leave the branch ready and report.
 
 ### Arm B — Thin path (candidate, engine-free)
 
 > You are running the **Thin** arm in `/tmp/wt-<slug>-thin` on `exp-thin/<slug>`. Use NO part of `run_factory.py` / the factory engine.
-> Stages: install/use **GitHub Spec Kit** on Claude Code (`uvx --from git+https://github.com/github/spec-kit specify init . --integration claude` if not present) and drive `/speckit.specify → /speckit.plan → /speckit.tasks → /speckit.implement`. (If Spec Kit can't be installed in this environment, author spec.md/plan.md/tasks.md directly using plan mode — note that in the Friction log.)
-> **Adversarial review gate (plain subagents, no engine):** at the spec, plan, and final-diff stages, spawn one fresh adversarial subagent PER LENS — use the SAME lenses/personas as `feature-review-claude` (e.g. feasibility-adversarial, requirements-adversarial for spec; testability/implementation for plan; regression-adversarial for diff). Give each only the artifact + repo context; instruct "find the flaw, reject unless proven safe." Read their findings directly, revise, repeat up to 3 rounds. No manifest, no verify, no checkpoint — just spawn → collect → revise.
-> Track the same table; for tokens rely on the Session JSONL (and `/usage`). Run preflight via `.venv/bin/...`. Log any friction (Spec Kit install issues, missing capability vs the engine) in the Friction log.
+> **Run the Thin path exactly as the `feature-thin` skill defines it** — that skill is the canonical Thin protocol (spec → plan → tasks → build → whole-diff review fan → findings-verdict table). Author `spec.md`/`plan.md`/`tasks.md` directly; **do not use GitHub Spec Kit** — it failed headless in Runs 1–2 (its `/speckit.*` slash commands can't be driven non-interactively and its dropped-in files broke a repo test), so it is dropped from the protocol.
+> **Adversarial review gate (plain subagents, no engine):** use the SAME lenses/personas as `feature-thin` / `feature-review-claude` — feasibility-adversarial + requirements-adversarial for spec; testability-adversarial + implementation-adversarial for plan; regression-adversarial + completeness + silent-failure + test-honesty + one blind reviewer for the diff. Give each subagent only its artifact/diff + lens instruction (never the builder's reasoning); instruct "find the flaw, reject unless proven safe." **Run every review subagent in the foreground (synchronously, batched in one message so they still run in parallel) — never in the background: background reviewers stalled these runs ~7 times waiting for completion notifications.** Record every finding in the findings-verdict table (fix now / defer / reject + reason) — none silently dropped. Revise, repeat up to 3 rounds. No manifest, no verify, no checkpoint — just spawn → collect → revise.
+> Track the same table; for tokens rely on the Session JSONL (and `/usage`). Run preflight via `.venv/bin/...`. Log any friction (missing capability vs the engine) in the Friction log.
 > Do not open a PR unless the human asks; otherwise leave the branch ready and report.
 
 Wait for both arms to finish before Stage C.
