@@ -51,7 +51,9 @@ from app.engine.scheduler_turn_loop import (
     _wait_for_turn,
 )
 from app.engine.state_machine import assert_transition
+from app.models.agent import Agent
 from app.models.match import Match, GameState
+from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.request_logging import record_background_incident
 
@@ -407,6 +409,29 @@ async def cancel_overdue_unfilled_games(db) -> int:
     return cancelled
 
 
+async def _pin_current_versions(db: AsyncSession, match_id: str) -> None:
+    """Snapshot each seated player's strategy version at match start.
+
+    The seat's ``agent_version_id`` is stamped at join, but the edit lock only
+    covers ACTIVE matches — a pre-start edit can fork the agent's
+    ``current_version_id`` past the join-time pin. Turn serving reads the pin,
+    so re-stamp it here: the version you have when the match starts is the
+    version that plays. Applies uniformly to ai/human/bot seats (a harmless
+    snapshot where unused); a player whose agent has no current version keeps
+    its existing pin.
+    """
+    rows = (
+        await db.execute(
+            select(Player, Agent.current_version_id)
+            .join(Agent, Agent.id == Player.agent_id)
+            .where(Player.match_id == match_id, Player.left_at.is_(None))
+        )
+    ).all()
+    for player, current_version_id in rows:
+        if current_version_id is not None:
+            player.agent_version_id = current_version_id
+
+
 async def start_game(db, game: Match) -> None:
     """Transition SCHEDULED/REGISTERING → ACTIVE and kick off the loop."""
     from app.engine.seat_hold import release_held_seats
@@ -423,5 +448,8 @@ async def start_game(db, game: Match) -> None:
     assert_transition(game.state, GameState.ACTIVE)
     game.state = GameState.ACTIVE
     game.started_at = datetime.now(timezone.utc)
+    # Same transaction as the ACTIVE flip: the pins and the state change commit
+    # (or fail) together, so serving never sees a started match with stale pins.
+    await _pin_current_versions(db, game.id)
     await db.commit()
     registry.start(game.id)

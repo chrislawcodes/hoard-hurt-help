@@ -1,4 +1,4 @@
-{% if versions | length > 1 %}
+{% if show_version_history %}
 <div class="card">
     <h3 style="margin-top:0;">Version history</h3>
     {% for row in versions | reverse %}
@@ -6,19 +6,32 @@
         <div class="game-card-info">
             <h4 style="margin:0;">
                 v{{ row.version.version_no }}
-                {% if row.version.id == version.id %}<span class="badge badge-ok">Current</span>{% endif %}
+                {% if version and row.version.id == version.id %}<span class="badge badge-ok">Current</span>{% endif %}
                 {% if row.frozen %}<span class="badge">Frozen</span>{% endif %}
             </h4>
             <p class="meta">
                 {{ row.version.created_at | localdt }}
-                · {{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}
-                {% if row.match_count > 0 %} · Rank {{ row.rank }}{% endif %}
+                {% if row.version.note %} · {{ row.version.note }}{% endif %}
+                {% if row.stats.record_label %} · {{ row.stats.record_label }}{% else %} · No rated matches yet{% endif %}
+                {% if row.stats.practice_matches %} · {{ row.stats.practice_matches }} practice{% endif %}
             </p>
+            {% if row.recent_matches %}
+            <p class="meta">Recent:
+                {% for m in row.recent_matches %}<a href="/games/{{ m.game_type }}/matches/{{ m.match_id }}">{{ m.name }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+            </p>
+            {% endif %}
+            <details>
+                <summary class="meta">View text</summary>
+                <p style="white-space:pre-wrap; margin-top:0.25rem;">{{ row.version.strategy_text }}</p>
+            </details>
         </div>
-        {% if row.version.id != version.id %}
-        <form method="post" action="/me/agents/{{ agent.id }}/restore-version/{{ row.version.id }}">
-            <button type="submit" class="secondary">Restore</button>
-        </form>
+        {% if version and row.version.id != version.id %}
+        <div class="game-card-action">
+            <form method="post" action="/me/agents/{{ agent.id }}/restore-version/{{ row.version.id }}">
+                <button type="submit" class="secondary">Restore</button>
+            </form>
+            <p class="hint" style="margin:0.25rem 0 0;">Applies to your next matches.</p>
+        </div>
         {% endif %}
     </article>
     {% endfor %}

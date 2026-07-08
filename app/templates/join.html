@@ -53,6 +53,9 @@
                 <span class="pick-sub">{{ row.version.strategy_text[:80] }}{% if row.version.strategy_text | length > 80 %}…{% endif %}</span>
                 {% endif %}
             </div>
+            {% if row.version %}
+            <p class="pick-sub" style="margin:0.15rem 0 0;">v{{ row.version.version_no }}{% if row.version.note %} · {{ row.version.note }}{% endif %}{% if row.stats and row.stats.record_label %} · {{ row.stats.record_label }}{% endif %}</p>
+            {% endif %}
             {% if row.preferred_model_failing %}
             <p class="pick-sub" style="color:var(--alert);">⚠ This agent's preferred model can't run on your connector — fix it in <a href="/me/agents/{{ row.agent.id }}">agent settings</a>, or this seat falls back to the default model.</p>
             {% endif %}

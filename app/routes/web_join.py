@@ -29,6 +29,7 @@ from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
 from app.provider_labels import PROVIDER_LABELS
+from app.read_models.version_stats import VersionStats, version_stats_by_id
 from app.request_logging import set_request_trace_context
 from app.routes.web_play import seat_human_player
 from app.routes.web_player_shared import (
@@ -153,9 +154,13 @@ async def _build_agent_rows(
     """The user's AI agents for the join picker, each flagged if it's already
     seated in this match or if its preferred model is verified-failing.
 
-    FR-014: warn (not block) when the agent's preferred model is verified-failing
-    on every live machine connection for its provider. A not-yet-checked model
-    doesn't warn. No Player is seated here — this is a read-only picker.
+    Agents are per-game, so only this match's game shows (the filter lives here,
+    not in the shared ``_load_user_agents``, which the connect flows also use).
+    Each row carries its current version's completed-match record so the pick is
+    informed. FR-014: warn (not block) when the agent's preferred model is
+    verified-failing on every live machine connection for its provider. A
+    not-yet-checked model doesn't warn. No Player is seated here — this is a
+    read-only picker.
     """
     agents = await _load_user_agents(db, user.id)
     # Agents already seated in this match stay visible, but they can't join
@@ -171,10 +176,16 @@ async def _build_agent_rows(
         .scalars()
         .all()
     )
+    pickable = [
+        (agent, version)
+        for agent, version in agents
+        if agent.kind == AgentKind.AI and version is not None and agent.game == match.game
+    ]
+    stats_by_version = await version_stats_by_id(
+        db, [version.id for _agent, version in pickable]
+    )
     agent_rows: list[dict[str, object]] = []
-    for agent, version in agents:
-        if agent.kind != AgentKind.AI or version is None:
-            continue
+    for agent, version in pickable:
         preferred_failing = False
         if agent.preferred_model:
             prov = provider_for_model(agent.preferred_model)
@@ -186,6 +197,7 @@ async def _build_agent_rows(
             {
                 "agent": agent,
                 "version": version,
+                "stats": stats_by_version.get(version.id, VersionStats()),
                 "seated": agent.id in seated_agent_ids,
                 "preferred_model_failing": preferred_failing,
             }

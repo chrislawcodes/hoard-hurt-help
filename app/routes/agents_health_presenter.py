@@ -8,8 +8,7 @@ and detail route modules can share it without importing each other.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 
@@ -19,6 +18,7 @@ from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState
 from app.models.player import Player
+from app.read_models.version_stats import VersionMatchLink, VersionStats
 
 
 def health_view(status: ConnectionHealthStatus) -> dict[str, object]:
@@ -58,11 +58,13 @@ class AgentRow:
 
 @dataclass(frozen=True)
 class VersionRow:
+    """One row of the agent-detail version timeline: the version, its
+    completed-match record, and up-to-3 recent completed-match links."""
+
     version: AgentVersion
-    rank: int
-    match_count: int
-    last_played_at: datetime | None
+    stats: VersionStats
     frozen: bool
+    recent_matches: list[VersionMatchLink] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

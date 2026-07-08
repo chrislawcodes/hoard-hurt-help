@@ -120,7 +120,7 @@ Every external entry point. Split by audience.
 | `showcase_replay.py` | 153 | Cached cross‑game **showcase replay** the marketing front page embeds. |
 | `nav_context.py` | 327 | The smart **"Play" CTA** for the nav + marketing hero, and the **play‑setup gate**: `resolve_play_setup_state()` returns the first unmet onboarding step + the canonical `next_url`; `compute_nav_cta` wraps it for the nav. Read by `/play`, post‑login, agent‑create, and the join redirect. |
 | `spectator_api.py` | 118 | Public spectator JSON. **Never** returns strategy prompts. |
-| `agent_next_turn.py` | 98 | The game‑agnostic "what do I do next" endpoint — a thin route over `app/engine/agent_play_next_turn.py` — the heart of paste‑once play. **Matched‑routing**: fans out across the same user's active AI agents, and serves a seat only to a connection that **covers the seat's `chosen_provider`** (the AI the user picked at join) — legacy seats with `chosen_provider IS NULL` fall back to "any connection". Claims the match's pin with one atomic conditional UPDATE so two polls can't double‑serve, keys candidate turns by `(agent_id, match_id)`, stamps `Player.played_provider` from `chosen_provider` on first claim, and returns the chosen agent's id/name/model/version plus the seat's **`provider`** (the connector runs that CLI; an MCP client ignores it) and an `agent_turn_token` that binds the later submit to one (agent, match). The "connection covers provider" check + the atomic pin claim live in the DB‑free `app/engine/turn_routing.py`; final ordering stays in `next_turn.select_next_turn`. `report_pid` also lives here and accepts optional `detected_providers` to update `connection_providers.detected`. |
+| `agent_next_turn.py` | 98 | The game‑agnostic "what do I do next" endpoint — a thin route over `app/engine/agent_play_next_turn.py` — the heart of paste‑once play. **Matched‑routing**: fans out across the same user's active AI agents, and serves a seat only to a connection that **covers the seat's `chosen_provider`** (the AI the user picked at join) — legacy seats with `chosen_provider IS NULL` fall back to "any connection". Claims the match's pin with one atomic conditional UPDATE so two polls can't double‑serve, keys candidate turns by `(agent_id, match_id)`, stamps `Player.played_provider` from `chosen_provider` on first claim, and returns the chosen agent's id/name/model/version — the strategy/version served is the **seat's pinned `Player.agent_version_id`** (stamped at match start), not the agent's live `current_version_id` — plus the seat's **`provider`** (the connector runs that CLI; an MCP client ignores it) and an `agent_turn_token` that binds the later submit to one (agent, match). The "connection covers provider" check + the atomic pin claim live in the DB‑free `app/engine/turn_routing.py`; final ordering stays in `next_turn.select_next_turn`. `report_pid` also lives here and accepts optional `detected_providers` to update `connection_providers.detected`. |
 | `agent_model_verification.py` | small | The **model‑verification channels** — two dedicated connector endpoints, **separate from the turn poll** (the idle connector discards the poll body, so verification can't ride on it). **Down‑channel** (server → connector): a *worklist* the connector pulls on its own short ~60s cadence, returning the `(provider, model)` pairs to verify for this connection (the union of preferred models + provider defaults across the user's agents, scoped to the connection's enabled providers) plus the cached status so a `verified`/recent result is skipped. **Up‑channel** (connector → server): the connector posts each result — outcome (`verified` / `failed` / `timeout`) + bounded error text, *and* a play‑time failure reason (kept off the submit body, which a missed‑deadline turn never sends) — which writes the `model_verifications` row. Auth by `X‑Connection‑Key` (same as the poll). |
 | `sse.py` | — | Server‑Sent Events streams the live viewer subscribes to (bridges `broadcast`). |
 | `auth.py` | 128 | Google OAuth sign‑in / sign‑out. `sync_google_user` is **additive**: it ensures `ADMIN` for config‑floor emails and otherwise **preserves** the stored `role`, so an in‑app promotion survives the next login. |
@@ -134,7 +134,7 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 | `scheduler.py` | 428 | **Registry + due‑game poller.** Tracks the running asyncio task per active game; auto‑starts and cancels due games; resumes task loops after a process restart. The poller runs seven subsystems per tick (arena fill/create, held‑seat sweep, start‑due, the watchdog, then the overdue‑turn sweeper); each is failure‑isolated and escalates to CRITICAL after repeated failures. The per‑match turn‑loop logic lives in `scheduler_turn_loop.py` and is re‑exported here so callers and tests keep the same import path. |
 | `scheduler_turn_loop.py` | 401 | **Per‑match turn loop.** Owns `_run_game`, `_open_turn`, and the `_wait_for_*` helpers — split from `scheduler.py` to isolate the freeze‑prone resume path. Re‑exported through `scheduler.py`; the dependency is one‑directional (scheduler imports turn loop, never the reverse). |
 | `overdue_sweeper.py` | 278 | **Self‑heal for frozen matches** — the 7th poller subsystem (`sweep_overdue_turns`, runs after the watchdog). An ACTIVE match whose current turn is unresolved >60s (`OVERDUE_TURN_GRACE_SECONDS`) past `deadline_at` is force‑advanced: stop the task, default the stuck phase (talk → `finalize_talk_phase` + a fresh act window; act → `module.resolve_turn`, PD defaults to HOARD), restart the loop. Never runs `auto_submit_bot_phase`; never touches `current_round`/`current_turn`. Simultaneous drivers only — a sequential game (Liar's Dice) is logged `overdue_turn_unhealable` instead. Ops events: `overdue_turn_swept` / `overdue_turn_sweep_failed` / `overdue_turn_pointer_mismatch` / `overdue_turn_unhealable`. |
-| `agent_play.py` + `agent_play_next_turn.py` / `agent_play_reads.py` / `agent_play_guards.py` | ~1,690 (split) | **The shared play‑service layer** every agent action runs through — called by **both** the HTTP routes and the MCP tools (thin adapters; auth differs, logic is shared). Split by job: `agent_play.py` (the per‑match verbs — submit‑talk/submit‑action/state/leave/opponent/chat/turn/standings — and re‑exports the rest so callers keep importing from `app.engine.agent_play`), `agent_play_next_turn.py` (the connection‑level next‑turn fan‑out + sticky‑pin claim — the **one** turn-serving path), `agent_play_reads.py` (DB→payload projections), `agent_play_guards.py` (pull rate‑limit / binding / error primitives). Deps run one‑way (guards ← reads ← {next_turn, verbs}), no cycle. **Game‑agnostic**: every game‑specific bit goes through the `GameModule` contract, so this layer already serves PD *and* Liar's Dice; the move dict is opaque to it (one small exception: `_LD_VALIDATION_SNAPSHOT_KEYS` names Liar's‑Dice snapshot keys to strip). |
+| `agent_play.py` + `agent_play_next_turn.py` / `agent_play_reads.py` / `agent_play_guards.py` | ~1,690 (split) | **The shared play‑service layer** every agent action runs through — called by **both** the HTTP routes and the MCP tools (thin adapters; auth differs, logic is shared). Split by job: `agent_play.py` (the per‑match verbs — submit‑talk/submit‑action/state/leave/opponent/chat/turn/standings — and re‑exports the rest so callers keep importing from `app.engine.agent_play`), `agent_play_next_turn.py` (the connection‑level next‑turn fan‑out + sticky‑pin claim — the **one** turn-serving path; it resolves each seat's strategy through the pinned `Player.agent_version_id`, so what a live match is served never moves with a mid‑match edit or restore), `agent_play_reads.py` (DB→payload projections), `agent_play_guards.py` (pull rate‑limit / binding / error primitives). Deps run one‑way (guards ← reads ← {next_turn, verbs}), no cycle. **Game‑agnostic**: every game‑specific bit goes through the `GameModule` contract, so this layer already serves PD *and* Liar's Dice; the move dict is opaque to it (one small exception: `_LD_VALIDATION_SNAPSHOT_KEYS` names Liar's‑Dice snapshot keys to strip). |
 | `game_insights.py` | ~300 | Spectator-insight **shapes + game-agnostic skeleton** (round-win standings, round results, leaderboard-from-0, score-derived surging) + the `BaseGameModule` defaults. The PD-specific enrichment (grudges, alliances, cooperation mood, betrayals, pile-ons) lives in the PD module (`app/games/hoard_hurt_help/insights.py`); the platform reaches all insights through `GameModule.season_overview()` / `round_detail()` / `board_signals()`. |
 | `connection_activity.py` | 364 | Connection onboarding + health across its agents: first‑connect / first‑move detection, key cutover on graceful reissue, the live heartbeat badge. (Renamed from `bot_activity.py`; auth's single choke point calls its `mark_seen` on the `Connection`.) |
 | `connection_health.py` | 104 | **Thin aggregator** — re‑exports the three modules below so callers keep one import path. The connection‑health logic was split out by job; this file owns no logic of its own now. |
@@ -198,7 +198,7 @@ User ──< Connection ──< ConnectionProviders   (per‑provider toggle + d
   └──< Agent ──< AgentVersion                  (agent = name + strategy; AI is per‑seat; model is optional + per‑agent)
         │
         └──< Player >── Match
-                 │  └──> AgentVersion           (the version it ran)
+                 │  └──> AgentVersion           (the pinned version it runs — re‑stamped at match start)
                  │  └──> Connection             (served_by_connection_id: the sticky pin)
                  │  (Player.chosen_provider: the AI the user picked at join;
                  │   Player.played_provider: the AI that actually played it)
@@ -262,16 +262,28 @@ The single `Bot` row was split into a **login** and a **competitor** (feature
   for `model_provider_match.py`); a machine connection honors it only when it
   matches the seat's chosen provider, and MCP turns ignore it (the client picks
   the model).
-- **`agent_version.py`** (38) — the versioned **strategy** an agent has run:
-  `version_no`, `strategy_text`, `frozen_at`, and a now‑legacy `model` column.
-  `model` is **nullable** and unused by the decoupled model — new versions store
-  NULL; the AI that actually played is recorded on the seat
-  (`Player.played_provider`). Append‑only and retained forever once frozen (it
-  first plays a rated match), so a completed match always resolves the exact
-  competitor it ran. Replaces the old `strategy_prompts` table.
+- **`agent_version.py`** — the versioned **strategy** an agent has run:
+  `version_no`, `strategy_text`, an optional owner `note` (≤140 chars, the
+  "what did you change" label written with a save — overwritten on an in‑place
+  draft edit, set fresh on a fork; migration `0046`), `frozen_at`, and a
+  now‑legacy `model` column. `model` is **nullable** and unused by the
+  decoupled model — new versions store NULL; the AI that actually played is
+  recorded on the seat (`Player.played_provider`). Append‑only and retained
+  forever once frozen (it first plays a rated match), so a completed match
+  always resolves the exact competitor it ran. **Serving does not read the
+  agent's `current_version_id`:** the version that plays a match is the seat's
+  pin — `Player.agent_version_id`, stamped at join and re‑stamped from the
+  agent's current version when the match goes ACTIVE
+  (`scheduler.start_game` → `_pin_current_versions`, same transaction as the
+  state flip) — so a mid‑match edit or restore‑version only affects future
+  matches. Replaces the old `strategy_prompts` table.
 - **`player.py`** (now has `agent_id` FK + `agent_version_id` FK + `seat_name` +
   the chosen/played‑AI columns + sticky‑pin columns) — one participation per
-  match, pinned to the exact version that played. **`chosen_provider`**
+  match, pinned to the exact version that played: `agent_version_id` is stamped
+  at join, **re‑stamped from the agent's `current_version_id` at match start**
+  (`scheduler.start_game`), and is what turn serving resolves the strategy
+  through (`agent_play_next_turn` joins `AgentVersion` on this pin for ACTIVE
+  matches). **`chosen_provider`**
   (`String(16)`, nullable) is the AI the user **picked at join** to play this
   seat; routing only lets a connection covering it claim the seat, and "one AI =
   one seat" is enforced by refusing a provider already chosen for another
@@ -354,7 +366,9 @@ second game ship its own move vocabulary. Migration `0042` (player‑autopilot) 
 leaves. Migration `0044` (agent‑preferred‑model) adds the nullable mutable
 `agents.preferred_model`, the one optional per‑agent AI knob; a follow‑up migration
 creates the `model_verifications` table (per connection+provider+model status +
-bounded error + checked‑at) that backs the verification channels below. (Other migrations in the `003x`–`004x` range cover the MCP‑connection
+bounded error + checked‑at) that backs the verification channels below. Migration
+`0046` (agent‑version‑note) adds the nullable `agent_versions.note` — the owner's
+short "what did you change" label. (Other migrations in the `003x`–`004x` range cover the MCP‑connection
 bridge and its rename — `0032`/`0038` — per‑provider one‑connection rules
 (`0035`/`0036`), the sideline coach (`0030`), seat holds (`0034`), and connection
 poll/usage counters.) Migrations apply automatically on startup.
