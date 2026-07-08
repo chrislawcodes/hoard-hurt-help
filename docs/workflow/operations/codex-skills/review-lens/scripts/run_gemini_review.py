@@ -587,6 +587,28 @@ def write_narrowed_artifact(
     return narrowed_path, narrowed_meta["narrowed_artifact_sha256"]
 
 
+# Per-lens instruction text. Lens names are otherwise free-form strings that
+# just get interpolated into "using a {lens} lens" below — most lenses carry no
+# additional guidance beyond that and the stage-level instructions further
+# down. A named lens earns an entry here only when its name alone doesn't
+# already point the reviewer at the specific failure mode it exists to catch.
+LENS_INSTRUCTIONS: dict[str, str] = {
+    # betrayal-8-4 run: the decisive catch came from tracing a changed value to
+    # every place that reads it. Named so it can be requested explicitly
+    # (discover's --completeness-risk routing flag recommends adding it)
+    # instead of relying on reviewers to infer the tracing angle from the lens
+    # name alone.
+    "completeness-adversarial": (
+        "Trace every consumer and render path of each value the artifact changes — "
+        "every place that reads, displays, stores, or recomputes it (server code, "
+        "templates, client scripts, JSON payloads, docs, tests). Confirm each one is "
+        "updated or explicitly out of scope. Report any consumer the change misses as "
+        "a finding; a value changed in one place and stale in another is exactly the "
+        "defect this lens exists to catch."
+    ),
+}
+
+
 def prompt_for(stage: str, lens: str, artifact_label: str, artifact_text: str, extra_context: list[tuple[str, str]]) -> str:
     def safe_label(value: str) -> str:
         return value.replace("`", "'").replace("\r", " ").replace("\n", " ")
@@ -617,13 +639,37 @@ def prompt_for(stage: str, lens: str, artifact_label: str, artifact_text: str, e
         if stage in {"diff", "closeout"} else ""
     )
 
+    # Lens-specific tracing instruction, when this lens has one (see
+    # LENS_INSTRUCTIONS above). Lenses without an entry stay pure free-form
+    # interpolation via the "using a {lens} lens" line below.
+    lens_instruction = LENS_INSTRUCTIONS.get(lens, "")
+
+    # betrayal-8-4 run: the #1 review friction was reviewers running out of
+    # turns WHILE writing prose analysis, before ever reaching the required
+    # findings format — a response cut off like that has no parseable findings
+    # at all. Tell the reviewer to reach the required format first and treat
+    # anything past it as optional extra credit, rather than a final step to
+    # save for after a full investigation.
+    findings_first_instruction = (
+        "Output length is limited and a response can be cut off before it finishes. "
+        "Emit the required structured output first — the \"## Findings\" section, "
+        "the \"## Residual Risks\" section, and the fenced findings JSON block — "
+        "before any exploratory narration or extended analysis. Do not spend your "
+        "early output investigating the artifact in prose and save the required "
+        "format for last: a response cut off mid-investigation must still contain "
+        "parseable findings. Any deeper supporting analysis you want to add can "
+        "follow after the required sections and JSON block are complete."
+    )
+
     parts = [
         f"Review this {stage} artifact using a {lens} lens.",
         "Stay scoped to that lens.",
+        *([lens_instruction] if lens_instruction else []),
         "Approach the artifact adversarially: look for hidden flaws, omitted cases, and weak assumptions before giving credit.",
         *([fail_loud_instruction] if fail_loud_instruction else []),
         context_instruction,
         "The full review artifact text is included below in this prompt.",
+        findings_first_instruction,
         "Return markdown using exactly these sections:",
         "## Findings",
         "## Residual Risks",
