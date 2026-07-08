@@ -383,3 +383,88 @@ async def test_agent_in_active_practice_match_is_locked_against_delete_and_edit(
         cookies=cookies,
     )
     assert edit_resp.status_code == 409
+
+
+async def test_restore_version_blocked_while_agent_is_mid_match(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Turns are served from the live current_version_id pointer, so restore
+    must refuse (409, pointer untouched) while the agent sits in an active
+    match — the same lock save-version already enforces."""
+    async with session_factory() as db:
+        user = await make_user(db, i=8, handle="agent8")
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        agent, _ = await make_agent(
+            db, user, connection=connection, name="Restorer", create_version=False
+        )
+        old_version = await make_version(db, agent, version_no=1, strategy_text="Old plan")
+        current_version = await make_version(db, agent, version_no=2, strategy_text="New plan")
+        match = await _make_match(db, "M_5000", state=GameState.ACTIVE)
+        await seat_prebuilt_player(
+            db,
+            match=match,
+            user=user,
+            agent=agent,
+            version=current_version,
+            seat_name=f"{user.handle}/Restorer",
+        )
+        await db.commit()
+        agent_id = agent.id
+
+    resp = await client.post(
+        f"/me/agents/{agent_id}/restore-version/{old_version.id}",
+        cookies=_signed_in_cookies(user.id),
+    )
+    assert resp.status_code == 409
+
+    async with session_factory() as db:
+        stored_agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
+        assert stored_agent.current_version_id == current_version.id
+
+    # The detail page grays the button out and says why, so users don't hit
+    # the 409 blind.
+    detail = await client.get(f"/me/agents/{agent_id}", cookies=_signed_in_cookies(user.id))
+    assert detail.status_code == 200
+    assert "Restore unlocks after the match ends" in detail.text
+    assert 'disabled title="Available after the match ends"' in detail.text
+
+
+async def test_restore_version_repoints_when_no_active_match(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A finished match doesn't lock restore — the pointer repoints normally."""
+    async with session_factory() as db:
+        user = await make_user(db, i=9, handle="agent9")
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        agent, _ = await make_agent(
+            db, user, connection=connection, name="Restorer", create_version=False
+        )
+        old_version = await make_version(db, agent, version_no=1, strategy_text="Old plan")
+        current_version = await make_version(db, agent, version_no=2, strategy_text="New plan")
+        match = await _make_match(db, "M_6000", state=GameState.COMPLETED)
+        await seat_prebuilt_player(
+            db,
+            match=match,
+            user=user,
+            agent=agent,
+            version=current_version,
+            seat_name=f"{user.handle}/Restorer",
+        )
+        await db.commit()
+        agent_id = agent.id
+
+    resp = await client.post(
+        f"/me/agents/{agent_id}/restore-version/{old_version.id}",
+        cookies=_signed_in_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    async with session_factory() as db:
+        stored_agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
+        assert stored_agent.current_version_id == old_version.id
+
+    detail = await client.get(f"/me/agents/{agent_id}", cookies=_signed_in_cookies(user.id))
+    assert detail.status_code == 200
+    assert "Restore unlocks after the match ends" not in detail.text
+    assert '<button type="submit" class="secondary">Restore</button>' in detail.text

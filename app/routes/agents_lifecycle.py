@@ -293,6 +293,16 @@ async def restore_version(
         raise HTTPException(status_code=404, detail="Version not found.")
     if version.id == agent.current_version_id:
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+    # Turn serving reads strategy text through the live Agent.current_version_id
+    # pointer, so repointing here would swap the strategy a running match is
+    # played with — the same invariant save-version's 409 protects. Agent-level
+    # (not version-level) because the one pointer feeds every active seat this
+    # agent holds, whatever version each seat was pinned with at join.
+    if await agent_has_active_match(db, agent.id):
+        raise HTTPException(
+            status_code=409,
+            detail="This agent is mid-match — restore a version after the match ends.",
+        )
     agent.current_version_id = version.id
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)

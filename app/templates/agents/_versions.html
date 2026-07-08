@@ -1,6 +1,9 @@
 {% if versions | length > 1 %}
 <div class="card">
     <h3 style="margin-top:0;">Version history</h3>
+    {% if active_matches %}
+    <p class="meta">This agent is mid-match — Restore unlocks after the match ends.</p>
+    {% endif %}
     {% for row in versions | reverse %}
     <article class="game-card">
         <div class="game-card-info">
@@ -17,7 +20,7 @@
         </div>
         {% if row.version.id != version.id %}
         <form method="post" action="/me/agents/{{ agent.id }}/restore-version/{{ row.version.id }}">
-            <button type="submit" class="secondary">Restore</button>
+            <button type="submit" class="secondary"{% if active_matches %} disabled title="Available after the match ends"{% endif %}>Restore</button>
         </form>
         {% endif %}
     </article>
