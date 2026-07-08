@@ -166,12 +166,30 @@
         if (!streamUrl || !liveUrl) return;
 
         let inFlight = false;
+        let lastSyncAt = Date.now();
         function refresh() {
             if (inFlight) return;  // coalesce the burst of events that arrive together
             inFlight = true;
+            lastSyncAt = Date.now();
             htmx.ajax('GET', liveUrl, { target: '#live-region', swap: 'innerHTML' })
                 .finally(function () { inFlight = false; });
         }
+
+        // Backup poll — the safety net under the single SSE connection. A proxy
+        // idle-drop, a laptop sleep, a backgrounded tab, or a network blip can
+        // silently stop the stream's events with no clean reconnect, which would
+        // freeze the viewer at its last turn while the match plays on. If nothing
+        // has synced for a while, re-fetch anyway. Reuses refresh() (and
+        // extendTurns ignores turns it already has), so it's a no-op whenever SSE
+        // is healthy and only does work once the stream has gone quiet.
+        // Check often (cheap: just a clock comparison), but only re-fetch once the
+        // stream has actually gone silent — a live match is legitimately quiet
+        // while it waits on a slow player, and the client can't tell that apart
+        // from a dead connection, so we heal on silence rather than on every gap.
+        const BACKUP_STALE_MS = 15000;
+        const backupPoll = setInterval(function () {
+            if (Date.now() - lastSyncAt >= BACKUP_STALE_MS) refresh();
+        }, 5000);
 
         const es = new EventSource(streamUrl);
         ['turn_resolved', 'turn_opened', 'turn_talked', 'round_ended', 'game_completed'].forEach(function (name) {
@@ -184,7 +202,7 @@
             if (firstOpen) { firstOpen = false; return; }
             refresh();
         });
-        es.addEventListener('game_completed', function () { es.close(); });
+        es.addEventListener('game_completed', function () { es.close(); clearInterval(backupPoll); });
     }
 
     if (document.readyState === 'loading') {
