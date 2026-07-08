@@ -468,12 +468,21 @@ spec/plan/data-model.
 Each **strategy** an agent runs is an **AgentVersion** with its own rating.
 Editing an unplayed draft version edits it in place; editing a version that has
 already played a rated match forks a new version (N+1) and freezes the old one.
-A completed match records the exact version it ran, so a later edit can never
-rewrite history. Versions are **retained forever** once frozen, so past
-competitors stay reviewable. This resolves the earlier contradiction between
-"strategy is editable" and "a rank means a fixed competitor." (`AgentVersion` keeps
-a legacy `model` column, but it is unused and NULL on new versions — the agent has
-no fixed AI.)
+Each version can carry a short owner **note** ("what did you change") so the
+timeline reads as an improvement log. A completed match records the exact
+version it ran, so a later edit can never rewrite history. Versions are
+**retained forever** once frozen, so past competitors stay reviewable. This
+resolves the earlier contradiction between "strategy is editable" and "a rank
+means a fixed competitor." (`AgentVersion` keeps a legacy `model` column, but it
+is unused and NULL on new versions — the agent has no fixed AI.)
+
+**The version you have when the match starts is the version that plays.**
+Joining stamps the seat with the agent's current version; when the match goes
+ACTIVE the seat is re‑stamped from the current version in the same transaction
+as the state flip; and every turn is served from the seat's recorded version —
+never from the agent's live pointer. So a pre‑start edit is picked up at start,
+while a mid‑match edit (blocked anyway) or a mid‑match restore‑version only
+affects future matches.
 
 ### Pick the AI at join time — **Decided**
 
@@ -493,6 +502,12 @@ capacity as the join limiter.
 If the AI you pick isn't live yet, the seat is **held** and you're walked through
 bringing that specific AI online ("Reconnect Gemini", etc.); the seat locks the
 moment that AI starts playing.
+
+The join also fixes **which strategy** the seat runs: the version you have when
+the match starts is the version that plays — the seat records it
+(`Player.agent_version_id`, re‑stamped at match start) and play is served from
+that record, so editing or restoring the agent afterward never changes a match
+already underway.
 
 ### Leaderboard identity — **Decided**
 

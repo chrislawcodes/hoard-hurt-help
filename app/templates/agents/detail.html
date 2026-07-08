@@ -38,15 +38,31 @@
 </div>
 
 <div class="card">
-    <h3 style="margin-top:0;">Version</h3>
+    <h3 style="margin-top:0;">Strategy</h3>
     {% if version %}
-    <p class="meta" style="margin-top:0;">v{{ version.version_no }} · {{ version.created_at | localdt }}</p>
-    {% if version.strategy_text %}
-    <p class="meta" style="margin-top:0.25rem;">{{ version.strategy_text[:120] }}{% if version.strategy_text | length > 120 %}…{% endif %}</p>
+    <p class="meta" style="margin-top:0;">v{{ version.version_no }} · {{ version.created_at | localdt }}{% if version.note %} · {{ version.note }}{% endif %}</p>
+    {% if version.strategy_text | length > 600 %}
+    <p style="white-space:pre-wrap; margin-bottom:0.25rem;">{{ version.strategy_text[:600] }}…</p>
+    <details>
+        <summary class="meta">Show the rest ({{ version.strategy_text | length }} characters total)</summary>
+        <p style="white-space:pre-wrap; margin-top:0.25rem;">{{ version.strategy_text[600:] }}</p>
+    </details>
+    {% else %}
+    <p style="white-space:pre-wrap;">{{ version.strategy_text }}</p>
     {% endif %}
+    <p class="meta">
+        {% if current_stats.record_label %}{{ current_stats.record_label }}{% if current_stats.practice_matches %} · {{ current_stats.practice_matches }} practice{% endif %}
+        {% elif current_stats.practice_matches %}No rated matches yet · {{ current_stats.practice_matches }} practice
+        {% else %}No completed matches yet{% endif %}
+    </p>
     <div style="margin-top:0.75rem;">
-        <a href="/me/agents/{{ agent.id }}/edit" class="cta secondary">Edit version</a>
+        {% if version_playing_now %}
+        <p class="hint" style="margin:0;">Playing now — editing unlocks when the match ends.</p>
+        {% else %}
+        <a href="/me/agents/{{ agent.id }}/edit" class="btn btn-primary">Improve strategy</a>
+        {% endif %}
     </div>
+    <p><small class="hint">The game also supplies shared rules and response instructions. <a href="/games/{{ agent.game }}/agent-instructions">View base instructions</a>.</small></p>
     {% else %}
     <p class="empty">No version yet.</p>
     {% endif %}

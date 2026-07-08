@@ -56,6 +56,7 @@ async def _fork_version(
     *,
     agent: Agent,
     strategy_text: str,
+    note: str | None,
 ) -> AgentVersion:
     next_version_no = (
         await db.scalar(
@@ -69,6 +70,7 @@ async def _fork_version(
         version_no=int(next_version_no) + 1,
         model=None,
         strategy_text=strategy_text,
+        note=note,
         frozen_at=None,
     )
     db.add(version)
@@ -82,20 +84,23 @@ async def _apply_version_edit(
     *,
     agent: Agent,
     strategy_text: str,
+    note: str | None = None,
 ) -> AgentVersion:
     """Apply a strategy edit, forking a new version if the current one is frozen
     or has rated history. Agents are just name + strategy now — there is no model
-    to edit."""
+    to edit. *note* is the owner's "what changed" label: an in-place draft edit
+    overwrites it, a fork sets it on the new version."""
     current = await _load_current_version(db, agent)
     if await version_has_active_match(db, current.id):
         raise HTTPException(status_code=409, detail="That version is mid-match and locked.")
     current_has_rated_history = await _version_has_rated_history(db, current.id)
     if not current_has_rated_history and current.frozen_at is None:
         current.strategy_text = strategy_text
+        current.note = note
         return current
     if current.frozen_at is None and current_has_rated_history:
         current.frozen_at = datetime.now(timezone.utc)
-    return await _fork_version(db, agent=agent, strategy_text=strategy_text)
+    return await _fork_version(db, agent=agent, strategy_text=strategy_text, note=note)
 
 
 @router.post("/{agent_id}/rename")
@@ -190,11 +195,14 @@ async def set_strategy(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     strategy_text: Annotated[str, Form()],
+    note: Annotated[str, Form()] = "",
 ) -> RedirectResponse:
     """Alias for ``save-version`` — same handler body, kept so the POST surface
     doesn't change. The live edit form posts to ``save-version``; this delegates
     so the two routes can't drift."""
-    return await save_version(agent_id=agent_id, db=db, user=user, strategy_text=strategy_text)
+    return await save_version(
+        agent_id=agent_id, db=db, user=user, strategy_text=strategy_text, note=note
+    )
 
 
 # Every model the picker may set — the union of the provider allowlists. An empty
@@ -250,6 +258,9 @@ async def edit_agent_version_page(
             "version": version,
             "next_version_no": next_version_no,
             "will_fork": will_fork,
+            # Saving would 409 while the version is mid-match; render the locked
+            # notice instead of a form that can only fail.
+            "version_playing_now": await version_has_active_match(db, version.id),
         },
     )
 
@@ -260,15 +271,19 @@ async def save_version(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     strategy_text: Annotated[str, Form()],
+    note: Annotated[str, Form()] = "",
 ) -> RedirectResponse:
     agent = await load_owned_agent(db, user, agent_id)
     clean_strategy = strategy_text.strip()
     if not clean_strategy:
         raise HTTPException(status_code=400, detail="Strategy text is required.")
+    clean_note = note.strip() or None
+    if clean_note is not None and len(clean_note) > 140:
+        raise HTTPException(status_code=400, detail="Note must be 140 characters or fewer.")
     current = await _load_current_version(db, agent)
     if clean_strategy == current.strategy_text.strip():
         return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
-    await _apply_version_edit(db, agent=agent, strategy_text=clean_strategy)
+    await _apply_version_edit(db, agent=agent, strategy_text=clean_strategy, note=clean_note)
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
 

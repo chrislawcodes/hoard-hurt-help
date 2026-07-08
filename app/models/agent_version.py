@@ -33,6 +33,10 @@ class AgentVersion(Base):
     version_no: Mapped[int] = mapped_column(Integer, nullable=False)
     model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     strategy_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # The owner's short "what did you change" label for this version. Written
+    # with a strategy save (overwritten on an in-place draft edit, set fresh on
+    # a fork); purely descriptive — never read by play.
+    note: Mapped[str | None] = mapped_column(String(140), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

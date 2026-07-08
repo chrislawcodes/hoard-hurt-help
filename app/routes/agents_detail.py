@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS
@@ -32,7 +32,12 @@ from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
-from app.read_models.matches import agent_has_active_match
+from app.read_models.matches import agent_has_active_match, version_has_active_match
+from app.read_models.version_stats import (
+    VersionStats,
+    recent_completed_matches_by_version,
+    version_stats_by_id,
+)
 from app.routes.agents_health_presenter import (
     MatchEntry,
     VersionRow,
@@ -87,43 +92,31 @@ async def _load_agent_matches(db: DbSession, agent_id: int) -> list[MatchEntry]:
 
 
 async def _version_rows(db: DbSession, agent_id: int) -> list[VersionRow]:
-    rows = (
-        await db.execute(
-            select(
-                AgentVersion,
-                func.count(Player.id).label("match_count"),
-                func.max(Match.completed_at).label("last_played_at"),
+    """Every version of the agent (ascending), each with its completed-match
+    record and recent-match links — two batched reads, never one per version."""
+    versions = (
+        (
+            await db.execute(
+                select(AgentVersion)
+                .where(AgentVersion.agent_id == agent_id)
+                .order_by(AgentVersion.version_no, AgentVersion.id)
             )
-            .join(Player, Player.agent_version_id == AgentVersion.id, isouter=True)
-            .join(Match, Match.id == Player.match_id, isouter=True)
-            .where(AgentVersion.agent_id == agent_id)
-            .group_by(AgentVersion.id)
-            .order_by(AgentVersion.version_no.desc(), AgentVersion.id.desc())
         )
-    ).all()
-    ranked = sorted(
-        [
-            (
-                version,
-                int(match_count or 0),
-                last_played_at,
-            )
-            for version, match_count, last_played_at in rows
-        ],
-        key=lambda item: (-item[1], -item[0].version_no, item[0].created_at),
+        .scalars()
+        .all()
     )
-    out: list[VersionRow] = []
-    for index, (version, match_count, last_played_at) in enumerate(ranked, start=1):
-        out.append(
-            VersionRow(
-                version=version,
-                rank=index,
-                match_count=match_count,
-                last_played_at=last_played_at,
-                frozen=version.frozen_at is not None,
-            )
+    version_ids = [v.id for v in versions]
+    stats_by_id = await version_stats_by_id(db, version_ids)
+    recent_by_id = await recent_completed_matches_by_version(db, version_ids)
+    return [
+        VersionRow(
+            version=version,
+            stats=stats_by_id.get(version.id, VersionStats()),
+            frozen=version.frozen_at is not None,
+            recent_matches=recent_by_id.get(version.id, []),
         )
-    return sorted(out, key=lambda row: row.version.version_no)
+        for version in versions
+    ]
 
 
 async def _build_agent_detail_context(
@@ -187,6 +180,19 @@ async def _build_agent_detail_context(
         )
     ).scalar_one_or_none()
     versions = await _version_rows(db, agent.id)
+    current_stats = next(
+        (
+            row.stats
+            for row in versions
+            if version is not None and row.version.id == version.id
+        ),
+        VersionStats(),
+    )
+    # The current version being mid-match means an edit would 409 — the page
+    # shows "playing now" instead of a dead-end Improve CTA.
+    version_playing_now = (
+        await version_has_active_match(db, version.id) if version is not None else False
+    )
 
     active_matches = await agent_has_active_match(db, agent.id)
 
@@ -200,6 +206,14 @@ async def _build_agent_detail_context(
         "agent": agent,
         "version": version,
         "versions": versions,
+        "current_stats": current_stats,
+        "version_playing_now": version_playing_now,
+        # The timeline earns its place once there is history to compare: a
+        # second version, or any completed match on any version.
+        "show_version_history": len(versions) > 1
+        or any(
+            row.stats.rated_matches or row.stats.practice_matches for row in versions
+        ),
         "health": health,
         "active_matches": active_matches,
         "active_match_count": active_match_count,

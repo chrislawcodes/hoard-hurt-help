@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from sqlalchemy import Row, false, or_, select, update
+from sqlalchemy import Row, case, false, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,15 +133,19 @@ async def _fetch_active_agent_rows(
 ) -> list[Row[tuple[Agent, Player, Match, AgentVersion]]]:
     """Every (agent, player, match, version) the connection's user has in play.
 
-    Restricted to the user's active AI agents seated in active matches. When
-    ``agent_id`` is given, restrict to that single agent so a caller running one
-    parallel loop per agent only ever sees (and claims) its own agent's turn.
+    Restricted to the user's active AI agents seated in active matches. The
+    version is the seat's pinned ``Player.agent_version_id`` (re-stamped from
+    the agent's current version when the match went ACTIVE), not the agent's
+    live current pointer — so a mid-match edit or restore never changes what a
+    running match is served. When ``agent_id`` is given, restrict to that single
+    agent so a caller running one parallel loop per agent only ever sees (and
+    claims) its own agent's turn.
     """
     agents_stmt = (
         select(Agent, Player, Match, AgentVersion)
         .join(Player, Player.agent_id == Agent.id)
         .join(Match, Match.id == Player.match_id)
-        .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
+        .join(AgentVersion, AgentVersion.id == Player.agent_version_id, isouter=True)
         .where(
             Agent.user_id == connection.user_id,
             Agent.kind == AgentKind.AI,
@@ -180,9 +184,11 @@ async def _build_candidate_lookups(
     for agent, player, match, version in agent_rows:
         if version is None:
             logger.warning(
-                "next-turn: agent %s (connection %s) has no current version; skipping",
+                "next-turn: agent %s (connection %s) has no pinned version"
+                " for match %s; skipping",
                 agent.id,
                 connection.id,
+                match.id,
             )
             continue
         pin = TurnPin(
@@ -335,6 +341,10 @@ async def _identity_candidate_rows(
 ) -> list[_AgentMatchRow]:
     """Every (agent, player, match, version) the user has in a live or upcoming
     match — the candidate set the identity picker ranks over.
+
+    An ACTIVE match resolves the seat's pinned version (what turn serving uses,
+    stamped at match start); an upcoming match previews the agent's current
+    pointer — the version that will be pinned when it starts.
     """
     return [
         cast(_AgentMatchRow, row)
@@ -345,7 +355,11 @@ async def _identity_candidate_rows(
                 .join(Match, Match.id == Player.match_id)
                 .join(
                     AgentVersion,
-                    AgentVersion.id == Agent.current_version_id,
+                    AgentVersion.id
+                    == case(
+                        (Match.state == GameState.ACTIVE, Player.agent_version_id),
+                        else_=Agent.current_version_id,
+                    ),
                     isouter=True,
                 )
                 .where(
@@ -443,7 +457,9 @@ async def agent_identity_for(
 
     This is for the MCP instructions flow, not turn claiming. It looks at the
     user's active AI agents and their live or upcoming matches, but it never
-    claims a turn and it does not depend on an open turn window.
+    claims a turn and it does not depend on an open turn window. For a live
+    match the strategy is the seat's pinned version — the same text turn
+    serving emits (see ``_identity_candidate_rows``).
     """
     active_agent_ids = await _active_ai_agent_ids(db, connection)
     if not active_agent_ids:
