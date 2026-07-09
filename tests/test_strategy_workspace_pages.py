@@ -34,8 +34,8 @@ async def _completed_match(db, match_id: str, *, match_kind: str = "manual"):
 
 
 async def test_agent_detail_shows_full_strategy_note_and_record(client, reset_db):
-    """The hero card carries the whole strategy text (beyond the 600-char
-    preview), the version note, the record line, and the Improve CTA."""
+    """The strategy card carries the whole strategy text in the inline editor, the
+    version note, the record line, and the fork-aware Save button."""
     async with reset_db() as db:
         user = await make_user(db, i=0)
         agent, version = await make_agent(
@@ -63,12 +63,13 @@ async def test_agent_detail_shows_full_strategy_note_and_record(client, reset_db
 
     r = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert r.status_code == 200
-    assert len(_LONG_STRATEGY) > 600  # the fixture really exercises the fold
-    assert "END_OF_STRATEGY_MARKER" in r.text  # full text, not the old teaser
+    assert len(_LONG_STRATEGY) > 600  # long enough to need the big editable box
+    assert "END_OF_STRATEGY_MARKER" in r.text  # whole strategy, inline in the editor
+    assert 'name="strategy_text"' in r.text  # editable in place, not a link out
+    assert "Save as v2" in r.text  # this version has played, so a save forks v2
     assert "Sharper endgame" in r.text
     assert "Won 1 of 2 rated matches" in r.text
     assert "1 practice" in r.text
-    assert "Improve strategy" in r.text
     # A single version that HAS played shows the timeline (old gate was >1).
     assert "Version history" in r.text
     assert f"/games/{win.game}/matches/M_WIN" in r.text  # recent-match link
@@ -86,9 +87,9 @@ async def test_agent_detail_hides_timeline_with_one_unplayed_version(client, res
     assert "Version history" not in r.text
 
 
-async def test_edit_page_locks_while_version_is_mid_match(client, reset_db):
-    """Mid-match the edit page renders the locked notice instead of a form, and
-    the detail hero swaps the Improve CTA for the same notice."""
+async def test_old_edit_url_redirects_and_detail_locks_mid_match(client, reset_db):
+    """The old /edit path now permanently redirects to the agent page, and
+    mid-match the inline editor is replaced by the locked notice (no form)."""
     async with reset_db() as db:
         user = await make_user(db, i=2)
         agent, version = await make_agent(db, user, name="Busy")
@@ -106,15 +107,20 @@ async def test_edit_page_locks_while_version_is_mid_match(client, reset_db):
         )
         await db.commit()
 
-    edit = await client.get(f"/me/agents/{agent.id}/edit", cookies=_cookies(user.id))
-    assert edit.status_code == 200
-    assert "Playing now — editing unlocks when the match ends." in edit.text
-    assert f"/me/agents/{agent.id}/save-version" not in edit.text  # no dead-end form
+    # The retired /edit URL redirects to the agent page — the editor lives there now.
+    redirect = await client.get(
+        f"/me/agents/{agent.id}/edit",
+        cookies=_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert redirect.status_code == 308
+    assert redirect.headers["location"].endswith(f"/me/agents/{agent.id}")
 
     detail = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert detail.status_code == 200
     assert "Playing now — editing unlocks when the match ends." in detail.text
-    assert "Improve strategy" not in detail.text
+    assert 'name="strategy_text"' not in detail.text  # no editable form mid-match
+    assert f"/me/agents/{agent.id}/save-version" not in detail.text
 
 
 async def test_save_version_stores_note_in_place_and_on_fork(client, reset_db):

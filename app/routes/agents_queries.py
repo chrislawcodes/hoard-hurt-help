@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 
 from app.deps import DbSession
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
+from app.models.match import Match, MatchKind
+from app.models.player import Player
 from app.models.user import User
 
 
@@ -55,3 +57,48 @@ async def load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found.")
     return agent
+
+
+async def version_has_rated_history(db: DbSession, version_id: int) -> bool:
+    """True once a version has been seated in any non-practice (rated) match.
+
+    A rated match freezes the version, so a later edit forks a new version
+    instead of overwriting it. Shared by the save path (``agents_lifecycle``) and
+    the detail page's fork preview so the two can't drift.
+    """
+    row = (
+        await db.execute(
+            select(Player.id)
+            .join(Match, Match.id == Player.match_id)
+            .where(
+                Player.agent_version_id == version_id,
+                Match.match_kind != MatchKind.PRACTICE_ARENA.value,
+            )
+            .limit(1)
+        )
+    ).first()
+    return row is not None
+
+
+async def version_fork_preview(
+    db: DbSession, *, agent_id: int, version: AgentVersion
+) -> tuple[bool, int]:
+    """Preview what saving an edit to *version* would do, for the editor's button.
+
+    Returns ``(will_fork, version_no)``: ``will_fork`` is true when the version is
+    frozen or already has rated history (so saving creates a new version), and
+    ``version_no`` is the number that save would land on — the next number when
+    forking, or the current highest when editing in place.
+    """
+    max_version_no = await db.scalar(
+        select(func.max(AgentVersion.version_no)).where(
+            AgentVersion.agent_id == agent_id
+        )
+    )
+    will_fork = version.frozen_at is not None or await version_has_rated_history(
+        db, version.id
+    )
+    next_version_no = (
+        int(max_version_no or 0) + 1 if will_fork else int(max_version_no or 1)
+    )
+    return will_fork, next_version_no

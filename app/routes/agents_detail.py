@@ -45,7 +45,7 @@ from app.routes.agents_health_presenter import (
     _is_ready_to_play,
     health_view,
 )
-from app.routes.agents_queries import load_owned_agent
+from app.routes.agents_queries import load_owned_agent, version_fork_preview
 from app.templating import templates
 
 router = APIRouter()
@@ -193,6 +193,14 @@ async def _build_agent_detail_context(
     version_playing_now = (
         await version_has_active_match(db, version.id) if version is not None else False
     )
+    # Fork preview drives the inline editor's Save label ("Save changes" when the
+    # current version edits in place vs. "Save as v{n}" when it forks a new one).
+    if version is not None:
+        will_fork, next_version_no = await version_fork_preview(
+            db, agent_id=agent.id, version=version
+        )
+    else:
+        will_fork, next_version_no = False, 1
 
     active_matches = await agent_has_active_match(db, agent.id)
 
@@ -208,6 +216,8 @@ async def _build_agent_detail_context(
         "versions": versions,
         "current_stats": current_stats,
         "version_playing_now": version_playing_now,
+        "will_fork": will_fork,
+        "next_version_no": next_version_no,
         # The timeline earns its place once there is history to compare: a
         # second version, or any completed match on any version.
         "show_version_history": len(versions) > 1
