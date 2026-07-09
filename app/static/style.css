@@ -1254,6 +1254,32 @@ pre code { background: none; padding: 0; }
 /* A right-aligned actions row under a title (e.g. Analysis link on the viewer). */
 .page-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .page-head .coach-panel { margin: 0.6rem 0 0.45rem; }
+/* Agent settings header: the name is edited in place and reads as the title, so
+ * there's no separate heading + rename box. It only shows its border on
+ * hover/focus so it looks like a title at rest. */
+.agent-title-form { margin: 0; max-width: 100%; }
+input[type="text"].agent-title-input {
+    width: auto;
+    min-width: 10rem;
+    max-width: 100%;
+    margin: 0 0 0 -0.5rem;
+    padding: 0.15rem 0.5rem;
+    font-family: var(--font-head);
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: var(--head-spacing);
+    color: var(--ink);
+    background: transparent;
+    border: 1.5px solid transparent;
+    border-radius: 10px;
+}
+input[type="text"].agent-title-input:hover { border-color: var(--line); background: var(--surface); }
+input[type="text"].agent-title-input:focus { border-color: var(--accent); background: var(--surface); box-shadow: none; }
+/* The strategy editor is the job of this page, so it fills the screen: at least
+ * double the old height, and taller on a big monitor. Everything else on the
+ * page sits below it, past the fold. The auto-grow script extends it further for
+ * a long strategy; this is the floor. */
+.strategy-editor { min-height: max(40rem, calc(100vh - 18rem)); }
 /* A submit/cancel row under a form. */
 .form-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-top: 1.5rem; }
 .admin-prompts-link { margin-top: 2rem; }
