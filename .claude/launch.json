@@ -5,13 +5,15 @@
       "name": "dev-server",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--host", "127.0.0.1", "--port", "8000"],
-      "port": 8000
+      "port": 8000,
+      "env": { "DEV_LOGIN_ENABLED": "true" }
     },
     {
       "name": "hoard-hurt-help",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--host", "127.0.0.1", "--port", "8766"],
-      "port": 8766
+      "port": 8766,
+      "env": { "DEV_LOGIN_ENABLED": "true" }
     }
   ]
 }
