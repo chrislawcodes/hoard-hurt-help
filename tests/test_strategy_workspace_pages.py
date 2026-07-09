@@ -34,8 +34,9 @@ async def _completed_match(db, match_id: str, *, match_kind: str = "manual"):
 
 
 async def test_agent_detail_shows_full_strategy_note_and_record(client, reset_db):
-    """The strategy card carries the whole strategy text in the inline editor, the
-    version note, the record line, and the fork-aware Save button."""
+    """The strategy card carries the whole strategy in the big fill-screen editor,
+    the name is the editable title (no duplicate heading), the record shows in the
+    header, and the Save button is fork-aware."""
     async with reset_db() as db:
         user = await make_user(db, i=0)
         agent, version = await make_agent(
@@ -66,6 +67,9 @@ async def test_agent_detail_shows_full_strategy_note_and_record(client, reset_db
     assert len(_LONG_STRATEGY) > 600  # long enough to need the big editable box
     assert "END_OF_STRATEGY_MARKER" in r.text  # whole strategy, inline in the editor
     assert 'name="strategy_text"' in r.text  # editable in place, not a link out
+    assert "strategy-editor" in r.text  # the big fill-the-screen editor box
+    assert "agent-title-input" in r.text  # name is the editable title...
+    assert "<h1>Hero</h1>" not in r.text  # ...not a duplicate static heading
     assert "Save as v2" in r.text  # this version has played, so a save forks v2
     assert "Sharper endgame" in r.text
     assert "Won 1 of 2 rated matches" in r.text

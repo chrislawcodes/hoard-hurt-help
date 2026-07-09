@@ -2,23 +2,27 @@
 {% block title %}{{ agent.name }} — Agents{% endblock %}
 {% block content %}
 <div class="page-head">
-    <h1>{{ agent.name }}</h1>
-    <p class="sub">
-        <span class="agent-health-live" hx-get="/me/agents/{{ agent.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
-            {% include "agents/_status.html" %}
-        </span>
-    </p>
+    <h1 class="visually-hidden">{{ agent.name }}</h1>
+    <div class="page-head-row">
+        <form method="post" action="/me/agents/{{ agent.id }}/rename" class="agent-title-form">
+            <input type="text"
+                   name="name"
+                   value="{{ agent.name }}"
+                   maxlength="120"
+                   required
+                   aria-label="Agent name"
+                   class="agent-title-input"
+                   onchange="this.form.requestSubmit()">
+        </form>
+        <p class="sub" style="margin:0;">
+            <span class="agent-health-live" hx-get="/me/agents/{{ agent.id }}/health-badge" hx-trigger="every 15s" hx-swap="innerHTML">
+                {% include "agents/_status.html" %}
+            </span>
+            {% if current_stats.record_label %} · {{ current_stats.record_label }}{% if current_stats.practice_matches %} · {{ current_stats.practice_matches }} practice{% endif %}
+            {% elif current_stats.practice_matches %} · {{ current_stats.practice_matches }} practice{% endif %}
+        </p>
+    </div>
 </div>
-
-<form method="post" action="/me/agents/{{ agent.id }}/rename" class="form" style="max-width:420px; margin:0.5rem 0 1.25rem;">
-    <input type="text"
-           name="name"
-           value="{{ agent.name }}"
-           maxlength="120"
-           required
-           aria-label="Agent name"
-           onchange="this.form.requestSubmit()">
-</form>
 
 {% if health.state.value == 'paused' %}
 <div class="card">
@@ -30,34 +34,19 @@
 </div>
 {% endif %}
 
-<div id="onboarding-status"
-     hx-get="/me/agents/{{ agent.id }}/status"
-     hx-trigger="every 12s"
-     hx-swap="innerHTML">
-    {% include "agents/_onboarding.html" %}
-</div>
-
 <div class="card">
     <h3 style="margin-top:0;">Strategy</h3>
     {% if version %}
-    <p class="meta" style="margin-top:0;">v{{ version.version_no }} · {{ version.created_at | localdt }}{% if version.note %} · {{ version.note }}{% endif %}</p>
-    <p class="meta">
-        {% if current_stats.record_label %}{{ current_stats.record_label }}{% if current_stats.practice_matches %} · {{ current_stats.practice_matches }} practice{% endif %}
-        {% elif current_stats.practice_matches %}No rated matches yet · {{ current_stats.practice_matches }} practice
-        {% else %}No completed matches yet{% endif %}
-    </p>
     {% if version_playing_now %}
     {# Locked mid-match: show the version that's playing, read-only, no form. #}
+    <p class="meta" style="margin-top:0;">v{{ version.version_no }} · {{ version.created_at | localdt }}{% if version.note %} · {{ version.note }}{% endif %}</p>
     <p style="white-space:pre-wrap;">{{ version.strategy_text }}</p>
     <p class="hint" style="margin:0;">Playing now — editing unlocks when the match ends.</p>
     {% else %}
     <form method="post" action="/me/agents/{{ agent.id }}/save-version" class="form">
-        <label>
-            Strategy
-            <textarea id="strategy-text" name="strategy_text" rows="14" maxlength="2000" required
-                      style="min-height:20rem;">{{ version.strategy_text }}</textarea>
-            <small class="hint" id="strategy-count" aria-live="polite"></small>
-        </label>
+        <textarea id="strategy-text" name="strategy_text" maxlength="2000" required
+                  aria-label="Strategy" class="strategy-editor">{{ version.strategy_text }}</textarea>
+        <small class="hint" id="strategy-count" aria-live="polite"></small>
         <label>
             Note
             <input type="text" name="note" maxlength="140"
@@ -78,6 +67,13 @@
     {% else %}
     <p class="empty">No version yet.</p>
     {% endif %}
+</div>
+
+<div id="onboarding-status"
+     hx-get="/me/agents/{{ agent.id }}/status"
+     hx-trigger="every 12s"
+     hx-swap="innerHTML">
+    {% include "agents/_onboarding.html" %}
 </div>
 
 <details class="card">
