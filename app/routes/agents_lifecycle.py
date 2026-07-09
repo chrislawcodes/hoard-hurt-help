@@ -5,22 +5,19 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import delete, func, select
-from starlette.responses import Response
 
 from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
 from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
-from app.models.match import Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
 from app.read_models.matches import agent_has_active_match, version_has_active_match
-from app.routes.agents_queries import load_owned_agent
+from app.routes.agents_queries import load_owned_agent, version_has_rated_history
 from app.routes.agents_setup import clean_agent_name
-from app.templating import templates
 
 router = APIRouter()
 
@@ -34,21 +31,6 @@ async def _load_current_version(db: DbSession, agent: Agent) -> AgentVersion:
     if version is None:
         raise HTTPException(status_code=400, detail="Agent has no current version.")
     return version
-
-
-async def _version_has_rated_history(db: DbSession, version_id: int) -> bool:
-    row = (
-        await db.execute(
-            select(Player.id)
-            .join(Match, Match.id == Player.match_id)
-            .where(
-                Player.agent_version_id == version_id,
-                Match.match_kind != MatchKind.PRACTICE_ARENA.value,
-            )
-            .limit(1)
-        )
-    ).first()
-    return row is not None
 
 
 async def _fork_version(
@@ -93,7 +75,7 @@ async def _apply_version_edit(
     current = await _load_current_version(db, agent)
     if await version_has_active_match(db, current.id):
         raise HTTPException(status_code=409, detail="That version is mid-match and locked.")
-    current_has_rated_history = await _version_has_rated_history(db, current.id)
+    current_has_rated_history = await version_has_rated_history(db, current.id)
     if not current_has_rated_history and current.frozen_at is None:
         current.strategy_text = strategy_text
         current.note = note
@@ -228,40 +210,19 @@ async def set_model(
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.get("/{agent_id}/edit", response_class=HTMLResponse)
+@router.get("/{agent_id}/edit")
 async def edit_agent_version_page(
     agent_id: Annotated[int, Path()],
-    request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
-) -> Response:
+) -> RedirectResponse:
+    """The strategy editor now lives inline on the agent page. This old path is
+    kept as a permanent redirect so existing links and bookmarks still land on
+    the editor (now the agent page itself)."""
     agent = await load_owned_agent(db, user, agent_id)
-    version = (
-        await db.execute(
-            select(AgentVersion).where(AgentVersion.id == agent.current_version_id)
-        )
-    ).scalar_one_or_none()
-    if version is None:
-        raise HTTPException(status_code=400, detail="Agent has no current version.")
-    max_version_no = await db.scalar(
-        select(func.max(AgentVersion.version_no)).where(AgentVersion.agent_id == agent.id)
-    )
-    current_has_rated_history = await _version_has_rated_history(db, version.id)
-    will_fork = current_has_rated_history or version.frozen_at is not None
-    next_version_no = int(max_version_no or 0) + 1 if will_fork else int(max_version_no or 1)
-    return templates.TemplateResponse(
-        request,
-        "agents/edit_version.html",
-        {
-            "user": user,
-            "agent": agent,
-            "version": version,
-            "next_version_no": next_version_no,
-            "will_fork": will_fork,
-            # Saving would 409 while the version is mid-match; render the locked
-            # notice instead of a form that can only fail.
-            "version_playing_now": await version_has_active_match(db, version.id),
-        },
+    return RedirectResponse(
+        url=f"/me/agents/{agent.id}",
+        status_code=status.HTTP_308_PERMANENT_REDIRECT,
     )
 
 

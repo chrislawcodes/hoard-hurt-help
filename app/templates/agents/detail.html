@@ -41,27 +41,39 @@
     <h3 style="margin-top:0;">Strategy</h3>
     {% if version %}
     <p class="meta" style="margin-top:0;">v{{ version.version_no }} · {{ version.created_at | localdt }}{% if version.note %} · {{ version.note }}{% endif %}</p>
-    {% if version.strategy_text | length > 600 %}
-    <p style="white-space:pre-wrap; margin-bottom:0.25rem;">{{ version.strategy_text[:600] }}…</p>
-    <details>
-        <summary class="meta">Show the rest ({{ version.strategy_text | length }} characters total)</summary>
-        <p style="white-space:pre-wrap; margin-top:0.25rem;">{{ version.strategy_text[600:] }}</p>
-    </details>
-    {% else %}
-    <p style="white-space:pre-wrap;">{{ version.strategy_text }}</p>
-    {% endif %}
     <p class="meta">
         {% if current_stats.record_label %}{{ current_stats.record_label }}{% if current_stats.practice_matches %} · {{ current_stats.practice_matches }} practice{% endif %}
         {% elif current_stats.practice_matches %}No rated matches yet · {{ current_stats.practice_matches }} practice
         {% else %}No completed matches yet{% endif %}
     </p>
-    <div style="margin-top:0.75rem;">
-        {% if version_playing_now %}
-        <p class="hint" style="margin:0;">Playing now — editing unlocks when the match ends.</p>
-        {% else %}
-        <a href="/me/agents/{{ agent.id }}/edit" class="btn btn-primary">Improve strategy</a>
-        {% endif %}
-    </div>
+    {% if version_playing_now %}
+    {# Locked mid-match: show the version that's playing, read-only, no form. #}
+    <p style="white-space:pre-wrap;">{{ version.strategy_text }}</p>
+    <p class="hint" style="margin:0;">Playing now — editing unlocks when the match ends.</p>
+    {% else %}
+    <form method="post" action="/me/agents/{{ agent.id }}/save-version" class="form">
+        <label>
+            Strategy
+            <textarea id="strategy-text" name="strategy_text" rows="14" maxlength="2000" required
+                      style="min-height:20rem;">{{ version.strategy_text }}</textarea>
+            <small class="hint" id="strategy-count" aria-live="polite"></small>
+        </label>
+        <label>
+            Note
+            <input type="text" name="note" maxlength="140"
+                   placeholder="What did you change? (optional)"
+                   value="{% if not will_fork and version.note %}{{ version.note }}{% endif %}">
+        </label>
+        <div class="form-actions">
+            {% if will_fork %}
+            <button type="submit">Save as v{{ next_version_no }}</button>
+            <small class="hint">Your current version has played, so it's kept as history — saving makes v{{ next_version_no }}.</small>
+            {% else %}
+            <button type="submit">Save changes</button>
+            {% endif %}
+        </div>
+    </form>
+    {% endif %}
     <p><small class="hint">The game also supplies shared rules and response instructions. <a href="/games/{{ agent.game }}/agent-instructions">View base instructions</a>.</small></p>
     {% else %}
     <p class="empty">No version yet.</p>
@@ -146,4 +158,22 @@
         </form>
     </div>
 </div>
+
+<script>
+// Live character count + auto-grow so the whole strategy stays visible while
+// editing instead of scrolling a small box. The min-height set in the markup is
+// the floor; this only ever grows the box to fit its content.
+(function () {
+    const box = document.getElementById('strategy-text');
+    if (!box) return;
+    const counter = document.getElementById('strategy-count');
+    function sync() {
+        if (counter) counter.textContent = box.value.length + ' / 2000 characters';
+        box.style.height = 'auto';
+        box.style.height = box.scrollHeight + 'px';
+    }
+    box.addEventListener('input', sync);
+    sync();
+})();
+</script>
 {% endblock %}
