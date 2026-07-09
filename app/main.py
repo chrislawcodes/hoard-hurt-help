@@ -287,6 +287,19 @@ def create_app() -> FastAPI:
     app.include_router(sse_routes.router)
     app.include_router(spectator_api.router)
 
+    # Dev-only login bypass — mounted ONLY for local dev (flag on + non-secure
+    # cookies). Prod runs secure cookies, so this can never mount there even if
+    # DEV_LOGIN_ENABLED leaks into the environment. See app/routes/dev_login.py.
+    from app.routes.dev_login import dev_login_available
+    from app.routes.dev_login import router as dev_login_router
+
+    if dev_login_available():
+        app.include_router(dev_login_router)
+        logger.warning(
+            "DEV_LOGIN_ENABLED with non-secure cookies: /dev/login is ACTIVE and "
+            "bypasses Google sign-in. This must never run in production."
+        )
+
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}

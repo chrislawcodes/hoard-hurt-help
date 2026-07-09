@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # HTTPS; leave false for local http dev.
     cookie_secure: bool = Field(default=False)
 
+    # Dev-only login bypass (no Google OAuth), for local dev + automated UI
+    # checks. OFF by default. Even when true it is ignored unless cookie_secure
+    # is false, so it can never expose a sign-in bypass in production (prod runs
+    # COOKIE_SECURE=true). See app/routes/dev_login.py.
+    dev_login_enabled: bool = Field(default=False)
+
     # --- Admin role split ---
     # Platform admin: game catalog, user handles, incidents.
     platform_admin_emails: str = Field(default="")

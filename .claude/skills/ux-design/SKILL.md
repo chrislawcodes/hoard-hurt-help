@@ -122,17 +122,23 @@ what its one job is.
 
 Design against what's real, not what you imagine.
 
-> **Login-gated page? Don't try to screenshot or "see it rendered."** For any page
-> behind `require_user` (`/me/...`, agent/bot detail, admin), the preview browser
-> and one-off render scripts are a dead end — the signed `hhh_session` cookie won't
-> stick, so the page just returns `NOT_SIGNED_IN`. Do **not** spin up a throwaway
-> pytest to print HTML or attempt a preview screenshot (it wastes cycles every
-> time). Instead verify by an integration test that renders the **real template
-> through the test client** and asserts the rendered HTML — `tests/conftest.py`
-> already has the auth helpers: `signed_in_cookies(user_id)` returns the cookies
-> dict that authenticates a request (it signs the `hhh_session` cookie the same
-> way production does). The preview browser is fine for **public** pages (home,
-> lobby, game viewer) only.
+> **Login-gated page? Sign in with the dev login, then screenshot it.** For any
+> page behind `require_user` (`/me/...`, agent/bot detail, admin), the local dev
+> server carries a sign-in bypass so the preview browser can actually see it. The
+> `launch.json` dev servers set `DEV_LOGIN_ENABLED`, so once the server is up, hit
+> `GET /dev/login` once (add `?user_id=<id>` for a specific person, or
+> `?next=/me/agents/5` to land on a page); the `hhh_session` cookie is set, and
+> from then on the preview browser loads gated pages normally — snapshot and
+> screenshot as usual. The bypass is local-dev only and can never run in
+> production (off by default, and hard-disabled whenever secure cookies are on);
+> see `app/routes/dev_login.py`. To get realistic data behind it, seed an agent or
+> match first (insert rows, or `scripts/new_test_game.py`).
+>
+> In CI (no browser) you still verify a gated page by rendering the **real
+> template through the test client** — `tests/conftest.py` has
+> `signed_in_cookies(user_id)`, which signs the `hhh_session` cookie the same way
+> production does. Use the test client for CI assertions; use the dev login when
+> you want to *look* at the page.
 
 **If the screen already exists**, look at it before you opine. Use the preview
 tools, don't guess:
