@@ -20,7 +20,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.db import make_engine
-from app.engine.agent_play_next_turn import agent_identity_for, get_next_turn
+from app.engine.agent_play_identity import agent_identity_for
+from app.engine.agent_play_next_turn import get_next_turn
 from app.engine.scheduler import registry, start_game
 from app.models import Base
 from app.models.agent import Agent, AgentKind

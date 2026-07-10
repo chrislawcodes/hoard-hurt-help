@@ -69,6 +69,18 @@ logger = logging.getLogger(__name__)
 OVERDUE_TURN_GRACE_SECONDS = 60.0
 
 
+def _past_grace(turn: Turn, now: datetime) -> bool:
+    """True when the turn's deadline is at least the grace period behind ``now``.
+
+    This is the sweeper's central discriminator between slow and frozen: a turn
+    whose deadline is still within the grace window is left strictly alone. The
+    comparison happens in Python via ensure_aware (not in SQL) so naive-datetime
+    storage (SQLite tests) and aware storage compare identically.
+    """
+    cutoff = now - timedelta(seconds=OVERDUE_TURN_GRACE_SECONDS)
+    return ensure_aware(turn.deadline_at) <= cutoff
+
+
 async def sweep_overdue_turns(
     session_factory: async_sessionmaker | None = None,
     registry: SchedulerRegistry | None = None,
@@ -120,13 +132,10 @@ async def _find_frozen_turns(
 ) -> list[tuple[str, int, int]]:
     """Return (match_id, round, turn) for every ACTIVE match frozen past grace.
 
-    The overdue comparison happens in Python via ensure_aware (not in SQL) so
-    naive-datetime storage (SQLite tests) and aware storage compare identically.
-    The unresolved-turns-of-active-matches set is tiny, so this is cheap.
+    The overdue check is ``_past_grace`` (in Python, not SQL). The
+    unresolved-turns-of-active-matches set is tiny, so this is cheap.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(
-        seconds=OVERDUE_TURN_GRACE_SECONDS
-    )
+    now = datetime.now(timezone.utc)
     frozen: list[tuple[str, int, int]] = []
     async with factory() as db:
         rows = (
@@ -140,7 +149,7 @@ async def _find_frozen_turns(
             )
         ).all()
         for turn, match in rows:
-            if ensure_aware(turn.deadline_at) > cutoff:
+            if not _past_grace(turn, now):
                 continue  # slow, not frozen — hands off before deadline+grace
             if (turn.round, turn.turn) != (match.current_round, match.current_turn):
                 # An unresolved turn that is not the match's current pointer is
@@ -252,10 +261,7 @@ async def _load_frozen_state(
     ).scalar_one_or_none()
     if turn is None or turn.resolved_at is not None:
         return None
-    cutoff = datetime.now(timezone.utc) - timedelta(
-        seconds=OVERDUE_TURN_GRACE_SECONDS
-    )
-    if ensure_aware(turn.deadline_at) > cutoff:
+    if not _past_grace(turn, datetime.now(timezone.utc)):
         return None
     module = get_game_module(match.game)
     if not module.config_defaults().simultaneous:

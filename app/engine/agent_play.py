@@ -9,6 +9,7 @@ The service is split into focused modules under ``app/engine/``:
 * ``agent_play_guards`` — leaf primitives (errors, rate limits, token binding).
 * ``agent_play_reads`` — DB-to-payload projection helpers.
 * ``agent_play_next_turn`` — connection-level "what do I do next" fan-out.
+* ``agent_play_identity`` — agent-identity resolution for the MCP instructions flow.
 
 This module keeps the per-match agent verbs and re-exports the public names so
 ``from app.engine.agent_play import <name>`` keeps working for both the HTTP
@@ -33,8 +34,8 @@ from app.engine.agent_play_guards import (
     _validate_agent_match_binding,
     _validate_agent_turn_binding,
 )
+from app.engine.agent_play_identity import agent_identity_for
 from app.engine.agent_play_next_turn import (
-    agent_identity_for,
     get_next_turn,
     get_next_turns,
 )
