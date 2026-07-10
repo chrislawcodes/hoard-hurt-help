@@ -23,6 +23,8 @@ from app.models.match import Match
 from app.models.player import Player
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 __all__ = [
@@ -37,10 +39,14 @@ __all__ = [
     "_load_state",
     "_next_alive_seat",
     "_player_state_map",
+    "_player_states_by_match",
     "_players",
+    "_players_by_match",
     "_public_dice_counts",
+    "_resolve_active_actor",
     "_seat_order",
     "_standing_bid",
+    "_state_jsons_by_match",
     "_state_template",
 ]
 
@@ -119,6 +125,75 @@ async def _players(db: AsyncSession, match_id: str) -> list[Player]:
     )
 
 
+async def _state_jsons_by_match(
+    db: AsyncSession, match_ids: Sequence[str]
+) -> dict[str, dict[str, Any]]:
+    """The match `state_json` blobs for several matches in ONE query.
+
+    A match with no state row is simply absent from the map. Unlike
+    `_load_state` this never writes defaults back into the blob — the pure
+    readers (`_resolve_active_actor` etc.) tolerate missing keys, and this
+    loader feeds read-only paths (the turn-serving fan-out) that must not
+    dirty state rows in their session.
+    """
+    if not match_ids:
+        return {}
+    rows = (
+        (
+            await db.execute(
+                select(MatchState).where(MatchState.match_id.in_(match_ids))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {row.match_id: row.state_json for row in rows}
+
+
+async def _players_by_match(
+    db: AsyncSession, match_ids: Sequence[str]
+) -> dict[str, list[Player]]:
+    """`_players` for several matches in ONE query (seat_name order per match)."""
+    if not match_ids:
+        return {}
+    rows = (
+        (
+            await db.execute(
+                select(Player)
+                .where(Player.match_id.in_(match_ids))
+                .order_by(Player.seat_name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    grouped: dict[str, list[Player]] = {}
+    for row in rows:
+        grouped.setdefault(row.match_id, []).append(row)
+    return grouped
+
+
+async def _player_states_by_match(
+    db: AsyncSession, match_ids: Sequence[str]
+) -> dict[str, dict[int, PlayerState]]:
+    """`_player_state_map` for several matches in ONE query."""
+    if not match_ids:
+        return {}
+    rows = (
+        (
+            await db.execute(
+                select(PlayerState).where(PlayerState.match_id.in_(match_ids))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    grouped: dict[str, dict[int, PlayerState]] = {}
+    for row in rows:
+        grouped.setdefault(row.match_id, {})[row.player_id] = row
+    return grouped
+
+
 async def _player_state_map(db: AsyncSession, match_id: str) -> dict[int, PlayerState]:
     rows = (
         (
@@ -186,3 +261,32 @@ def _standing_bid(raw: Any) -> Bid | None:
 def _challenger_name(state_json: dict[str, Any]) -> str | None:
     challenger = state_json.get("challenger")
     return challenger if isinstance(challenger, str) else None
+
+
+def _resolve_active_actor(
+    state_json: dict[str, Any],
+    players: list[Player],
+    states: dict[int, PlayerState],
+) -> str | None:
+    """The seat_name owing a move right now, from already-loaded state (pure).
+
+    None while a challenge showdown is pending (the hand is resolving, nobody
+    acts). The stored `active_actor` wins while it is still alive; otherwise
+    fall to the next alive seat in order. Shared by `LiarsDice.next_actor`
+    (single match) and `LiarsDice.active_actors` (batched fan-out) so the
+    driver and the turn-serving gate can never disagree about whose turn it is.
+    """
+    if state_json.get("challenge_pending"):
+        return None
+    counts = _public_dice_counts(players, states)
+    seat_order = state_json.get("seat_order")
+    if not isinstance(seat_order, list) or not seat_order:
+        seat_order = _seat_order(players)
+    active_actor = state_json.get("active_actor")
+    if isinstance(active_actor, str) and counts.get(active_actor, 0) > 0:
+        return active_actor
+    return _next_alive_seat(
+        seat_order,
+        counts,
+        active_actor if isinstance(active_actor, str) else None,
+    )

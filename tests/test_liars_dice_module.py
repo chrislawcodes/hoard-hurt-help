@@ -36,6 +36,7 @@ async def _seed_match(
     wild_ones: bool = True,
     dice_per_player: int = 5,
     dice_by_seat: dict[str, list[int]] | None = None,
+    user_i_base: int = 0,
 ) -> tuple[Match, list]:
     module = LiarsDice()
     now = _now()
@@ -55,10 +56,12 @@ async def _seed_match(
     db.add(match)
     await db.flush()
 
+    # `user_i_base` keeps user ids unique when one test seeds several matches
+    # in the same database (make_user keys google_sub/email/handle off `i`).
     players = [
-        await seat_player(db, match.id, "A", i=0),
-        await seat_player(db, match.id, "B", i=1),
-        await seat_player(db, match.id, "C", i=2),
+        await seat_player(db, match.id, "A", i=user_i_base),
+        await seat_player(db, match.id, "B", i=user_i_base + 1),
+        await seat_player(db, match.id, "C", i=user_i_base + 2),
     ]
     db.add(
         MatchState(
@@ -79,7 +82,8 @@ async def _seed_match(
         match_id=match.id,
         round=1,
         turn=1,
-        turn_token="tk1",
+        # Unique per match: one test may seed several matches in one database.
+        turn_token=f"tk1-{match_id}",
         opened_at=now,
         deadline_at=now + timedelta(seconds=30),
         phase="act",
@@ -191,6 +195,67 @@ async def test_validation_snapshot_and_validate_move(reset_db) -> None:
                 all_agent_ids=["A", "B", "C"],
             )
         assert exc.value.code == "ILLEGAL_RAISE"
+
+
+async def test_active_actors_batches_matches_and_agrees_with_next_actor(reset_db) -> None:
+    """`active_actors` (the turn-serving fan-out's batched read) must answer, per
+    match, exactly what `next_actor` (the driver's read) answers: the stored
+    actor while alive, the next alive seat when the stored actor is out of dice,
+    None while a challenge showdown is pending, and None with no state row."""
+    module = LiarsDice()
+    async with reset_db() as db:
+        # M_ACT: mid-hand, B holds the action.
+        match_act, _ = await _seed_match(db, match_id="M_ACT")
+        state_act = (
+            await db.execute(select(MatchState).where(MatchState.match_id == "M_ACT"))
+        ).scalar_one()
+        state_act.state_json["active_actor"] = "B"
+
+        # M_DEAD: stored actor has no dice left -> falls to the next alive seat.
+        match_dead, _ = await _seed_match(
+            db,
+            match_id="M_DEAD",
+            dice_by_seat={"A": [], "B": [2, 2], "C": [3, 3]},
+            user_i_base=3,
+        )
+        state_dead = (
+            await db.execute(select(MatchState).where(MatchState.match_id == "M_DEAD"))
+        ).scalar_one()
+        state_dead.state_json["seat_order"] = ["A", "B", "C"]
+        state_dead.state_json["active_actor"] = "A"
+
+        # M_CHAL: challenge pending -> nobody owes a move until the showdown.
+        match_chal, _ = await _seed_match(db, match_id="M_CHAL", user_i_base=6)
+        state_chal = (
+            await db.execute(select(MatchState).where(MatchState.match_id == "M_CHAL"))
+        ).scalar_one()
+        state_chal.state_json["challenge_pending"] = True
+
+        # M_BARE: no MatchState row at all (round not dealt yet).
+        now = _now()
+        match_bare = Match(
+            id="M_BARE",
+            name="bare",
+            game=module.game_type,
+            state=GameState.ACTIVE,
+            scheduled_start=now,
+            started_at=now,
+            per_turn_deadline_seconds=30,
+        )
+        db.add(match_bare)
+        await db.commit()
+
+        matches = [match_act, match_dead, match_chal, match_bare]
+        actors = await module.active_actors(db, matches)
+        assert actors == {
+            "M_ACT": "B",
+            "M_DEAD": "B",  # A is out of dice; next alive after A
+            "M_CHAL": None,
+            "M_BARE": None,
+        }
+        # Parity with the driver's per-match read, seat by seat.
+        for match in matches:
+            assert actors[match.id] == await module.next_actor(db, match)
 
 
 async def test_record_submission_advances_and_challenge_pauses_turn(reset_db) -> None:

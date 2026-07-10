@@ -238,6 +238,37 @@ async def _undefaulted_pairs(
     return {(row.turn_id, row.player_id) for row in rows.all()}
 
 
+async def _sequential_active_seats(
+    db: AsyncSession,
+    ctx: CandidateContext,
+    seats: list[tuple[int, str, Player, Turn]],
+) -> dict[str, str | None]:
+    """match_id -> the seat owing a move, for sequential games ONLY.
+
+    A match absent from the map is simultaneous — every seated player owes a
+    move each turn, the rule PD has always had. Sequential-ness comes from the
+    game module's own config (`config_defaults().simultaneous`, the same flag
+    that picks the SequentialDriver), never from a game-id check here. The
+    actor lookup is `GameModule.active_actors`, called once per game module
+    over all its matches so the module can batch its state reads; a poll with
+    only simultaneous matches (the PD hot path) issues no query at all. The
+    module speaks seat names, so the caller compares against
+    `Player.seat_name` — not the integer agent_id the candidate carries.
+    """
+    matches_by_game: dict[str, list[Match]] = {}
+    for match_id in {match_id for _agent_id, match_id, _player, _turn in seats}:
+        match = ctx.match_by_id[match_id]
+        if get_game_module(match.game).config_defaults().simultaneous:
+            continue
+        matches_by_game.setdefault(match.game, []).append(match)
+    active_seat_by_match: dict[str, str | None] = {}
+    for game, matches in matches_by_game.items():
+        active_seat_by_match.update(
+            await get_game_module(game).active_actors(db, matches)
+        )
+    return active_seat_by_match
+
+
 async def _filter_to_candidates(
     db: AsyncSession, ctx: CandidateContext
 ) -> list[TurnCandidate]:
@@ -245,7 +276,8 @@ async def _filter_to_candidates(
 
     Drops a turn the player already acted on, and — during the talk phase — one
     the player already broadcast a message for, since there is nothing left to do
-    until the act phase opens.
+    until the act phase opens. In a sequential game only the active actor's seat
+    owes a move, so every other seat's open turn is dropped too.
     """
     seats: list[tuple[int, str, Player, Turn]] = []
     for (agent_id, match_id), player in ctx.player_by_key.items():
@@ -271,8 +303,22 @@ async def _filter_to_candidates(
     if talk_turn_ids:
         messaged = await _undefaulted_pairs(db, TurnMessage, talk_turn_ids, player_ids)
 
+    # Sequential games only: which seat the open turn actually belongs to.
+    # Simultaneous matches (PD) never enter this map, so their candidates are
+    # exactly the set the two reads above always produced.
+    active_seat_by_match = await _sequential_active_seats(db, ctx, seats)
+
     candidates: list[TurnCandidate] = []
     for agent_id, match_id, player, turn in seats:
+        # A sequential game's open turn is owed by ONE seat. Serving it to a
+        # sibling seat of the same user would hand the turn to a player whose
+        # submit the game must reject (NOT_YOUR_TURN), so drop every seat that
+        # is not the active actor.
+        if (
+            match_id in active_seat_by_match
+            and active_seat_by_match[match_id] != player.seat_name
+        ):
+            continue
         if (turn.id, player.id) in submitted:
             continue
         # Talk-phase symmetry with the act check above: a player who has already

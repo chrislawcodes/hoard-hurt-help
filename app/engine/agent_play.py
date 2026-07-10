@@ -181,17 +181,6 @@ def _pack_move(
     }
 
 
-# Keys that a game's `validation_snapshot` may add for `validate_move` only.
-# They are stripped before `record_submission` so they never persist.
-_LD_VALIDATION_SNAPSHOT_KEYS = {
-    "standing_bid",
-    "dice_counts",
-    "active_actor",
-    "total_dice",
-    "wild",
-}
-
-
 async def submit_action(
     db: AsyncSession,
     *,
@@ -260,8 +249,13 @@ async def submit_action(
         raise _err(
             exc.code, exc.message, status.HTTP_400_BAD_REQUEST, exc.details
         ) from exc
+    # Strip the module's declared validation-only snapshot keys (merged above
+    # for validate_move) so they never reach record_submission or persist. A
+    # game that declares none (e.g. PD) strips nothing.
     internal_move: dict[str, object] = {
-        key: value for key, value in built_move.items() if key not in _LD_VALIDATION_SNAPSHOT_KEYS
+        key: value
+        for key, value in built_move.items()
+        if key not in module.validation_snapshot_keys
     }
     if move is None and target_id is not None:
         internal_move["target_id"] = (

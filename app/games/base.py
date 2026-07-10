@@ -95,6 +95,11 @@ class GameModule(Protocol):
 
     game_type: str
 
+    # Keys `validation_snapshot` merges into the move for `validate_move` only.
+    # The shared submit path strips exactly these before `record_submission`, so
+    # they never persist. A game with no validation-only keys declares none.
+    validation_snapshot_keys: frozenset[str]
+
     def display_name(self) -> str:
         """The game's title as shown to people (catalog, leaderboard, headings)."""
         ...
@@ -222,6 +227,15 @@ class GameModule(Protocol):
     async def next_actor(self, db: AsyncSession, match: Match) -> str | None:
         """For a sequential game, the seat_name of the single player to act now,
         or None when the current round is over. Simultaneous games never call this."""
+        ...
+
+    async def active_actors(
+        self, db: AsyncSession, matches: Sequence[Match]
+    ) -> dict[str, str | None]:
+        """Batched `next_actor` for the turn-serving fan-out: match_id -> the
+        seat_name owing a move right now (None = nobody owes one). Called only
+        for sequential games; the implementation must batch its state reads
+        across `matches` (the fan-out runs on every poll)."""
         ...
 
     async def on_round_start(self, db: AsyncSession, match: Match, round_num: int) -> None:
@@ -352,6 +366,12 @@ class BaseGameModule:
     # shared defaults (e.g. display_name) can read it.
     game_type: str
 
+    # Deliberately empty (not fail-loud): a game whose `validation_snapshot`
+    # adds nothing to the move has nothing for the submit path to strip — so
+    # "strip nothing" is the correct default, not a missing override. Games
+    # that merge validation-only keys (e.g. Liar's Dice) override this.
+    validation_snapshot_keys: frozenset[str] = frozenset()
+
     def display_name(self) -> str:
         # Default: humanize the game_type (e.g. "stub-game" -> "Stub Game").
         # Games with a stylized title (e.g. PD's "Hoard · Hurt · Help") override this.
@@ -410,6 +430,17 @@ class BaseGameModule:
         # called a module that never declared one.
         raise NotImplementedError(
             "next_actor is only used by sequential games; override it."
+        )
+
+    async def active_actors(
+        self, db: AsyncSession, matches: Sequence[Match]
+    ) -> dict[str, str | None]:
+        # The turn-serving fan-out consults this only for sequential games
+        # (simultaneous games serve every seated player each turn). Reaching
+        # here means a sequential module never declared who acts — fail loud
+        # rather than serve a turn to a seat whose submit the game must reject.
+        raise NotImplementedError(
+            "active_actors is only used by sequential games; override it."
         )
 
     async def on_round_start(self, db: AsyncSession, match: Match, round_num: int) -> None:

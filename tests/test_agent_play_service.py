@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.engine import agent_play
 from app.engine.connection_activity import mark_seen
 from app.engine.tokens import generate_turn_token
+from app.games import get as get_game_module
 from app.models import Connection, GameState, Match, Player, Turn
+from app.models.game_state import MatchState, PlayerState
+from app.models.turn import TurnSubmission
 from tests.factories import make_connection, make_user, seat_player
 
 
@@ -179,3 +185,179 @@ async def test_next_turns_stamps_play_loop_heartbeat_when_waiting(reset_db):
             await db.execute(select(Connection).where(Connection.id == connection_id))
         ).scalar_one()
         assert refreshed.last_polled_at is not None
+
+
+async def _seed_liars_dice_turn(
+    reset_db: async_sessionmaker,
+    *,
+    match_id: str,
+    active_actor: str,
+    user_i_base: int = 0,
+) -> dict[str, object]:
+    """An active Liar's Dice match mid-hand with an open act turn.
+
+    Seats A (the caller's), B, C; `active_actor` says whose turn the table
+    state records. `user_i_base` keeps user ids unique when one test seeds two
+    matches in the same database. Returns the ids/tokens the submit path needs.
+    """
+    async with reset_db() as db:
+        user = await make_user(db, user_i_base)
+        connection, _key = await make_connection(db, user)
+        now = datetime.now(timezone.utc)
+        match = Match(
+            id=match_id,
+            name=f"match-{match_id}",
+            game="liars-dice",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=30,
+            current_round=1,
+            current_turn=1,
+        )
+        db.add(match)
+        await db.flush()
+        players = [
+            await seat_player(db, match.id, "A", user=user, connection=connection),
+            await seat_player(db, match.id, "B", i=user_i_base + 1),
+            await seat_player(db, match.id, "C", i=user_i_base + 2),
+        ]
+        db.add(
+            MatchState(
+                match_id=match.id,
+                state_json={
+                    "seat_order": ["A", "B", "C"],
+                    "active_actor": active_actor,
+                    "standing_bid": None,
+                    "challenge_pending": False,
+                },
+            )
+        )
+        for player in players:
+            db.add(
+                PlayerState(
+                    match_id=match.id,
+                    player_id=player.id,
+                    state_json={"dice": [1, 2], "dice_count": 2},
+                )
+            )
+        turn = Turn(
+            match_id=match.id,
+            round=1,
+            turn=1,
+            turn_token=generate_turn_token(),
+            opened_at=now,
+            deadline_at=now + timedelta(seconds=30),
+            phase="act",
+        )
+        db.add(turn)
+        await db.commit()
+        return {
+            "match_id": match.id,
+            "player_id": players[0].id,
+            "connection_id": connection.id,
+            "turn_token": turn.turn_token,
+            "agent_turn_token": f"{turn.turn_token}:{players[0].agent_id}:{match.id}",
+        }
+
+
+async def test_submit_action_strips_exactly_the_module_declared_snapshot_keys(
+    reset_db, monkeypatch
+):
+    """The shared submit path merges the module's validation_snapshot into the
+    move for validate_move (so NOT_YOUR_TURN etc. can fire), then strips exactly
+    the keys the module declares in `validation_snapshot_keys` before
+    record_submission — the vocabulary lives on the game module, not in shared
+    code."""
+    module = get_game_module("liars-dice")
+    assert module.validation_snapshot_keys  # LD declares a real vocabulary
+
+    captured: dict[str, dict[str, object]] = {}
+    real_record_submission = module.record_submission
+
+    async def spy(
+        db: AsyncSession,
+        turn: Turn,
+        player: Player,
+        move: dict[str, Any],
+        *,
+        existing: TurnSubmission | None,
+        is_connector_fallback: bool = False,
+    ) -> None:
+        captured["move"] = dict(move)
+        await real_record_submission(
+            db,
+            turn,
+            player,
+            move,
+            existing=existing,
+            is_connector_fallback=is_connector_fallback,
+        )
+
+    monkeypatch.setattr(module, "record_submission", spy)
+
+    # The snapshot IS merged for validation: with the action on seat B, seat A's
+    # submit is rejected off the snapshot's active_actor before recording.
+    seed = await _seed_liars_dice_turn(
+        reset_db, match_id="M_LD_STRIP_B", active_actor="B"
+    )
+    async with reset_db() as db:
+        player = (
+            await db.execute(select(Player).where(Player.id == seed["player_id"]))
+        ).scalar_one()
+        connection = (
+            await db.execute(
+                select(Connection).where(Connection.id == seed["connection_id"])
+            )
+        ).scalar_one()
+        with pytest.raises(HTTPException) as exc:
+            await agent_play.submit_action(
+                db,
+                match_id=seed["match_id"],
+                player=player,
+                connection=connection,
+                agent_turn_token=seed["agent_turn_token"],
+                turn_token=seed["turn_token"],
+                action=None,
+                target_id=None,
+                message="",
+                thinking="",
+                is_connector_fallback=False,
+                move={"type": "BID", "quantity": 1, "face": 2},
+            )
+        assert exc.value.detail["error"]["code"] == "NOT_YOUR_TURN"
+        assert "move" not in captured  # nothing recorded on a rejected move
+
+    # With seat A holding the action, the same submit lands — and the move that
+    # reaches record_submission carries the caller's fields ONLY: every declared
+    # snapshot key is stripped, nothing else is.
+    seed = await _seed_liars_dice_turn(
+        reset_db, match_id="M_LD_STRIP_A", active_actor="A", user_i_base=3
+    )
+    async with reset_db() as db:
+        player = (
+            await db.execute(select(Player).where(Player.id == seed["player_id"]))
+        ).scalar_one()
+        connection = (
+            await db.execute(
+                select(Connection).where(Connection.id == seed["connection_id"])
+            )
+        ).scalar_one()
+        await agent_play.submit_action(
+            db,
+            match_id=seed["match_id"],
+            player=player,
+            connection=connection,
+            agent_turn_token=seed["agent_turn_token"],
+            turn_token=seed["turn_token"],
+            action=None,
+            target_id=None,
+            message="going up",
+            thinking="",
+            is_connector_fallback=False,
+            move={"type": "BID", "quantity": 1, "face": 2},
+        )
+    recorded = captured["move"]
+    assert set(recorded) == {"type", "quantity", "face", "message", "thinking"}
+    assert set(recorded).isdisjoint(module.validation_snapshot_keys)
+    assert recorded["quantity"] == 1 and recorded["face"] == 2

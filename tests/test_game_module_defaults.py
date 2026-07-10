@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import make_engine
@@ -33,6 +34,26 @@ def test_action_names_contract() -> None:
     assert pd_action_names() == ("HOARD", "HELP", "HURT")
     # Each game owns its own vocabulary; Liar's Dice is not PD's trio.
     assert LiarsDice().action_names() == ("BID", "CHALLENGE")
+
+
+def test_validation_snapshot_keys_contract() -> None:
+    """Each game declares which validation-only snapshot keys the shared submit
+    path must strip before record_submission. The default is deliberately empty
+    ("strip nothing"), so PD's move dict passes through untouched; Liar's Dice
+    declares exactly its validation_snapshot vocabulary."""
+    assert HoardHurtHelp().validation_snapshot_keys == frozenset()
+    assert LiarsDice().validation_snapshot_keys == frozenset(
+        {"standing_bid", "dice_counts", "active_actor", "total_dice", "wild"}
+    )
+
+
+async def test_active_actors_default_fails_loud_for_non_sequential_games() -> None:
+    """The batched actor read is sequential-only; a simultaneous game (PD) never
+    receives the call, and a sequential game that forgot to override it must
+    fail loud instead of silently serving turns to the wrong seats."""
+    # The default raises before touching the session, so no DB is needed here.
+    with pytest.raises(NotImplementedError):
+        await HoardHurtHelp().active_actors(None, [])
 
 
 async def test_pd_inherits_default_hooks() -> None:
