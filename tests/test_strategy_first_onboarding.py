@@ -9,30 +9,14 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-import pytest
 from sqlalchemy import select
 
-from app.models import Base, Agent
+from app.models import Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionStatus
 from app.routes.agents_health_presenter import _readiness_state
 from tests.factories import make_agent, make_connection, make_user
 from tests.conftest import signed_in_cookies as _signed_in_cookies
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    yield test_factory
-    await test_engine.dispose()
 
 
 async def test_create_agent_without_connections_goes_to_lobby(

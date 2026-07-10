@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import json
 import re
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -12,9 +10,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from itsdangerous import TimestampSigner
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.config import settings
 from app.db import make_engine
 from app.engine.connection_health import ConnectionHealth, compute_connection_health
 from app.engine.pending_connection_gc import gc_pending_connections
@@ -31,6 +29,7 @@ from app.routes.agent_next_turn import router as agent_next_turn_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
 from app.routes.connections_setup import router as connections_setup_router
+from tests.conftest import signed_in_cookies as _signed_in_cookies
 from tests.factories import (
     add_submission,
     make_agent,
@@ -69,7 +68,7 @@ async def app(
     test_app = FastAPI()
     test_app.add_middleware(
         SessionMiddleware,
-        secret_key="dev-only-do-not-use-in-prod-" + "x" * 40,
+        secret_key=settings.session_secret,
         same_site="lax",
         https_only=False,
         session_cookie="hhh_session",
@@ -86,14 +85,6 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
-
-def _signed_in_cookies(user_id: int) -> dict[str, str]:
-    signer = TimestampSigner("dev-only-do-not-use-in-prod-" + "x" * 40)
-    payload = base64.b64encode(
-        json.dumps({"user_id": user_id, "next_after_login": None}).encode()
-    ).decode()
-    return {"hhh_session": signer.sign(payload).decode()}
 
 
 async def _make_connection_setup(

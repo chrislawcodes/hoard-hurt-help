@@ -11,40 +11,28 @@ from app.models import (
     Turn,
     TurnMessage,
     TurnSubmission,
-    User,
 )
-from tests.factories import make_agent
+from tests.factories import make_agent, make_match, make_user, seat_prebuilt_player
 
 
 async def _seed(reset_db, state=GameState.ACTIVE, *, scheduled_start=None, match_kind="manual"):
     async with reset_db() as db:
-        u = User(google_sub="u", email="u@t.com")
-        db.add(u)
-        await db.flush()
-        g = Match(
-            id="G_001",
-            name="Test",
+        u = await make_user(db)
+        match = await make_match(
+            db,
+            "G_001",
             state=state,
+            name="Test",
             scheduled_start=scheduled_start or datetime.now(timezone.utc),
             match_kind=match_kind,
             current_round=1,
             current_turn=1,
         )
-        db.add(g)
-        await db.flush()
         agent, version = await make_agent(db, u, name="AI_0")
-        if version is not None:
-            version.strategy_text = "SECRET STRATEGY DO NOT LEAK"
-        p = Player(
-            match_id="G_001",
-            user_id=u.id,
-            agent_id=agent.id,
-            seat_name="AI_0",
-            agent_version_id=version.id if version is not None else None,
-            model_self_report=version.model if version is not None else None,
+        version.strategy_text = "SECRET STRATEGY DO NOT LEAK"
+        await seat_prebuilt_player(
+            db, match=match, user=u, agent=agent, version=version, seat_name="AI_0"
         )
-        db.add(p)
-        await db.flush()
         await db.commit()
 
 
@@ -248,24 +236,18 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
     async with reset_db() as db:
         import sqlalchemy
 
-        from app.models import Player, Turn, TurnSubmission, User
+        from app.models import Player, Turn, TurnSubmission
 
         actor = (await db.execute(sqlalchemy.select(Player))).scalars().first()
+        match = (
+            await db.execute(sqlalchemy.select(Match).where(Match.id == "G_001"))
+        ).scalar_one()
         # Second player to be the HURT target.
-        u2 = User(google_sub="u2", email="u2@t.com")
-        db.add(u2)
-        await db.flush()
+        u2 = await make_user(db, 2)
         bot2, version2 = await make_agent(db, u2, name="AI_1")
-        target = Player(
-            match_id="G_001",
-            user_id=u2.id,
-            agent_id=bot2.id,
-            seat_name="AI_1",
-            agent_version_id=version2.id if version2 is not None else None,
-            model_self_report=version2.model if version2 is not None else None,
+        target = await seat_prebuilt_player(
+            db, match=match, user=u2, agent=bot2, version=version2, seat_name="AI_1"
         )
-        db.add(target)
-        await db.flush()
         t = Turn(
             match_id="G_001",
             round=1,
@@ -312,23 +294,17 @@ async def test_viewer_shows_attacker_bonus_on_betrayal(client, reset_db):
     async with reset_db() as db:
         import sqlalchemy
 
-        from app.models import Player, Turn, TurnSubmission, User
+        from app.models import Player, Turn, TurnSubmission
 
         attacker = (await db.execute(sqlalchemy.select(Player))).scalars().first()
-        u2 = User(google_sub="u2", email="u2@t.com")
-        db.add(u2)
-        await db.flush()
+        match = (
+            await db.execute(sqlalchemy.select(Match).where(Match.id == "G_001"))
+        ).scalar_one()
+        u2 = await make_user(db, 2)
         bot2, version2 = await make_agent(db, u2, name="AI_1")
-        victim = Player(
-            match_id="G_001",
-            user_id=u2.id,
-            agent_id=bot2.id,
-            seat_name="AI_1",
-            agent_version_id=version2.id if version2 is not None else None,
-            model_self_report=version2.model if version2 is not None else None,
+        victim = await seat_prebuilt_player(
+            db, match=match, user=u2, agent=bot2, version=version2, seat_name="AI_1"
         )
-        db.add(victim)
-        await db.flush()
         t = Turn(
             match_id="G_001",
             round=1,

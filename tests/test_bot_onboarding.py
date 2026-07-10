@@ -19,7 +19,7 @@ from app.engine.connection_activity import (
 )
 from app.engine.tokens import generate_turn_token
 from app.main import app
-from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
+from app.models import Match, GameState, Player, Turn, TurnSubmission, User
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from tests.factories import make_agent, make_connection, make_user, seat_player
@@ -29,23 +29,11 @@ NOW = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
-    # Don't wait out a real long-poll hold when probing the next-turn endpoint.
-    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0)
-
-    yield test_factory
-    await test_engine.dispose()
+def _autouse_fast_long_poll(fast_long_poll: None) -> None:
+    """Every test in this file probes the next-turn endpoint and expects the
+    real long-poll hold skipped, matching this file's old autouse `reset_db`
+    fixture.
+    """
 
 
 @pytest.fixture
