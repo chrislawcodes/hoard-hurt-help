@@ -496,3 +496,77 @@ async def test_replay_history_carries_per_turn_score_that_resets_each_round():
     assert [h["score_after"]["AI_0"] for h in history] == [2, 4, 2]
     # The round-2 reset turn shows 2, not the round-1 peak of 4.
     assert history[-1]["score_after"] == {"AI_0": 2, "AI_1": 2}
+
+
+async def test_rc_data_ships_delta_and_betrayal_bonus_on_every_action():
+    """Pin the payload contract the replay JS relies on (it no longer owns a
+    payoff table — see _replay_script.html's actionDelta): every rc_data action
+    ships an integer `delta` — HOARD's +2 to the actor, the pact's DECAYED
+    per-side value on each half, the one-way HELP's +4 to the target, the HURT's
+    nominal -4 on the victim — and a HURT that betrays a same-turn helper ships
+    the attacker's gain on `betrayal_bonus`, never on `delta`.
+    """
+    import json
+
+    from app.games.hoard_hurt_help.viewer import build_pd_replay_view
+    from app.read_models.matches import TimelineAction, TimelineTurn
+
+    players = [Player(seat_name="AI_0"), Player(seat_name="AI_1")]
+
+    def act(seat: str, action: str, target: str | None, score_after: int) -> TimelineAction:
+        return TimelineAction(
+            agent_id=seat,
+            action=action,
+            target_id=target,
+            quantity=None,
+            face=None,
+            message="",
+            thinking="",
+            points_delta=0,
+            round_score_after=score_after,
+            submitted_at=datetime.now(timezone.utc),
+            was_defaulted=False,
+        )
+
+    timeline = [
+        # Turns 1-2: the same pair pacts twice — fresh +8 each, then decayed +7.
+        TimelineTurn(round=1, turn=1, messages=[], actions=[
+            act("AI_0", "HELP", "AI_1", 8), act("AI_1", "HELP", "AI_0", 8)]),
+        TimelineTurn(round=1, turn=2, messages=[], actions=[
+            act("AI_0", "HELP", "AI_1", 15), act("AI_1", "HELP", "AI_0", 15)]),
+        # Turn 3: AI_0 HURTs its same-turn helper (betrayal) — AI_1's HELP is one-way.
+        TimelineTurn(round=1, turn=3, messages=[], actions=[
+            act("AI_0", "HURT", "AI_1", 23), act("AI_1", "HELP", "AI_0", 11)]),
+        # Turn 4: plain hoards.
+        TimelineTurn(round=1, turn=4, messages=[], actions=[
+            act("AI_0", "HOARD", None, 25), act("AI_1", "HOARD", None, 13)]),
+    ]
+
+    view = await build_pd_replay_view(
+        db=None,  # build_pd_replay_view reads only the passed-in rows
+        match=Match(id="G_001", game="hoard-hurt-help", turns_per_round=7),
+        players=players,
+        scoreboard=[
+            {"agent_id": "AI_0", "round_score": 25, "round_wins": 0, "provider": None},
+            {"agent_id": "AI_1", "round_score": 13, "round_wins": 0, "provider": None},
+        ],
+        timeline=timeline,
+        viewer_seat="AI_0",
+    )
+    rc = json.loads(view["rc_data"])
+    for turn in rc["turns"]:
+        for a in turn["actions"]:
+            assert isinstance(a["delta"], int)  # the JS consumes this directly
+    # Fresh pact pays +8 per side; the repeat decays to +7 (match-wide counter).
+    assert [a["delta"] for a in rc["turns"][0]["actions"]] == [8, 8]
+    assert [a["delta"] for a in rc["turns"][1]["actions"]] == [7, 7]
+    # Betrayal HURT: the victim's nominal -4 rides `delta` (the running-score
+    # clamp at 0 stays client-side); the attacker's +4 rides `betrayal_bonus`.
+    hurt = next(a for a in rc["turns"][2]["actions"] if a["action"] == "HURT")
+    assert hurt["delta"] == -4
+    assert hurt["betrayed_helper"] is True
+    assert hurt["betrayal_bonus"] == 4
+    # One-way HELP lands on the target; HOARD credits the actor.
+    one_way = next(a for a in rc["turns"][2]["actions"] if a["action"] == "HELP")
+    assert one_way["delta"] == 4
+    assert [a["delta"] for a in rc["turns"][3]["actions"]] == [2, 2]

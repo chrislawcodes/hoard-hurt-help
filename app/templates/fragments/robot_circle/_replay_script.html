@@ -75,6 +75,29 @@
     caption.innerHTML='<span class="rc-badge">Live</span> Waiting for the first turn…';
   }
 
+  // Per-action score value, straight from the server payload (viewer.py ships
+  // `delta` = display_delta on every action): HOARD is +2 to the ACTOR; a mutual
+  // HELP is the decayed per-side pact total, credited to the ACTOR of each half
+  // (the payload carries one action per side, so both get credited); a one-way
+  // HELP is the +4 credited to the TARGET; HURT is the victim's nominal -4 —
+  // the server floors the persisted score, not `delta`, so the running score
+  // still clamps at 0 client-side. The attacker's gain for betraying a helper
+  // rides `betrayal_bonus`, never `delta`. The literals below are a FALLBACK
+  // for cached payloads that predate `delta`; the payoff table must not exist
+  // anywhere else in this file.
+  function actionDelta(a){
+    if(typeof a.delta==='number') return a.delta;
+    if(a.action==='HOARD') return 2;
+    if(a.action==='HELP') return a.mutual ? 8 : 4;
+    if(a.action==='HURT') return -4;
+    return 0;
+  }
+  // Attacker's bonus for HURTing a same-turn helper — only read when
+  // a.betrayed_helper. Fallback +4 for payloads that predate `betrayal_bonus`.
+  function betrayalBonus(a){
+    return (typeof a.betrayal_bonus==='number' && a.betrayal_bonus>0) ? a.betrayal_bonus : 4;
+  }
+
   // Per-turn in-round score at the START of each turn, plus cumulative round
   // wins. The winner of a game is decided by rounds won (highest in-round
   // score when a round ends; ties split the win), so the rail tracks that —
@@ -95,15 +118,19 @@
       var snap={}; AGENTS.forEach(function(id){ snap[id]=sim[id]; }); scoreAt[i]=snap;
       // Wins as of the start of this turn (rounds credited once they finish).
       var wsnap={}; AGENTS.forEach(function(id){ wsnap[id]=wins[id]; }); winsAt[i]=wsnap;
+      // Each action carries its server-computed value (see actionDelta): the
+      // credit goes to the ACTOR for HOARD and each half of a mutual pact, and
+      // to the TARGET for a one-way HELP or a HURT (negative, clamped at 0).
       t.actions.forEach(function(a){
-        if(a.action==='HOARD')                        { sim[a.agent]=(sim[a.agent]||0)+2; }
-        else if(a.action==='HELP'&&a.mutual)          { sim[a.agent]=(sim[a.agent]||0)+8; }
-        else if(a.action==='HELP'&&!a.mutual&&a.target){ sim[a.target]=(sim[a.target]||0)+4; }
-        else if(a.action==='HURT'&&a.target)          { sim[a.target]=Math.max(0,(sim[a.target]||0)-4);
-          // Betraying a helper: the attacker also gains +4 (the victim's HELP is
-          // already credited above). Keeps this snapshot in step with the resolver
-          // and with playAction, which renderTurn reseeds rScore from.
-          if(a.betrayed_helper){ sim[a.agent]=(sim[a.agent]||0)+4; } }
+        var d=actionDelta(a);
+        if(a.action==='HOARD')                        { sim[a.agent]=(sim[a.agent]||0)+d; }
+        else if(a.action==='HELP'&&a.mutual)          { sim[a.agent]=(sim[a.agent]||0)+d; }
+        else if(a.action==='HELP'&&!a.mutual&&a.target){ sim[a.target]=(sim[a.target]||0)+d; }
+        else if(a.action==='HURT'&&a.target)          { sim[a.target]=Math.max(0,(sim[a.target]||0)+d);
+          // Betraying a helper: the attacker also gains the betrayal bonus (the
+          // victim's HELP is already credited above). Keeps this snapshot in step
+          // with the resolver and with playAction, which renderTurn reseeds rScore from.
+          if(a.betrayed_helper){ sim[a.agent]=(sim[a.agent]||0)+betrayalBonus(a); } }
       });
       // Round just ended → award the round win (split evenly on a tie).
       if(lastIdxOfRound[t.round]===i){
@@ -840,8 +867,9 @@
         el._hoardClearTimer = null;
       }, HOARD_FULL);
       eyes(a.agent,'happy',900);
-      showDelta(el, 2);
-      rScore[a.agent]=(rScore[a.agent]||0)+2;
+      var hoardD=actionDelta(a);
+      showDelta(el, hoardD);
+      rScore[a.agent]=(rScore[a.agent]||0)+hoardD;
       updateRail();
       setTimeout(function(){ dimDown(a.agent); }, 900);
       return;
@@ -863,8 +891,11 @@
           dropCarry(el);
           lockRing(mx,my);
           eyes(a.agent,'happy',900); eyes(a.target,'happy',900);
-          showDelta(el, 8); showDelta(T, 8);
-          rScore[a.agent]=(rScore[a.agent]||0)+8;
+          // Decayed per-side pact value; both halves of the pact fire with the
+          // same value, and each half credits its own ACTOR.
+          var pactD=actionDelta(a);
+          showDelta(el, pactD); showDelta(T, pactD);
+          rScore[a.agent]=(rScore[a.agent]||0)+pactD;
           updateRail();
           setTimeout(function(){ dimDown(a.agent); dimDown(a.target); }, 500);
         });
@@ -891,8 +922,9 @@
         walk(el, gx, gy, function(){
           dropCarry(el);
           eyes(a.agent,'happy',900); eyes(a.target,'happy',900);
-          showDelta(T, 4);
-          rScore[a.target]=(rScore[a.target]||0)+4;
+          var giftD=actionDelta(a);   // one-way HELP: the value lands on the TARGET
+          showDelta(T, giftD);
+          rScore[a.target]=(rScore[a.target]||0)+giftD;
           updateRail();
           setTimeout(function(){ dimDown(a.agent); dimDown(a.target); }, 500);
         });
@@ -916,12 +948,17 @@
           dropCarry(el);
           strikeAt(tx,ty);
           eyes(a.target,'wide',800);
-          showDelta(T, -4);
-          rScore[a.target]=Math.max(0,(rScore[a.target]||0)-4);
-          // Betraying a helper: the attacker gains +4 (on top of the +4 the
-          // victim's HELP already gave them). Shown on the attacker + credited to
-          // the live rScore, matching the resolver and the computeScores snapshot.
-          if(a.betrayed_helper){ showDelta(el, 4); rScore[a.agent]=(rScore[a.agent]||0)+4; }
+          var hurtD=actionDelta(a);   // victim's nominal loss (negative); score clamps at 0
+          showDelta(T, hurtD);
+          rScore[a.target]=Math.max(0,(rScore[a.target]||0)+hurtD);
+          // Betraying a helper: the attacker gains the betrayal bonus (on top of
+          // the help the victim's HELP already gave them). Shown on the attacker +
+          // credited to the live rScore, matching the resolver and the
+          // computeScores snapshot.
+          if(a.betrayed_helper){
+            var bonusD=betrayalBonus(a);
+            showDelta(el, bonusD); rScore[a.agent]=(rScore[a.agent]||0)+bonusD;
+          }
           dmgRail(a.target);
           updateRail();
           T.classList.add('recoil','hit');
