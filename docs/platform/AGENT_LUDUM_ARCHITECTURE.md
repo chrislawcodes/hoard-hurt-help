@@ -690,8 +690,10 @@ push HTML fragments into the live viewer — no client‑side state.
   still future work (the design doc's **Game Framework** section).
   See `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md` for the game‑side view.
 - **"Fail loud" contract defaults keep the platform game‑agnostic.** `action_names()`,
-  `default_move()`, `build_replay_view()`, and `viewer_fragment()` all raise
-  `NotImplementedError` in `BaseGameModule`. Adding a new game and forgetting any
+  `default_move()`, `build_replay_view()`, `viewer_fragment()`, `next_actor()`, and
+  `active_actors()` all raise `NotImplementedError` in `BaseGameModule` (the last two
+  are consulted only for sequential games — the driver loop and the turn‑serving
+  fan‑out respectively). Adding a new game and forgetting any
   of them blows up at runtime on the first use, not silently with PD's data.
   The tension to watch: don't add a new platform path that calls any of these
   without a corresponding `BaseGameModule` default (or a deliberate loud raise).

@@ -263,9 +263,22 @@ async def _sequential_active_seats(
         matches_by_game.setdefault(match.game, []).append(match)
     active_seat_by_match: dict[str, str | None] = {}
     for game, matches in matches_by_game.items():
-        active_seat_by_match.update(
-            await get_game_module(game).active_actors(db, matches)
-        )
+        actors = await get_game_module(game).active_actors(db, matches)
+        # The contract requires a TOTAL map: one entry per queried match (None =
+        # nobody owes a move). A missing entry must NOT fall through to the
+        # "absent = simultaneous, serve every seat" rule — for a sequential game
+        # that silently reverts to the wrong-seat serving this gate exists to
+        # prevent. Reject a partial map loudly instead of serving from it.
+        missing = [match.id for match in matches if match.id not in actors]
+        if missing:
+            raise ValueError(
+                f"game module {game!r} violated the active_actors contract:"
+                f" no entry for match(es) {missing} — the returned map must"
+                " cover every passed match, with None when nobody owes a move"
+            )
+        # Take exactly the queried matches' entries, so a stray extra key can
+        # never leak a restriction onto another game's match.
+        active_seat_by_match.update({match.id: actors[match.id] for match in matches})
     return active_seat_by_match
 
 

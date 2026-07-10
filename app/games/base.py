@@ -233,9 +233,17 @@ class GameModule(Protocol):
         self, db: AsyncSession, matches: Sequence[Match]
     ) -> dict[str, str | None]:
         """Batched `next_actor` for the turn-serving fan-out: match_id -> the
-        seat_name owing a move right now (None = nobody owes one). Called only
-        for sequential games; the implementation must batch its state reads
-        across `matches` (the fan-out runs on every poll)."""
+        seat_name owing a move right now. Called only for sequential games; the
+        implementation must batch its state reads across `matches` (the fan-out
+        runs on every poll).
+
+        The returned map must be TOTAL over `matches`: exactly one entry per
+        passed match, with None meaning "nobody owes a move this instant" (e.g.
+        a showdown is resolving, or no state exists yet). A partial map is a
+        contract violation the serving gate rejects loudly — a missing entry is
+        NOT "no restriction", and treating it that way would quietly revert a
+        sequential game to serving every seat (the wrong-seat bug this hook
+        exists to prevent)."""
         ...
 
     async def on_round_start(self, db: AsyncSession, match: Match, round_num: int) -> None:
