@@ -11,7 +11,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.connection_health import LIVE_WINDOW_SECONDS
-from app.models import Base
 from app.models.agent import AgentKind
 from app.models.connection import Connection
 from app.routes.nav_context import (
@@ -23,20 +22,11 @@ from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-
-    yield test_factory
-    await test_engine.dispose()
+async def _autouse_reset_db(reset_db: async_sessionmaker) -> None:
+    """Several tests below drive `client` without requesting `reset_db` by
+    name; this keeps every test in the file on a fresh DB, matching this
+    file's old autouse fixture.
+    """
 
 
 def _desktop_nav_html(page: str) -> str:

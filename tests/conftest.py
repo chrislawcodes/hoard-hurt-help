@@ -151,8 +151,28 @@ async def reset_db(
     test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
     monkeypatch.setattr("app.db.SessionLocal", test_factory)
     monkeypatch.setattr("app.db.engine", test_engine)
+    # agent_api's rate-limit state is a module-level dict shared across tests;
+    # clearing it here is cheap and a no-op for tests that never touch it, and
+    # saves ~7 files from hand-rolling the same monkeypatch.
+    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
     yield test_factory
     await test_engine.dispose()
+
+
+@pytest.fixture
+def admin_emails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Register ``admin@test.com`` as a platform admin for the test.
+
+    Depends on nothing beyond `monkeypatch` itself; combine with `reset_db` in
+    the same test (or another fixture) when the test also needs the DB.
+    """
+    monkeypatch.setattr(settings, "admin_emails", "admin@test.com")
+
+
+@pytest.fixture
+def fast_long_poll(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the real long-poll hold so next-turn probes return immediately."""
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0)
 
 
 @pytest.fixture

@@ -25,31 +25,14 @@ from urllib.parse import quote
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.models import Base, GameState, Match, Player, User
+from app.models import GameState, Match, Player, User
 from app.routes.web_support import safe_internal_next
 from tests.factories import make_agent, make_connection, make_user
 from tests.conftest import signed_in_cookies as _cookies
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
 JOIN_NEXT = quote(JOIN_URL, safe="")
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-
-    yield test_factory
-    await test_engine.dispose()
 
 
 async def _seed_match(reset_db, state: GameState = GameState.REGISTERING) -> None:

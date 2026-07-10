@@ -1,6 +1,7 @@
 """Match viewer + SSE + spectator API tests."""
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -11,40 +12,30 @@ from app.models import (
     Turn,
     TurnMessage,
     TurnSubmission,
-    User,
 )
-from tests.factories import make_agent
+from tests.factories import make_agent, make_match, make_user, seat_prebuilt_player
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 async def _seed(reset_db, state=GameState.ACTIVE, *, scheduled_start=None, match_kind="manual"):
     async with reset_db() as db:
-        u = User(google_sub="u", email="u@t.com")
-        db.add(u)
-        await db.flush()
-        g = Match(
-            id="G_001",
-            name="Test",
+        u = await make_user(db)
+        match = await make_match(
+            db,
+            "G_001",
             state=state,
+            name="Test",
             scheduled_start=scheduled_start or datetime.now(timezone.utc),
             match_kind=match_kind,
             current_round=1,
             current_turn=1,
         )
-        db.add(g)
-        await db.flush()
         agent, version = await make_agent(db, u, name="AI_0")
-        if version is not None:
-            version.strategy_text = "SECRET STRATEGY DO NOT LEAK"
-        p = Player(
-            match_id="G_001",
-            user_id=u.id,
-            agent_id=agent.id,
-            seat_name="AI_0",
-            agent_version_id=version.id if version is not None else None,
-            model_self_report=version.model if version is not None else None,
+        version.strategy_text = "SECRET STRATEGY DO NOT LEAK"
+        await seat_prebuilt_player(
+            db, match=match, user=u, agent=agent, version=version, seat_name="AI_0"
         )
-        db.add(p)
-        await db.flush()
         await db.commit()
 
 
@@ -238,8 +229,34 @@ async def test_completed_viewer_has_round_nav(client, reset_db):
     assert "round-nav" in r.text
     assert 'data-round="1"' in r.text
     assert "round-section" in r.text
-    # Match replay should start on its own for spectators.
-    assert "if(true && !_reduced)" in r.text
+    # Match replay should start on its own for spectators: the engine is a
+    # static file (rc-replay.js) that reads the server's autoplay choice from
+    # data-autoplay on the #rc-data island.
+    assert '<script src="/static/rc-replay.js"></script>' in r.text
+    assert 'id="rc-data" data-autoplay="true"' in r.text
+    engine = (REPO_ROOT / "app" / "static" / "rc-replay.js").read_text()
+    assert "dataset.autoplay==='true'" in engine
+
+
+def test_replay_script_fragment_carries_autoplay_flag():
+    """Pin the template<->engine contract left after extracting the replay JS
+    to app/static/rc-replay.js: the fragment renders the #rc-data island with
+    data-autoplay reflecting rc_autoplay (default false), loads the engine via
+    a plain synchronous <script src> (no defer/async — execution order matters,
+    see _replay_script.html), and the static file itself is template-free."""
+    from app.templating import templates
+
+    tpl = templates.env.get_template("fragments/robot_circle/_replay_script.html")
+    on = tpl.render(rc_data="{}", rc_autoplay=True)
+    off = tpl.render(rc_data="{}")
+    assert 'id="rc-data" data-autoplay="true"' in on
+    assert 'id="rc-data" data-autoplay="false"' in off
+    for html in (on, off):
+        assert '<script src="/static/rc-replay.js"></script>' in html
+        assert "defer" not in html and "async" not in html
+    engine = (REPO_ROOT / "app" / "static" / "rc-replay.js").read_text()
+    assert "{{" not in engine and "{%" not in engine
+    assert "dataset.autoplay==='true'" in engine
 
 
 async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
@@ -248,24 +265,18 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
     async with reset_db() as db:
         import sqlalchemy
 
-        from app.models import Player, Turn, TurnSubmission, User
+        from app.models import Player, Turn, TurnSubmission
 
         actor = (await db.execute(sqlalchemy.select(Player))).scalars().first()
+        match = (
+            await db.execute(sqlalchemy.select(Match).where(Match.id == "G_001"))
+        ).scalar_one()
         # Second player to be the HURT target.
-        u2 = User(google_sub="u2", email="u2@t.com")
-        db.add(u2)
-        await db.flush()
+        u2 = await make_user(db, 2)
         bot2, version2 = await make_agent(db, u2, name="AI_1")
-        target = Player(
-            match_id="G_001",
-            user_id=u2.id,
-            agent_id=bot2.id,
-            seat_name="AI_1",
-            agent_version_id=version2.id if version2 is not None else None,
-            model_self_report=version2.model if version2 is not None else None,
+        target = await seat_prebuilt_player(
+            db, match=match, user=u2, agent=bot2, version=version2, seat_name="AI_1"
         )
-        db.add(target)
-        await db.flush()
         t = Turn(
             match_id="G_001",
             round=1,
@@ -312,23 +323,17 @@ async def test_viewer_shows_attacker_bonus_on_betrayal(client, reset_db):
     async with reset_db() as db:
         import sqlalchemy
 
-        from app.models import Player, Turn, TurnSubmission, User
+        from app.models import Player, Turn, TurnSubmission
 
         attacker = (await db.execute(sqlalchemy.select(Player))).scalars().first()
-        u2 = User(google_sub="u2", email="u2@t.com")
-        db.add(u2)
-        await db.flush()
+        match = (
+            await db.execute(sqlalchemy.select(Match).where(Match.id == "G_001"))
+        ).scalar_one()
+        u2 = await make_user(db, 2)
         bot2, version2 = await make_agent(db, u2, name="AI_1")
-        victim = Player(
-            match_id="G_001",
-            user_id=u2.id,
-            agent_id=bot2.id,
-            seat_name="AI_1",
-            agent_version_id=version2.id if version2 is not None else None,
-            model_self_report=version2.model if version2 is not None else None,
+        victim = await seat_prebuilt_player(
+            db, match=match, user=u2, agent=bot2, version=version2, seat_name="AI_1"
         )
-        db.add(victim)
-        await db.flush()
         t = Turn(
             match_id="G_001",
             round=1,
@@ -496,3 +501,77 @@ async def test_replay_history_carries_per_turn_score_that_resets_each_round():
     assert [h["score_after"]["AI_0"] for h in history] == [2, 4, 2]
     # The round-2 reset turn shows 2, not the round-1 peak of 4.
     assert history[-1]["score_after"] == {"AI_0": 2, "AI_1": 2}
+
+
+async def test_rc_data_ships_delta_and_betrayal_bonus_on_every_action():
+    """Pin the payload contract the replay JS relies on (it no longer owns a
+    payoff table — see app/static/rc-replay.js's actionDelta): every rc_data action
+    ships an integer `delta` — HOARD's +2 to the actor, the pact's DECAYED
+    per-side value on each half, the one-way HELP's +4 to the target, the HURT's
+    nominal -4 on the victim — and a HURT that betrays a same-turn helper ships
+    the attacker's gain on `betrayal_bonus`, never on `delta`.
+    """
+    import json
+
+    from app.games.hoard_hurt_help.viewer import build_pd_replay_view
+    from app.read_models.matches import TimelineAction, TimelineTurn
+
+    players = [Player(seat_name="AI_0"), Player(seat_name="AI_1")]
+
+    def act(seat: str, action: str, target: str | None, score_after: int) -> TimelineAction:
+        return TimelineAction(
+            agent_id=seat,
+            action=action,
+            target_id=target,
+            quantity=None,
+            face=None,
+            message="",
+            thinking="",
+            points_delta=0,
+            round_score_after=score_after,
+            submitted_at=datetime.now(timezone.utc),
+            was_defaulted=False,
+        )
+
+    timeline = [
+        # Turns 1-2: the same pair pacts twice — fresh +8 each, then decayed +7.
+        TimelineTurn(round=1, turn=1, messages=[], actions=[
+            act("AI_0", "HELP", "AI_1", 8), act("AI_1", "HELP", "AI_0", 8)]),
+        TimelineTurn(round=1, turn=2, messages=[], actions=[
+            act("AI_0", "HELP", "AI_1", 15), act("AI_1", "HELP", "AI_0", 15)]),
+        # Turn 3: AI_0 HURTs its same-turn helper (betrayal) — AI_1's HELP is one-way.
+        TimelineTurn(round=1, turn=3, messages=[], actions=[
+            act("AI_0", "HURT", "AI_1", 23), act("AI_1", "HELP", "AI_0", 11)]),
+        # Turn 4: plain hoards.
+        TimelineTurn(round=1, turn=4, messages=[], actions=[
+            act("AI_0", "HOARD", None, 25), act("AI_1", "HOARD", None, 13)]),
+    ]
+
+    view = await build_pd_replay_view(
+        db=None,  # build_pd_replay_view reads only the passed-in rows
+        match=Match(id="G_001", game="hoard-hurt-help", turns_per_round=7),
+        players=players,
+        scoreboard=[
+            {"agent_id": "AI_0", "round_score": 25, "round_wins": 0, "provider": None},
+            {"agent_id": "AI_1", "round_score": 13, "round_wins": 0, "provider": None},
+        ],
+        timeline=timeline,
+        viewer_seat="AI_0",
+    )
+    rc = json.loads(view["rc_data"])
+    for turn in rc["turns"]:
+        for a in turn["actions"]:
+            assert isinstance(a["delta"], int)  # the JS consumes this directly
+    # Fresh pact pays +8 per side; the repeat decays to +7 (match-wide counter).
+    assert [a["delta"] for a in rc["turns"][0]["actions"]] == [8, 8]
+    assert [a["delta"] for a in rc["turns"][1]["actions"]] == [7, 7]
+    # Betrayal HURT: the victim's nominal -4 rides `delta` (the running-score
+    # clamp at 0 stays client-side); the attacker's +4 rides `betrayal_bonus`.
+    hurt = next(a for a in rc["turns"][2]["actions"] if a["action"] == "HURT")
+    assert hurt["delta"] == -4
+    assert hurt["betrayed_helper"] is True
+    assert hurt["betrayal_bonus"] == 4
+    # One-way HELP lands on the target; HOARD credits the actor.
+    one_way = next(a for a in rc["turns"][2]["actions"] if a["action"] == "HELP")
+    assert one_way["delta"] == 4
+    assert [a["delta"] for a in rc["turns"][3]["actions"]] == [2, 2]

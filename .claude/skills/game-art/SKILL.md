@@ -113,8 +113,10 @@ order** (the split was mechanical — same rendered HTML):
   comment for the include order and the context variables passed through.
 - `robot_circle/_style.html` — the scoped `<style>` block (all `.rc-*` CSS).
 - `robot_circle/_markup.html` — the stage, controls, and legend markup.
-- `robot_circle/_replay_script.html` — the rc-data JSON, the `PALETTE`, the
-  timing constants, and the replay/animation engine. Most motion work lands here.
+- `robot_circle/_replay_script.html` — the rc-data JSON island and the script
+  includes only. The engine itself — the `PALETTE`, the timing constants, and
+  the replay/animation code — lives in `app/static/rc-replay.js`. Most motion
+  work lands in that static file.
 - `robot_circle/_countdown_script.html` — the pre-start countdown.
 
 Read the part you're changing fully before touching it — they're dense.
@@ -259,14 +261,14 @@ Spell out the buildable detail:
 - **Choreography** — the phases and their order, what each robot does, and the
   timing/easing. Mind the existing schedule (`buildSchedule`) and the phase
   constants (`DUR`, `TURN_DUR`, `BEND_DUR`, `REACH_DUR`, gaps) in
-  `robot_circle/_replay_script.html` — new motion has to slot into that clock,
+  `app/static/rc-replay.js` — new motion has to slot into that clock,
   and `totalDuration` drives autoplay pacing.
 - **New classes/keyframes** — named in the `.rc-` namespace.
 - **Data needs** — anything new the art or motion reads from `actions[]`, and the
   matching `_build_rc_data` change.
 
 Then, **on request**, make the edits in the right `robot_circle/` part — style
-in `_style.html`, markup in `_markup.html`, motion in `_replay_script.html` —
+in `_style.html`, markup in `_markup.html`, motion in `app/static/rc-replay.js` —
 (and the PD viewer module `app/games/hoard_hurt_help/viewer.py` if the contract
 changes) and **verify them yourself**: re-run the Ground checks — judge
 the still frame, watch it play with real data, flip every theme, check phone
@@ -333,7 +335,7 @@ and how to re-check each before relying on it:
   `grep -n "POINTS\|MUTUAL_HELP\|max(" app/games/hoard_hurt_help/scoring.py`.
 - Data contract: read `_build_rc_data` in `app/games/hoard_hurt_help/viewer.py`.
 - Timing constants and `PALETTE`:
-  `grep -n "PALETTE\|_DUR\|totalDuration" app/templates/fragments/robot_circle/_replay_script.html`.
+  `grep -n "PALETTE\|_DUR\|totalDuration" app/static/rc-replay.js`.
 - Which games have viewers (a new one needs a grounding block here):
   `ls app/templates/fragments/` and `ls app/games/`.
 

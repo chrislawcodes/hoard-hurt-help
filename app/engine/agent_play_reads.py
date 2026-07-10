@@ -209,10 +209,12 @@ def build_turn_static_dict(
     are wire-frozen for the operator connector. It is a standalone builder so the
     projection stays testable apart from the fan-out's claim/pin machinery.
 
-    (Until the per-match poll was retired this builder fed both turn-serving
-    paths, which is why it exists as a shared helper; the fan-out is now the only
-    turn-payload path, so ``your_strategy`` is simply the caller's resolved
-    strategy text.)
+    The fan-out is the only turn-serving path (the per-match poll was retired
+    in #602). ``your_strategy`` is the caller's seat-pinned strategy text:
+    ``_fetch_active_agent_rows`` joins ``AgentVersion`` on the seat's pinned
+    ``Player.agent_version_id``, not ``Agent.current_version_id``, so a
+    mid-match edit or restore-version never changes what a running match is
+    served.
     """
     module = get_game_module(match.game)
     static: dict[str, object] = {

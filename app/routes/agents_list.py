@@ -9,13 +9,8 @@ from fastapi.responses import HTMLResponse
 from starlette.responses import Response
 
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import (
-    ConnectionHealth,
-    ConnectionHealthStatus,
-    ProviderReadiness,
-    user_play_readiness,
-)
-from app.models.agent import Agent, AgentStatus
+from app.engine.connection_health import user_play_readiness
+from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.user import User
 from app.routes.agents_health_presenter import (
@@ -23,6 +18,7 @@ from app.routes.agents_health_presenter import (
     _count_agent_matches_for_agents,
     _readiness_state,
     health_view,
+    readiness_health_status,
 )
 from app.routes.agents_queries import user_agents_select
 from app.templating import templates
@@ -60,42 +56,7 @@ async def list_agents(
         # No per-agent provider any more; the connect CTA is generic.
         provider_label = None
         connect_url = "/me/connections"
-        if agent.status == AgentStatus.PAUSED:
-            status = ConnectionHealthStatus(
-                state=ConnectionHealth.PAUSED,
-                label="Paused",
-                badge_class="badge-done",
-                pulse=False,
-                needs_reconnect=False,
-                never_connected=False,
-                last_connected_at=None,
-                last_connected_human=None,
-            )
-        elif readiness == ProviderReadiness.NO_MCP_CONNECTION:
-            # NO_MCP_CONNECTION: no recent MCP setup at all → needs connecting.
-            status = ConnectionHealthStatus(
-                state=ConnectionHealth.DISCONNECTED,
-                label="Needs connecting",
-                badge_class="badge-alert",
-                pulse=False,
-                needs_reconnect=True,
-                never_connected=True,
-                last_connected_at=None,
-                last_connected_human=None,
-            )
-        else:
-            # Any rung above NO_MCP_CONNECTION means the provider has a current
-            # MCP setup (CONNECTED_NOT_LIVE / SEEN_NOT_POLLING / LIVE) → ready.
-            status = ConnectionHealthStatus(
-                state=ConnectionHealth.READY,
-                label="Ready",
-                badge_class="badge-ok",
-                pulse=False,
-                needs_reconnect=False,
-                never_connected=False,
-                last_connected_at=None,
-                last_connected_human=None,
-            )
+        status = readiness_health_status(readiness, agent.status)
         health: object = health_view(status)
         needs_connecting = _readiness_state({"health": health, "join_blocked": False}) == "needs_connecting"
         rows.append(

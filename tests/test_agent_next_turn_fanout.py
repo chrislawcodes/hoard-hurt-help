@@ -22,6 +22,7 @@ from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+from app.models.game_state import MatchState, PlayerState
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
@@ -160,6 +161,7 @@ async def _create_match_with_turn(
     *,
     deadline_seconds: int,
     phase: str = "act",
+    game: str | None = None,
 ) -> tuple[Match, Turn]:
     now = datetime.now(timezone.utc)
     match = Match(
@@ -172,6 +174,8 @@ async def _create_match_with_turn(
         current_round=1,
         current_turn=1,
     )
+    if game is not None:
+        match.game = game
     db.add(match)
     await db.flush()
     turn = Turn(
@@ -1661,3 +1665,235 @@ async def test_filter_to_candidates_batches_mixed_phase_seats(
     body = batch.json()
     assert body["status"] == "your_turn"
     assert sorted(t["match_id"] for t in body["turns"]) == ["M_FC", "M_FD"]
+
+
+async def test_sequential_game_serves_only_the_active_actors_seat(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Liar's Dice (sequential): one user covers two seats in the same match, but
+    the open turn is handed ONLY to the seat that is the active actor. The
+    sibling seat — same open turn, no submission — must not be served, because
+    its submit would be rejected (NOT_YOUR_TURN). Once the actor moves on to a
+    seat the user does not own, the connection has nothing to serve at all.
+    (PD's every-seat-owes-a-move serving is pinned by the other tests here,
+    e.g. test_next_turn_agent_id_filter_and_batch_serve_each_agent.)"""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        rival = await make_user(db, 1)
+        rival_connection, _rival_key = await make_connection(db, rival)
+        match, _turn = await _create_match_with_turn(
+            db, "M_SEQ", deadline_seconds=60, game="liars-dice"
+        )
+        _agent_a, _version_a, player_a = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        agent_b, _version_b, player_b = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Beta",
+            agent_name="Beta",
+            model="claude-haiku-4-5",
+            strategy_text="s",
+        )
+        _agent_c, _version_c, player_c = await _seat_agent(
+            db,
+            user=rival,
+            connection=rival_connection,
+            match=match,
+            seat_name=f"{rival.handle}/Gamma",
+            agent_name="Gamma",
+            model="claude-haiku-4-5",
+            strategy_text="s",
+        )
+        seat_order = [player_a.seat_name, player_b.seat_name, player_c.seat_name]
+        # Mid-hand table state: Beta holds the action.
+        db.add(
+            MatchState(
+                match_id=match.id,
+                state_json={
+                    "seat_order": seat_order,
+                    "active_actor": player_b.seat_name,
+                    "standing_bid": None,
+                    "challenge_pending": False,
+                },
+            )
+        )
+        for player in (player_a, player_b, player_c):
+            db.add(
+                PlayerState(
+                    match_id=match.id,
+                    player_id=player.id,
+                    state_json={"dice": [1, 2], "dice_count": 2},
+                )
+            )
+        await db.commit()
+
+    # The batch hands the user ONLY the active actor's seat, not both.
+    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    assert batch.status_code == 200, batch.text
+    body = batch.json()
+    assert body["status"] == "your_turn"
+    assert [t["agent_id"] for t in body["turns"]] == [agent_b.id]
+    assert body["turns"][0]["seat_name"] == player_b.seat_name
+
+    # The singular fetch picks the same single servable seat.
+    single = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert single.status_code == 200, single.text
+    assert single.json()["agent_id"] == agent_b.id
+
+    # Action moves to the rival's seat: this user now owes nothing, even though
+    # both its seats still sit on an open turn with no submission.
+    async with session_factory() as db:
+        state = (
+            await db.execute(select(MatchState).where(MatchState.match_id == "M_SEQ"))
+        ).scalar_one()
+        state.state_json = {**state.state_json, "active_actor": player_c.seat_name}
+        await db.commit()
+
+    idle = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    assert idle.status_code == 200, idle.text
+    assert idle.json()["status"] == "waiting"
+
+
+async def test_pd_only_poll_never_consults_active_actors(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sequential gate must be free for PD: a poll whose matches are all
+    simultaneous takes the pre-gate code path — `active_actors` is never
+    called, so no extra state read (or any other module work) is added to the
+    turn-serving hot path. Pinned by making every module's `active_actors`
+    fail the test if it fires (PD inherits the Base one, and patching the Base
+    method covers any module that doesn't override it)."""
+
+    async def _must_not_fire(
+        self: object, db: object, matches: object
+    ) -> dict[str, str | None]:
+        raise AssertionError(
+            "active_actors was consulted during a PD-only poll; the"
+            " simultaneous hot path must never reach the sequential gate"
+        )
+
+    monkeypatch.setattr(
+        "app.games.base.BaseGameModule.active_actors", _must_not_fire
+    )
+
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        match, _turn = await _create_match_with_turn(db, "M_PDONLY", deadline_seconds=60)
+        agent, _version, player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        await db.commit()
+
+    # Both serving endpoints run the fan-out; neither may touch the gate.
+    single = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert single.status_code == 200, single.text
+    body = single.json()
+    assert body["status"] == "your_turn"
+    assert body["agent_id"] == agent.id
+    assert body["seat_name"] == player.seat_name
+
+    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    assert batch.status_code == 200, batch.text
+    assert [t["agent_id"] for t in batch.json()["turns"]] == [agent.id]
+
+
+async def test_mixed_poll_serves_pd_seat_and_only_the_ld_active_actor(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """One connection covering a PD seat AND two Liar's Dice seats: the batch
+    hands back the PD seat exactly as always (simultaneous — every seated
+    player owes a move) alongside ONLY the LD seat that is the active actor.
+    The gate is per-match, so a sequential match in the poll must not restrict
+    a simultaneous one, and vice versa."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        pd_match, _pd_turn = await _create_match_with_turn(
+            db, "M_MIXPD", deadline_seconds=60
+        )
+        ld_match, _ld_turn = await _create_match_with_turn(
+            db, "M_MIXLD", deadline_seconds=90, game="liars-dice"
+        )
+        pd_agent, _pd_version, pd_player = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=pd_match,
+            seat_name=f"{user.handle}/Pd",
+            agent_name="Pd",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        _ld_agent_a, _ld_version_a, ld_player_a = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=ld_match,
+            seat_name=f"{user.handle}/LdAlpha",
+            agent_name="LdAlpha",
+            model="claude-haiku-4-5",
+            strategy_text="s",
+        )
+        ld_agent_b, _ld_version_b, ld_player_b = await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=ld_match,
+            seat_name=f"{user.handle}/LdBeta",
+            agent_name="LdBeta",
+            model="claude-haiku-4-5",
+            strategy_text="s",
+        )
+        db.add(
+            MatchState(
+                match_id=ld_match.id,
+                state_json={
+                    "seat_order": [ld_player_a.seat_name, ld_player_b.seat_name],
+                    "active_actor": ld_player_b.seat_name,
+                    "standing_bid": None,
+                    "challenge_pending": False,
+                },
+            )
+        )
+        for player in (ld_player_a, ld_player_b):
+            db.add(
+                PlayerState(
+                    match_id=ld_match.id,
+                    player_id=player.id,
+                    state_json={"dice": [1, 2], "dice_count": 2},
+                )
+            )
+        await db.commit()
+
+    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    assert batch.status_code == 200, batch.text
+    body = batch.json()
+    assert body["status"] == "your_turn"
+    served = {turn["agent_id"]: turn for turn in body["turns"]}
+    # The PD seat is served as always; the LD match serves only its active actor.
+    assert set(served) == {pd_agent.id, ld_agent_b.id}
+    assert served[pd_agent.id]["match_id"] == "M_MIXPD"
+    assert served[pd_agent.id]["seat_name"] == pd_player.seat_name
+    assert served[ld_agent_b.id]["match_id"] == "M_MIXLD"
+    assert served[ld_agent_b.id]["seat_name"] == ld_player_b.seat_name

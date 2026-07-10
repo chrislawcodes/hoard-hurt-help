@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from app.config import settings
 from app.engine.match_deletion import delete_match
-from app.models import Base, GameState, Match, MatchState, Player, RequestIncident, Turn, TurnSubmission, User
+from app.models import GameState, Match, MatchState, Player, RequestIncident, Turn, TurnSubmission, User
 from app.models.user import UserRole
 from app.read_models.admin_reports import load_turn_timing_report
 from app.routes import admin_web
@@ -20,21 +20,10 @@ from tests.conftest import signed_in_cookies as _cookies
 
 
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr(settings, "admin_emails", "admin@test.com")
-
-    yield test_factory
-    await test_engine.dispose()
+def _autouse_admin_emails(admin_emails: None) -> None:
+    """Every test in this file expects `admin@test.com` to already be an
+    admin, matching this file's old autouse `reset_db` fixture.
+    """
 
 
 async def _seed_user(reset_db, email: str) -> User:

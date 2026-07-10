@@ -22,7 +22,6 @@ from typing import Any, cast
 from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentAccessToken, Depends
 from fastmcp.server.dependencies import AccessToken
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
@@ -35,7 +34,6 @@ from app.engine.agent_play import (
     submit_talk as play_submit_talk,
 )
 from app.games import get as get_game_module
-from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.match import Match
 from app.routes.spectator_api import public_state
 
@@ -233,24 +231,14 @@ async def get_instructions(
         match_id=match_id,
     )
     if match is None or your_agent_id is None or strategy_text is None:
-        active_agent_ids = sorted(
-            (
-                await db.execute(
-                    select(Agent.id).where(
-                        Agent.user_id == connection.user_id,
-                        Agent.kind == AgentKind.AI,
-                        Agent.status == AgentStatus.ACTIVE,
-                        Agent.archived_at.is_(None),
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        if agent_id is None and len(active_agent_ids) > 1:
+        # In the multi-agent case agent_identity_for already returns the user's
+        # active agent ids (sorted) as its third element — no need to re-query.
+        # Every other failure branch returns [] with agent_id set or <=1 active
+        # agent, so the multi-agent note below can never fire spuriously.
+        if agent_id is None and len(all_agent_ids) > 1:
             return (
                 "You have multiple agents. Call get_instructions(agent_id=...) for each "
-                f"one's strategy: {active_agent_ids}.\n\n"
+                f"one's strategy: {all_agent_ids}.\n\n"
                 f"{_mcp_how_to_play_block()}"
             )
         return (

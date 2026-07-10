@@ -320,10 +320,14 @@ async def test_connections_poll_no_forward_when_no_mcp_connection(
 
 
 # ---------------------------------------------------------------------------
-# Part 2: agents_list badge via provider_readiness signal
+# Part 2: agents_list badge via provider_readiness signal, through the shared
+# readiness_health_status mapping (app/routes/agents_health_presenter.py).
 #
-# Stale/absent mcp_connected_at (100+ days) → NO_MCP_CONNECTION → "needs connecting".
-# Recent mcp_connected_at → CONNECTED_NOT_LIVE or better → "ready".
+# Stale/absent mcp_connected_at (100+ days) → NO_MCP_CONNECTION → "no live connection".
+# Recent mcp_connected_at but not seen live → CONNECTED_NOT_LIVE → also
+# "no live connection" (this used to read as "ready" on the list page — see
+# tests/test_agent_health_badge_parity.py for the parity fix this covers).
+# Only SEEN_NOT_POLLING or better → "ready".
 # ---------------------------------------------------------------------------
 
 
@@ -331,6 +335,10 @@ async def test_agents_list_badge_needs_connecting_when_mcp_stale(
     db_session: AsyncSession,
 ) -> None:
     """Agent with stale mcp_connected_at (100+ days) → NO_MCP_CONNECTION → needs connecting."""
+    from app.engine.connection_health import ConnectionHealth
+    from app.models.agent import AgentStatus
+    from app.routes.agents_health_presenter import readiness_health_status
+
     user = await make_user(db_session, 200)
     # MCP connection with a 100-day-old mcp_connected_at → outside validity window
     await _make_mcp_connection(
@@ -347,15 +355,21 @@ async def test_agents_list_badge_needs_connecting_when_mcp_stale(
     assert readiness == ProviderReadiness.NO_MCP_CONNECTION, (
         "Stale mcp_connected_at (100+ days) should give NO_MCP_CONNECTION"
     )
-    # The agents_list badge condition: NO_MCP_CONNECTION → "needs connecting"
-    needs_connecting = readiness == ProviderReadiness.NO_MCP_CONNECTION
-    assert needs_connecting is True
+    status = readiness_health_status(readiness, AgentStatus.ACTIVE)
+    assert status.state == ConnectionHealth.DISCONNECTED
+    assert status.needs_reconnect is True
 
 
-async def test_agents_list_badge_ready_when_mcp_recent(
+async def test_agents_list_badge_needs_connecting_when_connected_not_live(
     db_session: AsyncSession,
 ) -> None:
-    """Agent with recent mcp_connected_at → at least CONNECTED_NOT_LIVE → ready."""
+    """Agent with recent mcp_connected_at but not seen live → CONNECTED_NOT_LIVE →
+    still "no live connection", not "ready". No live client can pick up a turn
+    for this agent right now, so the badge must not claim otherwise."""
+    from app.engine.connection_health import ConnectionHealth
+    from app.models.agent import AgentStatus
+    from app.routes.agents_health_presenter import readiness_health_status
+
     user = await make_user(db_session, 201)
     await _make_mcp_connection(
         db_session,
@@ -368,18 +382,22 @@ async def test_agents_list_badge_ready_when_mcp_recent(
     await db_session.flush()
 
     readiness = await provider_readiness(db_session, user.id, ConnectionProvider.CLAUDE)
-    assert readiness != ProviderReadiness.NO_MCP_CONNECTION, (
-        "Recent mcp_connected_at should give at least CONNECTED_NOT_LIVE"
+    assert readiness == ProviderReadiness.CONNECTED_NOT_LIVE, (
+        "Recent mcp_connected_at with no recent last_seen_at gives CONNECTED_NOT_LIVE"
     )
-    # The agents_list badge condition: != NO_MCP_CONNECTION → "ready"
-    needs_connecting = readiness == ProviderReadiness.NO_MCP_CONNECTION
-    assert needs_connecting is False
+    status = readiness_health_status(readiness, AgentStatus.ACTIVE)
+    assert status.state == ConnectionHealth.DISCONNECTED
+    assert status.needs_reconnect is True
 
 
 async def test_agents_list_badge_ready_when_seen_not_polling(
     db_session: AsyncSession,
 ) -> None:
     """Agent with recent mcp_connected_at and recent last_seen_at → SEEN_NOT_POLLING → ready."""
+    from app.engine.connection_health import ConnectionHealth
+    from app.models.agent import AgentStatus
+    from app.routes.agents_health_presenter import readiness_health_status
+
     user = await make_user(db_session, 202)
     await _make_mcp_connection(
         db_session,
@@ -393,9 +411,9 @@ async def test_agents_list_badge_ready_when_seen_not_polling(
 
     readiness = await provider_readiness(db_session, user.id, ConnectionProvider.CLAUDE)
     assert readiness == ProviderReadiness.SEEN_NOT_POLLING
-    # Not NO_MCP_CONNECTION → badge shows "ready"
-    needs_connecting = readiness == ProviderReadiness.NO_MCP_CONNECTION
-    assert needs_connecting is False
+    status = readiness_health_status(readiness, AgentStatus.ACTIVE)
+    assert status.state == ConnectionHealth.READY
+    assert status.needs_reconnect is False
 
 
 # ---------------------------------------------------------------------------

@@ -15,28 +15,8 @@ from app.games.hoard_hurt_help.scoring import resolve_turn
 from app.engine.scheduler import _begin_act_phase
 from app.engine.tokens import generate_turn_token
 from app.main import app
-from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSubmission
+from app.models import Match, GameState, Player, Turn, TurnMessage, TurnSubmission
 from tests.factories import seat_player
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    """Bind the app to an in-memory sqlite database for each test."""
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
-
-    yield test_factory
-
-    await test_engine.dispose()
 
 
 @pytest.fixture

@@ -36,9 +36,22 @@ def _now() -> datetime:
 
 
 class _HiddenStub(BaseGameModule):
-    """A hidden-info game: each player holds a secret no one else may see."""
+    """A hidden-info game: each player holds a secret no one else may see.
+
+    Sequential, so the fan-out serves the open turn only to the active actor;
+    the test flips `active_seat` (this stub's stand-in for real turn order) to
+    serve each seat in sequence, the way a real sequential game would.
+    """
 
     game_type = "hidden-stub"
+
+    def __init__(self) -> None:
+        self.active_seat: str | None = None
+
+    async def active_actors(
+        self, db: Any, matches: list[Match]
+    ) -> dict[str, str | None]:
+        return {match.id: self.active_seat for match in matches}
 
     def config_defaults(self) -> GameConfig:
         return GameConfig(
@@ -94,7 +107,8 @@ async def _serve_turn(client: AsyncClient, key: str) -> dict[str, Any]:
 
 
 async def test_private_state_never_leaks_across_players(monkeypatch: pytest.MonkeyPatch) -> None:
-    registry.register(_HiddenStub())
+    stub = _HiddenStub()
+    registry.register(stub)
 
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -129,8 +143,11 @@ async def test_private_state_never_leaks_across_players(monkeypatch: pytest.Monk
     test_app.include_router(agent_next_turn_router)
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Each seat is served through its OWN connection key.
+        # Each seat is served through its OWN connection key, when it holds the
+        # action (a sequential game's turn goes only to the active actor).
+        stub.active_seat = "Alice"
         alice_payload = await _serve_turn(client, alice_key)
+        stub.active_seat = "Bob"
         bob_payload = await _serve_turn(client, bob_key)
 
     # Each player sees ONLY their own secret.

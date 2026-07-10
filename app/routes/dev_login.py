@@ -23,6 +23,7 @@ from app.auth.session import set_session_user
 from app.config import settings
 from app.deps import DbSession
 from app.models.user import User, UserRole
+from app.routes.web_support import safe_internal_next
 
 router = APIRouter()
 
@@ -61,13 +62,6 @@ async def _ensure_dev_user(db: AsyncSession) -> User:
     return user
 
 
-def _safe_next(target: str) -> str:
-    """Only allow a same-site absolute path — never an off-site or scheme-relative URL."""
-    if target.startswith("/") and not target.startswith(("//", "/\\")):
-        return target
-    return "/me/agents"
-
-
 @router.get("/dev/login")
 async def dev_login(
     request: Request,
@@ -92,4 +86,6 @@ async def dev_login(
         user = await _ensure_dev_user(db)
     set_session_user(request, user.id)
     await db.commit()
-    return RedirectResponse(url=_safe_next(next_url), status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(
+        url=safe_internal_next(next_url) or "/me/agents", status_code=status.HTTP_303_SEE_OTHER
+    )

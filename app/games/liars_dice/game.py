@@ -31,10 +31,14 @@ from app.games.liars_dice.state import (
     _load_state,
     _next_alive_seat,
     _player_state_map,
+    _player_states_by_match,
     _players,
+    _players_by_match,
     _public_dice_counts,
+    _resolve_active_actor,
     _seat_order,
     _standing_bid,
+    _state_jsons_by_match,
     _state_template,
 )
 from app.games.liars_dice.strategy import LD_DEFAULT_STRATEGY, LD_STRATEGY_PRESETS
@@ -44,6 +48,8 @@ from app.models.player import Player
 from app.models.turn import TurnSubmission
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.read_models.matches import TimelineTurn
@@ -55,6 +61,13 @@ def _now() -> datetime:
 
 class LiarsDice(BaseGameModule):
     game_type = "liars-dice"
+
+    # `validation_snapshot` merges these into the move so `validate_move` can
+    # check the bid against live table state; the shared submit path strips
+    # exactly these before `record_submission`, so they never persist.
+    validation_snapshot_keys: frozenset[str] = frozenset(
+        {"standing_bid", "dice_counts", "active_actor", "total_dice", "wild"}
+    )
 
     def display_name(self) -> str:
         return "Liar's Dice"
@@ -166,23 +179,37 @@ class LiarsDice(BaseGameModule):
         state = await _load_state(db, match.id)
         if state is None:
             return None
-        state_json = state.state_json
-        if state_json.get("challenge_pending"):
+        if state.state_json.get("challenge_pending"):
             return None
         players = await _players(db, match.id)
         states = await _player_state_map(db, match.id)
-        counts = _public_dice_counts(players, states)
-        seat_order = state_json.get("seat_order")
-        if not isinstance(seat_order, list) or not seat_order:
-            seat_order = _seat_order(players)
-        active_actor = state_json.get("active_actor")
-        if isinstance(active_actor, str) and counts.get(active_actor, 0) > 0:
-            return active_actor
-        return _next_alive_seat(
-            seat_order,
-            counts,
-            active_actor if isinstance(active_actor, str) else None,
-        )
+        return _resolve_active_actor(state.state_json, players, states)
+
+    async def active_actors(
+        self, db: AsyncSession, matches: Sequence[Match]
+    ) -> dict[str, str | None]:
+        # The turn-serving fan-out's batched form of next_actor: three IN-queries
+        # across ALL the matches (state blobs, seats, dice counts) — never one
+        # round trip per match or per seat — then the same pure resolver the
+        # driver uses, so the serving gate and the loop agree on whose turn it is.
+        match_ids = [match.id for match in matches]
+        state_jsons = await _state_jsons_by_match(db, match_ids)
+        players_by_match = await _players_by_match(db, match_ids)
+        states_by_match = await _player_states_by_match(db, match_ids)
+        actors: dict[str, str | None] = {}
+        for match_id in match_ids:
+            state_json = state_jsons.get(match_id)
+            if state_json is None:
+                # No state row yet (round not dealt): nobody owes a move —
+                # same answer next_actor gives for a missing state.
+                actors[match_id] = None
+                continue
+            actors[match_id] = _resolve_active_actor(
+                state_json,
+                players_by_match.get(match_id, []),
+                states_by_match.get(match_id, {}),
+            )
+        return actors
 
     def validate_move(
         self, move: dict[str, Any], *, your_agent_id: str, all_agent_ids: list[str]

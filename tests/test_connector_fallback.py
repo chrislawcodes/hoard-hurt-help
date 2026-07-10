@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.tokens import generate_turn_token
-from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSubmission
+from app.models import Match, GameState, Player, Turn, TurnMessage, TurnSubmission
 from tests.conftest import load_script_module
 from tests.factories import seat_player
 
@@ -355,26 +355,6 @@ def test_claude_call_returns_data_on_success(connector, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # Server-side HTTP tests: is_connector_fallback persists was_defaulted
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    """Fresh in-memory SQLite for each test."""
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
-
-    yield test_factory
-
-    await test_engine.dispose()
 
 
 async def _seed_active_game(

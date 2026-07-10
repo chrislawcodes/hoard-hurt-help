@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 
 from app.config import PROVIDER_MODELS
 from app.deps import DbSession, require_user_with_handle
@@ -16,7 +16,7 @@ from app.models.agent_version import AgentVersion
 from app.models.player import Player
 from app.models.user import User
 from app.read_models.matches import agent_has_active_match, version_has_active_match
-from app.routes.agents_queries import load_owned_agent, version_has_rated_history
+from app.routes.agents_queries import load_owned_agent, version_fork_preview
 from app.routes.agents_setup import clean_agent_name
 
 router = APIRouter()
@@ -37,19 +37,13 @@ async def _fork_version(
     db: DbSession,
     *,
     agent: Agent,
+    version_no: int,
     strategy_text: str,
     note: str | None,
 ) -> AgentVersion:
-    next_version_no = (
-        await db.scalar(
-            select(func.coalesce(func.max(AgentVersion.version_no), 0)).where(
-                AgentVersion.agent_id == agent.id
-            )
-        )
-    ) or 0
     version = AgentVersion(
         agent_id=agent.id,
-        version_no=int(next_version_no) + 1,
+        version_no=version_no,
         model=None,
         strategy_text=strategy_text,
         note=note,
@@ -71,18 +65,32 @@ async def _apply_version_edit(
     """Apply a strategy edit, forking a new version if the current one is frozen
     or has rated history. Agents are just name + strategy now — there is no model
     to edit. *note* is the owner's "what changed" label: an in-place draft edit
-    overwrites it, a fork sets it on the new version."""
+    overwrites it, a fork sets it on the new version.
+
+    The fork/no-fork call and the version number it lands on both come from
+    ``version_fork_preview`` — the same function the detail page calls to decide
+    the Save button's label — so the button can never promise something Save
+    doesn't do.
+    """
     current = await _load_current_version(db, agent)
     if await version_has_active_match(db, current.id):
         raise HTTPException(status_code=409, detail="That version is mid-match and locked.")
-    current_has_rated_history = await version_has_rated_history(db, current.id)
-    if not current_has_rated_history and current.frozen_at is None:
+    will_fork, next_version_no = await version_fork_preview(
+        db, agent_id=agent.id, version=current
+    )
+    if not will_fork:
         current.strategy_text = strategy_text
         current.note = note
         return current
-    if current.frozen_at is None and current_has_rated_history:
+    if current.frozen_at is None:
         current.frozen_at = datetime.now(timezone.utc)
-    return await _fork_version(db, agent=agent, strategy_text=strategy_text, note=note)
+    return await _fork_version(
+        db,
+        agent=agent,
+        version_no=next_version_no,
+        strategy_text=strategy_text,
+        note=note,
+    )
 
 
 @router.post("/{agent_id}/rename")
