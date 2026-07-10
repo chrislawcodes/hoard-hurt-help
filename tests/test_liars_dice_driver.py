@@ -33,11 +33,16 @@ def _now() -> datetime:
 
 
 @pytest.fixture(autouse=True)
-async def reset_db():
+async def reset_db(monkeypatch: pytest.MonkeyPatch):
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
+    # Rebind the production globals too: the turn loop opens its own sessions
+    # via app.db.SessionLocal, and without this every xdist worker shares the
+    # real file-backed DB (intermittent UNIQUE-constraint failures).
+    monkeypatch.setattr("app.db.SessionLocal", factory)
+    monkeypatch.setattr("app.db.engine", engine)
     yield factory
     await engine.dispose()
 
