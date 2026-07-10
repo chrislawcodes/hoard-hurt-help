@@ -42,6 +42,13 @@ The interface lives in `app/games/base.py` (`GameModule`). Every game implements
 | `finalize(db, game)` | Mark the game complete and set the winner. |
 | `move_effect(action) -> (actor_delta, target_delta)` | For the spectator viewer: the nominal points a single move is worth, and who it lands on. |
 
+Two optional members cover games that don't fit PD's shape:
+
+| Member | What it does |
+|---|---|
+| `validation_snapshot_keys: frozenset[str]` | Names of the validation-only keys your `validation_snapshot` merges into the move for `validate_move`; the platform strips exactly these before `record_submission`. Default: empty (strip nothing). |
+| `next_actor(db, game)` / `active_actors(db, matches)` | **Sequential games only** (`config_defaults()` returns `simultaneous=False`, which also selects the sequential turn driver). `next_actor` names the one seat that acts now (`None` = nobody, e.g. a challenge is pending); `active_actors` is its batched form used by turn-serving, and its returned map must cover **every** passed match — a partial map is a contract violation the serving gate rejects loudly. Resolve both through one shared function so the turn loop and turn-serving can never disagree. Both raise `NotImplementedError` in `BaseGameModule`: a simultaneous game never gets asked, and a sequential game that forgets them fails loud. |
+
 ### `GameError`
 
 When a move is illegal, raise `GameError(code, message, details)`. The platform
