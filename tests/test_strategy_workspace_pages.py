@@ -183,6 +183,89 @@ async def test_save_version_stores_note_in_place_and_on_fork(client, reset_db):
         assert versions[1].strategy_text == "v2 text"
 
 
+async def test_fork_preview_and_save_agree_on_frozen_rated_version(client, reset_db):
+    """The Save button's fork preview (``version_fork_preview``, shared by the
+    detail page and the save path) must agree with what saving actually does:
+    for a version with rated history, the button says "Save as vN" and posting
+    to save-version actually forks vN."""
+    async with reset_db() as db:
+        user = await make_user(db, i=5)
+        agent, version = await make_agent(db, user, name="Forker", strategy_text="v1 text")
+        assert version is not None
+        completed = await _completed_match(db, "M_FORK_PREVIEW")
+        await seat_prebuilt_player(
+            db, match=completed, user=user, agent=agent, version=version, seat_name="Forker"
+        )
+        await db.commit()
+
+    r = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    assert r.status_code == 200
+    assert "Save as v2" in r.text  # preview says fork, landing on v2
+
+    post = await client.post(
+        f"/me/agents/{agent.id}/save-version",
+        cookies=_cookies(user.id),
+        data={"strategy_text": "v2 text", "note": ""},
+        follow_redirects=False,
+    )
+    assert post.status_code == 303
+
+    async with reset_db() as db:
+        versions = (
+            (
+                await db.execute(
+                    select(AgentVersion)
+                    .where(AgentVersion.agent_id == agent.id)
+                    .order_by(AgentVersion.version_no)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # Save actually forked v2, exactly as previewed.
+        assert [v.version_no for v in versions] == [1, 2]
+        assert versions[1].strategy_text == "v2 text"
+
+
+async def test_fork_preview_and_save_agree_on_unrated_draft_version(client, reset_db):
+    """For a fresh, unrated version the button says "Save changes" (no fork
+    label) and posting to save-version edits that same version in place."""
+    async with reset_db() as db:
+        user = await make_user(db, i=6)
+        agent, version = await make_agent(db, user, name="Drafter", strategy_text="v1 text")
+        assert version is not None
+        await db.commit()
+
+    r = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    assert r.status_code == 200
+    assert "Save changes" in r.text
+    assert "Save as v" not in r.text  # preview says in-place, no fork label
+
+    post = await client.post(
+        f"/me/agents/{agent.id}/save-version",
+        cookies=_cookies(user.id),
+        data={"strategy_text": "v1 text improved", "note": ""},
+        follow_redirects=False,
+    )
+    assert post.status_code == 303
+
+    async with reset_db() as db:
+        versions = (
+            (
+                await db.execute(
+                    select(AgentVersion)
+                    .where(AgentVersion.agent_id == agent.id)
+                    .order_by(AgentVersion.version_no)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # Save edited v1 in place, exactly as previewed — no fork.
+        assert [v.version_no for v in versions] == [1]
+        assert versions[0].strategy_text == "v1 text improved"
+
+
 async def test_join_page_shows_version_line_and_filters_other_games(client, reset_db):
     """Join cards carry the v-line (version, note, record); agents of another
     game don't appear for this match."""
