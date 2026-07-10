@@ -1,6 +1,7 @@
 """Match viewer + SSE + spectator API tests."""
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -13,6 +14,8 @@ from app.models import (
     TurnSubmission,
 )
 from tests.factories import make_agent, make_match, make_user, seat_prebuilt_player
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 async def _seed(reset_db, state=GameState.ACTIVE, *, scheduled_start=None, match_kind="manual"):
@@ -226,8 +229,34 @@ async def test_completed_viewer_has_round_nav(client, reset_db):
     assert "round-nav" in r.text
     assert 'data-round="1"' in r.text
     assert "round-section" in r.text
-    # Match replay should start on its own for spectators.
-    assert "if(true && !_reduced)" in r.text
+    # Match replay should start on its own for spectators: the engine is a
+    # static file (rc-replay.js) that reads the server's autoplay choice from
+    # data-autoplay on the #rc-data island.
+    assert '<script src="/static/rc-replay.js"></script>' in r.text
+    assert 'id="rc-data" data-autoplay="true"' in r.text
+    engine = (REPO_ROOT / "app" / "static" / "rc-replay.js").read_text()
+    assert "dataset.autoplay==='true'" in engine
+
+
+def test_replay_script_fragment_carries_autoplay_flag():
+    """Pin the template<->engine contract left after extracting the replay JS
+    to app/static/rc-replay.js: the fragment renders the #rc-data island with
+    data-autoplay reflecting rc_autoplay (default false), loads the engine via
+    a plain synchronous <script src> (no defer/async — execution order matters,
+    see _replay_script.html), and the static file itself is template-free."""
+    from app.templating import templates
+
+    tpl = templates.env.get_template("fragments/robot_circle/_replay_script.html")
+    on = tpl.render(rc_data="{}", rc_autoplay=True)
+    off = tpl.render(rc_data="{}")
+    assert 'id="rc-data" data-autoplay="true"' in on
+    assert 'id="rc-data" data-autoplay="false"' in off
+    for html in (on, off):
+        assert '<script src="/static/rc-replay.js"></script>' in html
+        assert "defer" not in html and "async" not in html
+    engine = (REPO_ROOT / "app" / "static" / "rc-replay.js").read_text()
+    assert "{{" not in engine and "{%" not in engine
+    assert "dataset.autoplay==='true'" in engine
 
 
 async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
@@ -476,7 +505,7 @@ async def test_replay_history_carries_per_turn_score_that_resets_each_round():
 
 async def test_rc_data_ships_delta_and_betrayal_bonus_on_every_action():
     """Pin the payload contract the replay JS relies on (it no longer owns a
-    payoff table — see _replay_script.html's actionDelta): every rc_data action
+    payoff table — see app/static/rc-replay.js's actionDelta): every rc_data action
     ships an integer `delta` — HOARD's +2 to the actor, the pact's DECAYED
     per-side value on each half, the one-way HELP's +4 to the target, the HURT's
     nominal -4 on the victim — and a HURT that betrays a same-turn helper ships

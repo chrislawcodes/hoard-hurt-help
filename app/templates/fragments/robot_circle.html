@@ -5,11 +5,16 @@
    shell that includes its parts IN ORDER. The split is purely mechanical —
    the rendered HTML is byte-for-byte identical to the old single file.
 
+   The replay/animation engine itself now lives in app/static/rc-replay.js
+   (lintable, unit-testable JS) — edit THAT file for viewer/animation changes.
+   _replay_script.html is just its loader plus the #rc-data island.
+
    Parts (rendered in this exact order):
      _style.html            — the scoped <style> block (.rc-* CSS)
      _markup.html           — the .rc-wrap stage / controls / legend markup
-     _replay_script.html    — lobby-banter <script>, the rc-data JSON, and the
-                              main replay/animation engine <script>
+     _replay_script.html    — lobby-banter <script src>, the rc-data JSON
+                              island (+ data-autoplay), and the <script src>
+                              for the engine (app/static/rc-replay.js)
      _countdown_script.html — the pre-start countdown <script>
 
    Context (unchanged, passed straight through to the parts): rc_data,
