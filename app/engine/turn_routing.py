@@ -1,16 +1,21 @@
 """Provider-aware turn routing helpers.
 
 This module stays DB-free so the sticky routing rules can be unit tested in
-isolation. The route layer will map database rows into these snapshots and use
-the same eligibility logic when it is wired in later.
+isolation: it defines the connection/pin snapshots and the eligibility
+predicates (``connection_is_dead``, ``connection_covers_provider``,
+``can_connection_claim_turn``). The production claim path in
+``app/engine/agent_play_next_turn.py`` (``_claim_pin`` /
+``_build_candidate_lookups``) maps its own database rows into
+``ConnectionRouteState``/``TurnPin`` and calls ``can_connection_claim_turn`` to
+decide eligibility, then performs the actual claim as a conditional SQL
+``UPDATE`` rather than through any in-memory store here.
 """
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 from app.aware_datetime import ensure_aware
 from app.engine.connection_health import LIVE_WINDOW_SECONDS
@@ -39,14 +44,6 @@ class TurnPin:
 
     served_by_connection_id: int | None
     served_pinned_at: datetime | None
-
-
-@dataclass(frozen=True, slots=True)
-class TurnClaimResult:
-    """Result of a claim attempt."""
-
-    claimed: bool
-    pin: TurnPin
 
 
 def connection_is_dead(connection: ConnectionRouteState, *, now: datetime | None = None) -> bool:
@@ -101,107 +98,3 @@ def can_connection_claim_turn(
         return False
     pinned_connection = connections_by_id.get(pinned_connection_id)
     return pinned_connection is None or connection_is_dead(pinned_connection, now=now)
-
-
-def eligible_connection_ids(
-    connections: Sequence[ConnectionRouteState],
-    provider: str | ConnectionProvider,
-    *,
-    pin: TurnPin | None = None,
-    now: datetime | None = None,
-) -> list[int]:
-    """Return the live connections that can currently serve this provider.
-
-    The result is sorted by connection id so the fallback choice is
-    deterministic when more than one live connection can cover the provider.
-    """
-    pin = pin or TurnPin(None, None)
-    now = now or datetime.now(timezone.utc)
-    by_id = {connection.connection_id: connection for connection in connections}
-    eligible = [
-        connection.connection_id
-        for connection in sorted(connections, key=lambda connection: connection.connection_id)
-        if can_connection_claim_turn(
-            connection,
-            provider,
-            pin,
-            now=now,
-            connections_by_id=by_id,
-        )
-    ]
-    return eligible
-
-
-def choose_connection_id_for_provider(
-    connections: Sequence[ConnectionRouteState],
-    provider: str | ConnectionProvider,
-    *,
-    pin: TurnPin | None = None,
-    now: datetime | None = None,
-) -> int | None:
-    """Pick the sticky connection for this provider, or None if nobody qualifies."""
-    eligible = eligible_connection_ids(connections, provider, pin=pin, now=now)
-    if not eligible:
-        return None
-    pin_connection_id = None if pin is None else pin.served_by_connection_id
-    if pin_connection_id in eligible:
-        return pin_connection_id
-    return eligible[0]
-
-
-class TurnPinClaimStore:
-    """Small in-memory store that models the atomic pin claim behavior.
-
-    The production route will use a conditional UPDATE. This store gives the
-    same semantics for unit tests without needing a database.
-    """
-
-    def __init__(
-        self,
-        connections: Sequence[ConnectionRouteState],
-        pin: TurnPin | None = None,
-    ) -> None:
-        self._connections = {connection.connection_id: connection for connection in connections}
-        self._pin = pin or TurnPin(None, None)
-        self._lock = asyncio.Lock()
-
-    @property
-    def pin(self) -> TurnPin:
-        return self._pin
-
-    def eligible_connection_ids(
-        self,
-        provider: str | ConnectionProvider,
-        *,
-        now: datetime | None = None,
-    ) -> list[int]:
-        return eligible_connection_ids(
-            list(self._connections.values()), provider, pin=self._pin, now=now
-        )
-
-    async def try_claim(
-        self,
-        connection_id: int,
-        provider: str | ConnectionProvider,
-        *,
-        now: datetime | None = None,
-    ) -> TurnClaimResult:
-        """Attempt to claim the pin for one connection.
-
-        Exactly one concurrent claimant wins when the pin is unset. If the pin is
-        already owned by another live connection, this returns a no-op failure.
-        """
-        now = now or datetime.now(timezone.utc)
-        async with self._lock:
-            connection = self._connections[connection_id]
-            if not can_connection_claim_turn(
-                connection,
-                provider,
-                self._pin,
-                now=now,
-                connections_by_id=self._connections,
-            ):
-                return TurnClaimResult(False, self._pin)
-
-            self._pin = TurnPin(connection_id, now)
-            return TurnClaimResult(True, self._pin)
