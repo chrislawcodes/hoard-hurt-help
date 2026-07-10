@@ -13,12 +13,78 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 
 from app.deps import DbSession
-from app.engine.connection_health import ConnectionHealth, ConnectionHealthStatus
-from app.models.agent import Agent
+from app.engine.connection_health import (
+    ConnectionHealth,
+    ConnectionHealthStatus,
+    ProviderReadiness,
+)
+from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState
 from app.models.player import Player
 from app.read_models.version_stats import VersionMatchLink, VersionStats
+
+
+def readiness_health_status(
+    readiness: ProviderReadiness, agent_status: AgentStatus
+) -> ConnectionHealthStatus:
+    """Map a user's play-readiness rung and the agent's own status to the one
+    ``ConnectionHealthStatus`` both the agent list and detail pages must show.
+
+    This is the single mapping both pages call — extracted after they drifted:
+    the list page used to treat ``CONNECTED_NOT_LIVE`` as "Ready" while the
+    detail page called it "No live connection", so the same agent could show
+    contradictory badges depending which page you were on.
+
+    - A ``PAUSED`` agent always shows "Paused", regardless of readiness.
+    - ``NO_MCP_CONNECTION`` and ``CONNECTED_NOT_LIVE`` both read as
+      "No live connection" (``DISCONNECTED``, ``needs_reconnect=True``).
+      ``CONNECTED_NOT_LIVE`` means the provider has a current MCP/machine
+      setup but has not been *seen* live recently (no fresh ``last_seen_at``
+      / ``last_polled_at``) — the same rung the join-gate
+      (``confirm_seat_if_live``) and the nav readiness resolver
+      (``resolve_play_setup_state``) both refuse to treat as ready (see
+      ``tests/test_readiness_adoption.py``). Showing "Ready" here would be a
+      lie: no live client can currently pick up a turn for this agent.
+    - ``SEEN_NOT_POLLING`` and ``LIVE`` are both "Ready": a live connection
+      currently covers the provider.
+    """
+    if agent_status == AgentStatus.PAUSED:
+        return ConnectionHealthStatus(
+            state=ConnectionHealth.PAUSED,
+            label="Paused",
+            badge_class="badge-done",
+            pulse=False,
+            needs_reconnect=False,
+            never_connected=False,
+            last_connected_at=None,
+            last_connected_human=None,
+        )
+    if readiness in (
+        ProviderReadiness.NO_MCP_CONNECTION,
+        ProviderReadiness.CONNECTED_NOT_LIVE,
+    ):
+        return ConnectionHealthStatus(
+            state=ConnectionHealth.DISCONNECTED,
+            label="No live connection",
+            badge_class="badge-alert",
+            pulse=False,
+            needs_reconnect=True,
+            never_connected=True,
+            last_connected_at=None,
+            last_connected_human=None,
+        )
+    # SEEN_NOT_POLLING or LIVE → ready to accept matches.
+    return ConnectionHealthStatus(
+        state=ConnectionHealth.READY,
+        label="Ready",
+        badge_class="badge-ok",
+        pulse=False,
+        needs_reconnect=False,
+        never_connected=False,
+        last_connected_at=None,
+        last_connected_human=None,
+    )
 
 
 def health_view(status: ConnectionHealthStatus) -> dict[str, object]:

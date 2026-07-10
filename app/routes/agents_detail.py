@@ -20,14 +20,12 @@ from app.engine.model_provider_match import provider_for_model
 from app.engine.model_verification import model_status_for
 from app.engine.connection_health import (
     ConnectionHealth,
-    ConnectionHealthStatus,
-    ProviderReadiness,
     active_matches_for_user,
     is_join_blocked,
     live_user_capacity,
     user_play_readiness,
 )
-from app.models.agent import Agent, AgentStatus
+from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -44,6 +42,7 @@ from app.routes.agents_health_presenter import (
     _count_agent_matches,
     _is_ready_to_play,
     health_view,
+    readiness_health_status,
 )
 from app.routes.agents_queries import load_owned_agent, version_fork_preview
 from app.templating import templates
@@ -132,46 +131,10 @@ async def _build_agent_detail_context(
     """
     readiness = await user_play_readiness(db, user.id)
 
-    # Build a health-like dict the templates can read (same keys as
-    # ConnectionHealthStatus but not the dataclass itself). Map readiness rungs:
-    #   PAUSED agent          → PAUSED state
-    #   NO_MCP_CONNECTION     → DISCONNECTED / "No live connection" (needs connecting)
-    #   CONNECTED_NOT_LIVE    → DISCONNECTED / "No live connection" (set up but offline)
-    #   SEEN_NOT_POLLING/LIVE → READY (set up and recently seen or fully live)
-    if agent.status == AgentStatus.PAUSED:
-        status = ConnectionHealthStatus(
-            state=ConnectionHealth.PAUSED,
-            label="Paused",
-            badge_class="badge-done",
-            pulse=False,
-            needs_reconnect=False,
-            never_connected=False,
-            last_connected_at=None,
-            last_connected_human=None,
-        )
-    elif readiness in (ProviderReadiness.NO_MCP_CONNECTION, ProviderReadiness.CONNECTED_NOT_LIVE):
-        status = ConnectionHealthStatus(
-            state=ConnectionHealth.DISCONNECTED,
-            label="No live connection",
-            badge_class="badge-alert",
-            pulse=False,
-            needs_reconnect=True,
-            never_connected=True,
-            last_connected_at=None,
-            last_connected_human=None,
-        )
-    else:
-        # SEEN_NOT_POLLING or LIVE → ready to accept matches
-        status = ConnectionHealthStatus(
-            state=ConnectionHealth.READY,
-            label="Ready",
-            badge_class="badge-ok",
-            pulse=False,
-            needs_reconnect=False,
-            never_connected=False,
-            last_connected_at=None,
-            last_connected_human=None,
-        )
+    # readiness_health_status is the single mapping shared with the agent list
+    # page (app/routes/agents_list.py) so the two pages can't drift on which
+    # readiness rungs read as "Ready" vs "No live connection".
+    status = readiness_health_status(readiness, agent.status)
     health: object = health_view(status)
 
     version = (
