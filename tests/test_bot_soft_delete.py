@@ -21,20 +21,9 @@ from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-
-    yield test_factory
-    await test_engine.dispose()
+async def reset_db(reset_db: async_sessionmaker) -> async_sessionmaker:
+    """Autouse override of tests/conftest.py's reset_db: every test here touches the DB."""
+    return reset_db
 
 
 async def _seed_user(reset_db: async_sessionmaker) -> User:

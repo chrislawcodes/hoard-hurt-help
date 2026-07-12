@@ -1,4 +1,3 @@
-<style>
 /* Scoped to .rc- so it never collides with the main viewer's .feed/.stage. */
 .rc-wrap{max-width:920px;margin:0 auto 2rem}
 .rc-card{background:var(--surface,#fff);border:1px solid var(--line,#e2e6ea);border-radius:10px;overflow:hidden}
@@ -451,4 +450,3 @@
 .rc-start{margin-left:auto;flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .rc-start-note{font-size:11.5px;color:var(--ink-soft,#5b6470);text-align:right}
 @media (max-width:560px){.rc-countdown{gap:11px;padding:12px 13px}.rc-countdown-time{font-size:36px}.rc-start-btn{padding:9px 13px}}
-</style>

@@ -14,6 +14,9 @@ from app.models import Base, Match, GameState, Player, Turn, TurnMessage, User
 from tests.factories import make_agent
 
 
+# Bespoke: also monkeypatches app_db/scheduler's own SessionLocal binding directly
+# (scheduler imported SessionLocal by name, so the string-path patch alone won't
+# reach it) — can't delegate to tests/conftest.py's shared reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch):
     from app.db import make_engine

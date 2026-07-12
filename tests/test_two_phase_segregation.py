@@ -19,6 +19,8 @@ from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSu
 from tests.factories import seat_player
 
 
+# Bespoke: also resets agent_api._last_pull for this file's polling tests, so it
+# can't delegate to tests/conftest.py's shared reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch):
     """Bind the app to an in-memory sqlite database for each test."""

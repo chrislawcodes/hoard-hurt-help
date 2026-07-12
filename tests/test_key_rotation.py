@@ -19,6 +19,9 @@ from tests.factories import make_agent, make_connection, make_user
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
+# Bespoke: also resets agent_api._last_pull and zeroes the long-poll hold for this
+# file's next-turn polling tests, so it can't delegate to tests/conftest.py's shared
+# reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch):
     from sqlalchemy.ext.asyncio import async_sessionmaker as _factory

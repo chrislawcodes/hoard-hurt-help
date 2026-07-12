@@ -1,4 +1,3 @@
-<script>
 // Pre-start countdown. While a match waits to begin, fill the centre of the
 // robot ring with a big, clear clock counting down to kickoff. Renders only for
 // a real waiting match (the #rc-countdown element is absent otherwise), so the
@@ -51,4 +50,3 @@
   }
   tick();
 }());
-</script>

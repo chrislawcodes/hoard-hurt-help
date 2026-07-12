@@ -2691,7 +2691,7 @@ button.danger:hover,
 /* Standings column on/off. Crowns + points on the robots are always shown; this
    toggle only hides or shows the side standings column. The .rc-standings-off
    class is set on .replay-shell by the viewer's Standings toggle
-   (robot_circle/_replay_script.html) when the user turns the column off. */
+   (rc-replay.js) when the user turns the column off. */
 .replay-shell.rc-standings-off .rc-scorepanel { display: none; }
 .replay-shell.rc-standings-off .rc-layout { grid-template-columns: 1fr; }
 @media (min-width: 1141px) {
@@ -2813,7 +2813,7 @@ button.danger:hover,
      action, target, point value) stays on one line in the rail. */
   .replay-shell-3 #feed { font-size: 0.92rem; }
 
-  /* Turn cards seek the replay on click or Enter/Space (see _round_nav.html) —
+  /* Turn cards seek the replay on click or Enter/Space (see round-nav.js) —
      show it's interactive and give keyboard focus a clear ring. */
   .replay-shell-3 #feed .turn-block { cursor: pointer; }
   .replay-shell-3 #feed .turn-block:focus-visible {

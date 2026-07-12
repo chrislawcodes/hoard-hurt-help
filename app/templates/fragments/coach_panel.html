@@ -1,7 +1,7 @@
 {% if viewer_player_id and game.state.value == 'active' and coaching_enabled %}
 {# Coach dialog wrapper — HTMX swaps this div on every POST.
    No visible chrome of its own; the trigger is the "Coach" button in the
-   standings rail (robot_circle.html). data-armed signals the rail button. #}
+   standings rail (built by rc-replay.js). data-armed signals the rail button. #}
 <div id="coach-dialog-wrap"
      data-armed="{% if viewer_coach_note_round and viewer_coach_note_round > game.current_round %}true{% else %}false{% endif %}">
 
