@@ -18,7 +18,7 @@ from app.engine.bots.service import auto_submit_bot_phase
 from app.engine.human_player import get_or_create_human_agent
 from app.engine.tokens import generate_turn_token
 from app.games import get as get_game_module
-from app.models import Base, GameState, Match, Player, User
+from app.models import GameState, Match, Player, User
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from tests.factories import make_user, seat_player
 from tests.conftest import signed_in_cookies as _cookies
@@ -42,17 +42,9 @@ async def make_match(db, match_id: str, *, state: GameState) -> Match:
 
 
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-
-    engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", factory)
-    monkeypatch.setattr("app.db.engine", engine)
-    yield factory
-    await engine.dispose()
+async def reset_db(reset_db: async_sessionmaker) -> async_sessionmaker:
+    """Autouse override of tests/conftest.py's reset_db: every test here touches the DB."""
+    return reset_db
 
 
 async def _open_turn(db, match_id: str, phase: str, *, deadline_offset: int = 60) -> Turn:

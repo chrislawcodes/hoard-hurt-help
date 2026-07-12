@@ -16,6 +16,10 @@ from app.models.agent import AgentKind, AgentStatus
 from tests.factories import make_agent
 
 
+# Bespoke: uses a file-backed DB (not :memory:) plus a direct app_db/scheduler
+# SessionLocal patch — the scheduler's background task opens its own connection,
+# which a :memory: DB can't share — can't delegate to tests/conftest.py's shared
+# reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch, tmp_path):
     from app.db import make_engine

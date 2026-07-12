@@ -32,6 +32,8 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Bespoke: drives the game module directly against a raw session, so there is no
+# app.db rebind to delegate to tests/conftest.py's shared reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db():
     engine = make_engine("sqlite+aiosqlite:///:memory:")

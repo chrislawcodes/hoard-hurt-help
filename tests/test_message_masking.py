@@ -12,6 +12,8 @@ from app.models import Base, TurnSubmission
 from tests.test_two_phase_segregation import _seed_two_phase_game
 
 
+# Bespoke: also resets agent_api._last_pull for this file's polling tests, so it
+# can't delegate to tests/conftest.py's shared reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch):
     from app.db import make_engine

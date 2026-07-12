@@ -357,6 +357,8 @@ def test_claude_call_returns_data_on_success(connector, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Bespoke: also resets agent_api._last_pull for this file's polling tests, so it
+# can't delegate to tests/conftest.py's shared reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch):
     """Fresh in-memory SQLite for each test."""
