@@ -105,17 +105,20 @@ much simpler viewer fragments (`app/templates/fragments/liars_dice_turn.html`,
 grounding below does not. A new game's viewer gets its own grounding block in
 this section when it grows real art.
 
-The Hoard Hurt Help art lives in the "Animated Replay" / robot-circle viewer. It used to be one
-~1,500-line fragment; it is now a **thin shell that includes four parts in
-order** (the split was mechanical — same rendered HTML):
+The Hoard Hurt Help art lives in the "Animated Replay" / robot-circle viewer:
+a **thin template shell that loads real static CSS/JS files around one markup
+fragment, in a fixed order** (read the shell's header comment for the order
+and the context variables passed through):
 
-- `app/templates/fragments/robot_circle.html` — the shell; read its header
-  comment for the include order and the context variables passed through.
-- `robot_circle/_style.html` — the scoped `<style>` block (all `.rc-*` CSS).
-- `robot_circle/_markup.html` — the stage, controls, and legend markup.
-- `robot_circle/_replay_script.html` — the rc-data JSON, the `PALETTE`, the
-  timing constants, and the replay/animation engine. Most motion work lands here.
-- `robot_circle/_countdown_script.html` — the pre-start countdown.
+- `app/templates/fragments/robot_circle.html` — the shell; holds the asset
+  tags and the `#rc-data` JSON island (with its `data-autoplay` flag).
+- `app/static/robot-circle.css` — all the `.rc-*` CSS (stage, robots, props,
+  effects, keyframes).
+- `app/templates/fragments/robot_circle/_markup.html` — the stage, controls,
+  and legend markup.
+- `app/static/rc-replay.js` — the `PALETTE`, the timing constants, and the
+  replay/animation engine. Most motion work lands here.
+- `app/static/rc-countdown.js` — the pre-start countdown.
 
 Read the part you're changing fully before touching it — they're dense.
 
@@ -259,14 +262,16 @@ Spell out the buildable detail:
 - **Choreography** — the phases and their order, what each robot does, and the
   timing/easing. Mind the existing schedule (`buildSchedule`) and the phase
   constants (`DUR`, `TURN_DUR`, `BEND_DUR`, `REACH_DUR`, gaps) in
-  `robot_circle/_replay_script.html` — new motion has to slot into that clock,
+  `app/static/rc-replay.js` — new motion has to slot into that clock,
   and `totalDuration` drives autoplay pacing.
 - **New classes/keyframes** — named in the `.rc-` namespace.
 - **Data needs** — anything new the art or motion reads from `actions[]`, and the
   matching `_build_rc_data` change.
 
-Then, **on request**, make the edits in the right `robot_circle/` part — style
-in `_style.html`, markup in `_markup.html`, motion in `_replay_script.html` —
+Then, **on request**, make the edits in the right part — style in
+`app/static/robot-circle.css`, markup in
+`app/templates/fragments/robot_circle/_markup.html`, motion in
+`app/static/rc-replay.js` —
 (and the PD viewer module `app/games/hoard_hurt_help/viewer.py` if the contract
 changes) and **verify them yourself**: re-run the Ground checks — judge
 the still frame, watch it play with real data, flip every theme, check phone
@@ -322,7 +327,7 @@ read-only field, that's outside this skill — surface it and hand off.
 
 ## Provenance and maintenance
 
-Last verified against the repo 2026-07-03. The facts here that drift fastest,
+Last verified against the repo 2026-07-12. The facts here that drift fastest,
 and how to re-check each before relying on it:
 
 - File layout of the viewer: `head -30 app/templates/fragments/robot_circle.html`
@@ -333,7 +338,7 @@ and how to re-check each before relying on it:
   `grep -n "POINTS\|MUTUAL_HELP\|max(" app/games/hoard_hurt_help/scoring.py`.
 - Data contract: read `_build_rc_data` in `app/games/hoard_hurt_help/viewer.py`.
 - Timing constants and `PALETTE`:
-  `grep -n "PALETTE\|_DUR\|totalDuration" app/templates/fragments/robot_circle/_replay_script.html`.
+  `grep -n "PALETTE\|_DUR\|totalDuration" app/static/rc-replay.js`.
 - Which games have viewers (a new one needs a grounding block here):
   `ls app/templates/fragments/` and `ls app/games/`.
 

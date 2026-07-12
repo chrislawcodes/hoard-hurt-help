@@ -238,8 +238,10 @@ async def test_completed_viewer_has_round_nav(client, reset_db):
     assert "round-nav" in r.text
     assert 'data-round="1"' in r.text
     assert "round-section" in r.text
-    # Match replay should start on its own for spectators.
-    assert "if(true && !_reduced)" in r.text
+    # Match replay should start on its own for spectators: the rc-data island
+    # carries the autoplay flag and the page loads the engine that reads it.
+    assert 'data-autoplay="true"' in r.text
+    assert '<script src="/static/rc-replay.js' in r.text
 
 
 async def test_viewer_shows_per_move_effect_on_target(client, reset_db):

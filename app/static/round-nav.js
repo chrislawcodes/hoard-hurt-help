@@ -1,4 +1,3 @@
-<script>
 // Round navigation. Filters the feed to one round at a time so a long game is
 // readable. Works for both live and completed games. This script runs once; its
 // closure survives the SSE swaps that replace the live region's innerHTML, so

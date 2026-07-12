@@ -1,6 +1,3 @@
-<script src="/static/rc-lobby-banter.js"></script>
-<script type="application/json" id="rc-data">{{ rc_data | safe }}</script>
-<script>
 (function(){
   var DATA = JSON.parse(document.getElementById('rc-data').textContent);
   var AGENTS = DATA.agents || [];
@@ -535,7 +532,7 @@
     var _region=document.getElementById('live-region');
     if(_region){
       // Persist BOTH seq and round here (not only in the feed's rc:turn listener):
-      // renderTurn's very first call fires before _round_nav.html attaches its
+      // renderTurn's very first call fires before round-nav.js attaches its
       // listener, so the feed's initial apply() must be able to read the round
       // directly — otherwise it defaults to the last round and paints empty.
       _region.dataset.rcSeq=String(i+1);
@@ -1066,10 +1063,9 @@
     rcWaiting=false; clearBanter();
     if(_reduced){ idx=TURNS.length-1; }
     renderTurn(idx);
-    if({{ 'true' if rc_autoplay|default(false) else 'false' }} && !_reduced){
+    if(document.getElementById('rc-data').dataset.autoplay==='true' && !_reduced){
       setTimeout(function(){ var b=document.getElementById('rc-play'); if(b) b.click(); }, 900);
     }
   }
   primeFirstRender();
 })();
-</script>

@@ -177,7 +177,12 @@ async def test_active_game_viewer_wires_live_sse(client, reset_db):
     # The working wiring the EventSource reads off the live region.
     assert 'data-stream-url="/games/hoard-hurt-help/matches/G_live/stream"' in r.text
     assert 'data-live-url="/games/hoard-hurt-help/matches/G_live/live"' in r.text
-    assert "turn_talked" in r.text
+    # The page loads the plain-JS subscriber, and the served script still
+    # listens for the talk event.
+    assert '<script src="/static/round-nav.js' in r.text
+    js = await client.get("/static/round-nav.js")
+    assert js.status_code == 200
+    assert "turn_talked" in js.text
     # The dead htmx sse-extension wiring must be gone.
     assert 'hx-ext="sse"' not in r.text
     assert "sse-connect=" not in r.text

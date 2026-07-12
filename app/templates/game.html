@@ -73,7 +73,9 @@
 </div>
 </div>
 
-{% include "fragments/game/_round_nav.html" %}
+{# Round nav + SSE live updates + replay feeding. Not deferred: it looks up
+   #live-region as it executes, so it must run here, after that element. #}
+<script src="/static/round-nav.js?v=1"></script>
 
 {% include "fragments/game/_play_panel_controls.html" %}
 {% endblock %}
