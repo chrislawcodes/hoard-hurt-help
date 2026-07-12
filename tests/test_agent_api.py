@@ -12,6 +12,8 @@ from app.engine.tokens import generate_turn_token
 from tests.factories import make_match, seat_player
 
 
+# Bespoke: also resets agent_api._last_pull for this file's polling tests, so it
+# can't delegate to tests/conftest.py's shared reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch):
     """Rebind the production SessionLocal/engine to an in-memory SQLite per test."""

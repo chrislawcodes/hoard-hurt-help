@@ -8,8 +8,20 @@ Canonical home for the fixtures every DB/HTTP test reuses:
 ``reset_db`` (rebinds the app to a fresh in-memory SQLite), ``db`` (a bare
 session for direct-logic tests), ``client`` (an httpx client bound to the app),
 plus ``session_cookie`` / ``signed_in_cookies`` for signed-in requests. Tests
-that need different setup (a file-backed DB, an ``app`` fixture override, extra
-monkeypatches) keep their own local copies, which override these by name.
+that need genuinely different setup (a file-backed DB, extra monkeypatches, no
+DB rebind at all) keep their own independent local copy, with a comment
+explaining why it can't delegate here. Test files where every test just needs
+``reset_db`` to run without asking for it by name (most of them) instead keep a
+thin autouse override that delegates to this one:
+
+    @pytest.fixture(autouse=True)
+    async def reset_db(reset_db: async_sessionmaker) -> async_sessionmaker:
+        return reset_db
+
+This is the standard pytest "override a fixture but still use the original"
+pattern (request the overridden name as a parameter); it does not duplicate the
+engine/session setup, and the fast-lane tagging below still sees ``reset_db``
+in the test's fixturenames either way.
 """
 
 from __future__ import annotations

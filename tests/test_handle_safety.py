@@ -16,6 +16,8 @@ from tests.factories import make_agent, make_user
 from tests.conftest import signed_in_cookies as _cookies
 
 
+# Bespoke: also seeds admin_emails for this file's admin-gate tests, so it can't
+# delegate to tests/conftest.py's shared reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch):
     from app.db import make_engine

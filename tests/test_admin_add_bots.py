@@ -14,6 +14,8 @@ from tests.factories import make_agent, make_match
 from tests.conftest import signed_in_cookies as _cookies
 
 
+# Bespoke: also seeds admin_emails for this file's admin-gate tests, so it can't
+# delegate to tests/conftest.py's shared reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch):
     from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
