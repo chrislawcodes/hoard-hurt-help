@@ -26,7 +26,7 @@ import sqlalchemy
 from app.models import GameState, Match, Player, Turn, TurnSubmission, User
 from tests.factories import make_agent
 
-REPLAY_JS = Path("app/templates/fragments/robot_circle/_replay_script.html")
+REPLAY_JS = Path("app/static/rc-replay.js")
 
 
 async def _seed_pact_match(reset_db, *, mode: str, tag: str = "x") -> None:

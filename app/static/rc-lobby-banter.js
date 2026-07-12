@@ -1,6 +1,6 @@
 /* Lobby banter — 60 little scripted scenes the robot-circle viewer plays in the
  * waiting room (before a match starts). The engine lives in
- * fragments/robot_circle.html (scheduleIdle / banterLoop); this file is just the
+ * rc-replay.js (scheduleIdle / banterLoop); this file is just the
  * words, kept separate so the lines are easy to edit without touching the viewer.
  *
  * Honesty rule (do not break it): these are scripted FLAVOUR, not the real AI's
