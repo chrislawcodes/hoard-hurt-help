@@ -51,6 +51,10 @@
             <span class="lineup-name">{{ row.agent.name }}</span>
         </label>
         {% if row.agent.blurb %}<span class="lineup-blurb">{{ row.agent.blurb }}</span>{% endif %}
+        {# Why this row can't be ticked, when it can't. Filled by refreshRows so
+           it also covers "the AI you'd get was just taken by another row" — a
+           disabled checkbox with no reason is a dead end. #}
+        <span class="lineup-note" data-row-note aria-live="polite"></span>
         <span class="lineup-pills" id="ais-{{ row.agent.id }}" role="radiogroup"
               aria-label="Which AI plays {{ row.agent.name }}" hidden>
             {% for opt in ai_options %}
@@ -89,7 +93,11 @@
                agents and one connected AI has no in-page way out of the grey-out. #}
             <a href="/me/connections{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">⊕ Connect another AI</a>
         </span>
-        <button type="submit" class="btn btn-primary join-btn" disabled>Join</button>
+        {# Ships ENABLED on purpose. "Play manually" posts a plain named checkbox
+           and needs no JavaScript, so a script that never runs must not lock the
+           one entry path that works without it. sync() disables the button
+           immediately when nothing is selected. #}
+        <button type="submit" class="btn btn-primary join-btn">Join</button>
     </div>
 </form>
 
@@ -175,7 +183,35 @@
                 // it would post an agent with no AI.
                 box.disabled = !on && !firstFree(card, taken);
                 box.setAttribute('aria-expanded', on ? 'true' : 'false');
+                var note = card.querySelector('[data-row-note]');
+                if (note) note.textContent = box.disabled ? 'No AI free' : '';
             }
+        });
+    }
+
+    // Re-derive each row from the DOM. The browser restores a checkbox's `checked`
+    // on a Back navigation but NOT `dataset.chosenProvider` or the hidden mirrors'
+    // `disabled` flags — so without this a restored page shows a row ticked while
+    // posting nothing for it, and the agent silently misses the match. Worse, the
+    // AI it appears to hold reads as free, so the next row ticked can be handed it.
+    // Runs on load and on every pageshow (bfcache hit or not).
+    function adoptRestoredState() {
+        cards.forEach(function (card) {
+            var box = checkOf(card);
+            if (!box || !box.checked || card.dataset.chosenProvider) return;
+            // Prefer whatever radio the browser restored; else the first free AI.
+            var restored = radiosOf(card).filter(function (r) { return r.checked; })[0];
+            var taken = takenMap();
+            var provider = '';
+            if (restored && !restored.hasAttribute('data-orig-disabled')
+                && !(taken[restored.value] && taken[restored.value] !== card)) {
+                provider = restored.value;
+            } else {
+                provider = firstFree(card, taken);
+            }
+            // Nothing pairable any more: drop the tick rather than leave a row that
+            // looks like it's entering and isn't.
+            if (provider) setCard(card, provider); else box.checked = false;
         });
     }
 
@@ -206,10 +242,11 @@
                 sync();
             });
         }
-        // Clicking a pill picks that AI. On an unticked row it ticks the row too,
-        // so the checkbox and the posted mirrors can never disagree. There is no
-        // click-again-to-deselect: a ticked row always has exactly one AI, and
-        // unticking the row is the single way to stop sending it.
+        // Clicking a pill picks that AI. There is no click-again-to-deselect: a
+        // ticked row always has exactly one AI, and unticking the row is the single
+        // way to stop sending it. (The tick-the-row line below is a belt-and-braces
+        // guard — refreshRows disables an unticked row's radios, so a click there
+        // shouldn't arrive; it keeps checkbox and mirrors in step if one ever does.)
         radiosOf(card).forEach(function (r) {
             r.addEventListener('click', function () {
                 if (r.hasAttribute('data-orig-disabled')) return;
@@ -222,7 +259,12 @@
         });
     });
 
+    adoptRestoredState();
     sync();
+    // Back/forward restores form controls after this script has already run, so
+    // reconcile again on every pageshow — including a bfcache hit, where the
+    // script does not re-run at all.
+    window.addEventListener('pageshow', function () { adoptRestoredState(); sync(); });
 
     /* Notification permission when joining as a human (FR-027) — fail-open */
     var form = document.querySelector('[data-join-form]');

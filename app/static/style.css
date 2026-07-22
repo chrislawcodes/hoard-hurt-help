@@ -905,6 +905,17 @@ pre code { background: none; padding: 0; }
    pill carries no state word — twelve identical badges told the reader nothing. */
 .ai-pill-note { font-size: 0.76rem; color: var(--ink-soft); }
 
+/* A disabled primary action has to read as disabled. Without this the Join button
+   stays full-strength orange with a pointer cursor, so "nothing is selected yet"
+   looks identical to "ready to go". */
+.btn:disabled, .btn[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.lineup-note { font-size: 0.8rem; color: var(--ink-soft); font-style: italic; }
+
 .lineup-foot {
     display: flex; align-items: center; justify-content: space-between;
     gap: 1rem; margin-top: 1rem; flex-wrap: wrap;
