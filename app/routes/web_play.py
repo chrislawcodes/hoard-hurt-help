@@ -330,7 +330,7 @@ async def play_join(
 ) -> RedirectResponse:
     """Take a human seat in a scheduled match — no agent, no connection, no key.
 
-    The join screen is the primary entrance (pick "Play as yourself"); this
+    The join screen is the primary entrance (pick "Play manually"); this
     endpoint stays as the direct one-click path and shares ``seat_human_player``
     with it, so the two can't drift. The ``{game}``-slug check is the injected
     ``GameScopedMatchOr404`` dependency (404 "Match not found." on mismatch — same

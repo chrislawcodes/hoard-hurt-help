@@ -76,4 +76,4 @@ async def test_join_warns_on_failing_preferred_model(
         cookies={"hhh_session": session_cookie(uid)},
     )
     assert r.status_code == 200
-    assert "preferred model can't run" in r.text
+    assert "Preferred model can't run" in r.text

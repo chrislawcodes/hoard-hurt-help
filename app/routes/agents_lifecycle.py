@@ -17,7 +17,7 @@ from app.models.player import Player
 from app.models.user import User
 from app.read_models.matches import agent_has_active_match, version_has_active_match
 from app.routes.agents_queries import load_owned_agent, version_has_rated_history
-from app.routes.agents_setup import clean_agent_name
+from app.routes.agents_setup import clean_agent_blurb, clean_agent_name
 
 router = APIRouter()
 
@@ -190,6 +190,27 @@ async def set_strategy(
 # Every model the picker may set — the union of the provider allowlists. An empty
 # submission clears the preference (back to the provider default).
 _ALL_PROVIDER_MODELS = {model for models in PROVIDER_MODELS.values() for model in models}
+
+
+@router.post("/{agent_id}/set-blurb")
+async def set_blurb(
+    agent_id: Annotated[int, Path()],
+    db: DbSession,
+    user: Annotated[User, Depends(require_user_with_handle)],
+    blurb: Annotated[str, Form()] = "",
+) -> RedirectResponse:
+    """Set or clear an agent's short description — the label shown beside its name
+    on the join lineup and the agents list.
+
+    Deliberately its own route and its own form: the agent page's name input
+    auto-submits on change, so sharing that form would fire a rename instead.
+    Stored on the Agent (mutable), not a new version — it describes the agent,
+    not a particular strategy revision.
+    """
+    agent = await load_owned_agent(db, user, agent_id)
+    agent.blurb = clean_agent_blurb(blurb)
+    await db.commit()
+    return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/{agent_id}/set-model")

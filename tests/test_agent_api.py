@@ -476,3 +476,57 @@ async def test_chat_returns_whole_unwindowed_transcript(client, reset_db):
     chat = await client.get("/api/games/G_001/chat", headers={"X-Connection-Key": p0._test_key})
     assert chat.status_code == 200, chat.text
     assert [m["message"] for m in chat.json()["messages"]] == ["m1", "m2", "m3", "m4"]
+
+
+async def test_blurb_never_reaches_the_agent_payload_or_spectator_state(client, reset_db):
+    """The agent's blurb is owner-facing metadata and must not leak to players.
+
+    The next-turn payload is the surface that actually matters here: it already
+    reads the Agent row (``agent_name``, ``preferred_model``), so a future field
+    added there would ship the owner's private label to every competing AI. The
+    spectator/MCP path builds from Player alone, so this is a tripwire for it.
+    """
+    import json
+
+    from sqlalchemy import select
+
+    from app.models import Agent
+    from app.routes.spectator_api import public_state
+
+    sentinel = "BLURBSENTINEL7Q"
+    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    key = players[0]._test_key
+
+    async with reset_db() as db:
+        for agent in (await db.execute(select(Agent))).scalars().all():
+            agent.blurb = sentinel
+        game = (await db.execute(select(Match).where(Match.id == "G_001"))).scalar_one()
+        game.current_round = 1
+        game.current_turn = 1
+        now = datetime.now(timezone.utc)
+        db.add(
+            Turn(
+                match_id=game.id,
+                round=1,
+                turn=1,
+                turn_token=generate_turn_token(),
+                opened_at=now,
+                deadline_at=now + timedelta(seconds=60),
+                phase="act",
+            )
+        )
+        await db.commit()
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Guard against vacuity: a "no_game" reply contains nothing, so the absence
+    # check below would pass without proving anything.
+    assert body["status"] == "your_turn", body
+    assert sentinel not in json.dumps(body, default=str)
+
+    async with reset_db() as db:
+        state = await public_state(match_id="G_001", db=db)
+    dumped = json.dumps(state.model_dump(), default=str)
+    assert state.agents, "spectator state had no agents — absence check would be vacuous"
+    assert sentinel not in dumped

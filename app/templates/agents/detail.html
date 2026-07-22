@@ -22,6 +22,19 @@
             {% elif current_stats.practice_matches %} · {{ current_stats.practice_matches }} practice{% endif %}
         </p>
     </div>
+    {# Its own form on purpose: the name input above auto-submits on change, so
+       sharing that form would fire a rename instead of saving the blurb. #}
+    <form method="post" action="/me/agents/{{ agent.id }}/set-blurb" class="agent-blurb-form">
+        <input type="text"
+               name="blurb"
+               value="{{ agent.blurb or '' }}"
+               maxlength="32"
+               autocomplete="off"
+               placeholder="Add a short description"
+               aria-label="Agent description"
+               class="agent-blurb-input">
+        <button type="submit" class="agent-blurb-save">Save</button>
+    </form>
 </div>
 
 {% if health.state.value == 'paused' %}

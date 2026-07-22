@@ -61,6 +61,11 @@ class Agent(Base):
         server_default=AgentKind.AI.value,
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # A short owner-written label ("Forgives once") shown next to the name on the
+    # join lineup and the agents list, so several agents are tellable apart at a
+    # glance. Owner-facing only — never rendered to spectators. NULL when unset;
+    # an empty or whitespace-only submission is stored as NULL, never "".
+    blurb: Mapped[str | None] = mapped_column(String(32), nullable=True)
     game: Mapped[str] = mapped_column(
         String(64),
         nullable=False,

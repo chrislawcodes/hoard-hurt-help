@@ -184,7 +184,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0046",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0047",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -953,3 +953,38 @@ def test_check_platform_admin_skips_under_pytest(monkeypatch) -> None:
     app_main._check_platform_admin_config()
 
     assert not warning_messages
+
+
+def test_0047_adds_agents_blurb(tmp_path: Path) -> None:
+    """0047 adds the nullable agents.blurb column.
+
+    The app test suite builds its schema with ``Base.metadata.create_all``, so it
+    never exercises the migration chain — a model/migration mismatch on this
+    column is invisible everywhere except here.
+    """
+    db_path = tmp_path / "agent_blurb.db"
+
+    up = _run_alembic(["upgrade", "0046"], db_path)
+    assert up.returncode == 0, f"upgrade 0046 failed:\n{up.stdout}\n{up.stderr}"
+
+    up = _run_alembic(["upgrade", "0047"], db_path)
+    assert up.returncode == 0, f"upgrade 0047 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0047",)]
+        agent_cols = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
+        assert "blurb" in agent_cols
+    finally:
+        conn.close()
+
+    # The downgrade needs batch mode on SQLite; prove it actually runs.
+    down = _run_alembic(["downgrade", "0046"], db_path)
+    assert down.returncode == 0, f"downgrade to 0046 failed:\n{down.stdout}\n{down.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        agent_cols = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
+        assert "blurb" not in agent_cols
+    finally:
+        conn.close()

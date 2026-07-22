@@ -29,7 +29,6 @@ from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
 from app.provider_labels import PROVIDER_LABELS
-from app.read_models.version_stats import VersionStats, version_stats_by_id
 from app.request_logging import set_request_trace_context
 from app.routes.web_play import seat_human_player
 from app.routes.web_player_shared import (
@@ -106,19 +105,14 @@ async def _build_ai_options(
     return options
 
 
-async def _default_entry_choice(
-    db: DbSession, user_id: int, *, agent_pickable: bool
-) -> tuple[bool, bool]:
-    """Pre-check the join boxes to match how this user last entered a match.
+async def _default_human_choice(db: DbSession, user_id: int) -> bool:
+    """Should "Play manually" start ticked? True when this user's newest seat was
+    a human one.
 
-    Looks at the user's most recent match (their newest seat) and whether, in that
-    match, they held a human seat, an AI-agent seat, or both — then returns
-    ``(default_human, default_agent)`` to start the form in the same shape. A
-    brand-new user (no history) defaults to the human seat, the no-setup path.
-
-    The agent box can only default on when there's actually a pickable AI agent
-    right now; if the remembered choice was agent-only but none is pickable, fall
-    back to the human box so the form never starts with nothing selected.
+    A brand-new user (no history) defaults to True — the no-setup path. Note the
+    fallback is deliberately NOT "true when nothing else is selected": the agent
+    rows now start unticked by design, so an unconditional fallback would pre-tick
+    the manual row for everyone and let one click accidentally seat a human player.
     """
     last_match_id = (
         await db.execute(
@@ -129,7 +123,7 @@ async def _default_entry_choice(
         )
     ).scalar_one_or_none()
     if last_match_id is None:
-        return True, False
+        return True
     last_kinds = set(
         (
             await db.execute(
@@ -141,11 +135,7 @@ async def _default_entry_choice(
         .scalars()
         .all()
     )
-    default_human = AgentKind.HUMAN in last_kinds
-    default_agent = AgentKind.AI in last_kinds and agent_pickable
-    if not default_human and not default_agent:
-        default_human = True
-    return default_human, default_agent
+    return AgentKind.HUMAN in last_kinds
 
 
 async def _build_agent_rows(
@@ -156,8 +146,7 @@ async def _build_agent_rows(
 
     Agents are per-game, so only this match's game shows (the filter lives here,
     not in the shared ``_load_user_agents``, which the connect flows also use).
-    Each row carries its current version's completed-match record so the pick is
-    informed. FR-014: warn (not block) when the agent's preferred model is
+    FR-014: warn (not block) when the agent's preferred model is
     verified-failing on every live machine connection for its provider. A
     not-yet-checked model doesn't warn. No Player is seated here — this is a
     read-only picker.
@@ -181,9 +170,6 @@ async def _build_agent_rows(
         for agent, version in agents
         if agent.kind == AgentKind.AI and version is not None and agent.game == match.game
     ]
-    stats_by_version = await version_stats_by_id(
-        db, [version.id for _agent, version in pickable]
-    )
     agent_rows: list[dict[str, object]] = []
     for agent, version in pickable:
         preferred_failing = False
@@ -197,7 +183,6 @@ async def _build_agent_rows(
             {
                 "agent": agent,
                 "version": version,
-                "stats": stats_by_version.get(version.id, VersionStats()),
                 "seated": agent.id in seated_agent_ids,
                 "preferred_model_failing": preferred_failing,
             }
@@ -236,7 +221,7 @@ async def join_form(
     require_can_view_game(user, match.game)
 
     # No setup gate here: the join screen always renders (given sign-in + handle
-    # above) with "Play as yourself" as the first, pre-selected choice, so a brand-
+    # above) with "Play manually" as the first, pre-selected choice, so a brand-
     # new user with no AI can play as a human in one click. The AI-agent picker
     # below is the opt-in path; picking an agent whose provider is offline routes
     # to the held-seat connect flow on submit. No Player is seated on GET.
@@ -247,7 +232,6 @@ async def join_form(
     # plays one seat at a time, so an AI already in any unfinished game is busy.
     busy = await providers_busy_for_user(db, user.id)
     ai_options = await _build_ai_options(db, user.id, busy)
-    any_pickable_ai = any(o["can_pick"] for o in ai_options)
     # An AI counts as "connected" once it's live or set-up-but-idle. When the user
     # has at least one, the picker shows only those and tucks the rest behind a
     # "connect another AI" link — so a set-up operator isn't wading through four
@@ -255,9 +239,7 @@ async def join_form(
     # a cold-start user can pick one and be routed to set it up.
     any_connected_ai = any(o["state"] in ("ready", "idle") for o in ai_options)
 
-    default_human, default_agent = await _default_entry_choice(
-        db, user.id, agent_pickable=bool(agent_rows) and any_pickable_ai
-    )
+    default_human = await _default_human_choice(db, user.id)
     return templates.TemplateResponse(
         request,
         "join.html",
@@ -270,11 +252,10 @@ async def join_form(
             "agent_rows": agent_rows,
             "ai_options": ai_options,
             "any_agents": bool(agent_rows),
-            "any_pickable_ai": any_pickable_ai,
             "any_connected_ai": any_connected_ai,
-            # Remember how this user last entered a match so the boxes start there.
+            # Remember whether this user last played by hand, so the manual row
+            # starts in the same state. Agent rows always start unticked.
             "default_human": default_human,
-            "default_agent": default_agent,
             # The "create another agent" CTA carries ?next back to this join page.
             "join_url": join_url,
             "base_url": settings.base_url,

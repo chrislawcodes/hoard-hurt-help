@@ -286,7 +286,7 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     )
     # Leave-CTA flag: a seated human can leave (pre-start frees the seat, in-match
     # flips it to autopilot). The join entrance is the "Enter game" link, which
-    # leads to the join screen where "Play as yourself" is the first choice.
+    # leads to the join screen where "Play manually" is the first choice.
     viewer_seat_human = seats.viewer_human is not None
     play_ctx["viewer_seat_human"] = viewer_seat_human
 
