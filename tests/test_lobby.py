@@ -5,6 +5,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
+import re
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import event, select
@@ -569,8 +571,8 @@ async def test_practice_arena_join_copy_mentions_join_start(client, reset_db):
 
     r = await client.get("/games/hoard-hurt-help/matches/G_PA/join", cookies=cookies)
     assert r.status_code == 200
-    assert "Game starts when you join" in r.text
-    assert "registered" in r.text
+    assert "Starts when you join" in r.text
+    assert re.search(r"\d+ of \d+ in", r.text)  # the shorter "N of M in" count
 
 
 async def test_practice_arena_upcoming_copy_mentions_join_start(client, reset_db):

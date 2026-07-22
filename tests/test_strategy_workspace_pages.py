@@ -183,9 +183,14 @@ async def test_save_version_stores_note_in_place_and_on_fork(client, reset_db):
         assert versions[1].strategy_text == "v2 text"
 
 
-async def test_join_page_shows_version_line_and_filters_other_games(client, reset_db):
-    """Join cards carry the v-line (version, note, record); agents of another
-    game don't appear for this match."""
+async def test_join_page_filters_agents_of_another_game(client, reset_db):
+    """Only this match's game's agents appear on the join lineup.
+
+    The v-line (version number, note, win record) it used to assert is gone from
+    the join page on purpose — three text sources that didn't help you tell two
+    agents apart. That information now lives only on the agent page; see
+    ``test_agent_page_shows_version_line``-style coverage there.
+    """
     async with reset_db() as db:
         user = await make_user(db, i=4)
         agent, version = await make_agent(db, user, name="JoinReady")
@@ -209,7 +214,8 @@ async def test_join_page_shows_version_line_and_filters_other_games(client, rese
     )
     assert r.status_code == 200
     assert "JoinReady" in r.text
-    assert f"v{version.version_no}" in r.text
-    assert "Opening gambit tweak" in r.text
-    assert "Won 1 of 1 rated match" in r.text
     assert "OtherGameAgent" not in r.text  # different game, filtered out
+    # The v-line is deliberately absent now.
+    assert f"v{version.version_no} ·" not in r.text
+    assert "Opening gambit tweak" not in r.text
+    assert "rated match" not in r.text

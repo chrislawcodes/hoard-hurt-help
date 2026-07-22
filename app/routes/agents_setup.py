@@ -13,7 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.routes import agents_create, agents_detail, agents_list
-from app.routes.agents_create import clean_agent_name
+from app.routes.agents_create import clean_agent_blurb, clean_agent_name
 from app.routes.agents_detail import _build_agent_detail_context, _load_agent_matches
 from app.routes.agents_health_presenter import _is_ready_to_play
 
@@ -32,6 +32,7 @@ router.routes.extend(agents_detail.router.routes)
 __all__ = [
     "router",
     "clean_agent_name",
+    "clean_agent_blurb",
     "_build_agent_detail_context",
     "_load_agent_matches",
     "_is_ready_to_play",

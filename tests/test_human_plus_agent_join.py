@@ -283,7 +283,7 @@ async def test_human_seat_is_idempotent_alongside_agent(reset_db, client):
 
 
 async def test_join_screen_shows_both_independent_choices(reset_db, client):
-    """The join screen offers 'Play as yourself' and 'Also send an AI agent' as two
+    """The join screen offers 'Play manually' and 'Also send an AI agent' as two
     independently selectable boxes (keeping the per-agent AI picker cards)."""
     async with reset_db() as db:
         user = await make_user(db)
@@ -292,8 +292,8 @@ async def test_join_screen_shows_both_independent_choices(reset_db, client):
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
-    assert "Play as yourself" in r.text
-    assert "Also send an AI agent" in r.text
+    assert "Play manually" in r.text
     assert "data-play-as-human" in r.text
-    assert "data-play-as-agent" in r.text
-    assert "Hawk" in r.text  # the agent card is still rendered
+    # The agent is its own lineup row now, not a card behind a master toggle.
+    assert "Hawk" in r.text
+    assert 'data-agent-name="Hawk"' in r.text

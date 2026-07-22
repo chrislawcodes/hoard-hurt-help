@@ -2,122 +2,121 @@
 {% block title %}Enter {{ game.name }} — Hoard-Hurt-Help{% endblock %}
 {% block content %}
 <div class="page-head">
-    <h1>Enter "{{ game.name }}"</h1>
+    <h1>Enter {{ game.name }}</h1>
     {% if game.match_kind == 'practice_arena' %}
-    <p class="sub">{{ player_count }} / {{ game.max_players }} registered · Game starts when you join</p>
+    <p class="sub">{{ player_count }} of {{ game.max_players }} in · Starts when you join</p>
     {% else %}
-    <p class="sub">Starts {{ game.scheduled_start | reltime }} ({{ game.scheduled_start | localdt }}) · {{ player_count }} / {{ game.max_players }} registered</p>
+    <p class="sub">Starts {{ game.scheduled_start | reltime }} · {{ player_count }} of {{ game.max_players }} in</p>
     {% endif %}
 </div>
 
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 <form method="post" action="/games/{{ game.game }}/matches/{{ game.id }}/join" class="card join-pick" data-join-form>
 
-    <div class="pick-section">
-        <div class="field-label">① How do you want to enter? <span class="pick-hint-inline">— pick one or both</span></div>
-        <label class="pick-row">
-            <input type="checkbox" name="play_as" value="human" data-play-as-human{% if default_human %} checked{% endif %}>
-            <span class="pick-name">Play as yourself</span>
-            <span class="pick-sub">You ({{ user.handle }}) — make every move by hand. No AI, no setup.</span>
-        </label>
-        <label class="pick-row{% if not any_agents or not any_pickable_ai %} pick-disabled{% endif %}">
-            <input type="checkbox" data-play-as-agent{% if default_agent %} checked{% endif %}
-                   {% if not any_agents or not any_pickable_ai %}disabled{% endif %}>
-            <span class="pick-name">Also send an AI agent</span>
-            {% if not any_agents %}
-            <span class="pick-sub">You have no agents yet. <a href="/me/agents/new{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">Create one</a> to send an AI.</span>
-            {% elif not any_pickable_ai %}
-            <span class="pick-sub">Every AI you have is busy in another game. Connect another from <a href="/me/connections">Connections</a>.</span>
-            {% else %}
-            <span class="pick-sub">An AI you control plays your strategy — you compete against it.</span>
-            {% endif %}
-        </label>
+    {# Always first, always here. It's the only entry that needs no setup, so a
+       brand-new visitor sees a working option in the first line, and its position
+       never moves with history or agent count. #}
+    <label class="enter-you" data-entry-row>
+        <input type="checkbox" name="play_as" value="human" data-play-as-human{% if default_human %} checked{% endif %}>
+        <span class="lineup-name">Play manually</span>
+        <span class="lineup-you-sub">{{ user.handle }} · every move by hand</span>
+    </label>
+
+    <div class="lineup-head">
+        <span class="field-label" style="margin:0;">Your agents</span>
     </div>
 
-    {% if any_agents and any_pickable_ai %}
-    <div id="agent-section"{% if not default_agent %} style="display:none;"{% endif %}>
-        <p class="pick-hint">Pick an AI for each agent you want to send. Each AI can
-        play only one of your agents per game, so once you choose it for one agent it
-        greys out for the others.</p>
-        {% for row in agent_rows %}
-        <div class="agent-card{% if row.seated %} agent-card-taken{% endif %}"
-             data-agent-card data-agent-id="{{ row.agent.id }}" data-agent-name="{{ row.agent.name }}">
-            {# A chosen AI includes the agent: JS enables this id↔provider pair
-               together, so the two posted lists always line up by position. #}
-            <input type="hidden" name="agent_id" value="{{ row.agent.id }}" disabled data-agent-id-mirror>
-            <div class="agent-card-hd">
-                <span class="pick-name">{{ row.agent.name }}</span>
-                {% if row.seated %}
-                <span class="badge badge-done">already in this game</span>
-                {% elif row.version %}
-                <span class="pick-sub">{{ row.version.strategy_text[:80] }}{% if row.version.strategy_text | length > 80 %}…{% endif %}</span>
+    {% if any_agents %}
+    {% for row in agent_rows %}
+    {% if row.seated %}
+    {# Seated rows render no checkbox and no hidden mirrors, so an already-entered
+       agent can never contribute a stray agent_id to the posted lists. #}
+    <div class="lineup-row lineup-row-taken" data-lineup-row data-agent-name="{{ row.agent.name }}">
+        <span class="lineup-name">{{ row.agent.name }}</span>
+        {% if row.agent.blurb %}<span class="lineup-blurb">{{ row.agent.blurb }}</span>{% endif %}
+        <span class="badge badge-done">already in this game</span>
+    </div>
+    {% else %}
+    <div class="lineup-row" data-lineup-row data-agent-card
+         data-agent-id="{{ row.agent.id }}" data-agent-name="{{ row.agent.name }}">
+        {# A chosen AI includes the agent: setCard/clearCard enable and disable this
+           id↔provider pair together and are the only writers of either, so the two
+           posted lists always line up by position. #}
+        <input type="hidden" name="agent_id" value="{{ row.agent.id }}" disabled data-agent-id-mirror>
+        <input type="hidden" name="chosen_provider" value="" disabled data-provider-mirror>
+        <label class="lineup-tick">
+            <input type="checkbox" data-row-check
+                   aria-expanded="false" aria-controls="ais-{{ row.agent.id }}"
+                   aria-label="Send {{ row.agent.name }}">
+            <span class="lineup-name">{{ row.agent.name }}</span>
+        </label>
+        {% if row.agent.blurb %}<span class="lineup-blurb">{{ row.agent.blurb }}</span>{% endif %}
+        <span class="lineup-pills" id="ais-{{ row.agent.id }}" role="radiogroup"
+              aria-label="Which AI plays {{ row.agent.name }}" hidden>
+            {% for opt in ai_options %}
+            {% if not any_connected_ai or opt.state in ('ready', 'idle') %}
+            <label class="ai-pill{% if not opt.can_pick %} ai-pill-disabled{% endif %}">
+                <input type="radio" name="ai_for_{{ row.agent.id }}" value="{{ opt.provider }}"
+                       class="ai-radio" disabled
+                       {% if not opt.can_pick %}data-orig-disabled="1"{% endif %}>
+                <span class="ai-pill-name">{{ opt.label }}</span>
+                {# Silence means ready. A state word appears only when there IS news —
+                   twelve identical "ready" badges told the reader nothing. #}
+                {% if opt.state != 'ready' %}
+                <span class="ai-pill-note">{% if opt.state == 'idle' %}○ idle{% elif opt.state == 'not_connected' %}⊕ not connected{% else %}▪ busy{% endif %}</span>
                 {% endif %}
-            </div>
-            {% if row.version %}
-            <p class="pick-sub" style="margin:0.15rem 0 0;">v{{ row.version.version_no }}{% if row.version.note %} · {{ row.version.note }}{% endif %}{% if row.stats and row.stats.record_label %} · {{ row.stats.record_label }}{% endif %}</p>
+            </label>
             {% endif %}
-            {% if row.preferred_model_failing %}
-            <p class="pick-sub" style="color:var(--alert);">⚠ This agent's preferred model can't run on your connector — fix it in <a href="/me/agents/{{ row.agent.id }}">agent settings</a>, or this seat falls back to the default model.</p>
-            {% endif %}
-            {% if not row.seated %}
-            <div class="agent-ai-picker">
-                <input type="hidden" name="chosen_provider" value="" disabled data-provider-mirror>
-                <div class="field-label">Which AI plays {{ row.agent.name }}?</div>
-                <div class="ai-chip-grid">
-                    {% for opt in ai_options %}
-                    {% if not any_connected_ai or opt.state in ('ready', 'idle') %}
-                    <label class="ai-chip{% if not opt.can_pick %} ai-chip-disabled{% endif %}">
-                        <input type="radio" name="ai_for_{{ row.agent.id }}" value="{{ opt.provider }}"
-                               class="ai-radio" disabled
-                               {% if not opt.can_pick %}data-orig-disabled="1"{% endif %}>
-                        <span class="ai-chip-name">{{ opt.label }}</span>
-                        <span class="ai-chip-state ai-chip-state-{{ opt.state }}">
-                            {% if opt.state == 'ready' %}● ready
-                            {% elif opt.state == 'idle' %}○ idle
-                            {% elif opt.state == 'not_connected' %}⊕ not connected
-                            {% else %}▪ busy{% endif %}
-                        </span>
-                    </label>
-                    {% endif %}
-                    {% endfor %}
-                    {% if any_connected_ai %}
-                    {# Connected AIs are shown above; the rest live one click away so
-                       the picker stays short. #}
-                    <a class="ai-chip ai-chip-more" href="/me/connections{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">⊕ Connect another AI</a>
-                    {% endif %}
-                </div>
-            </div>
-            {% endif %}
-        </div>
-        {% endfor %}
-        <a class="pick-add" href="/me/agents/new{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">+ New agent</a>
+            {% endfor %}
+        </span>
+        {% if row.preferred_model_failing %}
+        <span class="lineup-warn">⚠ Preferred model can't run on your connector —
+            <a href="/me/agents/{{ row.agent.id }}">fix it</a>, or this seat uses the default.</span>
+        {% endif %}
     </div>
     {% endif %}
+    {% endfor %}
+    {% else %}
+    <p class="lineup-empty">No agents yet —
+        <a href="/me/agents/new{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">create one</a>
+        to send an AI.</p>
+    {% endif %}
 
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary join-btn">Join game →</button>
+    <div class="lineup-foot">
+        <span class="lineup-foot-links">
+            <a href="/me/agents/new{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">+ New agent</a>
+            {# Kept once (it used to repeat per agent). Without it a user with two
+               agents and one connected AI has no in-page way out of the grey-out. #}
+            <a href="/me/connections{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">⊕ Connect another AI</a>
+        </span>
+        <button type="submit" class="btn btn-primary join-btn" disabled>Join</button>
     </div>
 </form>
-<p class="meta">Playing as yourself, your seat is your handle <strong>{{ user.handle }}</strong>. Sending an AI, its seat is the agent's name. You can do both in one match. Manage agents and logins under <a href="/me/agents">Agents</a> and <a href="/me/connections">Connections</a>.</p>
 
 <script>
 (function () {
-    var agentSection = document.getElementById('agent-section');
     var humanBox = document.querySelector('[data-play-as-human]');
-    var agentBox = document.querySelector('[data-play-as-agent]');
     var cards = Array.prototype.slice.call(document.querySelectorAll('[data-agent-card]'));
 
     function humanOn() { return humanBox && humanBox.checked; }
-    function agentOn() { return agentBox && agentBox.checked && !agentBox.disabled; }
+    function checkOf(card) { return card.querySelector('[data-row-check]'); }
+    function pillsOf(card) { return card.querySelector('.lineup-pills'); }
+    function radiosOf(card) {
+        return Array.prototype.slice.call(card.querySelectorAll('.ai-radio'));
+    }
 
     // Mark a card as "send this agent with <provider>". The id↔provider hidden
-    // inputs are enabled together so the two posted lists always pair by position.
+    // inputs are enabled together — this and clearCard are the ONLY writers of
+    // either, which is what guarantees N ticked rows post N ids and N providers.
+    // The radio is checked here rather than in the click handler, so an
+    // auto-picked AI still shows as picked (the highlight is :has(input:checked)).
     function setCard(card, provider) {
         card.dataset.chosenProvider = provider;
         var pm = card.querySelector('[data-provider-mirror]');
         if (pm) { pm.value = provider; pm.disabled = false; }
         var am = card.querySelector('[data-agent-id-mirror]');
         if (am) am.disabled = false;
+        radiosOf(card).forEach(function (r) { r.checked = (r.value === provider); });
     }
 
     // Drop a card back to "not sending": blank + disable both hidden inputs and
@@ -128,81 +127,102 @@
         if (pm) { pm.value = ''; pm.disabled = true; }
         var am = card.querySelector('[data-agent-id-mirror]');
         if (am) am.disabled = true;
-        card.querySelectorAll('.ai-radio').forEach(function (r) { r.checked = false; });
+        radiosOf(card).forEach(function (r) { r.checked = false; });
     }
 
-    // Grey out an AI on every other card once it's chosen on one — one AI plays
-    // one of your agents per game. Also honors server-disabled (busy/offline) AIs
-    // and the section on/off state. Recomputed from scratch on every change.
-    function refreshGreyOut() {
-        var taken = {};  // provider -> the card that chose it
+    // Which AIs are spoken for right now: provider -> the card that took it.
+    function takenMap() {
+        var taken = {};
         cards.forEach(function (card) {
             if (card.dataset.chosenProvider) taken[card.dataset.chosenProvider] = card;
         });
-        var on = agentOn();
-        document.querySelectorAll('.ai-radio').forEach(function (r) {
-            var card = r.closest('[data-agent-card]');
-            var origDisabled = r.hasAttribute('data-orig-disabled');
-            var takenElsewhere = taken[r.value] && taken[r.value] !== card;
-            r.disabled = !on || origDisabled || !!takenElsewhere;
-            var chip = r.closest('.ai-chip');
-            if (chip) chip.classList.toggle('ai-chip-disabled', origDisabled || !!takenElsewhere);
-        });
+        return taken;
     }
 
-    // Turn the agent section on/off as a whole (the "Also send an AI agent" box).
-    function setAgentEnabled(on) {
-        if (!agentSection) return;
-        agentSection.style.display = on ? '' : 'none';
-        if (!on) cards.forEach(clearCard);  // sending nothing while the box is off
-        refreshGreyOut();
-        updateBtn();
+    // The first AI this card could still use, or '' if none is free. Freeness is
+    // per-row and moves with every click, so it can't be settled once on the
+    // server — it is recomputed here on every change.
+    function firstFree(card, taken) {
+        var found = '';
+        radiosOf(card).forEach(function (r) {
+            if (found) return;
+            if (r.hasAttribute('data-orig-disabled')) return;
+            if (taken[r.value] && taken[r.value] !== card) return;
+            found = r.value;
+        });
+        return found;
+    }
+
+    // Recomputed from scratch on every change: grey out an AI on every other card
+    // once it's chosen on one, honor server-disabled (busy/offline) AIs, reveal
+    // each ticked row's pills, and disable a checkbox whose row has no AI left.
+    function refreshRows() {
+        var taken = takenMap();
+        cards.forEach(function (card) {
+            var box = checkOf(card);
+            var on = !!(box && box.checked);
+            radiosOf(card).forEach(function (r) {
+                var origDisabled = r.hasAttribute('data-orig-disabled');
+                var takenElsewhere = taken[r.value] && taken[r.value] !== card;
+                r.disabled = !on || origDisabled || !!takenElsewhere;
+                var pill = r.closest('.ai-pill');
+                if (pill) pill.classList.toggle('ai-pill-disabled', origDisabled || !!takenElsewhere);
+            });
+            var pills = pillsOf(card);
+            if (pills) pills.hidden = !on;
+            if (box) {
+                // An untickable row is one with nothing left to pair with — ticking
+                // it would post an agent with no AI.
+                box.disabled = !on && !firstFree(card, taken);
+                box.setAttribute('aria-expanded', on ? 'true' : 'false');
+            }
+        });
     }
 
     function updateBtn() {
         var btn = document.querySelector('.join-btn');
         if (!btn) return;
-        var parts = [];
-        if (humanOn()) parts.push('yourself');
-        if (agentOn()) {
-            cards.forEach(function (card) {
-                var provider = card.dataset.chosenProvider;
-                if (!provider) return;
-                var agentName = card.getAttribute('data-agent-name');
-                var radio = card.querySelector('.ai-radio[value="' + provider + '"]');
-                var aiName = radio
-                    ? radio.closest('.ai-chip').querySelector('.ai-chip-name').textContent.trim()
-                    : provider;
-                parts.push(agentName + ' (' + aiName + ')');
-            });
-        }
-        btn.disabled = parts.length === 0;
-        btn.textContent = parts.length ? 'Join as ' + parts.join(' + ') + ' →' : 'Pick how to enter →';
+        var anyAgent = cards.some(function (card) { return !!card.dataset.chosenProvider; });
+        btn.disabled = !humanOn() && !anyAgent;
     }
 
-    if (humanBox) humanBox.addEventListener('change', updateBtn);
-    if (agentBox) agentBox.addEventListener('change', function () { setAgentEnabled(agentBox.checked); });
+    function sync() { refreshRows(); updateBtn(); }
 
-    // Click an AI chip to send that agent with it; click the chosen one again to
-    // stop sending the agent. (Radios don't un-check on their own, so toggle here.)
-    document.querySelectorAll('.ai-radio').forEach(function (r) {
-        r.addEventListener('click', function () {
-            if (r.disabled) return;
-            var card = r.closest('[data-agent-card]');
-            if (!card) return;
-            if (card.dataset.chosenProvider === r.value) {
-                clearCard(card);
-            } else {
+    if (humanBox) humanBox.addEventListener('change', updateBtn);
+
+    cards.forEach(function (card) {
+        var box = checkOf(card);
+        if (box) {
+            box.addEventListener('change', function () {
+                if (box.checked) {
+                    var provider = firstFree(card, takenMap());
+                    // Nothing free: refuse the tick rather than post an agent with
+                    // no AI (which the server rejects with a raw 400).
+                    if (!provider) { box.checked = false; sync(); return; }
+                    setCard(card, provider);
+                } else {
+                    clearCard(card);
+                }
+                sync();
+            });
+        }
+        // Clicking a pill picks that AI. On an unticked row it ticks the row too,
+        // so the checkbox and the posted mirrors can never disagree. There is no
+        // click-again-to-deselect: a ticked row always has exactly one AI, and
+        // unticking the row is the single way to stop sending it.
+        radiosOf(card).forEach(function (r) {
+            r.addEventListener('click', function () {
+                if (r.hasAttribute('data-orig-disabled')) return;
+                var taken = takenMap();
+                if (taken[r.value] && taken[r.value] !== card) return;
+                if (box && !box.checked) box.checked = true;
                 setCard(card, r.value);
-                r.checked = true;
-            }
-            refreshGreyOut();
-            updateBtn();
+                sync();
+            });
         });
     });
 
-    setAgentEnabled(agentBox ? agentBox.checked : false);  // honor the remembered default
-    updateBtn();
+    sync();
 
     /* Notification permission when joining as a human (FR-027) — fail-open */
     var form = document.querySelector('[data-join-form]');

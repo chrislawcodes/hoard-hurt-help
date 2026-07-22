@@ -1,6 +1,6 @@
 """Tests for the gated Join flow.
 
-The join page leads with "Play as yourself" (a human seat), so it always renders
+The join page leads with "Play manually" (a human seat), so it always renders
 for a signed-in user with a handle — even one with zero agents and zero
 connections. Only the identity gates still redirect on GET:
 
@@ -133,14 +133,14 @@ async def test_no_handle_redirects_to_handle_with_next(client, reset_db):
 
 async def test_fresh_user_no_connection_lands_on_join_form_as_human(client, reset_db):
     # Brand-new user: handle, but ZERO connections and ZERO agents. They are NOT
-    # bounced to setup — the join form renders with "Play as yourself" leading,
+    # bounced to setup — the join form renders with "Play manually" leading,
     # and the AI path offers to create an agent.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)  # handle, no connection, no agent
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
-    assert "Play as yourself" in r.text
-    assert "Create one" in r.text  # the AI path, gated behind a missing agent
+    assert "Play manually" in r.text
+    assert 'href="/me/agents/new?next=' in r.text  # the AI path, gated behind a missing agent
     assert await _seated_players(reset_db) == 0  # GET seats nobody
 
 
@@ -155,7 +155,7 @@ async def test_provider_but_no_agent_lands_on_join_form_as_human(client, reset_d
         await db.commit()
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
-    assert "Play as yourself" in r.text
+    assert "Play manually" in r.text
     assert await _seated_players(reset_db) == 0
 
 
@@ -213,7 +213,7 @@ async def test_create_agent_from_join_returns_and_shows_agent(client, reset_db):
     # No agent yet: the join form still renders, leading with the human option.
     r1 = await client.get(JOIN_URL, cookies=cookies, follow_redirects=False)
     assert r1.status_code == 200
-    assert "Play as yourself" in r1.text
+    assert "Play manually" in r1.text
 
     # Create the agent with that next -> forwards straight back to the join screen.
     r2 = await client.post(
