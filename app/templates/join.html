@@ -6,7 +6,7 @@
     {% if game.match_kind == 'practice_arena' %}
     <p class="sub">{{ player_count }} of {{ game.max_players }} in · Starts when you join</p>
     {% else %}
-    <p class="sub">Starts {{ game.scheduled_start | reltime }} · {{ player_count }} of {{ game.max_players }} in</p>
+    <p class="sub">Starts {{ game.scheduled_start | reltime }} ({{ game.scheduled_start | localdt }}) · {{ player_count }} of {{ game.max_players }} in</p>
     {% endif %}
 </div>
 

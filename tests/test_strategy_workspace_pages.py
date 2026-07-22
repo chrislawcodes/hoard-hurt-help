@@ -3,6 +3,7 @@ save-with-note, and the informed join cards (with the per-game agent filter)."""
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -215,7 +216,8 @@ async def test_join_page_filters_agents_of_another_game(client, reset_db):
     assert r.status_code == 200
     assert "JoinReady" in r.text
     assert "OtherGameAgent" not in r.text  # different game, filtered out
-    # The v-line is deliberately absent now.
-    assert f"v{version.version_no} ·" not in r.text
-    assert "Opening gambit tweak" not in r.text
-    assert "rated match" not in r.text
+    # The v-line is deliberately absent now. Anchored on the bare version token so
+    # a v-line that comes back in any format is caught, not just "v1 ·".
+    assert not re.search(rf"\bv{version.version_no}\b", r.text)
+    assert "Opening gambit tweak" not in r.text  # the version note
+    assert "rated match" not in r.text  # the win record (this fixture HAS one)
