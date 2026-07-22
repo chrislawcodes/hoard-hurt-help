@@ -70,12 +70,12 @@ async def _user_agent(reset_db, *, live: bool):
 
 async def test_join_no_agent_no_connection_lands_on_join_form_as_human(client, reset_db):
     # No agent, no connection: the join form still renders, leading with the human
-    # "Play as yourself" option. The AI path links out to create an agent.
+    # "Play manually" option. The AI path links out to create an agent.
     await _seed_match(reset_db)
     user = await _user_with_handle(reset_db)
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
-    assert "Play as yourself" in r.text
+    assert "Play manually" in r.text
 
 
 async def _user_with_handle(reset_db):

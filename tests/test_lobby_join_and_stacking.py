@@ -289,7 +289,15 @@ async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monk
             .scalars()
             .all()
         )
-    assert {p.seat_name for p in players} == {"One", "Two"}
+    # Pin the PROVIDER each seat got, not just the seat names. Asserting names
+    # alone made this test pass in exactly the world spec risk R1 fears — every
+    # agent silently seated on one AI. This body is the legacy "same AI for all"
+    # admin shorthand; the lineup page can no longer produce it (it always posts
+    # one provider per agent), so this pins the server contract only.
+    assert {p.seat_name: p.chosen_provider for p in players} == {
+        "One": "claude",
+        "Two": "claude",
+    }
 
 
 async def test_join_form_shows_already_seated_agents(client, reset_db):
@@ -308,9 +316,15 @@ async def test_join_form_shows_already_seated_agents(client, reset_db):
     form = await client.get("/games/hoard-hurt-help/matches/G_001/join", cookies=cookies)
     assert "One" in form.text  # still visible
     assert "already in this game" in form.text  # seated agent is marked
-    # Both agents are listed as picker rows; the seated one is a disabled row.
-    assert f'value="{a1.id}"' in form.text
-    assert f'value="{a2.id}"' in form.text
+    # Both agents are listed as lineup rows...
+    assert f'data-agent-name="{a1.name}"' in form.text
+    assert f'data-agent-id="{a2.id}"' in form.text
+    # ...but the seated one renders NO checkbox and NO hidden mirrors, so it can
+    # never contribute a stray agent_id to the posted lists (spec risk R3).
+    seated = form.text[form.text.index(f'data-agent-name="{a1.name}"'):]
+    seated = seated[:seated.index("</div>")]
+    assert 'name="agent_id"' not in seated
+    assert 'name="chosen_provider"' not in seated
 
 
 async def test_match_page_shows_add_agent_affordance(client, reset_db):

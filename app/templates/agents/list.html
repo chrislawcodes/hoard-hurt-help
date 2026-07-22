@@ -18,6 +18,7 @@
         <a class="agent-row" href="/me/agents/{{ row.agent.id }}">
             <span class="badge {{ row.health.badge_class }}">{% if row.health.pulse %}<span class="dot"></span>{% elif row.health.state.value == 'ready' %}<span class="dot dot-still"></span>{% endif %}{{ row.health.label }}</span>
             <span class="agent-row-name">{{ row.agent.name }}</span>
+            {% if row.agent.blurb %}<span class="agent-row-blurb">{{ row.agent.blurb }}</span>{% endif %}
             <span class="agent-row-meta">{% if row.version %}v{{ row.version.version_no }} · {% endif %}{{ row.match_count }} match{% if row.match_count != 1 %}es{% endif %}</span>
             <span class="agent-row-chevron">›</span>
         </a>

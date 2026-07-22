@@ -188,12 +188,12 @@ async def test_in_match_leave_sets_autopilot(reset_db, client) -> None:
         assert p.autopilot_at is not None  # auto-Hoards to the end
 
 
-# --- consolidated join screen: "Play as yourself" is the first choice ---------
+# --- consolidated join screen: "Play manually" is the first choice ---------
 
 
 async def test_join_screen_leads_with_human_option(reset_db, client) -> None:
     """A signed-in user with no AI agent lands on the join form (not a redirect),
-    with "Play as yourself" pre-selected as the first choice."""
+    with "Play manually" pre-selected as the first choice."""
     async with reset_db() as db:
         user = await make_user(db, 1)
         await _make_match(db, "M_0001", state=GameState.REGISTERING)
@@ -205,31 +205,10 @@ async def test_join_screen_leads_with_human_option(reset_db, client) -> None:
         follow_redirects=False,
     )
     assert r.status_code == 200
-    assert "Play as yourself" in r.text
+    assert "Play manually" in r.text
     # The human box is present and, with no history, is the default (checked) choice.
     assert 'name="play_as"' in r.text
     assert "data-play-as-human checked" in r.text
-
-
-async def test_join_defaults_to_agent_when_last_entry_was_agent(reset_db, client) -> None:
-    """Remember last choice: a user whose previous match seat was an AI agent gets
-    the 'Also send an AI agent' box pre-checked (and the human box clear)."""
-    async with reset_db() as db:
-        user = await make_user(db, 1)
-        agent, version = await make_agent(db, user, name="Atlas")
-        await _make_match(db, "M_PRIOR", state=GameState.COMPLETED)
-        db.add(Player(match_id="M_PRIOR", user_id=user.id, agent_id=agent.id,
-                      agent_version_id=version.id, seat_name="Atlas"))
-        await _make_match(db, "M_NEW", state=GameState.REGISTERING)
-        await db.commit()
-
-    r = await client.get(
-        f"/games/{GAME}/matches/M_NEW/join", cookies=_cookies(user.id),
-        follow_redirects=False,
-    )
-    assert r.status_code == 200
-    assert "data-play-as-agent checked" in r.text
-    assert "data-play-as-human checked" not in r.text
 
 
 async def test_join_defaults_to_human_when_last_entry_was_human(reset_db, client) -> None:
@@ -251,7 +230,6 @@ async def test_join_defaults_to_human_when_last_entry_was_human(reset_db, client
     )
     assert r.status_code == 200
     assert "data-play-as-human checked" in r.text
-    assert "data-play-as-agent checked" not in r.text
 
 
 async def test_join_screen_human_submit_seats_player(reset_db, client) -> None:
