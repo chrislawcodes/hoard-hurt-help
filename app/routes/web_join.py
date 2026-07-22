@@ -232,7 +232,6 @@ async def join_form(
     # plays one seat at a time, so an AI already in any unfinished game is busy.
     busy = await providers_busy_for_user(db, user.id)
     ai_options = await _build_ai_options(db, user.id, busy)
-    any_pickable_ai = any(o["can_pick"] for o in ai_options)
     # An AI counts as "connected" once it's live or set-up-but-idle. When the user
     # has at least one, the picker shows only those and tucks the rest behind a
     # "connect another AI" link — so a set-up operator isn't wading through four
@@ -253,7 +252,6 @@ async def join_form(
             "agent_rows": agent_rows,
             "ai_options": ai_options,
             "any_agents": bool(agent_rows),
-            "any_pickable_ai": any_pickable_ai,
             "any_connected_ai": any_connected_ai,
             # Remember whether this user last played by hand, so the manual row
             # starts in the same state. Agent rows always start unticked.

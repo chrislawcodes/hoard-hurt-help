@@ -135,7 +135,10 @@ async def test_lineup_drops_strategy_preview_version_and_record(client, reset_db
     assert r.status_code == 200
     assert "data-lineup-row" in r.text
     assert "Play to win." not in r.text  # the strategy preview
-    assert "rated matches" not in r.text  # the win record
+    # (The win record and version line are guarded by
+    # test_join_page_filters_agents_of_another_game, which seeds a real completed
+    # win — this fixture has none, so asserting their absence here would prove
+    # nothing.)
     # The visible per-row picker heading is gone. The radiogroup's accessible
     # name still says "Which AI plays <agent>" — that one is required (A11Y1).
     assert "field-label\">Which AI plays" not in r.text
@@ -216,9 +219,14 @@ async def test_each_row_holds_exactly_one_id_and_one_provider_mirror(client, res
         row_id = int(re.search(r'data-agent-id="(\d+)"', chunk).group(1))
         assert f'name="agent_id" value="{row_id}"' in chunk
         seen.add(row_id)
-        # Both start switched off, so an untouched page posts no agent at all.
-        assert chunk.count("disabled") >= 2
-        assert chunk.index("data-agent-id-mirror") < chunk.index("data-provider-mirror")
+        # Both mirrors start switched off, so a page nobody has touched — or one
+        # whose JavaScript never ran — posts no agent at all. Anchored per mirror:
+        # a bare count of "disabled" is met by the pills alone.
+        assert re.search(r"data-agent-id-mirror[^>]*", chunk)
+        id_tag = re.search(r"<input[^>]*data-agent-id-mirror[^>]*>", chunk).group(0)
+        pv_tag = re.search(r"<input[^>]*data-provider-mirror[^>]*>", chunk).group(0)
+        assert "disabled" in id_tag, id_tag
+        assert "disabled" in pv_tag, pv_tag
     assert seen == seeded
 
 
@@ -250,17 +258,29 @@ async def test_id_and_provider_mirrors_appear_in_the_same_row_order(client, rese
     assert [row_of(p) for p in provs] == [0, 1, 2]
 
 
-def test_template_writes_both_mirrors_the_same_number_of_times():
-    """Tripwire: a third writer of one mirror without the other breaks R1.
+def test_template_switches_both_mirrors_together():
+    """Tripwire on R1: the two hidden fields must always move as a pair.
 
-    Not a proof — a cheap alarm that fires if someone later adds a code path that
-    switches one hidden field on without the other.
+    Not a proof — the suite runs no JavaScript, so this reads the source. It is
+    here because the failure it guards is silent: if one mirror switches on
+    without the other, the two posted lists come out at different lengths and the
+    server broadcasts a single AI to every agent, with no error at all for an
+    admin. Deliberately asserts the exact assignments rather than counting the
+    attribute names, because flipping one ``false`` to ``true`` leaves the counts
+    equal and was proven to slip past a count-based check.
     """
     src = (
         __import__("pathlib").Path(__file__).resolve().parent.parent
         / "app" / "templates" / "join.html"
     ).read_text()
     assert src.count("data-agent-id-mirror") == src.count("data-provider-mirror")
+    # setCard switches both ON; clearCard switches both OFF.
+    set_body = src[src.index("function setCard"):src.index("function clearCard")]
+    assert "pm.disabled = false" in set_body
+    assert "am.disabled = false" in set_body
+    clear_body = src[src.index("function clearCard"):src.index("function takenMap")]
+    assert "pm.disabled = true" in clear_body
+    assert "am.disabled = true" in clear_body
 
 
 # ----------------------------------------------------------------- the blurb
@@ -390,3 +410,106 @@ async def test_set_blurb_clears_with_empty_submission(client, reset_db):
     async with reset_db() as db:
         refreshed = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
         assert refreshed.blurb is None
+
+
+# --------------------------------------------------- the manual row's pre-tick
+
+
+async def test_manual_row_not_preticked_when_last_seat_was_an_agent(client, reset_db):
+    """A returning AI-only player lands with nothing selected.
+
+    The old page pre-ticked *something* so the form was never empty. That fallback
+    is gone on purpose: agent rows no longer pre-tick, so an unconditional
+    fallback would pre-tick the manual row for everyone and let one click
+    accidentally seat a human player in a ranked match.
+    """
+    from app.models import GameState, Player
+    from tests.factories import make_match
+
+    user = await _seed_user(reset_db)
+    agent = await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    async with reset_db() as db:
+        prior = await make_match(db, "M_PRIOR", state=GameState.COMPLETED)
+        version_id = (
+            await db.execute(select(Agent).where(Agent.id == agent.id))
+        ).scalar_one().current_version_id
+        db.add(
+            Player(
+                match_id=prior.id, user_id=user.id, agent_id=agent.id,
+                agent_version_id=version_id, seat_name="One",
+            )
+        )
+        await make_match(db, "G_001", state=GameState.REGISTERING, name="Test Match")
+        await db.commit()
+
+    r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
+
+    assert r.status_code == 200
+    assert "data-play-as-human checked" not in r.text
+    # ...and the page is still usable: the agent row is there and tickable.
+    assert "data-lineup-row" in r.text
+
+
+async def test_manual_row_preticked_when_last_seat_was_human(client, reset_db):
+    """The other half of the same branch, so neither direction can drift."""
+    from app.models import AgentKind, GameState, Player
+    from tests.factories import make_agent as _make_agent, make_match
+
+    user = await _seed_user(reset_db)
+    async with reset_db() as db:
+        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+        human_agent, _ = await _make_agent(db, u, name="Claw", kind=AgentKind.HUMAN)
+        prior = await make_match(db, "M_PRIOR", state=GameState.COMPLETED)
+        db.add(
+            Player(
+                match_id=prior.id, user_id=user.id, agent_id=human_agent.id,
+                seat_name="Claw",
+            )
+        )
+        await make_match(db, "G_001", state=GameState.REGISTERING, name="Test Match")
+        await db.commit()
+
+    r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
+
+    assert r.status_code == 200
+    assert "data-play-as-human checked" in r.text
+
+
+# ------------------------------------------------- the blurb's other surfaces
+
+
+async def test_blurb_input_renders_on_the_create_form(client, reset_db):
+    """AC16: the field a user actually types into, not just the handler."""
+    user = await _seed_user(reset_db)
+    r = await client.get("/me/agents/new", cookies=_cookies(user.id))
+    assert r.status_code == 200
+    assert 'name="blurb"' in r.text
+    assert 'maxlength="32"' in r.text
+
+
+async def test_blurb_form_on_agent_page_is_separate_from_the_rename_form(client, reset_db):
+    """AC16: it must NOT share the name form — that input auto-submits on change,
+    so a shared form would fire a rename when you typed a description."""
+    user = await _seed_user(reset_db)
+    agent = await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+
+    r = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+
+    assert r.status_code == 200
+    assert f'action="/me/agents/{agent.id}/set-blurb"' in r.text
+    # The blurb input sits after its own form tag and before that form closes —
+    # i.e. inside the set-blurb form, not the rename one.
+    blurb_form = r.text[r.text.index(f'action="/me/agents/{agent.id}/set-blurb"'):]
+    blurb_form = blurb_form[: blurb_form.index("</form>")]
+    assert 'name="blurb"' in blurb_form
+    assert "requestSubmit" not in blurb_form  # no auto-submit on this one
+
+
+async def test_blurb_renders_on_the_agents_list(client, reset_db):
+    """AC17."""
+    user = await _seed_user(reset_db)
+    await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE, blurb="Forgives once")
+    r = await client.get("/me/agents", cookies=_cookies(user.id))
+    assert r.status_code == 200
+    assert "agent-row-blurb" in r.text
+    assert "Forgives once" in r.text
