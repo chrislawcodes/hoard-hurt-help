@@ -14,7 +14,20 @@ BETRAYAL_BONUS = 4  # extra to the ATTACKER when they HURT a player HELPing them
 # no better than hoarding): total = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k).
 MUTUAL_HELP_FLOOR = 2
 
-GAME_RULES_TEXT = f"""# Hoard-Hurt-Help — Official Rules (v5)
+# The mutual-help paragraph is the only part that varies with a match's
+# `mutual_help_decay` switch. ON = today's sliding decay (two bullets); OFF = a
+# flat "+8 every time" with NO decay/floor/reset language.
+_MUTUAL_HELP_ON = f"""- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each the first time a pair does it.
+- **Mutual-help decays.** Each time the *same pair* repeats a mutual help in a match, the bonus drops by 1. So that pair's net falls +{HELP_POINTS + MUTUAL_HELP_BONUS}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 1}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 2}, … down to a floor of +{MUTUAL_HELP_FLOOR} each (no better than HOARD). The count is match-wide, not per round. Helping a *fresh* partner resets to +{HELP_POINTS + MUTUAL_HELP_BONUS} — farming one ally pays less over time than spreading pacts around."""
+
+_MUTUAL_HELP_OFF = f"""- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each, every time. A pair earns the full +{HELP_POINTS + MUTUAL_HELP_BONUS} each on every mutual help, no matter how often they do it."""
+
+
+def _render_game_rules_text(*, mutual_help_decay: bool) -> str:
+    """Build the semantic rules body (default 5-round/7-turn counts) for one
+    decay setting. ON swaps in the decay bullets; OFF the flat bullet."""
+    mutual_section = _MUTUAL_HELP_ON if mutual_help_decay else _MUTUAL_HELP_OFF
+    return f"""# Hoard-Hurt-Help — Official Rules (v5)
 
 The goal is to win more rounds than any other agent over the course of the game.
 
@@ -30,8 +43,7 @@ In the act phase, choose exactly one action. You cannot target yourself.
 
 - **HELP stacks.** Multiple players HELPing the same target each contribute +{HELP_POINTS}.
 - **HURT stacks.** Multiple players HURTing the same target each contribute -{HURT_POINTS}.
-- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each the first time a pair does it.
-- **Mutual-help decays.** Each time the *same pair* repeats a mutual help in a match, the bonus drops by 1. So that pair's net falls +{HELP_POINTS + MUTUAL_HELP_BONUS}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 1}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 2}, … down to a floor of +{MUTUAL_HELP_FLOOR} each (no better than HOARD). The count is match-wide, not per round. Helping a *fresh* partner resets to +{HELP_POINTS + MUTUAL_HELP_BONUS} — farming one ally pays less over time than spreading pacts around.
+{mutual_section}
 - **Betraying a helper.** If you HURT a player who is HELPing *you* on the same turn, you gain an extra +{BETRAYAL_BONUS} bonus on top of the +{HELP_POINTS} help you still receive — so you net +{HELP_POINTS + BETRAYAL_BONUS} that turn. The player you HURT takes the normal -{HURT_POINTS}. Net swing: attacker +{HELP_POINTS + BETRAYAL_BONUS} / victim -{HURT_POINTS}. (Moves resolve simultaneously, so this is a read on whether your target will help you.)
 - HELP and HURT against the same target both resolve; the target's score moves by the net.
 
@@ -55,6 +67,11 @@ Each turn has a talk phase followed by an act phase:
 2. **Act phase.** After seeing all talk messages, choose your action. Actions resolve simultaneously.
 """
 
+
+# The default (decay ON) rules — kept as a module constant because callers and
+# tests reference it directly and expect today's text.
+GAME_RULES_TEXT = _render_game_rules_text(mutual_help_decay=True)
+
 RULES_TEXT = f"""{GAME_RULES_TEXT}
 ## Response format
 
@@ -64,12 +81,16 @@ RULES_TEXT = f"""{GAME_RULES_TEXT}
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
 
 
-def make_game_rules_text(total_rounds: int = 5, turns_per_round: int = 7) -> str:
-    """Return semantic game rules with the actual round/turn counts."""
+def _apply_counts(text: str, total_rounds: int, turns_per_round: int) -> str:
+    """Rewrite the literal 5-round/7-turn counts to the actual match counts.
+
+    The count strings live only in the "Round and game structure" section, never
+    in the mutual-help section, so this is safe for both decay settings.
+    """
     if total_rounds == 5 and turns_per_round == 7:
-        return GAME_RULES_TEXT
+        return text
     return (
-        GAME_RULES_TEXT
+        text
         .replace("**5 rounds**", f"**{total_rounds} rounds**")
         .replace("**7 turns**", f"**{turns_per_round} turns**")
         .replace("(35 turns total)", f"({total_rounds * turns_per_round} turns total)")
@@ -78,9 +99,21 @@ def make_game_rules_text(total_rounds: int = 5, turns_per_round: int = 7) -> str
     )
 
 
-def make_rules_text(total_rounds: int = 5, turns_per_round: int = 7) -> str:
+def make_game_rules_text(
+    total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_decay: bool = True
+) -> str:
+    """Return semantic game rules for this match's decay setting and round counts."""
+    base = GAME_RULES_TEXT if mutual_help_decay else _render_game_rules_text(
+        mutual_help_decay=False
+    )
+    return _apply_counts(base, total_rounds, turns_per_round)
+
+
+def make_rules_text(
+    total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_decay: bool = True
+) -> str:
     """Return official rules plus the canonical response contract."""
     return (
-        f"{make_game_rules_text(total_rounds, turns_per_round)}"
+        f"{make_game_rules_text(total_rounds, turns_per_round, mutual_help_decay=mutual_help_decay)}"
         f"## Response format\n\n{RESPONSE_PROTOCOL}\n"
     )

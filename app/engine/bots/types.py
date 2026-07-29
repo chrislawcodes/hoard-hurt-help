@@ -35,6 +35,12 @@ class BotContext:
     history: list[ActionRecord]
     scoreboard: list[ScoreboardRow]
     current_talk_messages: list[TalkMessage]
+    # This match's mutual-help decay switch. Gates decay-aware partner rotation in
+    # `trust.compute_trust_map` (OFF = no partner fatigue). Deliberately a trailing
+    # field with a default so existing constructions read ON, and deliberately NOT
+    # part of `seed_basis()` — folding it into the seed would perturb every bot's
+    # deterministic tie-breaks and reintroduce the talk→act target-drift bug.
+    mutual_help_decay: bool = True
 
     def seed_basis(self) -> str:
         """Canonical seed input: start time plus a sorted context snapshot.

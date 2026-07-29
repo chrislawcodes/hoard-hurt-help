@@ -74,6 +74,7 @@ async def create_match(
     state: GameState = GameState.REGISTERING,
     created_by_user_id: int | None = None,
     match_kind: str = MatchKind.MANUAL.value,
+    mutual_help_decay: bool = True,
     commit: bool = True,
     max_attempts: int = 3,
 ) -> Match:
@@ -108,6 +109,7 @@ async def create_match(
             turns_per_round=turns_per_round,
             created_by_user_id=created_by_user_id,
             match_kind=match_kind,
+            mutual_help_decay=mutual_help_decay,
         )
         db.add(match)
         try:
@@ -138,6 +140,7 @@ async def create_match_with_state(
     state: GameState = GameState.REGISTERING,
     created_by_user_id: int | None = None,
     match_kind: str = MatchKind.MANUAL.value,
+    mutual_help_decay: bool = True,
 ) -> Match:
     """Create a match and seed its module-owned ``MatchState`` in one commit.
 
@@ -159,6 +162,7 @@ async def create_match_with_state(
         state=state,
         created_by_user_id=created_by_user_id,
         match_kind=match_kind,
+        mutual_help_decay=mutual_help_decay,
         commit=False,
     )
     db.add(MatchState(match_id=match.id, state_json={"config": state_config}))

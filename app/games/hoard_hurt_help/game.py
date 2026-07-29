@@ -26,6 +26,7 @@ from app.games.hoard_hurt_help.rules import (
     HELP_POINTS,
     HOARD_POINTS,
     HURT_POINTS,
+    MUTUAL_HELP_BONUS,
     MUTUAL_HELP_FLOOR,
     make_game_rules_text,
     make_rules_text,
@@ -81,11 +82,17 @@ class HoardHurtHelp(BaseGameModule):
         # HOARD (keep), HELP (cooperate), HURT (attack).
         return ("HOARD", "HELP", "HURT")
 
-    def rules_text(self, total_rounds: int = 5, turns_per_round: int = 7) -> str:
-        return make_rules_text(total_rounds, turns_per_round)
+    def rules_text(
+        self, total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_decay: bool = True
+    ) -> str:
+        return make_rules_text(total_rounds, turns_per_round, mutual_help_decay=mutual_help_decay)
 
-    def semantic_rules_text(self, total_rounds: int = 5, turns_per_round: int = 7) -> str:
-        return make_game_rules_text(total_rounds, turns_per_round)
+    def semantic_rules_text(
+        self, total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_decay: bool = True
+    ) -> str:
+        return make_game_rules_text(
+            total_rounds, turns_per_round, mutual_help_decay=mutual_help_decay
+        )
 
     def strategy_presets(self) -> list[StrategyPreset]:
         return PD_STRATEGY_PRESETS
@@ -100,11 +107,42 @@ class HoardHurtHelp(BaseGameModule):
         all_agent_ids: list[str],
         total_rounds: int = 5,
         turns_per_round: int = 7,
+        mutual_help_decay: bool = True,
     ) -> str:
         return make_agent_base_prompt(
             your_agent_id=your_agent_id,
             all_agent_ids=all_agent_ids,
-            rules=make_game_rules_text(total_rounds, turns_per_round),
+            rules=make_game_rules_text(
+                total_rounds, turns_per_round, mutual_help_decay=mutual_help_decay
+            ),
+        )
+
+    # Per-match overrides: PD's rules vary with the match's `mutual_help_decay`
+    # switch, so the platform's match-aware callers get the setting-correct text.
+    # `is not False` treats a legacy/unflushed None as the ON default.
+    def rules_text_for_match(self, match: Match) -> str:
+        return self.rules_text(
+            match.total_rounds,
+            match.turns_per_round,
+            mutual_help_decay=match.mutual_help_decay is not False,
+        )
+
+    def semantic_rules_text_for_match(self, match: Match) -> str:
+        return self.semantic_rules_text(
+            match.total_rounds,
+            match.turns_per_round,
+            mutual_help_decay=match.mutual_help_decay is not False,
+        )
+
+    def agent_base_prompt_for_match(
+        self, match: Match, *, your_agent_id: str, all_agent_ids: list[str]
+    ) -> str:
+        return self.agent_base_prompt(
+            your_agent_id=your_agent_id,
+            all_agent_ids=all_agent_ids,
+            total_rounds=match.total_rounds,
+            turns_per_round=match.turns_per_round,
+            mutual_help_decay=match.mutual_help_decay is not False,
         )
 
     def validate_move(
@@ -245,16 +283,24 @@ class HoardHurtHelp(BaseGameModule):
         other_players = [p for p in all_players if p.id != player.id]
         if not other_players:
             return {}
+        decay_on = match.mutual_help_decay is not False
         values = await scoring.current_pact_values(
-            db, match.id, player.id, (p.id for p in other_players)
+            db, match.id, player.id, (p.id for p in other_players), mutual_help_decay=decay_on
         )
-        return {
-            "pact_values": {p.seat_name: values[p.id] for p in other_players},
-            "pact_values_note": (
+        if decay_on:
+            note = (
                 "What a mutual HELP with this agent would pay EACH side right "
                 "now (decays per repeat mutual-help pair this match; floors at "
                 f"{MUTUAL_HELP_FLOOR})."
-            ),
+            )
+        else:
+            note = (
+                "What a mutual HELP with this agent pays EACH side: a flat "
+                f"+{HELP_POINTS + MUTUAL_HELP_BONUS}, every time."
+            )
+        return {
+            "pact_values": {p.seat_name: values[p.id] for p in other_players},
+            "pact_values_note": note,
         }
 
     def move_effect(self, action: str) -> tuple[int, int | None]:

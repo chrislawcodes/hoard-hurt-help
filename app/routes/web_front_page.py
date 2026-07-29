@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 from app.deps import DbSession, get_current_user
 from app.games import is_admin_only
 from app.read_models.leaderboard_cache import load_leaderboard_sections_cached
-from app.routes.showcase_replay import load_showcase_replay_cached
+from app.routes.showcase_replay import load_showcase_replay_cached, showcase_mutual_help_decay
 from app.routes.web_support import _is_any_admin
 from app.templating import templates
 
@@ -45,6 +45,10 @@ async def home(request: Request, db: DbSession):
     if not viewer_is_admin:
         lb_sections = [s for s in lb_sections if not is_admin_only(s.game_type)]
 
+    # Gate the showcase replay's legend on THAT match's decay setting (default ON
+    # for the bundled sample), so an OFF showcase never shows a "decays" legend.
+    rc_mutual_help_decay = await showcase_mutual_help_decay(db, rc_game_id)
+
     return templates.TemplateResponse(
         request,
         "agent_ludum.html",
@@ -54,6 +58,7 @@ async def home(request: Request, db: DbSession):
             "rc_data": rc_data,
             "rc_game_id": rc_game_id,
             "rc_game_type": rc_game_type,
+            "rc_mutual_help_decay": rc_mutual_help_decay,
             "lb_sections": lb_sections,
         },
     )

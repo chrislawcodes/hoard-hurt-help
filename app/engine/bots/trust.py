@@ -69,8 +69,15 @@ def compute_trust_map(
     history: Sequence[ActionRecord],
     signals: Sequence[TalkSignal],
     trust_model: str,
+    mutual_help_decay: bool = True,
 ) -> dict[str, int]:
-    """Compute your trust in every other player from history + talk signals."""
+    """Compute your trust in every other player from history + talk signals.
+
+    ``mutual_help_decay`` is this match's decay switch. When OFF, partner fatigue
+    is not applied: with a flat +8 payoff there is no shrinking reward to rotate
+    away from, so a repeated partner stays as attractive as the payoffs make it.
+    The mutual-help TRUST BOOST still applies under OFF (a mutual help still pays).
+    """
     model = _MODELS.get(trust_model.lower(), _MODELS["even"])
     trust = {aid: 0 for aid in all_agent_ids if aid != your_agent_id}
     if not trust:
@@ -183,8 +190,9 @@ def compute_trust_map(
     # PARTNER_FATIGUE step per prior mutual-help turn with them. Applied last so it
     # is the final word on the map the strategy reads — a long-farmed pact cools
     # under the partnership threshold and selection rotates, while a fresh partner
-    # (few or no prior mutual helps) stays attractive. Mirrors the scoring decay.
-    if PARTNER_FATIGUE:
+    # (few or no prior mutual helps) stays attractive. Mirrors the scoring decay —
+    # so it is applied ONLY when this match actually decays mutual help.
+    if PARTNER_FATIGUE and mutual_help_decay:
         for partner, count in _mutual_help_counts(history, your_agent_id).items():
             if partner in trust and trust[partner] > 0:
                 trust[partner] = max(0, trust[partner] - PARTNER_FATIGUE * count)

@@ -367,15 +367,20 @@ async def build_pd_replay_view(
                     a["betrayal"] = True
         prev_mutual = this_mutual
 
-        # Decayed per-side value for each of this turn's pacts (one per pair).
-        # Computed once and shared by the display below and both apply_inround_turn
-        # callers (the action dicts carry `mutual_value`), so the win-prob loop —
-        # which resets its running score per round — still sees the match-scoped k.
+        # Per-side value for each of this turn's pacts (one per pair). Computed once
+        # and shared by the display below and both apply_inround_turn callers (the
+        # action dicts carry `mutual_value`), so the win-prob loop — which resets
+        # its running score per round — still sees the match-scoped k. When the
+        # match's decay switch is OFF, every pact pays a flat +8 per side with no
+        # decay; `is not False` treats a legacy/unflushed None as the ON default.
         pact_value: dict[frozenset[str], int] = {}
         for pair in this_mutual:
-            k = pact_counts.get(pair, 0)
-            pact_value[pair] = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k)
-            pact_counts[pair] = k + 1
+            if match.mutual_help_decay is not False:
+                k = pact_counts.get(pair, 0)
+                pact_value[pair] = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k)
+                pact_counts[pair] = k + 1
+            else:
+                pact_value[pair] = HELP_POINTS + MUTUAL_HELP_BONUS
 
         for a in actions:
             paired_message = messages_by_agent.get(a["agent_id"])
