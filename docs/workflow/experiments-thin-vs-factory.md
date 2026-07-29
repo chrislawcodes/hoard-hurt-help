@@ -48,6 +48,49 @@ Factory). Keep them distinct.
 
 <!-- New entries go directly below this line, newest first. -->
 
+## Run 3 — `decay-switch` (2026-07-28)
+
+**Feature:** Per-match mutual-help decay ON/OFF switch (a rules toggle). UI-completeness /
+silent-failure-prone — the mutual-help value must read the same in the engine, the
+AI-facing rules text + pact note, the bot fatigue logic, and every legend/replay surface
+(game viewer, front-page showcase, lobby); a wrong render passes resolver tests yet ships a
+legend that disagrees with the score.
+
+**Factory branch/PR:** `exp-factory/decay-switch` (`696f5743`) — not shipped, branch deleted  |
+**Thin branch/PR:** `exp-thin/decay-switch` (`e8f133f5`) — **WINNER, PR opened**
+
+| | Factory (engine) | Thin (engine-free) |
+|--|------------------|--------------------|
+| Blind judge: more correct? | No | **Yes — judge picked Thin** |
+| Preflight/tests pass | Yes (ruff/mypy/1472) | Yes (ruff/mypy/1474) |
+| Acceptance criteria met | 6/6 claimed — judge: **AC4 violated** on front-page + lobby legends | **6/6** |
+| Real findings | ~36 / 5 rounds | ~34 / 3 boundaries |
+| False positives | 2 | few |
+| Unique catch (other missed) | `create_match` "shipped inert" wiring — but its OWN build's bug | **front-page showcase + lobby legend AC4 surfaces the engine deferred/missed**; stale sample-data w/ impossible +12/+4 |
+| Real-work tokens | 7,506,467 | 5,568,563 (**~26% less**) |
+| Wall-clock | ~32 min (incl. resume) | ~26 min (incl. resume) |
+| Friction events (breakages) | 7 (all engine) | 5 (manual chores) |
+
+**Verdict:** Thin won a **UI-completeness / multi-render-path feature — the exact type Run 2
+said routes to the engine.** Both engine-cores were correct; they split on AC4's "no legend
+may show a decay the engine won't pay." The engine ran MORE review rounds across MORE lenses
+and still MISSED the front-page + lobby legend surfaces (deferring them) while shipping ZERO
+rendered-legend tests; Thin wired AND rendered-tested every surface. So on this run the engine
+did NOT catch the cross-render-path gap — Thin did — **directly contradicting Run 2's routing
+hypothesis.** Burden of proof not met; ~26% cheaper, less friction, zero maintenance for Thin.
+
+**Caveats:** both arms hit the subscription 5-hour session limit mid-run (two parallel builds
+on one Claude sub) and were resumed with context intact — token counts include that retry on
+both sides, and nested review-subagent tokens are uncounted (Factory ran more rounds, so its
+true cost gap is wider). No hand-finishing of either build.
+
+**Lesson:** Run 2's "route UI-completeness features to the engine" rule **did not replicate.**
+Here a UI-completeness feature went to Thin, and Thin — not the engine — caught the
+cross-render-path gap. The deciding factor looks less like feature-type and more like which
+arm's diff-review happened to render the actual surface. Don't route by feature-type yet.
+
+---
+
 ## Run 2 — `betrayal-8-4` (2026-07-07)
 
 **Feature:** The "8/4" betrayal-payoff re-split (attacker +8 / victim −4 instead of
@@ -140,11 +183,15 @@ comparison caught more than the factory's own adversarial lenses.
 |-----|------|--------------|-----------------------------------|----------------------|----------------------------|
 | 1 | `agent-model-selection` | verification store; silent-failure-prone | YES (better, per judge) | NO | Factory high vs Thin zero |
 | 2 | `betrayal-8-4` | UI-completeness; silent-failure-prone | NO — Factory better, per judge | **YES — animation under-count Thin deferred** | Factory 9 vs Thin 6; Factory ~1.7× tokens |
+| 3 | `decay-switch` | UI-completeness; silent-failure-prone | YES (better, per judge) | NO — **Thin** caught the render-path gap the engine deferred | Factory 7 vs Thin 5; Factory ~26% more tokens |
 
-**Sample size:** 2 runs.
+**Sample size:** 3 runs. **Score: Thin 2, Factory 1.**
 
-**Switch recommendation:** NEED MORE RUNS — the two runs **split by feature type**.
-Thin won the settled-backend feature (Run 1) for far less cost; the engine won the
-UI-completeness feature (Run 2) by catching a cross-render-path gap Thin deferred.
-Emerging routing rule: **UI-completeness / multi-render-path features → engine;
-settled backend → Thin.** Not yet a clean switch/keep — need more runs of each type.
+**Switch recommendation:** LEAN SWITCH — not yet definitive. Run 2's emerging routing rule
+(UI-completeness / multi-render-path → engine) **did NOT replicate**: Run 3 was a
+UI-completeness feature the engine LOST, missing the very cross-render-path legend gap that
+rule predicted it would catch (Thin caught + rendered-tested it; the engine deferred it with
+zero rendered-legend tests). So the engine's lone win (Run 2) now looks more like variance
+than a reliable feature-type pattern. Thin has won 2 of 3, cheaper + lower-friction every
+time. Do 1–2 more runs to confirm, but the case for keeping the ~40-module engine is
+weakening — it is not splitting cleanly by feature type.
