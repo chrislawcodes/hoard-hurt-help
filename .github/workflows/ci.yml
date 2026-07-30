@@ -14,23 +14,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      # Install from the lockfile with uv, so CI uses the SAME pinned tool
+      # versions as local dev (ruff, mypy, pytest) resolved in uv.lock. The old
+      # `pip install -e ".[dev]"` pulled the loose `[project.optional-dependencies]`
+      # floors (e.g. `ruff>=0.6.0`) and silently upgraded to whatever was newest on
+      # PyPI — a new ruff release then flagged 900+ pre-existing lints and broke CI
+      # repo-wide. `uv sync --frozen` installs exactly what uv.lock pins and never
+      # re-resolves, so a tool release can no longer break the build out from under us.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
+      - name: Install dependencies (locked)
+        run: uv sync --frozen
 
       - name: Lint (ruff)
-        run: python3 -m ruff check .
+        run: uv run ruff check .
 
       - name: Type-check (mypy)
-        run: mypy app/ mcp_server/
+        run: uv run mypy app/ mcp_server/
 
       - name: Test (pytest)
-        run: pytest -q
+        run: uv run pytest -q
 
       # The vendored Feature Factory / review-lens engine has its own test suite
       # under docs/workflow/operations/codex-skills/. It is NOT covered by the
@@ -55,6 +61,6 @@ jobs:
       - name: Test (Feature Factory engine)
         run: |
           ISO=docs/workflow/operations/codex-skills/feature-factory/scripts/check_workflow_isolation.py
-          python "$ISO" --capture-baseline "$RUNNER_TEMP/ff-isolation-baseline.json"
-          python -m pytest docs/workflow/operations/codex-skills -q -n0
-          python "$ISO" --check --baseline "$RUNNER_TEMP/ff-isolation-baseline.json"
+          uv run python "$ISO" --capture-baseline "$RUNNER_TEMP/ff-isolation-baseline.json"
+          uv run python -m pytest docs/workflow/operations/codex-skills -q -n0
+          uv run python "$ISO" --check --baseline "$RUNNER_TEMP/ff-isolation-baseline.json"
