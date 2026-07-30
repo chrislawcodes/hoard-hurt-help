@@ -140,7 +140,7 @@ def _format_instruction_sections(
     lines = [
         "## The rules",
         "",
-        module.semantic_rules_text(match.total_rounds, match.turns_per_round).rstrip(),
+        module.semantic_rules_text_for_match(match).rstrip(),
         "",
         "## You",
         "",

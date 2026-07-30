@@ -148,6 +148,23 @@ class GameModule(Protocol):
         """Stable model instructions supplied separately from player strategy."""
         ...
 
+    def rules_text_for_match(self, match: Match) -> str:
+        """Rules text for a specific match, reflecting any per-match rule toggles.
+
+        Defaults (see BaseGameModule) to the round-count form; a game with a
+        per-match rules switch overrides this to read the match row."""
+        ...
+
+    def semantic_rules_text_for_match(self, match: Match) -> str:
+        """`semantic_rules_text` for a specific match (per-match toggles applied)."""
+        ...
+
+    def agent_base_prompt_for_match(
+        self, match: Match, *, your_agent_id: str, all_agent_ids: list[str]
+    ) -> str:
+        """`agent_base_prompt` for a specific match (per-match toggles applied)."""
+        ...
+
     def validate_move(
         self, move: dict[str, Any], *, your_agent_id: str, all_agent_ids: list[str]
     ) -> None:
@@ -396,6 +413,48 @@ class BaseGameModule:
         # Default: no extra semantic rules block. Concrete games override this
         # to keep MCP instructions free of the connector's JSON protocol.
         return ""
+
+    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
+        # No platform-wide default: the full rules text is game-specific. Declared
+        # here (raising) so the shared `*_for_match` wrappers below can delegate to
+        # it; every concrete module (PD, Liar's Dice) overrides it.
+        raise NotImplementedError(
+            "rules_text is game-specific; each game module must override it."
+        )
+
+    def agent_base_prompt(
+        self,
+        *,
+        your_agent_id: str,
+        all_agent_ids: list[str],
+        total_rounds: int = 7,
+        turns_per_round: int = 7,
+    ) -> str:
+        # Game-specific like rules_text; declared here so the wrappers can delegate.
+        raise NotImplementedError(
+            "agent_base_prompt is game-specific; each game module must override it."
+        )
+
+    # Per-match rules wrappers. The default forms carry no per-match toggle — they
+    # just pass the match's round counts to the count-based methods, so a game with
+    # no per-match rule switch (e.g. Liar's Dice) inherits these unchanged. A game
+    # that DOES vary its rules per match (e.g. PD's mutual-help decay switch)
+    # overrides them to read the relevant match column.
+    def rules_text_for_match(self, match: Match) -> str:
+        return self.rules_text(match.total_rounds, match.turns_per_round)
+
+    def semantic_rules_text_for_match(self, match: Match) -> str:
+        return self.semantic_rules_text(match.total_rounds, match.turns_per_round)
+
+    def agent_base_prompt_for_match(
+        self, match: Match, *, your_agent_id: str, all_agent_ids: list[str]
+    ) -> str:
+        return self.agent_base_prompt(
+            your_agent_id=your_agent_id,
+            all_agent_ids=all_agent_ids,
+            total_rounds=match.total_rounds,
+            turns_per_round=match.turns_per_round,
+        )
 
     def mcp_setup_hint_lines(self) -> list[str]:
         # Deliberately empty: most games (e.g. PD, with no hidden per-player

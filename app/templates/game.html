@@ -56,7 +56,7 @@
 {% if show_replay_stage and rc_data %}
 <div class="rc-layout" id="replay">
     {% include "fragments/robot_circle_standings.html" %}
-    <div class="replay-viewer">{% with rc_autoplay = true, rc_countdown_iso = countdown_start_iso, rc_can_start = viewer_can_start, rc_start_bots = viewer_start_bots, rc_start_game = game.game, rc_start_match = game.id %}{% include "fragments/robot_circle.html" %}{% endwith %}</div>
+    <div class="replay-viewer">{% with rc_autoplay = true, rc_countdown_iso = countdown_start_iso, rc_can_start = viewer_can_start, rc_start_bots = viewer_start_bots, rc_start_game = game.game, rc_start_match = game.id, rc_mutual_help_decay = game.mutual_help_decay %}{% include "fragments/robot_circle.html" %}{% endwith %}</div>
 </div>
 {% endif %}
 

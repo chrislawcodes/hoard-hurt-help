@@ -118,6 +118,7 @@ def choose_bot_talk_decision(context: BotContext, profile: BotProfile) -> BotTal
         history=context.history,
         signals=[],
         trust_model=profile.trust_model,
+        mutual_help_decay=context.mutual_help_decay,
     )
     # The act-phase seed keys off `context.phase`, so plan against an "act"
     # snapshot to keep the spoken intent aligned with the move that lands.
@@ -153,6 +154,7 @@ def choose_bot_action_decision(context: BotContext, profile: BotProfile) -> BotA
         history=context.history,
         signals=signals,
         trust_model=profile.trust_model,
+        mutual_help_decay=context.mutual_help_decay,
     )
     plan, move = _decide_action(context, profile, trust_map, signals)
     return BotActionDecision(

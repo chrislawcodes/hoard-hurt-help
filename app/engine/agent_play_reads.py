@@ -220,12 +220,11 @@ def build_turn_static_dict(
         "game_id": match.id,
         "game": match.game,
         "rules_version": match.rules_version,
-        "rules": module.rules_text(match.total_rounds, match.turns_per_round),
-        "base_prompt": module.agent_base_prompt(
+        "rules": module.rules_text_for_match(match),
+        "base_prompt": module.agent_base_prompt_for_match(
+            match,
             your_agent_id=player.seat_name,
             all_agent_ids=all_agent_ids,
-            total_rounds=match.total_rounds,
-            turns_per_round=match.turns_per_round,
         ),
         "total_rounds": match.total_rounds,
         "turns_per_round": match.turns_per_round,

@@ -184,7 +184,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0046",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0047",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -586,6 +586,54 @@ def test_0031_adds_connection_usage_counters(tmp_path: Path) -> None:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(connections)")}
         assert "api_call_count" not in cols
         assert "turns_played" not in cols
+    finally:
+        conn.close()
+
+
+# --- feature decay-switch: matches.mutual_help_decay (migration 0047) ---------
+
+
+def test_0047_adds_mutual_help_decay_default_on(tmp_path: Path) -> None:
+    """0047 adds mutual_help_decay to matches, NOT NULL, and the server default
+    backfills every pre-existing row to ON (1) — proving existing matches keep
+    today's decaying behavior (data-critical-waves: build passing != prod-correct)."""
+    db_path = tmp_path / "decay_switch.db"
+
+    up = _run_alembic(["upgrade", "0046"], db_path)
+    assert up.returncode == 0, f"upgrade 0046 failed:\n{up.stdout}\n{up.stderr}"
+
+    # A match row created BEFORE the column existed (omits mutual_help_decay).
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.execute(
+            "INSERT INTO matches(id, name, state, scheduled_start, game)"
+            " VALUES ('M_PRE', 'pre', 'active', '2026-01-01', 'hoard-hurt-help')"
+        )
+    conn.close()
+
+    up = _run_alembic(["upgrade", "0047"], db_path)
+    assert up.returncode == 0, f"upgrade 0047 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0047",)]
+        cols = {row[1]: row for row in conn.execute("PRAGMA table_info(matches)")}
+        assert "mutual_help_decay" in cols
+        assert cols["mutual_help_decay"][3] == 1  # NOT NULL flag
+        # The pre-existing row was backfilled to ON by the server default.
+        assert conn.execute(
+            "SELECT mutual_help_decay FROM matches WHERE id='M_PRE'"
+        ).fetchone()[0] == 1
+    finally:
+        conn.close()
+
+    # Downgrade (batch mode) drops the column cleanly.
+    down = _run_alembic(["downgrade", "0046"], db_path)
+    assert down.returncode == 0, f"downgrade 0046 failed:\n{down.stdout}\n{down.stderr}"
+    conn = sqlite3.connect(db_path)
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(matches)")}
+        assert "mutual_help_decay" not in cols
     finally:
         conn.close()
 

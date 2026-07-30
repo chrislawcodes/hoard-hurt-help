@@ -84,6 +84,12 @@ class Match(Base):
     coaching: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="1"
     )
+    # Mutual-help decay switch (feature decay-switch): ON (default) keeps the
+    # sliding +8/+7/…→+2 per-pair decay; OFF pays a flat +8 to each side on every
+    # mutual help, no decay, no floor. Existing rows read ON via the server default.
+    mutual_help_decay: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

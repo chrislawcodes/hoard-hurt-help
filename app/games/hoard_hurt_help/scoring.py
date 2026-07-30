@@ -22,6 +22,7 @@ from app.games.hoard_hurt_help.rules import (
     MUTUAL_HELP_BONUS,
     MUTUAL_HELP_FLOOR,
 )
+from app.models.match import Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
 
@@ -55,19 +56,29 @@ async def current_pact_values(
     match_id: str,
     player_id: int,
     other_player_ids: Iterable[int],
+    *,
+    mutual_help_decay: bool = True,
 ) -> dict[int, int]:
     """Current mutual-help pact value between `player_id` and each other player.
 
-    The value is the per-side total (`max(MUTUAL_HELP_FLOOR, HELP_POINTS +
-    MUTUAL_HELP_BONUS - k)`) a mutual HELP between that pair would pay EACH side
-    right now. `k` — this match's decay counter for the pair — is derived from
-    this match's *resolved* turn history via `mutual_help_counts`, the single
-    source of that count; this function does not re-scan or re-derive it any
-    other way. A pair with no prior mutual help this match (k not in the counts
-    map) gets the fresh HELP_POINTS + MUTUAL_HELP_BONUS value. Only resolved
-    turns are read, so — like `resolve_turn` — this is resume-safe: it has no
-    in-memory-only state.
+    When ``mutual_help_decay`` is ON (default) the value is the per-side total
+    (`max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k)`) a mutual HELP
+    between that pair would pay EACH side right now. `k` — this match's decay
+    counter for the pair — is derived from this match's *resolved* turn history
+    via `mutual_help_counts`, the single source of that count; this function does
+    not re-scan or re-derive it any other way. A pair with no prior mutual help
+    this match (k not in the counts map) gets the fresh HELP_POINTS +
+    MUTUAL_HELP_BONUS value. Only resolved turns are read, so — like
+    `resolve_turn` — this is resume-safe: it has no in-memory-only state.
+
+    When OFF, every pair pays the flat HELP_POINTS + MUTUAL_HELP_BONUS (+8) — no
+    decay, no floor — so there is nothing to derive from history: return the flat
+    map directly without the resolved-turn scan.
     """
+    if not mutual_help_decay:
+        flat = HELP_POINTS + MUTUAL_HELP_BONUS
+        return {other_id: flat for other_id in other_player_ids}
+
     subs: list[TurnSubmission] = list(
         (
             await db.execute(
@@ -99,13 +110,23 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     Order matters and matches spec.md §5:
       1. Default any missing submission to HOARD (was_defaulted=True).
       2. Compute raw deltas (Hoard +2, Help +4 to target, Hurt -4 to target).
-      3. Add the mutual-help bonus for any A↔B pair, DECAYED by how many times that
-         same pair already mutually helped this match (max(2, 8-k) per side; floor
-         at the Hoard value). k is derived from prior resolved turns.
+      3. Add the mutual-help bonus for any A↔B pair. When this match's
+         `mutual_help_decay` is ON (default), the bonus is DECAYED by how many
+         times that same pair already mutually helped this match (max(2, 8-k) per
+         side; floor at the Hoard value), k derived from prior resolved turns.
+         When OFF, every mutual help pays a flat +8 per side — no k, no floor.
       4. Apply the score floor at 0 to the FINAL per-player delta, not per-hurt.
       5. Persist post-floor `points_delta` and `round_score_after`.
       6. Mark turn resolved.
     """
+    # This match's decay switch. ON keeps the sliding per-pair decay; OFF pays a
+    # flat +8 per side on every mutual help. `is not False` so a legacy/unflushed
+    # row (value None) reads as the ON default, matching the DB server default.
+    match = (
+        await db.execute(select(Match).where(Match.id == turn.match_id))
+    ).scalar_one()
+    decay_on = match.mutual_help_decay is not False
+
     # Players in this game.
     players: list[Player] = list(
         (await db.execute(select(Player).where(Player.match_id == turn.match_id)))
@@ -116,26 +137,29 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     # Per-pair mutual-help decay: count how many times each pair already mutually
     # helped in this match's PRIOR resolved turns (the current turn isn't resolved
     # yet, and is excluded by id). Derived from history so it survives a DB resume.
-    prior_subs: list[TurnSubmission] = list(
-        (
-            await db.execute(
-                select(TurnSubmission)
-                .join(Turn, Turn.id == TurnSubmission.turn_id)
-                .where(
-                    Turn.match_id == turn.match_id,
-                    Turn.resolved_at.is_not(None),
-                    Turn.id != turn.id,
+    # Only needed when decay is ON; under OFF k is never read.
+    prior_counts: dict[frozenset[int], int] = {}
+    if decay_on:
+        prior_subs: list[TurnSubmission] = list(
+            (
+                await db.execute(
+                    select(TurnSubmission)
+                    .join(Turn, Turn.id == TurnSubmission.turn_id)
+                    .where(
+                        Turn.match_id == turn.match_id,
+                        Turn.resolved_at.is_not(None),
+                        Turn.id != turn.id,
+                    )
+                    .order_by(TurnSubmission.turn_id)
                 )
-                .order_by(TurnSubmission.turn_id)
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
-    prior_by_turn: dict[int, list[TurnSubmission]] = {}
-    for s in prior_subs:
-        prior_by_turn.setdefault(s.turn_id, []).append(s)
-    prior_counts = mutual_help_counts(prior_by_turn.values())
+        prior_by_turn: dict[int, list[TurnSubmission]] = {}
+        for s in prior_subs:
+            prior_by_turn.setdefault(s.turn_id, []).append(s)
+        prior_counts = mutual_help_counts(prior_by_turn.values())
 
     # Materialize submissions, defaulting missing ones to HOARD.
     submissions: list[TurnSubmission] = list(
@@ -184,10 +208,11 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
             if betrayed_helper:
                 delta[s.player_id] += BETRAYAL_BONUS
 
-    # Mutual-help bonus, DECAYED per pair: for each HELP pair where both helped
-    # each other, add the bonus to each side once. The bonus shrinks by 1 for each
-    # prior mutual help by this same pair (k), flooring the pair's per-side total at
-    # MUTUAL_HELP_FLOOR: total = base HELP_POINTS + bonus = max(MUTUAL_HELP_FLOOR, 8-k).
+    # Mutual-help bonus, added to each side once per A↔B pair. When decay is ON the
+    # bonus shrinks by 1 for each prior mutual help by this same pair (k), flooring
+    # the pair's per-side total at MUTUAL_HELP_FLOOR: total = base HELP_POINTS +
+    # bonus = max(MUTUAL_HELP_FLOOR, 8-k). When OFF the bonus is the flat
+    # MUTUAL_HELP_BONUS every time (per-side total +8), with no k and no floor.
     seen_pairs: set[frozenset[int]] = set()
     for a, b in help_targets.items():
         if b is None:
@@ -195,8 +220,11 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         if help_targets.get(b) == a:
             pair = frozenset({a, b})
             if pair not in seen_pairs:
-                k = prior_counts.get(pair, 0)
-                bonus = max(MUTUAL_HELP_FLOOR - HELP_POINTS, MUTUAL_HELP_BONUS - k)
+                if decay_on:
+                    k = prior_counts.get(pair, 0)
+                    bonus = max(MUTUAL_HELP_FLOOR - HELP_POINTS, MUTUAL_HELP_BONUS - k)
+                else:
+                    bonus = MUTUAL_HELP_BONUS
                 delta[a] += bonus
                 delta[b] += bonus
                 seen_pairs.add(pair)
