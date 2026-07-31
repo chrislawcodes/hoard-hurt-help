@@ -125,6 +125,7 @@ async def create_match_submit(
     turns_per_round: Annotated[int, Form()] = 7,
     wild_ones: Annotated[str | None, Form()] = None,
     dice_per_player: Annotated[int, Form()] = 5,
+    mutual_help_decay: Annotated[str | None, Form()] = None,
 ):
     def _error(msg: str):
         return templates.TemplateResponse(
@@ -177,6 +178,9 @@ async def create_match_submit(
         turns_per_round=turns_per_round,
         state=GameState.REGISTERING,
         created_by_user_id=user.id,
+        # Only Hoard-Hurt-Help renders this control, so on every other game's form
+        # the field is absent — which must keep the shipped default (decay on).
+        mutual_help_decay=mutual_help_decay != "off",
         state_config={
             "wild_ones": wild_ones is not None,
             "dice_per_player": dice_per_player,
