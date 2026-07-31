@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -46,7 +47,14 @@ from app.ops_events import log_ops_event
 # Applied as a ceiling: talk deadline = min(per_turn_deadline_seconds, this). Keeps
 # chat snappy; a slow reasoner that overruns just stays silent that turn (its actual
 # move, in the act phase, is unaffected).
-TALK_DEADLINE_SECONDS = 45
+#
+# Overridable so an offline experiment can widen the window without changing the
+# game every real player sees. Measured on a local 8-agent match this ceiling was
+# hit on 4 of 10 turns, losing ~7% of chat calls — which penalises talk-driven
+# strategies specifically, since a missed message costs a persuader far more than
+# it costs a plain cooperator. Widening it costs turn time for everyone, so the
+# shipped default stays put; set HHH_TALK_DEADLINE_SECONDS to change it.
+TALK_DEADLINE_SECONDS = int(os.environ.get("HHH_TALK_DEADLINE_SECONDS", "45"))
 
 if TYPE_CHECKING:
     from app.games.base import GameModule
