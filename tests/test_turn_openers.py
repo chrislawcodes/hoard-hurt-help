@@ -88,3 +88,40 @@ def test_new_hoard_hurt_help_matches_default_to_a_75s_act_window() -> None:
 
     assert get_game_module("hoard-hurt-help").config_defaults().per_turn_deadline_seconds == 75
     assert _CREATE_DEFAULTS["per_turn_deadline_seconds"] == 75
+
+
+async def test_talk_deadline_default_is_unchanged() -> None:
+    """The shipped default stays 45s.
+
+    The cap is overridable so an offline experiment can widen the chat window, but
+    that must never quietly change the game real players get. This pins the default
+    so an override left in the environment can't become the shipped behavior.
+    """
+    import importlib
+    import os
+
+    import app.engine.scheduler_turn_loop as loop
+
+    saved = os.environ.pop("HHH_TALK_DEADLINE_SECONDS", None)
+    try:
+        importlib.reload(loop)
+        assert loop.TALK_DEADLINE_SECONDS == 45
+    finally:
+        if saved is not None:
+            os.environ["HHH_TALK_DEADLINE_SECONDS"] = saved
+        importlib.reload(loop)
+
+
+async def test_talk_deadline_can_be_overridden_by_env(monkeypatch) -> None:
+    """HHH_TALK_DEADLINE_SECONDS widens (or narrows) the talk cap."""
+    import importlib
+
+    import app.engine.scheduler_turn_loop as loop
+
+    monkeypatch.setenv("HHH_TALK_DEADLINE_SECONDS", "60")
+    try:
+        importlib.reload(loop)
+        assert loop.TALK_DEADLINE_SECONDS == 60
+    finally:
+        monkeypatch.delenv("HHH_TALK_DEADLINE_SECONDS", raising=False)
+        importlib.reload(loop)
