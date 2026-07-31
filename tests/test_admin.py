@@ -1107,3 +1107,107 @@ async def test_delete_cascade_handles_in_flight_submission(reset_db, monkeypatch
                 select(RequestIncident).where(RequestIncident.match_id == "G_RACE")
             )
         ).scalars().all() == []
+
+
+# --- Mutual-help decay: the per-match rule switch, settable by an admin ---
+#
+# The switch shipped as a Match column with no way to set it outside Python, so
+# admins could only ever create decay-on matches. These cover both admin entry
+# points, and the case that silently breaks things: a form that never renders the
+# control must still create the shipped default rather than turning decay off.
+
+
+async def _create_via_form(client, admin, name, **extra):
+    future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
+        "%Y-%m-%dT%H:%M:00.000Z"
+    )
+    return await client.post(
+        f"/games/{extra.pop('game', 'hoard-hurt-help')}/admin/matches/new",
+        data={
+            "name": name,
+            "scheduled_start": future,
+            "min_players": "6",
+            "max_players": "10",
+            "per_turn_deadline_seconds": "60",
+            **extra,
+        },
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+
+
+async def _match_named(reset_db, name):
+    async with reset_db() as db:
+        return (
+            await db.execute(select(Match).where(Match.name == name))
+        ).scalar_one()
+
+
+async def test_create_form_offers_the_decay_control_only_for_hoard_hurt_help(
+    client, reset_db
+):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    hhh = await client.get(
+        "/games/hoard-hurt-help/admin/matches/new", cookies=_cookies(admin.id)
+    )
+    assert hhh.status_code == 200
+    assert 'name="mutual_help_decay"' in hhh.text
+    other = await client.get(
+        "/games/liars-dice/admin/matches/new", cookies=_cookies(admin.id)
+    )
+    assert other.status_code == 200
+    assert 'name="mutual_help_decay"' not in other.text
+
+
+async def test_web_form_can_create_a_decay_off_match(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    r = await _create_via_form(client, admin, "Flat Bonus", mutual_help_decay="off")
+    assert r.status_code == 303, r.text
+    assert (await _match_named(reset_db, "Flat Bonus")).mutual_help_decay is False
+
+
+async def test_web_form_decay_on_is_the_default(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    r = await _create_via_form(client, admin, "Decaying", mutual_help_decay="on")
+    assert r.status_code == 303, r.text
+    assert (await _match_named(reset_db, "Decaying")).mutual_help_decay is True
+
+
+async def test_web_form_without_the_field_keeps_decay_on(client, reset_db):
+    """A form that never rendered the control must not silently turn decay off.
+
+    An unchecked checkbox and a game whose form omits the control both arrive as
+    "absent" — that has to mean "shipped default", not "off".
+    """
+    admin = await _seed_user(reset_db, "admin@test.com")
+    r = await _create_via_form(client, admin, "No Field")
+    assert r.status_code == 303, r.text
+    assert (await _match_named(reset_db, "No Field")).mutual_help_decay is True
+
+
+async def test_admin_api_can_create_a_decay_off_match(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    r = await client.post(
+        "/api/admin/matches",
+        json={
+            "name": "API Flat",
+            "scheduled_start": when,
+            "mutual_help_decay": False,
+        },
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 201, r.text
+    assert (await _match_named(reset_db, "API Flat")).mutual_help_decay is False
+
+
+async def test_admin_api_omitting_the_flag_keeps_decay_on(client, reset_db):
+    admin = await _seed_user(reset_db, "admin@test.com")
+    when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    r = await client.post(
+        "/api/admin/matches",
+        json={"name": "API Default", "scheduled_start": when},
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 201, r.text
+    assert (await _match_named(reset_db, "API Default")).mutual_help_decay is True
