@@ -184,7 +184,7 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0047",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0048",)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"
@@ -1001,3 +1001,41 @@ def test_check_platform_admin_skips_under_pytest(monkeypatch) -> None:
     app_main._check_platform_admin_config()
 
     assert not warning_messages
+
+
+def test_0048_maps_each_old_decay_value_to_its_exact_rule(tmp_path: Path) -> None:
+    """Migrating must preserve the rule each finished match was played under.
+
+    These rows are experiment results. Stamping every row "decay" — which is what
+    adding the column NOT NULL with a server default would do — would silently
+    relabel the decay-OFF arm as decay-ON. That corrupts a comparison rather than
+    breaking anything visible, so it is pinned here.
+    """
+    db_path = tmp_path / "modes.db"
+
+    up = _run_alembic(["upgrade", "0047"], db_path)
+    assert up.returncode == 0, f"upgrade 0047 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    with conn:
+        for match_id, decayed in (("M_ON", 1), ("M_OFF", 0)):
+            conn.execute(
+                "INSERT INTO matches(id, name, state, scheduled_start, game,"
+                " mutual_help_decay) VALUES (?, ?, 'completed', '2026-01-01',"
+                " 'hoard-hurt-help', ?)",
+                (match_id, match_id, decayed),
+            )
+    conn.close()
+
+    up = _run_alembic(["upgrade", "0048"], db_path)
+    assert up.returncode == 0, f"upgrade 0048 failed:\n{up.stdout}\n{up.stderr}"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = dict(conn.execute("SELECT id, mutual_help_mode FROM matches").fetchall())
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(matches)")}
+    finally:
+        conn.close()
+    # ON kept its decay, OFF kept its flat payout — neither was relabelled.
+    assert rows == {"M_ON": "decay", "M_OFF": "flat_8"}
+    assert "mutual_help_decay" not in cols  # the old column is gone

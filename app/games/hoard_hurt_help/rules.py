@@ -1,5 +1,7 @@
 """Constants shipped to every agent and every player."""
 
+import enum
+
 from app.agent_prompt import RESPONSE_PROTOCOL
 
 # Point values — single source of truth for the resolver (app/engine/resolver.py)
@@ -14,19 +16,101 @@ BETRAYAL_BONUS = 4  # extra to the ATTACKER when they HURT a player HELPing them
 # no better than hoarding): total = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k).
 MUTUAL_HELP_FLOOR = 2
 
-# The mutual-help paragraph is the only part that varies with a match's
-# `mutual_help_decay` switch. ON = today's sliding decay (two bullets); OFF = a
-# flat "+8 every time" with NO decay/floor/reset language.
-_MUTUAL_HELP_ON = f"""- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each the first time a pair does it.
+
+class MutualHelpMode(str, enum.Enum):
+    """How much a mutual HELP pays each side, and whether that changes on repeat.
+
+    The lever these exist to explore is cooperation-vs-betrayal, not
+    cooperation-vs-hoarding. Betraying a helper pays the attacker
+    HELP_POINTS + BETRAYAL_BONUS (= 8) and costs the victim HURT_POINTS. So while
+    a pact also pays 8, betrayal wins only on rank, never on points — a weak pull.
+    Every point taken off the pact's payout widens that gap.
+    """
+
+    DECAY = "decay"  # 8, 7, 6 … floored at 2. The shipped rule.
+    ONCE = "once"  # 8 the first time a pair does it, 4 every time after
+    FLAT_8 = "flat_8"  # 8 every time — no decay, no floor
+    FLAT_7 = "flat_7"  # 7 every time
+    FLAT_6 = "flat_6"  # 6 every time — betrayal (8) now out-pays the pact
+
+
+_FLAT_TOTALS = {
+    MutualHelpMode.FLAT_8: HELP_POINTS + MUTUAL_HELP_BONUS,
+    MutualHelpMode.FLAT_7: HELP_POINTS + MUTUAL_HELP_BONUS - 1,
+    MutualHelpMode.FLAT_6: HELP_POINTS + MUTUAL_HELP_BONUS - 2,
+}
+
+
+def mutual_help_value(mode: MutualHelpMode | str, repeats: int) -> int:
+    """What a mutual HELP pays EACH side, given how often this pair already did it.
+
+    ``repeats`` is the pair's match-wide count of prior mutual helps (0 = first
+    time). Every mode's payout lives here so the resolver, the pre-move preview
+    and the rules text can never drift apart — a preview that promised a different
+    number than the resolver paid would be invisible until someone checked the
+    arithmetic by hand.
+    """
+    mode = MutualHelpMode(mode)
+    if mode in _FLAT_TOTALS:
+        return _FLAT_TOTALS[mode]
+    if mode is MutualHelpMode.ONCE:
+        return HELP_POINTS + (MUTUAL_HELP_BONUS if repeats == 0 else 0)
+    return max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - repeats)
+
+
+def mutual_help_legend(mode: MutualHelpMode | str) -> str:
+    """The one-line Help description for the replay legend, for this mode.
+
+    Built from the same payout function as the resolver so a legend can never
+    advertise a number the game doesn't pay. The decay and flat_8 wordings are
+    kept verbatim from before the modes existed — tooling greps for them to tell
+    which rule a recorded match was played under.
+    """
+    mode = MutualHelpMode(mode)
+    first = mutual_help_value(mode, 0)
+    if mode is MutualHelpMode.DECAY:
+        return f"mutual +{first} each, bonus decays each round"
+    if mode is MutualHelpMode.ONCE:
+        return f"mutual +{first} each the first time with a partner, then +{HELP_POINTS}"
+    return f"mutual +{first} each, every time"
+
+
+def mode_needs_history(mode: MutualHelpMode | str) -> bool:
+    """True when the payout depends on the pair's prior mutual helps.
+
+    The flat modes don't, so their callers can skip the resolved-turn scan
+    entirely rather than reading history they will ignore.
+    """
+    return MutualHelpMode(mode) not in _FLAT_TOTALS
+
+# The mutual-help paragraph is the only part of the rules that varies with a
+# match's mode. Each mode states its OWN payout in full — a player should never
+# have to combine two bullets to work out what a mutual help is worth, and the
+# flat modes must not carry decay/floor/reset language that doesn't apply to them.
+_MUTUAL_HELP_DECAY = f"""- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each the first time a pair does it.
 - **Mutual-help decays.** Each time the *same pair* repeats a mutual help in a match, the bonus drops by 1. So that pair's net falls +{HELP_POINTS + MUTUAL_HELP_BONUS}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 1}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 2}, … down to a floor of +{MUTUAL_HELP_FLOOR} each (no better than HOARD). The count is match-wide, not per round. Helping a *fresh* partner resets to +{HELP_POINTS + MUTUAL_HELP_BONUS} — farming one ally pays less over time than spreading pacts around."""
 
-_MUTUAL_HELP_OFF = f"""- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each, every time. A pair earns the full +{HELP_POINTS + MUTUAL_HELP_BONUS} each on every mutual help, no matter how often they do it."""
+_MUTUAL_HELP_ONCE = f"""- **Mutual-help bonus — once per partner.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each. That bonus is paid **only the first time a given pair does it in a match**; every mutual help with that same partner afterwards is the plain +{HELP_POINTS} each. A *fresh* partner pays the full +{HELP_POINTS + MUTUAL_HELP_BONUS} again — so spreading pacts around pays, farming one ally does not."""
 
 
-def _render_game_rules_text(*, mutual_help_decay: bool) -> str:
-    """Build the semantic rules body (default 5-round/7-turn counts) for one
-    decay setting. ON swaps in the decay bullets; OFF the flat bullet."""
-    mutual_section = _MUTUAL_HELP_ON if mutual_help_decay else _MUTUAL_HELP_OFF
+def _flat_mutual_help(total: int) -> str:
+    return f"""- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets a net +{total} that turn (the base +{HELP_POINTS} plus a +{total - HELP_POINTS} bonus). This is the same every time, however often a pair does it — no decay, no floor."""
+
+
+_MUTUAL_HELP_SECTIONS = {
+    MutualHelpMode.DECAY: _MUTUAL_HELP_DECAY,
+    MutualHelpMode.ONCE: _MUTUAL_HELP_ONCE,
+    **{m: _flat_mutual_help(total) for m, total in _FLAT_TOTALS.items()},
+}
+
+
+def _render_game_rules_text(*, mode: MutualHelpMode | str = MutualHelpMode.DECAY) -> str:
+    """Build the semantic rules body (default 5-round/7-turn counts) for one mode.
+
+    The rules a player is shown MUST match what the resolver pays — both come from
+    the same mode, and `test_rules_text_matches_payout` pins that they agree.
+    """
+    mutual_section = _MUTUAL_HELP_SECTIONS[MutualHelpMode(mode)]
     return f"""# Hoard-Hurt-Help — Official Rules (v5)
 
 The goal is to win more rounds than any other agent over the course of the game.
@@ -68,9 +152,9 @@ Each turn has a talk phase followed by an act phase:
 """
 
 
-# The default (decay ON) rules — kept as a module constant because callers and
+# The default (decay) rules — kept as a module constant because callers and
 # tests reference it directly and expect today's text.
-GAME_RULES_TEXT = _render_game_rules_text(mutual_help_decay=True)
+GAME_RULES_TEXT = _render_game_rules_text(mode=MutualHelpMode.DECAY)
 
 RULES_TEXT = f"""{GAME_RULES_TEXT}
 ## Response format
@@ -100,20 +184,29 @@ def _apply_counts(text: str, total_rounds: int, turns_per_round: int) -> str:
 
 
 def make_game_rules_text(
-    total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_decay: bool = True
+    total_rounds: int = 5,
+    turns_per_round: int = 7,
+    *,
+    mode: MutualHelpMode | str = MutualHelpMode.DECAY,
 ) -> str:
-    """Return semantic game rules for this match's decay setting and round counts."""
-    base = GAME_RULES_TEXT if mutual_help_decay else _render_game_rules_text(
-        mutual_help_decay=False
+    """Return semantic game rules for this match's mutual-help mode and counts."""
+    mode = MutualHelpMode(mode)
+    base = (
+        GAME_RULES_TEXT
+        if mode is MutualHelpMode.DECAY
+        else _render_game_rules_text(mode=mode)
     )
     return _apply_counts(base, total_rounds, turns_per_round)
 
 
 def make_rules_text(
-    total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_decay: bool = True
+    total_rounds: int = 5,
+    turns_per_round: int = 7,
+    *,
+    mode: MutualHelpMode | str = MutualHelpMode.DECAY,
 ) -> str:
     """Return official rules plus the canonical response contract."""
     return (
-        f"{make_game_rules_text(total_rounds, turns_per_round, mutual_help_decay=mutual_help_decay)}"
+        f"{make_game_rules_text(total_rounds, turns_per_round, mode=mode)}"
         f"## Response format\n\n{RESPONSE_PROTOCOL}\n"
     )

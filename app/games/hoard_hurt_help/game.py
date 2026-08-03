@@ -30,6 +30,7 @@ from app.games.hoard_hurt_help.rules import (
     MUTUAL_HELP_FLOOR,
     make_game_rules_text,
     make_rules_text,
+    mode_needs_history,
 )
 from app.games.hoard_hurt_help.strategy import PD_DEFAULT_STRATEGY, PD_STRATEGY_PRESETS
 from app.models.player import Player
@@ -83,15 +84,15 @@ class HoardHurtHelp(BaseGameModule):
         return ("HOARD", "HELP", "HURT")
 
     def rules_text(
-        self, total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_decay: bool = True
+        self, total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_mode: str = "decay"
     ) -> str:
-        return make_rules_text(total_rounds, turns_per_round, mutual_help_decay=mutual_help_decay)
+        return make_rules_text(total_rounds, turns_per_round, mode=mutual_help_mode)
 
     def semantic_rules_text(
-        self, total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_decay: bool = True
+        self, total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_mode: str = "decay"
     ) -> str:
         return make_game_rules_text(
-            total_rounds, turns_per_round, mutual_help_decay=mutual_help_decay
+            total_rounds, turns_per_round, mode=mutual_help_mode
         )
 
     def strategy_presets(self) -> list[StrategyPreset]:
@@ -107,31 +108,31 @@ class HoardHurtHelp(BaseGameModule):
         all_agent_ids: list[str],
         total_rounds: int = 5,
         turns_per_round: int = 7,
-        mutual_help_decay: bool = True,
+        mutual_help_mode: str = "decay",
     ) -> str:
         return make_agent_base_prompt(
             your_agent_id=your_agent_id,
             all_agent_ids=all_agent_ids,
             rules=make_game_rules_text(
-                total_rounds, turns_per_round, mutual_help_decay=mutual_help_decay
+                total_rounds, turns_per_round, mode=mutual_help_mode
             ),
         )
 
-    # Per-match overrides: PD's rules vary with the match's `mutual_help_decay`
+    # Per-match overrides: PD's rules vary with the match's `mutual_help_mode`
     # switch, so the platform's match-aware callers get the setting-correct text.
     # `is not False` treats a legacy/unflushed None as the ON default.
     def rules_text_for_match(self, match: Match) -> str:
         return self.rules_text(
             match.total_rounds,
             match.turns_per_round,
-            mutual_help_decay=match.mutual_help_decay is not False,
+            mutual_help_mode=match.mutual_help_mode or "decay",
         )
 
     def semantic_rules_text_for_match(self, match: Match) -> str:
         return self.semantic_rules_text(
             match.total_rounds,
             match.turns_per_round,
-            mutual_help_decay=match.mutual_help_decay is not False,
+            mutual_help_mode=match.mutual_help_mode or "decay",
         )
 
     def agent_base_prompt_for_match(
@@ -142,7 +143,7 @@ class HoardHurtHelp(BaseGameModule):
             all_agent_ids=all_agent_ids,
             total_rounds=match.total_rounds,
             turns_per_round=match.turns_per_round,
-            mutual_help_decay=match.mutual_help_decay is not False,
+            mutual_help_mode=match.mutual_help_mode or "decay",
         )
 
     def validate_move(
@@ -283,11 +284,11 @@ class HoardHurtHelp(BaseGameModule):
         other_players = [p for p in all_players if p.id != player.id]
         if not other_players:
             return {}
-        decay_on = match.mutual_help_decay is not False
+        mode = match.mutual_help_mode or "decay"
         values = await scoring.current_pact_values(
-            db, match.id, player.id, (p.id for p in other_players), mutual_help_decay=decay_on
+            db, match.id, player.id, (p.id for p in other_players), mode=mode
         )
-        if decay_on:
+        if mode_needs_history(mode):
             note = (
                 "What a mutual HELP with this agent would pay EACH side right "
                 "now (decays per repeat mutual-help pair this match; floors at "

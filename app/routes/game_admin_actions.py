@@ -106,7 +106,7 @@ async def create_game_record(
         turns_per_round=body.turns_per_round,
         state=GameState.REGISTERING,
         created_by_user_id=created_by_user_id,
-        mutual_help_decay=body.mutual_help_decay,
+        mutual_help_mode=body.mutual_help_mode,
         state_config={
             "wild_ones": body.wild_ones,
             "dice_per_player": body.dice_per_player,

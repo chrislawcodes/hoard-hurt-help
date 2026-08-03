@@ -1143,7 +1143,7 @@ async def _match_named(reset_db, name):
         ).scalar_one()
 
 
-async def test_create_form_offers_the_decay_control_only_for_hoard_hurt_help(
+async def test_create_form_offers_the_mode_control_only_for_hoard_hurt_help(
     client, reset_db
 ):
     admin = await _seed_user(reset_db, "admin@test.com")
@@ -1151,29 +1151,29 @@ async def test_create_form_offers_the_decay_control_only_for_hoard_hurt_help(
         "/games/hoard-hurt-help/admin/matches/new", cookies=_cookies(admin.id)
     )
     assert hhh.status_code == 200
-    assert 'name="mutual_help_decay"' in hhh.text
+    assert 'name="mutual_help_mode"' in hhh.text
     other = await client.get(
         "/games/liars-dice/admin/matches/new", cookies=_cookies(admin.id)
     )
     assert other.status_code == 200
-    assert 'name="mutual_help_decay"' not in other.text
+    assert 'name="mutual_help_mode"' not in other.text
 
 
-async def test_web_form_can_create_a_decay_off_match(client, reset_db):
+async def test_web_form_can_create_a_flat_match(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    r = await _create_via_form(client, admin, "Flat Bonus", mutual_help_decay="off")
+    r = await _create_via_form(client, admin, "Flat Bonus", mutual_help_mode="flat_8")
     assert r.status_code == 303, r.text
-    assert (await _match_named(reset_db, "Flat Bonus")).mutual_help_decay is False
+    assert (await _match_named(reset_db, "Flat Bonus")).mutual_help_mode == "flat_8"
 
 
-async def test_web_form_decay_on_is_the_default(client, reset_db):
+async def test_web_form_decay_is_the_default(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    r = await _create_via_form(client, admin, "Decaying", mutual_help_decay="on")
+    r = await _create_via_form(client, admin, "Decaying", mutual_help_mode="decay")
     assert r.status_code == 303, r.text
-    assert (await _match_named(reset_db, "Decaying")).mutual_help_decay is True
+    assert (await _match_named(reset_db, "Decaying")).mutual_help_mode == "decay"
 
 
-async def test_web_form_without_the_field_keeps_decay_on(client, reset_db):
+async def test_web_form_without_the_field_keeps_decay(client, reset_db):
     """A form that never rendered the control must not silently turn decay off.
 
     An unchecked checkbox and a game whose form omits the control both arrive as
@@ -1182,10 +1182,10 @@ async def test_web_form_without_the_field_keeps_decay_on(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     r = await _create_via_form(client, admin, "No Field")
     assert r.status_code == 303, r.text
-    assert (await _match_named(reset_db, "No Field")).mutual_help_decay is True
+    assert (await _match_named(reset_db, "No Field")).mutual_help_mode == "decay"
 
 
-async def test_admin_api_can_create_a_decay_off_match(client, reset_db):
+async def test_admin_api_can_create_a_flat_match(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
@@ -1193,15 +1193,15 @@ async def test_admin_api_can_create_a_decay_off_match(client, reset_db):
         json={
             "name": "API Flat",
             "scheduled_start": when,
-            "mutual_help_decay": False,
+            "mutual_help_mode": "flat_8",
         },
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 201, r.text
-    assert (await _match_named(reset_db, "API Flat")).mutual_help_decay is False
+    assert (await _match_named(reset_db, "API Flat")).mutual_help_mode == "flat_8"
 
 
-async def test_admin_api_omitting_the_flag_keeps_decay_on(client, reset_db):
+async def test_admin_api_omitting_the_mode_keeps_decay(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
@@ -1210,4 +1210,20 @@ async def test_admin_api_omitting_the_flag_keeps_decay_on(client, reset_db):
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 201, r.text
-    assert (await _match_named(reset_db, "API Default")).mutual_help_decay is True
+    assert (await _match_named(reset_db, "API Default")).mutual_help_mode == "decay"
+
+
+async def test_web_form_rejects_an_unknown_mutual_help_mode(client, reset_db):
+    """A typo must be refused, not quietly stored or defaulted.
+
+    Silently falling back to "decay" would mislabel which rule the match was
+    played under — a result that looks fine and means something else.
+    """
+    admin = await _seed_user(reset_db, "admin@test.com")
+    r = await _create_via_form(client, admin, "Typo Mode", mutual_help_mode="flat_5")
+    assert r.status_code == 400
+    assert "Unknown mutual-help mode" in r.text
+    async with reset_db() as db:
+        assert (
+            await db.execute(select(Match).where(Match.name == "Typo Mode"))
+        ).scalar_one_or_none() is None

@@ -10,8 +10,9 @@ from fastapi.responses import HTMLResponse
 
 from app.deps import DbSession, get_current_user
 from app.games import is_admin_only
+from app.games.hoard_hurt_help.rules import mutual_help_legend
 from app.read_models.leaderboard_cache import load_leaderboard_sections_cached
-from app.routes.showcase_replay import load_showcase_replay_cached, showcase_mutual_help_decay
+from app.routes.showcase_replay import load_showcase_replay_cached, showcase_mutual_help_mode
 from app.routes.web_support import _is_any_admin
 from app.templating import templates
 
@@ -47,7 +48,7 @@ async def home(request: Request, db: DbSession):
 
     # Gate the showcase replay's legend on THAT match's decay setting (default ON
     # for the bundled sample), so an OFF showcase never shows a "decays" legend.
-    rc_mutual_help_decay = await showcase_mutual_help_decay(db, rc_game_id)
+    rc_mutual_help_mode = await showcase_mutual_help_mode(db, rc_game_id)
 
     return templates.TemplateResponse(
         request,
@@ -58,7 +59,7 @@ async def home(request: Request, db: DbSession):
             "rc_data": rc_data,
             "rc_game_id": rc_game_id,
             "rc_game_type": rc_game_type,
-            "rc_mutual_help_decay": rc_mutual_help_decay,
+            "rc_mutual_help_legend": mutual_help_legend(rc_mutual_help_mode),
             "lb_sections": lb_sections,
         },
     )

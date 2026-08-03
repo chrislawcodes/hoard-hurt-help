@@ -35,7 +35,7 @@ from tests.factories import make_bot
 
 
 async def _make_match(
-    db: AsyncSession, n: int, *, mutual_help_decay: bool, match_id: str = "G_SW"
+    db: AsyncSession, n: int, *, mutual_help_mode: str, match_id: str = "G_SW"
 ) -> tuple[Match, list[Player]]:
     now = datetime.now(timezone.utc)
     game = Match(
@@ -45,7 +45,7 @@ async def _make_match(
         scheduled_start=now,
         started_at=now,
         per_turn_deadline_seconds=60,
-        mutual_help_decay=mutual_help_decay,
+        mutual_help_mode=mutual_help_mode,
     )
     db.add(game)
     await db.flush()
@@ -99,7 +99,7 @@ async def _submit(db: AsyncSession, turn: Turn, player: Player, action: str, tar
 async def test_off_mutual_help_stays_flat_8(db):
     """OFF: a pair mutually helping 8 turns scores +8 each EVERY time (turns 2-8),
     not the decaying 8,7,6,… an ON match would show."""
-    game, [a, b] = await _make_match(db, 2, mutual_help_decay=False)
+    game, [a, b] = await _make_match(db, 2, mutual_help_mode="flat_8")
     prev = 0
     per_turn = []
     for i in range(8):
@@ -116,7 +116,7 @@ async def test_off_mutual_help_stays_flat_8(db):
 
 async def test_on_mutual_help_still_decays(db):
     """ON (default): the same 8-turn sequence still decays 8,7,6,5,4,3,2,2."""
-    game, [a, b] = await _make_match(db, 2, mutual_help_decay=True)
+    game, [a, b] = await _make_match(db, 2, mutual_help_mode="decay")
     prev = 0
     per_turn = []
     for i in range(8):
@@ -132,22 +132,22 @@ async def test_on_mutual_help_still_decays(db):
 
 async def test_current_pact_values_off_is_flat_8_while_on_decays(db):
     """After ≥1 farmed mutual help, OFF's live pact value stays 8 while ON drops to 7."""
-    off_game, [oa, ob] = await _make_match(db, 2, mutual_help_decay=False, match_id="G_OFF")
+    off_game, [oa, ob] = await _make_match(db, 2, mutual_help_mode="flat_8", match_id="G_OFF")
     t = await _open_turn(db, off_game, 1)
     await _submit(db, t, oa, "HELP", target=ob)
     await _submit(db, t, ob, "HELP", target=oa)
     await resolve_turn(db, t)
     assert await current_pact_values(
-        db, off_game.id, oa.id, [ob.id], mutual_help_decay=False
+        db, off_game.id, oa.id, [ob.id], mode="flat_8"
     ) == {ob.id: 8}
 
-    on_game, [na, nb] = await _make_match(db, 2, mutual_help_decay=True, match_id="G_ON")
+    on_game, [na, nb] = await _make_match(db, 2, mutual_help_mode="decay", match_id="G_ON")
     t2 = await _open_turn(db, on_game, 1)
     await _submit(db, t2, na, "HELP", target=nb)
     await _submit(db, t2, nb, "HELP", target=na)
     await resolve_turn(db, t2)
     assert await current_pact_values(
-        db, on_game.id, na.id, [nb.id], mutual_help_decay=True
+        db, on_game.id, na.id, [nb.id], mode="decay"
     ) == {nb.id: 7}
 
 
@@ -159,11 +159,11 @@ _DECAY_PHRASES = ("Mutual-help decays", "decays", "down to a floor of", "resets 
 def _off_match() -> Match:
     # In-memory: set the round counts explicitly (SQLAlchemy defaults apply only at
     # flush, and make_game_rules_text would crash on None counts).
-    return Match(mutual_help_decay=False, total_rounds=5, turns_per_round=7)
+    return Match(mutual_help_mode="flat_8", total_rounds=5, turns_per_round=7)
 
 
 def _on_match() -> Match:
-    return Match(mutual_help_decay=True, total_rounds=5, turns_per_round=7)
+    return Match(mutual_help_mode="decay", total_rounds=5, turns_per_round=7)
 
 
 def test_semantic_rules_off_drops_decay_language():
@@ -207,7 +207,7 @@ def test_liars_dice_rules_for_match_unchanged():
     """FR9: Liar's Dice inherits the BaseGameModule `*_for_match` default and returns
     its own real rules — proof the shared seam left other games untouched."""
     ld = get_game_module("liars-dice")
-    match = Match(game="liars-dice", mutual_help_decay=False, total_rounds=5, turns_per_round=7)
+    match = Match(game="liars-dice", mutual_help_mode="flat_8", total_rounds=5, turns_per_round=7)
     text = ld.semantic_rules_text_for_match(match)
     # It is Liar's Dice's rules, not PD's, and carries no PD mutual-help language.
     assert "Mutual-help" not in text
@@ -222,7 +222,7 @@ async def test_pact_note_off_has_no_decay_words(db):
     with no decay/floor language; the ON match keeps both."""
     module = get_game_module("hoard-hurt-help")
 
-    off_game, [oa, ob] = await _make_match(db, 2, mutual_help_decay=False, match_id="G_NOFF")
+    off_game, [oa, ob] = await _make_match(db, 2, mutual_help_mode="flat_8", match_id="G_NOFF")
     t = await _open_turn(db, off_game, 1)
     await _submit(db, t, oa, "HELP", target=ob)
     await _submit(db, t, ob, "HELP", target=oa)
@@ -233,7 +233,7 @@ async def test_pact_note_off_has_no_decay_words(db):
     assert "decay" not in note and "floor" not in note
     assert "every time" in note
 
-    on_game, [na, nb] = await _make_match(db, 2, mutual_help_decay=True, match_id="G_NON")
+    on_game, [na, nb] = await _make_match(db, 2, mutual_help_mode="decay", match_id="G_NON")
     t2 = await _open_turn(db, on_game, 1)
     await _submit(db, t2, na, "HELP", target=nb)
     await _submit(db, t2, nb, "HELP", target=na)
@@ -267,18 +267,18 @@ def test_bot_partner_fatigue_off_not_applied():
     ids = ["AI_1", "AI_2", "AI_3"]
     on = compute_trust_map(
         your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[],
-        trust_model="even", mutual_help_decay=True,
+        trust_model="even", mutual_help_mode="decay",
     )["AI_2"]
     off = compute_trust_map(
         your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[],
-        trust_model="even", mutual_help_decay=False,
+        trust_model="even", mutual_help_mode="flat_8",
     )["AI_2"]
     assert on == 0  # farmed → fatigued to neutral under decay
     assert off >= 20  # under OFF the partner stays a valid ally
     assert off > on
 
 
-def _bot_context(*, mutual_help_decay: bool) -> BotContext:
+def _bot_context(*, mutual_help_mode: str) -> BotContext:
     from app.schemas.agent import ScoreboardRow
 
     return BotContext(
@@ -296,35 +296,35 @@ def _bot_context(*, mutual_help_decay: bool) -> BotContext:
             ScoreboardRow(agent_id="AI_3", round_score=6, round_wins=0.0),
         ],
         current_talk_messages=[],
-        mutual_help_decay=mutual_help_decay,
+        mutual_help_mode=mutual_help_mode,
     )
 
 
 def test_bot_context_seed_basis_ignores_decay():
     """The decay flag must NOT enter the deterministic seed — else it would perturb
     every bot's tie-breaks and reintroduce the talk→act target-drift bug."""
-    on = _bot_context(mutual_help_decay=True)
-    off = _bot_context(mutual_help_decay=False)
+    on = _bot_context(mutual_help_mode="decay")
+    off = _bot_context(mutual_help_mode="flat_8")
     assert on.seed_basis() == off.seed_basis()
 
 
 def test_bot_runtime_threads_decay_flag(monkeypatch):
     """service→context→runtime→trust wiring: both the act and talk paths pass the
-    context's mutual_help_decay into compute_trust_map (not just the leaf)."""
+    context's mutual_help_mode into compute_trust_map (not just the leaf)."""
     captured: list[bool] = []
     real = bot_runtime.compute_trust_map
 
     def spy(**kwargs):
-        captured.append(kwargs["mutual_help_decay"])
+        captured.append(kwargs["mutual_help_mode"])
         return real(**kwargs)
 
     monkeypatch.setattr(bot_runtime, "compute_trust_map", spy)
-    ctx = _bot_context(mutual_help_decay=False)
+    ctx = _bot_context(mutual_help_mode="flat_8")
     profile = BotProfile(strategy="coalition_seeker", truthfulness=100, trust_model="even", seed=17, version="v1")
     choose_bot_action_decision(ctx, profile)
     choose_bot_talk_decision(ctx, profile)
     assert captured, "compute_trust_map was never called"
-    assert all(v is False for v in captured)  # every path threaded OFF
+    assert all(v == "flat_8" for v in captured)  # every path threaded the mode
 
 
 # --- AC4: viewer per-move value (what the replay/watch view + JS show) ---
@@ -347,12 +347,12 @@ def _mutual_timeline():
     ]
 
 
-async def _replay_delta_of_second_pact(*, mutual_help_decay: bool) -> int:
+async def _replay_delta_of_second_pact(*, mutual_help_mode: str) -> int:
     from app.games.hoard_hurt_help.viewer import build_pd_replay_view
 
     view = await build_pd_replay_view(
         db=None,
-        match=Match(id="G_V", game="hoard-hurt-help", turns_per_round=7, mutual_help_decay=mutual_help_decay),
+        match=Match(id="G_V", game="hoard-hurt-help", turns_per_round=7, mutual_help_mode=mutual_help_mode),
         players=[Player(seat_name="AI_0"), Player(seat_name="AI_1")],
         scoreboard=[
             {"agent_id": "AI_0", "round_score": 16, "round_wins": 0, "provider": None},
@@ -369,8 +369,8 @@ async def _replay_delta_of_second_pact(*, mutual_help_decay: bool) -> int:
 
 async def test_viewer_off_pact_value_flat_8():
     """The 2nd pact's RC delta (what the JS reads) is a flat 8 under OFF, 7 under ON."""
-    assert await _replay_delta_of_second_pact(mutual_help_decay=False) == 8
-    assert await _replay_delta_of_second_pact(mutual_help_decay=True) == 7
+    assert await _replay_delta_of_second_pact(mutual_help_mode="flat_8") == 8
+    assert await _replay_delta_of_second_pact(mutual_help_mode="decay") == 7
 
 
 # --- AC1: the setting persists through create_match + a real DB round-trip ---
@@ -381,7 +381,7 @@ async def test_create_match_persists_flag(db):
     off = await create_match(
         db, game="hoard-hurt-help", name="off", scheduled_start=future,
         min_players=2, max_players=4, per_turn_deadline_seconds=60,
-        total_rounds=5, turns_per_round=7, mutual_help_decay=False,
+        total_rounds=5, turns_per_round=7, mutual_help_mode="flat_8",
     )
     on = await create_match(
         db, game="hoard-hurt-help", name="on", scheduled_start=future,
@@ -393,14 +393,14 @@ async def test_create_match_persists_flag(db):
     db.expire_all()
     reloaded_off = (await db.execute(select(Match).where(Match.id == off_id))).scalar_one()
     reloaded_on = (await db.execute(select(Match).where(Match.id == on_id))).scalar_one()
-    assert reloaded_off.mutual_help_decay is False
-    assert reloaded_on.mutual_help_decay is True
+    assert reloaded_off.mutual_help_mode == "flat_8"
+    assert reloaded_on.mutual_help_mode == "decay"
 
 
 # --- AC4/FR7: the watch-page robot-circle legend matches the setting ---
 
 
-async def _seed_viewable_match(reset_db, match_id: str, *, mutual_help_decay: bool) -> None:
+async def _seed_viewable_match(reset_db, match_id: str, *, mutual_help_mode: str) -> None:
     async with reset_db() as db:
         u = User(google_sub=f"leg-{match_id}", email=f"{match_id}@t.com")
         db.add(u)
@@ -408,7 +408,7 @@ async def _seed_viewable_match(reset_db, match_id: str, *, mutual_help_decay: bo
         g = Match(
             id=match_id, name="L", state=GameState.ACTIVE,
             scheduled_start=datetime.now(timezone.utc), current_round=1, current_turn=1,
-            mutual_help_decay=mutual_help_decay,
+            mutual_help_mode=mutual_help_mode,
         )
         db.add(g)
         await db.flush()
@@ -418,7 +418,7 @@ async def _seed_viewable_match(reset_db, match_id: str, *, mutual_help_decay: bo
 
 
 async def test_legend_off_match_shows_flat(client, reset_db):
-    await _seed_viewable_match(reset_db, "G_LOFF", mutual_help_decay=False)
+    await _seed_viewable_match(reset_db, "G_LOFF", mutual_help_mode="flat_8")
     r = await client.get("/games/hoard-hurt-help/matches/G_LOFF")
     assert r.status_code == 200
     assert "mutual +8 each, every time" in r.text
@@ -426,7 +426,7 @@ async def test_legend_off_match_shows_flat(client, reset_db):
 
 
 async def test_legend_on_match_shows_decay(client, reset_db):
-    await _seed_viewable_match(reset_db, "G_LON", mutual_help_decay=True)
+    await _seed_viewable_match(reset_db, "G_LON", mutual_help_mode="decay")
     r = await client.get("/games/hoard-hurt-help/matches/G_LON")
     assert r.status_code == 200
     assert "mutual +8 each, bonus decays each round" in r.text
@@ -434,7 +434,7 @@ async def test_legend_on_match_shows_decay(client, reset_db):
 
 def test_legend_defaults_to_decay_when_unset():
     """Match-less/demo pages render the robot-circle markup with no
-    rc_mutual_help_decay — `| default(true)` must keep the ON legend."""
+    rc_mutual_help_legend — `| default(true)` must keep the ON legend."""
     from app.templating import templates
 
     html = templates.env.get_template("fragments/robot_circle/_markup.html").render()
@@ -443,11 +443,12 @@ def test_legend_defaults_to_decay_when_unset():
 
 
 def test_legend_markup_off_renders_flat():
-    """Passing rc_mutual_help_decay=False (an OFF showcase) renders the flat legend."""
+    """A flat-payout showcase renders the flat legend, not the decay one."""
+    from app.games.hoard_hurt_help.rules import mutual_help_legend
     from app.templating import templates
 
     html = templates.env.get_template("fragments/robot_circle/_markup.html").render(
-        rc_mutual_help_decay=False
+        rc_mutual_help_legend=mutual_help_legend("flat_8")
     )
     assert "mutual +8 each, every time" in html
     assert "bonus decays each round" not in html
@@ -466,14 +467,136 @@ def test_move_legend_is_setting_neutral():
     assert "every time" not in html
 
 
-async def test_showcase_mutual_help_decay_helper(db):
-    """The showcase-legend gate: None (sample) → ON, an ON match → ON, an OFF
-    match → OFF. This is what the front page / lobby routes feed the legend."""
-    from app.routes.showcase_replay import showcase_mutual_help_decay
+async def test_showcase_mutual_help_mode_helper(db):
+    """The showcase-legend gate: the bundled sample falls back to decay, and a
+    real match reports its own mode. This is what the front page feeds the legend."""
+    from app.routes.showcase_replay import showcase_mutual_help_mode
 
-    assert await showcase_mutual_help_decay(db, None) is True  # sample fallback
-    on_game, _ = await _make_match(db, 2, mutual_help_decay=True, match_id="G_SHOW_ON")
-    off_game, _ = await _make_match(db, 2, mutual_help_decay=False, match_id="G_SHOW_OFF")
-    assert await showcase_mutual_help_decay(db, on_game.id) is True
-    assert await showcase_mutual_help_decay(db, off_game.id) is False
-    assert await showcase_mutual_help_decay(db, "G_MISSING") is True  # missing row → ON default
+    assert await showcase_mutual_help_mode(db, None) == "decay"  # sample fallback
+    on_game, _ = await _make_match(db, 2, mutual_help_mode="decay", match_id="G_SHOW_ON")
+    off_game, _ = await _make_match(db, 2, mutual_help_mode="flat_8", match_id="G_SHOW_OFF")
+    assert await showcase_mutual_help_mode(db, on_game.id) == "decay"
+    assert await showcase_mutual_help_mode(db, off_game.id) == "flat_8"
+    assert await showcase_mutual_help_mode(db, "G_MISSING") == "decay"  # missing row → default
+
+
+# --- The modes added alongside decay/flat_8 -----------------------------------
+#
+# These exist to compare rules that stop a single pact being a free, repeatable
+# points engine. The lever is cooperation-vs-BETRAYAL: betraying a helper pays the
+# attacker 8, so while a pact also pays 8 betrayal wins only on rank. Every point
+# off the pact's payout widens that gap — which is what flat_6 is for.
+
+
+def test_payout_table_for_every_mode():
+    """The payout each mode pays on a pair's 1st, 2nd, 3rd … mutual help."""
+    from app.games.hoard_hurt_help.rules import MutualHelpMode, mutual_help_value
+
+    table = {m: [mutual_help_value(m, k) for k in range(5)] for m in MutualHelpMode}
+    assert table[MutualHelpMode.DECAY] == [8, 7, 6, 5, 4]
+    assert table[MutualHelpMode.ONCE] == [8, 4, 4, 4, 4]
+    assert table[MutualHelpMode.FLAT_8] == [8, 8, 8, 8, 8]
+    assert table[MutualHelpMode.FLAT_7] == [7, 7, 7, 7, 7]
+    assert table[MutualHelpMode.FLAT_6] == [6, 6, 6, 6, 6]
+
+
+def test_decay_never_pays_below_hoard():
+    """However often a pair repeats, decay floors at the HOARD value.
+
+    Otherwise a long-running pact would eventually pay LESS than hoarding, making
+    a mutual help actively self-harming rather than merely unrewarding.
+    """
+    from app.games.hoard_hurt_help.rules import (
+        HOARD_POINTS,
+        MutualHelpMode,
+        mutual_help_value,
+    )
+
+    assert min(mutual_help_value(MutualHelpMode.DECAY, k) for k in range(50)) == HOARD_POINTS
+
+
+def test_flat_6_makes_betrayal_out_pay_the_pact():
+    """The point of flat_6: betrayal (8) beats keeping the pact (6).
+
+    Under the modes that pay 8, betraying and cooperating are worth the same in
+    points, so betrayal only wins on rank. This pins the intended reversal.
+    """
+    from app.games.hoard_hurt_help.rules import (
+        BETRAYAL_BONUS,
+        HELP_POINTS,
+        MutualHelpMode,
+        mutual_help_value,
+    )
+
+    betrayal = HELP_POINTS + BETRAYAL_BONUS
+    assert mutual_help_value(MutualHelpMode.FLAT_8, 0) == betrayal  # a wash today
+    assert mutual_help_value(MutualHelpMode.FLAT_6, 0) < betrayal  # betrayal now wins
+
+
+async def test_once_mode_pays_the_bonus_only_on_a_pairs_first_mutual_help(db):
+    """Second mutual help with the SAME partner drops to the plain HELP value."""
+    from app.games.hoard_hurt_help.scoring import resolve_turn
+
+    game, [a, b] = await _make_match(db, 2, mutual_help_mode="once", match_id="G_ONCE")
+    first = await _open_turn(db, game, 1)
+    await _submit(db, first, a, "HELP", target=b)
+    await _submit(db, first, b, "HELP", target=a)
+    await resolve_turn(db, first)
+    assert a.current_round_score == 8
+
+    second = await _open_turn(db, game, 2)
+    await _submit(db, second, a, "HELP", target=b)
+    await _submit(db, second, b, "HELP", target=a)
+    await resolve_turn(db, second)
+    assert a.current_round_score == 8 + 4  # bonus spent; plain HELP only
+
+
+async def test_flat_6_pays_six_every_time(db):
+    """A flat mode ignores history — the third mutual help pays what the first did."""
+    from app.games.hoard_hurt_help.scoring import resolve_turn
+
+    game, [a, b] = await _make_match(db, 2, mutual_help_mode="flat_6", match_id="G_F6")
+    for turn_no in (1, 2, 3):
+        t = await _open_turn(db, game, turn_no)
+        await _submit(db, t, a, "HELP", target=b)
+        await _submit(db, t, b, "HELP", target=a)
+        await resolve_turn(db, t)
+    assert a.current_round_score == 18  # 6 + 6 + 6
+
+
+async def test_rules_text_matches_payout_for_every_mode():
+    """The rules a player is shown must state the number the resolver pays.
+
+    A legend or rules paragraph promising a different figure than the engine pays
+    would be invisible until someone checked the arithmetic by hand.
+    """
+    from app.games.hoard_hurt_help.rules import (
+        MutualHelpMode,
+        make_game_rules_text,
+        mutual_help_legend,
+        mutual_help_value,
+    )
+
+    for mode in MutualHelpMode:
+        first = mutual_help_value(mode, 0)
+        assert f"+{first}" in mutual_help_legend(mode), mode
+        assert f"+{first}" in make_game_rules_text(mode=mode), mode
+
+    # Only the decaying mode may talk about decaying.
+    for mode in MutualHelpMode:
+        text = make_game_rules_text(mode=mode)
+        assert ("decays" in text) == (mode is MutualHelpMode.DECAY), mode
+
+
+def test_unknown_mode_is_rejected_not_defaulted():
+    """A typo must raise, not silently become 'decay'.
+
+    Quietly defaulting would mislabel which rule a match was played under — an
+    experiment result that looks fine and means something else.
+    """
+    import pytest
+
+    from app.games.hoard_hurt_help.rules import mutual_help_value
+
+    with pytest.raises(ValueError):
+        mutual_help_value("flat_5", 0)

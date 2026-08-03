@@ -104,7 +104,7 @@ async def auto_submit_bot_phase(
             history=history,
             scoreboard=scoreboard,
             current_talk_messages=current_talk_messages,
-            mutual_help_decay=game.mutual_help_decay is not False,
+            mutual_help_mode=game.mutual_help_mode or "decay",
         )
 
         if phase == "talk":
