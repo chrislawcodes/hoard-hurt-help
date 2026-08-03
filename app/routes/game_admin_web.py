@@ -17,6 +17,7 @@ from app.engine.scheduler import start_game
 from app.engine.state_machine import TransitionError
 from app.games import GameError, get as get_game_module, known_types
 from app.games.base import GameConfig
+from app.games.hoard_hurt_help.rules import MutualHelpMode
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import Match, GameState
@@ -125,7 +126,7 @@ async def create_match_submit(
     turns_per_round: Annotated[int, Form()] = 7,
     wild_ones: Annotated[str | None, Form()] = None,
     dice_per_player: Annotated[int, Form()] = 5,
-    mutual_help_decay: Annotated[str | None, Form()] = None,
+    mutual_help_mode: Annotated[str | None, Form()] = None,
 ):
     def _error(msg: str):
         return templates.TemplateResponse(
@@ -165,6 +166,13 @@ async def create_match_submit(
         return _error("Total rounds must be 3 to 20.")
     if not (3 <= turns_per_round <= 20):
         return _error("Turns per round must be 3 to 20.")
+    # Reject an unknown mode rather than letting it reach the column: a typo that
+    # silently became "decay" would mislabel which rule a match was played under.
+    if mutual_help_mode is not None:
+        try:
+            MutualHelpMode(mutual_help_mode)
+        except ValueError:
+            return _error(f"Unknown mutual-help mode {mutual_help_mode!r}.")
 
     await create_match_with_state(
         db,
@@ -179,8 +187,9 @@ async def create_match_submit(
         state=GameState.REGISTERING,
         created_by_user_id=user.id,
         # Only Hoard-Hurt-Help renders this control, so on every other game's form
-        # the field is absent — which must keep the shipped default (decay on).
-        mutual_help_decay=mutual_help_decay != "off",
+        # the field is absent — which must keep the shipped default. An unknown
+        # value is rejected above rather than silently becoming the default.
+        mutual_help_mode=mutual_help_mode or "decay",
         state_config={
             "wild_ones": wild_ones is not None,
             "dice_per_player": dice_per_player,

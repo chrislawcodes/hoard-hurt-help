@@ -40,7 +40,7 @@ class BotContext:
     # field with a default so existing constructions read ON, and deliberately NOT
     # part of `seed_basis()` — folding it into the seed would perturb every bot's
     # deterministic tie-breaks and reintroduce the talk→act target-drift bug.
-    mutual_help_decay: bool = True
+    mutual_help_mode: str = "decay"
 
     def seed_basis(self) -> str:
         """Canonical seed input: start time plus a sorted context snapshot.

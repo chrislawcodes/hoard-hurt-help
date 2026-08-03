@@ -14,6 +14,7 @@ from app.aware_datetime import ensure_aware
 
 # Re-exported for the Jinja filter below; the canonical definition lives in
 # app.read_models.agent_display, which owns agent display-name formatting.
+from app.games.hoard_hurt_help.rules import mutual_help_legend
 from app.read_models.agent_display import strip_archive_suffix
 
 
@@ -34,6 +35,11 @@ def _nav_cta_context(request: Request) -> dict[str, object]:
 templates = Jinja2Templates(
     directory="app/templates", context_processors=[_nav_cta_context]
 )
+
+# The replay legend must state THIS match's mutual-help payout. Exposing the
+# helper as a global lets the match page build it from the match row it already
+# has, instead of every route that renders a replay passing the string down.
+templates.env.globals["mutual_help_legend"] = mutual_help_legend
 
 
 def _to_utc_iso(value: object) -> str | None:

@@ -56,13 +56,16 @@
 
     {% if game_slug == "hoard-hurt-help" %}
     <div class="form-row">
-        {# A select, not a checkbox: an unchecked box posts nothing, and "absent"
-           already means "leave the default alone" for every other game's form. #}
+        {# A select, not a checkbox: "absent" must keep meaning "leave the default
+           alone" on every other game's form, and there are now five choices. #}
         <label>
             Mutual-help bonus
-            <select name="mutual_help_decay">
-                <option value="on" selected>Decays — shrinks each time the same pair repeats</option>
-                <option value="off">Flat — +8 every time</option>
+            <select name="mutual_help_mode">
+                <option value="decay" selected>Decays — 8, 7, 6 … down to 2 as the same pair repeats</option>
+                <option value="once">Once per partner — 8 the first time, then 4</option>
+                <option value="flat_8">Flat 8 — every time, no decay</option>
+                <option value="flat_7">Flat 7 — every time</option>
+                <option value="flat_6">Flat 6 — every time (betrayal out-pays the pact)</option>
             </select>
         </label>
     </div>

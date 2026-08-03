@@ -20,7 +20,7 @@ class CreateGameRequest(BaseModel):
     dice_per_player: int = Field(default=5, ge=1, le=20)
     # Hoard-Hurt-Help's per-match rule switch. Defaults to the shipped behavior,
     # so a request that omits it creates the same match it always did.
-    mutual_help_decay: bool = True
+    mutual_help_mode: str = "decay"
 
     @field_validator("max_players")
     @classmethod

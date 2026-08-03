@@ -23,7 +23,7 @@ from app.games.hoard_hurt_help.rules import (
     BETRAYAL_BONUS,
     HELP_POINTS,
     MUTUAL_HELP_BONUS,
-    MUTUAL_HELP_FLOOR,
+    mutual_help_value,
 )
 from app.games.hoard_hurt_help.scoring import apply_inround_turn
 from app.games.hoard_hurt_help.viewer_headline import _turn_headline
@@ -373,14 +373,12 @@ async def build_pd_replay_view(
         # its running score per round — still sees the match-scoped k. When the
         # match's decay switch is OFF, every pact pays a flat +8 per side with no
         # decay; `is not False` treats a legacy/unflushed None as the ON default.
+        mode = match.mutual_help_mode or "decay"
         pact_value: dict[frozenset[str], int] = {}
         for pair in this_mutual:
-            if match.mutual_help_decay is not False:
-                k = pact_counts.get(pair, 0)
-                pact_value[pair] = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k)
-                pact_counts[pair] = k + 1
-            else:
-                pact_value[pair] = HELP_POINTS + MUTUAL_HELP_BONUS
+            k = pact_counts.get(pair, 0)
+            pact_value[pair] = mutual_help_value(mode, k)
+            pact_counts[pair] = k + 1
 
         for a in actions:
             paired_message = messages_by_agent.get(a["agent_id"])

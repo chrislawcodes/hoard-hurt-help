@@ -82,20 +82,21 @@ async def load_showcase_replay_cached() -> ShowcaseReplay:
     return await _cache.get(_CACHE_KEY, _build)
 
 
-async def showcase_mutual_help_decay(db: AsyncSession, rc_game_id: str | None) -> bool:
-    """Whether the showcased match decays mutual help (feature decay-switch).
+async def showcase_mutual_help_mode(db: AsyncSession, rc_game_id: str | None) -> str:
+    """The mutual-help mode of the showcased match.
 
     Gates the showcase robot-circle legend so it matches the specific match being
-    replayed — an OFF showcase match must not sit under a "bonus decays" legend.
-    Defaults ON for the bundled sample (``rc_game_id`` is ``None``, which is the
-    canonical decaying game) and for any missing row, mirroring the DB default.
+    replayed — a flat-payout showcase must not sit under a "bonus decays" legend.
+    Defaults to "decay" for the bundled sample (``rc_game_id`` is ``None``, which
+    is the canonical decaying game) and for any missing row, mirroring the DB
+    default.
     """
     if rc_game_id is None:
-        return True
+        return "decay"
     value = (
-        await db.execute(select(Match.mutual_help_decay).where(Match.id == rc_game_id))
+        await db.execute(select(Match.mutual_help_mode).where(Match.id == rc_game_id))
     ).scalar_one_or_none()
-    return value is not False
+    return value or "decay"
 
 
 def clear_showcase_replay_cache() -> None:
