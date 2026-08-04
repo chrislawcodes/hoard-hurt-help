@@ -812,3 +812,93 @@ def test_release_cb_frees_the_slot_even_when_the_worker_crashes(
     err = capsys.readouterr().err
     assert "crashed" in err
     assert "boom" in err
+
+
+# --- Prose instead of a move ---------------------------------------------------
+#
+# A model can answer in time, and with a view, but in prose the game cannot read —
+# typically deciding no game is running and saying so. Its seat would default to
+# HOARD despite the model being healthy and fast. These pin the one re-ask that
+# recovers it, and that a second failure still surfaces rather than being hidden.
+
+# Verbatim from a real game (M_0799 R1T1), so the test fails if the parser ever
+# starts accepting this shape by accident.
+_REAL_PROSE = (
+    "It looks like there's no active game running at the moment. The system "
+    "indicates idle timeout. The game session may not have started yet or may "
+    "have ended.\n\nOnce a game begins and I receive a proper turn prompt with "
+    "the match_id and game_id, I'll be ready to respond immediately."
+)
+
+
+def test_decide_reasks_and_recovers_after_a_prose_reply(connector, monkeypatch) -> None:
+    """Prose triggers ONE re-ask; a real move then lands and the turn is saved."""
+    adapter = _ReAskAdapter(
+        first_move=_REAL_PROSE,
+        resume_move='{"action":"HOARD","target_id":null,"thinking":"bank it"}',
+    )
+    monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
+    turn = _make_turn(phase="act")
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    decision = connector._decide(turn, sess)
+
+    assert decision["action"] == "HOARD"
+    assert not decision.get("is_connector_fallback")  # a real move, not a fallback
+    assert adapter.calls == ["first", "resume"]  # exactly one re-ask
+
+
+def test_decide_reasks_on_prose_in_the_talk_phase_too(connector, monkeypatch) -> None:
+    """The talk phase gets the same salvage — a lost message costs a persuader most."""
+    adapter = _ReAskAdapter(
+        first_move=_REAL_PROSE,
+        resume_move='{"message":"lets pact","thinking":"open friendly"}',
+    )
+    monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
+    turn = _make_turn(phase="talk")
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    decision = connector._decide(turn, sess)
+
+    assert decision["message"] == "lets pact"
+    assert adapter.calls == ["first", "resume"]
+
+
+def test_decide_still_fails_loudly_when_prose_repeats(connector, monkeypatch) -> None:
+    """Two prose replies must NOT be swallowed.
+
+    `_decide` converts it into a logged FALLBACK carrying the real reason, so the
+    fault still reaches the log instead of looking like the model had nothing to
+    say. What must NOT happen is a second re-ask — that would keep paying for a
+    model already answering the wrong way.
+    """
+    adapter = _ReAskAdapter(first_move=_REAL_PROSE, resume_move=_REAL_PROSE)
+    monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
+    turn = _make_turn(phase="act")
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    decision = connector._decide(turn, sess)
+
+    assert decision["is_connector_fallback"] is True
+    assert decision["model_failure"]["outcome"]  # the reason is carried up-channel
+    assert adapter.calls == ["first", "resume"]  # tried once, did not loop
+
+
+def test_decide_does_not_reask_prose_when_resume_is_unavailable(
+    connector, monkeypatch
+) -> None:
+    """No session to resume means no re-ask — raise rather than start a fresh one.
+
+    A fresh call would lose the game history the model needs, so it would answer
+    worse than the fallback it replaces.
+    """
+    adapter = _ReAskAdapter(first_move=_REAL_PROSE, resume_move="{}")
+    adapter.supports_resume = False
+    monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
+    turn = _make_turn(phase="act")
+    sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
+
+    decision = connector._decide(turn, sess)
+
+    assert decision["is_connector_fallback"] is True
+    assert adapter.calls == ["first"]  # never re-asked
