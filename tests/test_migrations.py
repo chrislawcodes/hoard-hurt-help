@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from alembic import command
+from alembic.script import ScriptDirectory
 from alembic.config import Config
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
@@ -184,7 +185,11 @@ def test_startup_bootstraps_legacy_unversioned_schema(tmp_path: Path, monkeypatc
 
     conn = sqlite3.connect(db_path)
     try:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0048",)]
+        # Compare against the real head rather than a hardcoded number: the point
+        # is "bootstrapping lands at head", and spelling the revision out here made
+        # every new migration fail this test for no reason.
+        head = ScriptDirectory.from_config(cfg).get_current_head()
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [(head,)]
         assert (
             conn.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='matches'"

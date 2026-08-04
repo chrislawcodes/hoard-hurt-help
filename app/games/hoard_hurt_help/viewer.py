@@ -365,19 +365,26 @@ async def build_pd_replay_view(
                 # Cross-turn betrayal: HURT last turn's pact partner.
                 if pair in prev_mutual:
                     a["betrayal"] = True
+        # Keep LAST turn's pacts before overwriting — the no-repeats mode pays the
+        # bonus only when a pair did NOT also go mutual on the previous turn, so
+        # reading `prev_mutual` after the reassignment would compare this turn
+        # against itself and never withhold the bonus.
+        last_turn_mutual = prev_mutual
         prev_mutual = this_mutual
 
         # Per-side value for each of this turn's pacts (one per pair). Computed once
         # and shared by the display below and both apply_inround_turn callers (the
         # action dicts carry `mutual_value`), so the win-prob loop — which resets
-        # its running score per round — still sees the match-scoped k. When the
-        # match's decay switch is OFF, every pact pays a flat +8 per side with no
-        # decay; `is not False` treats a legacy/unflushed None as the ON default.
+        # its running score per round — still sees the match-scoped k. The payout
+        # comes from the same function the resolver uses, so the replay can never
+        # show a number the game didn't actually pay.
         mode = match.mutual_help_mode or "decay"
         pact_value: dict[frozenset[str], int] = {}
         for pair in this_mutual:
             k = pact_counts.get(pair, 0)
-            pact_value[pair] = mutual_help_value(mode, k)
+            pact_value[pair] = mutual_help_value(
+                mode, k, repeated_last_turn=pair in last_turn_mutual
+            )
             pact_counts[pair] = k + 1
 
         for a in actions:

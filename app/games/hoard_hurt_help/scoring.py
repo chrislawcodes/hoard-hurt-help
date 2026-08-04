@@ -40,16 +40,24 @@ def mutual_help_counts(
     """
     counts: dict[frozenset[int], int] = {}
     for subs in prior_turns:
-        help_targets = {s.player_id: s.target_player_id for s in subs if s.action == "HELP"}
-        seen: set[frozenset[int]] = set()
-        for a, b in help_targets.items():
-            if b is None or help_targets.get(b) != a:
-                continue
-            pair = frozenset({a, b})
-            if pair not in seen:
-                seen.add(pair)
-                counts[pair] = counts.get(pair, 0) + 1
+        for pair in mutual_help_pairs(subs):
+            counts[pair] = counts.get(pair, 0) + 1
     return counts
+
+
+def mutual_help_pairs(subs: Iterable[TurnSubmission]) -> set[frozenset[int]]:
+    """The unordered pairs that mutually HELPed each other within ONE turn.
+
+    A pair appears at most once however the submissions are ordered, mirroring
+    `resolve_turn`'s same-turn guard. Only reciprocal HELP counts —
+    HOARD/HURT/defaulted rows contribute nothing.
+    """
+    help_targets = {s.player_id: s.target_player_id for s in subs if s.action == "HELP"}
+    pairs: set[frozenset[int]] = set()
+    for a, b in help_targets.items():
+        if b is not None and help_targets.get(b) == a:
+            pairs.add(frozenset({a, b}))
+    return pairs
 
 
 async def current_pact_values(
@@ -96,9 +104,13 @@ async def current_pact_values(
     for s in subs:
         by_turn.setdefault(s.turn_id, []).append(s)
     counts = mutual_help_counts(by_turn.values())
+    # Same "previous turn" the resolver uses, so the preview and the payout agree.
+    last_pairs = mutual_help_pairs(by_turn[max(by_turn)]) if by_turn else set()
     return {
         other_id: mutual_help_value(
-            mode, counts.get(frozenset({player_id, other_id}), 0)
+            mode,
+            counts.get(frozenset({player_id, other_id}), 0),
+            repeated_last_turn=frozenset({player_id, other_id}) in last_pairs,
         )
         for other_id in other_player_ids
     }
@@ -137,6 +149,7 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     # Only needed for the modes whose payout depends on it; the flat modes never
     # read k, so they skip the scan instead of loading history they'd discard.
     prior_counts: dict[frozenset[int], int] = {}
+    last_turn_pairs: set[frozenset[int]] = set()
     if mode_needs_history(mode):
         prior_subs: list[TurnSubmission] = list(
             (
@@ -158,6 +171,12 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         for s in prior_subs:
             prior_by_turn.setdefault(s.turn_id, []).append(s)
         prior_counts = mutual_help_counts(prior_by_turn.values())
+        # NO_REPEATS only cares about the turn immediately before this one — the
+        # highest prior resolved turn id. Turn ids increase across the whole match,
+        # so "the previous turn" carries over a round boundary: the last turn of a
+        # round and the first of the next are still back-to-back.
+        if prior_by_turn:
+            last_turn_pairs = mutual_help_pairs(prior_by_turn[max(prior_by_turn)])
 
     # Materialize submissions, defaulting missing ones to HOARD.
     submissions: list[TurnSubmission] = list(
@@ -219,7 +238,11 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         if help_targets.get(b) == a:
             pair = frozenset({a, b})
             if pair not in seen_pairs:
-                total = mutual_help_value(mode, prior_counts.get(pair, 0))
+                total = mutual_help_value(
+                    mode,
+                    prior_counts.get(pair, 0),
+                    repeated_last_turn=pair in last_turn_pairs,
+                )
                 bonus = total - HELP_POINTS
                 delta[a] += bonus
                 delta[b] += bonus
