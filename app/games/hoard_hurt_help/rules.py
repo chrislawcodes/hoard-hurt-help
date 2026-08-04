@@ -28,7 +28,11 @@ class MutualHelpMode(str, enum.Enum):
     """
 
     DECAY = "decay"  # 8, 7, 6 … floored at 2. The shipped rule.
-    ONCE = "once"  # 8 the first time a pair does it, 4 every time after
+    # Full bonus unless this same pair mutually helped on the PREVIOUS turn — a
+    # one-turn cooldown, not a lifetime cap. Note a pair can still collect every
+    # turn by alternating between two partners; the rule pushes players to keep
+    # more than one alliance rather than making the bonus scarce.
+    NO_REPEATS = "no_repeats"
     FLAT_8 = "flat_8"  # 8 every time — no decay, no floor
     FLAT_7 = "flat_7"  # 7 every time
     FLAT_6 = "flat_6"  # 6 every time — betrayal (8) now out-pays the pact
@@ -41,21 +45,36 @@ _FLAT_TOTALS = {
 }
 
 
-def mutual_help_value(mode: MutualHelpMode | str, repeats: int) -> int:
-    """What a mutual HELP pays EACH side, given how often this pair already did it.
+def mutual_help_value(
+    mode: MutualHelpMode | str,
+    repeats: int,
+    *,
+    repeated_last_turn: bool = False,
+) -> int:
+    """What a mutual HELP pays EACH side for one pair, right now.
 
     ``repeats`` is the pair's match-wide count of prior mutual helps (0 = first
-    time). Every mode's payout lives here so the resolver, the pre-move preview
-    and the rules text can never drift apart — a preview that promised a different
-    number than the resolver paid would be invisible until someone checked the
-    arithmetic by hand.
+    time); ``repeated_last_turn`` is whether they also did it on the immediately
+    previous turn. Modes use one or the other — DECAY counts every prior time,
+    NO_REPEATS only cares about the turn just gone, and the flat modes ignore
+    both.
+
+    Every mode's payout lives here so the resolver, the pre-move preview, the
+    replay legend and the rules text can never drift apart — a preview promising
+    a different number than the resolver pays would be invisible until someone
+    checked the arithmetic by hand.
     """
     mode = MutualHelpMode(mode)
     if mode in _FLAT_TOTALS:
         return _FLAT_TOTALS[mode]
-    if mode is MutualHelpMode.ONCE:
-        return HELP_POINTS + (MUTUAL_HELP_BONUS if repeats == 0 else 0)
+    if mode is MutualHelpMode.NO_REPEATS:
+        return HELP_POINTS + (0 if repeated_last_turn else MUTUAL_HELP_BONUS)
     return max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - repeats)
+
+
+def mode_uses_last_turn(mode: MutualHelpMode | str) -> bool:
+    """True when the payout depends on the immediately previous turn only."""
+    return MutualHelpMode(mode) is MutualHelpMode.NO_REPEATS
 
 
 def mutual_help_legend(mode: MutualHelpMode | str) -> str:
@@ -70,8 +89,8 @@ def mutual_help_legend(mode: MutualHelpMode | str) -> str:
     first = mutual_help_value(mode, 0)
     if mode is MutualHelpMode.DECAY:
         return f"mutual +{first} each, bonus decays each round"
-    if mode is MutualHelpMode.ONCE:
-        return f"mutual +{first} each the first time with a partner, then +{HELP_POINTS}"
+    if mode is MutualHelpMode.NO_REPEATS:
+        return f"mutual +{first} each, but not two turns in a row with the same partner"
     return f"mutual +{first} each, every time"
 
 
@@ -90,7 +109,7 @@ def mode_needs_history(mode: MutualHelpMode | str) -> bool:
 _MUTUAL_HELP_DECAY = f"""- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each the first time a pair does it.
 - **Mutual-help decays.** Each time the *same pair* repeats a mutual help in a match, the bonus drops by 1. So that pair's net falls +{HELP_POINTS + MUTUAL_HELP_BONUS}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 1}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 2}, … down to a floor of +{MUTUAL_HELP_FLOOR} each (no better than HOARD). The count is match-wide, not per round. Helping a *fresh* partner resets to +{HELP_POINTS + MUTUAL_HELP_BONUS} — farming one ally pays less over time than spreading pacts around."""
 
-_MUTUAL_HELP_ONCE = f"""- **Mutual-help bonus — once per partner.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each. That bonus is paid **only the first time a given pair does it in a match**; every mutual help with that same partner afterwards is the plain +{HELP_POINTS} each. A *fresh* partner pays the full +{HELP_POINTS + MUTUAL_HELP_BONUS} again — so spreading pacts around pays, farming one ally does not."""
+_MUTUAL_HELP_NO_REPEATS = f"""- **Mutual-help bonus — no repeats.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each. But a pair cannot take that bonus **two turns in a row**: if the same two players mutually helped on the previous turn, this one pays the plain +{HELP_POINTS} each. Skip a turn with that partner and the full +{HELP_POINTS + MUTUAL_HELP_BONUS} is available again — so rotating between partners keeps paying, hammering the same one back-to-back does not."""
 
 
 def _flat_mutual_help(total: int) -> str:
@@ -99,7 +118,7 @@ def _flat_mutual_help(total: int) -> str:
 
 _MUTUAL_HELP_SECTIONS = {
     MutualHelpMode.DECAY: _MUTUAL_HELP_DECAY,
-    MutualHelpMode.ONCE: _MUTUAL_HELP_ONCE,
+    MutualHelpMode.NO_REPEATS: _MUTUAL_HELP_NO_REPEATS,
     **{m: _flat_mutual_help(total) for m, total in _FLAT_TOTALS.items()},
 }
 

@@ -494,7 +494,9 @@ def test_payout_table_for_every_mode():
 
     table = {m: [mutual_help_value(m, k) for k in range(5)] for m in MutualHelpMode}
     assert table[MutualHelpMode.DECAY] == [8, 7, 6, 5, 4]
-    assert table[MutualHelpMode.ONCE] == [8, 4, 4, 4, 4]
+    # NO_REPEATS ignores the running count entirely — it only looks at whether the
+    # pair also went mutual on the PREVIOUS turn, covered by its own tests below.
+    assert table[MutualHelpMode.NO_REPEATS] == [8, 8, 8, 8, 8]
     assert table[MutualHelpMode.FLAT_8] == [8, 8, 8, 8, 8]
     assert table[MutualHelpMode.FLAT_7] == [7, 7, 7, 7, 7]
     assert table[MutualHelpMode.FLAT_6] == [6, 6, 6, 6, 6]
@@ -533,11 +535,13 @@ def test_flat_6_makes_betrayal_out_pay_the_pact():
     assert mutual_help_value(MutualHelpMode.FLAT_6, 0) < betrayal  # betrayal now wins
 
 
-async def test_once_mode_pays_the_bonus_only_on_a_pairs_first_mutual_help(db):
-    """Second mutual help with the SAME partner drops to the plain HELP value."""
+async def test_no_repeats_withholds_the_bonus_on_back_to_back_turns(db):
+    """Same pair, two turns running: the second turn pays the plain HELP value."""
     from app.games.hoard_hurt_help.scoring import resolve_turn
 
-    game, [a, b] = await _make_match(db, 2, mutual_help_mode="once", match_id="G_ONCE")
+    game, [a, b] = await _make_match(
+        db, 2, mutual_help_mode="no_repeats", match_id="G_NR1"
+    )
     first = await _open_turn(db, game, 1)
     await _submit(db, first, a, "HELP", target=b)
     await _submit(db, first, b, "HELP", target=a)
@@ -548,7 +552,40 @@ async def test_once_mode_pays_the_bonus_only_on_a_pairs_first_mutual_help(db):
     await _submit(db, second, a, "HELP", target=b)
     await _submit(db, second, b, "HELP", target=a)
     await resolve_turn(db, second)
-    assert a.current_round_score == 8 + 4  # bonus spent; plain HELP only
+    assert a.current_round_score == 8 + 4  # back-to-back: no bonus
+
+
+async def test_no_repeats_restores_the_bonus_after_a_skipped_turn(db):
+    """This is the whole point of the rule: it is a cooldown, not a lifetime cap.
+
+    Skipping one turn with that partner makes the full bonus available again — so
+    a pair that alternates keeps earning it, which the 'once ever' reading would
+    have denied.
+    """
+    from app.games.hoard_hurt_help.scoring import resolve_turn
+
+    game, [a, b] = await _make_match(
+        db, 2, mutual_help_mode="no_repeats", match_id="G_NR2"
+    )
+    first = await _open_turn(db, game, 1)
+    await _submit(db, first, a, "HELP", target=b)
+    await _submit(db, first, b, "HELP", target=a)
+    await resolve_turn(db, first)
+    assert a.current_round_score == 8
+
+    # Turn 2: both hoard, breaking the streak.
+    second = await _open_turn(db, game, 2)
+    await _submit(db, second, a, "HOARD")
+    await _submit(db, second, b, "HOARD")
+    await resolve_turn(db, second)
+    assert a.current_round_score == 8 + 2
+
+    # Turn 3: mutual again — the pair did NOT go mutual last turn, so full bonus.
+    third = await _open_turn(db, game, 3)
+    await _submit(db, third, a, "HELP", target=b)
+    await _submit(db, third, b, "HELP", target=a)
+    await resolve_turn(db, third)
+    assert a.current_round_score == 8 + 2 + 8
 
 
 async def test_flat_6_pays_six_every_time(db):
