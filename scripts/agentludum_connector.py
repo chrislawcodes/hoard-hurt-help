@@ -343,6 +343,26 @@ def _retarget_body(action: str, valid_ids: list[str], cur: dict) -> str:
     )
 
 
+def _reformat_body(phase: str, cur: dict) -> str:
+    """A corrective re-prompt for when the model answered in prose, not a move.
+
+    Seen when a model decides no game is running and says so conversationally —
+    most often on a session's very first turn, before any history exists to
+    contradict that reading. It answered in time and had a view; it just did not
+    put it in the shape the game accepts.
+    """
+    if phase == "talk":
+        shape = '{"message":"<your public message>","thinking":"<short reason>"}'
+    else:
+        shape = '{"action":"HOARD|HELP|HURT","target_id":"<agent or null>","thinking":"<short reason>"}'
+    return (
+        "Your last reply was prose, not a move — the game could not read it. A game "
+        "IS running and this turn is live; the prompt you were sent is the real one. "
+        f"Reply again with exactly one JSON object: {shape} — JSON only, no prose, no "
+        f"code fence.{_time_left_note(cur)}"
+    )
+
+
 def _sum_usage(
     a: dict[str, int] | None, b: dict[str, int] | None
 ) -> dict[str, int] | None:
@@ -1206,7 +1226,39 @@ def _decide(turn: dict, sess: _GameSession) -> dict | None:
                 model=str(sess.model),
                 session=sess,
             )
-        decision = _normalize_move(_parse_move(text), phase)
+        # The model may answer in time but in prose rather than a move — it decides
+        # no game is running and says so conversationally. Its seat would default to
+        # HOARD despite the model being healthy and quick, so re-ask ONCE for the
+        # right shape (bounded by the time left) before giving up. Rare — four times
+        # across thousands of calls — but each one silently costs that seat a turn.
+        try:
+            decision = _normalize_move(_parse_move(text), phase)
+        except RuntimeError:
+            remaining = _phase_time_budget(cur)
+            if (
+                getattr(adapter, "supports_resume", True)
+                and sess.token is not None
+                and (remaining is None or remaining >= _MIN_MODEL_SECONDS)
+            ):
+                if remaining is not None:
+                    _call_timeout.set(remaining)  # bound the re-ask to time left
+                retry_text, retry_usage = adapter.resume(
+                    body=_reformat_body(phase, cur),
+                    model=str(sess.model),
+                    session=sess,
+                )
+                usage = _sum_usage(usage, retry_usage)
+                # A second failure re-raises, so the caller still falls back and the
+                # real reason still reaches the log — a swallowed one would look
+                # like the model simply had nothing to say.
+                decision = _normalize_move(_parse_move(retry_text), phase)
+                print(
+                    f"[agentludum-connector] {match_id} R{cur.get('round')}T{cur.get('turn')} "
+                    f"recovered a {phase} move on re-ask after a prose reply.",
+                    file=sys.stderr,
+                )
+            else:
+                raise
         # An ACT HELP/HURT must name a valid target. If the model dropped it, the
         # server rejects the move (400); the poll loop would then re-serve the turn
         # and we'd re-submit the same doomed move until the deadline and default to
