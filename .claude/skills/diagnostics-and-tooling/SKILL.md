@@ -80,6 +80,33 @@ Both methods route the change through normal delivery (preflight, PR,
 `Validation` section) — a good measurement justifies a change, it never
 bypasses the gate.
 
+## Real-LLM runs: check the agents actually PLAYED before believing the result
+
+A game where agents cannot answer in time still completes and still looks normal.
+The missing turns become HOARD, the scoreboard fills in, and nothing errors. An
+11-pair decay experiment was thrown away over exactly this: 7 of 22 games lost
+>20% of one provider's chat phase, two lost 100%. Half the strategies win *through*
+the talk phase, so those games measured "who wins when persuasion is off" — a
+different question, averaged in silently.
+
+Before trusting any real-LLM result, check all three:
+
+1. **Chat failure rate, per provider, per game.** In the connector log, a lost
+   message is a `[FALLBACK]` on a `TALK:` line; an answered one is not. More than
+   a few percent means the talk-driven strategies were handicapped in that game.
+2. **Whole-game token count, per provider.** A provider that is signed out or out
+   of credit produces only logging noise (0–30k) against a working side's 15–25M.
+   Its four seats played HOARD all game.
+3. **Both arms of a pair on separate identities.** Turn serving is scoped per
+   USER, so two arms sharing an account let each one's connectors claim the
+   other's seats and starve it.
+
+Watch for the trap in (1): a fallback logs a fast "handled in 2.9s" (substituting
+a HOARD *is* fast). Timing percentiles built from those numbers look healthy while
+a fifth of calls are failing — and the calls that timed out contribute no timing at
+all, so the slow tail is invisible. **Measure the failure rate directly; do not
+infer it from response times.**
+
 ## Reading a measured difference — is it real?
 
 - Deterministic sims: vary `--seed`. An effect that flips sign across seeds
