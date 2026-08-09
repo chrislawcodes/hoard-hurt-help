@@ -7,6 +7,7 @@ game-agnostic talk/round/game finalization to `app.engine.resolver`.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -50,6 +51,27 @@ if TYPE_CHECKING:
 
 _VALID_ACTIONS = {"HOARD", "HELP", "HURT"}
 
+# Act-phase window for new matches. Reasoning models (e.g. gpt-5.4-mini) can take
+# ~50s to decide a move; 75s clears them with margin.
+DEFAULT_ACT_DEADLINE_SECONDS = 75
+
+
+def act_deadline_seconds() -> int:
+    """The act-phase window a new match starts with.
+
+    Overridable via HHH_ACT_DEADLINE_SECONDS so an experiment can widen the window
+    without changing the game every real player sees. The talk phase has its own knob,
+    HHH_TALK_DEADLINE_SECONDS (see app/engine/scheduler_turn_loop.py), and the two are
+    NOT independent: the talk window is min(per_turn_deadline_seconds, that cap), so
+    widening talk alone does nothing until this one is widened to match.
+
+    Read per call rather than at import, so tests can vary it without reloading this
+    module — a reload would swap the HoardHurtHelp class out from under the game
+    registry. Note a change still only reaches matches created afterwards, since each
+    match stores its own deadline at creation time.
+    """
+    return int(os.environ.get("HHH_ACT_DEADLINE_SECONDS", DEFAULT_ACT_DEADLINE_SECONDS))
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -70,10 +92,7 @@ class HoardHurtHelp(BaseGameModule):
         return GameConfig(
             total_rounds=5,
             turns_per_round=7,
-            # Act-phase window. Reasoning models (e.g. gpt-5.4-mini) can take ~50s
-            # to decide a move; 75s clears them with margin. The talk phase is
-            # capped shorter separately (scheduler TALK_DEADLINE_SECONDS).
-            per_turn_deadline_seconds=75,
+            per_turn_deadline_seconds=act_deadline_seconds(),
             min_players=6,
             max_players=10,
         )

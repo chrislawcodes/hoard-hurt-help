@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import make_engine
 from app.engine.action_vocab import pd_action_names
-from app.games.hoard_hurt_help.game import HoardHurtHelp
+from app.engine.arena import _default_turn_deadline
+from app.games.hoard_hurt_help.game import HoardHurtHelp, act_deadline_seconds
 from app.games.liars_dice.game import LiarsDice
 from app.models import Base, Match, GameState
 from tests.factories import seat_player
@@ -33,6 +34,36 @@ def test_action_names_contract() -> None:
     assert pd_action_names() == ("HOARD", "HELP", "HURT")
     # Each game owns its own vocabulary; Liar's Dice is not PD's trio.
     assert LiarsDice().action_names() == ("BID", "CHALLENGE")
+
+
+def test_act_deadline_default_is_pinned(monkeypatch) -> None:
+    """No env override means the shipped 75s window.
+
+    The knob exists so an experiment can widen the act phase, but that must never
+    quietly become the game real players get. This pins the default so an override
+    left behind in the environment can't ship by accident.
+    """
+    monkeypatch.delenv("HHH_ACT_DEADLINE_SECONDS", raising=False)
+    assert act_deadline_seconds() == 75
+    assert HoardHurtHelp().config_defaults().per_turn_deadline_seconds == 75
+
+
+def test_act_deadline_can_be_overridden_by_env(monkeypatch) -> None:
+    """HHH_ACT_DEADLINE_SECONDS widens (or narrows) the act window for new matches."""
+    monkeypatch.setenv("HHH_ACT_DEADLINE_SECONDS", "180")
+    assert act_deadline_seconds() == 180
+    assert HoardHurtHelp().config_defaults().per_turn_deadline_seconds == 180
+
+
+def test_arena_matches_track_the_same_act_deadline(monkeypatch) -> None:
+    """Arena and auto-scheduled matches follow the knob too.
+
+    They used to repeat the literal 75, so widening the window silently skipped every
+    match the platform starts on its own — the ones most likely to be running when an
+    experiment is on.
+    """
+    monkeypatch.setenv("HHH_ACT_DEADLINE_SECONDS", "180")
+    assert _default_turn_deadline() == 180
 
 
 async def test_pd_inherits_default_hooks() -> None:
