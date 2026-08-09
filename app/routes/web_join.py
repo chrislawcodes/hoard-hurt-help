@@ -55,7 +55,7 @@ router = APIRouter(tags=["web"])
 
 # Order AIs in the join picker: ready first, then connected-but-idle, then
 # not-connected (set up next), with busy ones last (can't be picked).
-_AI_STATE_RANK = {"ready": 0, "idle": 1, "not_connected": 2, "busy": 3}
+_AI_STATE_RANK = {"ready": 0, "idle": 1, "not_connected": 2}
 
 
 async def _build_ai_options(
@@ -64,24 +64,18 @@ async def _build_ai_options(
     """The "which AI plays it?" picker: every supported provider with its state.
 
     States: ``ready`` (live, plays now), ``idle`` (connected but not running yet),
-    ``not_connected`` (no MCP connection — picking routes to set it up), and
-    ``busy`` (already in another game — shown but not pickable).
+    and ``not_connected`` (no MCP connection — picking routes to set it up).
+
+    An AI already committed to another seat is *not* a state — it stays pickable
+    and carries ``busy_match`` so the picker can say which game it is already in.
+    One AI can field several agents at once; the client runs one play loop per
+    ``agent_id``, so those seats move in parallel rather than queueing. Busy AIs
+    still sort after free ones, since spreading load is the better default.
     """
     _ACTIVE = {"claude", "gemini", "openai"}
     options: list[dict[str, object]] = []
     for value, label in PROVIDER_LABELS.items():
         if value not in _ACTIVE:
-            continue
-        if value in busy:
-            options.append(
-                {
-                    "provider": value,
-                    "label": label,
-                    "state": "busy",
-                    "busy_match": busy[value],
-                    "can_pick": False,
-                }
-            )
             continue
         readiness = await provider_readiness(db, user_id, ConnectionProvider(value))
         if readiness == ProviderReadiness.LIVE:
@@ -98,11 +92,17 @@ async def _build_ai_options(
                 "provider": value,
                 "label": label,
                 "state": state,
-                "busy_match": None,
+                "busy_match": busy.get(value),
                 "can_pick": True,
             }
         )
-    options.sort(key=lambda o: (_AI_STATE_RANK[str(o["state"])], str(o["label"])))
+    options.sort(
+        key=lambda o: (
+            _AI_STATE_RANK[str(o["state"])],
+            o["busy_match"] is not None,
+            str(o["label"]),
+        )
+    )
     return options
 
 
@@ -291,20 +291,20 @@ async def _seat_user_agent(
     existing_seats: set[str],
     *,
     chosen_provider: str,
-    bypass_capacity: bool = False,
 ) -> Player:
     """Validate one of *user*'s agents + chosen AI and build its Player row.
 
     The user picks which AI plays the seat (*chosen_provider*). We record it so
     routing only lets a connection covering that provider serve the seat. Runs the
-    gate (ownership, valid provider, "one AI = one game", not-already-seated) and
-    derives a unique seat name. Mutates *existing_seats*. Does not commit — the
-    caller owns the transaction. Raises HTTPException on any problem, naming the
-    agent.
+    gate (ownership, valid provider, not-already-seated) and derives a unique seat
+    name. Mutates *existing_seats*. Does not commit — the caller owns the
+    transaction. Raises HTTPException on any problem, naming the agent.
 
-    *bypass_capacity* lets an admin reuse an AI that's already in another game
-    (the "one AI = one game" rule is a guard against timeouts, not a hard lock —
-    admins testing want to overcommit on purpose).
+    One AI may hold several seats, in this game or across games. That used to be
+    refused for non-admins as a guard against turn timeouts; it was never a
+    correctness rule (admins already bypassed it on purpose). The client fans out
+    one play loop per ``agent_id``, so a provider's seats move in parallel. An
+    agent still cannot take two seats in the same match — that check stays below.
     """
     if chosen_provider not in PROVIDER_LABELS:
         raise HTTPException(status_code=400, detail="Pick an AI to play this agent.")
@@ -327,7 +327,6 @@ async def _seat_user_agent(
         raise HTTPException(
             status_code=409, detail=f"{selected_agent.name} has no current version."
         )
-    provider_label = PROVIDER_LABELS[chosen_provider]
     # Re-joining the same agent is the clearest error, so check it first.
     already_in = (
         await db.execute(
@@ -342,16 +341,6 @@ async def _seat_user_agent(
         raise HTTPException(
             status_code=409, detail=f"{selected_agent.name} is already in this game."
         )
-    # One AI = one seat at a time: refuse a provider already chosen for any of the
-    # user's unfinished seats (admins may overcommit for testing). To field several
-    # agents in one game, pick a different AI for each.
-    if not bypass_capacity:
-        busy = await providers_busy_for_user(db, user.id)
-        if chosen_provider in busy:
-            raise HTTPException(
-                status_code=409,
-                detail=f"{provider_label} is already in a game (“{busy[chosen_provider]}”).",
-            )
     # Confirm the seat only when the chosen AI is actually running its play loop
     # (not merely seen recently). Otherwise hold the seat and let the next screen
     # walk the user through starting that AI.
@@ -376,16 +365,14 @@ async def _seat_user_agent(
 def _pair_agents_with_providers(
     selected_ids: list[int],
     chosen_provider: list[str] | None,
-    *,
-    is_admin: bool,
 ) -> list[tuple[int, str]]:
     """Pair each chosen agent with the AI that will play it (pure validation).
 
     The screen posts one provider per chosen agent, in card order, so the lists
-    line up by position. A single provider for several agents is the legacy admin
-    "same AI for all" shorthand. One AI plays one of your seats per game: a regular
-    user must give a different AI per agent; admins may overcommit. Raises
-    HTTPException on any mismatch. Does not touch the database.
+    line up by position. A single provider for several agents is the "same AI for
+    all" shorthand — one AI may field several agents, so this is a normal choice
+    now rather than an admin-only one. Raises HTTPException on any mismatch. Does
+    not touch the database.
     """
     providers = chosen_provider or []
     if not providers:
@@ -396,16 +383,6 @@ def _pair_agents_with_providers(
         pairs = [(aid, providers[0]) for aid in selected_ids]
     else:
         raise HTTPException(status_code=400, detail="Each agent needs exactly one AI.")
-    if not is_admin:
-        picked = [provider for _, provider in pairs]
-        if len(set(picked)) != len(picked):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Pick a different AI for each agent — one AI can only play "
-                    "one of your agents per game."
-                ),
-            )
     return pairs
 
 
@@ -414,15 +391,13 @@ async def _seat_agent_players(
     user: User,
     match: Match,
     pairs: list[tuple[int, str]],
-    *,
-    is_admin: bool,
 ) -> list[Player]:
     """Build and stage the AI-agent Player rows for *pairs* (no commit).
 
     Reads existing seat names, runs each agent through ``_seat_user_agent`` (which
-    validates ownership/capacity and derives a unique seat name), and adds the rows
-    to the session. The caller owns the transaction: staging here so the human seat
-    seated afterward counts these rows via autoflush is deliberate — do not commit.
+    validates ownership and derives a unique seat name), and adds the rows to the
+    session. The caller owns the transaction: staging here so the human seat seated
+    afterward counts these rows via autoflush is deliberate — do not commit.
     """
     existing_seats = set(
         (
@@ -435,8 +410,7 @@ async def _seat_agent_players(
     )
     players = [
         await _seat_user_agent(
-            db, user, match, aid, existing_seats,
-            chosen_provider=provider, bypass_capacity=is_admin,
+            db, user, match, aid, existing_seats, chosen_provider=provider
         )
         for aid, provider in pairs
     ]
@@ -502,17 +476,16 @@ async def join_submit(
     - one or more ``agent_id`` + a matching ``chosen_provider`` adds **AI-agent
       seat(s)**. The browser posts one provider per chosen agent, in the same order
       (paired by position). A single provider given for several agents is the
-      legacy "same AI for all" shorthand and is broadcast to every agent.
+      "same AI for all" shorthand and is broadcast to every agent.
 
     Either, or **both**, may be present — a user can play by hand *and* field their
-    own bot in the same match (and compete against it). A regular user may field
-    several agents at once, but each must use a **different AI** (one AI plays one
-    of your seats per game); admins may overcommit one AI across seats for testing.
-    All seats are created in **one transaction**, so capacity is all-or-nothing.
+    own bot in the same match (and compete against it). A user may field several
+    agents at once, and several of them may share one AI: the client runs a play
+    loop per ``agent_id``, so those seats move in parallel. All seats are created in
+    **one transaction**, so capacity is all-or-nothing.
     """
     # Dedupe while preserving the picked order; `bot_id` is the legacy field name.
     selected_ids = list(dict.fromkeys([*(agent_id or []), *(bot_id or [])]))
-    is_admin = _is_any_admin(user)
     want_human = play_as == "human"
     want_agent = bool(selected_ids)
     set_request_trace_context(
@@ -542,10 +515,8 @@ async def join_submit(
     # agent that together overflow `max_players` fail as one — nothing commits.
     players: list[Player] = []
     if want_agent:
-        pairs = _pair_agents_with_providers(
-            selected_ids, chosen_provider, is_admin=is_admin
-        )
-        players = await _seat_agent_players(db, user, match, pairs, is_admin=is_admin)
+        pairs = _pair_agents_with_providers(selected_ids, chosen_provider)
+        players = await _seat_agent_players(db, user, match, pairs)
 
     # A one-click human seat: no agent, no connection. Idempotent (a no-op if the
     # user already holds an active human seat here) and active immediately.

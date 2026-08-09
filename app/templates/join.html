@@ -27,7 +27,7 @@
             {% if not any_agents %}
             <span class="pick-sub">You have no agents yet. <a href="/me/agents/new{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">Create one</a> to send an AI.</span>
             {% elif not any_pickable_ai %}
-            <span class="pick-sub">Every AI you have is busy in another game. Connect another from <a href="/me/connections">Connections</a>.</span>
+            <span class="pick-sub">You have no AI connected yet. Connect one from <a href="/me/connections">Connections</a>.</span>
             {% else %}
             <span class="pick-sub">An AI you control plays your strategy — you compete against it.</span>
             {% endif %}
@@ -36,9 +36,9 @@
 
     {% if any_agents and any_pickable_ai %}
     <div id="agent-section"{% if not default_agent %} style="display:none;"{% endif %}>
-        <p class="pick-hint">Pick an AI for each agent you want to send. Each AI can
-        play only one of your agents per game, so once you choose it for one agent it
-        greys out for the others.</p>
+        <p class="pick-hint">Pick an AI for each agent you want to send. One AI can
+        play several of your agents — it runs a separate play loop for each, so they
+        take their turns side by side rather than queueing.</p>
         {% for row in agent_rows %}
         <div class="agent-card{% if row.seated %} agent-card-taken{% endif %}"
              data-agent-card data-agent-id="{{ row.agent.id }}" data-agent-name="{{ row.agent.name }}">
@@ -74,9 +74,13 @@
                         <span class="ai-chip-state ai-chip-state-{{ opt.state }}">
                             {% if opt.state == 'ready' %}● ready
                             {% elif opt.state == 'idle' %}○ idle
-                            {% elif opt.state == 'not_connected' %}⊕ not connected
-                            {% else %}▪ busy{% endif %}
+                            {% else %}⊕ not connected{% endif %}
                         </span>
+                        {# Already holding a seat is a heads-up, not a block: the AI can
+                           field this agent too, it just has more turns to take. #}
+                        {% if opt.busy_match %}
+                        <span class="ai-chip-note">also in “{{ opt.busy_match }}”</span>
+                        {% endif %}
                     </label>
                     {% endif %}
                     {% endfor %}
@@ -131,22 +135,17 @@
         card.querySelectorAll('.ai-radio').forEach(function (r) { r.checked = false; });
     }
 
-    // Grey out an AI on every other card once it's chosen on one — one AI plays
-    // one of your agents per game. Also honors server-disabled (busy/offline) AIs
-    // and the section on/off state. Recomputed from scratch on every change.
+    // One AI may play several of your agents, so choosing it on one card no longer
+    // greys it out on the others. What still disables a radio: a server-disabled AI
+    // (data-orig-disabled) and the section being switched off. Recomputed from
+    // scratch on every change.
     function refreshGreyOut() {
-        var taken = {};  // provider -> the card that chose it
-        cards.forEach(function (card) {
-            if (card.dataset.chosenProvider) taken[card.dataset.chosenProvider] = card;
-        });
         var on = agentOn();
         document.querySelectorAll('.ai-radio').forEach(function (r) {
-            var card = r.closest('[data-agent-card]');
             var origDisabled = r.hasAttribute('data-orig-disabled');
-            var takenElsewhere = taken[r.value] && taken[r.value] !== card;
-            r.disabled = !on || origDisabled || !!takenElsewhere;
+            r.disabled = !on || origDisabled;
             var chip = r.closest('.ai-chip');
-            if (chip) chip.classList.toggle('ai-chip-disabled', origDisabled || !!takenElsewhere);
+            if (chip) chip.classList.toggle('ai-chip-disabled', origDisabled);
         });
     }
 

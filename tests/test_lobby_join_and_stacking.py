@@ -9,7 +9,7 @@ halves need them; conftest's `reset_db` is deliberately non-autouse).
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
@@ -365,35 +365,21 @@ async def test_non_admin_stacks_agents_with_distinct_ais(client, reset_db):
     }
 
 
-async def test_non_admin_cannot_reuse_one_ai_across_agents(client, reset_db):
-    """The same AI can't play two of a regular user's agents in one game — and nobody
-    is seated when that's attempted, whether posted as a duplicate or as the legacy
-    one-provider-for-all shorthand."""
+async def test_one_ai_can_play_several_agents_in_one_game(client, reset_db):
+    """One AI may hold several of a regular user's seats in the same game.
+
+    This used to be a 409 for non-admins, as a guard against turn timeouts. It was
+    never a correctness rule — admins already bypassed it — and the client fans out
+    one play loop per agent_id, so the seats move in parallel. Covers both post
+    shapes: an explicit duplicate, and the one-provider-for-all shorthand.
+    """
     user = await _seed_user(reset_db)  # not in the admin allowlist
     await _seed_game(reset_db)
     a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
     a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
     cookies = _signed_in_cookies(user.id)
-    for data in (
-        {"agent_id": [a1.id, a2.id], "chosen_provider": ["claude", "claude"]},
-        {"agent_id": [a1.id, a2.id], "chosen_provider": "claude"},  # broadcast shorthand
-    ):
-        r = await client.post(
-            "/games/hoard-hurt-help/matches/G_001/join",
-            data=data,
-            cookies=cookies,
-            follow_redirects=False,
-        )
-        assert r.status_code == 409
-        assert "different AI" in r.text
-        async with reset_db() as db:
-            count = len(
-                (await db.execute(select(Player).where(Player.match_id == "G_001")))
-                .scalars()
-                .all()
-            )
-        assert count == 0
-    # The picker is now per-agent AI chips (multi-select), not a single agent radio.
+    # Check the form while both agents are still unseated — a seated agent renders as
+    # taken and drops its picker, so this has to come before the joins below.
     form = await client.get(
         "/games/hoard-hurt-help/matches/G_001/join", cookies=cookies
     )
@@ -401,6 +387,30 @@ async def test_non_admin_cannot_reuse_one_ai_across_agents(client, reset_db):
     assert 'class="agent-radio"' not in form.text  # …but the single-select radio is gone
     assert f'name="ai_for_{a1.id}"' in form.text  # each agent has its own AI picker
     assert f'name="ai_for_{a2.id}"' in form.text
+    for data in (
+        {"agent_id": [a1.id, a2.id], "chosen_provider": ["claude", "claude"]},
+        {"agent_id": [a1.id, a2.id], "chosen_provider": "claude"},  # broadcast shorthand
+    ):
+        async with reset_db() as db:
+            await db.execute(delete(Player).where(Player.match_id == "G_001"))
+            await db.commit()
+        r = await client.post(
+            "/games/hoard-hurt-help/matches/G_001/join",
+            data=data,
+            cookies=cookies,
+            follow_redirects=False,
+        )
+        assert r.status_code < 400, r.text
+        async with reset_db() as db:
+            seated = (
+                (await db.execute(select(Player).where(Player.match_id == "G_001")))
+                .scalars()
+                .all()
+            )
+        # Both agents seated, both on Claude, and each got its own seat name.
+        assert len(seated) == 2
+        assert {p.chosen_provider for p in seated} == {"claude"}
+        assert len({p.seat_name for p in seated}) == 2
 
 
 async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
@@ -459,8 +469,12 @@ async def test_admin_can_seat_agent_already_busy_at_capacity(client, reset_db, m
     assert [p.agent_id for p in seated] == [agent_id]
 
 
-async def test_non_admin_still_blocked_by_busy_ai(client, reset_db):
-    """A regular user can't reuse an AI already in a game — the bypass is admin-only."""
+async def test_non_admin_can_reuse_an_ai_already_in_another_game(client, reset_db):
+    """A regular user may pick an AI that is already playing a different match.
+
+    The old rule refused this for everyone but admins. Turn routing is per-seat, so
+    an AI holding a seat elsewhere is a workload heads-up, not a conflict.
+    """
     user = await _seed_user(reset_db)  # not an admin
     agent_id = await _seed_agent_busy_in_active_match(reset_db, user)
     r = await client.post(
@@ -469,13 +483,12 @@ async def test_non_admin_still_blocked_by_busy_ai(client, reset_db):
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,
     )
-    assert r.status_code == 409
-    assert "already in a game" in r.text
+    assert r.status_code < 400, r.text
     async with reset_db() as db:
         seated = (
             await db.execute(select(Player).where(Player.match_id == "G_B"))
         ).scalars().all()
-    assert seated == []
+    assert [p.chosen_provider for p in seated] == ["claude"]
 
 
 async def test_duplicate_display_name_does_not_block_join(client, reset_db):
@@ -536,9 +549,14 @@ async def test_rename_duplicate_blocked(client, reset_db):
     assert r.status_code == 409
 
 
-async def test_join_form_marks_busy_ai_in_another_game(client, reset_db):
-    """An AI already in a different not-finished game shows as busy (and isn't
-    pickable) on the join form for another game."""
+async def test_join_form_notes_an_ai_already_in_another_game_but_keeps_it_pickable(
+    client, reset_db
+):
+    """An AI already in another not-finished game is flagged, not disabled.
+
+    The chip says which game it is already in, so the user can weigh the extra load,
+    but it stays selectable — the pre-2026-08 behaviour greyed it out entirely.
+    """
     user = await _seed_user(reset_db)
     # Seeds Claude busy in the active match G_A, plus an open match G_B to join.
     await _seed_agent_busy_in_active_match(reset_db, user)
@@ -546,4 +564,7 @@ async def test_join_form_marks_busy_ai_in_another_game(client, reset_db):
         "/games/hoard-hurt-help/matches/G_B/join", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
-    assert "▪ busy" in r.text  # the Claude row is greyed as busy
+    assert "also in" in r.text  # the Claude chip names the other game…
+    assert "▪ busy" not in r.text  # …and the old busy state is gone
+    # Nothing on the page marks a chip server-disabled, so Claude stays pickable.
+    assert 'data-orig-disabled="1"' not in r.text
