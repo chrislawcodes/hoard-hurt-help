@@ -28,12 +28,22 @@ from app.engine.bots.seating import BotSeatingError, add_bots_to_game
 from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
 from app.engine.user_match_start import is_bot_kind
+from app.games import get as get_game_module
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.ops_events import log_ops_event
 
 logger = logging.getLogger(__name__)
+
+
+def _default_turn_deadline() -> int:
+    """The default game's act-phase window.
+
+    Read from the game module rather than repeated here, so arena and auto-scheduled
+    matches track the same HHH_ACT_DEADLINE_SECONDS knob as player-created ones.
+    """
+    return get_game_module(DEFAULT_GAME_TYPE).config_defaults().per_turn_deadline_seconds
 
 PRACTICE_ARENA_NAME = "Practice Arena"
 # Practice arena seats 7 players: pre-seeded bots plus one open seat above them,
@@ -193,7 +203,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         scheduled_start=far_future,
         min_players=1,
         max_players=PRACTICE_ARENA_MAX_PLAYERS,
-        per_turn_deadline_seconds=75,
+        per_turn_deadline_seconds=_default_turn_deadline(),
         total_rounds=PRACTICE_ARENA_TOTAL_ROUNDS,
         turns_per_round=PRACTICE_ARENA_TURNS_PER_ROUND,
         state=GameState.REGISTERING,
@@ -242,7 +252,7 @@ async def ensure_auto_match(db: AsyncSession) -> None:
         scheduled_start=boundary,
         min_players=1,
         max_players=AUTO_MATCH_MAX_PLAYERS,
-        per_turn_deadline_seconds=75,
+        per_turn_deadline_seconds=_default_turn_deadline(),
         total_rounds=AUTO_MATCH_TOTAL_ROUNDS,
         turns_per_round=AUTO_MATCH_TURNS_PER_ROUND,
         state=GameState.SCHEDULED,
