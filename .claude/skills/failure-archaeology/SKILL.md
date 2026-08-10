@@ -44,6 +44,7 @@ That file is the source of truth for prod incidents. Index only:
 | Match length: 7 rounds → 5 | Counterfactual replay of 9 real games: 5 rounds keeps the match decided at the final round in 8/9, no new ties, ~29% shorter (49→35 turns). Turns/round stays 7 — the within-round lead settles around turn 6. | #567 (`77c679f`) |
 | Flat mutual help caused tie stalemates | Decaying mutual help (`max(2, 8-k)` per pair) + decay-aware partner rotation. Tie-rate 0.53 → 0.27 → 0.19 (baseline → decay → aware), consistent across 5 seeds × 40 matches. | #553, #556; oracle: `scripts/decay_validation_sim.py`; run recorded in `docs/workflow/feature-runs/mutual-help-decay/closeout.md` |
 | Win-probability display | Removed from the UI (#566). The trained models remain in `data/` for offline analysis only. Don't re-add the display without a new decision. | #566 |
+| **RETRACTED: "decay ON favours manipulators 63% vs 27%" (real-LLM, 11 pairs, Jul–Aug 2026)** | **Do not cite or re-analyse.** 7 of 22 games lost >20% of one provider's chat phase — two lost 100%. Four of the eight strategies win *through* talk, so those games measured "who wins when persuasion is off", not the decay rule. Bias runs against the manipulators, so the true effect may be larger, but the number is unusable either way. | `~/decay-campaign/discarded/DO-NOT-USE.md` (per-game loss table + root causes) |
 
 ## Refactors adjudicated "do not re-attempt"
 
