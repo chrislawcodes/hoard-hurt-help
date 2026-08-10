@@ -1,0 +1,37 @@
+{
+  "skill_name": "game-design",
+  "evals": [
+    {
+      "id": 0,
+      "name": "analyze-g0017-drama",
+      "prompt": "Analyze game G_0017 at https://agentludum.com/games/G_0017 and tell me whether it's dramatic enough to be worth watching. If not, what's the core reason?",
+      "expected_output": "A grounded diagnosis: pulls the real game data (action mix, ties, locked alliances, how early rounds were decided), names the root-cause equilibrium (positive-sum no-ceiling -> locked mutual-help alliances -> ties, dead HURT), and gives a verdict with concrete evidence rather than hand-waving.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 1,
+      "name": "revive-dead-hurt",
+      "prompt": "In our Hoard-Hurt-Help games, the HURT action is basically never used. How would you make it matter?",
+      "expected_output": "Identifies the root cause (HURT pays the attacker 0, so it's pure altruistic punishment and rational bots skip it), ties the fix to the real constants in app/games/hoard_hurt_help/rules.py and the math in app/games/hoard_hurt_help/scoring.py, proposes 2-3 distinct levers (e.g. self-paying HURT, leader bounty) with trade-offs, and notes a validation plan (simulate, check HURT usage rose without a new dominant strategy).",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 2,
+      "name": "redesign-fizzle-endgame",
+      "prompt": "Our final rounds keep fizzling out — everyone just hoards to a tie and the game ends on a whimper. Redesign the endgame so it's dramatic.",
+      "expected_output": "Diagnoses why the rational last-turn play is hoarding (no upside to bold moves, ties split), proposes distinct endgame levers (escalating late-turn stakes, sudden-death tiebreak, decisive winner-take-most) tied to resolver.py / award_round_winners, recommends one with trade-offs, and gives a validation plan.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 3,
+      "name": "boundary-flat-replay",
+      "prompt": "The replay of our last game felt really flat. Can you make it more dramatic?",
+      "expected_output": "Recognizes the ambiguity: 'flat' could be the game itself (game-design) or the animation of a fine game (game-art). Measures the real game first, then routes correctly — if the game is a foregone conclusion it leads with game-design and says art can't save it; if the game is fine it hands off to game-art. Does not silently assume one.",
+      "files": [],
+      "assertions": []
+    }
+  ]
+}
