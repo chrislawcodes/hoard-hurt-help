@@ -7,9 +7,10 @@ connect-at-sign-in hook that syncs the user the moment the token exchange
 completes.
 
 It does NOT resolve a token to an MCP connection (see
-``connection_identity``) and does NOT define any MCP tool (see ``mcp_tools``).
-``server`` assembles these pieces and re-exposes the public names so external
-imports keep working.
+``connection_identity``), does NOT define any MCP tool (see ``mcp_tools``), and
+does NOT hold the connection-key rules (see ``key_auth``) — it only decides
+*which* verifier a given bearer goes to. ``server`` assembles these pieces and
+re-exposes the public names so external imports keep working.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from typing import Any
 from fastmcp.server.auth.providers.google import GoogleProvider
 from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
+from fastmcp.server.auth.auth import AccessToken
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -30,6 +32,8 @@ from app.db import SessionLocal
 from app.routes.auth import sync_google_user
 from app.models.user import User
 from app.schemas.auth import GoogleUserInfo
+
+from mcp_server.key_auth import looks_like_connection_key, verify_connection_key
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +180,22 @@ class _ConnectAtSignInGoogleProvider(GoogleProvider):
                 exc_info=True,
             )
         return claims
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Verify a bearer as either a connection key or a Google sign-in token.
+
+        The two credential shapes are disjoint — a connection key is
+        ``sk_conn_<hex>`` and a FastMCP login token is a JWT — so the prefix
+        picks the verifier with no ambiguity and no fallback between them. A key
+        that fails ``key_auth``'s checks is rejected outright rather than
+        retried as a JWT: falling through would turn every rejected key into a
+        confusing signature error and hide the real reason in the logs.
+        """
+        if looks_like_connection_key(token):
+            # Hand over our own required_scopes so the key path clears exactly the
+            # scope check this provider enforces — see verify_connection_key.
+            return await verify_connection_key(token, scopes=self.required_scopes)
+        return await super().verify_token(token)
 
 
 # How long the FastMCP-issued login (bearer) token stays valid. The default ties

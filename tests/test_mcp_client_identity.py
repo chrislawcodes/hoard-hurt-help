@@ -15,6 +15,9 @@ from app.models.connection import ConnectionProvider
         ("claude-ai", ConnectionProvider.CLAUDE),
         ("codex-mcp-client", ConnectionProvider.OPENAI),
         ("gemini-cli-mcp-client", ConnectionProvider.GEMINI),
+        # Antigravity is Google's replacement for the retired Gemini CLI, and its
+        # name contains no "gemini" — captured from a live handshake.
+        ("antigravity-client", ConnectionProvider.GEMINI),
     ],
 )
 def test_captured_client_names_map_correctly(

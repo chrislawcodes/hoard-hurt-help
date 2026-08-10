@@ -11,10 +11,14 @@ Captured real client names from live handshakes:
 - Claude Desktop  -> "claude-ai"
 - Codex (OpenAI)  -> "codex-mcp-client"
 - Gemini CLI      -> "gemini-cli-mcp-client"
+- Antigravity     -> "antigravity-client"
 
 Matching is a case-insensitive substring check. Codex is OpenAI's CLI, so a
-"codex" name maps to ``OPENAI``. Unknown or missing names return ``None`` so the
-caller enables nothing (fail safe).
+"codex" name maps to ``OPENAI``. Antigravity is Google's replacement for the
+Gemini CLI (which Google retired for individual accounts in June 2026) and names
+itself "antigravity-client" — no "gemini" anywhere in it — so it needs its own
+rule or it reads as an unknown client. Unknown or missing names return ``None``
+so the caller enables nothing (fail safe).
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from app.models.connection import ConnectionProvider
 # it maps to OPENAI rather than CLAUDE.
 _SUBSTRING_RULES: tuple[tuple[str, ConnectionProvider], ...] = (
     ("gemini", ConnectionProvider.GEMINI),
+    ("antigravity", ConnectionProvider.GEMINI),
     ("codex", ConnectionProvider.OPENAI),
     ("claude", ConnectionProvider.CLAUDE),
     ("hermes", ConnectionProvider.HERMES),

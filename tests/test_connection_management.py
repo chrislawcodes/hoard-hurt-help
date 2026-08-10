@@ -316,14 +316,18 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
     # No provider carries an "Easiest" badge.
     assert "byo-easiest-badge" not in text
 
-    # Gemini (Antigravity IDE): a paste-in prompt that hands the agent the
-    # serverUrl JSON to add, then the click-Authenticate step. No CLI add command.
+    # Gemini (Antigravity): a paste-in prompt that hands the agent the serverUrl
+    # JSON to add. No CLI add command, and no sign-in step — Antigravity is the
+    # one client that cannot finish the OAuth flow (antigravity-cli#25), so the
+    # config carries an Authorization header and the note points at the opt-in.
     gemini_block = text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
     assert "byo-config-gemini" in gemini_block
     assert "serverUrl" in gemini_block
     assert "Antigravity" in gemini_block
-    assert "Authenticate" in gemini_block
+    assert "Authorization" in gemini_block
+    assert "key sign-in" in gemini_block
     assert "gemini mcp add" not in gemini_block
+    assert "sk_conn_" not in gemini_block
     assert gemini_block.index("byo-cmd-text") < gemini_block.index("byo-cmd-btn")
 
     # Three AI tabs now; the standalone Claude Desktop tab folded into Claude's

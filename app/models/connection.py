@@ -6,7 +6,17 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    false,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -106,6 +116,19 @@ class Connection(Base):
     )
     runner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     oauth_client_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Opt-in: let this connection authenticate to /mcp with its `sk_conn_` key
+    # instead of the Google sign-in. Off by default and never set implicitly —
+    # the key then lives in the AI client's own config file, where the model can
+    # read it, and this game feeds opponent-written chat to that same model. Only
+    # turn it on for a client that cannot complete the OAuth flow (Antigravity —
+    # it discovers our sign-in metadata, then retries without ever fetching a
+    # token; see google-antigravity/antigravity-cli#25).
+    mcp_key_signin_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+    )
     # Lifetime usage counters for this connection, surfaced on the detail page so
     # an operator running interactive (MCP) play can see what it's costing them.
     # `api_call_count` counts every authenticated agent call (each is a paid model

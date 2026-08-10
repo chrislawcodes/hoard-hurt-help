@@ -43,7 +43,11 @@ def _provider_label(provider: ConnectionProvider | None) -> str:
 #
 # AUTH-AGNOSTIC SEAM: the per-client connect copy below MIRRORS
 # ``docs/setup-mcp.md`` — keep the two in sync. Connecting is OAuth (Google
-# sign-in), header-less: no ``sk_conn_`` key and no ``--header`` anywhere.
+# sign-in) and header-less for every client that can complete it: no ``sk_conn_``
+# key and no ``--header``. Antigravity is the one exception — it cannot finish the
+# OAuth flow at all, so it carries a key in an Authorization header (see the
+# gemini_prompt comment below). Do not "restore consistency" by stripping that
+# header; it is the only credential that client can present.
 #
 # Every target client is an AGENT that can wire up its own MCP server, so the
 # connect box hands the user ONE paste-in prompt per client and the agent runs
@@ -102,7 +106,9 @@ def _connect_options() -> list[ConnectOption]:
     each option is ONE paste-in prompt the user hands to that agent; the agent
     adds the ``agentludum`` server itself. The user only completes the Google
     sign-in (a browser click) and, for the CLIs, one restart so the new tools
-    load. Header-less OAuth — no key, no ``--header``. Display order: Claude
+    load. Header-less OAuth — no key, no ``--header`` — for every client except
+    Antigravity, which cannot complete the sign-in and carries a key instead.
+    Display order: Claude
     Code, Codex, Gemini (Antigravity).
     """
     mcp_url = f"{settings.base_url}/mcp"
@@ -128,16 +134,26 @@ def _connect_options() -> list[ConnectOption]:
         "Then tell me to restart you, since new tools only load when you start "
         "up. After I restart, I'll paste the play prompt to start a game."
     )
-    # Gemini connects from the Antigravity IDE; its agent can edit the IDE's MCP
-    # config, so the prompt hands it the server JSON to add. Antigravity uses the
-    # ``serverUrl`` key for remote HTTP servers and reloads without a full restart.
+    # Gemini connects from Antigravity (the CLI or the IDE), which shares one MCP
+    # config at ~/.gemini/config/mcp_config.json.
+    #
+    # THE ONE CLIENT THAT CANNOT SIGN IN. Antigravity does not complete the OAuth
+    # flow: measured against prod, it POSTs to /mcp with no credential, fetches
+    # our protected-resource metadata correctly, and then retries without ever
+    # calling the authorization server (google-antigravity/antigravity-cli#25,
+    # open since May 2026, reproduced on 1.1.11). So this is the only option here
+    # that does NOT end in a Google sign-in — it carries the connection's key in
+    # a header instead, which Antigravity does honour. That path is off until the
+    # owner turns on "Allow key sign-in on MCP" for the connection, so the prompt
+    # sends them there rather than pretending a sign-in will work.
     gemini_prompt = (
         "Connect yourself to Agent Ludum so you can play its games.\n\n"
         'Add this server to ~/.gemini/config/mcp_config.json, under "mcpServers":\n'
-        f'  "agentludum": {{ "serverUrl": "{mcp_url}" }}\n\n'
-        "Then tell me to open the Customizations tab and click Authenticate next "
-        'to "agentludum" — a browser opens and I\'ll sign in with Google. Once it '
-        "shows connected, I'll paste the play prompt to start a game."
+        f'  "agentludum": {{ "serverUrl": "{mcp_url}",\n'
+        '                   "headers": { "Authorization": "Bearer MY_CONNECTION_KEY" } }\n\n'
+        "Replace MY_CONNECTION_KEY with the key I give you, then tell me to "
+        "restart Antigravity. Antigravity can't do the Google sign-in the other "
+        "clients use, so the key is how it gets in."
     )
     return [
         ConnectOption(
@@ -177,7 +193,14 @@ def _connect_options() -> list[ConnectOption]:
             config_lead="Paste this to the Antigravity agent — it adds the server itself:",
             config_block=gemini_prompt,
             steps=(),
-            note=f"{signin_note}.",
+            # Deliberately NOT the shared `signin_note`: this is the one client
+            # that never reaches a Google sign-in (see gemini_prompt above).
+            note=(
+                "Antigravity can't complete the Google sign-in the other clients "
+                "use, so it signs in with this connection's key instead. Turn on "
+                '"Allow key sign-in on MCP" on the connection first — it is off '
+                "until you do."
+            ),
         ),
     ]
 

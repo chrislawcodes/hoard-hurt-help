@@ -412,7 +412,7 @@ Exposes the play API as MCP tools mounted at `/mcp`, so any MCP client
 (Claude Code/Desktop, Codex, Gemini CLI — **not** Cursor) can play. Built on
 **standalone `fastmcp` v3** (migrated off the SDK‑bundled `mcp.server.fastmcp`).
 
-**Auth: OAuth‑only at `/mcp` (feat `mcp-oauth`).** `/mcp` is an OAuth 2.1
+**Auth: OAuth at `/mcp`, plus one opt‑in key exception (feat `mcp-oauth`).** `/mcp` is an OAuth 2.1
 **Resource Server**: an unauthenticated request gets `401` + `WWW‑Authenticate`,
 and the server serves RFC 9728 Protected‑Resource‑Metadata + Authorization‑Server
 metadata with DCR + PKCE. `fastmcp`'s `GoogleProvider`/`OAuthProxy` bridges to our
@@ -420,6 +420,22 @@ existing Google app (Google has no DCR), minting a server‑issued, audience‑b
 token — the MCP client never holds a Google token and the user never pastes a
 key. The old `X‑Connection‑Key` header path is **dropped at `/mcp`**; it remains
 the connector / direct‑HTTP auth (Flow A).
+
+**The one exception — opt‑in key sign‑in (`mcp_server/key_auth.py`).** Antigravity
+cannot complete the OAuth flow: measured against prod, it POSTs `/mcp` with no
+credential, fetches the Protected‑Resource‑Metadata correctly, then retries
+without ever calling the authorization server
+([antigravity-cli#25](https://github.com/google-antigravity/antigravity-cli/issues/25)).
+It does send a static header, so `/mcp` also accepts an `sk_conn_` key as the
+bearer — **only** where the owner set `Connection.mcp_key_signin_enabled` (default
+false, never set implicitly, never inferred from the client's self‑reported name).
+`_ConnectAtSignInGoogleProvider.verify_token` dispatches on the `sk_conn_` prefix;
+every other bearer takes the unchanged OAuth path. The verifier stamps the
+connection's id into a namespaced claim, so a key resolves only to its own
+connection, and it ignores `prev_key_lookup` so reissuing a key revokes it here
+immediately (the HTTP API still honours the previous key during overlap). Kept
+deliberately narrow because the key lives in the client's config file where the
+model can read it, and a match feeds opponent‑written chat to that same model.
 
 **Bridge — OAuth identity → per‑(user, provider) "MCP connection" Connection.** After the
 token is verified, the MCP layer resolves the Google `sub` to a `User` (via
