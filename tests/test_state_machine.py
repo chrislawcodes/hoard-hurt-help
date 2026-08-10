@@ -20,7 +20,11 @@ from app.models.match import GameState
         (GameState.REGISTERING, GameState.CANCELLED, True),
         (GameState.REGISTERING, GameState.COMPLETED, False),
         (GameState.ACTIVE, GameState.COMPLETED, True),
-        (GameState.ACTIVE, GameState.CANCELLED, False),  # not in v1
+        # A platform admin may cancel a running match, and the watchdog cancels an
+        # ACTIVE match left with no players. Both write the fields through
+        # mark_cancelled without consulting this map, so the transition already
+        # happened in production while this map called it illegal.
+        (GameState.ACTIVE, GameState.CANCELLED, True),
         (GameState.COMPLETED, GameState.ACTIVE, False),
         (GameState.CANCELLED, GameState.ACTIVE, False),
     ],

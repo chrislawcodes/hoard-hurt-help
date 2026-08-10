@@ -32,15 +32,23 @@ def cancel_blocked_reason(match: Match) -> str | None:
 
 
 async def cancel_match(db: AsyncSession, match: Match) -> None:
-    """Cancel a match: stop its scheduler task and mark it CANCELLED.
+    """Cancel a match: mark it CANCELLED, then stop its scheduler task.
 
     Preserves all match data (unlike ``delete_match``). The caller owns the
     allowed-state policy — this only performs the transition. ``registry.stop``
     is a no-op when the match has no running task (e.g. a pre-start match).
+
+    **Commit before stopping — the order is load-bearing.** The scheduler
+    watchdog runs every two seconds and restarts any match still ACTIVE in the
+    database with no running task, which is exactly how a crashed match heals
+    itself. Stopping first leaves the match looking crashed until the commit
+    lands, so a watchdog pass in that window resurrects the match we just
+    cancelled. Committing first means it is no longer ACTIVE when the task
+    stops, so the watchdog correctly ignores it.
     """
-    registry.stop(match.id)
     mark_cancelled(match, datetime.now(timezone.utc))
     await db.commit()
+    registry.stop(match.id)
 
 
 async def delete_match(db: AsyncSession, match_id: str) -> None:
