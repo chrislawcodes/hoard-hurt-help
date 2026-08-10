@@ -51,23 +51,22 @@
             <span class="lineup-name">{{ row.agent.name }}</span>
         </label>
         {% if row.agent.blurb %}<span class="lineup-blurb">{{ row.agent.blurb }}</span>{% endif %}
-        {# Why this row can't be ticked, when it can't. Filled by refreshRows so
-           it also covers "the AI you'd get was just taken by another row" — a
-           disabled checkbox with no reason is a dead end. #}
-        <span class="lineup-note" data-row-note aria-live="polite"></span>
         <span class="lineup-pills" id="ais-{{ row.agent.id }}" role="radiogroup"
               aria-label="Which AI plays {{ row.agent.name }}" hidden>
             {% for opt in ai_options %}
             {% if not any_connected_ai or opt.state in ('ready', 'idle') %}
-            <label class="ai-pill{% if not opt.can_pick %} ai-pill-disabled{% endif %}">
+            {# Every AI is pickable on every row. One AI may field several of your
+               agents, so nothing here is greyed out and no row can run out. #}
+            <label class="ai-pill">
                 <input type="radio" name="ai_for_{{ row.agent.id }}" value="{{ opt.provider }}"
-                       class="ai-radio" disabled
-                       {% if not opt.can_pick %}data-orig-disabled="1"{% endif %}>
+                       class="ai-radio" disabled>
                 <span class="ai-pill-name">{{ opt.label }}</span>
-                {# Silence means ready. A state word appears only when there IS news —
-                   twelve identical "ready" badges told the reader nothing. #}
+                {# Silence means ready. A state word appears only when there IS news
+                   the reader can act on — twelve identical "ready" badges told them
+                   nothing, and "already in another game" no longer limits anything,
+                   so it stays off the page and lives in the sort order instead. #}
                 {% if opt.state != 'ready' %}
-                <span class="ai-pill-note">{% if opt.state == 'idle' %}○ idle{% elif opt.state == 'not_connected' %}⊕ not connected{% else %}▪ busy{% endif %}</span>
+                <span class="ai-pill-note">{% if opt.state == 'idle' %}○ idle{% else %}⊕ not connected{% endif %}</span>
                 {% endif %}
             </label>
             {% endif %}
@@ -138,7 +137,7 @@
         radiosOf(card).forEach(function (r) { r.checked = false; });
     }
 
-    // Which AIs are spoken for right now: provider -> the card that took it.
+    // Which AIs the other rows have already spoken for: provider -> the card.
     function takenMap() {
         var taken = {};
         cards.forEach(function (card) {
@@ -147,70 +146,55 @@
         return taken;
     }
 
-    // The first AI this card could still use, or '' if none is free. Freeness is
-    // per-row and moves with every click, so it can't be settled once on the
-    // server — it is recomputed here on every change.
-    function firstFree(card, taken) {
-        var found = '';
-        radiosOf(card).forEach(function (r) {
-            if (found) return;
-            if (r.hasAttribute('data-orig-disabled')) return;
+    // Which AI a freshly ticked row starts on. One AI may field several of your
+    // agents, so this is only the opening guess — every pill stays clickable on
+    // every row, and changing it is one click.
+    //
+    // Spread first: prefer an AI no other ticked row is using. Each AI runs its own
+    // play loop, so two agents on two AIs take their turns side by side, while two
+    // on one AI queue behind each other. When every AI is already spoken for, fall
+    // back to the first in the list — the server sorts them ready-first and
+    // free-before-busy, so that is the AI most likely to actually be playing.
+    function preferredAi(card, taken) {
+        var radios = radiosOf(card);
+        var free = '';
+        radios.forEach(function (r) {
+            if (free) return;
             if (taken[r.value] && taken[r.value] !== card) return;
-            found = r.value;
+            free = r.value;
         });
-        return found;
+        return free || (radios.length ? radios[0].value : '');
     }
 
-    // Recomputed from scratch on every change: grey out an AI on every other card
-    // once it's chosen on one, honor server-disabled (busy/offline) AIs, reveal
-    // each ticked row's pills, and disable a checkbox whose row has no AI left.
+    // Recomputed from scratch on every change: reveal each ticked row's pills and
+    // keep an unticked row's radios out of reach.
     function refreshRows() {
-        var taken = takenMap();
         cards.forEach(function (card) {
             var box = checkOf(card);
             var on = !!(box && box.checked);
-            radiosOf(card).forEach(function (r) {
-                var origDisabled = r.hasAttribute('data-orig-disabled');
-                var takenElsewhere = taken[r.value] && taken[r.value] !== card;
-                r.disabled = !on || origDisabled || !!takenElsewhere;
-                var pill = r.closest('.ai-pill');
-                if (pill) pill.classList.toggle('ai-pill-disabled', origDisabled || !!takenElsewhere);
-            });
+            radiosOf(card).forEach(function (r) { r.disabled = !on; });
             var pills = pillsOf(card);
             if (pills) pills.hidden = !on;
-            if (box) {
-                // An untickable row is one with nothing left to pair with — ticking
-                // it would post an agent with no AI.
-                box.disabled = !on && !firstFree(card, taken);
-                box.setAttribute('aria-expanded', on ? 'true' : 'false');
-                var note = card.querySelector('[data-row-note]');
-                if (note) note.textContent = box.disabled ? 'No AI free' : '';
-            }
+            if (box) box.setAttribute('aria-expanded', on ? 'true' : 'false');
         });
     }
 
     // Re-derive each row from the DOM. The browser restores a checkbox's `checked`
     // on a Back navigation but NOT `dataset.chosenProvider` or the hidden mirrors'
     // `disabled` flags — so without this a restored page shows a row ticked while
-    // posting nothing for it, and the agent silently misses the match. Worse, the
-    // AI it appears to hold reads as free, so the next row ticked can be handed it.
+    // posting nothing for it, and the agent silently misses the match.
     // Runs on load and on every pageshow (bfcache hit or not).
     function adoptRestoredState() {
         cards.forEach(function (card) {
             var box = checkOf(card);
             if (!box || !box.checked || card.dataset.chosenProvider) return;
-            // Prefer whatever radio the browser restored; else the first free AI.
+            // Prefer whatever radio the browser restored; else the row's opening guess.
             var restored = radiosOf(card).filter(function (r) { return r.checked; })[0];
-            var taken = takenMap();
-            var provider = '';
-            if (restored && !restored.hasAttribute('data-orig-disabled')
-                && !(taken[restored.value] && taken[restored.value] !== card)) {
-                provider = restored.value;
-            } else {
-                provider = firstFree(card, taken);
-            }
-            // Nothing pairable any more: drop the tick rather than leave a row that
-            // looks like it's entering and isn't.
+            var provider = restored ? restored.value : preferredAi(card, takenMap());
+            // A row with no AI pills at all can't be paired with anything, so drop
+            // the tick rather than leave a row that looks like it's entering and
+            // isn't. (The server always offers at least one AI, so this is the
+            // invariant's backstop, not a state a user can reach.)
             if (provider) setCard(card, provider); else box.checked = false;
         });
     }
@@ -231,9 +215,9 @@
         if (box) {
             box.addEventListener('change', function () {
                 if (box.checked) {
-                    var provider = firstFree(card, takenMap());
-                    // Nothing free: refuse the tick rather than post an agent with
-                    // no AI (which the server rejects with a raw 400).
+                    var provider = preferredAi(card, takenMap());
+                    // No AI pills at all: refuse the tick rather than post an agent
+                    // with no AI (which the server rejects with a raw 400).
                     if (!provider) { box.checked = false; sync(); return; }
                     setCard(card, provider);
                 } else {
@@ -249,9 +233,6 @@
         // shouldn't arrive; it keeps checkbox and mirrors in step if one ever does.)
         radiosOf(card).forEach(function (r) {
             r.addEventListener('click', function () {
-                if (r.hasAttribute('data-orig-disabled')) return;
-                var taken = takenMap();
-                if (taken[r.value] && taken[r.value] !== card) return;
                 if (box && !box.checked) box.checked = true;
                 setCard(card, r.value);
                 sync();

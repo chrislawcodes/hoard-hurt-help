@@ -53,7 +53,8 @@ router = APIRouter(tags=["web"])
 
 
 # Order AIs in the join picker: ready first, then connected-but-idle, then
-# not-connected (set up next), with busy ones last (can't be picked).
+# not-connected (set up next). Within a rank, AIs free right now come before ones
+# already holding a seat somewhere.
 _AI_STATE_RANK = {"ready": 0, "idle": 1, "not_connected": 2}
 
 
@@ -65,11 +66,12 @@ async def _build_ai_options(
     States: ``ready`` (live, plays now), ``idle`` (connected but not running yet),
     and ``not_connected`` (no MCP connection — picking routes to set it up).
 
-    An AI already committed to another seat is *not* a state — it stays pickable
-    and carries ``busy_match`` so the picker can say which game it is already in.
-    One AI can field several agents at once; the client runs one play loop per
-    ``agent_id``, so those seats move in parallel rather than queueing. Busy AIs
-    still sort after free ones, since spreading load is the better default.
+    Already holding a seat is *not* a state, and is deliberately not shown. One AI
+    can field several agents at once (the client runs a play loop per ``agent_id``,
+    so those seats move in parallel rather than queueing), which makes it a
+    non-event the page would only have to explain — and the join screen is read
+    against a countdown. It survives as the ``busy`` sort key alone: free AIs come
+    first, so the AI a ticked row lands on spreads the load without a word about it.
     """
     _ACTIVE = {"claude", "gemini", "openai"}
     options: list[dict[str, object]] = []
@@ -91,14 +93,17 @@ async def _build_ai_options(
                 "provider": value,
                 "label": label,
                 "state": state,
-                "busy_match": busy.get(value),
-                "can_pick": True,
+                # Sort key only — never rendered. A bool, not the match name:
+                # ``providers_busy_for_user`` keeps whichever of several matches the
+                # database happened to return first, so the name is arbitrary and
+                # only "busy at all" is a fact worth carrying.
+                "busy": value in busy,
             }
         )
     options.sort(
         key=lambda o: (
             _AI_STATE_RANK[str(o["state"])],
-            o["busy_match"] is not None,
+            bool(o["busy"]),
             str(o["label"]),
         )
     )
@@ -228,8 +233,8 @@ async def join_form(
     join_url = f"/games/{game}/matches/{match_id}/join"
     agent_rows = await _build_agent_rows(db, user, match)
     # The "which AI plays it?" picker: each supported AI with its state
-    # (ready / connected-not-playing / not-connected / busy-in-a-game). One AI
-    # plays one seat at a time, so an AI already in any unfinished game is busy.
+    # (ready / connected-not-playing / not-connected). Every AI is pickable on
+    # every row; already holding a seat only pushes it down the order.
     busy = await providers_busy_for_user(db, user.id)
     ai_options = await _build_ai_options(db, user.id, busy)
     # An AI counts as "connected" once it's live or set-up-but-idle. When the user

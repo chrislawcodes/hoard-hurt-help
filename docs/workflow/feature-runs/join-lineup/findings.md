@@ -75,3 +75,19 @@ the full suite rather than reasoning about coverage — several rows below are
 | D19 | silent-failure | Blurb escaping in `value="{{ agent.blurb or '' }}"` | **no change needed** | Verified through the app's own Jinja env: autoescape is on, quote-breakout is not possible |
 | D20 | regression | The pill-click handler's "tick the row too" branch is unreachable while unticked rows' radios are disabled | **fix now (comment only)** | Kept as a guard, but the comment no longer claims it is load-bearing |
 | D21 | silent-failure | Join POST rejections render raw JSON instead of the page's `error` slot | **defer** | Pre-existing, and this change makes the new error states unreachable rather than worse. Follow-up spawned |
+
+## Rebase review — 2026-08-10 (after PR #637 landed on main)
+
+The branch sat open while `main` removed "one AI = one seat at a time" (#637).
+These are the findings from re-reviewing the diff against today's `main`, kept in
+the same format. Full reasoning in the spec's "Revised 2026-08-10" block.
+
+| # | Kind | Finding | Verdict | Action |
+|---|---|---|---|---|
+| R1 | regression | Merging as-is would reinstate the removed rule: the branch still carried `opt.can_pick` greying and a `busy` AI state | **fix now** | Rebase took main's `_build_ai_options` / `_seat_user_agent` / `_pair_agents_with_providers` cleanly (the PR never edited them); the greying was removed from `join.html` |
+| R2 | correctness | "Auto-select the first **free** AI" is undefined once every AI is always free | **fix now** | Redefined as "prefer an AI no other ticked row is using, else the first in the list". Spreading is a preference, not a constraint — separate AIs take turns in parallel |
+| R3 | regression | A row could refuse its own tick ("No AI free"), which is now unreachable *and* wrong — the 4th row of a 3-AI account would be a dead end | **fix now** | Removed the per-row disable and the note. The empty-fallback guard is kept as R1's backstop with a comment saying it is unreachable |
+| R4 | silent-failure | `providers_busy_for_user` `setdefault`s the first row the DB returns and the query is unordered, so `also in "<match>"` named an arbitrary one of several — and could differ between page loads | **fix differently** | Not fixed: the label was cut on Chris's call (page weight), which removes the display entirely. The value is now the bool `busy`, used only as a sort key, where arbitrariness cannot show |
+| R5 | feasibility | Migration `0047` collides — main added `0047`, `0048`, `0049` while the branch was open | **fix now** | Renumbered to `0050`, `down_revision` re-pointed to `0049`. The head assertion in `test_migrations.py` now reads the real head instead of a literal, so the next collision can't recur |
+| R6 | test-honesty | The `also in` / `▪ busy` test from #637 pinned a label this rework deletes | **fix now** | Rewritten to assert the label's *absence*, plus a new test pinning the sort order it was replaced by. Mutation-checked: deleting the `busy` sort key fails the new test |
+| R7 | test-honesty | Nothing pinned the new auto-pick fallback, and the JS still has no executable coverage | **accept, disclosed** | Two source tripwires added (spread branch and fallback branch asserted separately, so half the function going missing still fails). The D14 disclosure stands unchanged — the interaction itself is verified in a browser, not by the suite |

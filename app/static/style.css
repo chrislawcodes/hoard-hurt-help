@@ -874,7 +874,6 @@ pre code { background: none; padding: 0; }
     cursor: pointer; flex-shrink: 0;
 }
 .lineup-tick input[type="checkbox"] { margin: 0; flex-shrink: 0; }
-.lineup-tick:has(input:disabled) { cursor: not-allowed; opacity: 0.55; }
 .lineup-name { font-weight: 600; font-size: 0.92rem; min-width: 6.5rem; }
 .lineup-blurb { color: var(--ink-soft); font-size: 0.84rem; flex: 1 1 9rem; }
 .lineup-warn { flex-basis: 100%; font-size: 0.8rem; color: var(--alert, var(--bad)); padding-left: 1.6rem; }
@@ -895,16 +894,15 @@ pre code { background: none; padding: 0; }
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 14%, var(--surface));
 }
-.ai-pill:not(.ai-pill-disabled):hover { border-color: var(--accent); }
+.ai-pill:hover { border-color: var(--accent); }
 /* Hide the radio visually but keep it in the tab order and the a11y tree —
    `display:none` would drop it from both, leaving the picker keyboard- and
    screen-reader-unreachable. The label still toggles it on click. */
 .ai-pill input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
 .ai-pill:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-.ai-pill-disabled { opacity: 0.4; cursor: not-allowed; }
 .ai-pill-name { font-weight: 600; font-size: 0.84rem; }
-/* Only ever rendered when there IS news (idle / not connected / busy). A "ready"
-   pill carries no state word — twelve identical badges told the reader nothing. */
+/* Only ever rendered when there IS news (idle / not connected). A "ready" pill
+   carries no state word — twelve identical badges told the reader nothing. */
 .ai-pill-note { font-size: 0.76rem; color: var(--ink-soft); }
 
 /* A disabled primary action has to read as disabled. Without this the Join button
@@ -915,8 +913,6 @@ pre code { background: none; padding: 0; }
     cursor: not-allowed;
     box-shadow: none;
 }
-
-.lineup-note { font-size: 0.8rem; color: var(--ink-soft); font-style: italic; }
 
 .lineup-foot {
     display: flex; align-items: center; justify-content: space-between;

@@ -2,8 +2,9 @@
 the agent blurb.
 
 **What this file can and cannot prove.** The suite renders HTML but runs no
-JavaScript, and the lineup's interaction (tick a row → its first free AI is
-selected → both hidden mirrors switch on together) is entirely client-side. So
+JavaScript, and the lineup's interaction (tick a row → an AI is picked for it,
+preferring one no other row is using → both hidden mirrors switch on together) is
+entirely client-side. So
 the pairing tests below assert the *structure the JavaScript operates on* rather
 than the result of operating it: browsers serialize repeated same-named fields in
 document order, so "the k-th ``agent_id`` and the k-th ``chosen_provider`` sit in
@@ -281,6 +282,47 @@ def test_template_switches_both_mirrors_together():
     clear_body = src[src.index("function clearCard"):src.index("function takenMap")]
     assert "pm.disabled = true" in clear_body
     assert "am.disabled = true" in clear_body
+
+
+def test_template_auto_pick_falls_back_instead_of_running_out():
+    """Tripwire: ticking a row must never be refusable while pills exist.
+
+    Same caveat as above — this reads the source, because the behaviour is
+    JavaScript. It guards the property the 2026-08 rework turned on: one AI may now
+    hold several seats, so "every AI is taken" is a normal state, not a dead end.
+    ``preferredAi`` therefore has to fall back to the first pill rather than return
+    empty, or the fourth row of a three-AI account silently refuses to tick — the
+    exact behaviour that made the old "one AI = one seat" page a dead end.
+
+    The two branches are asserted separately: dropping the fallback leaves the
+    spread loop intact and vice versa, so a single assertion would pass with half
+    the function gone.
+    """
+    src = (
+        __import__("pathlib").Path(__file__).resolve().parent.parent
+        / "app" / "templates" / "join.html"
+    ).read_text()
+    body = src[src.index("function preferredAi"):src.index("function refreshRows")]
+    # Spread first: skip an AI another row already holds.
+    assert "taken[r.value] && taken[r.value] !== card" in body
+    # …then fall back to the first pill rather than to nothing.
+    assert "return free || (radios.length ? radios[0].value : '');" in body
+
+
+def test_no_ai_is_ever_greyed_out_on_the_page():
+    """The 2026-08 rework removed greying entirely; nothing may reintroduce it.
+
+    Checkable in rendered HTML (unlike the auto-pick), because the old mechanism was
+    a server-rendered ``data-orig-disabled`` marker plus a class the script toggled.
+    With one AI able to hold several seats, greying would block a real choice: four
+    Claude agents in one match is a tested production flow.
+    """
+    src = (
+        __import__("pathlib").Path(__file__).resolve().parent.parent
+        / "app" / "templates" / "join.html"
+    ).read_text()
+    assert "data-orig-disabled" not in src
+    assert "ai-pill-disabled" not in src
 
 
 # ----------------------------------------------------------------- the blurb

@@ -1,7 +1,37 @@
 # Spec — Join page as a lineup
 
 **Slug:** `join-lineup`  ·  **Path:** Thin  ·  **Date:** 2026-07-21
-**Revision:** 2 (after feasibility + requirements adversarial review)
+**Revision:** 3 (rev 2 after feasibility + requirements adversarial review;
+rev 3 after PR #637 landed on main — see below)
+
+> ### Revised 2026-08-10, after PR #637
+>
+> This spec was written while **"one AI = one seat at a time"** was still a rule.
+> PR #637 (merged 2026-08-09) removed it: one AI may now hold several of a user's
+> seats, in one match or across matches. Four Claude agents and four Codex agents
+> in a single match is a tested production flow.
+>
+> Everything above about *page weight* is unaffected and still the point of the
+> change. What the rule's removal invalidates is the **scarcity** the interaction
+> was built on — "the AI you want may be taken" is no longer a thing that happens.
+> The decisions below are superseded:
+>
+> | Was | Now | Why |
+> |---|---|---|
+> | DD2 — tick auto-selects the first **free** AI | Tick auto-selects an AI **no other ticked row is using**, falling back to the first in the list | Every AI is always free, so "first free" no longer names anything. Spreading is still the better default (each AI runs its own play loop, so seats on different AIs move in parallel) but it is now a *preference*, not a constraint |
+> | DD3 — a row with no free AI is not tickable | **Deleted.** A tick is never refused | The state it guarded cannot occur. Keeping it would make the 4th row of a 3-AI account a dead end for no reason |
+> | DD7 — per-row "no free AI" recomputed client-side | **Deleted** along with DD3 | Same |
+> | AC6 / AC17 — checkbox `disabled`, "No AI free" note | **Deleted** | Same |
+> | Pills grey out once an AI is chosen elsewhere | **Deleted.** Every pill stays clickable on every row | Greying would now block a real choice |
+> | `▪ busy` pill label, then `also in "<match>"` | **Deleted.** The page says nothing about it | Not a limit any more, so it is a line to read under a countdown that changes no decision. It survives as sort order only: a busy AI sorts behind an equally-ready free one, so the auto-pick spreads load silently. The label was also unreliable — `providers_busy_for_user` keeps whichever match the DB returned first, so with an AI in three games it named an arbitrary one |
+> | Migration `0047` | Migration **`0050`** | `0047`–`0049` were taken on main while this branch sat open |
+>
+> Risk R1 (the two posted lists must stay the same length) is **unchanged and
+> still holds**: it rests on `setCard`/`clearCard` being the only writers of the
+> two hidden fields and always switching them together, which the rework does not
+> touch. The auto-pick contributes to R1 only by guaranteeing a ticked row always
+> has a provider — and the fallback makes that *more* robust, not less, since
+> there is no longer a path where a tick produces no provider.
 
 ## Problem
 
