@@ -34,6 +34,20 @@ Registered event names
 - turn_loop_crashed          — a game's fire-and-forget turn loop raised and the
                                match froze; also persisted to request_incidents
                                keyed by match_id (app/engine/scheduler.py)
+- turn_served                — a turn was handed to a polling client (INFO,
+                               app/engine/agent_play_next_turn.py). Two lines
+                               sharing agent_id + match_id + round + turn mean
+                               the SAME turn was served twice — a user running
+                               two client sessions for one agent, each paying
+                               for a full model think on the same turn. Nothing
+                               else records this: the seat's
+                               served_by_connection_id is per-seat, not per-turn.
+- turn_poll_idle             — a poll with no turn to serve, carrying the pacing
+                               decision the server handed back (DEBUG, fires on
+                               every poll; app/engine/agent_play_next_turn.py).
+                               ``next_poll_after_seconds`` is what we asked a
+                               client with no timer to wait, so a large value
+                               here is the client's only cue to stop or spin.
 """
 
 from __future__ import annotations

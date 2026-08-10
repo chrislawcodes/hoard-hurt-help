@@ -56,6 +56,7 @@ from app.models.connection_provider import ConnectionProvider as ConnectionProvi
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
+from app.ops_events import log_ops_event
 
 logger = logging.getLogger(__name__)
 
@@ -619,6 +620,27 @@ async def _serve_one_turn(
         await db.rollback()
         return None
     await db.commit()
+    # One line per turn actually handed to a client. This is the only record of
+    # WHO got served WHAT — the seat's served_by_connection_id is per-seat, not
+    # per-turn, so it cannot answer "was this turn served twice?".
+    #
+    # Finding a double-serve: two lines sharing the same agent_id + match_id +
+    # round + turn. That happens when a user runs two client sessions for one
+    # agent — the claim in _claim_pin only excludes OTHER connections, and every
+    # session from one client shares a connection, so both sessions pass it and
+    # both pay for a full model think on the same turn.
+    log_ops_event(
+        logger,
+        logging.INFO,
+        "turn_served",
+        f"served round {chosen.round} turn {chosen.turn} to agent {chosen.agent_id}",
+        connection_id=connection.id,
+        agent_id=chosen.agent_id,
+        match_id=chosen.match_id,
+        round=chosen.round,
+        turn=chosen.turn,
+        pinned_agent_id=agent_id if agent_id is not None else "-",
+    )
     return await _build_turn_payload(db, chosen, ctx)
 
 
@@ -680,6 +702,23 @@ async def get_next_turn(
     hold_seconds, next_poll = pace_idle(idle)
     if max_hold_seconds is not None:
         hold_seconds = min(hold_seconds, max_hold_seconds)
+
+    # Every idle poll is a paid model call on the client side, so this is the
+    # record of what the server asked it to do. DEBUG because it fires on every
+    # poll — turn it on when investigating cost or a session that stopped, and
+    # read `next_poll` as "seconds we told a client with no timer to wait".
+    log_ops_event(
+        logger,
+        logging.DEBUG,
+        "turn_poll_idle",
+        f"no turn to serve; hold {hold_seconds:.0f}s then wait {next_poll}s",
+        connection_id=connection.id,
+        pinned_agent_id=agent_id if agent_id is not None else "-",
+        has_game=idle.has_game,
+        hold_seconds=round(hold_seconds, 1),
+        next_poll_after_seconds=next_poll,
+        should_stop=idle.should_stop,
+    )
 
     if hold_seconds <= 0.0:
         await db.rollback()
