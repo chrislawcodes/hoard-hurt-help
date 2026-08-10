@@ -52,6 +52,35 @@ def clean_agent_name(raw: str) -> str:
     return name
 
 
+# Same column-derived cap as the name above, for the same reason: SQLite ignores
+# VARCHAR length, so an over-long blurb sails through the test suite and only
+# blows up as a Postgres "value too long" 500 in production. Every write path
+# must go through clean_agent_blurb, not just the one with the maxlength input.
+_AGENT_BLURB_TYPE = Agent.__table__.c.blurb.type
+_AGENT_BLURB_MAX = (
+    _AGENT_BLURB_TYPE.length
+    if isinstance(_AGENT_BLURB_TYPE, String) and _AGENT_BLURB_TYPE.length
+    else 32
+)
+
+
+def clean_agent_blurb(raw: str | None) -> str | None:
+    """Strip an optional blurb; empty becomes None, over-long is a 400.
+
+    Returning None (never "") keeps the template's ``{% if agent.blurb %}`` from
+    rendering an empty element that shifts the lineup row.
+    """
+    blurb = (raw or "").strip()
+    if not blurb:
+        return None
+    if len(blurb) > _AGENT_BLURB_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Description must be {_AGENT_BLURB_MAX} characters or fewer.",
+        )
+    return blurb
+
+
 async def _load_existing_strategies(db: DbSession, user_id: int) -> list[dict[str, str]]:
     """Current strategy text of the user's other agents, for the "start from an
     existing agent" picker. Lets a user reuse a strategy they already wrote
@@ -113,6 +142,7 @@ async def create_agent_or_connection(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     name: Annotated[str | None, Form()] = None,
+    blurb: Annotated[str | None, Form()] = None,
     strategy_text: Annotated[str | None, Form()] = None,
     strategy_preset: Annotated[str | None, Form()] = None,
     # Aliased to the "next" form field but named to avoid shadowing the next()
@@ -121,6 +151,7 @@ async def create_agent_or_connection(
 ) -> RedirectResponse:
     if name is not None:
         clean_name = clean_agent_name(name)
+        clean_blurb = clean_agent_blurb(blurb)
         existing = (
             await db.execute(
                 select(Agent).where(
@@ -152,6 +183,7 @@ async def create_agent_or_connection(
             provider=None,
             kind=AgentKind.AI,
             name=clean_name,
+            blurb=clean_blurb,
             game=_DEFAULT_GAME,
             status=AgentStatus.ACTIVE,
         )

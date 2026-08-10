@@ -101,7 +101,7 @@ Every external entry point. Split by audience.
 | `web_analysis.py` | 124 | Spectator analysis pages: season overview, round drill-in, and legacy analysis redirects. |
 | `web_player.py` | 96 | **Thin aggregator** for the player‑facing web surface. The 460‑line catch‑all was split by responsibility into the five siblings below; this module mounts their sub‑routers **in the original registration order** (so FastAPI matching is identical) and re‑exports their public symbols so existing imports/tests keep working. |
 | `web_guide.py` | 91 | Guide pages, runner/setup file downloads, and legacy join redirects. |
-| `web_join.py` | 485 | **The join flow.** Where the user picks **which connected AI plays the agent** (`_build_ai_options` builds the per‑AI picker; `_seat_user_agent` records `chosen_provider` and enforces "one AI = one seat"; `join_submit`/`join_form` render it). A pick whose AI isn't live yet **holds** the seat and routes through the connect screen scoped to that AI. `join_submit` seats a **human seat and/or AI‑agent seat(s) in one submit** — "Play as yourself" and "send an agent" are **independent**, so a user can hold **both** in the same match (play by hand *and* field their own bot); it reuses `seat_human_player` (`web_play.py`) for the human seat so the two human‑seating paths can't drift. (The direct one‑click human path `…/play/join` and human leave still live in `web_play.py`.) |
+| `web_join.py` | 485 | **The join flow.** Where the user picks **which connected AI plays the agent** (`_build_ai_options` builds the per‑AI picker; `_seat_user_agent` records `chosen_provider`; `join_submit`/`join_form` render it). A pick whose AI isn't live yet **holds** the seat and routes through the connect screen scoped to that AI. `join_submit` seats a **human seat and/or AI‑agent seat(s) in one submit** — "Play manually" and sending an agent are **independent**, so a user can hold **both** in the same match (play by hand *and* field their own bot); it reuses `seat_human_player` (`web_play.py`) for the human seat so the two human‑seating paths can't drift. The screen renders as a **lineup**: "Play manually" pinned first, then one row per agent (name + the owner's `Agent.blurb`), each row revealing its AI pills only when ticked. Ticking a row auto‑selects an AI **no other ticked row is using**, falling back to the first in the list — a tick is never refused, and that guarantee is what keeps the posted `agent_id` / `chosen_provider` lists the same length and paired by position. Since #637 nothing greys out: every AI is pickable on every row, and "already holding a seat" is **not shown at all**, surviving only as the `busy` sort key so the auto‑pick spreads load silently. (The direct one‑click human path `…/play/join` and human leave still live in `web_play.py`.) |
 | `web_seat_connect.py` | 193 | The held‑seat connect screens: the post‑join countdown page and its HTMX poll (`seat_connect` / `seat_connect_status`) that walk the user through bringing the chosen AI online. |
 | `web_my_matches.py` | 207 | The "my games" dashboard, the player slot dashboard, and the human leave action. |
 | `web_player_shared.py` | 80 | Small helpers shared across the four player route modules (`_hx_redirect`, `_seat_name`, `_load_user_agents`, `_seat_provider_readiness` / `_seat_provider_label`) — kept here to avoid a sibling import cycle. |
@@ -140,7 +140,7 @@ Game‑agnostic mechanics and the read‑side analytics that power the viewer.
 | `connection_health.py` | 104 | **Thin aggregator** — re‑exports the three modules below so callers keep one import path. The connection‑health logic was split out by job; this file owns no logic of its own now. |
 | `connection_health_badge.py` | 325 | Live / stalled / ready computed at the **connection** level. Keys off the connection's own liveness (`last_seen_at`, `runner_pid`) and the matches currently pinned to it via `players.served_by_connection_id` — **not** agent attachment. Owns the `ConnectionHealth` enum, the badge map, `compute_connection_health`, and the `LIVE_WINDOW_SECONDS` staleness threshold that the sticky‑pin "dead connection" failover check reuses. Distinct from `AgentOnboardingState` (in‑game progress). |
 | `provider_readiness.py` | 323 | The single **per‑provider** readiness signal `ProviderReadiness` (`NO_MCP_CONNECTION` / `CONNECTED_NOT_LIVE` / `SEEN_NOT_POLLING` / `LIVE`) + `provider_readiness()` — a thin wrapper over the `provider_has_current_setup` / `provider_has_live_current_setup` / `provider_loop_running` predicates (also here; adds no new query) + `enabled_provider_values`. This is the **one** answer to "is this provider set up / connected / playing" that the play‑setup gate and every readiness badge read, instead of each site picking its own predicate. |
-| `join_gate_capacity.py` | 144 | The join limiter: `providers_busy_for_user` ("one AI = one seat" — busy if it's the `chosen_provider` of any not‑finished seat), plus the legacy `active_matches_for_provider` / `live_provider_capacity` / `is_join_blocked` capacity helpers. |
+| `join_gate_capacity.py` | 144 | `providers_busy_for_user` (busy if it's the `chosen_provider` of any not‑finished seat), plus the legacy `active_matches_for_provider` / `live_provider_capacity` / `is_join_blocked` capacity helpers. **No longer a limiter** — since #637 busy‑ness blocks nothing; the join picker uses it only to sort a loaded AI behind a free one, and its match‑name values are unused (`setdefault` on an unordered query, so with an AI in several matches the name is arbitrary — don't display it without ordering the query first). |
 | `arena.py` | 321 | Managed Practice Arena and Auto‑Match creation: idempotent poller helpers, shared Bot seeding, and start timing. **Both seat 7 players** — Practice Arena = `PRACTICE_ARENA_MAX_PLAYERS` (6 pre‑seeded bots + 1 open human seat); Auto‑Match = `AUTO_MATCH_MAX_PLAYERS` (the external agent that triggers the start + bots filling the rest). **Auto‑Match opens one match per 15‑minute clock boundary** (`AUTO_MATCH_INTERVAL_MINUTES`, dropped from 30 in #464). |
 | `agent_idle.py` | 277 | **Server‑side poll pacing for `get_next_turn`.** `pace_idle` decides, off the *soonest* game the caller is seated in, how the next poll behaves so an interactive AI "asks as rarely as possible without missing a turn" (every ask is a paid model think). In a live game it **long‑polls** — holds the request open (cheap; no model thinking) and answers the instant a turn opens (single DB session per hold, ~5s internal check — #462). Before a game it returns a paced `next_poll_after_seconds` (~5 min far out → ~1 min in the last five → long‑poll in the final minute). Also owns `should_stop` (only fires when there is **no** game at all and the idle clock passes `IDLE_STOP_SECONDS`; the always‑on connector ignores it). |
 | `resolver.py` | 112 | **Generic turn‑lifecycle helpers only:** `finalize_talk_phase`, `award_round_winners`, `finalize_game`. Fully game‑agnostic. PD‑specific per‑turn scoring (HOARD/HELP/HURT payoffs, mutual‑help bonus, score floor) moved to `app/games/hoard_hurt_help/scoring.py`. |
@@ -206,7 +206,7 @@ User ──< Connection ──< ConnectionProviders   (per‑provider toggle + d
                           └──< TurnMessage        (the "talk" phase)
    (a Bot is an Agent with kind=bot; agents carry no AI — the seat carries the
     chosen AI; turns route to a live connection covering the seat's chosen_provider,
-    sticky per match; one AI = one seat at a time)
+    sticky per match; one AI may hold several seats)
 ```
 
 The single `Bot` row was split into a **login** and a **competitor** (feature
@@ -368,7 +368,9 @@ leaves. Migration `0044` (agent‑preferred‑model) adds the nullable mutable
 creates the `model_verifications` table (per connection+provider+model status +
 bounded error + checked‑at) that backs the verification channels below. Migration
 `0046` (agent‑version‑note) adds the nullable `agent_versions.note` — the owner's
-short "what did you change" label. (Other migrations in the `003x`–`004x` range cover the MCP‑connection
+short "what did you change" label. Migration `0050` (agent‑blurb) adds the
+nullable `agents.blurb` (≤32 chars) — the owner's short label for telling their
+agents apart on the join lineup and the agents list; owner‑facing only. (Other migrations in the `003x`–`004x` range cover the MCP‑connection
 bridge and its rename — `0032`/`0038` — per‑provider one‑connection rules
 (`0035`/`0036`), the sideline coach (`0030`), seat holds (`0034`), and connection
 poll/usage counters.) Migrations apply automatically on startup.
@@ -611,7 +613,7 @@ push HTML fragments into the live viewer — no client‑side state.
 | Change the MCP kickoff paste prompt | `app/routes/connections_connect_guide.py` `_PLAY_PROMPT`. |
 | Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata, **stateless‑HTTP**) + the OAuth‑identity→per‑(user, provider) "MCP connection" `Connection` bridge in `app/engine/mcp_connection.py` (`mcp_connection_for`); the per‑client identity helper `_dcr_client_id_from_request` + provider‑from‑`clientInfo` helpers in `mcp_server/server.py`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
 | Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). For MCP‑only payload shape changes, strip in the MCP wrapper (`mcp_server/server.py`), not the service layer. |
-| Let users pick which AI plays an agent / the join flow | `app/routes/web_join.py` — `_build_ai_options` (the per‑AI picker + its four states), `_seat_user_agent` (records `Player.chosen_provider`, enforces "one AI = one seat"), `join_form` / `join_submit`; the held‑seat connect screens (`seat_connect` / `seat_connect_status`) are in `app/routes/web_seat_connect.py`. (Both are mounted via the `web_player.py` aggregator.) The "one AI = one seat" check is `providers_busy_for_user` in `app/engine/join_gate_capacity.py`. Template: `app/templates/join.html`. |
+| Let users pick which AI plays an agent / the join flow | `app/routes/web_join.py` — `_build_ai_options` (the per‑AI picker + its three states `ready`/`idle`/`not_connected`, plus a `busy` **sort key** that is never rendered), `_seat_user_agent` (records `Player.chosen_provider`), `join_form` / `join_submit`; the held‑seat connect screens (`seat_connect` / `seat_connect_status`) are in `app/routes/web_seat_connect.py`. (Both are mounted via the `web_player.py` aggregator.) There is **no** per‑provider seat limit any more (#637) — `providers_busy_for_user` in `app/engine/join_gate_capacity.py` only orders the picker. Template: `app/templates/join.html`; ticking a row picks an AI no other ticked row holds, never refuses, and greys nothing out. |
 | Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (`can_connection_claim_turn`: "connection covers the seat's `chosen_provider`" + sticky‑pin claim) wired into `app/engine/agent_play_next_turn.py` (which passes `player.chosen_provider`) and `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. `chosen_provider` / `played_provider` / pin columns live on `app/models/player.py`. |
 | Choose / resolve a per‑agent model | The optional `Agent.preferred_model` (`app/models/agent.py`) — picker + effective‑model + verification status on the agent‑settings page (`app/routes/agents_detail.py` / `agents_lifecycle.py` + `app/templates/agents/`); resolution is `resolve_seat_model` in `app/engine/model_provider_match.py`, called from `app/engine/agent_play_next_turn._build_turn_payload`. The join/seat page stays provider‑only (do **not** add a model picker to `web_join.py`). |
 | Change model verification (can this login run this model?) | The `model_verifications` store (`app/models/model_verification.py`, keyed connection+provider+model); written by the connector's verification side‑task (`scripts/agentludum_connector.py` — the ~60s worklist pull + cheap test call) via the up‑channel; read by the agent‑settings status and the join guard (`app/engine/join_gate_capacity.py` gains the union‑of‑live‑connections read — warn, don't block). |
@@ -653,21 +655,26 @@ push HTML fragments into the live viewer — no client‑side state.
   consistent everywhere. ("Bot" is the built‑in scripted opponent, formerly
   "Sim"; a *user's* AI competitor is an **agent**, never a bot.)
 - **Agents carry no AI; the seat carries the chosen AI; routing matches it; one
-  AI = one seat at a time.** An agent is just a name + a strategy
+  AI may hold several seats.** An agent is just a name + a strategy
   (`Agent.provider` / `AgentVersion.model` are legacy NULL and not used). The user
   picks **which connected AI plays it at join**, stored as `Player.chosen_provider`.
   Turn routing then serves a seat only to a connection that **covers that seat's
   chosen provider** (`turn_routing.can_connection_claim_turn`, fed
   `player.chosen_provider`); a legacy `NULL` seat falls back to "any connection".
-  Because one AI fills one seat at a time (`providers_busy_for_user` — busy if it's
-  the `chosen_provider` of any not‑finished seat), to field several agents in one
-  game you pick a **different** AI for each. This "one AI = one seat" rule — **not**
-  `max_concurrent_games` — is the join limiter. The tension to watch: a write
+  One AI may be the `chosen_provider` of **several** of a user's seats, in one
+  match or across matches (#637 removed the old "one AI = one seat" rule at all
+  four layers — picker state, submit‑side 409, duplicate‑provider rejection, and
+  the page's grey‑out). The client runs a play loop per `agent_id`, so those seats
+  move in parallel rather than queueing. **Nothing now limits seats per AI** —
+  `is_join_blocked` / `max_concurrent_games` are consulted only on the agent‑detail
+  page, never on the join path — so the timeout risk that rule loosely guarded is
+  real and unguarded; the mitigations are the parallel loops and a widened turn
+  window (`HHH_ACT_DEADLINE_SECONDS`). The other tension to watch: a write
   (`agent_api.py` → `require_agent_player`) is gated only by same‑user + the
   `agent_turn_token`, **not** a re‑check of provider, so the chosen‑AI guarantee
   must be enforced where the turn is *served*, never assumed at submit time.
-- **One *user* can hold several seats in a match — distinct from "one AI = one
-  seat."** There is **no** one‑seat‑per‑user constraint (migration `0002` dropped
+- **One *user* can hold several seats in a match.** There is **no**
+  one‑seat‑per‑user constraint (migration `0002` dropped
   the old `(match_id, user_id)` unique key). A user may take a **human seat**
   (`kind=human` agent) **and** an **AI‑agent seat** in the same match — playing by
   hand while fielding their own bot — and each seat counts toward `max_players`
@@ -676,8 +683,7 @@ push HTML fragments into the live viewer — no client‑side state.
   `(agent_id, match_id)`; the human agent is a different `agent_id` than any AI
   agent, so both seats coexist cleanly. This is allowed in **every** match type,
   **including ranked**, and human seats count on the leaderboard (self‑play is
-  accepted as fair). Do **not** confuse this with the "one AI = one seat" provider
-  rule above — that limits a *provider* across seats, never a *user*.
+  accepted as fair).
 - **PD's columns persist, but storage and the wire are now partly generalized
   (the second game shipped).** PD still records moves in the PD‑shaped `turn_submissions`
   columns (`action`/`target`/`points_delta`). But a **generic per‑title state

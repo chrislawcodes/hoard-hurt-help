@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.engine.bots import pack_profile_choices
+from app.engine.connection_health import providers_busy_for_user
 from app.engine.tokens import bot_key_lookup
+from app.routes.web_join import _build_ai_options
 from app.models import Base, Agent, AgentKind, Connection, Match, GameState, Player, User
 from app.models.connection import ConnectionProvider
 from app.models.user import UserRole
@@ -289,7 +291,15 @@ async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monk
             .scalars()
             .all()
         )
-    assert {p.seat_name for p in players} == {"One", "Two"}
+    # Pin the PROVIDER each seat got, not just the seat names. Asserting names
+    # alone made this test pass in exactly the world spec risk R1 fears — every
+    # agent silently seated on one AI. This body is the legacy "same AI for all"
+    # admin shorthand; the lineup page can no longer produce it (it always posts
+    # one provider per agent), so this pins the server contract only.
+    assert {p.seat_name: p.chosen_provider for p in players} == {
+        "One": "claude",
+        "Two": "claude",
+    }
 
 
 async def test_join_form_shows_already_seated_agents(client, reset_db):
@@ -308,9 +318,15 @@ async def test_join_form_shows_already_seated_agents(client, reset_db):
     form = await client.get("/games/hoard-hurt-help/matches/G_001/join", cookies=cookies)
     assert "One" in form.text  # still visible
     assert "already in this game" in form.text  # seated agent is marked
-    # Both agents are listed as picker rows; the seated one is a disabled row.
-    assert f'value="{a1.id}"' in form.text
-    assert f'value="{a2.id}"' in form.text
+    # Both agents are listed as lineup rows...
+    assert f'data-agent-name="{a1.name}"' in form.text
+    assert f'data-agent-id="{a2.id}"' in form.text
+    # ...but the seated one renders NO checkbox and NO hidden mirrors, so it can
+    # never contribute a stray agent_id to the posted lists (spec risk R3).
+    seated = form.text[form.text.index(f'data-agent-name="{a1.name}"'):]
+    seated = seated[:seated.index("</div>")]
+    assert 'name="agent_id"' not in seated
+    assert 'name="chosen_provider"' not in seated
 
 
 async def test_match_page_shows_add_agent_affordance(client, reset_db):
@@ -416,9 +432,9 @@ async def test_one_ai_can_play_several_agents_in_one_game(client, reset_db):
 async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
     """One agent seated in an ACTIVE match, played by Claude.
 
-    Claude is now the chosen AI of a not-finished game, so it reads as "busy" —
-    "one AI = one game" blocks picking Claude again (admins may override). Seeds an
-    open match G_B to join into. Returns the agent id.
+    Claude is now the chosen AI of a not-finished game, so it reads as "busy". That
+    no longer blocks anything — it only sorts Claude behind an equally-ready free AI.
+    Seeds an open match G_B to join into. Returns the agent id.
     """
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
@@ -549,13 +565,16 @@ async def test_rename_duplicate_blocked(client, reset_db):
     assert r.status_code == 409
 
 
-async def test_join_form_notes_an_ai_already_in_another_game_but_keeps_it_pickable(
+async def test_join_form_keeps_an_ai_already_in_another_game_pickable_and_silent(
     client, reset_db
 ):
-    """An AI already in another not-finished game is flagged, not disabled.
+    """An AI already in another not-finished game is pickable and unremarked.
 
-    The chip says which game it is already in, so the user can weigh the extra load,
-    but it stays selectable — the pre-2026-08 behaviour greyed it out entirely.
+    It stays selectable — the pre-2026-08 behaviour greyed it out entirely — and the
+    page says nothing about it. Once one AI may hold several seats, "already in
+    another game" limits nothing, so naming the other match is a line of text the
+    reader has to process under a countdown for no decision it can change. The fact
+    survives only as sort order, pinned in the test below.
     """
     user = await _seed_user(reset_db)
     # Seeds Claude busy in the active match G_A, plus an open match G_B to join.
@@ -564,7 +583,48 @@ async def test_join_form_notes_an_ai_already_in_another_game_but_keeps_it_pickab
         "/games/hoard-hurt-help/matches/G_B/join", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
-    assert "also in" in r.text  # the Claude chip names the other game…
+    assert "G_A" not in r.text  # the other match is not named…
+    assert "also in" not in r.text  # …under any wording
     assert "▪ busy" not in r.text  # …and the old busy state is gone
-    # Nothing on the page marks a chip server-disabled, so Claude stays pickable.
+    # Nothing on the page marks a pill server-disabled, so Claude stays pickable.
     assert 'data-orig-disabled="1"' not in r.text
+    assert "ai-pill-disabled" not in r.text
+
+
+async def test_join_form_sorts_a_busy_ai_after_a_free_one_of_the_same_state(
+    client, reset_db
+):
+    """Busy-ness is invisible but not inert: it decides the order of equal AIs.
+
+    That order is what a freshly ticked row picks from, so a seat lands on a free AI
+    before a loaded one without the page ever saying so. If this ordering is lost,
+    the page looks identical and the spreading behaviour silently stops.
+    """
+    user = await _seed_user(reset_db)
+    # Claude is live and busy in G_A. Gemini is made equally live so the two share a
+    # state rank and busy-ness is the ONLY thing that can order them — and Claude
+    # sorts first alphabetically, so a lost busy key shows up as Claude moving up.
+    await _seed_agent_busy_in_active_match(reset_db, user)
+    async with reset_db() as db:
+        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+        now = datetime.now(timezone.utc)
+        gemini_conn, _key = await make_connection(
+            db,
+            u,
+            provider=ConnectionProvider.GEMINI,
+            last_seen_at=now,
+            first_connected_at=now,
+            mcp_connected_at=now,
+        )
+        gemini_conn.last_polled_at = now  # running its play loop → "ready", as Claude is
+        await db.commit()
+    async with reset_db() as db:
+        options = await _build_ai_options(
+            db, user.id, await providers_busy_for_user(db, user.id)
+        )
+    by_provider = {str(o["provider"]): o for o in options}
+    assert by_provider["claude"]["busy"] is True
+    assert by_provider["gemini"]["busy"] is False
+    assert by_provider["claude"]["state"] == by_provider["gemini"]["state"]
+    order = [str(o["provider"]) for o in options]
+    assert order.index("gemini") < order.index("claude")

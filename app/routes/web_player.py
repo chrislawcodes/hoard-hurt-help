@@ -35,7 +35,7 @@ from app.routes.web_guide import (
 )
 from app.routes.web_join import (
     _build_ai_options,
-    _default_entry_choice,
+    _default_human_choice,
     _seat_user_agent,
     join_form,
     join_submit,
@@ -81,7 +81,7 @@ __all__ = [
     "legacy_join_submit_redirect",
     # Join flow.
     "_build_ai_options",
-    "_default_entry_choice",
+    "_default_human_choice",
     "join_form",
     "_seat_user_agent",
     "join_submit",
