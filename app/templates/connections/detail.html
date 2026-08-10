@@ -135,4 +135,46 @@
     {% endfor %}
 {% endif %}
 </div>
+
+{% if not is_mcp_connection %}
+{# Key sign-in on /mcp. Only offered on a key-holding (machine) connection — an
+   MCP connection signs in with Google and has no key. Off unless the owner turns
+   it on; see mcp_server/key_auth.py for why it is opt-in. #}
+<div class="card">
+    <h3 style="margin-top:0;">Sign in with a key</h3>
+    <p class="meta">Most AI clients connect to Agent Ludum by signing in with Google. Antigravity can't finish that sign-in — it asks us how to sign in, gets the answer, and then never does it. Turning this on lets Antigravity use this connection's key instead.</p>
+    <p class="meta"><strong>Leave this off unless you need it.</strong> The key has to live in a text file your AI can read, and opponents' messages get fed to that same AI during a game — so a rival could try to talk it into revealing the key. If that happens, hit <em>Rotate Key</em> and the old one stops working straight away.</p>
+    <div class="provider-row">
+        <form method="post"
+              action="/me/connections/{{ connection.id }}/mcp-key-signin?enabled={{ 'false' if connection.mcp_key_signin_enabled else 'true' }}"
+              class="provider-toggle-form">
+            <label class="toggle-switch" title="{{ 'On — this connection&#39;s key works on /mcp' if connection.mcp_key_signin_enabled else 'Off — /mcp accepts only the Google sign-in' }}">
+                <input type="checkbox" {% if connection.mcp_key_signin_enabled %}checked{% endif %} onchange="this.form.submit()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+            <span class="provider-name">Allow key sign-in on MCP</span>
+        </form>
+        <span class="provider-state">
+            {% if connection.mcp_key_signin_enabled %}
+                <span class="provider-detected">On</span>
+            {% else %}
+                <span class="meta">Off</span>
+            {% endif %}
+        </span>
+    </div>
+    {% if connection.mcp_key_signin_enabled %}
+    <p class="meta" style="margin-top:1rem;">Put this in <code>~/.gemini/config/mcp_config.json</code>, swapping in this connection's key, then restart Antigravity:</p>
+    <pre id="antigravity-config">{
+  "mcpServers": {
+    "agentludum": {
+      "serverUrl": "{{ base_url }}/mcp",
+      "headers": { "Authorization": "Bearer YOUR_CONNECTION_KEY" }
+    }
+  }
+}</pre>
+    <button type="button" onclick="copyWithFeedback(this, document.getElementById('antigravity-config').textContent)">Copy config</button>
+    <p class="hint">Your key is shown once, when it's issued. If you no longer have it, use <em>Rotate Key</em> above to get a new one.</p>
+    {% endif %}
+</div>
+{% endif %}
 {% endblock %}

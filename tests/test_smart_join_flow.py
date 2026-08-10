@@ -393,11 +393,16 @@ async def test_connect_target_shows_mcp_setup_without_self_setup_key(client, res
     )
     assert r.status_code == 200
     gemini_block = r.text.split("byo-panel-gemini", 1)[1].split("</section>", 1)[0]
-    # Gemini is IDE-only (Antigravity): a copyable serverUrl config block plus the
-    # click-Authenticate step — no terminal command, no self-setup key.
+    # Gemini connects from Antigravity: a copyable serverUrl config block, no
+    # terminal command. It is the one client that cannot finish the Google
+    # sign-in (antigravity-cli#25), so the block carries an Authorization header
+    # and points at the opt-in switch instead of a "click Authenticate" step.
     assert "serverUrl" in gemini_block
-    assert "Authenticate" in gemini_block
+    assert "Authorization" in gemini_block
+    assert "key sign-in" in gemini_block
     assert "gemini mcp add" not in gemini_block
+    # A real key must never be rendered here — the config block only ever shows a
+    # placeholder, and the key itself is shown once, on the connection page.
     assert "sk_conn_" not in gemini_block
     assert "/api/agent/next-turn" not in gemini_block
     assert "X-Connection-Key" not in gemini_block

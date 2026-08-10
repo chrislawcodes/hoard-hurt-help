@@ -21,7 +21,9 @@ import logging
 
 from fastapi import HTTPException, status
 from fastmcp.server.dependencies import AccessToken, get_http_request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.db import SessionLocal
 from app.deps import assert_connection_usable, require_agent_player
@@ -33,6 +35,7 @@ from app.models.player import Player
 from app.routes.auth import sync_google_user
 from app.schemas.auth import GoogleUserInfo
 
+from mcp_server import key_auth
 from mcp_server.oauth_auth import _decode_unverified_jwt_payload, _userinfo_from_claims
 
 logger = logging.getLogger(__name__)
@@ -100,6 +103,51 @@ def _dcr_client_id_from_request() -> str | None:
         return None
 
 
+async def _connection_from_key_token(
+    db: AsyncSession, access_token: AccessToken
+) -> tuple[AccessToken, GoogleUserInfo, Connection] | None:
+    """Resolve a key-authenticated token to the one connection it belongs to.
+
+    ``key_auth`` already verified the key and stamped the connection's id into
+    the token's claims, so this loads that exact row — it never re-derives the
+    connection from a provider or a client id, which is what keeps a key from
+    ever resolving to a different connection of the same user. Returns None when
+    the token came from the OAuth path so the caller falls through to it.
+    """
+    connection_id = (access_token.claims or {}).get(key_auth.CONNECTION_ID_CLAIM)
+    if not isinstance(connection_id, int):
+        return None
+
+    # Loads the whole user, not the shared auth-only option: that one narrows to
+    # `disabled_at` to keep the hot agent-poll path lean, and this path also has
+    # to report the caller's identity below. One joined row beats widening the
+    # shared option for every other auth site, or paying a second round trip.
+    connection = (
+        await db.execute(
+            select(Connection)
+            .options(joinedload(Connection.user))
+            .where(Connection.id == connection_id, Connection.deleted_at.is_(None))
+        )
+    ).scalar_one_or_none()
+    if connection is None:
+        # The key verified a moment ago, so the row disappearing mid-request is a
+        # real inconsistency, not a routine auth failure. Fail loud.
+        raise RuntimeError(
+            f"key-authenticated connection {connection_id} vanished mid-request"
+        )
+    assert_connection_usable(connection)
+
+    user = connection.user
+    userinfo = GoogleUserInfo(
+        sub=user.google_sub,
+        email=user.email,
+        name=user.name,
+        given_name=user.given_name,
+        family_name=user.family_name,
+    )
+    return access_token, userinfo, connection
+
+
 async def _connection_from_token(
     db: AsyncSession,
     token: object,
@@ -107,17 +155,23 @@ async def _connection_from_token(
     provider: ConnectionProvider | None,
     oauth_client_id: str | None = None,
 ) -> tuple[AccessToken, GoogleUserInfo, Connection]:
-    """Resolve a verified OAuth token to the caller's MCP connection.
+    """Resolve a verified token to the caller's MCP connection.
 
-    Creates the connection on first sight and reuses it thereafter. ``provider``
-    is the single provider the connecting MCP client speaks for — each provider
-    gets its own connection (one client == one provider). ``oauth_client_id``
-    is the OAuth Dynamic Client Registration client_id from the token; it is the
-    primary lookup key in stateless-HTTP mode where session memory is unavailable.
-    Does NOT record the call — see ``mark_seen`` for the heartbeat /
-    usage-count side of a request.
+    Two credentials arrive here. A connection key already names its connection
+    (``key_auth`` verified it and stamped the id into the claims), so it is
+    resolved first and directly — no provider guess, no row creation. Everything
+    else is a Google sign-in token: the connection is created on first sight and
+    reused thereafter. ``provider`` is the single provider the connecting MCP
+    client speaks for — each provider gets its own connection (one client == one
+    provider). ``oauth_client_id`` is the OAuth Dynamic Client Registration
+    client_id from the token; it is the primary lookup key in stateless-HTTP mode
+    where session memory is unavailable. Does NOT record the call — see
+    ``mark_seen`` for the heartbeat / usage-count side of a request.
     """
     access_token = _require_access_token(token)
+    keyed = await _connection_from_key_token(db, access_token)
+    if keyed is not None:
+        return keyed
     userinfo = _google_userinfo_from_token(access_token)
     user = await sync_google_user(db, userinfo)
     connection = await mcp_connection_for(db, user, provider=provider, oauth_client_id=oauth_client_id)
