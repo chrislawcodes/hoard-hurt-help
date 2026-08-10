@@ -20,7 +20,8 @@ agent adds the `agentludum` server itself. You only do two things by hand:
 approve the **Google sign-in** in the browser that opens, and — for the CLIs —
 **restart** the client once, because they load new tools only at startup.
 Header-less OAuth: no key, no `--header`. The server URL is
-`https://<your-host>/mcp`.
+`https://<your-host>/mcp`. **Antigravity is the one exception** — it cannot
+complete the sign-in, so it uses a key in a header instead; see its section below.
 
 **Claude Code** — paste this to Claude Code:
 

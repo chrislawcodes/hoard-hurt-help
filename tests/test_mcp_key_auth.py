@@ -9,6 +9,7 @@ way in.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -21,7 +22,7 @@ from app.models import Base
 from app.models.connection import Connection, ConnectionStatus
 from app.models.user import User
 from fastmcp.server.auth.auth import AccessToken
-from mcp_server import connection_identity, key_auth, server
+from mcp_server import connection_identity, key_auth, oauth_auth, server
 from tests.conftest import signed_in_cookies
 from tests.factories import make_connection, make_user
 
@@ -197,6 +198,9 @@ async def test_paused_connection_authenticates_then_fails_downstream(
         with pytest.raises(HTTPException) as excinfo:
             await connection_identity._connection_from_token(db, token, provider=None)
     assert excinfo.value.status_code == 403
+    # Assert the specific branch: a 403 alone would also pass if this tripped
+    # ACCOUNT_DISABLED, which would mean the paused check never ran.
+    assert excinfo.value.detail["error"]["code"] == "CONNECTION_PAUSED"
 
 
 def test_only_connection_keys_take_the_key_path() -> None:
@@ -206,20 +210,47 @@ def test_only_connection_keys_take_the_key_path() -> None:
     assert not key_auth.looks_like_connection_key("")
 
 
-async def test_key_token_carries_the_scopes_the_server_enforces(
+async def test_provider_dispatches_a_key_with_the_scopes_it_enforces(
     db_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Regression: the Google provider rewrites "email"/"profile" into full URIs,
-    so a key token built from the short names authenticates and then 403s with
-    insufficient_scope on every call. The scopes must come from the provider."""
+    """Goes through the REAL dispatcher, which is the only thing that proves the
+    wiring.
+
+    Two failures hide from a test that calls ``verify_connection_key`` directly:
+    the provider not routing keys to the key path at all, and it passing a
+    hardcoded scope list instead of its own ``required_scopes``. The second one
+    shipped once — the Google provider rewrites "email"/"profile" into full
+    googleapis.com URIs, so short names authenticate and then 403 with
+    insufficient_scope on every call. Asserting against the provider's own
+    ``required_scopes`` here is not circular, because the value under test comes
+    from ``verify_token`` rather than from the argument this test passed in.
+    """
     async with db_factory() as db:
         _connection, raw_key = await _make_connection(db, key_signin=True)
 
-    token = await _verify(raw_key)
+    token = await server.mcp_app.auth.verify_token(raw_key)
 
     assert token is not None
-    assert set(token.scopes) == set(_REQUIRED_SCOPES)
+    assert set(token.scopes) == set(server.mcp_app.auth.required_scopes or [])
     assert "https://www.googleapis.com/auth/userinfo.email" in token.scopes
+
+
+async def test_provider_leaves_non_key_bearers_to_the_oauth_path(
+    db_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A JWT must never reach the key verifier — that is what keeps the new path
+    from touching sign-in for Claude Code, Codex and Claude Desktop."""
+    calls: list[str] = []
+
+    async def _record(raw_key: str, *, scopes: object) -> None:
+        calls.append(raw_key)
+        return None
+
+    monkeypatch.setattr(oauth_auth, "verify_connection_key", _record)
+
+    assert await server.mcp_app.auth.verify_token("eyJhbGciOiJIUzI1NiJ9.e30.sig") is None
+    assert calls == []
 
 
 # --- the toggle that is the whole gate -------------------------------------
@@ -256,6 +287,57 @@ async def test_owner_can_turn_key_signin_on_and_off(
                 )
             ).scalar_one()
             assert refreshed.mcp_key_signin_enabled is enabled
+
+
+async def test_detail_page_offers_the_switch_and_never_prints_a_real_key(
+    reset_db: async_sessionmaker, client: AsyncClient
+) -> None:
+    """The connection page is the one render path that has a real Connection in
+    scope, so it is the one place a live key could leak into HTML. The config
+    block must stay a placeholder whether the switch is on or off."""
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, raw_key = await make_connection(db, user)
+        await db.commit()
+        connection_id, user_id = connection.id, user.id
+
+    cookies = signed_in_cookies(user_id)
+    off = await client.get(f"/me/connections/{connection_id}", cookies=cookies)
+    assert off.status_code == 200
+    assert "Allow key sign-in on MCP" in off.text
+    # Off: no config block to copy yet.
+    assert "antigravity-config" not in off.text
+    assert raw_key not in off.text
+
+    await client.post(
+        f"/me/connections/{connection_id}/mcp-key-signin?enabled=true", cookies=cookies
+    )
+    on = await client.get(f"/me/connections/{connection_id}", cookies=cookies)
+    assert on.status_code == 200
+    assert "antigravity-config" in on.text
+    assert "YOUR_CONNECTION_KEY" in on.text
+    assert raw_key not in on.text
+    assert "sk_conn_" not in on.text
+
+
+async def test_mcp_signed_in_connections_are_not_offered_the_switch(
+    reset_db: async_sessionmaker, client: AsyncClient
+) -> None:
+    """An OAuth connection holds no key, so offering it key sign-in would be a
+    dead end."""
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _key = await make_connection(
+            db, user, mcp_connected_at=datetime.now(timezone.utc)
+        )
+        await db.commit()
+        connection_id, user_id = connection.id, user.id
+
+    page = await client.get(
+        f"/me/connections/{connection_id}", cookies=signed_in_cookies(user_id)
+    )
+    assert page.status_code == 200
+    assert "Allow key sign-in on MCP" not in page.text
 
 
 async def test_another_user_cannot_turn_it_on(

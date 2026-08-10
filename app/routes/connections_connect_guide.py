@@ -43,7 +43,11 @@ def _provider_label(provider: ConnectionProvider | None) -> str:
 #
 # AUTH-AGNOSTIC SEAM: the per-client connect copy below MIRRORS
 # ``docs/setup-mcp.md`` — keep the two in sync. Connecting is OAuth (Google
-# sign-in), header-less: no ``sk_conn_`` key and no ``--header`` anywhere.
+# sign-in) and header-less for every client that can complete it: no ``sk_conn_``
+# key and no ``--header``. Antigravity is the one exception — it cannot finish the
+# OAuth flow at all, so it carries a key in an Authorization header (see the
+# gemini_prompt comment below). Do not "restore consistency" by stripping that
+# header; it is the only credential that client can present.
 #
 # Every target client is an AGENT that can wire up its own MCP server, so the
 # connect box hands the user ONE paste-in prompt per client and the agent runs
@@ -102,7 +106,9 @@ def _connect_options() -> list[ConnectOption]:
     each option is ONE paste-in prompt the user hands to that agent; the agent
     adds the ``agentludum`` server itself. The user only completes the Google
     sign-in (a browser click) and, for the CLIs, one restart so the new tools
-    load. Header-less OAuth — no key, no ``--header``. Display order: Claude
+    load. Header-less OAuth — no key, no ``--header`` — for every client except
+    Antigravity, which cannot complete the sign-in and carries a key instead.
+    Display order: Claude
     Code, Codex, Gemini (Antigravity).
     """
     mcp_url = f"{settings.base_url}/mcp"
