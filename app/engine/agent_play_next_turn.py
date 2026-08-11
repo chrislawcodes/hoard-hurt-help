@@ -729,7 +729,9 @@ async def get_next_turn(
 
     loop = asyncio.get_event_loop()
     deadline = loop.time() + hold_seconds
-    # One session for the whole hold — no repeated open/close per tick.
+    # One session for the whole hold — no repeated open/close per tick — but the
+    # transaction is closed after every tick (see the rollback below), so the
+    # pooled DB connection is only checked out while a tick is actually querying.
     # populate_existing forces each re-query to reflect the live DB row even
     # though the identity map has the Connection from earlier in this session.
     async with db_module.SessionLocal() as check_db:
@@ -757,6 +759,14 @@ async def get_next_turn(
             )
             if served is not None:
                 return served
+            # Nothing to serve this tick. End the transaction before sleeping
+            # again: a session holding an open transaction keeps its pooled DB
+            # connection checked out, so without this every caller inside a hold
+            # pins one connection for the hold's full duration and the pool runs
+            # dry once a handful of agents are waiting at once. `_serve_one_turn`
+            # leaves the read transaction open when it finds no candidate; the
+            # rollback is a no-op on the path where it already rolled back.
+            await check_db.rollback()
 
     return {"status": "waiting", "next_poll_after_seconds": next_poll}
 
