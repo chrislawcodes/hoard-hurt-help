@@ -165,6 +165,37 @@ async def mark_polled(
     await db.commit()
 
 
+async def mark_still_holding(
+    db: AsyncSession, connection: Connection, *, now: datetime | None = None
+) -> None:
+    """Keep a connection's liveness stamps fresh while its poll is held open.
+
+    Both stamps are written once, when the call arrives — so the longer the server
+    makes an agent wait, the deader that agent looks. Past ``LIVE_WINDOW_SECONDS``
+    (90) the connection counts as dead for turn routing and cannot claim its own
+    turn; past ``LOOP_RUNNING_WINDOW_SECONDS`` (120) its held seats stop
+    auto-confirming and the connection badge flaps. A hold longer than either
+    window therefore sabotages the very agent it is serving.
+
+    Deliberately NOT :func:`mark_seen`: that bumps ``api_call_count``, which is the
+    per-inference cost signal. One held poll is one paid inference however many
+    times we re-check inside it, so counting the re-checks would inflate it.
+    """
+    now = now or datetime.now(timezone.utc)
+    last = connection.last_seen_at
+    if (
+        last is not None
+        and (now - ensure_aware(last)).total_seconds() < _POLL_THROTTLE_SECONDS
+    ):
+        return
+    await db.execute(
+        update(Connection)
+        .where(Connection.id == connection.id)
+        .values(last_seen_at=now, last_polled_at=now)
+    )
+    await db.commit()
+
+
 async def increment_turns_played(db: AsyncSession, connection_id: int) -> None:
     """Bump a connection's lifetime ``turns_played`` by one.
 

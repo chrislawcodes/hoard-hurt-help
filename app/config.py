@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     # Database connection. SQLite for dev, Postgres on Railway.
     database_url: str = Field(default="sqlite+aiosqlite:///./hoardhurthelp.db")
 
+    # How long the server may hold one poll open, and whether the idle lanes
+    # (waiting for a scheduled start, or having no game at all) hold at all.
+    # Both default to the shipped behaviour, so changing nothing changes nothing.
+    #
+    # They are settings because the real ceiling on a held request is the
+    # production edge, and the only way to find it is to hold a real request
+    # through it. Railway documents 300s; Railway's own support forum carries
+    # reports of long-lived connections cut at 20-90s. Neither is trustworthy
+    # for this service, and every hold-length decision depends on the answer.
+    agent_long_poll_hold_seconds: int = Field(default=40, ge=1)
+    agent_hold_idle_lanes: bool = Field(default=False)
+
     # Pooled Postgres connections held by this instance. SQLAlchemy's own
     # defaults (5 + 10) are a silent ceiling of 15 that the long-poll holds and
     # the per-match turn loops can reach together; these make the ceiling

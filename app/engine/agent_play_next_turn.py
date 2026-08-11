@@ -27,7 +27,7 @@ from app.engine.agent_idle import (
     compute_idle_status,
     pace_idle,
 )
-from app.engine.connection_activity import mark_polled
+from app.engine.connection_activity import mark_polled, mark_still_holding
 from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.agent_play_reads import (
     RECENT_HISTORY_TURNS,
@@ -754,6 +754,12 @@ async def get_next_turn(
                 or fresh.user.disabled_at is not None
             ):
                 break
+            # The agent is waiting on US, so keep its liveness stamps fresh. Left
+            # alone they age for the whole hold, and past 90s the connection reads
+            # as dead for turn routing — it would be refused its own turn by the
+            # very hold that is waiting to serve it. Throttled; see the docstring
+            # for why this is not `mark_seen`.
+            await mark_still_holding(check_db, fresh)
             served = await _serve_one_turn(
                 check_db, fresh, datetime.now(timezone.utc), agent_id=agent_id
             )
@@ -768,7 +774,21 @@ async def get_next_turn(
             # rollback is a no-op on the path where it already rolled back.
             await check_db.rollback()
 
-    return {"status": "waiting", "next_poll_after_seconds": next_poll}
+    # The hold ended with nothing to serve. Rebuild the reply from a FRESH idle
+    # picture rather than reusing the one computed before the hold: that one is
+    # stale by the hold's length, and — once the idle lanes hold — reusing the
+    # bare "waiting" shape would drop `should_stop` entirely. The pasted play
+    # prompt's only instruction to stop is "stop when should_stop is true", so a
+    # reply that cannot carry it makes the loop unstoppable.
+    async with db_module.SessionLocal() as after_db:
+        fresh_connection = await after_db.get(Connection, connection_id)
+        if fresh_connection is None:
+            return {"status": "waiting", "next_poll_after_seconds": next_poll}
+        after_idle = await compute_idle_status(
+            after_db, fresh_connection, agent_id=agent_id
+        )
+        _, after_poll = pace_idle(after_idle)
+        return _idle_payload(after_idle, waiting_poll_hint=after_poll)
 
 
 async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, object]:
