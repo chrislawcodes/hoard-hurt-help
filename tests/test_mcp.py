@@ -280,8 +280,10 @@ async def test_get_next_turn_uses_google_identity_and_mcp_connection(
     assert captured["checked_connection"].key_lookup == "lookup-7"
     assert captured["mark_seen_key_hash"] == "lookup-7"
     assert captured["service_connection"].id == 7
-    # MCP path caps the server's long-poll hold (MCP clients cut requests early).
-    assert captured["max_hold_seconds"] == server._NEXT_TURN_HOLD_SECONDS
+    # The MCP path adds NO cap of its own: hold length is decided in one place
+    # (pace_idle / `agent_long_poll_hold_seconds`). A second number here is how a
+    # hold change silently does nothing — it used to clamp every hold to 25s.
+    assert captured["max_hold_seconds"] is None
 
 
 async def test_get_next_turn_strips_duplicate_static_for_mcp(

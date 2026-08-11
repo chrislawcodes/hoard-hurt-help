@@ -41,10 +41,6 @@ from app.routes.spectator_api import public_state
 
 from mcp_server import connection_identity
 
-# Caps the server's long-poll hold for the MCP path. The server decides the hold
-# off game state, but MCP clients cut requests sooner than a plain HTTP curl
-# (commonly ~30s), so we hold for less than that here.
-_NEXT_TURN_HOLD_SECONDS = 25.0
 _LAST_PULL: dict[tuple[int, str], float] = {}
 
 
@@ -187,12 +183,17 @@ async def get_next_turn(
     _access_token, _userinfo, connection = await connection_identity._resolve_oauth_connection(
         db, token
     )
-    # Pacing (the wait number + whether to long-poll) is decided server-side off
-    # the caller's soonest game — see app.engine.agent_idle.pace_idle. We only cap
-    # the hold here, since MCP clients cut requests sooner than a plain HTTP curl.
-    payload = await play_get_next_turn(
-        db, connection, agent_id=agent_id, max_hold_seconds=_NEXT_TURN_HOLD_SECONDS
-    )
+    # Hold length is decided server-side off the caller's soonest game — see
+    # app.engine.agent_idle.pace_idle and `agent_long_poll_hold_seconds`. This
+    # path deliberately adds NO cap of its own: a second, independently-drifting
+    # number deciding the same thing is how a hold change silently does nothing.
+    #
+    # There used to be a 25s cap here, justified as "MCP clients cut requests
+    # sooner than a plain HTTP curl (commonly ~30s)". That was measured on
+    # 2026-08-10 and is false: Claude Code 2.1.220, Codex 0.146.1 and
+    # Antigravity's agy 1.1.11 each held a silent 90s request and returned it
+    # cleanly, and their real walls are 300s, 300s and 180s respectively.
+    payload = await play_get_next_turn(db, connection, agent_id=agent_id)
     return _lean_payload_for_mcp(payload)
 
 

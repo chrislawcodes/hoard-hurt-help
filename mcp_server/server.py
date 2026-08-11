@@ -50,7 +50,6 @@ from mcp_server.connection_identity import (
 from mcp_server.signin_middleware import SigninConnectionMiddleware
 from mcp_server.mcp_tools import (
     _LAST_PULL,
-    _NEXT_TURN_HOLD_SECONDS,
     _format_instruction_sections,
     _lean_payload_for_mcp,
     _mcp_how_to_play_block,
@@ -123,7 +122,6 @@ __all__ = [
     "_resolve_oauth_player",
     # Tools + instruction text + DB session (mcp_server.mcp_tools)
     "_LAST_PULL",
-    "_NEXT_TURN_HOLD_SECONDS",
     "_format_instruction_sections",
     "_lean_payload_for_mcp",
     "_mcp_how_to_play_block",
