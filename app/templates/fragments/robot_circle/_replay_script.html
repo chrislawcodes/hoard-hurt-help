@@ -95,15 +95,15 @@
       var snap={}; AGENTS.forEach(function(id){ snap[id]=sim[id]; }); scoreAt[i]=snap;
       // Wins as of the start of this turn (rounds credited once they finish).
       var wsnap={}; AGENTS.forEach(function(id){ wsnap[id]=wins[id]; }); winsAt[i]=wsnap;
+      // Take the resolver's own post-turn score. This used to re-implement the
+      // whole payoff table here (hoard +2, pact +8, help +4, hurt -4, betrayal
+      // +4) and floor each hurt at 0 — two ways to be wrong. The server floors a
+      // player's NET for the turn, not each hurt, and a pact pays whatever the
+      // match's mutual-help mode says, which is 8 for only two of the five modes.
+      // Every player gets a submission every turn (missed moves are defaulted in),
+      // so assigning per action covers the whole board.
       t.actions.forEach(function(a){
-        if(a.action==='HOARD')                        { sim[a.agent]=(sim[a.agent]||0)+2; }
-        else if(a.action==='HELP'&&a.mutual)          { sim[a.agent]=(sim[a.agent]||0)+8; }
-        else if(a.action==='HELP'&&!a.mutual&&a.target){ sim[a.target]=(sim[a.target]||0)+4; }
-        else if(a.action==='HURT'&&a.target)          { sim[a.target]=Math.max(0,(sim[a.target]||0)-4);
-          // Betraying a helper: the attacker also gains +4 (the victim's HELP is
-          // already credited above). Keeps this snapshot in step with the resolver
-          // and with playAction, which renderTurn reseeds rScore from.
-          if(a.betrayed_helper){ sim[a.agent]=(sim[a.agent]||0)+4; } }
+        if(typeof a.score_after === 'number'){ sim[a.agent]=a.score_after; }
       });
       // Round just ended → award the round win (split evenly on a tie).
       if(lastIdxOfRound[t.round]===i){
@@ -122,7 +122,7 @@
   function fmtWins(w){ return (Math.round(w*10)/10).toString(); }
   function fmtWinsUnit(w){ return (Math.round(w*10)/10) === 1 ? 'round' : 'rounds'; }
 
-  var rScore={}, rWins={}, railRowEl={};
+  var rScore={}, rWins={}, railRowEl={}, turnScoreAfter={};
   var seatEls={};
   AGENTS.forEach(function(id){ rScore[id]=0; rWins[id]=0; });
 
@@ -549,6 +549,13 @@
     // applied below once its actions finish animating, not here at the start.
     var wsnap=winsAt[i]||{};
     AGENTS.forEach(function(id){ rScore[id]=snap[id]||0; rWins[id]=wsnap[id]||0; });
+    // agent → its post-turn score, for beats that land on someone OTHER than the
+    // actor (a HELP or HURT credits the target). Every player is submitted every
+    // turn, so the target always has a row here.
+    turnScoreAfter={};
+    t.actions.forEach(function(a){
+      if(typeof a.score_after === 'number'){ turnScoreAfter[a.agent]=a.score_after; }
+    });
     updateRail();
     updateProgress(i);
     turnlabel.textContent='Round '+t.round+' · Turn '+t.turn;
@@ -840,8 +847,8 @@
         el._hoardClearTimer = null;
       }, HOARD_FULL);
       eyes(a.agent,'happy',900);
-      showDelta(el, 2);
-      rScore[a.agent]=(rScore[a.agent]||0)+2;
+      showDelta(el, a.delta);
+      rScore[a.agent]=a.score_after;
       updateRail();
       setTimeout(function(){ dimDown(a.agent); }, 900);
       return;
@@ -863,8 +870,12 @@
           dropCarry(el);
           lockRing(mx,my);
           eyes(a.agent,'happy',900); eyes(a.target,'happy',900);
-          showDelta(el, 8); showDelta(T, 8);
-          rScore[a.agent]=(rScore[a.agent]||0)+8;
+          // Both halves of a pact animate together, so each half shows and
+          // assigns its OWN actor's number — a decayed pact pays both sides the
+          // same, but assigning (not adding) keeps this right if a future rule
+          // ever pays them differently.
+          showDelta(el, a.delta); showDelta(T, a.delta);
+          rScore[a.agent]=a.score_after;
           updateRail();
           setTimeout(function(){ dimDown(a.agent); dimDown(a.target); }, 500);
         });
@@ -891,8 +902,8 @@
         walk(el, gx, gy, function(){
           dropCarry(el);
           eyes(a.agent,'happy',900); eyes(a.target,'happy',900);
-          showDelta(T, 4);
-          rScore[a.target]=(rScore[a.target]||0)+4;
+          showDelta(T, a.delta);
+          rScore[a.target]=turnScoreAfter[a.target];
           updateRail();
           setTimeout(function(){ dimDown(a.agent); dimDown(a.target); }, 500);
         });
@@ -916,12 +927,12 @@
           dropCarry(el);
           strikeAt(tx,ty);
           eyes(a.target,'wide',800);
-          showDelta(T, -4);
-          rScore[a.target]=Math.max(0,(rScore[a.target]||0)-4);
-          // Betraying a helper: the attacker gains +4 (on top of the +4 the
-          // victim's HELP already gave them). Shown on the attacker + credited to
-          // the live rScore, matching the resolver and the computeScores snapshot.
-          if(a.betrayed_helper){ showDelta(el, 4); rScore[a.agent]=(rScore[a.agent]||0)+4; }
+          // No Math.max here any more: the server floors a player's NET for the
+          // turn, not each hurt, so flooring per-hurt could disagree with it.
+          showDelta(T, a.delta);
+          rScore[a.target]=turnScoreAfter[a.target];
+          // Betraying a helper: the attacker's extra, shown on the attacker.
+          if(a.betrayed_helper){ showDelta(el, a.betrayal_bonus); rScore[a.agent]=a.score_after; }
           dmgRail(a.target);
           updateRail();
           T.classList.add('recoil','hit');
