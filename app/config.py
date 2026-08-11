@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     # through it. Railway documents 300s; Railway's own support forum carries
     # reports of long-lived connections cut at 20-90s. Neither is trustworthy
     # for this service, and every hold-length decision depends on the answer.
+    # Defaults are the shipped behaviour so the test suite (and any fresh deploy)
+    # keeps today's timings. The intended production values are 90 / true:
+    # 90s is the longest hold that passed against every testable client (Claude
+    # Code, Codex, and Antigravity's `agy` each held a silent 90s request and
+    # returned it cleanly) and sits well under the strictest client wall measured
+    # (180s, Antigravity, which a user cannot raise).
+    #
+    # They stay settings rather than becoming the defaults until a 90s hold is
+    # confirmed to survive Railway's edge, which has never been measured. Turning
+    # them on is an environment change, so turning them back off needs no deploy.
     agent_long_poll_hold_seconds: int = Field(default=40, ge=1)
     agent_hold_idle_lanes: bool = Field(default=False)
 

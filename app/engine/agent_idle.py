@@ -120,7 +120,7 @@ class IdleStatus:
     stop_reason: str | None
 
 
-def pace_idle(idle: IdleStatus) -> tuple[float, int]:
+def pace_idle(idle: IdleStatus, *, can_hold: bool = True) -> tuple[float, int]:
     """Decide ``(long_poll_hold_seconds, next_poll_after_seconds)`` for a poll that
     has no turn to serve right now.
 
@@ -133,9 +133,14 @@ def pace_idle(idle: IdleStatus) -> tuple[float, int]:
     # calls straight back (a paid model think per call, measured at ~153 calls
     # per 9-minute wait) or talks itself into stopping (2 of 8 sessions did).
     # A held request is a wait it CAN perform: it waits for the reply.
-    # Off by default, so the lanes below are exactly today's behaviour until it
-    # is switched on.
-    if HOLD_IDLE_LANES:
+    #
+    # ``can_hold=False`` is the fan-out endpoint, which never holds — it answers
+    # at once and the caller sleeps the wait number instead. It MUST keep the
+    # original, larger wait numbers: the always-on connector polls that endpoint
+    # and sleeps ``min(next_poll, 60)``, so handing it the 5s in-play number
+    # would multiply its request rate ~12x, forever, on the one client that runs
+    # on players' machines and cannot be updated remotely.
+    if HOLD_IDLE_LANES and can_hold:
         return (float(LONG_POLL_HOLD_SECONDS), POLL_IN_PLAY_SECONDS)
 
     # Live game: a turn could open any second. Hold the line; ask again soon.

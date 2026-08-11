@@ -808,10 +808,12 @@ async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, 
     claimed = [cand for cand in ordered if await _claim_pin(db, connection, cand, ctx, now)]
     await db.commit()
     if not claimed:
-        # Non-blocking fan-out: no long-poll hold here, but use the same paced
-        # wait number so a per-agent loop backs off identically to get_next_turn.
+        # Non-blocking fan-out: this endpoint never holds, so it must keep the
+        # original wait numbers (`can_hold=False`). The always-on connector polls
+        # here and sleeps the number we hand back; giving it the in-play 5s would
+        # multiply its request rate ~12x forever on a client we cannot update.
         idle = await compute_idle_status(db, connection, now=now)
-        _, next_poll = pace_idle(idle)
+        _, next_poll = pace_idle(idle, can_hold=False)
         return _idle_payload(idle, waiting_poll_hint=next_poll)
     turns = [await _build_turn_payload(db, cand, ctx) for cand in claimed]
     return {"status": "your_turn", "turns": turns}
