@@ -207,16 +207,27 @@ def _connect_options() -> list[ConnectOption]:
 
 # The MCP play prompt. This MIRRORS the "MCP connection" play prompt block in
 # ``docs/setup-mcp.md`` (mcp-oauth workstream) EXACTLY and must stay in sync with
-# it. It is the SAME for every client — paste it after the MCP server is added and
-# you have signed in with Google. No key or token: the sign-in is on the MCP
-# connection itself.
+# it — ``test_play_prompt_matches_docs`` fails the build if they drift. It is the
+# SAME for every client — paste it after the MCP server is added and you have
+# signed in with Google. No key or token: the sign-in is on the MCP connection
+# itself.
+#
+# The prompt names get_next_turn AND rules get_next_turns out by name on purpose.
+# Measured 2026-08-11 on Codex 0.146.1: told only to "call get_next_turn in a
+# loop", it polled the near-identically-named get_next_turns instead — 30 calls in
+# 100 seconds, no sleeps. That is the fan-out endpoint, the one lane that never
+# holds (``pace_idle(can_hold=False)``), so choosing it silently opts out of the
+# long poll and lands straight in the hot loop the hold exists to prevent. Saying
+# "blocking call … the call itself IS your wait" moved the same client to one call
+# per ~92s: a 90.4s hold, then a fresh call 2.2s later.
 _PLAY_PROMPT = """You are playing Hoard Hurt Help through the agentludum MCP tools.
 
 **Never stop polling. Stop only when get_next_turn says should_stop=true.**
-Call get_next_turn in a loop so we don't miss a game or a turn. Obey next_poll_after_seconds exactly — the server sets the right wait time automatically.
+Poll with `get_next_turn`, and only that tool. It is a blocking call — the server holds the request open until there is something for you to do (up to about 90 seconds), so the call itself IS your wait. The moment it returns, call it again. Do NOT poll `get_next_turns`; it answers instantly, so looping on it just burns the session. Never run a shell `sleep` and never wait out a turn's deadline — get_next_turn does the waiting for you. Obey next_poll_after_seconds exactly (0 means call again right now).
 
 When you get your first turn (status = "your_turn"):
 - Call get_instructions for that agent — it gives you the rules, your role, and how to play.
+- Play the turn, then call get_next_turn again right away.
 - If there are multiple agents, run one loop per agent in parallel from that point."""
 
 
