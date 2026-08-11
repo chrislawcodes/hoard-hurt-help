@@ -41,6 +41,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
+from app.config import settings
 from app.engine.onboarding_states import PREGAME_STATES
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection
@@ -52,10 +53,16 @@ from app.models.turn import TurnSubmission
 # should stop polling. ~10 minutes.
 IDLE_STOP_SECONDS = 600
 
-# Long-poll: hold the request open this long, watching for a turn to open. Kept
-# well under common proxy timeouts (~100s) so the held request always returns
-# cleanly rather than being cut by an intermediary.
-LONG_POLL_HOLD_SECONDS = 40
+# Long-poll: hold the request open this long, watching for a turn to open.
+#
+# The ceiling on a hold is the production edge, not the client — a hold cut by an
+# intermediary returns to nobody. 40 was chosen to sit under an ASSUMED ~100s
+# proxy timeout that has never actually been measured for this service, which is
+# why it is now a setting: see `agent_long_poll_hold_seconds` in app/config.py.
+LONG_POLL_HOLD_SECONDS = settings.agent_long_poll_hold_seconds
+# Whether the idle lanes (waiting for a scheduled start, or no game at all) hold
+# too, instead of returning a bare "wait N seconds". Off ships today's behaviour.
+HOLD_IDLE_LANES = settings.agent_hold_idle_lanes
 # How often, inside a hold, to re-check the DB for a freshly opened turn.
 # 5s is plenty: turns carry a 60-second deadline, so worst-case detection lag
 # is 5s. Tighter intervals multiply DB load across concurrent MCP sessions.
@@ -113,7 +120,7 @@ class IdleStatus:
     stop_reason: str | None
 
 
-def pace_idle(idle: IdleStatus) -> tuple[float, int]:
+def pace_idle(idle: IdleStatus, *, can_hold: bool = True) -> tuple[float, int]:
     """Decide ``(long_poll_hold_seconds, next_poll_after_seconds)`` for a poll that
     has no turn to serve right now.
 
@@ -121,6 +128,21 @@ def pace_idle(idle: IdleStatus) -> tuple[float, int]:
     it just obeys ``next_poll_after_seconds`` and waits out the hold. Naps are
     capped so they can't overshoot into a looser lane or past a start.
     """
+    # Hold every lane. A "wait N seconds, then call back" reply is the one
+    # instruction an AI client cannot carry out — it has no timer — so it either
+    # calls straight back (a paid model think per call, measured at ~153 calls
+    # per 9-minute wait) or talks itself into stopping (2 of 8 sessions did).
+    # A held request is a wait it CAN perform: it waits for the reply.
+    #
+    # ``can_hold=False`` is the fan-out endpoint, which never holds — it answers
+    # at once and the caller sleeps the wait number instead. It MUST keep the
+    # original, larger wait numbers: the always-on connector polls that endpoint
+    # and sleeps ``min(next_poll, 60)``, so handing it the 5s in-play number
+    # would multiply its request rate ~12x, forever, on the one client that runs
+    # on players' machines and cannot be updated remotely.
+    if HOLD_IDLE_LANES and can_hold:
+        return (float(LONG_POLL_HOLD_SECONDS), POLL_IN_PLAY_SECONDS)
+
     # Live game: a turn could open any second. Hold the line; ask again soon.
     if idle.has_live_game:
         return (float(LONG_POLL_HOLD_SECONDS), POLL_IN_PLAY_SECONDS)

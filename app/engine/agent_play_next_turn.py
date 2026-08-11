@@ -27,7 +27,7 @@ from app.engine.agent_idle import (
     compute_idle_status,
     pace_idle,
 )
-from app.engine.connection_activity import mark_polled
+from app.engine.connection_activity import mark_polled, mark_still_holding
 from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.agent_play_reads import (
     RECENT_HISTORY_TURNS,
@@ -754,6 +754,12 @@ async def get_next_turn(
                 or fresh.user.disabled_at is not None
             ):
                 break
+            # The agent is waiting on US, so keep its liveness stamps fresh. Left
+            # alone they age for the whole hold, and past 90s the connection reads
+            # as dead for turn routing — it would be refused its own turn by the
+            # very hold that is waiting to serve it. Throttled; see the docstring
+            # for why this is not `mark_seen`.
+            await mark_still_holding(check_db, fresh)
             served = await _serve_one_turn(
                 check_db, fresh, datetime.now(timezone.utc), agent_id=agent_id
             )
@@ -768,7 +774,21 @@ async def get_next_turn(
             # rollback is a no-op on the path where it already rolled back.
             await check_db.rollback()
 
-    return {"status": "waiting", "next_poll_after_seconds": next_poll}
+    # The hold ended with nothing to serve. Rebuild the reply from a FRESH idle
+    # picture rather than reusing the one computed before the hold: that one is
+    # stale by the hold's length, and — once the idle lanes hold — reusing the
+    # bare "waiting" shape would drop `should_stop` entirely. The pasted play
+    # prompt's only instruction to stop is "stop when should_stop is true", so a
+    # reply that cannot carry it makes the loop unstoppable.
+    async with db_module.SessionLocal() as after_db:
+        fresh_connection = await after_db.get(Connection, connection_id)
+        if fresh_connection is None:
+            return {"status": "waiting", "next_poll_after_seconds": next_poll}
+        after_idle = await compute_idle_status(
+            after_db, fresh_connection, agent_id=agent_id
+        )
+        _, after_poll = pace_idle(after_idle)
+        return _idle_payload(after_idle, waiting_poll_hint=after_poll)
 
 
 async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, object]:
@@ -788,10 +808,12 @@ async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, 
     claimed = [cand for cand in ordered if await _claim_pin(db, connection, cand, ctx, now)]
     await db.commit()
     if not claimed:
-        # Non-blocking fan-out: no long-poll hold here, but use the same paced
-        # wait number so a per-agent loop backs off identically to get_next_turn.
+        # Non-blocking fan-out: this endpoint never holds, so it must keep the
+        # original wait numbers (`can_hold=False`). The always-on connector polls
+        # here and sleeps the number we hand back; giving it the in-play 5s would
+        # multiply its request rate ~12x forever on a client we cannot update.
         idle = await compute_idle_status(db, connection, now=now)
-        _, next_poll = pace_idle(idle)
+        _, next_poll = pace_idle(idle, can_hold=False)
         return _idle_payload(idle, waiting_poll_hint=next_poll)
     turns = [await _build_turn_payload(db, cand, ctx) for cand in claimed]
     return {"status": "your_turn", "turns": turns}
