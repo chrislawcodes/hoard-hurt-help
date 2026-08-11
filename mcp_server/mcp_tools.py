@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
+from app.engine.agent_idle import LONG_POLL_HOLD_SECONDS
 from app.engine.agent_play import (
     agent_identity_for,
     chat_transcript,
@@ -165,6 +166,45 @@ def _format_instruction_sections(
 # shared ``FastMCP`` app during assembly. FastMCP's ``.tool()`` returns the
 # function unchanged, so registration is a side effect only — the names below
 # stay ordinary callables.
+#
+# The two poll tools pass an explicit ``description=`` rather than letting FastMCP
+# lift the docstring, because these two strings are load-bearing UX: they are all
+# a client has to tell the near-identical ``get_next_turn`` / ``get_next_turns``
+# apart, and picking wrong is silently expensive.
+#
+# Measured 2026-08-11 on Codex 0.146.1 against prod: told to "call get_next_turn
+# in a loop" but reading the OLD descriptions — which never said one blocks and
+# invited "use this to discover how many agents you are running" on the other —
+# it polled ``get_next_turns`` 30 times in 100 seconds with no sleeps. That is the
+# fan-out lane, the one exempt from holding (``pace_idle(can_hold=False)``), so
+# choosing it silently opts out of the long poll. Naming the blocking tool in the
+# paste-in play prompt fixed that client (#649); saying it here fixes every client,
+# including ones whose operator never pasted the prompt.
+_GET_NEXT_TURN_DESCRIPTION = """Wait for your next turn. THIS is the tool to poll in a loop.
+
+This is a blocking call: the server holds the request open until there is
+something for you to do (up to about {hold_seconds:.0f} seconds), so the call
+itself IS your wait. Do not sleep between calls and do not wait out a turn's
+deadline — the moment it returns, call it again.
+
+Do NOT poll get_next_turns instead. That one answers instantly, so looping on it
+spins without waiting.
+
+Pass agent_id to wait on ONE specific agent. Use this when you are running
+several agents at once: run one loop per agent in parallel, and give each loop
+its own agent_id so the agents' turns never wait on each other. Omit agent_id to
+play all agents from a single loop (most urgent first)."""
+
+_GET_NEXT_TURNS_DESCRIPTION = """List every turn claimable right now, one per agent. NOT a polling tool.
+
+This answers immediately and never waits, so calling it in a loop spins: it
+burns a model call every few seconds and tells you nothing new. Poll
+get_next_turn instead — that one blocks until there is work.
+
+Call this ONCE, to discover how many agents you are running before fanning out:
+if it returns more than one turn, run one parallel loop per agent (call
+get_next_turn(agent_id=...) in each), so two agents on the same provider can both
+move inside the same turn window instead of waiting in line."""
 
 
 async def get_next_turn(
@@ -173,12 +213,15 @@ async def get_next_turn(
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
     db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
-    """Get the most urgent pending turn across all of the user's games.
+    """Wait for your next turn. THIS is the tool to poll in a loop.
 
-    Pass agent_id to get the next turn for ONE specific agent. Use this when you
-    are running several agents at once: run one loop per agent in parallel, and
-    give each loop its own agent_id so the agents' turns never wait on each other.
-    Omit agent_id to play all agents from a single loop (most urgent first).
+    The description clients actually read is built at registration — see
+    ``_GET_NEXT_TURN_DESCRIPTION``, which states the live hold length.
+
+    Pass agent_id to wait on ONE specific agent. Use this when you are running
+    several agents at once: run one loop per agent in parallel, and give each loop
+    its own agent_id so the agents' turns never wait on each other. Omit agent_id
+    to play all agents from a single loop (most urgent first).
     """
     _access_token, _userinfo, connection = await connection_identity._resolve_oauth_connection(
         db, token
@@ -202,10 +245,14 @@ async def get_next_turns(
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
     db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
-    """Return ALL of the user's currently-claimable turns at once, one per agent.
+    """List every turn claimable right now, one per agent. NOT a polling tool.
 
-    Use this to discover how many agents you are running before fanning out: if it
-    returns more than one turn, run one parallel loop per agent (call
+    The description clients actually read is ``_GET_NEXT_TURNS_DESCRIPTION``,
+    which says so in the first line — this endpoint answers instantly and never
+    holds, so a client that polls it here spins instead of waiting.
+
+    Call it once to discover how many agents you are running before fanning out:
+    if it returns more than one turn, run one parallel loop per agent (call
     get_next_turn(agent_id=...) in each), so two agents on the same provider can
     both move inside the same turn window instead of waiting in line.
     """
@@ -390,9 +437,16 @@ def register_tools(mcp_app: FastMCP) -> None:
     level — and registering here — lets ``server`` own the single ``FastMCP``
     instance while the tool callables stay directly importable and patchable.
     """
+    # The hold length is a server setting. Reading it here — rather than typing
+    # the number into the description — keeps the one warning a client gets about
+    # how long the call blocks honest when that setting changes. A second,
+    # independently-drifting copy of this number is exactly how the old 25s cap
+    # made a hold change silently do nothing (see the note in get_next_turn).
+    mcp_app.tool(
+        description=_GET_NEXT_TURN_DESCRIPTION.format(hold_seconds=LONG_POLL_HOLD_SECONDS)
+    )(get_next_turn)
+    mcp_app.tool(description=_GET_NEXT_TURNS_DESCRIPTION)(get_next_turns)
     for tool_fn in (
-        get_next_turn,
-        get_next_turns,
         get_instructions,
         submit_talk,
         submit_action,
