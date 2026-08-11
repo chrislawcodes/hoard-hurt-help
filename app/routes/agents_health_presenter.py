@@ -1,9 +1,10 @@
 """Shared presentation helpers for the agent list and detail pages.
 
 Holds the small value objects the agent templates read, the per-agent match
-count query both pages need, and the readiness check that decides whether an
-agent can accept a new match invitation. Kept separate so the list, create,
-and detail route modules can share it without importing each other.
+count query both pages need, the readiness-to-badge mapping both pages render,
+and the readiness check that decides whether an agent can accept a new match
+invitation. Kept separate so the list, create, and detail route modules can
+share it without importing each other.
 """
 
 from __future__ import annotations
@@ -13,12 +14,78 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 
 from app.deps import DbSession
-from app.engine.connection_health import ConnectionHealth, ConnectionHealthStatus
-from app.models.agent import Agent
+from app.engine.connection_health import (
+    ConnectionHealth,
+    ConnectionHealthStatus,
+    ProviderReadiness,
+)
+from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState
 from app.models.player import Player
 from app.read_models.version_stats import VersionMatchLink, VersionStats
+
+
+def readiness_health_status(
+    readiness: ProviderReadiness, agent_status: AgentStatus
+) -> ConnectionHealthStatus:
+    """Map a user's play-readiness rung plus the agent's own status to the one
+    health badge both the agent list and detail pages show.
+
+    This is the single mapping both pages call. They used to hand-build it
+    separately and had drifted: the list page badged every rung above
+    ``NO_MCP_CONNECTION`` "Ready", so a ``CONNECTED_NOT_LIVE`` agent read as a
+    green "Ready" on ``/me/agents`` but a red "No live connection" on its own
+    detail page — the list telling the user their agent would play when nothing
+    could pick up its turn.
+
+    - A ``PAUSED`` agent shows "Paused" regardless of readiness, so the detail
+      page's dedicated paused card keeps owning that state.
+    - ``NO_MCP_CONNECTION`` and ``CONNECTED_NOT_LIVE`` both read as
+      "No live connection". ``CONNECTED_NOT_LIVE`` means the provider has a
+      current MCP or machine setup but has not been *seen* live — the same rung
+      the seat-hold page (``app/routes/web_seat_connect.py``), the join gate
+      (``app/routes/web_join.py``), and the nav play-setup resolver
+      (``app/routes/nav_context.py``) all already refuse to treat as ready.
+    - ``SEEN_NOT_POLLING`` and ``LIVE`` are "Ready": a live connection covers the
+      provider, so a turn can actually be served.
+    """
+    if agent_status == AgentStatus.PAUSED:
+        return ConnectionHealthStatus(
+            state=ConnectionHealth.PAUSED,
+            label="Paused",
+            badge_class="badge-done",
+            pulse=False,
+            needs_reconnect=False,
+            never_connected=False,
+            last_connected_at=None,
+            last_connected_human=None,
+        )
+    if readiness in (
+        ProviderReadiness.NO_MCP_CONNECTION,
+        ProviderReadiness.CONNECTED_NOT_LIVE,
+    ):
+        return ConnectionHealthStatus(
+            state=ConnectionHealth.DISCONNECTED,
+            label="No live connection",
+            badge_class="badge-alert",
+            pulse=False,
+            needs_reconnect=True,
+            never_connected=True,
+            last_connected_at=None,
+            last_connected_human=None,
+        )
+    # SEEN_NOT_POLLING or LIVE → ready to accept matches.
+    return ConnectionHealthStatus(
+        state=ConnectionHealth.READY,
+        label="Ready",
+        badge_class="badge-ok",
+        pulse=False,
+        needs_reconnect=False,
+        never_connected=False,
+        last_connected_at=None,
+        last_connected_human=None,
+    )
 
 
 def health_view(status: ConnectionHealthStatus) -> dict[str, object]:
