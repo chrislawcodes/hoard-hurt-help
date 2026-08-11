@@ -133,14 +133,20 @@ def test_mirror_value_matches_resolver_decay(k):
 
 
 def _decayed_pact_actions(value: int) -> list[dict]:
-    """Two action dicts shaped as `build_pd_replay_view` emits a decayed pact."""
+    """Two action dicts shaped as `build_pd_replay_view` emits a decayed pact.
+
+    ``round_score_after`` is the resolver's post-turn score, which the real
+    builder always emits and the replay payload now ships so the animation never
+    re-derives a score. Both sides of a pact are paid the same, so each ends the
+    turn on ``value`` here.
+    """
     return [
         {"agent_id": "A", "action": "HELP", "target_id": "B", "mutual": True,
          "mutual_value": value, "display_delta": value, "betrayal": False,
-         "was_defaulted": False, "message": ""},
+         "was_defaulted": False, "message": "", "round_score_after": value},
         {"agent_id": "B", "action": "HELP", "target_id": "A", "mutual": True,
          "mutual_value": value, "display_delta": value, "betrayal": False,
-         "was_defaulted": False, "message": ""},
+         "was_defaulted": False, "message": "", "round_score_after": value},
     ]
 
 
@@ -170,12 +176,17 @@ def _betrayal_actions() -> list[dict]:
     A's HURT display_delta is the victim's -4 (the +4 rides betrayal_bonus).
     """
     return [
+        # A nets +8 (B's help plus the betrayal bonus); B, starting from 0, takes
+        # the normal -4 and floors at 0. `round_score_after` is the resolver's
+        # post-turn score, which the replay payload ships.
         {"agent_id": "A", "action": "HURT", "target_id": "B", "mutual": False,
          "betrayal": False, "betrayed_helper": True, "betrayal_bonus": 4,
-         "display_delta": -4, "was_defaulted": False, "message": ""},
+         "display_delta": -4, "was_defaulted": False, "message": "",
+         "round_score_after": 8},
         {"agent_id": "B", "action": "HELP", "target_id": "A", "mutual": False,
          "betrayal": False, "betrayed_helper": False, "betrayal_bonus": 0,
-         "display_delta": 4, "was_defaulted": False, "message": ""},
+         "display_delta": 4, "was_defaulted": False, "message": "",
+         "round_score_after": 0},
     ]
 
 

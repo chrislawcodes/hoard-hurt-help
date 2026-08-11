@@ -50,6 +50,43 @@ _SAMPLE_REPLAY_PATH = (
 )
 
 
+def _stamp_sample_scores(payload: dict[str, Any]) -> None:
+    """Add ``score_after`` to a bundled recording that predates the field.
+
+    The replay reads the running score off each action instead of re-deriving it
+    (see ``rc_actions``), so a recording without the field would render blank
+    scores on the homepage. The file stays a pure recording; the scores are
+    recomputed here through ``apply_inround_turn`` — the viewer's own in-round
+    helper — so this never becomes a second copy of the scoring rules.
+
+    Recordings are stored in the client's key names, so the keys are adapted for
+    the helper: a pact's per-side value rides on ``delta``, which is what
+    ``mutual_value`` means to it.
+    """
+    inround: dict[str, int] = {agent: 0 for agent in payload.get("agents", [])}
+    current_round = None
+    for turn in payload.get("turns", []):
+        if turn.get("round") != current_round:
+            current_round = turn.get("round")
+            inround = {agent: 0 for agent in payload.get("agents", [])}
+        actions = turn.get("actions", [])
+        inround = apply_inround_turn(
+            inround,
+            [
+                {
+                    "action": a.get("action"),
+                    "agent_id": a.get("agent"),
+                    "target_id": a.get("target"),
+                    "mutual": a.get("mutual"),
+                    "mutual_value": a.get("delta") if a.get("mutual") else None,
+                }
+                for a in actions
+            ],
+        )
+        for a in actions:
+            a["score_after"] = inround.get(a.get("agent"), 0)
+
+
 @lru_cache(maxsize=1)
 def sample_replay_data() -> str:
     """Robot-circle replay JSON for the bundled sample match.
@@ -59,6 +96,7 @@ def sample_replay_data() -> str:
     apart from a real, just-played game. Read once, then cached.
     """
     payload = json.loads(_SAMPLE_REPLAY_PATH.read_text(encoding="utf-8"))
+    _stamp_sample_scores(payload)
     payload["sample"] = True
     payload.setdefault("labels", {agent_id: agent_id for agent_id in payload.get("agents", [])})
     payload.setdefault("bots", {})
@@ -184,12 +222,21 @@ def _build_rc_data(
     for h in history:
         rc_actions = []
         for a in h["actions"]:
+            # EVERY number the replay shows is computed here and shipped — the
+            # viewer JS owns none of the scoring rules. `delta` is already
+            # mode-aware (a decayed or flat pact ships its real per-side value via
+            # `display_delta`), and `score_after` is the resolver's own post-floor
+            # running total. Without the second one the animation has to re-add
+            # payoffs itself, which is how it drifted: it assumed every pact paid
+            # 8, so `decay`, `flat_7` and `flat_6` all rendered wrong. Ship the
+            # answer, never the rule.
             rc_actions.append(
                 {
                     "agent": a["agent_id"],
                     "action": a["action"],
                     "target": a["target_id"],
                     "delta": a["display_delta"],
+                    "score_after": a["round_score_after"],
                     "mutual": a["mutual"],
                     "betrayal": a["betrayal"],
                     # Same-turn betrayal (HURT a helper): the attacker's bonus so
