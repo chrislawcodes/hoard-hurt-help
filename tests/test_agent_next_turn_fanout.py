@@ -1661,3 +1661,87 @@ async def test_filter_to_candidates_batches_mixed_phase_seats(
     body = batch.json()
     assert body["status"] == "your_turn"
     assert sorted(t["match_id"] for t in body["turns"]) == ["M_FC", "M_FD"]
+
+
+class _SleepSampler:
+    """Stand-in for the module's ``asyncio``, so only the hold's own waits are
+    sampled — patching the real ``asyncio.sleep`` would also catch the test
+    client's internals."""
+
+    def __init__(self, sessions: list[AsyncSession]) -> None:
+        self._sessions = sessions
+        self.in_transaction_while_waiting: list[bool] = []
+
+    def get_event_loop(self) -> asyncio.AbstractEventLoop:
+        return asyncio.get_event_loop()
+
+    async def sleep(self, delay: float) -> None:
+        self.in_transaction_while_waiting.append(
+            any(session.in_transaction() for session in self._sessions)
+        )
+        await asyncio.sleep(delay)
+
+
+async def test_hold_frees_its_db_connection_between_re_checks(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A long-poll must leave no open DB transaction while it waits between
+    re-checks. A session with a transaction open keeps its pooled connection
+    checked out, so a hold that leaves one open pins one connection for its whole
+    duration — and a handful of agents waiting at once drains the pool."""
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0.3)
+    monkeypatch.setattr(
+        "app.engine.agent_play_next_turn.LONG_POLL_INTERVAL_SECONDS", 0.05
+    )
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, key = await make_connection(db, user)
+        # Seated in an active match with no open turn: the server long-polls.
+        now = datetime.now(timezone.utc)
+        match = Match(
+            id="M_POOL",
+            name="match-M_POOL",
+            state=GameState.ACTIVE,
+            scheduled_start=now - timedelta(minutes=1),
+            started_at=now - timedelta(minutes=1),
+            per_turn_deadline_seconds=60,
+            current_round=1,
+            current_turn=1,
+        )
+        db.add(match)
+        await db.flush()
+        await _seat_agent(
+            db,
+            user=user,
+            connection=connection,
+            match=match,
+            seat_name=f"{user.handle}/Alpha",
+            agent_name="Alpha",
+            model="claude-sonnet-4-6",
+            strategy_text="s",
+        )
+        await db.commit()
+
+    # Track every session the request opens so we can inspect them mid-wait.
+    opened: list[AsyncSession] = []
+
+    def tracking_factory() -> AsyncSession:
+        session = session_factory()
+        opened.append(session)
+        return session
+
+    monkeypatch.setattr("app.db.SessionLocal", tracking_factory)
+    sampler = _SleepSampler(opened)
+    monkeypatch.setattr("app.engine.agent_play_next_turn.asyncio", sampler)
+
+    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "waiting"
+    # The hold really did re-check several times (so the assertion below is not
+    # passing vacuously)...
+    assert len(sampler.in_transaction_while_waiting) >= 3
+    # ...and never sat on an open transaction while waiting between checks.
+    assert not any(sampler.in_transaction_while_waiting)

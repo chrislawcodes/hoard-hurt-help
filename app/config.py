@@ -36,6 +36,22 @@ class Settings(BaseSettings):
     # Database connection. SQLite for dev, Postgres on Railway.
     database_url: str = Field(default="sqlite+aiosqlite:///./hoardhurthelp.db")
 
+    # Pooled Postgres connections held by this instance. SQLAlchemy's own
+    # defaults (5 + 10) are a silent ceiling of 15 that the long-poll holds and
+    # the per-match turn loops can reach together; these make the ceiling
+    # explicit and tunable without a redeploy. Ignored on SQLite, whose pool
+    # classes take neither argument.
+    #
+    # Sized against the WORST case, not steady state: Railway keeps the old
+    # deployment serving alongside the new one for ~20s, so a deploy briefly
+    # runs two full pools plus the pre-deploy migration. Railway's Postgres
+    # image shipped `max_connections = 100` until 2026-06-16 and 500 after, and
+    # this database predates that change — so assume 100 until `SHOW
+    # max_connections;` says otherwise. 20 here means a deploy peaks near 45.
+    # Raise these from the environment once the live number is confirmed.
+    db_pool_size: int = Field(default=15, ge=1)
+    db_max_overflow: int = Field(default=5, ge=0)
+
     # Google OAuth client. Required for sign-in.
     google_client_id: str = Field(default="")
     google_client_secret: str = Field(default="")

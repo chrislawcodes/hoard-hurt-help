@@ -25,6 +25,16 @@ install_sqlite_parity_guards()
 def make_engine(url: str | None = None) -> AsyncEngine:
     """Create an async engine. Override `url` for tests."""
     resolved_url = url or settings.database_url
+    # Pool sizing is Postgres-only: SQLite (dev + tests) runs on pool classes
+    # that accept neither argument, so passing them there is a TypeError.
+    pool_options: dict[str, Any] = (
+        {}
+        if resolved_url.startswith("sqlite")
+        else {
+            "pool_size": settings.db_pool_size,
+            "max_overflow": settings.db_max_overflow,
+        }
+    )
     engine = create_async_engine(
         resolved_url,
         echo=False,
@@ -33,6 +43,7 @@ def make_engine(url: str | None = None) -> AsyncEngine:
         # scheduler + auto-start poller) otherwise reuses connections Postgres
         # dropped while idle, failing with "connection is closed".
         pool_pre_ping=True,
+        **pool_options,
     )
     if resolved_url.startswith("sqlite"):
         # SQLite ignores foreign keys unless this pragma is set per connection.
