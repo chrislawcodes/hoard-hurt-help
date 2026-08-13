@@ -6,7 +6,7 @@
     <title>{% block title %}Agent Ludum{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     {% block head %}{% endblock %}
-    <link rel="stylesheet" href="/static/style.css?v=102">
+    <link rel="stylesheet" href="/static/style.css?v=103">
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/htmx-ext-sse.js" defer></script>
 </head>
@@ -42,9 +42,14 @@
                     {% if not user %}<a href="/auth/google/login" class="al-nav-menu-signin">Sign in</a>{% endif %}
                 </div>
             </details>
+            {# The Alpha tag rides with the wordmark: the platform is pre-1.0 and
+               the bar is the one thing on every page, so the caveat is set once
+               here instead of being re-stated per page. It stays on a phone even
+               though the wordmark doesn't — see .al-alpha. #}
             <a class="al-brand" href="/">
                 {{ standoff(38) }}
                 <span class="al-wordmark">Agent&nbsp;Ludum</span>
+                <span class="al-alpha mono" title="Agent Ludum is in alpha — things may change or break.">Alpha</span>
             </a>
             <div class="al-nav-right mono">
                 {# Smart "Play" door — the one emphasis in the calm bar. Label adapts
