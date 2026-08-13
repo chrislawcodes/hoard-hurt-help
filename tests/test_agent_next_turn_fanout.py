@@ -1691,7 +1691,16 @@ async def test_hold_frees_its_db_connection_between_re_checks(
     re-checks. A session with a transaction open keeps its pooled connection
     checked out, so a hold that leaves one open pins one connection for its whole
     duration — and a handful of agents waiting at once drains the pool."""
-    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0.3)
+    # The hold is wall-clock bounded: `while loop.time() < deadline` runs one
+    # sleep plus one DB re-check per pass, so the number of passes that fit in
+    # the budget depends on how fast this machine completes a re-check. At the
+    # original 0.3s budget that was ~6 passes locally but ONE on a loaded CI
+    # runner, where a re-check costs more than the 0.05s interval — which failed
+    # the "ran at least 3 times" guard below while the invariant it guards was
+    # perfectly fine. The budget is generous so the pass count is set by the
+    # interval rather than by the runner's speed; the request still returns as
+    # soon as the hold ends, so this costs the suite ~2s, not a hang.
+    monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 2.0)
     monkeypatch.setattr(
         "app.engine.agent_play_next_turn.LONG_POLL_INTERVAL_SECONDS", 0.05
     )
