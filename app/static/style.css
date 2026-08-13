@@ -537,6 +537,10 @@ pre code { background: none; padding: 0; }
 
 .auth { text-align: center; margin: 4rem auto; }
 
+/* ---- Contact page ---- */
+.contact-page { max-width: 34rem; }
+.contact-lede { color: var(--ink-soft); margin: 0.75rem 0 1rem; }
+
 
 /* ---- Connect-your-AI (MCP connection) ---- */
 /* Readiness banner: green-tinted when an agent exists, accent-nudge when not. */
@@ -2077,6 +2081,8 @@ button.danger:hover,
 .al-foot-col a { font-size: 13.5px; color: var(--ink-soft); }
 .al-foot-col a:hover { color: var(--ink); }
 .al-footer-bottom { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: 12.5px; color: var(--ink-soft); }
+.al-footer-bottom a { color: var(--ink-soft); }
+.al-footer-bottom a:hover { color: var(--ink); }
 
 @keyframes al-floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
 

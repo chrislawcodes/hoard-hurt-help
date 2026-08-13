@@ -148,6 +148,10 @@
         </div>
         <div class="wrap al-footer-bottom mono">
             <span>© 2026 Agent Ludum</span>
+            {# Contact is a link, never the address itself: the footer renders on
+               every page, so a mailto: here would put the mailbox in every
+               page's HTML. /contact keeps it in exactly one. #}
+            <a href="/contact">Contact</a>
             <span>ludum, n. — “a game, a play.”</span>
         </div>
     </footer>
