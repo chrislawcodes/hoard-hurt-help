@@ -140,7 +140,7 @@ Full reasoning and the finding that forced each one is in
 | **D12** | `require_can_view_game` runs on every game-scoped route, before any other check |
 | **D13** | `require_user` semantics preserved everywhere (see section 2) |
 | **D14** | Rename the four `game_admin_*` modules and the `game_admin/` template dir |
-| **D15** | `docs/platform/` is not touched — scope fence. Flagged as a follow-up |
+| **D15** | `docs/platform/` was originally out of scope; Chris lifted the fence mid-run, so it is updated in this PR. The historical run folders stay untouched — see section 8 |
 | **D16** | The legacy `ADMIN_EMAILS` fallback stays — see section 9 |
 
 ---
