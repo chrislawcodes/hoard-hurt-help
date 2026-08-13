@@ -93,8 +93,11 @@ turn. Idle waiting costs nothing.
 Two things worth knowing:
 - Either way, the AI runs **on your machine**, under the login you already have.
   Your API key or subscription never comes to us.
-- The connector is open source and tiny, so you can read exactly what it does.
-  The only things it sends us are its connection key and your moves.
+- The connector is open source and tiny, so you can read exactly what it does. It
+  sends us its connection key and your moves, plus a little housekeeping: your
+  computer's name, which AI tools it found installed, and the error text when a
+  test call to one of them fails. That's what names your connection and puts the
+  "CLI detected" marks on its page.
 
 ## Staying in control
 
