@@ -13,13 +13,13 @@
   "discovery": {
     "version": 2,
     "required": true,
-    "complete": false,
+    "complete": true,
     "question_count": 0,
     "asked_count": 0,
     "questions": [],
     "assumptions": [],
     "summary": "New admin-only engagement page plus first-touch signup-source capture. Read-only queries over existing tables for the funnel, and one additive migration on the users table for the source columns.",
-    "updated_at": 1786665345,
+    "updated_at": 1786665493,
     "answers": {},
     "non_goals": [
       "No third-party analytics service (Plausible, Fathom, Umami, Google Analytics). That is a separate decision for Chris because it costs money and needs his account.",
@@ -66,7 +66,20 @@
   "init_head_sha": "0a38ccf04bbb00ad4e47446f20ebd95638a0d4a1",
   "experiment": {},
   "token_usage": [],
-  "command_telemetry": [],
+  "command_telemetry": [
+    {
+      "command": "checkpoint",
+      "stage": "spec",
+      "ts": "2026-08-13T23:57:55Z",
+      "wall_seconds": 0.023,
+      "input_bytes_read": 12712,
+      "output_bytes_written": 6356,
+      "files_read": 2,
+      "files_written": 1,
+      "subprocess_invocations": 2,
+      "ttl_crossed": false
+    }
+  ],
   "stages": {},
   "invariant_warnings": [],
   "schema_version": 1,
