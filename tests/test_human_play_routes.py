@@ -420,7 +420,15 @@ async def test_spectator_gets_no_cockpit(reset_db, client) -> None:
 
 
 def test_user_created_matches_cap_at_ten() -> None:
-    """Spec 018: the normal create path tops out at 10 players."""
-    from app.routes.matches_user import _CREATE_DEFAULTS
+    """Spec 018: the normal create path tops out at 10 players.
 
-    assert _CREATE_DEFAULTS["max_players"] == 10
+    The cap is the game module's own `max_players`, which the create route
+    validates every submission against — so a hand-made request cannot exceed
+    it either, not just the prefilled form.
+    """
+    from app.games import get as get_game_module
+    from app.routes.matches_user import _form_defaults
+
+    module = get_game_module("hoard-hurt-help")
+    assert module.config_defaults().max_players == 10
+    assert _form_defaults(module)["max_players"] == 10

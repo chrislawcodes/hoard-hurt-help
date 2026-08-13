@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
+from app.models.user import UserRole
 from app.models import GameState, Match
 from tests.factories import make_user
 from tests.conftest import signed_in_cookies as _cookies
@@ -57,10 +58,13 @@ async def _seed_match_and_user(
     reset_db: async_sessionmaker,
     *,
     state: GameState = GameState.REGISTERING,
+    platform_admin: bool = False,
 ) -> int:
     """Seed the match plus one user in the same fresh DB; return the user id."""
     async with reset_db() as db:
         user = await make_user(db, 1)  # handle "agent1", email "u1@t.com"
+        if platform_admin:
+            user.role = UserRole.ADMIN
         db.add(
             Match(
                 id=MATCH_ID,
@@ -187,29 +191,28 @@ async def test_form_b_post_start_wrong_slug_is_404_with_detail(client, reset_db)
     assert r.json() == {"detail": "Match not found."}
 
 
-# --- Form C: the game-admin API copy 404s on slug mismatch ------------------
+# --- Form C: the game-scoped export API 404s on slug mismatch ---------------
 
 
 async def test_form_c_admin_export_wrong_slug_is_bare_404(
     client, reset_db, monkeypatch
 ) -> None:
-    """Game-admin export with a wrong slug: a *bare* 404 (Form C behavior).
+    """Export with a wrong slug: a *bare* 404 (Form C behavior).
 
     The admin callers were bare on base, so the body must stay FastAPI's default
     ``{"detail": "Not Found"}`` — NOT the "Match not found." the Form B sites use.
     This pins the difference between the two 404 families so neither drifts.
 
-    The admin route requires game-admin auth, so a non-admin would 403 before the
-    slug check. We grant this user game-admin rights for the WRONG slug so auth
-    passes and the request reaches the load+slug-check, isolating the
-    404-on-mismatch behavior from the auth gate.
+    WRONG_GAME is "liars-dice", which is admin-only, so the caller must be a
+    platform admin to get past the game-visibility check and reach the
+    load+slug-check at all — that is what isolates the 404-on-mismatch behavior
+    from the auth gate. A hidden game's 404 and a wrong-slug 404 are deliberately
+    the same bare body, so neither confirms the other's cause.
     """
     monkeypatch.setattr(settings, "admin_emails", "")
-    # WRONG_GAME slug "liars-dice" → env-key suffix "LIARS_DICE".
-    monkeypatch.setattr(
-        settings, "_game_admin_emails_raw", {"LIARS_DICE": "u1@t.com"}
+    user_id = await _seed_match_and_user(
+        reset_db, state=GameState.ACTIVE, platform_admin=True
     )
-    user_id = await _seed_match_and_user(reset_db, state=GameState.ACTIVE)
 
     r = await client.get(
         f"/api/game-admin/{WRONG_GAME}/matches/{MATCH_ID}/export.json",

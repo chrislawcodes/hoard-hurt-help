@@ -1,16 +1,13 @@
-"""Shared admin/game-admin route logic.
+"""Shared match-administration route logic.
 
-The platform-admin JSON API (``/api/admin``, global) and the per-game admin
-JSON API (``/api/game-admin/{game}``, scoped to one game) are near-identical:
-they build the same ``GameRecord``, run the same create/cancel orchestration,
-and serve the same CSV/JSON exports. The only real differences are the auth
-dependency (owned by each route), the game-resolution source, and a couple of
-error-shape choices on the create path.
+The platform-admin JSON API (``/api/admin``, global) owns create and cancel;
+the game-scoped API (``/api/game-admin/{game}``) owns the exports. Both build
+the same ``GameRecord`` and serve the same export bodies, so the shared
+orchestration lives here and the route handlers stay thin wrappers that supply
+their own auth dependency and scope.
 
-This module owns the shared bodies, parameterized over those differences. The
-route handlers stay thin wrappers that supply their own auth dependency and
-scope, then delegate here. The export *serialization* lives in
-``app.read_models.match_export``; this module only orchestrates load + scope.
+The export *serialization* lives in ``app.read_models.match_export``; this
+module only orchestrates load + scope.
 """
 
 from __future__ import annotations
@@ -21,11 +18,19 @@ from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.match_creation import create_match_with_state, player_count_error
+from app.engine.match_creation import (
+    create_match_with_state,
+    player_count_error,
+    state_config_for,
+)
 from app.engine.match_deletion import cancel_blocked_reason, cancel_match
 from app.games import GameError, get as get_game_module
 from app.models.match import GameState, Match
-from app.read_models.match_export import build_csv_export, build_json_export
+from app.read_models.match_export import (
+    ExportViewer,
+    build_csv_export,
+    build_json_export,
+)
 from app.routes.web_match_loaders import load_match_or_404
 from app.schemas.admin import CreateGameRequest, GameRecord
 
@@ -37,7 +42,6 @@ __all__ = [
     "export_match_json",
     "load_match_or_404",
 ]
-
 
 def build_game_record(match: Match) -> GameRecord:
     """Build the ``GameRecord`` response from a created/loaded match."""
@@ -64,24 +68,18 @@ async def create_game_record(
     game: str,
     body: CreateGameRequest,
     created_by_user_id: int,
-    game_not_found_status: int,
 ) -> GameRecord:
     """Validate a create request and persist the match, returning its record.
 
-    Shared by both admin create handlers. The two clones differ only in how they
-    react to an unresolvable game module: the platform-admin API raises 400 with
-    the underlying ``GameError`` message, while the game-admin API raises 404
-    with ``"Game not found."`` ``game_not_found_status`` selects which behavior
-    the caller wants; the caller is responsible for any pre-check it needs (the
-    game-admin route's ``known_types`` 400 guard stays in the route).
+    An unresolvable game type is a 400 carrying the underlying ``GameError``
+    message. There used to be a second caller that wanted a 404 here; it was an
+    exact duplicate of this one and was removed with the game-admin role.
     """
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
     try:
         module = get_game_module(game)
     except GameError as exc:
-        if game_not_found_status == 404:
-            raise HTTPException(404, detail="Game not found.") from exc
         raise HTTPException(400, detail=str(exc)) from exc
     cfg = module.config_defaults()
     count_error = player_count_error(
@@ -107,10 +105,11 @@ async def create_game_record(
         state=GameState.REGISTERING,
         created_by_user_id=created_by_user_id,
         mutual_help_mode=body.mutual_help_mode,
-        state_config={
-            "wild_ones": body.wild_ones,
-            "dice_per_player": body.dice_per_player,
-        },
+        state_config=state_config_for(
+            game,
+            wild_ones=body.wild_ones,
+            dice_per_player=body.dice_per_player,
+        ),
     )
     return build_game_record(match)
 
@@ -123,11 +122,15 @@ async def cancel_loaded_match(db: AsyncSession, match: Match) -> None:
     await cancel_match(db, match)
 
 
-async def export_match_csv(db: AsyncSession, match_id: str) -> StreamingResponse:
+async def export_match_csv(
+    db: AsyncSession, match_id: str, *, viewer: ExportViewer
+) -> StreamingResponse:
     """Build the CSV export response for a match id."""
-    return await build_csv_export(db, match_id)
+    return await build_csv_export(db, match_id, viewer=viewer)
 
 
-async def export_match_json(db: AsyncSession, match: Match) -> StreamingResponse:
+async def export_match_json(
+    db: AsyncSession, match: Match, *, viewer: ExportViewer
+) -> StreamingResponse:
     """Build the JSON export response for a loaded match."""
-    return await build_json_export(db, match)
+    return await build_json_export(db, match, viewer=viewer)

@@ -188,6 +188,7 @@ async def make_match(
     current_round: int | None = None,
     current_turn: int | None = None,
     match_kind: str | None = None,
+    created_by_user_id: int | None = None,
 ) -> Match:
     """Create + flush a Match row.
 
@@ -222,6 +223,8 @@ async def make_match(
         match.current_turn = current_turn
     if match_kind is not None:
         match.match_kind = match_kind
+    if created_by_user_id is not None:
+        match.created_by_user_id = created_by_user_id
     db.add(match)
     await db.flush()
     return match
@@ -317,6 +320,7 @@ async def seat_player(
     *,
     connection: Connection | None = None,
     model: str = "claude-haiku-4-5",
+    strategy_text: str = "Play to win.",
 ) -> Player:
     """Create user + connection + agent + player for a game.
 
@@ -332,6 +336,7 @@ async def seat_player(
         connection=connection,
         name=seat_name,
         model=model,
+        strategy_text=strategy_text,
     )
     player = Player(
         match_id=match_id,

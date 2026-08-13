@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 from app.game_types import DEFAULT_GAME_TYPE
+from app.games.hoard_hurt_help.rules import MutualHelpMode
 
 
 class CreateGameRequest(BaseModel):
@@ -27,6 +28,21 @@ class CreateGameRequest(BaseModel):
     def _max_ge_min(cls, v, info):
         if "min_players" in info.data and v < info.data["min_players"]:
             raise ValueError("max_players must be >= min_players")
+        return v
+
+    @field_validator("mutual_help_mode")
+    @classmethod
+    def _known_mutual_help_mode(cls, v: str) -> str:
+        """Reject an unknown mode rather than letting it reach the column.
+
+        A typo stored verbatim would mislabel which rule the match was played
+        under, and nothing downstream would notice.
+        """
+        try:
+            MutualHelpMode(v)
+        except ValueError as exc:
+            known = ", ".join(m.value for m in MutualHelpMode)
+            raise ValueError(f"Unknown mutual_help_mode {v!r}. Known: {known}.") from exc
         return v
 
 

@@ -21,6 +21,9 @@
             <span class="badge badge-soon">{{ g.state.value | capitalize }}</span>
             {% endif %}
             <a class="btn btn-ghost" href="{{ g.watch_url }}">Open →</a>
+            {% if g.can_manage %}
+            <a class="btn btn-ghost" href="{{ g.manage_url }}">Manage →</a>
+            {% endif %}
             {% if g.can_delete %}
             <form method="post" action="{{ g.delete_url }}" onsubmit="return confirm('Delete “{{ g.name }}” and all its data? This cannot be undone.')">
                 <button type="submit" class="danger">Delete</button>

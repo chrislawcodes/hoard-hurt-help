@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.match_cancellation import mark_cancelled
 from app.engine.scheduler import registry
+from app.models.game_state import MatchState, PlayerState
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
@@ -70,7 +71,13 @@ async def delete_match(db: AsyncSession, match_id: str) -> None:
     await db.execute(
         update(Match).where(Match.id == match_id).values(winner_player_id=None)
     )
+    # Module-owned state. PlayerState points at both the match and a player, so
+    # it has to go before the Player delete; MatchState only blocks the Match
+    # delete. Neither foreign key cascades, so leaving these behind fails the
+    # whole delete with an integrity error rather than orphaning a row.
+    await db.execute(delete(PlayerState).where(PlayerState.match_id == match_id))
     await db.execute(delete(Player).where(Player.match_id == match_id))
+    await db.execute(delete(MatchState).where(MatchState.match_id == match_id))
     await db.execute(delete(RequestIncident).where(RequestIncident.match_id == match_id))
     await db.execute(delete(Match).where(Match.id == match_id))
     await db.commit()

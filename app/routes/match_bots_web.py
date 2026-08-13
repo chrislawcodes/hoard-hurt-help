@@ -1,4 +1,4 @@
-"""Game-admin HTML pages — bot seating for a match."""
+"""Bot seating for a match — the owner's page, or any platform admin's."""
 
 from typing import Annotated
 
@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Form, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
-from app.deps import DbSession, require_game_admin
+from app.deps import DbSession, require_user
 from app.engine.bot_presets import bot_preset_by_id
 from app.engine.bots import validate_bot_profile_fields
 from app.engine.bots.roster import PACKS, PERSONALITIES, BOT_NAME_POOL
@@ -14,11 +14,11 @@ from app.engine.bots.seating import BotSeatingError, add_bots_to_game
 from app.models.agent import AgentKind
 from app.models.match import Match, GameState
 from app.models.player import Player
-from app.models.user import User
-from app.routes.game_admin_web import _load_game_match_or_404
+from app.models.user import User, UserRole
+from app.routes.match_authz import OwnedOrAdminMatch
 from app.templating import templates
 
-router = APIRouter(prefix="/games/{game}/admin", tags=["game-admin"])
+router = APIRouter(prefix="/games/{game}/admin", tags=["match-manage"])
 
 
 async def _render_add_bots(
@@ -66,10 +66,10 @@ async def _render_add_bots(
     }
     return templates.TemplateResponse(
         request,
-        "game_admin/add_bots.html",
+        "match_manage/add_bots.html",
         {
             "user": user,
-            "is_admin": True,
+            "is_admin": user.role == UserRole.ADMIN,
             "game_slug": game,
             "match": match,
             "personalities": PERSONALITIES,
@@ -86,26 +86,24 @@ async def _render_add_bots(
 @router.get("/matches/{match_id}/bots", response_class=HTMLResponse)
 async def add_bots_form(
     game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
-    user: Annotated[User, Depends(require_game_admin)],
+    g: OwnedOrAdminMatch,
+    user: Annotated[User, Depends(require_user)],
 ):
-    g = await _load_game_match_or_404(db, game, match_id)
     return await _render_add_bots(request, db, user, game, g)
 
 
 @router.post("/matches/{match_id}/bots")
 async def add_bots_submit(
     game: Annotated[str, Path()],
-    match_id: Annotated[str, Path()],
     request: Request,
     db: DbSession,
-    user: Annotated[User, Depends(require_game_admin)],
+    g: OwnedOrAdminMatch,
+    user: Annotated[User, Depends(require_user)],
     seat_name: Annotated[list[str] | None, Form()] = None,
     seat_strategy: Annotated[list[str] | None, Form()] = None,
 ):
-    g = await _load_game_match_or_404(db, game, match_id)
     if g.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         return await _render_add_bots(
             request,
@@ -174,6 +172,6 @@ async def add_bots_submit(
             request, db, user, game, g, error=str(exc), prefill=seats, status_code=400
         )
     return RedirectResponse(
-        url=f"/games/{game}/admin/matches/{match_id}?added={len(created)}",
+        url=f"/games/{game}/admin/matches/{g.id}?added={len(created)}",
         status_code=status.HTTP_303_SEE_OTHER,
     )

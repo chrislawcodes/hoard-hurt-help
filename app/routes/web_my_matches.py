@@ -107,6 +107,12 @@ async def my_matches(
         if g.created_by_user_id == user.id:
             activity_bits.append("Created by you")
 
+        # Seating bots is the owner's power over a match they created, and this
+        # page is the only place they meet that match — without the link the
+        # page they're allowed to open has no way in.
+        can_manage = (
+            user.role == UserRole.ADMIN or g.created_by_user_id == user.id
+        ) and g.state in (GameState.SCHEDULED, GameState.REGISTERING)
         entry = {
             "id": g.id,
             "name": g.name,
@@ -114,6 +120,8 @@ async def my_matches(
             "watch_url": f"/games/{g.game}/matches/{g.id}",
             "activity_label": " · ".join(activity_bits),
             "players_label": players_label,
+            "can_manage": can_manage,
+            "manage_url": f"/games/{g.game}/admin/matches/{g.id}",
             "can_delete": user.role == UserRole.ADMIN
             or (g.created_by_user_id == user.id and g.state in (GameState.SCHEDULED, GameState.REGISTERING)),
             "delete_url": f"/matches/{g.id}/delete",

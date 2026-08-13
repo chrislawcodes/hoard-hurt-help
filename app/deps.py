@@ -10,7 +10,6 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api_errors import api_error
-from app.config import settings
 from app.auth.session import get_user_from_session
 from app.db import get_session
 from app.engine.connection_activity import mark_seen
@@ -77,22 +76,6 @@ async def require_platform_admin(request: Request, db: DbSession) -> User:
             status_code=status.HTTP_403_FORBIDDEN,
             code="NOT_PLATFORM_ADMIN",
             message="Platform admin access required.",
-        )
-    return user
-
-
-async def require_game_admin(
-    game: Annotated[str, Path()],
-    request: Request,
-    db: DbSession,
-) -> User:
-    """Require the user to be a game admin for the {game} path parameter."""
-    user = await require_user(request, db)
-    if user.email.lower() not in settings.game_admin_emails_for(game):
-        raise api_error(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="NOT_GAME_ADMIN",
-            message=f"Game admin access required for {game}.",
         )
     return user
 

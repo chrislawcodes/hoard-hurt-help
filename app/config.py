@@ -5,10 +5,9 @@ Single source of truth for runtime config. Other modules import
 """
 
 import logging
-import os
 from functools import lru_cache
 
-from pydantic import Field, PrivateAttr, field_validator, model_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _log = logging.getLogger(__name__)
@@ -97,32 +96,22 @@ class Settings(BaseSettings):
     # COOKIE_SECURE=true). See app/routes/dev_login.py.
     dev_login_enabled: bool = Field(default=False)
 
-    # --- Admin role split ---
-    # Platform admin: game catalog, user handles, incidents.
+    # --- Admin ---
+    # There are two roles: user, and platform admin. A platform admin runs the
+    # game catalog, user handles, incidents, and every match. Listing an address
+    # here grants that role at sign-in; `users.role` is the record of truth
+    # afterwards.
     platform_admin_emails: str = Field(default="")
-    # Game admin: per-game match creation, strategy prompts, export.
-    # Set GAME_ADMIN_EMAILS__HOARD_HURT_HELP=alice@example.com for each game.
-    # (Populated at construction time via _collect_game_admin_emails below.)
+
+    # How many scheduled/registering/active matches one player may hold at once.
+    # Platform admins are exempt.
     user_active_match_limit: int = Field(default=3)
 
-    # Compatibility: legacy single-role admin list. Kept as fallback while
-    # PLATFORM_ADMIN_EMAILS / GAME_ADMIN_EMAILS__* are being rolled out.
-    # Remove this field once all prod env vars are updated.
+    # Compatibility: legacy single-role admin list. Kept as the fallback for
+    # PLATFORM_ADMIN_EMAILS while production still sets the old name. Removing
+    # it is a deploy-ordering job, not a code cleanup: if ADMIN_EMAILS is still
+    # the live variable, dropping this locks every admin out of the platform.
     admin_emails: str = Field(default="")
-
-    # Internal storage populated by _collect_game_admin_emails validator; not an env var.
-    _game_admin_emails_raw: dict[str, str] = PrivateAttr(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _collect_game_admin_emails(self) -> "Settings":
-        """Scan os.environ for GAME_ADMIN_EMAILS__* and populate _game_admin_emails_raw."""
-        prefix = "GAME_ADMIN_EMAILS__"
-        result: dict[str, str] = {}
-        for k, v in os.environ.items():
-            if k.upper().startswith(prefix):
-                result[k[len(prefix):].upper()] = v  # e.g. "HOARD_HURT_HELP" → value
-        self._game_admin_emails_raw = result
-        return self
 
     @field_validator("database_url")
     @classmethod
@@ -155,33 +144,6 @@ class Settings(BaseSettings):
                 "ADMIN_EMAILS fallback active — set PLATFORM_ADMIN_EMAILS to remove"
             )
         return _parse_email_set(raw)
-
-    def game_admin_emails_for(self, game: str) -> set[str]:
-        """Return the game-admin email set for a slug like 'hoard-hurt-help'.
-
-        Normalizes slug → uppercase with underscores to look up the env var suffix.
-        Falls back to admin_emails during the compat window.
-        """
-        key = game.upper().replace("-", "_")
-        raw = self._game_admin_emails_raw.get(key, "")
-        if not raw and self.admin_emails:
-            _log.warning(
-                "ADMIN_EMAILS fallback active for game %s — set GAME_ADMIN_EMAILS__%s",
-                game,
-                key,
-            )
-            raw = self.admin_emails
-        if not raw:
-            return set()
-        return _parse_email_set(raw)
-
-    @property
-    def all_game_admin_emails_set(self) -> set[str]:
-        """Union of all game-admin emails across every configured game."""
-        result: set[str] = set()
-        for raw in self._game_admin_emails_raw.values():
-            result.update(_parse_email_set(raw))
-        return result
 
 
 @lru_cache

@@ -9,7 +9,8 @@ from fastapi.responses import StreamingResponse
 
 from app.deps import DbSession, require_platform_admin
 from app.models.user import User
-from app.routes.game_admin_actions import (
+from app.read_models.match_export import ExportViewer
+from app.routes.admin_match_actions import (
     cancel_loaded_match,
     create_game_record,
     export_match_csv,
@@ -19,6 +20,11 @@ from app.routes.web_match_loaders import load_match_or_404
 from app.schemas.admin import CancelResponse, CreateGameRequest, GameRecord
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+def _admin_viewer(user: User) -> ExportViewer:
+    """This whole router is platform-admin gated, so the export is unredacted."""
+    return ExportViewer(user_id=user.id, is_platform_admin=True)
 
 
 @router.post("/matches", response_model=GameRecord, status_code=status.HTTP_201_CREATED)
@@ -33,7 +39,6 @@ async def create_game(
         game=body.game_type,
         body=body,
         created_by_user_id=user.id,
-        game_not_found_status=400,
     )
 
 
@@ -54,10 +59,10 @@ async def cancel_game(
 async def export_csv(
     match_id: Annotated[str, Path()],
     db: DbSession,
-    _: Annotated[User, Depends(require_platform_admin)],
+    user: Annotated[User, Depends(require_platform_admin)],
 ) -> StreamingResponse:
     await load_match_or_404(db, match_id)
-    return await export_match_csv(db, match_id)
+    return await export_match_csv(db, match_id, viewer=_admin_viewer(user))
 
 
 @router.get("/matches/{match_id}/export.json")
@@ -65,7 +70,7 @@ async def export_csv(
 async def export_json(
     match_id: Annotated[str, Path()],
     db: DbSession,
-    _: Annotated[User, Depends(require_platform_admin)],
+    user: Annotated[User, Depends(require_platform_admin)],
 ) -> StreamingResponse:
     g = await load_match_or_404(db, match_id)
-    return await export_match_json(db, g)
+    return await export_match_json(db, g, viewer=_admin_viewer(user))

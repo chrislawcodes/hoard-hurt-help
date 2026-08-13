@@ -1,9 +1,24 @@
-"""Shared match-export builders for the admin and game-admin APIs.
+"""Shared match-export builders for the admin and game-scoped APIs.
 
-Both API modules expose byte-identical CSV and JSON exports for a match. The
-auth and match-loading differ per module, so each route keeps those and calls
-the builders here to produce the response. Keep the output (columns, CSV bytes,
-JSON shape) stable — the two routes must stay byte-identical.
+Both API modules expose CSV and JSON exports for a match. The auth and
+match-loading differ per module, so each route keeps those and calls the
+builders here to produce the response.
+
+The payload depends on **who is asking**, expressed by the ``ExportViewer``
+passed to every builder:
+
+* ``strategy_prompt`` is real only for a seat the viewer owns; every other
+  seat reads ``null``. A platform admin sees them all. Strategy text is private
+  to its owner everywhere else in the app, and the export is reachable by any
+  signed-in player.
+* A non-admin sees **resolved turns only**. Without that filter an opponent in
+  a live match could read every rival's chosen action, target and message
+  between the act deadline and the resolve.
+
+A platform admin's export is therefore the only one that is unchanged from
+before this became player-reachable. ``viewer`` is keyword-only with no default
+on purpose: a default would silently redact an admin's export, and there is no
+safe value to guess.
 """
 
 from __future__ import annotations
@@ -11,6 +26,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi.responses import StreamingResponse
@@ -37,11 +53,37 @@ EXPORT_COLUMNS = [
 ]
 
 
-async def gather_export_rows(db: AsyncSession, match_id: str) -> list[dict[str, Any]]:
+@dataclass(frozen=True)
+class ExportViewer:
+    """Who is asking for an export, and therefore how much they may see.
+
+    A value object rather than two loose booleans so a call site cannot swap
+    the arguments by accident.
+    """
+
+    user_id: int | None
+    is_platform_admin: bool
+
+    @property
+    def sees_unresolved_turns(self) -> bool:
+        """Only an admin sees the turn still in flight."""
+        return self.is_platform_admin
+
+    def may_read_strategy(self, seat_user_id: int) -> bool:
+        """Whether this viewer may read the strategy text behind one seat."""
+        return self.is_platform_admin or seat_user_id == self.user_id
+
+
+async def gather_export_rows(
+    db: AsyncSession, match_id: str, *, viewer: ExportViewer
+) -> list[dict[str, Any]]:
     """Flatten a match timeline into one row per submitted action."""
 
     rows: list[dict[str, Any]] = []
-    for turn in await load_match_timeline(db, match_id, resolved_only=False):
+    timeline = await load_match_timeline(
+        db, match_id, resolved_only=not viewer.sees_unresolved_turns
+    )
+    for turn in timeline:
         for action in turn.actions:
             rows.append(
                 {
@@ -63,10 +105,16 @@ async def gather_export_rows(db: AsyncSession, match_id: str) -> list[dict[str, 
     return rows
 
 
-async def build_csv_export(db: AsyncSession, match_id: str) -> StreamingResponse:
-    """Build the CSV export response for a loaded match."""
+async def build_csv_export(
+    db: AsyncSession, match_id: str, *, viewer: ExportViewer
+) -> StreamingResponse:
+    """Build the CSV export response for a loaded match.
 
-    rows = await gather_export_rows(db, match_id)
+    The columns never carried strategy text, so the only viewer-dependent part
+    is which turns are included.
+    """
+
+    rows = await gather_export_rows(db, match_id, viewer=viewer)
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(EXPORT_COLUMNS)
@@ -79,7 +127,9 @@ async def build_csv_export(db: AsyncSession, match_id: str) -> StreamingResponse
     )
 
 
-async def build_json_export(db: AsyncSession, match: Match) -> StreamingResponse:
+async def build_json_export(
+    db: AsyncSession, match: Match, *, viewer: ExportViewer
+) -> StreamingResponse:
     """Build the JSON export response for a loaded match."""
 
     match_id = match.id
@@ -95,16 +145,21 @@ async def build_json_export(db: AsyncSession, match: Match) -> StreamingResponse
                     select(AgentVersion).where(AgentVersion.id == p.agent_version_id)
                 )
             ).scalar_one_or_none()
+        # A bot seat carries no agent_version_id, so `version` is already None
+        # and needs no special case here.
+        strategy_prompt: str | None = None
+        if version is not None and viewer.may_read_strategy(p.user_id):
+            strategy_prompt = version.strategy_text
         players_payload.append(
             {
                 "agent_id": p.agent_id,
                 "model_self_report": p.played_provider,
                 "total_round_wins": p.total_round_wins,
                 "total_round_score": p.total_round_score,
-                "strategy_prompt": version.strategy_text if version else None,
+                "strategy_prompt": strategy_prompt,
             }
         )
-    rows = await gather_export_rows(db, match_id)
+    rows = await gather_export_rows(db, match_id, viewer=viewer)
     payload = {
         "game": {
             "id": match.id,
