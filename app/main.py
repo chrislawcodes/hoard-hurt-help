@@ -38,9 +38,9 @@ from app.routes import (
     connections_credentials,
     connections_lifecycle,
     connections_setup,
-    game_admin_api,
-    game_admin_bots_web,
-    game_admin_web,
+    match_bots_web,
+    match_export_api,
+    match_manage_web,
     handle_web,
     spectator_api,
     sse as sse_routes,
@@ -280,10 +280,10 @@ def create_app() -> FastAPI:
     app.include_router(web_routes.router, dependencies=page_deps)
     app.include_router(handle_web.router, dependencies=page_deps)
     app.include_router(admin_web.router, dependencies=page_deps)
-    app.include_router(game_admin_web.router, dependencies=page_deps)
-    app.include_router(game_admin_bots_web.router, dependencies=page_deps)
+    app.include_router(match_manage_web.router, dependencies=page_deps)
+    app.include_router(match_bots_web.router, dependencies=page_deps)
     app.include_router(admin_api.router)
-    app.include_router(game_admin_api.router)
+    app.include_router(match_export_api.router)
     app.include_router(sse_routes.router)
     app.include_router(spectator_api.router)
 

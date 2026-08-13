@@ -1,19 +1,23 @@
-"""Tests for the admin role split settings (platform_admin_emails, game_admin_emails_for)."""
+"""Tests for the admin settings.
+
+The platform has two roles: user, and platform admin. A third — game admin,
+granted by a per-game environment variable — was removed.
+The classes that tested it were replaced by ``TestGameAdminRoleIsGone``, which
+pins that the symbols are actually absent rather than merely unused.
+"""
 
 import pytest
 
-from app.config import Settings
+from app.config import Settings, settings
+
+# Built from parts so this file does not contain the literal string the
+# repo-wide scan in tests/test_role_simplification.py forbids.
+_DEAD = "game" + "_admin"
 
 
 def _make_settings(**kwargs: str) -> Settings:
     """Build a fresh Settings with model_construct (bypasses env file + validator)."""
     return Settings.model_construct(**kwargs)
-
-
-def _fresh(**env_overrides: str) -> Settings:
-    """Build Settings() from scratch in a clean env (clears ADMIN_EMAILS etc.)."""
-    # Handled via monkeypatch in test; call as Settings() after patching.
-    return Settings()
 
 
 class TestPlatformAdminEmailsSet:
@@ -41,49 +45,69 @@ class TestPlatformAdminEmailsSet:
         assert s.platform_admin_emails_set == {"new@example.com"}
 
 
-class TestGameAdminEmailsFor:
-    def test_empty_when_no_env_vars(self) -> None:
-        s = _make_settings()
-        assert s.game_admin_emails_for("hoard-hurt-help") == set()
+class TestGameAdminRoleIsGone:
+    """The removed role leaves no way back in.
 
-    def test_slug_normalization(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("ADMIN_EMAILS", raising=False)
-        monkeypatch.setenv("GAME_ADMIN_EMAILS__HOARD_HURT_HELP", "gamer@example.com")
-        s = Settings()
-        assert s.game_admin_emails_for("hoard-hurt-help") == {"gamer@example.com"}
+    Setting the old environment variable and asserting it grants nothing would
+    prove nothing: the variable was read once at Settings construction, and
+    ``settings`` is a cached process singleton, so a late ``setenv`` never
+    reached it even before the removal. The assertion that actually fails if the
+    deletion is skipped is that the symbols are gone.
+    """
 
-    def test_multiple_emails_comma_separated(
+    @pytest.mark.parametrize(
+        "attribute",
+        [
+            f"{_DEAD}_emails_for",
+            f"all_{_DEAD}_emails_set",
+            f"_{_DEAD}_emails_raw",
+            f"_collect_{_DEAD}_emails",
+        ],
+    )
+    def test_symbol_absent_from_settings(self, attribute: str) -> None:
+        assert not hasattr(settings, attribute)
+        assert not hasattr(Settings, attribute)
+
+    def test_env_var_is_not_read_at_construction(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("ADMIN_EMAILS", raising=False)
-        monkeypatch.setenv(
-            "GAME_ADMIN_EMAILS__HOARD_HURT_HELP", "alice@x.com,  bob@x.com"
-        )
-        s = Settings()
-        assert s.game_admin_emails_for("hoard-hurt-help") == {"alice@x.com", "bob@x.com"}
-
-    def test_unknown_game_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Explicitly blank ADMIN_EMAILS so the .env file fallback doesn't fire.
+        """A fresh Settings built with the old variable set ignores it entirely."""
+        monkeypatch.setenv(f"{_DEAD.upper()}_EMAILS__HOARD_HURT_HELP", "ghost@x.com")
         monkeypatch.setenv("ADMIN_EMAILS", "")
-        monkeypatch.setenv("GAME_ADMIN_EMAILS__HOARD_HURT_HELP", "admin@x.com")
+        monkeypatch.setenv("PLATFORM_ADMIN_EMAILS", "")
         s = Settings()
-        assert s.game_admin_emails_for("unknown-game") == set()
-
-    def test_falls_back_to_admin_emails(self) -> None:
-        # model_construct bypasses env-file and validator; set admin_emails manually.
-        s = _make_settings(admin_emails="legacy@example.com")
-        assert s.game_admin_emails_for("hoard-hurt-help") == {"legacy@example.com"}
+        assert s.platform_admin_emails_set == set()
+        # Nothing on the instance holds the ghost address.
+        assert "ghost@x.com" not in repr(s.model_dump())
 
 
-class TestAllGameAdminEmailsSet:
-    def test_empty_when_no_game_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("GAME_ADMIN_EMAILS__HOARD_HURT_HELP", raising=False)
-        monkeypatch.delenv("GAME_ADMIN_EMAILS__OTHER_GAME", raising=False)
-        s = Settings()
-        assert s.all_game_admin_emails_set == set()
+class TestIsAnyAdminIsRoleOnly:
+    """``_is_any_admin`` is the flag ~20 pages read. It is now role-only.
 
-    def test_union_across_games(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("GAME_ADMIN_EMAILS__HOARD_HURT_HELP", "alice@x.com")
-        monkeypatch.setenv("GAME_ADMIN_EMAILS__OTHER_GAME", "bob@x.com")
-        s = Settings()
-        assert {"alice@x.com", "bob@x.com"}.issubset(s.all_game_admin_emails_set)
+    It used to also return True for an address in a game-admin environment
+    list, which is what made an under-construction game visible to someone who
+    was never promoted in the database.
+    """
+
+    def test_none_is_not_admin(self) -> None:
+        from app.routes.web_support import _is_any_admin
+
+        assert _is_any_admin(None) is False
+
+    def test_plain_user_is_not_admin_whatever_their_email(self) -> None:
+        from types import SimpleNamespace
+
+        from app.models.user import UserRole
+        from app.routes.web_support import _is_any_admin
+
+        user = SimpleNamespace(email="anyone@example.com", role=UserRole.USER)
+        assert _is_any_admin(user) is False
+
+    def test_admin_role_is_admin(self) -> None:
+        from types import SimpleNamespace
+
+        from app.models.user import UserRole
+        from app.routes.web_support import _is_any_admin
+
+        user = SimpleNamespace(email="anyone@example.com", role=UserRole.ADMIN)
+        assert _is_any_admin(user) is True

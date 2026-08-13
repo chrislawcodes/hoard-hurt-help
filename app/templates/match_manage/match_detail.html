@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ match.name }} — {{ game_slug }} Admin{% endblock %}
+{% block title %}{{ match.name }} — {{ game_slug }}{% endblock %}
 {% block content %}
 <div class="page-head">
     <h1>{{ match.name }}</h1>
@@ -16,7 +16,10 @@
 </div>
 {% endif %}
 
-{% if match.state.value == "registering" %}
+{# Force-start skips the seat and player-floor checks the player start route
+   runs, so it is platform-admin only. An owner starts their own match from the
+   match page instead. #}
+{% if is_admin and match.state.value == "registering" %}
 <form method="post" action="/games/{{ game_slug }}/admin/matches/{{ match.id }}/start">
     <button type="submit">▶ Start now</button>
     <span class="hint">Starts immediately, overriding the scheduled time. Needs the players already joined.</span>

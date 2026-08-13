@@ -18,7 +18,6 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.engine.match_id_rewrite import match_id_candidates
 from app.match_naming import is_smoke_test_match_name
 from app.games import get as get_game_module
@@ -148,7 +147,7 @@ async def _bucket_matches(
 ) -> tuple[list[dict], list[dict], list[dict]]:
     """Split matches into (active, scheduled, completed) view buckets.
 
-    Shared by the platform-admin and game-admin dashboards, which apply the same
+    Shared by the platform-admin and per-game dashboards, which apply the same
     state tests but render different view dicts. ``view_builder`` turns one match
     plus its seated-player count into that page's view dict. Seated-player counts
     are fetched for all matches in a single grouped query (``count_players_by_match``)
@@ -171,16 +170,13 @@ async def _bucket_matches(
 
 
 def _is_any_admin(user: User | None) -> bool:
-    if user is None:
-        return False
-    email = user.email.lower()
-    return user.role == UserRole.ADMIN or (
-        email in settings.all_game_admin_emails_set
-    )
+    """Whether this viewer is a platform admin.
 
-
-def _is_game_admin(user: User | None, game: str) -> bool:
-    return user is not None and user.email.lower() in settings.game_admin_emails_for(game)
+    The platform has exactly two roles, so "any admin" now means the one admin
+    role. The name is kept because ~20 call sites read it as the `is_admin`
+    template flag.
+    """
+    return user is not None and user.role == UserRole.ADMIN
 
 
 def _can_view_game(user: User | None, game: str) -> bool:

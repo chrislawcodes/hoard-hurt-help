@@ -6,13 +6,13 @@
     <a class="btn btn-ghost" href="/admin/users">Users</a>
     <a class="btn btn-ghost" href="/admin/handles">Handles</a>
     {% if game_types | length == 1 %}
-    <a class="btn btn-primary" href="/games/{{ game_types[0] }}/admin/matches/new">+ Create game</a>
+    <a class="btn btn-primary" href="/games/{{ game_types[0] }}/matches/new">+ Create game</a>
     {% else %}
     <details class="admin-create-menu">
         <summary class="btn btn-primary">+ Create game</summary>
         <div class="admin-create-menu-list">
             {% for gt in game_types %}
-            <a href="/games/{{ gt }}/admin/matches/new">{{ gt }}</a>
+            <a href="/games/{{ gt }}/matches/new">{{ gt }}</a>
             {% endfor %}
         </div>
     </details>

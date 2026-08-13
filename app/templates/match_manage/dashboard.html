@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head page-head-row">
     <div><h1>{{ game_slug }} admin</h1></div>
-    <a class="btn btn-primary" href="/games/{{ game_slug }}/admin/matches/new">+ New match</a>
+    <a class="btn btn-primary" href="/games/{{ game_slug }}/matches/new">+ New match</a>
 </div>
 
 {% if active_games %}
@@ -16,7 +16,7 @@
         <td>{{ g.state.value }}</td>
         <td>{{ g.current_round }} / {{ g.total_rounds }}</td>
         <td>{{ g.player_count }}</td>
-        <td><a href="/games/{{ game.game }}/matches/{{ g.id }}">watch</a></td>
+        <td><a href="/games/{{ game_slug }}/matches/{{ g.id }}">watch</a></td>
     </tr>
     {% endfor %}
 </table>
@@ -53,7 +53,7 @@
 {% endif %}
 
 {% if not active_games and not scheduled_games and not completed_games %}
-<p class="empty">No matches yet. <a href="/games/{{ game_slug }}/admin/matches/new">Create one</a>.</p>
+<p class="empty">No matches yet. <a href="/games/{{ game_slug }}/matches/new">Create one</a>.</p>
 {% endif %}
 
 <p class="hint"><a href="/games/{{ game_slug }}/admin/prompts">View all strategy prompts →</a></p>

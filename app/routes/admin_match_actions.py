@@ -1,21 +1,21 @@
-"""Shared admin/game-admin route logic.
+"""Shared match-administration route logic.
 
-The platform-admin JSON API (``/api/admin``, global) and the per-game admin
-JSON API (``/api/game-admin/{game}``, scoped to one game) are near-identical:
-they build the same ``GameRecord``, run the same create/cancel orchestration,
-and serve the same CSV/JSON exports. The only real differences are the auth
-dependency (owned by each route), the game-resolution source, and a couple of
-error-shape choices on the create path.
+The platform-admin JSON API (``/api/admin``, global) owns create and cancel;
+the game-scoped API (``/api/game-admin/{game}``) owns the exports. Both build
+the same ``GameRecord`` and serve the same export bodies, so the shared
+orchestration lives here and the route handlers stay thin wrappers that supply
+their own auth dependency and scope.
 
-This module owns the shared bodies, parameterized over those differences. The
-route handlers stay thin wrappers that supply their own auth dependency and
-scope, then delegate here. The export *serialization* lives in
-``app.read_models.match_export``; this module only orchestrates load + scope.
+The export *serialization* lives in ``app.read_models.match_export``; this
+module only orchestrates load + scope. ``state_config_for`` lives here too, so
+the HTML create route and the JSON create API cannot drift over what a game's
+module-owned config looks like.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -25,7 +25,11 @@ from app.engine.match_creation import create_match_with_state, player_count_erro
 from app.engine.match_deletion import cancel_blocked_reason, cancel_match
 from app.games import GameError, get as get_game_module
 from app.models.match import GameState, Match
-from app.read_models.match_export import build_csv_export, build_json_export
+from app.read_models.match_export import (
+    ExportViewer,
+    build_csv_export,
+    build_json_export,
+)
 from app.routes.web_match_loaders import load_match_or_404
 from app.schemas.admin import CreateGameRequest, GameRecord
 
@@ -36,7 +40,26 @@ __all__ = [
     "export_match_csv",
     "export_match_json",
     "load_match_or_404",
+    "state_config_for",
 ]
+
+# Games whose module owns per-match config. Everything else stores an empty
+# config: seeding one game's keys onto another game's match is noise that reads
+# as meaningful.
+_LIARS_DICE = "liars-dice"
+
+
+def state_config_for(
+    game: str, *, wild_ones: bool, dice_per_player: int
+) -> dict[str, Any]:
+    """Build the module-owned ``MatchState`` config for one game.
+
+    Only Liar's Dice has any today. The caller always passes both values (its
+    form or schema supplies defaults); this decides whether they are stored.
+    """
+    if game == _LIARS_DICE:
+        return {"wild_ones": wild_ones, "dice_per_player": dice_per_player}
+    return {}
 
 
 def build_game_record(match: Match) -> GameRecord:
@@ -107,10 +130,11 @@ async def create_game_record(
         state=GameState.REGISTERING,
         created_by_user_id=created_by_user_id,
         mutual_help_mode=body.mutual_help_mode,
-        state_config={
-            "wild_ones": body.wild_ones,
-            "dice_per_player": body.dice_per_player,
-        },
+        state_config=state_config_for(
+            game,
+            wild_ones=body.wild_ones,
+            dice_per_player=body.dice_per_player,
+        ),
     )
     return build_game_record(match)
 
@@ -123,11 +147,15 @@ async def cancel_loaded_match(db: AsyncSession, match: Match) -> None:
     await cancel_match(db, match)
 
 
-async def export_match_csv(db: AsyncSession, match_id: str) -> StreamingResponse:
+async def export_match_csv(
+    db: AsyncSession, match_id: str, *, viewer: ExportViewer
+) -> StreamingResponse:
     """Build the CSV export response for a match id."""
-    return await build_csv_export(db, match_id)
+    return await build_csv_export(db, match_id, viewer=viewer)
 
 
-async def export_match_json(db: AsyncSession, match: Match) -> StreamingResponse:
+async def export_match_json(
+    db: AsyncSession, match: Match, *, viewer: ExportViewer
+) -> StreamingResponse:
     """Build the JSON export response for a loaded match."""
-    return await build_json_export(db, match)
+    return await build_json_export(db, match, viewer=viewer)

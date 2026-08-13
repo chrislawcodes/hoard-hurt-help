@@ -3,14 +3,6 @@
 {% block content %}
 <div class="page-head"><h1>Create match</h1></div>
 
-<p class="hint">
-    Uses the game defaults:
-    {{ defaults.min_players }}-{{ defaults.max_players }} players,
-    {{ defaults.total_rounds }} rounds,
-    {{ defaults.turns_per_round }} turns per round,
-    {{ defaults.per_turn_deadline_seconds }}s turn deadline.
-</p>
-
 <form method="post" action="/games/{{ game_slug }}/matches/new" id="create-user-match-form" class="card form">
     <label>
         Match name
@@ -23,6 +15,62 @@
     </label>
     <p class="hint" id="tz-note"></p>
     <input type="hidden" name="scheduled_start" id="start-iso">
+
+    <div class="form-row">
+        <label>
+            Min players
+            <input type="number" name="min_players" value="{{ defaults.min_players }}" min="{{ defaults.min_players }}" max="{{ defaults.max_players }}">
+        </label>
+        <label>
+            Max players
+            <input type="number" name="max_players" value="{{ defaults.max_players }}" min="{{ defaults.min_players }}" max="{{ defaults.max_players }}">
+        </label>
+        <label>
+            Per-turn deadline (sec)
+            <input type="number" name="per_turn_deadline_seconds" value="{{ defaults.per_turn_deadline_seconds }}" min="5" max="600">
+        </label>
+    </div>
+    <div class="form-row">
+        <label>
+            Total rounds
+            <input type="number" name="total_rounds" value="{{ defaults.total_rounds }}" min="3" max="20">
+        </label>
+        <label>
+            Turns per round
+            <input type="number" name="turns_per_round" value="{{ defaults.turns_per_round }}" min="3" max="20">
+        </label>
+    </div>
+
+    {% if game_slug == "liars-dice" %}
+    <div class="form-row">
+        <label>
+            <input type="checkbox" name="wild_ones" checked>
+            Wild ones
+        </label>
+        <label>
+            Dice per player
+            <input type="number" name="dice_per_player" value="5" min="1" max="20">
+        </label>
+    </div>
+    {% endif %}
+
+    {% if is_admin and game_slug == "hoard-hurt-help" %}
+    <div class="form-row">
+        {# A select, not a checkbox: "absent" must keep meaning "leave the default
+           alone" on every other game's form, and there are now five choices.
+           Platform admins only — a player's match always uses the shipped rule. #}
+        <label>
+            Mutual-help bonus
+            <select name="mutual_help_mode">
+                <option value="decay" selected>Decays — 8, 7, 6 … down to 2 as the same pair repeats</option>
+                <option value="no_repeats">No repeats — 8, but not two turns in a row with the same partner</option>
+                <option value="flat_8">Flat 8 — every time, no decay</option>
+                <option value="flat_7">Flat 7 — every time</option>
+                <option value="flat_6">Flat 6 — every time (betrayal out-pays the pact)</option>
+            </select>
+        </label>
+    </div>
+    {% endif %}
 
     {% if error %}<p class="error">{{ error }}</p>{% endif %}
     <div class="form-actions"><button type="submit" class="btn btn-primary">Create match</button></div>

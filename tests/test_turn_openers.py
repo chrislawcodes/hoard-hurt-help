@@ -82,12 +82,18 @@ async def test_act_phase_resets_to_the_full_match_window(db) -> None:
 
 
 def test_new_hoard_hurt_help_matches_default_to_a_75s_act_window() -> None:
-    """Both creation paths give HHH a 75s act window (kept in sync)."""
-    from app.games import get as get_game_module
-    from app.routes.matches_user import _CREATE_DEFAULTS
+    """The create form gives HHH a 75s act window, from the game's own config.
 
-    assert get_game_module("hoard-hurt-help").config_defaults().per_turn_deadline_seconds == 75
-    assert _CREATE_DEFAULTS["per_turn_deadline_seconds"] == 75
+    There is one creation path now, and its form defaults read straight from the
+    game module, so the two can no longer drift. This pins both ends anyway: the
+    module's value, and the value the form actually prefills.
+    """
+    from app.games import get as get_game_module
+    from app.routes.matches_user import _form_defaults
+
+    module = get_game_module("hoard-hurt-help")
+    assert module.config_defaults().per_turn_deadline_seconds == 75
+    assert _form_defaults(module)["per_turn_deadline_seconds"] == 75
 
 
 async def test_talk_deadline_default_is_unchanged() -> None:

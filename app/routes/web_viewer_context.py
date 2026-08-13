@@ -32,7 +32,6 @@ from app.read_models.matches import load_match_timeline, load_players, rank_stan
 from app.routes.web_support import (
     _game_theme,
     _is_any_admin,
-    _is_game_admin,
 )
 
 
@@ -301,7 +300,6 @@ async def _game_view_context(request: Request, db, match: Match) -> dict:
     ctx = {
         "user": user,
         "is_admin": _is_any_admin(user),
-        "is_game_admin": _is_game_admin(user, g.game),
         "game": g,
         "countdown_start_iso": countdown_start_iso,
         "game_theme": _game_theme(g),

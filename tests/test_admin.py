@@ -13,7 +13,7 @@ from app.models import Base, GameState, Match, MatchState, Player, RequestIncide
 from app.models.user import UserRole
 from app.read_models.admin_reports import load_turn_timing_report
 from app.routes import admin_web
-from app.routes import game_admin_web
+from app.routes import match_manage_web
 from app.routes import web_support
 from tests.factories import make_agent
 from tests.conftest import signed_in_cookies as _cookies
@@ -226,16 +226,17 @@ async def test_old_admin_root_is_gone(client, reset_db):
 
 
 async def test_create_game_button_links_to_a_real_route(client, reset_db):
-    # The "+ Create game" button used to point at /admin/matches/new, which has
+    # The "+ Create game" button used to point at /matches/new, which has
     # no route, so admins got a 404. It must link to the game-scoped create
     # form, and that target must actually load.
     admin = await _seed_user(reset_db, "admin@test.com")
     r = await client.get("/admin/matches", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert 'href="/admin/matches/new"' not in r.text
-    assert 'href="/games/hoard-hurt-help/admin/matches/new"' in r.text
+    assert 'href="/games/hoard-hurt-help/admin/matches/new"' not in r.text
+    assert 'href="/games/hoard-hurt-help/matches/new"' in r.text
     form = await client.get(
-        "/games/hoard-hurt-help/admin/matches/new", cookies=_cookies(admin.id)
+        "/games/hoard-hurt-help/matches/new", cookies=_cookies(admin.id)
     )
     assert form.status_code == 200
 
@@ -334,12 +335,13 @@ async def test_turn_timing_report_date_filter_limits_matches(client, reset_db):
     assert 'value="America/Los_Angeles"' in r.text
 
 
-async def test_game_admin_api_records_creator(client, reset_db):
+async def test_admin_api_records_creator(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
-        "/api/game-admin/hoard-hurt-help/matches",
+        "/api/admin/matches",
         json={
+            "game_type": "hoard-hurt-help",
             "name": "QA",
             "scheduled_start": when,
             "min_players": 6,
@@ -382,8 +384,9 @@ async def test_admin_api_rejects_player_count_over_max(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
-        "/api/game-admin/hoard-hurt-help/matches",
+        "/api/admin/matches",
         json={
+            "game_type": "hoard-hurt-help",
             "name": "Too Big",
             "scheduled_start": when,
             "min_players": 6,
@@ -402,8 +405,9 @@ async def test_api_rejects_unknown_game_type(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
-        "/api/game-admin/no-such-game/matches",
+        "/api/admin/matches",
         json={
+            "game_type": "no-such-game",
             "name": "Bad Type",
             "scheduled_start": when,
             "min_players": 6,
@@ -413,16 +417,23 @@ async def test_api_rejects_unknown_game_type(client, reset_db):
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 400, r.text
-    assert "Unknown game type" in r.text
+    assert "No game module registered" in r.text
 
 
 async def test_web_form_rejects_unknown_game_type(client, reset_db):
+    """An unknown game is a 404, not a rendered form error.
+
+    The removed admin form answered 400 with "Unknown game type X". The one
+    surviving create route answers 404 — the same thing every other route says
+    about a game that does not exist, and the behaviour the player create path
+    already had.
+    """
     admin = await _seed_user(reset_db, "admin@test.com")
     future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
         "%Y-%m-%dT%H:%M:00.000Z"
     )
     r = await client.post(
-        "/games/no-such-game/admin/matches/new",
+        "/games/no-such-game/matches/new",
         data={
             "name": "Bad Type",
             "scheduled_start": future,
@@ -433,8 +444,8 @@ async def test_web_form_rejects_unknown_game_type(client, reset_db):
         cookies=_cookies(admin.id),
         follow_redirects=False,
     )
-    assert r.status_code == 400
-    assert "Unknown game type" in r.text
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Game not found."
 
 
 async def test_create_game_via_web_form(client, reset_db):
@@ -444,7 +455,7 @@ async def test_create_game_via_web_form(client, reset_db):
         "%Y-%m-%dT%H:%M:00.000Z"
     )
     r = await client.post(
-        "/games/hoard-hurt-help/admin/matches/new",
+        "/games/hoard-hurt-help/matches/new",
         data={
             "name": "Web Night",
             "scheduled_start": future,
@@ -469,7 +480,7 @@ async def test_web_form_rejects_player_count_over_max(client, reset_db):
         "%Y-%m-%dT%H:%M:00.000Z"
     )
     r = await client.post(
-        "/games/hoard-hurt-help/admin/matches/new",
+        "/games/hoard-hurt-help/matches/new",
         data={
             "name": "Too Big",
             "scheduled_start": future,
@@ -490,7 +501,7 @@ async def test_web_form_rejects_past_time(client, reset_db):
         "%Y-%m-%dT%H:%M:00.000Z"
     )
     r = await client.post(
-        "/games/hoard-hurt-help/admin/matches/new",
+        "/games/hoard-hurt-help/matches/new",
         data={
             "name": "Past",
             "scheduled_start": past,
@@ -535,7 +546,7 @@ async def test_platform_admin_api_creates_liars_dice_match_and_persists_config(
         assert state.state_json["config"] == {"wild_ones": False, "dice_per_player": 4}
 
 
-async def test_game_admin_web_form_creates_liars_dice_match_and_persists_config(
+async def test_web_form_creates_liars_dice_match_and_persists_config(
     client, reset_db
 ):
     admin = await _seed_user(reset_db, "admin@test.com")
@@ -543,7 +554,7 @@ async def test_game_admin_web_form_creates_liars_dice_match_and_persists_config(
         "%Y-%m-%dT%H:%M:00.000Z"
     )
     r = await client.post(
-        "/games/liars-dice/admin/matches/new",
+        "/games/liars-dice/matches/new",
         data={
             "name": "LD Web",
             "scheduled_start": future,
@@ -580,7 +591,7 @@ async def test_admin_cancel_pre_start(client, reset_db):
         db.add(g)
         await db.commit()
     r = await client.post(
-        "/api/game-admin/hoard-hurt-help/matches/G_001/cancel",
+        "/api/admin/matches/G_001/cancel",
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 200
@@ -757,40 +768,50 @@ async def test_export_json_includes_strategy_prompts(client, reset_db):
 # --- Role boundary tests ---
 
 
-async def test_game_admin_only_cannot_access_platform_admin(client, reset_db, monkeypatch):
-    """A user who is only a game admin cannot reach the platform admin dashboard."""
+async def test_plain_user_cannot_access_platform_admin(client, reset_db, monkeypatch):
+    """A plain user cannot reach the platform admin dashboard.
+
+    This is the guard behind every /admin/* page. It used to be written as
+    "a game admin cannot reach it"; the role is gone, so the actor is now a
+    plain user, but the thing being pinned is the same.
+    """
     monkeypatch.setattr(settings, "platform_admin_emails", "platformonly@test.com")
     monkeypatch.setattr(settings, "admin_emails", "")
-    monkeypatch.setattr(settings, "_game_admin_emails_raw", {"HOARD_HURT_HELP": "gameonly@test.com"})
-    gameonly = await _seed_user(reset_db, "gameonly@test.com")
-    r = await client.get("/admin/matches", cookies=_cookies(gameonly.id), follow_redirects=False)
+    plain = await _seed_user(reset_db, "plain@test.com")
+    assert plain.role == UserRole.USER
+    r = await client.get("/admin/matches", cookies=_cookies(plain.id), follow_redirects=False)
     assert r.status_code == 403
 
 
-async def test_platform_admin_only_cannot_access_game_admin(client, reset_db, monkeypatch):
-    """A user who is only a platform admin cannot reach the game admin dashboard."""
+async def test_platform_admin_can_access_the_game_dashboard(client, reset_db, monkeypatch):
+    """A platform admin reaches the per-game dashboard with no env-var listing.
+
+    Before the two-role change this returned 403: the gate read an env list and
+    never looked at users.role, so a platform admin who wasn't listed for that
+    game was locked out of it. That trap is what this change removes.
+    """
     monkeypatch.setattr(settings, "platform_admin_emails", "platformonly@test.com")
     monkeypatch.setattr(settings, "admin_emails", "")
-    monkeypatch.setattr(settings, "_game_admin_emails_raw", {"HOARD_HURT_HELP": "gameonly@test.com"})
     platformonly = await _seed_user(reset_db, "platformonly@test.com")
+    assert platformonly.role == UserRole.ADMIN
     r = await client.get(
         "/games/hoard-hurt-help/admin/", cookies=_cookies(platformonly.id), follow_redirects=False
     )
-    assert r.status_code == 403
+    assert r.status_code == 200
 
 
-async def test_game_admin_wrong_game_cannot_access(client, reset_db, monkeypatch):
-    """A game admin for game X cannot reach the admin dashboard for game Y."""
+async def test_plain_user_cannot_access_any_game_dashboard(client, reset_db, monkeypatch):
+    """A plain user is locked out of every game's dashboard, not just one."""
     monkeypatch.setattr(settings, "admin_emails", "")
-    monkeypatch.setattr(settings, "_game_admin_emails_raw", {"HOARD_HURT_HELP": "gameonly@test.com"})
-    gameonly = await _seed_user(reset_db, "gameonly@test.com")
-    r = await client.get(
-        "/games/other-game/admin/", cookies=_cookies(gameonly.id), follow_redirects=False
-    )
-    assert r.status_code == 403
+    plain = await _seed_user(reset_db, "plain@test.com")
+    for game in ("hoard-hurt-help", "other-game"):
+        r = await client.get(
+            f"/games/{game}/admin/", cookies=_cookies(plain.id), follow_redirects=False
+        )
+        assert r.status_code == 403, game
 
 
-async def test_game_admin_dashboard_handles_missing_start_time(monkeypatch):
+async def test_match_dashboard_handles_missing_start_time(monkeypatch):
     """A bad match row should not take the whole dashboard down."""
 
     class FakeResult:
@@ -839,11 +860,11 @@ async def test_game_admin_dashboard_handles_missing_start_time(monkeypatch):
         receive,
     )
 
-    response = await game_admin_web.game_admin_dashboard(
+    response = await match_manage_web.match_dashboard(
         game="hoard-hurt-help",
         request=request,
         db=FakeDB(),
-        user=SimpleNamespace(email="gameonly@test.com"),
+        user=SimpleNamespace(email="admin@test.com", role=UserRole.ADMIN),
     )
 
     assert response.context["scheduled_games"][0]["scheduled_start"] is None
@@ -909,20 +930,20 @@ async def test_platform_admin_dashboard_handles_missing_start_time(monkeypatch):
     assert response.context["scheduled_games"][0]["scheduled_start"] is None
 
 
-async def test_game_admin_api_accessible(client, reset_db):
-    """A game admin can create a match via the game-admin API."""
+async def test_admin_api_accessible(client, reset_db):
+    """A platform admin can create a match via the admin API."""
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
-        "/api/game-admin/hoard-hurt-help/matches",
-        json={"name": "Boundary", "scheduled_start": when, "min_players": 6, "max_players": 10, "per_turn_deadline_seconds": 30},
+        "/api/admin/matches",
+        json={"game_type": "hoard-hurt-help", "name": "Boundary", "scheduled_start": when, "min_players": 6, "max_players": 10, "per_turn_deadline_seconds": 30},
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 201
 
 
 async def test_agent_api_not_shadowed(client, reset_db):
-    """The game/{match_id} agent API route is not shadowed by the game-admin router."""
+    """The game/{match_id} agent API route is not shadowed by the match-manage router."""
     # A non-existent match returns 404 from the agent API, not a routing error.
     r = await client.get("/api/games/NOSUCHID/state")
     assert r.status_code in (401, 404, 422)  # any non-405 proves the route is reachable
@@ -1122,7 +1143,7 @@ async def _create_via_form(client, admin, name, **extra):
         "%Y-%m-%dT%H:%M:00.000Z"
     )
     return await client.post(
-        f"/games/{extra.pop('game', 'hoard-hurt-help')}/admin/matches/new",
+        f"/games/{extra.pop('game', 'hoard-hurt-help')}/matches/new",
         data={
             "name": name,
             "scheduled_start": future,
@@ -1148,12 +1169,12 @@ async def test_create_form_offers_the_mode_control_only_for_hoard_hurt_help(
 ):
     admin = await _seed_user(reset_db, "admin@test.com")
     hhh = await client.get(
-        "/games/hoard-hurt-help/admin/matches/new", cookies=_cookies(admin.id)
+        "/games/hoard-hurt-help/matches/new", cookies=_cookies(admin.id)
     )
     assert hhh.status_code == 200
     assert 'name="mutual_help_mode"' in hhh.text
     other = await client.get(
-        "/games/liars-dice/admin/matches/new", cookies=_cookies(admin.id)
+        "/games/liars-dice/matches/new", cookies=_cookies(admin.id)
     )
     assert other.status_code == 200
     assert 'name="mutual_help_mode"' not in other.text
