@@ -7,21 +7,22 @@ orchestration lives here and the route handlers stay thin wrappers that supply
 their own auth dependency and scope.
 
 The export *serialization* lives in ``app.read_models.match_export``; this
-module only orchestrates load + scope. ``state_config_for`` lives here too, so
-the HTML create route and the JSON create API cannot drift over what a game's
-module-owned config looks like.
+module only orchestrates load + scope.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.match_creation import create_match_with_state, player_count_error
+from app.engine.match_creation import (
+    create_match_with_state,
+    player_count_error,
+    state_config_for,
+)
 from app.engine.match_deletion import cancel_blocked_reason, cancel_match
 from app.games import GameError, get as get_game_module
 from app.models.match import GameState, Match
@@ -40,27 +41,7 @@ __all__ = [
     "export_match_csv",
     "export_match_json",
     "load_match_or_404",
-    "state_config_for",
 ]
-
-# Games whose module owns per-match config. Everything else stores an empty
-# config: seeding one game's keys onto another game's match is noise that reads
-# as meaningful.
-_LIARS_DICE = "liars-dice"
-
-
-def state_config_for(
-    game: str, *, wild_ones: bool, dice_per_player: int
-) -> dict[str, Any]:
-    """Build the module-owned ``MatchState`` config for one game.
-
-    Only Liar's Dice has any today. The caller always passes both values (its
-    form or schema supplies defaults); this decides whether they are stored.
-    """
-    if game == _LIARS_DICE:
-        return {"wild_ones": wild_ones, "dice_per_player": dice_per_player}
-    return {}
-
 
 def build_game_record(match: Match) -> GameRecord:
     """Build the ``GameRecord`` response from a created/loaded match."""

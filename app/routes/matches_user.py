@@ -19,7 +19,12 @@ from app.api_errors import api_error
 from app.aware_datetime import ensure_aware
 from app.config import settings
 from app.deps import DbSession, require_platform_admin, require_user
-from app.engine.match_creation import create_match_with_state, player_count_error
+from app.engine.match_creation import (
+    create_match_with_state,
+    game_owns_match_config,
+    player_count_error,
+    state_config_for,
+)
 from app.engine.match_deletion import cancel_match, delete_match
 from app.engine.user_match_start import start_match_for_user, viewer_start_eligibility
 from app.games import GameError, get as get_game_module
@@ -27,7 +32,6 @@ from app.games.base import GameModule
 from app.games.hoard_hurt_help.rules import MutualHelpMode
 from app.models.match import GameState, Match
 from app.models.user import User, UserRole
-from app.routes.admin_match_actions import state_config_for
 from app.routes.web_match_loaders import (
     GameScopedMatchOr404,
     _load_match_or_404,
@@ -101,19 +105,26 @@ def _load_visible_game_module_or_404(game: str, user: User | None) -> GameModule
 
 
 def _create_context(
-    request: Request,
     user: User,
     game: str,
     module: GameModule,
     *,
     error: str | None,
+    submitted: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Build the create form's context.
+
+    ``submitted`` carries back what the player actually typed after a validation
+    error, so one mistyped number does not blank the other six fields. On the
+    first render there is nothing submitted and the game's defaults stand alone.
+    """
     return {
         "user": user,
         "is_admin": _is_any_admin(user),
         "game_slug": game,
         "game_theme": module.theme(),
         "defaults": _form_defaults(module),
+        "submitted": submitted or {},
         "error": error,
     }
 
@@ -125,12 +136,13 @@ def _html_error(
     *,
     message: str,
     status_code: int = 400,
+    submitted: dict[str, Any] | None = None,
 ):
     module = _load_game_module_or_404(game)
     return templates.TemplateResponse(
         request,
         "matches_user/create_match.html",
-        _create_context(request, user, game, module, error=message),
+        _create_context(user, game, module, error=message, submitted=submitted),
         status_code=status_code,
     )
 
@@ -145,7 +157,7 @@ async def create_match_form(
     return templates.TemplateResponse(
         request,
         "matches_user/create_match.html",
-        _create_context(request, user, game, module, error=None),
+        _create_context(user, game, module, error=None),
     )
 
 
@@ -186,6 +198,17 @@ async def create_match_submit(
     want_turns = (
         turns_per_round if turns_per_round is not None else defaults["turns_per_round"]
     )
+    submitted = {
+        "name": name,
+        "scheduled_start": scheduled_start,
+        "min_players": want_min_players,
+        "max_players": want_max_players,
+        "per_turn_deadline_seconds": want_deadline,
+        "total_rounds": want_rounds,
+        "turns_per_round": want_turns,
+        "dice_per_player": dice_per_player,
+        "wild_ones": wild_ones is not None,
+    }
 
     try:
         when = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
@@ -195,10 +218,17 @@ async def create_match_submit(
             user,
             game,
             message="Could not read the start time. Please pick a date and time.",
+            submitted=submitted,
         )
     when = ensure_aware(when)
     if when <= datetime.now(timezone.utc):
-        return _html_error(request, user, game, message="Start time must be in the future.")
+        return _html_error(
+            request,
+            user,
+            game,
+            message="Start time must be in the future.",
+            submitted=submitted,
+        )
 
     count_error = player_count_error(
         min_players=want_min_players,
@@ -209,10 +239,16 @@ async def create_match_submit(
         order_message="Min players cannot be greater than max players.",
     )
     if count_error is not None:
-        return _html_error(request, user, game, message=count_error)
+        return _html_error(
+            request, user, game, message=count_error, submitted=submitted
+        )
     if not (_MIN_ROUNDS <= want_rounds <= _MAX_ROUNDS):
         return _html_error(
-            request, user, game, message=f"Total rounds must be {_MIN_ROUNDS} to {_MAX_ROUNDS}."
+            request,
+            user,
+            game,
+            message=f"Total rounds must be {_MIN_ROUNDS} to {_MAX_ROUNDS}.",
+            submitted=submitted,
         )
     if not (_MIN_TURNS <= want_turns <= _MAX_TURNS):
         return _html_error(
@@ -220,6 +256,7 @@ async def create_match_submit(
             user,
             game,
             message=f"Turns per round must be {_MIN_TURNS} to {_MAX_TURNS}.",
+            submitted=submitted,
         )
     if not (_MIN_DEADLINE <= want_deadline <= _MAX_DEADLINE):
         return _html_error(
@@ -227,15 +264,18 @@ async def create_match_submit(
             user,
             game,
             message=f"Per-turn deadline must be {_MIN_DEADLINE} to {_MAX_DEADLINE} seconds.",
+            submitted=submitted,
         )
     # Same bound the JSON API already enforces. A zero-dice match is a wedged
-    # match, not a rejected request, so this has to fail before the write.
-    if not (_MIN_DICE <= dice_per_player <= _MAX_DICE):
+    # match, not a rejected request, so this has to fail before the write — but
+    # only on a game that actually has dice.
+    if game_owns_match_config(game) and not (_MIN_DICE <= dice_per_player <= _MAX_DICE):
         return _html_error(
             request,
             user,
             game,
             message=f"Dice per player must be {_MIN_DICE} to {_MAX_DICE}.",
+            submitted=submitted,
         )
 
     # Choosing the per-match rule is a platform-admin power. A player's submitted
@@ -254,6 +294,7 @@ async def create_match_submit(
                 user,
                 game,
                 message=f"Unknown mutual-help mode {mutual_help_mode!r}.",
+                submitted=submitted,
             )
         chosen_mode = mutual_help_mode
 
@@ -280,6 +321,7 @@ async def create_match_submit(
                     "active matches at once."
                 ),
                 status_code=status.HTTP_409_CONFLICT,
+                submitted=submitted,
             )
 
     try:
@@ -303,7 +345,7 @@ async def create_match_submit(
             turns_per_round=want_turns,
         )
     except ValueError as exc:
-        return _html_error(request, user, game, message=str(exc))
+        return _html_error(request, user, game, message=str(exc), submitted=submitted)
 
     # An admin creating from the per-game dashboard belongs back on it; a player
     # has no dashboard, so their match is waiting on /me/matches.

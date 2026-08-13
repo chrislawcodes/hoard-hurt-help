@@ -24,7 +24,7 @@ inline, after step 2.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from fastapi import Depends, Path, status
 
@@ -41,7 +41,7 @@ from app.routes.web_support import require_can_view_game
 _BARE_404 = None
 
 
-def _deny_not_admin() -> None:
+def _deny_not_admin() -> NoReturn:
     raise api_error(
         status_code=status.HTTP_403_FORBIDDEN,
         code="NOT_PLATFORM_ADMIN",
@@ -49,7 +49,7 @@ def _deny_not_admin() -> None:
     )
 
 
-def _deny_not_owner() -> None:
+def _deny_not_owner() -> NoReturn:
     raise api_error(
         status_code=status.HTTP_403_FORBIDDEN,
         code="NOT_MATCH_OWNER",

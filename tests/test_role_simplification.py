@@ -38,7 +38,7 @@ GAME = "hoard-hurt-help"
 HIDDEN_GAME = "liars-dice"  # admin_only=True — under construction
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 async def reset_db(monkeypatch):
     from app.db import make_engine
     from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
@@ -346,8 +346,7 @@ async def test_a_players_json_export_hides_other_peoples_strategies(client, rese
     assert None in prompts
 
 
-@pytest.mark.parametrize("prefix", ["game-admin"])
-async def test_an_admins_json_export_shows_every_strategy(client, reset_db, prefix):
+async def test_an_admins_json_export_shows_every_strategy(client, reset_db):
     """Row 17 — the game-scoped export."""
     owner = await _user(reset_db, "owner")
     rival = await _user(reset_db, "rival")
@@ -355,7 +354,7 @@ async def test_an_admins_json_export_shows_every_strategy(client, reset_db, pref
     match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
 
     r = await client.get(
-        f"/api/{prefix}/{GAME}/matches/{match_id}/export.json",
+        f"/api/game-admin/{GAME}/matches/{match_id}/export.json",
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 200, r.text
@@ -394,7 +393,6 @@ async def test_the_csv_export_columns_are_unchanged_for_a_player(client, reset_d
     assert r.status_code == 200
     header = r.text.splitlines()[0]
     assert header == ",".join(EXPORT_COLUMNS)
-    assert "strategy" not in header
 
 
 async def test_a_player_cannot_read_the_in_flight_turn(client, reset_db):
@@ -461,13 +459,16 @@ def test_the_repo_has_no_trace_of_the_removed_role():
 
     needle = "game" + "_admin"
     self_name = Path(__file__).name
-    listed = subprocess.run(
-        ["git", "ls-files", "app", "tests"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "app", "tests"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pytest.skip("not a git checkout")
     offenders: list[str] = []
     for rel in listed.stdout.splitlines():
         if not rel.endswith((".py", ".html")) or rel.endswith(self_name):
@@ -630,6 +631,16 @@ async def test_an_owner_can_open_and_use_the_bots_form(client, reset_db):
         follow_redirects=False,
     )
     assert seated.status_code == 303, seated.text
+    # The redirect proves the route ran; only the row proves it seated anything.
+    from app.models.player import Player
+
+    async with reset_db() as db:
+        seats = (
+            (await db.execute(select(Player).where(Player.match_id == "M_OWNED")))
+            .scalars()
+            .all()
+        )
+    assert [p.seat_name for p in seats] == ["Grabby"]
 
 
 @pytest.mark.parametrize(
@@ -751,6 +762,11 @@ async def test_an_admin_may_act_on_a_match_they_did_not_create(client, reset_db)
         follow_redirects=False,
     )
     assert cancelled.status_code == 303, cancelled.text
+    async with reset_db() as db:
+        after = (
+            await db.execute(select(Match).where(Match.id == "M_OWNED"))
+        ).scalar_one()
+    assert after.state == GameState.CANCELLED
 
 
 ALL_GATED_PATHS = [
@@ -921,16 +937,23 @@ async def test_the_under_construction_game_stays_hidden_from_players(
     assert r.status_code == 404, path
 
 
-async def test_the_under_construction_game_is_absent_from_every_listing(
+async def test_the_under_construction_game_is_absent_from_the_games_catalog(
     client, reset_db
 ):
-    """Row 49. Three listings read the same narrowed flag: the games catalog,
-    the leaderboard, and the home page's leaderboard band."""
+    """Row 49, the catalog half. The catalog lists registered games directly, so
+    an empty database is enough to make this meaningful — an admin does see the
+    slug here. The leaderboard and home-page halves need a seeded section, so
+    they live in their own test below."""
     player = await _user(reset_db, "player")
-    for path in ("/games", "/leaderboard", "/"):
-        r = await client.get(path, cookies=_cookies(player.id))
-        assert r.status_code == 200, path
-        assert "liars-dice" not in r.text, path
+    admin = await _user(reset_db, "boss", admin=True)
+
+    as_admin = await client.get("/games", cookies=_cookies(admin.id))
+    assert as_admin.status_code == 200
+    assert HIDDEN_GAME in as_admin.text
+
+    as_player = await client.get("/games", cookies=_cookies(player.id))
+    assert as_player.status_code == 200
+    assert HIDDEN_GAME not in as_player.text
 
 
 # --------------------------------------------------------------------------
@@ -1109,6 +1132,173 @@ async def test_the_owner_gets_a_link_to_the_page_they_may_open(client, reset_db)
     match = await _named(reset_db, "Mine")
     assert match is not None
 
+    href = f"/games/{GAME}/admin/matches/{match.id}"
     r = await client.get("/me/matches", cookies=_cookies(player.id))
     assert r.status_code == 200
-    assert f"/games/{GAME}/admin/matches/{match.id}" in r.text
+    # The exact href, not a substring: a link with a bogus suffix appended still
+    # contains the prefix, so a substring check cannot detect a broken link.
+    assert f'href="{href}"' in r.text
+    followed = await client.get(href, cookies=_cookies(player.id))
+    assert followed.status_code == 200
+
+
+async def test_a_stranger_may_export_but_sees_nothing_private(client, reset_db):
+    """Exports are open to every signed-in player — that is the audience
+    decision, and without this test it could be narrowed back to owner-only with
+    the whole suite still green. What a stranger gets is the redacted view: no
+    strategy prompts at all, and nothing from the turn still in flight."""
+    owner = await _user(reset_db, "owner")
+    rival = await _user(reset_db, "rival")
+    stranger = await _user(reset_db, "stranger")
+    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+
+    r = await client.get(
+        f"/api/game-admin/{GAME}/matches/{match_id}/export.json",
+        cookies=_cookies(stranger.id),
+    )
+    assert r.status_code == 200, r.text
+    assert {p["strategy_prompt"] for p in r.json()["players"]} == {None}
+    assert "IN-FLIGHT-MOVE" not in r.text
+    # Not an empty payload — the resolved turn is there, which is the point.
+    assert "resolved-move" in r.text
+
+
+async def test_deleting_a_match_clears_its_per_player_state(client, reset_db):
+    """`PlayerState` points at both the match and a player, so it has to go
+    before the players do. Only Liar's Dice writes it, and only once a round
+    starts, so the hoard-hurt-help delete test cannot reach this branch — but an
+    admin deleting a Liar's Dice match can."""
+    from app.models.game_state import PlayerState
+
+    admin = await _user(reset_db, "boss", admin=True)
+    created = await _post_create(
+        client,
+        admin,
+        game=HIDDEN_GAME,
+        name="Dicey",
+        min_players=3,
+        max_players=6,
+        total_rounds=5,
+        turns_per_round=7,
+        dice_per_player=3,
+    )
+    assert created.status_code == 303, created.text
+    match = await _named(reset_db, "Dicey")
+    assert match is not None
+
+    async with reset_db() as db:
+        player = await seat_player(db, match.id, "Roller", user=admin)
+        db.add(
+            PlayerState(
+                match_id=match.id, player_id=player.id, state_json={"dice": [1, 2, 3]}
+            )
+        )
+        await db.commit()
+
+    deleted = await client.post(
+        f"/matches/{match.id}/delete",
+        cookies=_cookies(admin.id),
+        follow_redirects=False,
+    )
+    assert deleted.status_code == 303, deleted.text
+    async with reset_db() as db:
+        leftover = (
+            (
+                await db.execute(
+                    select(PlayerState).where(PlayerState.match_id == match.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert leftover == []
+
+
+async def test_a_participant_who_does_not_own_the_match_gets_no_manage_link(
+    client, reset_db
+):
+    """/me/matches lists matches you PLAY IN, not only ones you created. Showing
+    a manage link to a participant would hand them a link that 403s — the same
+    dead-button problem the force-start row pins."""
+    owner = await _user(reset_db, "owner")
+    guest = await _user(reset_db, "guest")
+    match_id = "M_SHARED"
+    async with reset_db() as db:
+        await make_match(
+            db, match_id, state=GameState.REGISTERING, created_by_user_id=owner.id
+        )
+        await seat_player(db, match_id, "GuestAgent", user=guest)
+        await db.commit()
+
+    r = await client.get("/me/matches", cookies=_cookies(guest.id))
+    assert r.status_code == 200
+    assert match_id in r.text  # sanity: the guest does see the match
+    assert f"/games/{GAME}/admin/matches/{match_id}" not in r.text
+
+    # And the link would indeed have been dead.
+    blocked = await client.get(
+        f"/games/{GAME}/admin/matches/{match_id}", cookies=_cookies(guest.id)
+    )
+    assert blocked.status_code == 403
+
+
+@pytest.mark.parametrize("path", ["/leaderboard", "/"])
+async def test_the_leaderboard_pages_hide_an_admin_only_games_section(
+    client, reset_db, monkeypatch, path
+):
+    """Both pages filter on the same narrowed admin flag.
+
+    The section is injected rather than seeded: a real one needs a completed
+    match with scored players, and without one the "slug is absent" assertion
+    holds for admins too — it would pass with the filter deleted. The admin leg
+    proves the injection reaches the page, so the player leg means something.
+    """
+    from app.read_models import leaderboard_cache
+    from app.read_models.leaderboard import LeaderboardRow, LeaderboardSection
+    from app.routes import web_front_page, web_leaderboard
+
+    # The two pages render a section differently — /leaderboard shows the game
+    # name, the home band shows only rows — so the marker has to be a row.
+    marker = "HiddenGameCompetitor"
+    section = LeaderboardSection(
+        game_type=HIDDEN_GAME,
+        game_name="Liar's Dice",
+        rows=[
+            LeaderboardRow(
+                rank=1,
+                display_name=marker,
+                owner_handle=None,
+                rating=1200.0,
+                match_count=1,
+                last_played_at=None,
+                is_bot=False,
+                provisional=False,
+                is_archived=False,
+                archived_at=None,
+                provider=None,
+            )
+        ],
+        match_count=1,
+        has_bots=False,
+    )
+
+    async def _fake_sections(**_kwargs) -> list[LeaderboardSection]:
+        return [section]
+
+    for module in (leaderboard_cache, web_front_page, web_leaderboard):
+        monkeypatch.setattr(
+            module, "load_leaderboard_sections_cached", _fake_sections, raising=False
+        )
+
+    player = await _user(reset_db, "player")
+    admin = await _user(reset_db, "boss", admin=True)
+
+    as_admin = await client.get(path, cookies=_cookies(admin.id))
+    assert as_admin.status_code == 200
+    assert marker in as_admin.text, (
+        f"injection did not reach {path} — the player leg would be vacuous"
+    )
+
+    as_player = await client.get(path, cookies=_cookies(player.id))
+    assert as_player.status_code == 200
+    assert marker not in as_player.text

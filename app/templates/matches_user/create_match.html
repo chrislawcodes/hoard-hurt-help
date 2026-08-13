@@ -6,7 +6,7 @@
 <form method="post" action="/games/{{ game_slug }}/matches/new" id="create-user-match-form" class="card form">
     <label>
         Match name
-        <input type="text" name="name" required maxlength="255" placeholder="Friday Night Fights">
+        <input type="text" name="name" required maxlength="255" placeholder="Friday Night Fights" value="{{ submitted.name | default('', true) }}">
     </label>
 
     <label>
@@ -14,42 +14,42 @@
         <input type="datetime-local" id="start-local" required>
     </label>
     <p class="hint" id="tz-note"></p>
-    <input type="hidden" name="scheduled_start" id="start-iso">
+    <input type="hidden" name="scheduled_start" id="start-iso" value="{{ submitted.scheduled_start | default('', true) }}">
 
     <div class="form-row">
         <label>
             Min players
-            <input type="number" name="min_players" value="{{ defaults.min_players }}" min="{{ defaults.min_players }}" max="{{ defaults.max_players }}">
+            <input type="number" name="min_players" value="{{ submitted.min_players | default(defaults.min_players, true) }}" min="{{ defaults.min_players }}" max="{{ defaults.max_players }}">
         </label>
         <label>
             Max players
-            <input type="number" name="max_players" value="{{ defaults.max_players }}" min="{{ defaults.min_players }}" max="{{ defaults.max_players }}">
+            <input type="number" name="max_players" value="{{ submitted.max_players | default(defaults.max_players, true) }}" min="{{ defaults.min_players }}" max="{{ defaults.max_players }}">
         </label>
         <label>
             Per-turn deadline (sec)
-            <input type="number" name="per_turn_deadline_seconds" value="{{ defaults.per_turn_deadline_seconds }}" min="5" max="600">
+            <input type="number" name="per_turn_deadline_seconds" value="{{ submitted.per_turn_deadline_seconds | default(defaults.per_turn_deadline_seconds, true) }}" min="5" max="600">
         </label>
     </div>
     <div class="form-row">
         <label>
             Total rounds
-            <input type="number" name="total_rounds" value="{{ defaults.total_rounds }}" min="3" max="20">
+            <input type="number" name="total_rounds" value="{{ submitted.total_rounds | default(defaults.total_rounds, true) }}" min="3" max="20">
         </label>
         <label>
             Turns per round
-            <input type="number" name="turns_per_round" value="{{ defaults.turns_per_round }}" min="3" max="20">
+            <input type="number" name="turns_per_round" value="{{ submitted.turns_per_round | default(defaults.turns_per_round, true) }}" min="3" max="20">
         </label>
     </div>
 
     {% if game_slug == "liars-dice" %}
     <div class="form-row">
         <label>
-            <input type="checkbox" name="wild_ones" checked>
+            <input type="checkbox" name="wild_ones" {% if submitted.wild_ones is not defined or submitted.wild_ones %}checked{% endif %}>
             Wild ones
         </label>
         <label>
             Dice per player
-            <input type="number" name="dice_per_player" value="5" min="1" max="20">
+            <input type="number" name="dice_per_player" value="{{ submitted.dice_per_player | default(5, true) }}" min="1" max="20">
         </label>
     </div>
     {% endif %}
@@ -93,8 +93,13 @@
 
     const now = new Date();
     local.min = toLocalInputValue(now);
+    // On a re-render after a validation error the hidden field still holds what
+    // was submitted; show that rather than resetting to a fresh default.
     if (!local.value) {
-        local.value = toLocalInputValue(new Date(now.getTime() + 10 * 60 * 1000));
+        const prior = iso.value ? new Date(iso.value) : null;
+        local.value = toLocalInputValue(
+            prior && !isNaN(prior) ? prior : new Date(now.getTime() + 10 * 60 * 1000)
+        );
     }
 
     form.addEventListener('submit', function () {

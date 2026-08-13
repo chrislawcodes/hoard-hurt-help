@@ -8,10 +8,38 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from typing import Any
+
 from app.engine.tokens import generate_match_id
 from app.games import known_types
 from app.models.game_state import MatchState
 from app.models.match import GameState, Match, MatchKind
+
+
+# Games whose module owns per-match config. Everything else stores an empty
+# config: seeding one game's keys onto another game's match is noise that reads
+# as meaningful.
+_LIARS_DICE = "liars-dice"
+
+
+def game_owns_match_config(game: str) -> bool:
+    """Whether this game has module-owned per-match config at all."""
+    return game == _LIARS_DICE
+
+
+def state_config_for(
+    game: str, *, wild_ones: bool, dice_per_player: int
+) -> dict[str, Any]:
+    """Build the module-owned ``MatchState`` config for one game.
+
+    Only Liar's Dice has any today. Every create path goes through here so the
+    HTML form and the JSON API cannot drift over what a game's config looks
+    like. The caller always passes both values (its form or schema supplies
+    defaults); this decides whether they are stored.
+    """
+    if game_owns_match_config(game):
+        return {"wild_ones": wild_ones, "dice_per_player": dice_per_player}
+    return {}
 
 
 def player_count_error(
