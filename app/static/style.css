@@ -1685,6 +1685,18 @@ button.danger:hover,
 .al-brand { display: flex; align-items: center; gap: 11px; }
 .al-logo { display: block; }
 .al-wordmark { font-family: var(--al-display); font-weight: 800; font-size: 21px; letter-spacing: -0.02em; }
+/* Alpha tag — states the platform's maturity, so it's deliberately quiet: it
+   borrows the outlined tag language from the games grid (.badge-lab) rather
+   than a colored badge, which would compete with the LIVE pills and the one
+   emphasis in the bar (the Play CTA). It keeps its own muted color against the
+   brand link so it never reads as part of the wordmark. */
+.al-brand .al-alpha {
+    font-size: 10.5px; font-weight: 700; line-height: 1;
+    text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap;
+    padding: 4px 8px; border-radius: 999px;
+    background: var(--surface); color: var(--ink-soft);
+    border: 1.5px solid var(--line);
+}
 .al-navlinks { display: flex; align-items: center; gap: 28px; }
 .al-navlinks a { font-size: 13.5px; font-weight: 700; color: var(--ink-soft); }
 .al-navlinks a:hover { color: var(--ink); }
@@ -2153,6 +2165,10 @@ button.danger:hover,
     /* Drop the nav brand to the logo mark on a phone so the CTA + auth never get
        crowded off the bar. The footer keeps the full wordmark. */
     .al-nav-inner .al-wordmark { display: none; }
+    /* The Alpha tag stays when the wordmark goes — it's the whole point of the
+       marker, and it costs far less room. Trimmed a size so the logo + tag pair
+       still leaves the CTA and auth pill their space. */
+    .al-nav-inner .al-alpha { font-size: 9.5px; padding: 3px 6px; }
     .al-lb-row { grid-template-columns: 40px 1fr 90px; }
     .al-lb-row > .al-num:last-child, .al-lb-head > span:last-child { display: none; }
     .lb-toolbar { padding: 14px; }
