@@ -333,8 +333,16 @@ persisted `users.role` (`admin`|`user`) at login rather than being checked
 per-request: the role is recomputed from the allowlist on every login (promote
 *and* demote), and `require_platform_admin` reads `user.role`. This makes the
 role queryable/joinable and keeps one source of truth for the guard and the UI
-chrome. The per-game admin mechanism (`GAME_ADMIN_EMAILS__*`) stays email-based.
-No separate password or API key is used for humans.
+chrome. No separate password or API key is used for humans.
+
+There are **two roles: user and platform admin.** A third — per-game admin,
+granted by `GAME_ADMIN_EMAILS__*` env vars — was removed. It needed a deploy to
+grant, the database had no record of it, and it mostly gated things that were
+not really privileges: players already created, started and deleted their own
+matches, they just got fixed settings while a game admin got every knob. Match
+settings are now everyone's; what stays admin-only is choosing the per-match
+rule variant, reading other people's strategy prompts, and acting on a match
+you did not create.
 
 ### Sideline coaching — **Decided: a one-round note an owner sends their own agent**
 

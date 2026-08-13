@@ -407,7 +407,7 @@ Plus the surviving player create route, which absorbs rows 2 and 3:
 - Any alpha gate or invite system. Sign-up stays open on purpose.
 - Any change to game rules, payoffs, or the `MutualHelpMode` values. This change
   only decides **who may choose** the mode.
-- `/guide/*` rendering, and anything under `docs/` except this run folder.
+- `/guide/*` rendering. (`docs/platform/` was originally out of scope too; Chris lifted that mid-run — see section 8.)
 - Removing the 3-active-match cap.
 
 ---
@@ -420,9 +420,12 @@ Plus the surviving player create route, which absorbs rows 2 and 3:
 this change those lines are false, and `CLAUDE.md` tells every agent to read that
 architecture doc first.
 
-**Not fixed here** — the scope fence forbids touching `docs/` outside this run
-folder. Reported in the PR with the exact line numbers and spawned as a
-follow-up task.
+**Fixed after all.** The scope fence originally excluded `docs/`, so this was
+written up as a follow-up. Chris lifted the fence during the run ("update docs
+as well"), so `docs/platform/` was brought in line in the same PR. The historical
+run folders under `docs/workflow/feature-runs/` are deliberately left alone —
+they record what was true when each feature shipped, and rewriting them would
+falsify that history.
 
 ## 9. The legacy `ADMIN_EMAILS` fallback — kept
 
