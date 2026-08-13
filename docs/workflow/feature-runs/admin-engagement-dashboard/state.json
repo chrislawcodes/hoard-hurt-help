@@ -1,0 +1,78 @@
+{
+  "review_policy": {
+    "sensitive": false,
+    "large_structural": false,
+    "performance_sensitive": false,
+    "extra_gemini_lenses": []
+  },
+  "blocked": {
+    "active": false,
+    "reason": "",
+    "updated_at": 0
+  },
+  "discovery": {
+    "version": 2,
+    "required": true,
+    "complete": false,
+    "question_count": 0,
+    "asked_count": 0,
+    "questions": [],
+    "assumptions": [],
+    "summary": "New admin-only engagement page plus first-touch signup-source capture. Read-only queries over existing tables for the funnel, and one additive migration on the users table for the source columns.",
+    "updated_at": 1786665345,
+    "answers": {},
+    "non_goals": [
+      "No third-party analytics service (Plausible, Fathom, Umami, Google Analytics). That is a separate decision for Chris because it costs money and needs his account.",
+      "No anonymous visitor-ID cookie and no linking of landed-and-bounced visitors to accounts. That would likely require a cookie-consent banner in the EU.",
+      "No cohort retention grid. At 10-20 users it would be noise.",
+      "No changes to any public-facing page. Capture is passive and invisible to visitors.",
+      "No changes to the existing /admin/reports turn-timing page."
+    ],
+    "acceptance_criteria": [
+      "Admin-only page at /admin/engagement, reachable from the admin menu in base.html alongside Match Admin, Reporting and Users, and returning 403 for a non-admin user.",
+      "The funnel is computed as strictly nested sets: a user counts at step N only if they also cleared every step before it. A regression test asserts the sequence is non-increasing for any dataset, including one where a user archived their agent.",
+      "Funnel steps are: signed up, picked a handle, started AI hookup, AI connected, built an agent, joined a match, played a turn, came back another day. Step membership uses ever-did-X (archived and deleted rows still count), not currently-has-X.",
+      "Built-in bots (agents.kind != ai) are excluded from every count, and platform admins plus test accounts are excluded behind a single shared filter used by all queries on the page.",
+      "First-touch source (HTTP referrer plus utm_source, utm_medium, utm_campaign) is captured on the first page view of a session and survives both later navigation and the Google OAuth round trip, landing on the users row at account creation.",
+      "A test proves the end-to-end capture path: land on a page with a utm_source query parameter, browse to another page, then complete sign-in, and assert the new users row records that source.",
+      "The page shows a source table: source, signups from that source, and how many of those went on to play a turn.",
+      "The page shows a stuck-people list naming each user who has not come back and the furthest funnel step they reached.",
+      "The funnel starts at signed up = 100 percent. The page shows NO anonymous visitor count, because no traffic-analytics source exists yet and adding one is a non-goal. The page carries a one-line note saying visitor numbers arrive when an analytics tool is added.",
+      "Migration is additive and reversible, uses op.batch_alter_table for any constraint operation, and leaves existing users with NULL source.",
+      "First-touch capture never blocks or slows a page render, and a failure to record it never breaks the request. It is advisory only and must be commented as such."
+    ],
+    "checklist": {
+      "goal": "Give platform admins one page showing where new users fall out of the signup-to-playing journey, and which traffic source each signup came from, so the next week of work targets the biggest measured leak instead of a hunch.",
+      "audience": "Platform admins only, behind require_platform_admin. Not public and not shown to normal users. Chris is the only regular reader today, so at 10-20 users named rows matter more than percentages.",
+      "constraints": "Async routes and async DB calls only. Dev DB is SQLite, prod is Postgres, so any constraint operation in the migration must use op.batch_alter_table. Migration must be additive and reversible; existing users get NULL source. No third-party analytics service and no anonymous visitor cookie, so no cookie-consent banner is introduced. Follow the existing app/read_models/admin_reports.py pattern for the query module and the existing admin page conventions in app/routes/admin_web.py.",
+      "silent_risk": "yes",
+      "silent_risk_note": "A wrong funnel still renders a clean page. Already hit this concretely: counting each step independently made the funnel go UP in the middle (11 users had connected an AI but 13 had joined a match) because users who archived an agent dropped out of one step but not the next. Source capture has the same shape - the UTM tag is gone from the URL by the time the user clicks sign in, and the Google OAuth round trip drops query params, so a naive implementation silently records NULL for every signup, passes tests, and looks fine in prod.",
+      "design_settled": "no",
+      "design_settled_note": "Page layout is settled from the design conversation (four summary numbers, nested funnel, stuck-people list, source table). The capture half is NOT settled: whether first touch is recorded in middleware or at the login route, how it survives the Google OAuth redirect, what string counts as a source, and how crawler traffic is excluded are all open questions.",
+      "completeness_risk": "yes",
+      "completeness_risk_note": "The signup-source value threads through first-touch capture, the session, sync_google_user, a users-table migration, the read model, and the template. Separately the bot-vs-agent and admin/test-account exclusion filter must be applied identically in every count on the page, or the four summary numbers will contradict the funnel below them."
+    },
+    "unresolved": []
+  },
+  "delivery": {},
+  "dirty_overrides": {},
+  "checkpoint_fallback": {},
+  "parallel_analysis": {
+    "reviewed": false,
+    "found": false,
+    "note": "",
+    "updated_at": 0
+  },
+  "init_head_sha": "0a38ccf04bbb00ad4e47446f20ebd95638a0d4a1",
+  "experiment": {},
+  "token_usage": [],
+  "command_telemetry": [],
+  "stages": {},
+  "invariant_warnings": [],
+  "schema_version": 1,
+  "checkpoint_progress": {
+    "index": 0,
+    "markers_sha": "",
+    "last_diff_head_sha": ""
+  }
+}

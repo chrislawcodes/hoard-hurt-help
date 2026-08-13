@@ -1,0 +1,29 @@
+{
+  "paths": [
+    "app/identity/first_touch.py",
+    "app/main.py",
+    "app/models/user.py",
+    "app/read_models/engagement_funnel.py",
+    "app/read_models/signup_sources.py",
+    "app/routes/admin_engagement.py",
+    "app/routes/auth.py",
+    "app/templates/admin/engagement.html",
+    "app/templates/base.html",
+    "migrations/versions",
+    "tests"
+  ],
+  "allowed_dirty_paths": [
+    "app/identity/first_touch.py",
+    "app/main.py",
+    "app/models/user.py",
+    "app/read_models/engagement_funnel.py",
+    "app/read_models/signup_sources.py",
+    "app/routes/admin_engagement.py",
+    "app/routes/auth.py",
+    "app/templates/admin/engagement.html",
+    "app/templates/base.html",
+    "docs/workflow/feature-runs/admin-engagement-dashboard",
+    "migrations/versions",
+    "tests"
+  ]
+}
