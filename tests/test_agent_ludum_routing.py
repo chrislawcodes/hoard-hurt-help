@@ -76,8 +76,14 @@ async def _seed_leaderboard_data(reset_db: async_sessionmaker) -> None:
         match_id="G_new",
         name="June ranking",
         scheduled_start=datetime(2026, 6, 4, 12, tzinfo=timezone.utc),
+        # Deliberately not "Alpha": the nav bar carries an "Alpha" tag on every
+        # page, so that name would appear in the chrome of any page these tests
+        # render — making the "is present" checks below pass for free and the
+        # "is absent" ones fail for a reason that has nothing to do with
+        # leaderboard filtering. A competitor name must not collide with site
+        # chrome to be a usable marker.
         seat_specs=[
-            (1, "Alpha", AgentKind.AI, None, 3.0, 120),
+            (1, "Delta", AgentKind.AI, None, 3.0, 120),
             (2, "Beta", AgentKind.AI, None, 2.0, 100),
             (3, "Gamma", AgentKind.BOT, "Random Bot", 1.0, 90),
         ],
@@ -125,7 +131,7 @@ async def test_global_leaderboard_renders_rankings(client, reset_db):
     assert r.status_code == 200
     assert "Leaderboard" in r.text
     assert "Hoard · Hurt · Help" in r.text
-    assert "Alpha" in r.text
+    assert "Delta" in r.text
     assert "Beta" in r.text
     assert "Gamma" not in r.text
     assert "Old One" not in r.text
@@ -147,7 +153,7 @@ async def test_global_leaderboard_can_include_bots_and_hide_bot_games(client, re
     hidden = await client.get("/leaderboard?included=all&hide_sim_games=1")
     assert hidden.status_code == 200
     assert "No ranked competitors yet for this filter." in hidden.text
-    assert "Alpha" not in hidden.text
+    assert "Delta" not in hidden.text
     assert "Random Bot" not in hidden.text
 
 
