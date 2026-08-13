@@ -47,6 +47,7 @@ _MIN_ROUNDS, _MAX_ROUNDS = 3, 20
 _MIN_TURNS, _MAX_TURNS = 3, 20
 # Matches the bound CreateGameRequest already enforces on the JSON API.
 _MIN_DEADLINE, _MAX_DEADLINE = 5, 600
+_MIN_DICE, _MAX_DICE = 1, 20
 
 # Fallback prefill for a game whose own defaults sit outside this route's bands.
 _FALLBACK_DEADLINE = 75
@@ -227,6 +228,15 @@ async def create_match_submit(
             game,
             message=f"Per-turn deadline must be {_MIN_DEADLINE} to {_MAX_DEADLINE} seconds.",
         )
+    # Same bound the JSON API already enforces. A zero-dice match is a wedged
+    # match, not a rejected request, so this has to fail before the write.
+    if not (_MIN_DICE <= dice_per_player <= _MAX_DICE):
+        return _html_error(
+            request,
+            user,
+            game,
+            message=f"Dice per player must be {_MIN_DICE} to {_MAX_DICE}.",
+        )
 
     # Choosing the per-match rule is a platform-admin power. A player's submitted
     # value is ignored rather than rejected: the control isn't rendered for them,
@@ -295,7 +305,10 @@ async def create_match_submit(
     except ValueError as exc:
         return _html_error(request, user, game, message=str(exc))
 
-    return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)
+    # An admin creating from the per-game dashboard belongs back on it; a player
+    # has no dashboard, so their match is waiting on /me/matches.
+    landing = f"/games/{game}/admin" if is_platform_admin else "/me/matches"
+    return RedirectResponse(url=landing, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/games/{game}/matches/{match_id}/start")

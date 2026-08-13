@@ -39,7 +39,6 @@ async def create_game(
         game=body.game_type,
         body=body,
         created_by_user_id=user.id,
-        game_not_found_status=400,
     )
 
 

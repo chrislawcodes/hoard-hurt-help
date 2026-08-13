@@ -87,24 +87,18 @@ async def create_game_record(
     game: str,
     body: CreateGameRequest,
     created_by_user_id: int,
-    game_not_found_status: int,
 ) -> GameRecord:
     """Validate a create request and persist the match, returning its record.
 
-    Shared by both admin create handlers. The two clones differ only in how they
-    react to an unresolvable game module: the platform-admin API raises 400 with
-    the underlying ``GameError`` message, while the game-admin API raises 404
-    with ``"Game not found."`` ``game_not_found_status`` selects which behavior
-    the caller wants; the caller is responsible for any pre-check it needs (the
-    game-admin route's ``known_types`` 400 guard stays in the route).
+    An unresolvable game type is a 400 carrying the underlying ``GameError``
+    message. There used to be a second caller that wanted a 404 here; it was an
+    exact duplicate of this one and was removed with the game-admin role.
     """
     if body.scheduled_start <= datetime.now(timezone.utc):
         raise HTTPException(400, detail="scheduled_start must be in the future.")
     try:
         module = get_game_module(game)
     except GameError as exc:
-        if game_not_found_status == 404:
-            raise HTTPException(404, detail="Game not found.") from exc
         raise HTTPException(400, detail=str(exc)) from exc
     cfg = module.config_defaults()
     count_error = player_count_error(

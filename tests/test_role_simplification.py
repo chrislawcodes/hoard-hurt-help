@@ -447,24 +447,34 @@ def test_the_export_docstring_no_longer_claims_byte_identical_output():
 
 
 def test_the_repo_has_no_trace_of_the_removed_role():
-    """Row 55. A filesystem walk, not a shell-out: `grep -r` would match stale
-    `__pycache__` binaries and depend on the xdist worker's directory.
+    """Row 55. Walks git-tracked files, not the working directory.
+
+    Not a shell-out to `grep -r`: that matches stale `__pycache__` binaries and
+    depends on the xdist worker's directory. Not a plain filesystem walk either
+    — an untracked scratch file in `app/` or `tests/` would redden the suite for
+    a reason that has nothing to do with the code.
 
     The needle is built from parts so this file does not contain the string it
     forbids and fail on itself.
     """
+    import subprocess
+
     needle = "game" + "_admin"
-    self_path = Path(__file__).resolve()
+    self_name = Path(__file__).name
+    listed = subprocess.run(
+        ["git", "ls-files", "app", "tests"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     offenders: list[str] = []
-    for root in ("app", "tests"):
-        for path in (REPO_ROOT / root).rglob("*"):
-            if path.suffix not in (".py", ".html"):
-                continue
-            if "__pycache__" in path.parts or path.resolve() == self_path:
-                continue
-            text = path.read_text(encoding="utf-8", errors="ignore")
-            if needle in text or needle.upper() in text:
-                offenders.append(str(path.relative_to(REPO_ROOT)))
+    for rel in listed.stdout.splitlines():
+        if not rel.endswith((".py", ".html")) or rel.endswith(self_name):
+            continue
+        text = (REPO_ROOT / rel).read_text(encoding="utf-8", errors="ignore")
+        if needle in text or needle.upper() in text:
+            offenders.append(rel)
     assert offenders == [], f"the removed role still appears in: {offenders}"
 
 
@@ -770,8 +780,21 @@ async def test_anonymous_callers_get_401_everywhere(client, reset_db, method, te
 async def test_a_hidden_game_answers_404_never_403(client, reset_db, method, template):
     """Row 50. A 403 would confirm the under-construction game exists. The
     visibility check has to run before the role and ownership checks, on every
-    route — not just the create form."""
+    route — not just the create form.
+
+    The match is SEEDED, and seeded in the hidden game, so the 404 has to come
+    from the visibility check. With an unseeded id the match loader would 404 on
+    its own and this would pass with the guard deleted — which is exactly what a
+    mutation test showed.
+    """
     player = await _user(reset_db, "player")
+    async with reset_db() as db:
+        match = await make_match(
+            db, "M_ANY", state=GameState.REGISTERING, created_by_user_id=player.id
+        )
+        match.game = HIDDEN_GAME
+        await db.commit()
+
     r = await getattr(client, method)(
         template.format(game=HIDDEN_GAME),
         cookies=_cookies(player.id),
@@ -1003,3 +1026,89 @@ async def test_both_creation_paths_agree_on_the_stored_config(client, reset_db):
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
         ).scalar_one()
     assert state.state_json["config"] == {}
+
+
+async def test_a_player_can_delete_a_match_they_created_through_the_form(
+    client, reset_db
+):
+    """The create route and the delete route must agree on every row a match owns.
+
+    Regression: the merged create route seeds a module-owned `MatchState` row,
+    which `delete_match` did not clear. The foreign key then blocked the delete
+    and every Delete button on /me/matches answered 500. Every other delete test
+    seeds a bare Match row, so none of them could catch it — the match has to be
+    created through the real route.
+    """
+    player = await _user(reset_db, "player")
+    created = await _post_create(client, player, name="Doomed")
+    assert created.status_code == 303, created.text
+    match = await _named(reset_db, "Doomed")
+    assert match is not None
+
+    deleted = await client.post(
+        f"/matches/{match.id}/delete",
+        cookies=_cookies(player.id),
+        follow_redirects=False,
+    )
+    assert deleted.status_code == 303, deleted.text
+    assert await _named(reset_db, "Doomed") is None
+    async with reset_db() as db:
+        leftover = (
+            await db.execute(
+                select(MatchState).where(MatchState.match_id == match.id)
+            )
+        ).scalar_one_or_none()
+    assert leftover is None
+
+
+@pytest.mark.parametrize("dice", [0, 99])
+async def test_out_of_band_dice_per_player_is_rejected(client, reset_db, dice):
+    """The JSON API bounded this 1-20; the HTML form bounded it nowhere.
+
+    A zero-dice Liar's Dice match is a wedged match, not a rejected request, so
+    it has to fail before the write. The two create paths share one config
+    helper, so they must share the bound too.
+    """
+    admin = await _user(reset_db, "boss", admin=True)
+    r = await _post_create(
+        client,
+        admin,
+        game=HIDDEN_GAME,
+        name=f"Dice{dice}",
+        min_players=3,
+        max_players=6,
+        total_rounds=5,
+        turns_per_round=7,
+        dice_per_player=dice,
+    )
+    assert r.status_code == 400
+    assert "Dice per player must be 1 to 20." in r.text
+    assert await _named(reset_db, f"Dice{dice}") is None
+
+
+async def test_creating_lands_each_role_where_they_started(client, reset_db):
+    """An admin creates from the per-game dashboard and belongs back on it. A
+    player has no dashboard, so their new match is waiting on /me/matches."""
+    player = await _user(reset_db, "player")
+    admin = await _user(reset_db, "boss", admin=True)
+
+    as_player = await _post_create(client, player, name="PlayerLanding")
+    assert as_player.headers["location"] == "/me/matches"
+
+    as_admin = await _post_create(client, admin, name="AdminLanding")
+    assert as_admin.headers["location"] == f"/games/{GAME}/admin"
+
+
+async def test_the_owner_gets_a_link_to_the_page_they_may_open(client, reset_db):
+    """Seating bots is the owner's power, and /me/matches is the only place they
+    meet their own match. Without the link the permission is unreachable in the
+    product — the page exists but nothing points at it."""
+    player = await _user(reset_db, "player")
+    created = await _post_create(client, player, name="Mine")
+    assert created.status_code == 303
+    match = await _named(reset_db, "Mine")
+    assert match is not None
+
+    r = await client.get("/me/matches", cookies=_cookies(player.id))
+    assert r.status_code == 200
+    assert f"/games/{GAME}/admin/matches/{match.id}" in r.text
