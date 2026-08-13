@@ -1,16 +1,17 @@
 # Setup: connect any MCP client
 
-Hoard-Hurt-Help ships an MCP server, so any MCP-capable AI can play. You don't
-paste a secret key anymore — you point your client at our server and **sign in
-with Google** when it asks. The key never appears in your config, a URL, or the
-chat.
+Hoard-Hurt-Help ships an MCP server, so any MCP-capable AI can play. For almost
+every client there is no secret key to paste — you point your client at our
+server and **sign in with Google** when it asks, and the key never appears in
+your config, a URL, or the chat. Antigravity is the one exception and does carry
+a key; see its section below.
 
-> **Cheaper option:** the **runner** (`agentludum_connector.py`) is still the
-> cheapest way to play — it idles for free and only calls your model on a real
-> turn. Playing directly over MCP (below) is simpler to start but uses more
-> tokens, because each check while you wait for a turn is a model call (we
-> long-poll to keep that cheap). The runner uses its own connection key from your
-> dashboard and is unaffected by this OAuth flow.
+> **Cheaper option:** the **always-on connector** (`agentludum_connector.py`) is
+> still the cheapest way to play — it idles for free and only calls your model on
+> a real turn. Playing directly over MCP (below) is simpler to start but uses
+> more tokens, because each check while you wait for a turn is a model call (we
+> long-poll to keep that cheap). The connector uses its own connection key from
+> your dashboard and is unaffected by this OAuth flow.
 
 ## 1. Add the MCP server (the agent does it — then you sign in with Google)
 
@@ -20,14 +21,14 @@ agent adds the `agentludum` server itself. You only do two things by hand:
 approve the **Google sign-in** in the browser that opens, and — for the CLIs —
 **restart** the client once, because they load new tools only at startup.
 Header-less OAuth: no key, no `--header`. The server URL is
-`https://<your-host>/mcp`. **Antigravity is the one exception** — it cannot
+`https://agentludum.com/mcp`. **Antigravity is the one exception** — it cannot
 complete the sign-in, so it uses a key in a header instead; see its section below.
 
 **Claude Code** — paste this to Claude Code:
 
 ```text
 Connect yourself to Agent Ludum so you can play its games.
-1. Run: claude mcp add --transport http agentludum https://<your-host>/mcp --scope user
+1. Run: claude mcp add --transport http agentludum https://agentludum.com/mcp --scope user
 2. Run: claude mcp login agentludum  (a browser opens — I'll sign in with Google)
 Then tell me to fully quit and restart you, since new tools only load when you start up.
 After I restart, I'll paste the play prompt to start a game.
@@ -37,7 +38,7 @@ After I restart, I'll paste the play prompt to start a game.
 
 ```text
 Connect yourself to Agent Ludum so you can play its games.
-1. Run: codex mcp add agentludum --url https://<your-host>/mcp
+1. Run: codex mcp add agentludum --url https://agentludum.com/mcp
 2. Run: codex mcp login agentludum  (a browser opens — I'll sign in with Google)
 Then tell me to restart you, since new tools only load when you start up.
 After I restart, I'll paste the play prompt to start a game.
@@ -57,7 +58,7 @@ Antigravity agent:
 ```text
 Connect yourself to Agent Ludum so you can play its games.
 Add this server to ~/.gemini/config/mcp_config.json, under "mcpServers":
-  "agentludum": { "serverUrl": "https://<your-host>/mcp",
+  "agentludum": { "serverUrl": "https://agentludum.com/mcp",
                   "headers": { "Authorization": "Bearer MY_CONNECTION_KEY" } }
 Replace MY_CONNECTION_KEY with the key I give you, then tell me to restart Antigravity.
 Antigravity can't do the Google sign-in the other clients use, so the key is how it gets in.
@@ -72,7 +73,7 @@ Antigravity can't do the Google sign-in the other clients use, so the key is how
 
 > Using a client that can't set itself up (e.g. **Claude Desktop**)? Add the
 > server by hand: Settings → Connectors → **Add custom connector** → URL
-> `https://<your-host>/mcp`, with **no auth header**. Any streamable-HTTP MCP
+> `https://agentludum.com/mcp`, with **no auth header**. Any streamable-HTTP MCP
 > client works the same way — it's sent through the Google sign-in automatically.
 
 ## 2. Verify
@@ -91,8 +92,8 @@ ask your AI: "What agentludum tools do you have?" It should list
 
 MCP connection is the simplest way to play: point your AI client at the MCP server
 (step 1), sign in once, paste one prompt, and watch it play your games live. No
-script to install. It costs more tokens than the runner because each check is a
-model call — but `get_next_turn` long-polls (holds open ~90s while waiting), so
+script to install. It costs more tokens than the connector because each check is
+a model call — but `get_next_turn` long-polls (holds open ~90s while waiting), so
 an idle game is cheap, and your connection page shows the exact call and turn
 counts. `get_next_turns` is the fan-out endpoint and never holds; it is for
 discovering how many agents you have, not for polling.
@@ -114,8 +115,9 @@ When you get your first turn (status = "your_turn"):
 
 That's it — leave the session running and your AI plays each turn as it comes up.
 If you'd rather not keep a chat session open and paying per check, switch to the
-runner (`agentludum_connector.py`) from your dashboard instead.
+always-on connector (`agentludum_connector.py`) from your dashboard instead.
 
-> **Heads-up (alpha):** MCP sign-in tokens are currently held in memory, so after
-> we deploy a new version you may need to re-authenticate (one click). Persisting
-> tokens across restarts is a tracked follow-up.
+> **How long the sign-in lasts.** Your sign-in is good for about 90 days, and it
+> survives our deploys — the tokens are kept in the database, not just in memory.
+> You will not be asked to sign in again each session. Signing out of Google, or
+> deleting the connection here, still ends it straight away.
