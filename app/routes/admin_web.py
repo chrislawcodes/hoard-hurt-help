@@ -1,8 +1,6 @@
 """Admin HTML pages — platform-admin only."""
 
-from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -20,6 +18,7 @@ from app.models.player import Player
 from app.models.request_incident import RequestIncident
 from app.models.user import User
 from app.read_models.admin_reports import load_turn_timing_report
+from app.routes.admin_date_window import parse_admin_window
 from app.routes.web_support import _bucket_matches
 from app.services.admin_user_actions import (
     set_internal,
@@ -81,53 +80,9 @@ async def admin_reports(
     end_date: str | None = None,
     tz: str | None = None,
 ):
-    def _parse_timezone(value: str | None) -> ZoneInfo | timezone:
-        if value is None or value.strip() == "":
-            return timezone.utc
-        try:
-            return ZoneInfo(value.strip())
-        except ZoneInfoNotFoundError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="tz must be a valid IANA timezone name.",
-            ) from exc
-
-    def _parse_date(value: str | None, field_name: str) -> date | None:
-        if value is None or value.strip() == "":
-            return None
-        try:
-            return date.fromisoformat(value.strip())
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"{field_name} must use YYYY-MM-DD.",
-            ) from exc
-
-    start = _parse_date(start_date, "start_date")
-    end = _parse_date(end_date, "end_date")
-    timezone_obj = _parse_timezone(tz)
-    if start is not None and end is not None and start > end:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="start_date must be on or before end_date.",
-        )
-
-    completed_after: datetime | None = None
-    completed_before: datetime | None = None
-    if start is not None:
-        completed_after = datetime.combine(start, time.min, tzinfo=timezone_obj).astimezone(
-            timezone.utc
-        )
-    if end is not None:
-        # End is inclusive in the UI, so compare strictly before the next local day.
-        completed_before = datetime.combine(
-            end + timedelta(days=1),
-            time.min,
-            tzinfo=timezone_obj,
-        ).astimezone(timezone.utc)
-
+    window = parse_admin_window(start_date, end_date, tz)
     report = await load_turn_timing_report(
-        db, completed_after=completed_after, completed_before=completed_before
+        db, completed_after=window.start_utc, completed_before=window.end_utc
     )
     return templates.TemplateResponse(
         request,
@@ -136,9 +91,9 @@ async def admin_reports(
             "user": user,
             "is_admin": True,
             "report": report,
-            "start_date": start.isoformat() if start else "",
-            "end_date": end.isoformat() if end else "",
-            "tz": timezone_obj.key if isinstance(timezone_obj, ZoneInfo) else "UTC",
+            "start_date": window.start_text,
+            "end_date": window.end_text,
+            "tz": window.tz_name,
         },
     )
 
